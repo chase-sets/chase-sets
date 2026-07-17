@@ -91,6 +91,33 @@ describe("delivery failure fingerprint normalization", () => {
     );
   });
 
+  it("includes the normalized provider root cause in signature identity", () => {
+    const shared = {
+      testFile: null,
+      testTitle: null,
+      rootCauseCode: "unknown",
+      errorText: "Error: provider request failed",
+    };
+    const quota = signature({
+      ...shared,
+      providerReason: "  Provider quota   EXHAUSTED ",
+      rootCauseSignature: "quota-signature",
+    });
+    const normalizedQuota = signature({
+      ...shared,
+      providerReason: "provider quota exhausted",
+      rootCauseSignature: "QUOTA-SIGNATURE",
+    });
+    const permission = signature({
+      ...shared,
+      providerReason: "Provider permission denied",
+      rootCauseSignature: "permission-signature",
+    });
+
+    expect(normalizedQuota.signature).toBe(quota.signature);
+    expect(permission.signature).not.toBe(quota.signature);
+  });
+
   it.each([
     [
       "Playwright",
@@ -190,23 +217,69 @@ describe("delivery circuit state", () => {
   });
 
   it("requires the successful repair battery before an actual release closes a merge-group circuit", () => {
-    const repairing = circuit({ state: "repairing", repairWorkflowRunId: "88", repairBatteryPassedAt: null });
+    const repairing = circuit({ state: "repairing", repairPrNumber: 88, repairBatteryPassedAt: null });
     const unrelatedRelease = {
       runId: 99,
       runAttempt: 1,
       workflow: "Platform Deploy",
+      candidateSha: "c".repeat(40),
       lanes: ["staging", "production"],
+      pullRequestNumbers: [99],
     };
     expect(advanceCircuitRecovery(repairing, unrelatedRelease, "2026-07-17T13:00:00.000Z")).toBeNull();
     const battery = advanceCircuitRecovery(
       repairing,
-      { runId: 88, runAttempt: 1, workflow: "Platform PR", lanes: ["merge-group"] },
+      {
+        runId: 88,
+        runAttempt: 1,
+        workflow: "Platform PR",
+        candidateSha: "d".repeat(40),
+        lanes: ["merge-group"],
+        pullRequestNumbers: [88],
+      },
       "2026-07-17T13:00:00.000Z",
     ).record;
     expect(battery).toMatchObject({ state: "repairing", repairBatteryRunId: 88 });
-    expect(advanceCircuitRecovery(battery, unrelatedRelease, "2026-07-17T14:00:00.000Z")).toMatchObject({
+    expect(advanceCircuitRecovery(battery, unrelatedRelease, "2026-07-17T14:00:00.000Z")).toBeNull();
+    expect(
+      advanceCircuitRecovery(
+        battery,
+        { ...unrelatedRelease, runId: 100, pullRequestNumbers: [88] },
+        "2026-07-17T14:00:00.000Z",
+      ),
+    ).toMatchObject({
       record: { state: "recovered", recoveryReason: expect.stringContaining("actual release") },
     });
+  });
+
+  it("requires the actual repair candidate to pass the lane it repairs", () => {
+    const repairing = circuit({
+      state: "repairing",
+      lane: "staging",
+      repairCandidateSha: "a".repeat(40),
+    });
+    const releaseDispatchOnly = {
+      runId: 91,
+      runAttempt: 1,
+      workflow: "Platform Deploy",
+      candidateSha: "a".repeat(40),
+      lanes: ["release-dispatch"],
+    };
+    const wrongCandidate = {
+      ...releaseDispatchOnly,
+      runId: 92,
+      candidateSha: "b".repeat(40),
+      lanes: ["staging"],
+    };
+    expect(advanceCircuitRecovery(repairing, releaseDispatchOnly, "2026-07-17T13:00:00.000Z")).toBeNull();
+    expect(advanceCircuitRecovery(repairing, wrongCandidate, "2026-07-17T13:05:00.000Z")).toBeNull();
+    expect(
+      advanceCircuitRecovery(
+        repairing,
+        { ...releaseDispatchOnly, runId: 93, lanes: ["staging"] },
+        "2026-07-17T13:10:00.000Z",
+      ),
+    ).toMatchObject({ record: { state: "recovered" } });
   });
 
   it("recovers after three consecutive affected-lane successes without a repair", () => {
@@ -228,6 +301,31 @@ describe("delivery circuit state", () => {
     expect(advanceCircuitRecovery(advanced, success, "2026-07-17T13:05:00.000Z")).toBeNull();
     const replayedFailure = mergeCircuitRecord(advanced, signature(), [occurrence()], "2026-07-17T13:05:00.000Z");
     expect(replayedFailure.consecutiveSuccesses).toBe(1);
+  });
+
+  it("starts a fresh occurrence window after recovery", () => {
+    const recovered = circuit({
+      state: "recovered",
+      recoveredAt: "2026-07-10T12:00:00.000Z",
+      observations: [
+        occurrence({ runId: 1, candidateSha: "1".repeat(40), observedAt: "2026-07-10T10:00:00.000Z" }),
+        occurrence({ runId: 2, candidateSha: "2".repeat(40), observedAt: "2026-07-10T10:20:00.000Z" }),
+      ],
+      occurrenceCount: 2,
+      candidateShas: ["1".repeat(40), "2".repeat(40)],
+    });
+    const recurrence = occurrence({
+      runId: 3,
+      candidateSha: "3".repeat(40),
+      observedAt: "2026-07-17T12:00:00.000Z",
+    });
+
+    expect(mergeCircuitRecord(recovered, signature(), [recurrence], recurrence.observedAt)).toMatchObject({
+      state: "observed",
+      occurrenceCount: 1,
+      distinctCandidateCount: 1,
+      observations: [recurrence],
+    });
   });
 });
 
@@ -287,7 +385,7 @@ describe("known failure guard", () => {
   });
 
   it("allows only the candidate that already owns a repairing escape", () => {
-    const repairing = circuit({ state: "repairing", repairCandidateSha: "a".repeat(40) });
+    const repairing = circuit({ state: "repairing", repairCandidateSha: "a".repeat(40), repairPrNumber: 77 });
     expect(
       evaluateCircuitGuardDecision({
         circuits: [repairing],
@@ -297,9 +395,27 @@ describe("known failure guard", () => {
         circuitReason: "second repair",
         actorAuthorized: true,
         repairPrValid: true,
+        repairPrNumber: 78,
         candidateSha: "b".repeat(40),
       }),
     ).toMatchObject({ decision: "block", reason: expect.stringContaining("already owns") });
+  });
+
+  it("keeps amended and requeued heads of the same repair PR authorized", () => {
+    const repairing = circuit({ state: "repairing", repairCandidateSha: "a".repeat(40), repairPrNumber: 77 });
+    expect(
+      evaluateCircuitGuardDecision({
+        circuits: [repairing],
+        lanes: ["merge-group"],
+        automatic: false,
+        circuitIssueNumber: 5500,
+        circuitReason: "amended repair",
+        actorAuthorized: true,
+        repairPrValid: true,
+        repairPrNumber: 77,
+        candidateSha: "b".repeat(40),
+      }),
+    ).toMatchObject({ decision: "escape" });
   });
 });
 
@@ -307,6 +423,7 @@ describe("GitHub event evaluation", () => {
   it("uses bounded GETs and creates then canonicalizes one machine-readable issue", async () => {
     const calls = [];
     let issueBody = "";
+    let logReadCancelled = false;
     const response = (body, extra = {}) => ({
       ok: true,
       status: 200,
@@ -353,7 +470,25 @@ describe("GitHub event evaluation", () => {
         });
       }
       if (parsed.pathname.endsWith("/actions/jobs/456/logs")) {
-        return response("FAIL tests/a.test.ts > a\nAssertionError: expected 1 to be 2");
+        const bytes = new TextEncoder().encode(
+          "FAIL tests/a.test.ts > a\nAssertionError: expected 1 to be 2 and this tail must not be buffered",
+        );
+        let read = false;
+        return response("", {
+          body: {
+            getReader: () => ({
+              read: async () => {
+                if (read) return { done: true };
+                read = true;
+                return { done: false, value: bytes };
+              },
+              cancel: async () => {
+                logReadCancelled = true;
+              },
+              releaseLock: () => {},
+            }),
+          },
+        });
       }
       if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
         issueBody = JSON.parse(request.body).body;
@@ -373,7 +508,7 @@ describe("GitHub event evaluation", () => {
       sourceRunId: "123",
       maxRuns: 1,
       maxJobs: 10,
-      maxLogBytes: 1024,
+      maxLogBytes: 32,
       mutate: true,
       fetchImpl,
       apiBaseUrl: "https://api.github.test",
@@ -383,9 +518,308 @@ describe("GitHub event evaluation", () => {
     expect(parseCircuitMarker(issueBody)).toMatchObject({ canonicalIssueNumber: 6000, lane: "merge-group" });
     expect(calls.filter((call) => call.url.endsWith("/issues") && call.request.method === "POST")).toHaveLength(1);
     expect(calls.filter((call) => call.url.endsWith("/labels") && call.request.method === "POST")).toHaveLength(1);
-    expect(calls.find((call) => call.url.endsWith("/actions/jobs/456/logs")).request.headers.Range).toBe(
-      "bytes=0-1023",
-    );
+    expect(calls.find((call) => call.url.endsWith("/actions/jobs/456/logs")).request.headers.Range).toBe("bytes=0-31");
+    expect(logReadCancelled).toBe(true);
+  });
+
+  it("does not let two deploy signatures overwrite one imported incident marker", async () => {
+    const issueBodies = new Map([
+      [5309, "Deployment evidence: https://github.com/chase-sets/chase-sets/actions/runs/123"],
+    ]);
+    const response = (body, extra = {}) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+      arrayBuffer: async () => Buffer.from(String(body)),
+      ...extra,
+    });
+    const fetchImpl = async (url, request) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith("/labels/ci-circuit-repair")) return response({ name: "ci-circuit-repair" });
+      if (parsed.pathname.endsWith("/issues") && request.method === "GET") {
+        return response([
+          {
+            number: 5309,
+            state: "open",
+            title: "Incident: Platform Deploy 123",
+            body: issueBodies.get(5309),
+          },
+        ]);
+      }
+      if (parsed.pathname.endsWith("/actions/runs/123")) {
+        return response({
+          id: 123,
+          name: "Platform Deploy",
+          event: "workflow_dispatch",
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          run_attempt: 1,
+          updated_at: "2026-07-17T12:00:00.000Z",
+        });
+      }
+      if (parsed.pathname.endsWith("/actions/runs/123/jobs")) {
+        return response({
+          jobs: [
+            {
+              id: 451,
+              name: "Deploy Staging",
+              conclusion: "failure",
+              steps: [{ name: "Apply staging", conclusion: "failure" }],
+            },
+            {
+              id: 452,
+              name: "Deploy Production",
+              conclusion: "failure",
+              steps: [{ name: "Verify production", conclusion: "failure" }],
+            },
+          ],
+        });
+      }
+      if (parsed.pathname.endsWith("/actions/jobs/451/logs")) return response("DomainZoneInvalid: staging collision");
+      if (parsed.pathname.endsWith("/actions/jobs/452/logs")) return response("Provider quota exhausted");
+      if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
+        const body = JSON.parse(request.body).body;
+        issueBodies.set(6001, body);
+        return response({ number: 6001, state: "open", title: "created", body });
+      }
+      const issueMatch = parsed.pathname.match(/\/issues\/(5309|6001)$/);
+      if (issueMatch && request.method === "PATCH") {
+        const number = Number(issueMatch[1]);
+        const body = JSON.parse(request.body).body;
+        issueBodies.set(number, body);
+        return response({
+          number,
+          state: "open",
+          title: number === 5309 ? "Incident: Platform Deploy 123" : "created",
+          body,
+        });
+      }
+      throw new Error(`Unexpected request: ${request.method} ${url}`);
+    };
+
+    const result = await collectMergeGroupFailureSignatures({
+      repository: "chase-sets/chase-sets",
+      checkedAt: "2026-07-17T12:00:00.000Z",
+      sourceRunId: "123",
+      maxRuns: 1,
+      maxJobs: 10,
+      maxLogBytes: 1024,
+      mutate: true,
+      fetchImpl,
+      apiBaseUrl: "https://api.github.test",
+    });
+
+    const imported = parseCircuitMarker(issueBodies.get(5309));
+    const separate = parseCircuitMarker(issueBodies.get(6001));
+    expect(result.record.circuits).toHaveLength(2);
+    expect(imported.canonicalIssueNumber).toBe(5309);
+    expect(separate.canonicalIssueNumber).toBe(6001);
+    expect(separate.signature).not.toBe(imported.signature);
+  });
+
+  it("filters pull requests before the circuit issue lookup cap", async () => {
+    const active = circuit({ canonicalIssueNumber: 5309 });
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      const page = Number(parsed.searchParams.get("page") ?? 1);
+      const body =
+        page <= 3
+          ? Array.from({ length: 100 }, (_, index) => ({
+              number: page * 1000 + index,
+              pull_request: {},
+              title: `PR ${page}-${index}`,
+              body: "",
+            }))
+          : [{ number: 5309, state: "open", title: "circuit", body: renderCircuitMarker(active) }];
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name) =>
+            name === "link" && page < 4
+              ? `<https://api.github.test/repos/chase-sets/chase-sets/issues?state=all&per_page=100&page=${page + 1}>; rel="next"`
+              : null,
+        },
+        json: async () => body,
+      };
+    };
+
+    const result = await collectMergeGroupFailureSignatures({
+      command: "guard",
+      repository: "chase-sets/chase-sets",
+      checkedAt: "2026-07-17T12:00:00.000Z",
+      lanes: ["merge-group"],
+      automatic: true,
+      mutate: false,
+      fetchImpl,
+      apiBaseUrl: "https://api.github.test",
+    });
+
+    expect(result.record).toMatchObject({ decision: "block", holds: [{ issueNumber: 5309 }] });
+  });
+
+  it("audits amended heads while retaining repair ownership by PR number", async () => {
+    let issueBody = renderCircuitMarker(circuit());
+    const firstCandidate = "1".repeat(40);
+    const amendedCandidate = "2".repeat(40);
+    const firstHead = "a".repeat(40);
+    const amendedHead = "b".repeat(40);
+    const response = (body) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+    });
+    const fetchImpl = async (url, request) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith("/issues") && request.method === "GET") {
+        return response([{ number: 5500, state: "open", title: "circuit", body: issueBody }]);
+      }
+      if (parsed.pathname.includes("/commits/") && parsed.pathname.endsWith("/pulls")) {
+        const headSha = parsed.pathname.includes(firstCandidate) ? firstHead : amendedHead;
+        return response([
+          {
+            number: 77,
+            body: "Repairs #5500",
+            labels: [{ name: "ci-circuit-repair" }],
+            user: { login: "repair-author" },
+            head: { sha: headSha },
+          },
+        ]);
+      }
+      if (parsed.pathname.endsWith("/collaborators/repair-author/permission")) {
+        return response({ permission: "write" });
+      }
+      if (parsed.pathname.endsWith("/issues/5500") && request.method === "PATCH") {
+        issueBody = JSON.parse(request.body).body;
+        return response({ number: 5500, state: "open", title: "circuit", body: issueBody });
+      }
+      throw new Error(`Unexpected request: ${request.method} ${url}`);
+    };
+    const guard = (candidateSha, workflowRunId, checkedAt) =>
+      collectMergeGroupFailureSignatures({
+        command: "guard",
+        repository: "chase-sets/chase-sets",
+        checkedAt,
+        workflowRunId,
+        lanes: ["merge-group"],
+        automatic: false,
+        circuitIssueNumber: 5500,
+        circuitReason: "repair amended head",
+        candidateSha,
+        mutate: true,
+        fetchImpl,
+        apiBaseUrl: "https://api.github.test",
+      });
+
+    await expect(guard(firstCandidate, "900", "2026-07-17T12:00:00.000Z")).resolves.toMatchObject({
+      record: { decision: "escape" },
+    });
+    await expect(guard(amendedCandidate, "901", "2026-07-17T12:10:00.000Z")).resolves.toMatchObject({
+      record: { decision: "escape" },
+    });
+
+    expect(parseCircuitMarker(issueBody)).toMatchObject({
+      state: "repairing",
+      repairPrNumber: 77,
+      repairCandidateSha: amendedCandidate,
+      repairHeadSha: amendedHead,
+      repairHeadShas: [firstHead, amendedHead],
+      repairAttempts: [
+        { candidateSha: firstCandidate, workflowRunId: "900" },
+        { candidateSha: amendedCandidate, workflowRunId: "901" },
+      ],
+    });
+  });
+
+  it("reconciles a non-deploy circuit by title when its marker is malformed", async () => {
+    const log = "FAIL tests/a.test.ts > a\nAssertionError: expected 1 to be 2";
+    const [expected] = extractFailureSignatures(log, {
+      lane: "merge-group",
+      workflow: "Platform PR",
+      jobName: "Unit Tests",
+      stepName: "Run unit tests",
+      jobId: 456,
+    });
+    let patchedBody = "";
+    let created = false;
+    const response = (body, extra = {}) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+      arrayBuffer: async () => Buffer.from(String(body)),
+      ...extra,
+    });
+    const fetchImpl = async (url, request) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith("/labels/ci-circuit-repair")) return response({ name: "ci-circuit-repair" });
+      if (parsed.pathname.endsWith("/issues") && request.method === "GET") {
+        return response([
+          {
+            number: 5309,
+            state: "open",
+            title: `[Delivery circuit] merge-group: Unit Tests / Run unit tests [${expected.signature.slice(0, 12)}]`,
+            body: "<!-- delivery-failure-signature/v1 {malformed} -->",
+          },
+        ]);
+      }
+      if (parsed.pathname.endsWith("/actions/runs/123")) {
+        return response({
+          id: 123,
+          name: "Platform PR",
+          event: "merge_group",
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          run_attempt: 1,
+          updated_at: "2026-07-17T12:00:00.000Z",
+        });
+      }
+      if (parsed.pathname.endsWith(`/commits/${"b".repeat(40)}`)) {
+        return response({ parents: [{ sha: "a".repeat(40) }] });
+      }
+      if (parsed.pathname.endsWith("/actions/runs/123/jobs")) {
+        return response({
+          jobs: [
+            {
+              id: 456,
+              name: "Unit Tests",
+              conclusion: "failure",
+              steps: [{ name: "Run unit tests", conclusion: "failure" }],
+            },
+          ],
+        });
+      }
+      if (parsed.pathname.endsWith("/actions/jobs/456/logs")) return response(log);
+      if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
+        created = true;
+        return response({ number: 6000, state: "open", body: JSON.parse(request.body).body });
+      }
+      if (parsed.pathname.endsWith("/issues/5309") && request.method === "PATCH") {
+        patchedBody = JSON.parse(request.body).body;
+        return response({ number: 5309, state: "open", title: "existing", body: patchedBody });
+      }
+      throw new Error(`Unexpected request: ${request.method} ${url}`);
+    };
+
+    await collectMergeGroupFailureSignatures({
+      repository: "chase-sets/chase-sets",
+      checkedAt: "2026-07-17T12:00:00.000Z",
+      sourceRunId: "123",
+      maxRuns: 1,
+      maxJobs: 10,
+      maxLogBytes: 1024,
+      mutate: true,
+      fetchImpl,
+      apiBaseUrl: "https://api.github.test",
+    });
+
+    expect(created).toBe(false);
+    expect(parseCircuitMarker(patchedBody)).toMatchObject({
+      signature: expected.signature,
+      canonicalIssueNumber: 5309,
+    });
   });
 
   it("surfaces API unavailable and rate-limited state", async () => {

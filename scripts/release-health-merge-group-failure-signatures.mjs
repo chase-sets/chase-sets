@@ -23,7 +23,7 @@ export const DELIVERY_LANES = Object.freeze([
 ]);
 
 const CIRCUIT_TITLE_PREFIX = "[Delivery circuit]";
-const MARKER_PATTERN = /<!--\s*delivery-failure-signature\/v1\s+({[\s\S]*})\s*-->/;
+const MARKER_PATTERN = /<!--\s*delivery-failure-signature\/v1\s+([\s\S]*?)\s*-->/g;
 const SUMMARY_PATTERN = /<!-- delivery-circuit-summary:start -->[\s\S]*?<!-- delivery-circuit-summary:end -->/;
 
 export function parseMergeGroupFailureSignaturesArgs(argv, env = process.env) {
@@ -87,6 +87,7 @@ export function normalizeFailureFingerprint(value) {
 export function buildDeliveryFailureSignature(input) {
   const lane = DELIVERY_LANES.includes(input.lane) ? input.lane : "release-dispatch";
   const errorShape = normalizeFailureFingerprint(input.errorText || input.providerReason || "unknown failure");
+  const rootCauseFingerprint = rootCauseFingerprintFor(input);
   const identity = {
     lane,
     workflow: boundedIdentifier(input.workflow || "unknown-workflow"),
@@ -95,6 +96,7 @@ export function buildDeliveryFailureSignature(input) {
     testFile: input.testFile ? normalizePath(input.testFile) : null,
     testTitle: input.testTitle ? boundedIdentifier(input.testTitle) : null,
     rootCauseCode: input.rootCauseCode || null,
+    rootCauseFingerprint,
     errorFingerprint: digest(errorShape || "unknown failure", 20),
   };
   return {
@@ -168,17 +170,26 @@ export function thresholdForObservations(observations, checkedAt) {
 
 export function mergeCircuitRecord(existing, signature, observations, checkedAt) {
   const previous = existing ?? {};
-  const previousKeys = new Set((previous.observations ?? []).map(observationKey));
-  const addedCount = observations.filter((entry) => !previousKeys.has(observationKey(entry))).length;
+  const startsFreshWindow = previous.state === "recovered";
+  const recoveryBoundary = startsFreshWindow ? Date.parse(previous.recoveredAt ?? 0) : Number.NEGATIVE_INFINITY;
+  const previousObservations = startsFreshWindow ? [] : (previous.observations ?? []);
+  const currentObservations = observations.filter(
+    (entry) => !startsFreshWindow || Date.parse(entry.observedAt) > recoveryBoundary,
+  );
+  const previousKeys = new Set(previousObservations.map(observationKey));
+  const addedCount = currentObservations.filter((entry) => !previousKeys.has(observationKey(entry))).length;
   const keyed = new Map(
-    [...(previous.observations ?? []), ...observations].map((entry) => [observationKey(entry), entry]),
+    [...previousObservations, ...currentObservations].map((entry) => [observationKey(entry), entry]),
   );
   const allObservations = [...keyed.values()].sort(
     (left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt),
   );
   const threshold = thresholdForObservations(allObservations, checkedAt);
   const candidates = new Set(
-    [...(previous.candidateShas ?? []), ...allObservations.map((entry) => entry.candidateSha)].filter(Boolean),
+    [
+      ...(startsFreshWindow ? [] : (previous.candidateShas ?? [])),
+      ...allObservations.map((entry) => entry.candidateSha),
+    ].filter(Boolean),
   );
   const first = allObservations[0];
   const last = allObservations.at(-1);
@@ -208,9 +219,13 @@ export function mergeCircuitRecord(existing, signature, observations, checkedAt)
     candidateSha: last?.candidateSha ?? previous.candidateSha ?? null,
     runId: last?.runId ?? previous.runId ?? null,
     runAttempt: last?.runAttempt ?? previous.runAttempt ?? 1,
-    firstObservedAt: previous.firstObservedAt ?? first?.observedAt ?? checkedAt,
+    firstObservedAt: startsFreshWindow
+      ? (first?.observedAt ?? checkedAt)
+      : (previous.firstObservedAt ?? first?.observedAt ?? checkedAt),
     lastObservedAt: last?.observedAt ?? previous.lastObservedAt ?? checkedAt,
-    occurrenceCount: Math.max(allObservations.length, (previous.occurrenceCount ?? 0) + addedCount),
+    occurrenceCount: startsFreshWindow
+      ? allObservations.length
+      : Math.max(allObservations.length, (previous.occurrenceCount ?? 0) + addedCount),
     distinctCandidateCount: candidates.size,
     candidateShas: [...candidates].slice(-100),
     state,
@@ -220,7 +235,7 @@ export function mergeCircuitRecord(existing, signature, observations, checkedAt)
       previous.recoveryCriteria ||
       "An authorized repair must pass the complete affected battery and the actual release/verification, or the lane must record 3 consecutive successes.",
     consecutiveSuccesses: addedCount > 0 ? 0 : (previous.consecutiveSuccesses ?? 0),
-    successfulRunKeys: previous.successfulRunKeys ?? [],
+    successfulRunKeys: startsFreshWindow ? [] : (previous.successfulRunKeys ?? []),
     recoveredAt: state === "recovered" ? previous.recoveredAt : null,
     recoveryReason: state === "recovered" ? previous.recoveryReason : null,
     observations: allObservations.slice(-100),
@@ -238,13 +253,22 @@ export function advanceCircuitRecovery(record, success, checkedAt) {
   const repairBatteryPass =
     record.state === "repairing" &&
     record.lane === "merge-group" &&
-    String(record.repairWorkflowRunId) === String(success.runId);
-  const repairRelease =
+    success.workflow === "Platform PR" &&
+    success.lanes.includes("merge-group") &&
+    repairPrMatches(record, success);
+  const mergeGroupRepairRelease =
     record.state === "repairing" &&
+    record.lane === "merge-group" &&
+    Boolean(record.repairBatteryPassedAt) &&
     success.workflow === "Platform Deploy" &&
-    (record.lane === "merge-group"
-      ? Boolean(record.repairBatteryPassedAt)
-      : String(record.repairWorkflowRunId) === String(success.runId));
+    success.lanes.includes("production") &&
+    repairPrMatches(record, success);
+  const laneRepairRelease =
+    record.state === "repairing" &&
+    record.lane !== "merge-group" &&
+    success.candidateSha === record.repairCandidateSha &&
+    success.lanes.includes(record.lane);
+  const repairRelease = mergeGroupRepairRelease || laneRepairRelease;
   const affectedLane = record.state !== "repairing" && success.lanes.includes(record.lane);
   if (!retryPass && !repairBatteryPass && !repairRelease && !affectedLane) return null;
 
@@ -259,6 +283,7 @@ export function advanceCircuitRecovery(record, success, checkedAt) {
   if (repairBatteryPass) {
     next.repairBatteryPassedAt = checkedAt;
     next.repairBatteryRunId = success.runId;
+    next.repairBatteryCandidateSha = success.candidateSha ?? null;
     next.consecutiveSuccesses = 1;
     return { record: next, flake: false };
   }
@@ -279,14 +304,16 @@ export function advanceCircuitRecovery(record, success, checkedAt) {
 }
 
 export function parseCircuitMarker(body) {
-  const match = String(body ?? "").match(MARKER_PATTERN);
-  if (!match) return null;
-  try {
-    const record = JSON.parse(match[1]);
-    return record?.schemaVersion === DELIVERY_FAILURE_SIGNATURE_VERSION ? record : null;
-  } catch {
-    return null;
+  let canonical = null;
+  for (const match of String(body ?? "").matchAll(MARKER_PATTERN)) {
+    try {
+      const record = JSON.parse(match[1]);
+      if (record?.schemaVersion === DELIVERY_FAILURE_SIGNATURE_VERSION) canonical = record;
+    } catch {
+      // Continue so a malformed stale marker cannot hide a later canonical marker.
+    }
   }
+  return canonical;
 }
 
 export function renderCircuitMarker(record) {
@@ -343,10 +370,10 @@ export function evaluateCircuitGuardDecision(input) {
   }
   if (
     selected.state === "repairing" &&
-    selected.repairCandidateSha &&
-    selected.repairCandidateSha !== input.candidateSha
+    ((selected.repairPrNumber && selected.repairPrNumber !== input.repairPrNumber) ||
+      (!selected.repairPrNumber && selected.repairCandidateSha && selected.repairCandidateSha !== input.candidateSha))
   ) {
-    return { decision: "block", holds, reason: "another candidate already owns the circuit repair escape" };
+    return { decision: "block", holds, reason: "another repair PR already owns the circuit repair escape" };
   }
   if (!String(input.circuitReason ?? "").trim()) {
     return { decision: "block", holds, reason: "manual recovery requires an audited reason" };
@@ -384,28 +411,49 @@ export async function collectMergeGroupFailureSignatures(options) {
   }
 
   const issueBySignature = new Map();
+  const claimedIssueNumbers = new Set();
   for (const issue of issues) {
     const issueSignature = parseCircuitMarker(issue.body)?.signature;
-    if (issueSignature && !issueBySignature.has(issueSignature)) issueBySignature.set(issueSignature, issue);
+    if (issueSignature) {
+      claimedIssueNumbers.add(issue.number);
+      if (!issueBySignature.has(issueSignature)) issueBySignature.set(issueSignature, issue);
+    }
   }
   const updated = [];
   const flakeEvidence = [];
+  const pullRequestsByCandidate = new Map();
   for (const analysis of analyses) {
     for (const observation of analysis.failures) {
       let issue = issueBySignature.get(observation.signature.signature);
+      if (!issue) {
+        issue = issues.find(
+          (candidate) =>
+            !claimedIssueNumbers.has(candidate.number) &&
+            String(candidate.title ?? "").includes(`[${observation.signature.signature.slice(0, 12)}]`),
+        );
+      }
       if (!issue && analysis.workflow === "Platform Deploy") {
         issue = issues.find(
           (candidate) =>
+            !claimedIssueNumbers.has(candidate.number) &&
             String(candidate.title).startsWith("Incident: Platform Deploy ") &&
             String(candidate.body ?? "").includes(`/actions/runs/${observation.occurrence.runId}`),
         );
       }
       if (!issue && observation.signature.rootCauseSignature) {
-        issue = issues.find((candidate) =>
-          String(candidate.title).includes(`[${observation.signature.rootCauseSignature}]`),
+        issue = issues.find(
+          (candidate) =>
+            !claimedIssueNumbers.has(candidate.number) &&
+            String(candidate.title).includes(`[${observation.signature.rootCauseSignature}]`),
         );
       }
       const previous = parseCircuitMarker(issue?.body);
+      if (
+        previous?.state === "recovered" &&
+        Date.parse(observation.occurrence.observedAt) <= Date.parse(previous.recoveredAt ?? 0)
+      ) {
+        continue;
+      }
       let record = mergeCircuitRecord(previous, observation.signature, [observation.occurrence], options.checkedAt);
       if (issue) record.canonicalIssueNumber = issue.number;
       issue = await upsertCircuitIssue(options, issue, record);
@@ -414,6 +462,7 @@ export async function collectMergeGroupFailureSignatures(options) {
         issue = await updateCircuitIssue(options, issue, record);
       }
       issueBySignature.set(record.signature, issue);
+      claimedIssueNumbers.add(issue.number);
       updated.push(record);
     }
 
@@ -421,7 +470,18 @@ export async function collectMergeGroupFailureSignatures(options) {
       for (const issue of [...issueBySignature.values()]) {
         const record = parseCircuitMarker(issue.body);
         if (!record || !ACTIVE_CIRCUIT_STATES.includes(record.state)) continue;
-        const transition = advanceCircuitRecovery(record, success, options.checkedAt);
+        const recoverySuccess =
+          record.state === "repairing" && record.lane === "merge-group" && success.candidateSha
+            ? {
+                ...success,
+                pullRequestNumbers: await cachedPullRequestNumbers(
+                  options,
+                  success.candidateSha,
+                  pullRequestsByCandidate,
+                ),
+              }
+            : success;
+        const transition = advanceCircuitRecovery(record, recoverySuccess, options.checkedAt);
         if (!transition) continue;
         const next = transition.record;
         if (transition.flake) {
@@ -512,22 +572,22 @@ async function analyzeRun(options, run) {
       )
       .map(([lane]) => lane),
   );
+  const hasSuccess = run.conclusion === "success" || successfulLanes.size > 0;
   return {
     runId: run.id,
     workflow,
     failures,
-    successes:
-      run.conclusion === "success" || successfulLanes.size > 0
-        ? [
-            {
-              runId: run.id,
-              runAttempt: run.run_attempt ?? 1,
-              workflow,
-              candidateSha,
-              lanes: [...successfulLanes],
-            },
-          ]
-        : [],
+    successes: hasSuccess
+      ? [
+          {
+            runId: run.id,
+            runAttempt: run.run_attempt ?? 1,
+            workflow,
+            candidateSha,
+            lanes: [...successfulLanes],
+          },
+        ]
+      : [],
   };
 }
 
@@ -566,6 +626,7 @@ async function evaluateDeliveryCircuitGuard(options) {
     circuitReason: options.circuitReason || repair.reason,
     actorAuthorized,
     repairPrValid: repair.valid,
+    repairPrNumber: repair.prNumber,
     candidateSha: options.candidateSha,
   });
   if (decision.decision === "escape" && options.mutate !== false) {
@@ -578,8 +639,28 @@ async function evaluateDeliveryCircuitGuard(options) {
         repairActor: recoveryActor,
         repairReason: boundedIdentifier(options.circuitReason || repair.reason),
         repairCandidateSha: options.candidateSha ?? null,
+        repairPrNumber: repair.prNumber ?? selected.repairPrNumber ?? null,
+        repairHeadSha: repair.headSha ?? selected.repairHeadSha ?? null,
+        repairHeadShas: [...(selected.repairHeadShas ?? []), ...(repair.headSha ? [repair.headSha] : [])]
+          .filter((sha, index, values) => values.indexOf(sha) === index)
+          .slice(-20),
+        repairAttempts: [
+          ...(selected.repairAttempts ?? []),
+          {
+            candidateSha: options.candidateSha ?? null,
+            headSha: repair.headSha ?? null,
+            workflowRunId: options.workflowRunId ?? null,
+            startedAt: options.checkedAt,
+            actor: recoveryActor,
+          },
+        ].slice(-20),
         repairWorkflowRunId: options.workflowRunId ?? null,
-        repairStartedAt: options.checkedAt,
+        repairStartedAt:
+          selected.state === "repairing" ? (selected.repairStartedAt ?? options.checkedAt) : options.checkedAt,
+        ...(selected.state !== "repairing" ||
+        (repair.headSha && selected.repairHeadSha && repair.headSha !== selected.repairHeadSha)
+          ? { repairBatteryPassedAt: null, repairBatteryRunId: null, repairBatteryCandidateSha: null }
+          : {}),
         canonicalIssueNumber: selectedIssue.number,
       };
       await updateCircuitIssue(options, selectedIssue, repairing);
@@ -603,13 +684,14 @@ async function evaluateDeliveryCircuitGuard(options) {
 }
 
 async function validateRepairPullRequest(options, circuits, candidateSha) {
-  if (!candidateSha) return { valid: false, issueNumber: null, reason: "", actor: null };
+  if (!candidateSha) return { valid: false, issueNumber: null, reason: "", actor: null, prNumber: null };
   const candidates = await githubJson(options, `/commits/${candidateSha}/pulls?per_page=100`);
   const repairs = (Array.isArray(candidates) ? candidates : []).filter((pr) => {
     const labels = (pr.labels ?? []).map((label) => (typeof label === "string" ? label : label.name));
     return labels.includes("ci-circuit-repair") && /(?:^|\s)Repairs\s+#\d+\b/i.test(pr.body ?? "");
   });
-  if (repairs.length !== 1) return { valid: false, issueNumber: null, reason: "", actor: null };
+  if (repairs.length !== 1)
+    return { valid: false, issueNumber: null, reason: "", actor: null, prNumber: null, headSha: null };
   const match = repairs[0].body.match(/(?:^|\s)Repairs\s+#(\d+)\b/i);
   const issueNumber = Number(match?.[1]);
   const active = circuits.some(
@@ -620,7 +702,21 @@ async function validateRepairPullRequest(options, circuits, candidateSha) {
     issueNumber,
     reason: `Repair PR #${repairs[0].number} declares Repairs #${issueNumber}`,
     actor: repairs[0].user?.login ?? null,
+    prNumber: repairs[0].number,
+    headSha: repairs[0].head?.sha ?? null,
   };
+}
+
+async function pullRequestNumbersForCommit(options, candidateSha) {
+  const candidates = await githubJson(options, `/commits/${candidateSha}/pulls?per_page=100`);
+  return (Array.isArray(candidates) ? candidates : [])
+    .map((candidate) => candidate.number)
+    .filter((number) => Number.isInteger(number));
+}
+
+async function cachedPullRequestNumbers(options, candidateSha, cache) {
+  if (!cache.has(candidateSha)) cache.set(candidateSha, pullRequestNumbersForCommit(options, candidateSha));
+  return cache.get(candidateSha);
 }
 
 async function actorHasWritePermission(options, actor) {
@@ -686,8 +782,7 @@ async function fetchJobLog(options, jobId) {
   const response = await githubFetch(options, `/actions/jobs/${jobId}/logs`, {
     headers: { Range: `bytes=0-${(options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES) - 1}` },
   });
-  const bytes = Buffer.from(await response.arrayBuffer());
-  return bytes.subarray(0, options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES).toString("utf8");
+  return (await readBoundedResponse(response, options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES)).toString("utf8");
 }
 
 async function fetchCircuitIssues(options) {
@@ -696,14 +791,7 @@ async function fetchCircuitIssues(options) {
   url.searchParams.set("sort", "updated");
   url.searchParams.set("direction", "desc");
   url.searchParams.set("per_page", "100");
-  const issues = await fetchPaginated(options, url, (body) => body ?? [], 300);
-  return issues.filter(
-    (issue) =>
-      !issue.pull_request &&
-      (parseCircuitMarker(issue.body) ||
-        String(issue.title ?? "").startsWith(CIRCUIT_TITLE_PREFIX) ||
-        String(issue.title ?? "").startsWith("Incident: Platform Deploy ")),
-  );
+  return fetchPaginated(options, url, (body) => (body ?? []).filter(isCircuitIssue), 300);
 }
 
 async function ensureRepairLabel(options) {
@@ -947,6 +1035,58 @@ function normalizePath(value) {
     .replaceAll("\\", "/")
     .replace(/^\.\//, "")
     .toLowerCase();
+}
+
+function rootCauseFingerprintFor(input) {
+  const providerReason = normalizeFailureFingerprint(input.providerReason);
+  const rootCauseSignature = String(input.rootCauseSignature ?? "")
+    .normalize("NFKC")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!providerReason && !rootCauseSignature) return null;
+  return digest(JSON.stringify({ providerReason, rootCauseSignature }), 20);
+}
+
+function repairPrMatches(record, success) {
+  return Number.isInteger(record.repairPrNumber) && (success.pullRequestNumbers ?? []).includes(record.repairPrNumber);
+}
+
+function isCircuitIssue(issue) {
+  return (
+    !issue.pull_request &&
+    (parseCircuitMarker(issue.body) ||
+      String(issue.title ?? "").startsWith(CIRCUIT_TITLE_PREFIX) ||
+      String(issue.title ?? "").startsWith("Incident: Platform Deploy "))
+  );
+}
+
+async function readBoundedResponse(response, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return bytes.subarray(0, maxBytes);
+  }
+
+  const chunks = [];
+  let received = 0;
+  try {
+    while (received < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+      const bounded = chunk.subarray(0, maxBytes - received);
+      chunks.push(bounded);
+      received += bounded.byteLength;
+      if (bounded.byteLength < chunk.byteLength || received >= maxBytes) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, received);
 }
 
 function boundedIdentifier(value) {
