@@ -102,10 +102,21 @@ export type ProjectionOperationsSnapshot = Readonly<{
   projectionGroups: readonly ProjectionGroupStatus[];
   blockedProjections: readonly BlockedProjectionDetails[];
   workers: readonly Record<string, unknown>[];
+  workerHeartbeatHistory: WorkerHeartbeatHistory;
   runners: readonly Record<string, unknown>[];
   operations: readonly ProjectionOperation[];
   operationSummary: ProjectionOperationSummary | null;
   projectionStatusSource: string;
+}>;
+
+export type WorkerHeartbeatHistory = Readonly<{
+  activeOrStaleCount: number;
+  expiredTotalCount: number;
+  expiredWithinDiagnosticWindowCount: number;
+  expiredReturnedCount: number;
+  expiredTruncated: boolean;
+  expiredDiagnosticLimit: number;
+  diagnosticWindowMs: number;
 }>;
 
 export type ProjectionOperationsFilters = Readonly<{
@@ -157,6 +168,7 @@ export type AttentionItem = Readonly<{
 export function normalizeProjectionOperationsSnapshot(value: unknown): ProjectionOperationsSnapshot {
   const snapshot = isRecord(value) ? value : {};
   const summary = isRecord(snapshot.summary) ? snapshot.summary : {};
+  const workerHeartbeatHistory = isRecord(snapshot.workerHeartbeatHistory) ? snapshot.workerHeartbeatHistory : {};
 
   return {
     summary: {
@@ -172,6 +184,15 @@ export function normalizeProjectionOperationsSnapshot(value: unknown): Projectio
     projectionGroups: readArray(snapshot.projectionGroups).map(normalizeProjectionGroupStatus),
     blockedProjections: readArray(snapshot.blockedProjections).map(normalizeBlockedProjectionDetails),
     workers: readArray(snapshot.workers).filter(isRecord),
+    workerHeartbeatHistory: {
+      activeOrStaleCount: readNumber(workerHeartbeatHistory.activeOrStaleCount),
+      expiredTotalCount: readNumber(workerHeartbeatHistory.expiredTotalCount),
+      expiredWithinDiagnosticWindowCount: readNumber(workerHeartbeatHistory.expiredWithinDiagnosticWindowCount),
+      expiredReturnedCount: readNumber(workerHeartbeatHistory.expiredReturnedCount),
+      expiredTruncated: workerHeartbeatHistory.expiredTruncated === true,
+      expiredDiagnosticLimit: readNumber(workerHeartbeatHistory.expiredDiagnosticLimit),
+      diagnosticWindowMs: readNumber(workerHeartbeatHistory.diagnosticWindowMs),
+    },
     runners: readArray(snapshot.runners).filter(isRecord),
     operations: readArray(snapshot.operations).map(normalizeProjectionOperation),
     operationSummary: normalizeProjectionOperationSummary(snapshot.operationSummary),
@@ -331,7 +352,9 @@ export function activeWorkerCount(data: ProjectionOperationsSnapshot) {
 }
 
 export function staleWorkerCount(data: ProjectionOperationsSnapshot) {
-  return data.workers.filter((worker) => worker.worker_state === "stale" || worker.worker_state === "expired").length;
+  const staleCount = data.workers.filter((worker) => worker.worker_state === "stale").length;
+  const returnedExpiredCount = data.workers.filter((worker) => worker.worker_state === "expired").length;
+  return staleCount + Math.max(data.workerHeartbeatHistory.expiredTotalCount, returnedExpiredCount);
 }
 
 export function buildAttentionItems(data: ProjectionOperationsSnapshot): readonly AttentionItem[] {

@@ -2302,6 +2302,21 @@ function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane>
     recordProjectionStatusSnapshot: overrides.recordProjectionStatusSnapshot ?? (async () => {}),
     listProjectionStatusSnapshots: overrides.listProjectionStatusSnapshots ?? (async () => []),
     listWorkerHeartbeats: overrides.listWorkerHeartbeats ?? (async () => []),
+    readWorkerHeartbeatHistory:
+      overrides.readWorkerHeartbeatHistory ??
+      (async () => ({
+        snapshotAt: new Date().toISOString(),
+        workers: [],
+        summary: {
+          activeOrStaleCount: 0,
+          expiredTotalCount: 0,
+          expiredWithinDiagnosticWindowCount: 0,
+          expiredReturnedCount: 0,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 604_800_000,
+        },
+      })),
     listRunnerStatuses: overrides.listRunnerStatuses ?? (async () => []),
     listLeases: overrides.listLeases ?? (async () => []),
     enqueueProjectionOperation:
@@ -2341,6 +2356,19 @@ function createNeverLeasedControlPlane(
     recordProjectionStatusSnapshot: async () => {},
     listProjectionStatusSnapshots: async () => [],
     listWorkerHeartbeats: async () => [],
+    readWorkerHeartbeatHistory: async () => ({
+      snapshotAt: new Date().toISOString(),
+      workers: [],
+      summary: {
+        activeOrStaleCount: 0,
+        expiredTotalCount: 0,
+        expiredWithinDiagnosticWindowCount: 0,
+        expiredReturnedCount: 0,
+        expiredTruncated: false,
+        expiredDiagnosticLimit: 100,
+        diagnosticWindowMs: 604_800_000,
+      },
+    }),
     listRunnerStatuses: async () => [],
     listLeases: async () => [],
     enqueueProjectionOperation: async () => {
