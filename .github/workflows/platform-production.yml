@@ -2995,6 +2995,16 @@ jobs:
         run: |
           set -euo pipefail
           zone="chasesets.com"
+          write_preparation_environment() {
+            local prepared_at="$1"
+            local previous_ttl="$2"
+            local replacement_from="$3"
+            {
+              printf 'TF_VAR_production_serving_dns_prepared_at=%s\n' "$prepared_at"
+              printf 'TF_VAR_production_serving_dns_previous_ttl_seconds=%s\n' "$previous_ttl"
+              printf 'PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=%s\n' "$replacement_from"
+            } >> "$GITHUB_ENV"
+          }
           target_type="CNAME"
           preparation_phase="prepare-doks"
           if [ "$PRODUCTION_APP_SERVING" = "doks" ]; then
@@ -3042,9 +3052,7 @@ jobs:
           done
 
           if [ "$live_record_count" -eq 0 ]; then
-            echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
-            echo "TF_VAR_production_serving_dns_previous_ttl_seconds=0" >> "$GITHUB_ENV"
-            echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+            write_preparation_environment "" 0 ""
             echo "No existing production serving records require a TTL preparation or replacement."
             exit 0
           fi
@@ -3056,9 +3064,7 @@ jobs:
 
           if [ "$current_type" = "$target_type" ]; then
             if [ "$PRODUCTION_SERVING_DNS_PHASE" = "steady" ]; then
-              echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
-              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=0" >> "$GITHUB_ENV"
-              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              write_preparation_environment "" 0 ""
               echo "Production serving DNS is steady; no record-type replacement is planned."
               exit 0
             fi
@@ -3069,9 +3075,7 @@ jobs:
             fi
 
             if [ "$retained_phase" = "$preparation_phase" ] && [ -n "$retained_prepared_at" ] && [[ "$retained_previous_ttl" =~ ^[1-9][0-9]*$ ]] && [ "$current_max_ttl" -le 300 ]; then
-              echo "TF_VAR_production_serving_dns_prepared_at=${retained_prepared_at}" >> "$GITHUB_ENV"
-              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${retained_previous_ttl}" >> "$GITHUB_ENV"
-              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" ""
               echo "The ${preparation_phase} TTL phase is already retained; preserving its original wait window."
             else
               previous_ttl="$current_max_ttl"
@@ -3082,9 +3086,7 @@ jobs:
               if [ "$previous_ttl" -lt "$minimum_previous_ttl" ]; then
                 previous_ttl="$minimum_previous_ttl"
               fi
-              echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
-              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${previous_ttl}" >> "$GITHUB_ENV"
-              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              write_preparation_environment "" "$previous_ttl" ""
               echo "Preparing ${preparation_phase}: Terraform will lower live TTLs to 300 seconds or less and record apply time plus the conservative ${previous_ttl}s prior TTL."
             fi
             exit 0
@@ -3122,13 +3124,11 @@ jobs:
             exit 1
           fi
 
-          echo "TF_VAR_production_serving_dns_prepared_at=${retained_prepared_at}" >> "$GITHUB_ENV"
-          echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${retained_previous_ttl}" >> "$GITHUB_ENV"
           replacement_from="app-platform"
           if [ "$expected_source_type" = "A" ]; then
             replacement_from="doks"
           fi
-          echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=${replacement_from}" >> "$GITHUB_ENV"
+          write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" "$replacement_from"
           echo "The ${required_phase} wait expired; the bounded ${expected_source_type}-to-${target_type} replacement may be planned."
 
       - name: Terraform plan
