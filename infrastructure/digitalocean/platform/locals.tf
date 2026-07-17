@@ -833,7 +833,7 @@ locals {
     "admin",
     "marketplace",
     "www",
-    ]) : local.is_production && local.serving_from_doks ? toset(concat(
+    ]) : local.is_production ? toset(concat(
     ["admin", "www"],
     local.marketplace_public_enabled ? ["marketplace"] : [],
   )) : toset([])

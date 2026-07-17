@@ -52,12 +52,17 @@ on:
         default: ""
         type: string
       cutover_plan_only:
-        description: Run live read-only production plans for the platform and environment-dns roots at shipped cutover defaults. Never applies.
+        description: Run live read-only production plans for current App Platform serving and the DOKS cutover target. Never applies.
         required: false
         default: false
         type: boolean
       cutover_plan_alert_emails:
         description: Current production PLATFORM_ALERT_EMAILS JSON for a branch-scoped cutover plan; production-environment runs read the environment variable directly.
+        required: false
+        default: ""
+        type: string
+      cutover_plan_doks_ingress_target:
+        description: Current production DOKS ingress IPv4 address for a branch-scoped cutover plan; production-environment runs read the environment variable directly.
         required: false
         default: ""
         type: string
@@ -151,6 +156,7 @@ jobs:
       # to pass the live, non-secret recipient JSON; the zero-destroy checks
       # remain the final safety boundary.
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || inputs.cutover_plan_alert_emails || '[]' }}
+      PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || inputs.cutover_plan_doks_ingress_target || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || 'x-chase-sets-observability-token=plan-only-placeholder' }}
       TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -163,6 +169,10 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Plan production environment DNS at shipped defaults
         working-directory: infrastructure/digitalocean/environment-dns
@@ -200,7 +210,7 @@ jobs:
             --title="Production environment DNS live plan" >> "$GITHUB_STEP_SUMMARY"
           rm -f production-environment-dns.tfplan production-environment-dns.tfplan.json
 
-      - name: Plan production platform at shipped defaults
+      - name: Plan production platform in both serving modes
         working-directory: infrastructure/digitalocean/platform
         run: |
           set -euo pipefail
@@ -217,20 +227,94 @@ jobs:
             -backend-config=use_lockfile=true
           terraform fmt -check -recursive
           terraform validate
-          terraform plan -lock=false -out=production-platform.tfplan \
+
+          if [ -z "$PRODUCTION_DOKS_INGRESS_TARGET" ]; then
+            echo "A production DOKS ingress target is required for both serving-mode plans." >&2
+            exit 1
+          fi
+
+          # Pull remote state read-only, then reconcile the externally created
+          # App Platform CNAMEs into a local-only copy. This proves the plan the
+          # deploy workflow will produce after its state-only import without
+          # mutating production state or DNS from the plan lane.
+          plan_root="${RUNNER_TEMP}/production-platform-live-plan"
+          rm -rf "$plan_root"
+          mkdir -p "$plan_root"
+          cp -R . "$plan_root/"
+          rm -rf "$plan_root/.terraform" "$plan_root/artifacts"
+          sed -i '/backend "s3" {}/d' "$plan_root/versions.tf"
+          terraform state pull > "$plan_root/terraform.tfstate"
+          terraform -chdir="$plan_root" init -backend=false
+
+          app_id="$(terraform -chdir="$plan_root" output -raw app_id 2>/dev/null || true)"
+          app_target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
+          if [ -z "$app_id" ] || [ -z "$app_target" ]; then
+            echo "Production App Platform identity is unavailable; refusing to synthesize local plan state." >&2
+            exit 1
+          fi
+
+          records_json="$(doctl compute domain records list chasesets.com --output json)"
+          for name in admin www; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            if terraform -chdir="$plan_root" state show "$address" >/dev/null 2>&1; then
+              continue
+            fi
+
+            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$app_target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
+            if [ -z "$record_id" ]; then
+              echo "Live App Platform CNAME for ${name}.chasesets.com was not found; refusing an incomplete plan." >&2
+              exit 1
+            fi
+            terraform -chdir="$plan_root" import "$address" "chasesets.com,${record_id}"
+          done
+
+          terraform -chdir="$plan_root" plan -lock=false -out=app-platform.tfplan \
             -var=production_app_serving=app-platform \
-            -var=doks_ingress_target= \
-            -var=production_doks_certificate_ready=false \
+            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
+            -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
-          terraform show -json production-platform.tfplan > production-platform.tfplan.json
-          jq '{root:"platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
-            production-platform.tfplan.json \
-            > ../../../artifacts/production-cutover-live-plans/platform-summary.json
-          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-summary.json)" = "0"
+          terraform -chdir="$plan_root" show -json app-platform.tfplan > app-platform.tfplan.json
+          for name in admin www; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            jq -e --arg address "$address" \
+              'any(.resource_changes[]?; .address == $address and .change.actions == ["no-op"] and .change.before.type == "CNAME" and .change.after.type == "CNAME")' \
+              app-platform.tfplan.json >/dev/null
+          done
+          jq '{root:"platform",serving:"app-platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+            app-platform.tfplan.json \
+            > ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json
+          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json)" = "0"
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
-            production-platform.tfplan.json \
-            --title="Production platform live plan" >> "$GITHUB_STEP_SUMMARY"
-          rm -f production-platform.tfplan production-platform.tfplan.json
+            app-platform.tfplan.json \
+            --title="Production platform App Platform live plan" >> "$GITHUB_STEP_SUMMARY"
+
+          terraform -chdir="$plan_root" plan -lock=false -out=doks.tfplan \
+            -var=production_app_serving=doks \
+            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
+            -var=production_doks_certificate_ready=true \
+            -var=production_marketplace_public_enabled=false
+          terraform -chdir="$plan_root" show -json doks.tfplan > doks.tfplan.json
+          jq '{root:"platform",serving:"doks",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+            doks.tfplan.json \
+            > ../../../artifacts/production-cutover-live-plans/platform-doks-summary.json
+          mapfile -t destroyed_addresses < <(jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address' doks.tfplan.json | sort)
+          expected_destroyed_addresses=(
+            'digitalocean_record.app_serving["admin"]'
+            'digitalocean_record.app_serving["www"]'
+          )
+          if [ "${destroyed_addresses[*]}" != "${expected_destroyed_addresses[*]}" ]; then
+            echo "DOKS plan deletes were not limited to the two intended CNAME-to-A replacements." >&2
+            printf 'Observed destroy: %s\n' "${destroyed_addresses[@]}" >&2
+            exit 1
+          fi
+          for address in "${expected_destroyed_addresses[@]}"; do
+            jq -e --arg address "$address" --arg target "$PRODUCTION_DOKS_INGRESS_TARGET" \
+              'any(.resource_changes[]?; .address == $address and (.change.actions | index("delete")) and (.change.actions | index("create")) and .change.before.type == "CNAME" and .change.after.type == "A" and .change.after.value == $target)' \
+              doks.tfplan.json >/dev/null
+          done
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
+            doks.tfplan.json \
+            --title="Production platform DOKS live plan" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload production cutover live-plan summaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2801,6 +2885,64 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
+
+      - name: Reconcile production serving DNS state
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          zone="chasesets.com"
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "Production App Platform app is missing from Terraform state; refusing to reconcile serving DNS." >&2
+            exit 1
+          fi
+
+          app_target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
+          if [ -z "$app_target" ]; then
+            echo "Production App Platform default ingress is unavailable; refusing to reconcile serving DNS." >&2
+            exit 1
+          fi
+
+          records_json="$(doctl compute domain records list "$zone" --output json)"
+          record_names=(admin www)
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            record_names+=(marketplace)
+          fi
+
+          for name in "${record_names[@]}"; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            if terraform state show "$address" >/dev/null 2>&1; then
+              continue
+            fi
+
+            mapfile -t record_ids < <(
+              printf '%s' "$records_json" | jq -r \
+                --arg name "$name" \
+                --arg app_target "$app_target" \
+                --arg doks_target "${PRODUCTION_DOKS_INGRESS_TARGET:-}" \
+                '[.[] | select(.name == $name) | select(
+                  (.type == "CNAME" and (.data | rtrimstr(".")) == $app_target) or
+                  (.type == "A" and $doks_target != "" and .data == $doks_target)
+                ) | .id] | unique[]'
+            )
+
+            if [ "${#record_ids[@]}" -gt 1 ]; then
+              echo "Multiple production serving records matched ${name}.${zone}; refusing an ambiguous import." >&2
+              exit 1
+            fi
+            if [ "${#record_ids[@]}" -eq 0 ]; then
+              conflicting_records="$(printf '%s' "$records_json" | jq -r --arg name "$name" '[.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))] | length')"
+              if [ "$conflicting_records" -ne 0 ]; then
+                echo "An unmanaged A/CNAME record already owns ${name}.${zone}; refusing to create a conflicting serving record." >&2
+                exit 1
+              fi
+              echo "No live serving record found for ${name}.${zone}; Terraform will create it."
+              continue
+            fi
+
+            terraform import "$address" "${zone},${record_ids[0]}"
+          done
 
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'

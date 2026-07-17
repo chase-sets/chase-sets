@@ -1748,6 +1748,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("for_each = local.app_platform_admin_domains");
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
     expect(platformLocals).toContain("app_serving_record_names");
+    expect(platformLocals).toContain("]) : local.is_production ? toset(concat(");
+    expect(platformLocals).not.toContain("local.is_production && local.serving_from_doks ? toset(concat(");
     expect(platformLocals).toContain(
       'app_serving         = local.is_production ? var.production_app_serving : local.is_staging ? var.staging_app_serving : "app-platform"',
     );
@@ -2766,7 +2768,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(productionPlanStep).toContain('cd "$tmp"');
     expect(productionPlanStep).toContain(
-      'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
+      'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes app-platform.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
+    );
+    expect(productionPlanStep).toContain(
+      'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes doks.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
     );
     expect(deployProductionPlanStep).toContain(
       "node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan",
@@ -3223,9 +3228,13 @@ describe("DigitalOcean platform configuration", () => {
     const environmentDnsApply = workflowStep(deployProductionJob, "Apply production environment DNS");
     const addOnsStep = workflowStep(deployProductionJob, "Install production DOKS ingress and certificate add-ons");
     const preflightStep = workflowStep(deployProductionJob, "Verify production DOKS certificate before DNS flip");
+    const reconcileStep = workflowStep(deployProductionJob, "Reconcile production serving DNS state");
     const shadowStep = workflowStep(deployProductionJob, "Verify production DOKS shadow hosts and certificate");
+    const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
     const terraformApplyIndex = deployProductionJob.indexOf("- name: Terraform apply");
     const preflightIndex = deployProductionJob.indexOf("- name: Verify production DOKS certificate before DNS flip");
+    const reconcileIndex = deployProductionJob.indexOf("- name: Reconcile production serving DNS state");
+    const terraformPlanIndex = deployProductionJob.indexOf("- name: Terraform plan");
 
     expect(deployProductionJob).toContain(
       "PRODUCTION_APP_SERVING: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}",
@@ -3255,6 +3264,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflightStep).toContain("platform-ingress-wait.mjs");
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(terraformApplyIndex).toBeGreaterThan(preflightIndex);
+    expect(reconcileIndex).toBeGreaterThan(-1);
+    expect(terraformPlanIndex).toBeGreaterThan(reconcileIndex);
+    expect(reconcileStep).toContain('address="digitalocean_record.app_serving[\\"${name}\\"]"');
+    expect(reconcileStep).toContain('(.type == "CNAME" and (.data | rtrimstr(".")) == $app_target)');
+    expect(reconcileStep).toContain('(.type == "A" and $doks_target != "" and .data == $doks_target)');
+    expect(reconcileStep).toContain('terraform import "$address" "${zone},${record_ids[0]}"');
+    expect(reconcileStep).toContain("refusing to create a conflicting serving record");
+    expect(productionPlanStep).toContain("assert_serving_plan app-platform.tfplan CNAME false");
+    expect(productionPlanStep).toContain("assert_serving_plan doks.tfplan A true");
+    expect(productionPlanStep).toContain("-var=production_app_serving=app-platform");
+    expect(productionPlanStep).toContain("-var=production_app_serving=doks");
+    expect(productionPlanStep).toContain('.address == "digitalocean_record.doks_apex[0]"');
+    expect(occurrenceCount(productionPlanStep, "assert-no-destructive-changes")).toBe(2);
     expect(shadowStep).toContain("--for=condition=Ready");
     expect(shadowStep).toContain("orders.acme.cert-manager.io,challenges.acme.cert-manager.io");
     expect(shadowStep).toContain("TF_VAR_production_marketplace_public_enabled:-false");
@@ -3266,14 +3288,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksPlatformOperationsRunbook).toContain("Defer every launch-only transition to the launch runbook");
   });
 
-  it("offers a destroy-free live production cutover plan path with no apply edge", () => {
+  it("offers guarded live production plans for both serving modes with no apply edge", () => {
     const planJob = workflowJob(platformProductionWorkflow, "production-cutover-live-plan");
     const environmentDnsPlan = workflowStep(planJob, "Plan production environment DNS at shipped defaults");
+    const platformPlans = workflowStep(planJob, "Plan production platform in both serving modes");
     const resolveReleaseJob = workflowJob(platformProductionWorkflow, "resolve-release");
 
     expect(planJob).toContain("inputs.cutover_plan_only == true");
     expect(planJob).toContain("environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}");
     expect(platformProductionWorkflow).toContain("cutover_plan_alert_emails:");
+    expect(platformProductionWorkflow).toContain("cutover_plan_doks_ingress_target:");
     expect(planJob).toContain(
       "TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || inputs.cutover_plan_alert_emails || '[]' }}",
     );
@@ -3282,12 +3306,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsPlan).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
     expect(environmentDnsPlan).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(planJob).toContain("landing/production.tfstate");
-    expect(occurrenceCount(planJob, "terraform plan -lock=false")).toBe(2);
+    expect(occurrenceCount(planJob, "plan -lock=false")).toBe(3);
     expect(occurrenceCount(planJob, "-var=production_app_serving=app-platform")).toBe(2);
-    expect(occurrenceCount(planJob, "-var=doks_ingress_target=")).toBe(2);
-    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=false")).toBe(2);
-    expect(occurrenceCount(planJob, "-var=production_marketplace_public_enabled=false")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_app_serving=doks")).toBe(1);
+    expect(occurrenceCount(planJob, "-var=doks_ingress_target=")).toBe(3);
+    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=false")).toBe(1);
+    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=true")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_marketplace_public_enabled=false")).toBe(3);
     expect(occurrenceCount(planJob, "test \"$(jq -r '.destroy'")).toBe(2);
+    expect(platformPlans).toContain('terraform state pull > "$plan_root/terraform.tfstate"');
+    expect(platformPlans).toContain('terraform -chdir="$plan_root" import "$address"');
+    expect(platformPlans).toContain('.change.actions == ["no-op"]');
+    expect(platformPlans).toContain("DOKS plan deletes were not limited to the two intended CNAME-to-A replacements.");
+    expect(platformPlans).toContain('.change.before.type == "CNAME" and .change.after.type == "A"');
+    expect(platformPlans).toContain('digitalocean_record.app_serving[\"admin\"]');
+    expect(platformPlans).toContain('digitalocean_record.app_serving[\"www\"]');
+    expect(platformPlans).toContain("platform-app-platform-summary.json");
+    expect(platformPlans).toContain("platform-doks-summary.json");
     expect(planJob).toContain("production-cutover-live-plan-summaries");
     expect(planJob).not.toContain("terraform apply");
     expect(resolveReleaseJob).toContain("inputs.cutover_plan_only != true");
