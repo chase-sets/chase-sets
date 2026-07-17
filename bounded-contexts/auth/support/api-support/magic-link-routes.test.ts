@@ -242,6 +242,106 @@ describe("magic link auth routes", () => {
     });
   });
 
+  it("grants founders cohort access to a wave-admitted magic-link registration", async () => {
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+      findAdmittedWaitlistSignupByEmail: vi.fn(async () => ({
+        signup_id: "wls_wave",
+        beta_invitation_id: "wvi_1_wave",
+        admitted_wave: 1,
+      })),
+    };
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_wave",
+      user_id: null,
+      email: "wave@chasesets.test",
+      token_hash: "hashed:magic_token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_wave",
+      accountId: "acc_wave",
+      membershipId: "mbr_wave",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity,
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_wave", snapshots: [] })),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "magic_token" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "wave@chasesets.test", foundersBetaAccessStartedAt: expect.any(String) }),
+    );
+  });
+
+  it("does not grant founders cohort access to a team-invited magic-link registration", async () => {
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    services.identity.findPendingInvitationByEmail.mockResolvedValue({
+      invitation_id: "ivt_support_1",
+      account_id: "acc_support",
+      email: "support-invite@chasesets.test",
+      role_key: "owner",
+      status: "pending",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      accepted_by_user_id: null,
+      invited_by_user_id: "usr_support",
+      updated_at: new Date().toISOString(),
+    });
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_support",
+      user_id: null,
+      email: "support-invite@chasesets.test",
+      token_hash: "hashed:magic_token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_support_invite",
+      accountId: "acc_support_invite",
+      membershipId: "mbr_support_invite",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity,
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_support_invite", snapshots: [] })),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "magic_token" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "support-invite@chasesets.test",
+        foundersBetaAccessStartedAt: undefined,
+      }),
+    );
+  });
+
   it("rejects invalid, expired, or already consumed magic link tokens", async () => {
     const services = createServices();
     mockConsumeMagicLinkToken.mockResolvedValue(null);
