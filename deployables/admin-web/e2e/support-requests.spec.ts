@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 test.describe("support admin requests", () => {
@@ -50,9 +51,10 @@ async function expectSupportRequestDrawer(page: Page, escalationResult: { escala
   expect(selectedUrl.searchParams.get("skipped")).toBe(String(escalationResult.skipped));
   expect(selectedRequestId).toMatch(/^sup_/);
 
-  const requestDrawer = page.getByRole("dialog", { name: selectedRequestId! });
+  const expectedDisplayReference = deriveDisplayReferenceOrRaw(selectedRequestId as `sup_${string}`);
+  const requestDrawer = page.getByRole("dialog", { name: expectedDisplayReference });
   await expect(requestDrawer).toBeVisible();
   await expect(requestDrawer.getByText("Recommended action")).toBeVisible();
-  await expect(requestDrawer.getByRole("button", { name: /^(Respond|Escalate|Resolve)$/ })).toBeVisible();
+  await expect(requestDrawer.getByRole("button", { name: /^(Record response|Escalate|Resolve)$/ })).toBeVisible();
   await expect(requestDrawer.getByRole("button", { name: "Close request details" })).toBeVisible();
 }
