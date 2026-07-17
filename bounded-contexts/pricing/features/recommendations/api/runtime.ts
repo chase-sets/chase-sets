@@ -188,6 +188,8 @@ function recommendedAmount(candidate: RefreshCandidate) {
   const competitor = moneyNumber(candidate.competitorPriceAmount);
   const offer = moneyNumber(candidate.offerPriceAmount);
   if (estimate !== null) {
+    // A fresh estimate anchors the recommendation even when a competitor is
+    // cheaper; competition is the fallback only when no current estimate exists.
     return {
       marketPriceAmount: estimate,
       marketSignalType: "market-estimate" as PricingMarketSignalType,
@@ -260,7 +262,9 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
      LEFT JOIN pricing_market_price_estimates AS estimate
        ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
       AND estimate.product_id = listing.product_id
-      AND estimate.fresh_until > CURRENT_TIMESTAMP
+      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
+      -- fresh_until >= asOf is current.
+      AND estimate.fresh_until >= CURRENT_TIMESTAMP
      WHERE listing.seller_account_id = $1
        AND listing.status IN ('active', 'draft')`,
     [accountId],
@@ -307,7 +311,9 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
      LEFT JOIN pricing_market_price_estimates AS estimate
        ON estimate.catalog_catalog_item_id = item.catalog_catalog_item_id
       AND estimate.product_id = item.product_id
-      AND estimate.fresh_until > CURRENT_TIMESTAMP
+      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
+      -- fresh_until >= asOf is current.
+      AND estimate.fresh_until >= CURRENT_TIMESTAMP
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM pricing_inventory_hold_inputs

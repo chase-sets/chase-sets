@@ -66,9 +66,11 @@ function queryStub(
     inventory?: readonly unknown[];
     recommendations?: readonly AccountRecommendationListItem[];
   }>,
+  queries?: string[],
 ): PgQueryable {
   return {
     query: async <T>(sql: string) => {
+      queries?.push(sql);
       if (sql.includes("FROM pricing_inventory_item_inputs AS item")) {
         return { rows: (rowsByKind.inventory ?? []) as T[] };
       }
@@ -146,6 +148,17 @@ async function seedRecommendation(
 }
 
 describe("pricing recommendation runtime", () => {
+  it("treats an estimate fresh through its exact fresh-until boundary", async () => {
+    const queries: string[] = [];
+    const { services } = createRuntime(queryStub({}, queries));
+
+    await services.refreshRecommendations({ accountId: "acc_1" }, context);
+
+    const estimateQueries = queries.filter((sql) => sql.includes("pricing_market_price_estimates AS estimate"));
+    expect(estimateQueries).toHaveLength(2);
+    expect(estimateQueries.every((sql) => sql.includes("estimate.fresh_until >= CURRENT_TIMESTAMP"))).toBe(true);
+  });
+
   it("refreshes active listing and draft create proposals from projected signals", async () => {
     const { services, events } = createRuntime(
       queryStub({
