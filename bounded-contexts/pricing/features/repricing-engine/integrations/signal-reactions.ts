@@ -70,6 +70,9 @@ export function buildCompetingAskRepricingReactionHandlers(engine: RepricingEngi
       eventType,
       async (untypedEvent: unknown) => {
         const event = untypedEvent as SignalEvent;
+        if (event.type === "marketplace.listing.price-updated" && event.data.changeSource === "repricing-engine") {
+          return;
+        }
         const listingId =
           event.type === "marketplace.listing.created" && typeof event.data.listingId === "string"
             ? event.data.listingId

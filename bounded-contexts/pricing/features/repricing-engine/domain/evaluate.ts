@@ -12,8 +12,9 @@ export type RepricingMarketInputSnapshot = Readonly<{
   catalogItemId: string;
   productId: string;
   capturedAt: string;
+  hardAskOutlierPriceRatio: number;
   marketEstimate: Readonly<{ amount: string; freshUntil: string }> | null;
-  lastSoldAmount: string | null;
+  lastSold: Readonly<{ amount: string; freshUntil: string }> | null;
   competingAsks: readonly Readonly<{
     listingId: string;
     sellerAccountId: string;
@@ -55,6 +56,7 @@ export type RepricingListingEvaluation = Readonly<{
   anchor: RepricingAnchorTrace | null;
   exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
   clamps: RepricingClampTrace;
+  tolerance: RepricingRuleDirective["tolerance"];
   flags: readonly ("floor-binding" | "ceiling-binding" | "max-move-binding")[];
   action: "update-price" | "hold" | "pause" | "notify-only";
   skipReason:
@@ -76,8 +78,11 @@ export function evaluateRepricingListing(
   listing: RepricingListingEvaluationInput,
   snapshot: RepricingMarketInputSnapshot,
 ): RepricingListingEvaluation {
-  const competingHardAsks = snapshot.competingAsks.filter(
-    (ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== listing.sellerAccountId,
+  const competingHardAsks = filterCompetingHardAskOutliers(
+    snapshot.competingAsks.filter(
+      (ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== listing.sellerAccountId,
+    ),
+    snapshot,
   );
   const ruleIndex = listing.rules.findIndex((rule) =>
     rule.conditions.every((condition) => conditionMatches(condition, listing, competingHardAsks.length, snapshot)),
@@ -214,20 +219,28 @@ function resolveAnchor(
         exhaustedAnchors.push({ source: candidate.source, state: "absent" });
         break;
       }
-      case "last-sold":
-        if (snapshot.lastSoldAmount !== null) {
+      case "last-sold": {
+        const lastSold = snapshot.lastSold;
+        const state: RepricingInputState =
+          lastSold === null
+            ? "absent"
+            : Date.parse(lastSold.freshUntil) < Date.parse(snapshot.capturedAt)
+              ? "stale"
+              : "present";
+        if (state === "present") {
           return {
             anchor: {
               source: candidate.source,
-              amount: snapshot.lastSoldAmount,
+              amount: lastSold!.amount,
               stratum: "last-sold",
               contributingListingCount: 0,
             },
             exhaustedAnchors,
           };
         }
-        exhaustedAnchors.push({ source: candidate.source, state: "absent" });
+        exhaustedAnchors.push({ source: candidate.source, state });
         break;
+      }
     }
   }
 
@@ -247,6 +260,7 @@ function evaluateTerminal(
     anchor: null,
     exhaustedAnchors,
     clamps: { floor: false, ceiling: false, maxMove: false },
+    tolerance: directive.tolerance,
     flags: [] as const,
   };
 
@@ -288,14 +302,8 @@ function evaluateTarget(
   const ceiling = resolveCeiling(anchorCents, directive);
   const clamps = { floor: false, ceiling: false, maxMove: false };
 
-  if (target < floor) {
-    target = floor;
-    clamps.floor = true;
-  }
-  if (ceiling !== null && target > ceiling) {
-    target = ceiling;
-    clamps.ceiling = true;
-  }
+  // The movement guard constrains the proposal first. Seller-authored
+  // floor/ceiling clamps are terminal and no later adjustment may escape.
   if (directive.maxMovePercent !== null) {
     const moveBps = Math.round(directive.maxMovePercent * 100);
     const maxDown = current - roundRational(current * BigInt(moveBps), 10_000n, "nearest");
@@ -306,11 +314,13 @@ function evaluateTarget(
       target = bounded;
     }
   }
-  // Floor is the hard invariant even when a cost-basis floor and max-move
-  // bound collide. The trace preserves both bindings for seller explanation.
   if (target < floor) {
     target = floor;
     clamps.floor = true;
+  }
+  if (ceiling !== null && target > ceiling) {
+    target = ceiling;
+    clamps.ceiling = true;
   }
 
   const tolerance =
@@ -332,10 +342,35 @@ function evaluateTarget(
     anchor,
     exhaustedAnchors,
     clamps,
+    tolerance: directive.tolerance,
     flags,
     action: delta <= tolerance ? "hold" : "update-price",
     skipReason: delta <= tolerance ? "within-tolerance" : null,
   };
+}
+
+function filterCompetingHardAskOutliers(
+  asks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
+  snapshot: RepricingMarketInputSnapshot,
+): readonly RepricingMarketInputSnapshot["competingAsks"][number][] {
+  if (asks.length < 2) {
+    return asks;
+  }
+  const ordered = asks.map((ask) => moneyToCents(ask.amount)).sort(compareBigInt);
+  const midpoint = ordered.length / 2;
+  const median =
+    ordered.length % 2 === 1
+      ? ordered[Math.floor(midpoint)]!
+      : roundRational(ordered[midpoint - 1]! + ordered[midpoint]!, 2n, "nearest");
+  const core = snapshot.marketEstimate ? moneyToCents(snapshot.marketEstimate.amount) : median;
+  const ratioHundredths = BigInt(Math.round(snapshot.hardAskOutlierPriceRatio * 100));
+  const lower = roundRational(core * 100n, ratioHundredths, "nearest");
+  const upper = roundRational(core * ratioHundredths, 100n, "nearest");
+  const filtered = asks.filter((ask) => {
+    const amount = moneyToCents(ask.amount);
+    return amount >= lower && amount <= upper;
+  });
+  return filtered.length > 0 ? filtered : asks;
 }
 
 function applyOffset(anchor: bigint, directive: RepricingRuleDirective): bigint {

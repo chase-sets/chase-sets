@@ -113,6 +113,7 @@ describe("pricing marketplace source projection", () => {
 
     expect(calls[0]?.sql).toContain("pricing_market_listing_inputs");
     expect(calls[0]?.sql).toContain("inventory_item_id");
+    expect(calls[0]?.sql).toContain("grading");
     expect(calls[0]?.sql).toContain("pricing_market_listing_inputs.last_stream_version < EXCLUDED.last_stream_version");
     expect(calls[0]?.params).toEqual([
       "lst_1",
@@ -122,6 +123,7 @@ describe("pricing marketplace source projection", () => {
       "prod_1",
       "20.00",
       2,
+      "raw",
       "2026-05-09T00:00:00.000Z",
       1,
     ]);

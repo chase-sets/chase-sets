@@ -2465,7 +2465,13 @@ function createPricingJobRunners(
             claimTtlMs: number;
             marketplaceGatewayForAccount: (accountId: string) => {
               applyBulkListingPriceUpdates: (body: {
-                updates: readonly { listingId: string; priceAmount: string; expectedVersion: number }[];
+                updates: readonly {
+                  listingId: string;
+                  priceAmount: string;
+                  expectedVersion: number;
+                  minimumChange: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
+                  idempotencyKey: string;
+                }[];
               }) => Promise<{
                 items: readonly {
                   listingId: string;
@@ -2473,6 +2479,11 @@ function createPricingJobRunners(
                   message?: string;
                 }[];
               }>;
+              pauseListing: (
+                listingId: string,
+                body: { reason: "policy-input-missing"; idempotencyKey: string },
+              ) => Promise<unknown>;
+              publishListing: (listingId: string, body: { idempotencyKey: string }) => Promise<unknown>;
             };
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
@@ -2508,6 +2519,8 @@ function createPricingJobRunners(
                 listingId: string;
                 priceAmount: string;
                 expectedVersion?: number;
+                minimumChange?: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
+                idempotencyKey?: string;
               }[];
             },
             context: typeof SYSTEM_CONTEXT,
@@ -2518,6 +2531,14 @@ function createPricingJobRunners(
               message?: string;
             }[]
           >;
+          pauseListing?: (
+            params: { accountId: string; listingId: string; reason?: "seller" | "policy-input-missing" },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<unknown>;
+          publishListing?: (
+            params: { accountId: string; listingId: string; idempotencyKey?: string },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<unknown>;
         };
       }
     | undefined;
@@ -2559,7 +2580,10 @@ function createPricingJobRunners(
           }),
         })
       : []),
-    ...(processNextEvaluationJob && marketplace.listings.applyBulkListingPriceUpdates
+    ...(processNextEvaluationJob &&
+    marketplace.listings.applyBulkListingPriceUpdates &&
+    marketplace.listings.pauseListing &&
+    marketplace.listings.publishListing
       ? createDurableJobLaneRunners({
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
@@ -2574,6 +2598,13 @@ function createPricingJobRunners(
                     SYSTEM_CONTEXT,
                   ),
                 }),
+                pauseListing: (listingId, body) =>
+                  marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
+                publishListing: (listingId, body) =>
+                  marketplace.listings!.publishListing!(
+                    { accountId, listingId, idempotencyKey: body.idempotencyKey },
+                    SYSTEM_CONTEXT,
+                  ),
               }),
               signal: lane.runnerContext?.signal,
               throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,

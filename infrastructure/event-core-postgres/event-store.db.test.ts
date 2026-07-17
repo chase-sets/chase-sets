@@ -632,6 +632,27 @@ describeDb("postgres event store real database integration", () => {
     await expect(store.readStream({ streamId: "marketplace.listing-lst_sibling", limit: 10 })).resolves.toHaveLength(1);
   });
 
+  it("replays a deterministic independent append before rejecting its stale retry version", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const input = {
+      streamId: "marketplace.listing-lst_retry",
+      expectedVersion: "no_stream" as const,
+      context: eventContext("tenant_a"),
+      events: [
+        {
+          ...eventToStore("marketplace.listing.price-updated", { priceAmount: "90.00" }),
+          eventId: "repricing:round-1:product-1:lst_retry:price:0" as never,
+        },
+      ],
+    };
+    const [first] = await store.appendToStreamsIndependently!([input]);
+    const [retry] = await store.appendToStreamsIndependently!([{ ...input, expectedVersion: 0 }]);
+
+    expect(first).toMatchObject({ outcome: "appended", storedEvents: [{ streamVersion: 1 }] });
+    expect(retry).toEqual(first);
+    await expect(store.readStream({ streamId: input.streamId, limit: 10 })).resolves.toHaveLength(1);
+  });
+
   it("appends every stream in a chunk through one multi-row INSERT with contiguous global positions", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

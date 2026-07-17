@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   price_amount numeric(12, 2) NOT NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
+  grading text NULL CHECK (grading IS NULL OR grading IN ('graded', 'raw')),
+  created_at timestamptz NULL,
+  pause_reason text NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
@@ -72,6 +75,15 @@ CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
 
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
+
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS grading text NULL;
+
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NULL;
+
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS pause_reason text NULL;
 
 -- Stale-input guard: the listing handlers only advance a row when the event
 -- carries a newer stream version, so a redelivered old price/lifecycle event

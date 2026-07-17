@@ -12,6 +12,9 @@ export type RepricingEvaluationSkipReason =
   | "budget-exhausted"
   | "manual-edit-conflict"
   | "domain-no-op"
+  | "policy-precondition-failed"
+  | "resume-hysteresis"
+  | "repause-cooldown"
   | "command-error";
 
 export type RepricingPolicyListingTrace = Readonly<{

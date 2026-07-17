@@ -37,8 +37,9 @@ function snapshot(overrides: Partial<RepricingMarketInputSnapshot> = {}): Repric
     catalogItemId: "cat_1",
     productId: "cat_1::",
     capturedAt: "2026-07-17T12:00:00.000Z",
+    hardAskOutlierPriceRatio: 10,
     marketEstimate: { amount: "12.00", freshUntil: "2026-07-18T00:00:00.000Z" },
-    lastSoldAmount: "11.00",
+    lastSold: { amount: "11.00", freshUntil: "2026-08-01T00:00:00.000Z" },
     competingAsks: [
       { listingId: "lst_policy", sellerAccountId: "acc_policy", amount: "10.00", pricingMode: "derived" },
       { listingId: "lst_same_account", sellerAccountId: "acc_policy", amount: "8.00", pricingMode: "hard" },
@@ -122,10 +123,87 @@ describe("repricing product-round evaluation", () => {
       snapshot({ marketEstimate: { amount: "20.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
     );
 
-    expect(result.targetPriceAmount).toBe("18.00");
-    expect(result.clamps.floor).toBe(true);
+    expect(result.targetPriceAmount).toBe("15.00");
+    expect(result.clamps.ceiling).toBe(true);
     expect(result.clamps.maxMove).toBe(true);
-    expect(result.flags).toEqual(["floor-binding", "max-move-binding"]);
+    expect(result.flags).toEqual(["ceiling-binding", "max-move-binding"]);
+  });
+
+  it("keeps a floor terminal when max-move would otherwise leave the range", () => {
+    const result = evaluateRepricingListing(
+      listing({
+        currentPriceAmount: "10.00",
+        rules: [
+          {
+            conditions: [],
+            directive: {
+              ...directive,
+              anchorChain: [{ source: "market-estimate" }],
+              offset: { mode: "absolute", amount: "0.00" },
+              floor: { mode: "absolute", amount: "15.00" },
+              maxMovePercent: 10,
+            },
+          },
+        ],
+      }),
+      snapshot({ marketEstimate: { amount: "1.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
+    );
+
+    expect(result.targetPriceAmount).toBe("15.00");
+    expect(result.clamps).toMatchObject({ floor: true, maxMove: true });
+  });
+
+  it("keeps a ceiling terminal when max-move would otherwise leave the range", () => {
+    const result = evaluateRepricingListing(
+      listing({
+        currentPriceAmount: "100.00",
+        rules: [
+          {
+            conditions: [],
+            directive: {
+              ...directive,
+              anchorChain: [{ source: "market-estimate" }],
+              offset: { mode: "absolute", amount: "0.00" },
+              ceiling: { mode: "absolute", amount: "60.00" },
+              maxMovePercent: 10,
+            },
+          },
+        ],
+      }),
+      snapshot({ marketEstimate: { amount: "100.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
+    );
+
+    expect(result.targetPriceAmount).toBe("60.00");
+    expect(result.clamps).toMatchObject({ ceiling: true, maxMove: false });
+  });
+
+  it("filters an absurd hard ask before resolving the hard-ask stratum", () => {
+    const result = evaluateRepricingListing(
+      listing(),
+      snapshot({
+        marketEstimate: { amount: "100.00", freshUntil: "2026-07-18T00:00:00.000Z" },
+        competingAsks: [
+          { listingId: "lst_real", sellerAccountId: "acc_real", amount: "99.00", pricingMode: "hard" },
+          { listingId: "lst_absurd", sellerAccountId: "acc_absurd", amount: "0.01", pricingMode: "hard" },
+        ],
+      }),
+    );
+
+    expect(result.anchor).toMatchObject({ amount: "99.00", contributingListingCount: 1 });
+    expect(result.targetPriceAmount).toBe("98.99");
+  });
+
+  it("treats a stale last-sold fallback as exhausted", () => {
+    const result = evaluateRepricingListing(
+      listing({ rules: [{ conditions: [], directive: { ...directive, anchorChain: [{ source: "last-sold" }] } }] }),
+      snapshot({
+        competingAsks: [],
+        lastSold: { amount: "11.00", freshUntil: "2026-07-17T11:59:59.999Z" },
+      }),
+    );
+
+    expect(result.action).toBe("hold");
+    expect(result.exhaustedAnchors).toEqual([{ source: "last-sold", state: "stale" }]);
   });
 
   it("selects the first matching rule and evaluates fallback-price terminals through the same clamp/tolerance path", () => {

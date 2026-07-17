@@ -10,7 +10,11 @@ export type RepricingRoundListing = Readonly<{
   priceAmount: string;
   quantityCap: number;
   listingVersion: number;
+  listingStatus: "active" | "paused";
+  pauseReason: string | null;
   categoryIds: readonly string[];
+  grading: "graded" | "raw" | null;
+  createdAt: string | null;
   costBasisAmount: string | null;
   policyId: string;
   policyRevision: string;
@@ -27,7 +31,7 @@ export type RepricingRoundInputs = Readonly<{
     pricingMode: "hard" | "derived";
   }>[];
   marketEstimate: Readonly<{ amount: string; freshUntil: string }> | null;
-  lastSoldAmount: string | null;
+  lastSold: Readonly<{ amount: string; soldAt: string }> | null;
 }>;
 
 type ListingRow = Readonly<{
@@ -39,6 +43,10 @@ type ListingRow = Readonly<{
   price_amount: string;
   quantity_cap: number;
   last_stream_version: number;
+  status: "active" | "paused";
+  pause_reason: string | null;
+  grading: "graded" | "raw" | null;
+  created_at: string | null;
   category_ids: readonly string[] | null;
   acquisition_cost_amount: string | null;
   policy_id: string;
@@ -62,6 +70,10 @@ export async function loadRepricingRoundInputs(
          listing.price_amount::text,
          listing.quantity_cap,
          listing.last_stream_version,
+         listing.status,
+         listing.pause_reason,
+         listing.grading,
+         listing.created_at::text,
          catalog.category_ids,
          inventory.acquisition_cost_amount::text,
          assignment.policy_id,
@@ -80,7 +92,8 @@ export async function loadRepricingRoundInputs(
         AND inventory.seller_account_id = listing.seller_account_id
        WHERE listing.catalog_catalog_item_id = $1
          AND listing.product_id = $2
-         AND listing.status IN ('active', 'draft')
+         AND (listing.status = 'active' OR (listing.status = 'paused' AND listing.pause_reason = 'policy-input-missing'))
+         AND policy.status = 'active'
        ORDER BY assignment.policy_id, listing.listing_id`,
       [product.catalogItemId, product.productId],
     ),
@@ -111,8 +124,8 @@ export async function loadRepricingRoundInputs(
          AND product_id = $2`,
       [product.catalogItemId, product.productId],
     ),
-    db.query<{ unit_price_amount: string }>(
-      `SELECT unit_price_amount::text
+    db.query<{ unit_price_amount: string; sold_at: string }>(
+      `SELECT unit_price_amount::text, sold_at::text
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1
          AND product_id = $2
@@ -134,7 +147,11 @@ export async function loadRepricingRoundInputs(
       priceAmount: row.price_amount,
       quantityCap: row.quantity_cap,
       listingVersion: Number(row.last_stream_version),
+      listingStatus: row.status,
+      pauseReason: row.pause_reason,
       categoryIds: row.category_ids ?? [],
+      grading: row.grading,
+      createdAt: row.created_at,
       costBasisAmount: row.acquisition_cost_amount,
       policyId: row.policy_id,
       policyRevision: row.policy_revision,
@@ -150,7 +167,9 @@ export async function loadRepricingRoundInputs(
     marketEstimate: estimateResult.rows[0]
       ? { amount: estimateResult.rows[0].amount, freshUntil: estimateResult.rows[0].fresh_until }
       : null,
-    lastSoldAmount: lastSoldResult.rows[0]?.unit_price_amount ?? null,
+    lastSold: lastSoldResult.rows[0]
+      ? { amount: lastSoldResult.rows[0].unit_price_amount, soldAt: lastSoldResult.rows[0].sold_at }
+      : null,
   };
 }
 
@@ -180,7 +199,10 @@ export async function listAssignedRepricingProducts(
      FROM pricing_repricing_policy_assignments AS assignment
      JOIN pricing_market_listing_inputs AS listing
        ON listing.listing_id = assignment.listing_id
-     WHERE listing.status IN ('active', 'draft')
+     JOIN pricing_repricing_policies AS policy
+       ON policy.policy_id = assignment.policy_id
+     WHERE (listing.status = 'active' OR (listing.status = 'paused' AND listing.pause_reason = 'policy-input-missing'))
+       AND policy.status = 'active'
        AND ($1::text IS NULL OR (listing.catalog_catalog_item_id, listing.product_id) > ($1, $2))
      ORDER BY listing.catalog_catalog_item_id, listing.product_id
      LIMIT $3`,
@@ -190,6 +212,23 @@ export async function listAssignedRepricingProducts(
     catalogItemId: row.catalog_catalog_item_id,
     productId: row.product_id,
   }));
+}
+
+export async function isRepricingPolicyRevisionActive(
+  db: PgQueryable,
+  input: Readonly<{ policyId: string; policyRevision: string }>,
+): Promise<boolean> {
+  const result = await db.query<{ active: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM pricing_repricing_policies
+       WHERE policy_id = $1
+         AND status = 'active'
+         AND updated_at::text = $2
+     ) AS active`,
+    [input.policyId, input.policyRevision],
+  );
+  return result.rows[0]?.active ?? false;
 }
 
 export async function hasEvaluationStream(db: PgQueryable, streamId: string): Promise<boolean> {

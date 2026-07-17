@@ -174,6 +174,14 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       return [];
     }
 
+    const deterministicIds = input.events.map((event) => event.eventId).filter((id): id is EventId => id !== undefined);
+    if (deterministicIds.length === input.events.length && deterministicIds.every((id) => eventsById.has(id))) {
+      return deterministicIds.map((eventId) => {
+        const stored = eventsById.get(eventId)!;
+        assertIdempotentEventMatch(stored, input, eventId);
+        return stored;
+      });
+    }
     assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
     return appendStoredEvents(input);
   }

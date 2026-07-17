@@ -35,11 +35,29 @@ CREATE INDEX IF NOT EXISTS pricing_repricing_policy_evaluations_product_idx
   ON pricing_repricing_policy_evaluations (catalog_catalog_item_id, product_id, evaluated_at DESC);
 
 CREATE TABLE IF NOT EXISTS pricing_repricing_daily_change_budgets (
-  policy_id text NOT NULL,
+  seller_account_id text NOT NULL,
   budget_day date NOT NULL,
   changes_reserved integer NOT NULL CHECK (changes_reserved >= 0),
   updated_at timestamptz NOT NULL,
-  PRIMARY KEY (policy_id, budget_day)
+  PRIMARY KEY (seller_account_id, budget_day)
+);
+
+CREATE TABLE IF NOT EXISTS pricing_repricing_product_round_cooldowns (
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  next_eligible_at timestamptz NOT NULL,
+  last_trigger_event_id text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (catalog_catalog_item_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS pricing_repricing_policy_listing_pauses (
+  listing_id text PRIMARY KEY,
+  policy_id text NOT NULL,
+  paused_at timestamptz NOT NULL,
+  input_available_since timestamptz NULL,
+  resumed_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (

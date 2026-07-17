@@ -300,6 +300,8 @@ export interface MarketplaceBulkListingPriceUpdateInput {
    * is never overwritten.
    */
   expectedVersion?: number;
+  minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  idempotencyKey?: string;
 }
 
 /** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */
