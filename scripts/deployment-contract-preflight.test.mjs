@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderDeploymentContract, renderWorkflowDeploymentContract } from "./deployment-contract-preflight.mjs";
+import { readPlatformSources } from "./render-platform-helm-values.mjs";
 
 const fixtureRoot = resolve("scripts/fixtures/deployment-contract-preflight");
 const workflowPath = resolve(".github/workflows/platform-production.yml");
@@ -40,7 +41,7 @@ describe("deployment contract preflight", () => {
     expect(contract.errors).toContain(
       "Production bootstrap ownership fell back to Terraform's 'app-platform' default while the DOKS bootstrap is active. Set TF_VAR_platform_bootstrap_owner explicitly to 'doks' in the deploy-production job so App Platform bootstrap is a no-op.",
     );
-    expect(contract.errors.join("\n")).toContain("DATABASE_URL_MARKETPLACE");
+    expect(contract.errors.join("\n")).toContain("DATABASE_URL_SETTLEMENT");
   });
 
   it("renders staging and production independently from the workflow and Terraform sources", () => {
@@ -70,6 +71,33 @@ describe("deployment contract preflight", () => {
       pass: true,
     });
     expect(staging.databaseUrlKeys.required).toEqual(production.databaseUrlKeys.required);
+    expect(production.databaseUrlKeys.runtimeRequired).toContain("DATABASE_URL_MARKETPLACE");
+    expect(production.databaseUrlKeys["app-platform-runtime"]).toContainEqual({
+      name: "DATABASE_URL_MARKETPLACE",
+      status: "configured",
+    });
+  });
+
+  it("rejects Terraform landing wiring that omits a manifest-selected platform-api source context", () => {
+    const { contextName } = fixture("landing-database-wiring-omission.json");
+    const sources = readPlatformSources();
+    const landingList = /landing_context_names\s*=\s*\[([\s\S]*?)\n  \]/;
+    sources.locals = sources.locals.replace(landingList, (block) =>
+      block.replace(new RegExp(`\\s+"${contextName}",`), ""),
+    );
+
+    const contract = renderDeploymentContract(fixture("valid-doks.json"), { sources });
+
+    expect(contract.pass).toBe(false);
+    expect(contract.databaseUrlKeys.runtimeRequired).toContain("DATABASE_URL_MARKETPLACE");
+    expect(contract.databaseUrlKeys["app-platform-runtime"]).toContainEqual({
+      name: "DATABASE_URL_MARKETPLACE",
+      status: "missing",
+    });
+    expect(contract.errors.join("\n")).toContain(
+      "App Platform platform-api is missing manifest-required database URL keys",
+    );
+    expect(contract.errors.join("\n")).toContain("DATABASE_URL_MARKETPLACE");
   });
 
   it("uses strict workflow fallbacks when environment contract variables are absent", () => {
