@@ -38,7 +38,7 @@ Rules: the stat must come from a published Chase Sets market page (produce, don'
 
 ### Founders offer (evergreen until the 500 cap is reached)
 
-> The first 500 accounts to list or make an offer on Chase Sets claim a numbered founder badge — public and permanent.
+> The first 500 accounts to list or make an offer on Chase Sets claim a numbered founder badge, publicly displayed.
 >
 > Beta access opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% until it sells.
 >
