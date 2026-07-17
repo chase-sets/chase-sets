@@ -10,7 +10,8 @@ import {
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
 import { createBulkRepriceIngestionRuntime, type BulkRepriceMarketplaceListingGateway } from "../api/runtime";
-import { listBulkRepriceRows } from "../read-model/queries";
+import { listBulkRepriceRows, upsertBulkRepriceRows } from "../read-model/queries";
+import { pricingBulkRepriceIngestionSchemaMigrations } from "../read-model/schema";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -58,6 +59,27 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await pools.pricing.query(pricingModule.schemaSql);
+    for (const migration of pricingBulkRepriceIngestionSchemaMigrations) {
+      for (const statement of migration.statements) {
+        await pools.pricing.query(statement);
+      }
+    }
+    await pools.pricing.query(
+      `INSERT INTO platform_policy_documents
+         (document_id, policy_key, context_name, schema_summary, status, value, effective_from, effective_until, created_at, updated_at)
+       VALUES ('doc_bulk_reprice_enabled', 'pricing.bulk-reprice-ingestion', 'pricing', 'test override', 'active', $1::jsonb, now() - interval '1 day', NULL, now(), now())`,
+      [
+        JSON.stringify({
+          enabled: true,
+          chunkSize: 200,
+          yieldIntervalMs: 0,
+          maxActiveJobsPerAccount: 1,
+          maxRowsPerUpload: 250_000,
+          createJobRateLimitMax: 10,
+          createJobRateLimitWindowMs: 60_000,
+        }),
+      ],
+    );
   });
 
   afterAll(async () => {
@@ -100,7 +122,9 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     }
   }
 
-  function fakeMarketplaceGateway(): BulkRepriceMarketplaceListingGateway & { calls: number } {
+  function fakeMarketplaceGateway(
+    authoritativePrices: Record<string, string> = { lst_1: "10.00", lst_2: "20.00", lst_3: "15.00" },
+  ): BulkRepriceMarketplaceListingGateway & { calls: number } {
     const gateway = {
       calls: 0,
       applyBulkListingPriceUpdates: async (body: {
@@ -108,10 +132,13 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
       }) => {
         gateway.calls += 1;
         return {
-          items: body.updates.map((update) => ({
-            listingId: update.listingId,
-            outcome: "applied" as const,
-          })),
+          items: body.updates.map((update) => {
+            if (authoritativePrices[update.listingId] === update.priceAmount) {
+              return { listingId: update.listingId, outcome: "no_op" as const };
+            }
+            authoritativePrices[update.listingId] = update.priceAmount;
+            return { listingId: update.listingId, outcome: "applied" as const };
+          }),
         };
       },
     };
@@ -133,7 +160,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     };
   }
 
-  it("diffs rows against the local listing read model, applies only deltas, and reports per-row outcomes", async () => {
+  it("resolves rows locally, delegates authoritative no-op suppression, and reports per-row outcomes", async () => {
     const pool = pools.pricing;
     await seedListings(pool);
     const runtime = createBulkRepriceIngestionRuntime({ db: pool });
@@ -187,7 +214,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     expect(csv.split("\n")).toHaveLength(7); // header + 6 rows
   });
 
-  it("suppresses unchanged rows before ever calling the marketplace gateway", async () => {
+  it("lets the Marketplace append path suppress unchanged rows authoritatively", async () => {
     const pool = pools.pricing;
     await seedListings(pool);
     const runtime = createBulkRepriceIngestionRuntime({ db: pool });
@@ -212,27 +239,263 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
       inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
     });
 
-    expect(marketplaceGateway.calls).toBe(0);
+    expect(marketplaceGateway.calls).toBe(1);
     const completedJob = await runtime.getJob(job.jobId);
     expect(completedJob?.result).toEqual({ applied: 0, unchanged: 3, failed: 0, total: 3 });
   });
 
-  it("enforces one active job per account", async () => {
+  it("processes a 10k-row CSV through the job and downloadable outcomes CSV", async () => {
+    const pool = pools.pricing;
+    const accountId = "acc_10k_seller";
+    const totalRows = 10_000;
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs
+         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
+       SELECT
+         'lst_10k_' || generate_series,
+         $1,
+         NULL,
+         'cat_10k',
+         'cat_10k::',
+         10.00,
+         1,
+         'active',
+         now()
+       FROM generate_series(1, $2)`,
+      [accountId, totalRows],
+    );
+
+    const csvText = [
+      "sellerSku,listingId,newPrice",
+      ...Array.from(
+        { length: totalRows },
+        (_, index) => `,lst_10k_${index + 1},${index % 10 === 0 ? "11.00" : "10.00"}`,
+      ),
+    ].join("\n");
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      { accountId, csvText, sourceFilename: "reprice-10k.csv" },
+      eventContext(accountId),
+    );
+    let appliedUpdates = 0;
+    const marketplaceGateway: BulkRepriceMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: async (body) => {
+        return {
+          items: body.updates.map((update) => {
+            if (update.priceAmount === "10.00") {
+              return { listingId: update.listingId, outcome: "no_op" as const };
+            }
+            appliedUpdates += 1;
+            return { listingId: update.listingId, outcome: "applied" as const };
+          }),
+        };
+      },
+    };
+
+    const startedAt = Date.now();
+    const processed = await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_10k",
+      claimTtlMs: 60_000,
+      marketplaceListingGatewayForAccount: () => marketplaceGateway,
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+    const processMs = Date.now() - startedAt;
+    const completedJob = await runtime.getJob(job.jobId);
+    const resultsCsv = await runtime.getResultsCsv(job.jobId);
+
+    console.log(JSON.stringify({ proof: "bulk-reprice-10k", totalRows, processMs, appliedUpdates }));
+    expect(processed).toBe(1);
+    expect(completedJob?.result).toEqual({ applied: 1_000, unchanged: 9_000, failed: 0, total: totalRows });
+    expect(appliedUpdates).toBe(1_000);
+    expect(resultsCsv.split("\n")).toHaveLength(totalRows + 1);
+  }, 120_000);
+
+  it("atomically enforces one active job per account across concurrent submitters", async () => {
     const pool = pools.pricing;
     await seedListings(pool);
     const runtime = createBulkRepriceIngestionRuntime({ db: pool });
 
-    await runtime.enqueueJob(
-      { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "11.00" }] },
-      eventContext("acc_seller"),
-    );
-
-    await expect(
+    const submissions = await Promise.allSettled([
       runtime.enqueueJob(
+        { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "11.00" }] },
+        eventContext("acc_seller"),
+      ),
+      createBulkRepriceIngestionRuntime({ db: pool }).enqueueJob(
         { accountId: "acc_seller", rows: [{ listingId: "lst_2", newPriceAmount: "21.00" }] },
         eventContext("acc_seller"),
       ),
-    ).rejects.toThrow(/already has an active bulk reprice job/);
+    ]);
+
+    expect(submissions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = submissions.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({
+      message:
+        "This account already has an active bulk reprice job. Wait for it to finish, or cancel it, before starting another.",
+    });
+    const active = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM pricing_bulk_reprice_jobs
+       WHERE status IN ('queued', 'running') AND payload->>'accountId' = 'acc_seller'`,
+    );
+    expect(active.rows[0]?.count).toBe("1");
+  });
+
+  it("shares the m110 create-request rate-limit bucket across runtime replicas", async () => {
+    const firstReplica = createBulkRepriceIngestionRuntime({ db: pools.pricing });
+    const secondReplica = createBulkRepriceIngestionRuntime({ db: pools.pricing });
+
+    const decisions = [];
+    for (let index = 0; index < 11; index += 1) {
+      decisions.push(
+        await (index % 2 === 0 ? firstReplica : secondReplica).checkCreateJobRateLimit("acc_rate_limited"),
+      );
+    }
+
+    expect(decisions.slice(0, 10).every((decision) => !decision.limited)).toBe(true);
+    expect(decisions[10]).toMatchObject({ limited: true, count: 11, limit: 10 });
+  });
+
+  it("never reports unchanged from a stale local price when Marketplace applies the authoritative delta", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool); // local projection says 10.00
+    const authoritativePrices = { lst_1: "11.00" };
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "10.00" }] },
+      eventContext("acc_seller"),
+    );
+
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_stale_projection",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => fakeMarketplaceGateway(authoritativePrices),
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+
+    expect((await runtime.listJobRows(job.jobId))[0]).toMatchObject({ outcome: "applied" });
+    expect(authoritativePrices.lst_1).toBe("10.00");
+  });
+
+  it("records an oversized money value as a row failure without collapsing the job", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      {
+        accountId: "acc_seller",
+        rows: [
+          { listingId: "lst_1", newPriceAmount: "10000000000.00" },
+          { listingId: "lst_2", newPriceAmount: "21.00" },
+        ],
+      },
+      eventContext("acc_seller"),
+    );
+
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_money_bounds",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => fakeMarketplaceGateway(),
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+
+    expect((await runtime.getJob(job.jobId))?.result).toEqual({ applied: 1, unchanged: 0, failed: 1, total: 2 });
+    expect(await runtime.listJobRows(job.jobId)).toEqual([
+      expect.objectContaining({
+        row_number: 1,
+        outcome: "failed",
+        error_message: "New price '10000000000.00' is not a valid positive money amount at or below 9999999999.99.",
+      }),
+      expect.objectContaining({ row_number: 2, outcome: "applied" }),
+    ]);
+  });
+
+  it("keeps an applied outcome when a replay observes the authoritative no-op", async () => {
+    const pool = pools.pricing;
+    await upsertBulkRepriceRows(pool, {
+      jobId: "job_replay",
+      rows: [
+        {
+          rowNumber: 1,
+          sellerSku: null,
+          listingId: "lst_1",
+          requestedPriceAmount: "11.00",
+          resolvedListingId: "lst_1",
+          previousPriceAmount: "10.00",
+          outcome: "applied",
+          errorMessage: null,
+        },
+      ],
+    });
+    await upsertBulkRepriceRows(pool, {
+      jobId: "job_replay",
+      rows: [
+        {
+          rowNumber: 1,
+          sellerSku: null,
+          listingId: "lst_1",
+          requestedPriceAmount: "11.00",
+          resolvedListingId: "lst_1",
+          previousPriceAmount: "11.00",
+          outcome: "unchanged",
+          errorMessage: null,
+        },
+      ],
+    });
+
+    expect((await listBulkRepriceRows(pool, { jobId: "job_replay" }))[0]).toMatchObject({
+      outcome: "applied",
+      previous_price_amount: "10.00",
+    });
+  });
+
+  it("returns applied waves and a complete results CSV when cancelled mid-run", async () => {
+    const pool = pools.pricing;
+    const accountId = "acc_cancel_mid_wave";
+    const totalRows = 201;
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs
+         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
+       SELECT 'lst_cancel_' || generate_series, $1, NULL, 'cat_cancel', 'cat_cancel::', 10.00, 1, 'active', now()
+       FROM generate_series(1, $2)`,
+      [accountId, totalRows],
+    );
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      {
+        accountId,
+        rows: Array.from({ length: totalRows }, (_, index) => ({
+          listingId: `lst_cancel_${index + 1}`,
+          newPriceAmount: "11.00",
+        })),
+      },
+      eventContext(accountId),
+    );
+    let calls = 0;
+    const marketplaceGateway: BulkRepriceMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: async (body) => {
+        calls += 1;
+        await runtime.cancelJob(job.jobId, accountId);
+        return {
+          items: body.updates.map((update) => ({ listingId: update.listingId, outcome: "applied" as const })),
+        };
+      },
+    };
+
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_cancel_mid_wave",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => marketplaceGateway,
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+
+    expect(calls).toBe(1);
+    expect((await runtime.getJob(job.jobId))?.result).toEqual({
+      applied: 200,
+      unchanged: 0,
+      failed: 1,
+      total: 201,
+    });
+    expect((await runtime.getResultsCsv(job.jobId)).split("\n")).toHaveLength(202);
   });
 
   it("cancels a queued job so it is never claimed", async () => {
@@ -267,9 +530,9 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
 
     // The launch default caps at 250k rows -- a tiny policy override proves the guard reads live policy, not a hardcoded constant.
     await pool.query(
-      `INSERT INTO platform_policy_documents
-         (document_id, policy_key, context_name, schema_summary, status, value, effective_from, effective_until, created_at, updated_at)
-       VALUES ('doc_test_cap', 'pricing.bulk-reprice-ingestion', 'pricing', 'test override', 'active', $1::jsonb, now() - interval '1 day', NULL, now(), now())`,
+      `UPDATE platform_policy_documents
+       SET value = $1::jsonb, updated_at = now()
+       WHERE document_id = 'doc_bulk_reprice_enabled'`,
       [
         JSON.stringify({
           enabled: true,
@@ -277,6 +540,8 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
           yieldIntervalMs: 0,
           maxActiveJobsPerAccount: 1,
           maxRowsPerUpload: 3,
+          createJobRateLimitMax: 10,
+          createJobRateLimitWindowMs: 60_000,
         }),
       ],
     );

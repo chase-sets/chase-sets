@@ -1604,9 +1604,8 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes[0]).toMatchObject({ listingId: "lst_does_not_exist", outcome: "error" });
-      expect(outcomes[1]).toMatchObject({ listingId: "lst_owned", outcome: "applied" });
-      // A price edit requotes the listing's own lock, so a stale current-terms fingerprint cannot re-rate it.
-      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_owned" })).resolves.toHaveLength(2);
+      expect(outcomes[1]).toMatchObject({ listingId: "lst_owned", outcome: "error" });
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_owned" })).resolves.toHaveLength(1);
     });
 
     it("chunks the append according to the resolved marketplace.listing-bulk-price-update policy", async () => {
@@ -1678,7 +1677,7 @@ describe("marketplace listing runtime", () => {
       );
     });
 
-    it("requotes each listing's lock locally without resolving current terms for the batch", async () => {
+    it("opens one current-terms session for the whole bulk run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = bulkTermsResolver();
       const services = createMarketplaceListingRuntime({
@@ -1714,17 +1713,18 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      expect(termsResolver.openListingTermsSession).not.toHaveBeenCalled();
+      expect(termsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
+      expect(termsResolver.openListingTermsSession).toHaveBeenCalledWith({ accountId: "acc_seller" });
     });
 
-    it("keeps each listing's creation-time terms across chunks even when current terms revise mid-run", async () => {
+    it("stamps every chunk from the single terms session opened for the run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
           return {
             policyKey: policy.policyKey,
-            // chunkSize 1 forces one wave per listing, so the second listing's
-            // wave revalidates the session after the "revision" below lands.
+            // chunkSize 1 forces one wave per listing and proves the terms
+            // session remains stable across append waves.
             value: { chunkSize: 1, yieldIntervalMs: 0 },
             source: "policy" as const,
             documentId: "pol_bulk_chunk",
@@ -1753,11 +1753,6 @@ describe("marketplace listing runtime", () => {
         })),
         openListingTermsSession: vi.fn(async ({ accountId }: { accountId: string }) => {
           openSessionCalls += 1;
-          // The schedule revises after the FIRST session is opened --
-          // simulating a document change that lands mid-run, between chunks.
-          if (openSessionCalls === 2) {
-            revision = "cts_after_revision";
-          }
           const scheduleId = revision;
           return {
             accountId,
@@ -1813,7 +1808,7 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      expect(revisableTermsResolver.openListingTermsSession).not.toHaveBeenCalled();
+      expect(revisableTermsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
 
       const firstListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_1" });
       const secondListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_2" });
@@ -1824,8 +1819,8 @@ describe("marketplace listing runtime", () => {
         (event) => event.eventType === "marketplace.listing.price-updated",
       );
 
-      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
-      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
+      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
+      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
       expect((firstPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint).not.toBe(
         (secondPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint,
       );

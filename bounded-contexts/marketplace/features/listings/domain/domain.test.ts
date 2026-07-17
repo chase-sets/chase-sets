@@ -181,7 +181,7 @@ describe("marketplace listing no-op suppression", () => {
       expect(listing.quantityCap).toBe(3);
     });
 
-    it("allows price edits while preserving fee terms and requoting the locked rate", () => {
+    it("allows price edits while preserving fee-lock tranches", () => {
       const listing = createdListing();
       const requoted = feeLock({
         marketplaceSalesFeeUnitAmount: "1.25",
@@ -203,19 +203,24 @@ describe("marketplace listing no-op suppression", () => {
       ]);
     });
 
-    it("rejects a price edit that substitutes current terms for the listing lock", () => {
+    it("allows a terms session to refresh every preserved tranche during a price edit", () => {
       const listing = createdListing();
       const changedTerms = feeLock({
         terms: { ...feeLock().terms, marketplaceSalesFeePercentageBps: 900, termsScheduleId: "cts_current" },
       });
 
-      expect(() =>
+      expect(
         decideMarketplaceListing(listing, {
           type: "UpdateListingPrice",
           priceAmount: "25.00",
           feeLocks: [changedTerms],
         }),
-      ).toThrow("Price edits must use the listing's locked fee terms");
+      ).toEqual([
+        expect.objectContaining({
+          type: "marketplace.listing.price-updated",
+          data: expect.objectContaining({ termsScheduleId: "cts_current", feeLocks: [changedTerms] }),
+        }),
+      ]);
     });
 
     it("suppresses an equivalent price and locked quote", () => {

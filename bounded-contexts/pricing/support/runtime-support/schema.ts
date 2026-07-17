@@ -7,7 +7,12 @@ import { pricingRecommendationSourceSchemaSql } from "../../features/recommendat
 import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
 import { pricingMarketRollupsSchemaSql } from "../../features/market-rollups/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
-import { pricingBulkRepriceIngestionSchemaSql } from "../../features/bulk-reprice-ingestion/read-model/schema";
+import {
+  pricingBulkRepriceIngestionSchemaMigrations,
+  pricingBulkRepriceIngestionSchemaSql,
+} from "../../features/bulk-reprice-ingestion/read-model/schema";
+
+export const pricingFeatureSchemaMigrations = [...pricingBulkRepriceIngestionSchemaMigrations];
 
 export const pricingSchemaSql = [
   eventCorePostgresSchemaSql,
