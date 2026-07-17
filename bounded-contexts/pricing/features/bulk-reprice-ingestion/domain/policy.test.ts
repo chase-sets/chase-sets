@@ -48,4 +48,31 @@ describe("decodeBulkRepriceIngestionPolicyValue", () => {
       decodeBulkRepriceIngestionPolicyValue({ ...BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE, chunkSize: 1.5 }),
     ).toThrow(/chunkSize/);
   });
+
+  it("rejects create-job rate-limit dials out of bounds", () => {
+    expect(() =>
+      decodeBulkRepriceIngestionPolicyValue({
+        ...BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE,
+        createJobRateLimitMax: 0,
+      }),
+    ).toThrow(/createJobRateLimitMax/);
+    expect(() =>
+      decodeBulkRepriceIngestionPolicyValue({
+        ...BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE,
+        createJobRateLimitWindowMs: 999,
+      }),
+    ).toThrow(/createJobRateLimitWindowMs/);
+  });
+
+  it("adds rate-limit defaults to policy documents authored before those dials existed", () => {
+    const previousDocument = {
+      enabled: true,
+      chunkSize: 200,
+      yieldIntervalMs: 25,
+      maxActiveJobsPerAccount: 1,
+      maxRowsPerUpload: 250_000,
+    };
+
+    expect(decodeBulkRepriceIngestionPolicyValue(previousDocument)).toEqual(BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE);
+  });
 });

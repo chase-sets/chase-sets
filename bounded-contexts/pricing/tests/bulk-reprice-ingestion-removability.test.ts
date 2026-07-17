@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 
 /**
  * m113 #4328's design constraint: bulk reprice ingestion is a removable
- * on-ramp -- "one directory + a documented list of mount lines" (see
- * docs/bulk-reprice-ingestion.md). This test is the
+ * on-ramp -- one feature directory behind one product mount (see the
+ * feature README). This test is the
  * grep-proof: it scans every source file in the repo for a reference to the
  * feature directory and fails if anything outside the documented mount
  * points shows up.
@@ -19,7 +19,7 @@ const scanRoots = ["bounded-contexts", "deployables", "infrastructure", "contrac
 const sourceExtensions = new Set([".ts", ".tsx", ".mjs", ".cjs", ".js"]);
 const skippedDirectoryNames = new Set(["node_modules", "dist", "build", ".turbo", "coverage"]);
 
-/** Files allowed to reference the feature -- the documented mount points from docs/bulk-reprice-ingestion.md. */
+/** Composition-only files allowed to reference the feature, documented in the feature README. */
 const allowedReferencingFiles = new Set(
   [
     "bounded-contexts/pricing/api.ts",
@@ -30,7 +30,6 @@ const allowedReferencingFiles = new Set(
     "bounded-contexts/pricing/routes/marketplace/bulk-reprice.tsx",
     "bounded-contexts/pricing/support/route-support/bulk-reprice/loader.ts",
     "bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts",
-    "deployables/platform-worker/src/main.ts",
   ].map((relativePath) => path.normalize(relativePath)),
 );
 
@@ -108,6 +107,29 @@ describe("bulk reprice ingestion removability", () => {
     expect(violations, `Unexpected references to features/${featureDirName}/ outside documented mount points`).toEqual(
       [],
     );
+  });
+
+  it("has no consumers in another feature slice", () => {
+    const externalFeatureConsumers = [...allowedReferencingFiles].filter((relativePath) =>
+      relativePath.split(path.sep).includes("features"),
+    );
+
+    expect(externalFeatureConsumers).toEqual([]);
+  });
+
+  it("has one flag-gated product mount and an in-directory removal note", () => {
+    const apiSource = readFileSync(path.join(repoRoot, "bounded-contexts/pricing/api.ts"), "utf8");
+    const mountLines = apiSource
+      .split(/\r?\n/)
+      .filter((line) => line.includes("app.route") && line.includes("bulk-reprice"));
+    const featureReadme = readFileSync(
+      path.join(repoRoot, "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/README.md"),
+      "utf8",
+    );
+
+    expect(mountLines).toHaveLength(1);
+    expect(featureReadme).toContain("pricing.bulk-reprice-ingestion.enabled");
+    expect(featureReadme).toContain("No other feature slice may import this feature directory");
   });
 });
 

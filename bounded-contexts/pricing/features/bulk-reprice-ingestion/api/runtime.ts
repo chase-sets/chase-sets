@@ -21,7 +21,7 @@ import {
   buildBulkRepriceResultsCsv,
   type BulkRepriceInputRow,
 } from "../domain/csv";
-import { bulkRepriceIngestionPolicy } from "../domain/policy";
+import { bulkRepriceIngestionPolicy, type BulkRepriceIngestionPolicyValue } from "../domain/policy";
 import {
   countActiveBulkRepriceJobsForAccount,
   listBulkRepriceRows,
@@ -121,6 +121,7 @@ function isEligibleListingStatus(status: string): boolean {
 }
 
 export type BulkRepriceIngestionServices = Readonly<{
+  resolvePolicy: () => Promise<BulkRepriceIngestionPolicyValue>;
   enqueueJob: (
     params: Readonly<{
       accountId: string;
@@ -346,6 +347,7 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
   };
 
   return {
+    resolvePolicy,
     enqueueJob,
     getJob: (jobId) => jobStore.get(jobId),
     listJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),

@@ -6,7 +6,7 @@ import type { PricingApiEnv } from "../../../api";
 import { buildBulkRepriceCsvTemplate } from "../domain/csv";
 import { toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
 
-/** Volume ceiling on job creation, independent of the per-account concurrent-job cap (which is a policy dial, see ../domain/policy.ts). */
+/** Compiled fail-safe values; the effective m110 policy is resolved on every check. */
 const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_SURFACE = "pricing.bulk-reprice-ingestion.create-job";
 const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_MAX = 10;
 const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -84,8 +84,25 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
   const createJobRateLimiter = createPolicyBackedRateLimiter(
     BULK_REPRICE_CREATE_JOB_RATE_LIMIT_SURFACE,
     { max: BULK_REPRICE_CREATE_JOB_RATE_LIMIT_MAX, windowMs: BULK_REPRICE_CREATE_JOB_RATE_LIMIT_WINDOW_MS },
-    async (_surface, defaults) => defaults,
+    async () => {
+      const policy = await services.resolvePolicy();
+      return {
+        max: policy.createJobRateLimitMax,
+        windowMs: policy.createJobRateLimitWindowMs,
+      };
+    },
   );
+
+  // The policy flag gates the whole mounted route tree, including the CSV
+  // template and read endpoints. Disabled means the removable on-ramp is not
+  // an addressable product surface, not merely that writes happen to fail.
+  app.use("*", async (c, next) => {
+    const policy = await services.resolvePolicy();
+    if (!policy.enabled) {
+      return c.notFound();
+    }
+    await next();
+  });
 
   app.get("/template.csv", (c) =>
     c.body(buildBulkRepriceCsvTemplate(), 200, {
