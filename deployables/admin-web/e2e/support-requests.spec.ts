@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
-import { logSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("support admin requests", () => {
   test("operator reviews support queue and escalates overdue requests @admin-support", async ({ page }) => {
@@ -25,37 +24,35 @@ test.describe("support admin requests", () => {
     await escalateOverdue.click();
     await expect(page).toHaveURL(/\/support\/requests\?/);
     const searchParams = new URL(page.url()).searchParams;
-    expect(searchParams.get("escalated")).toMatch(/^\d+$/);
-    expect(searchParams.get("skipped")).toMatch(/^\d+$/);
-    await expect(page.getByText(/Escalated \d+ overdue requests; skipped \d+\./)).toBeVisible();
+    const escalatedParam = searchParams.get("escalated");
+    const skippedParam = searchParams.get("skipped");
+    expect(escalatedParam).toMatch(/^\d+$/);
+    expect(skippedParam).toMatch(/^\d+$/);
+    const escalated = Number(escalatedParam);
+    const skipped = Number(skippedParam);
+    await expect(page.getByText(`Escalated ${escalated} overdue requests; skipped ${skipped}.`)).toBeVisible();
 
-    await expectSupportRequestDetail(page);
+    await expectSupportRequestDrawer(page, { escalated, skipped });
   });
 });
 
-async function expectSupportRequestDetail(page: Page) {
-  // The operations queue (listSupportOperationsQueue) shows only *active* support
-  // requests — non-terminal AND overdue/urgent/ready-for-support, or with a disputed
-  // return-condition gate. The browser-e2e seed's two requests resolve to terminal
-  // states (resolved / closed), so the queue is legitimately empty and renders no
-  // per-row "Open" link (verified by direct inspection of support_request_pages in the
-  // browser-e2e Postgres). Assert the detail round-trip only when an Open link actually
-  // rendered, so the test never assumes an in-queue request the seed does not create.
+async function expectSupportRequestDrawer(page: Page, escalationResult: { escalated: number; skipped: number }) {
   const openLink = page.getByRole("link", { name: "Open" }).first();
-  if (!(await openLink.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    logSeedContractGap(
-      "Support operations queue rendered no 'Open' link: the browser-e2e seed's support requests are all in " +
-        "terminal states (resolved/closed), so none appear in the active operations queue. The empty-queue " +
-        "recovery copy is asserted instead.",
-    );
-    await expect(page.getByText("No requests need support review")).toBeVisible();
-    return;
-  }
-
+  await expect(openLink).toBeVisible();
   await openLink.click();
-  await expect(page).toHaveURL(/\/support\/requests\/sup_/);
-  await expectAdminPageReady(page, { heading: "Support request" });
-  await expect(page.getByRole("heading", { name: "Summary" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Operator actions" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Back to queue" })).toBeVisible();
+  await expect(page).toHaveURL((url) => {
+    return url.pathname === "/support/requests" && /^sup_/.test(url.searchParams.get("requestId") ?? "");
+  });
+
+  const selectedUrl = new URL(page.url());
+  const selectedRequestId = selectedUrl.searchParams.get("requestId");
+  expect(selectedUrl.searchParams.get("escalated")).toBe(String(escalationResult.escalated));
+  expect(selectedUrl.searchParams.get("skipped")).toBe(String(escalationResult.skipped));
+  expect(selectedRequestId).toMatch(/^sup_/);
+
+  const requestDrawer = page.getByRole("dialog", { name: selectedRequestId! });
+  await expect(requestDrawer).toBeVisible();
+  await expect(requestDrawer.getByText("Recommended action")).toBeVisible();
+  await expect(requestDrawer.getByRole("button", { name: /^(Respond|Escalate|Resolve)$/ })).toBeVisible();
+  await expect(requestDrawer.getByRole("button", { name: "Close request details" })).toBeVisible();
 }
