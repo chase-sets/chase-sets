@@ -198,6 +198,67 @@ describe("platform control plane", () => {
     expect(calls[0].sql).toContain("EXCLUDED.fencing_token >= platform_runner_statuses.fencing_token");
   });
 
+  it("reads bounded worker rows and totals from one database snapshot", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const snapshotAt = "2026-07-16T12:00:00.000Z";
+    const controlPlane = createPostgresPlatformControlPlane({
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            {
+              snapshot_at: snapshotAt,
+              workers: [
+                {
+                  worker_id: "boundary-worker",
+                  worker_kind: "platform-worker",
+                  metadata: {},
+                  started_at: "2026-07-16T11:00:00.000Z",
+                  heartbeat_at: "2026-07-16T11:50:00.000Z",
+                },
+              ],
+              active_or_stale_count: "1",
+              expired_total_count: "20000",
+              expired_within_diagnostic_window_count: "20000",
+              expired_returned_count: "100",
+            },
+          ],
+          rowCount: 1,
+        };
+      },
+    });
+
+    await expect(controlPlane.readWorkerHeartbeatHistory()).resolves.toEqual({
+      snapshotAt,
+      workers: [
+        {
+          worker_id: "boundary-worker",
+          worker_kind: "platform-worker",
+          metadata: {},
+          started_at: "2026-07-16T11:00:00.000Z",
+          heartbeat_at: "2026-07-16T11:50:00.000Z",
+        },
+      ],
+      summary: {
+        activeOrStaleCount: 1,
+        expiredTotalCount: 20_000,
+        expiredWithinDiagnosticWindowCount: 20_000,
+        expiredReturnedCount: 100,
+        expiredTruncated: true,
+        expiredDiagnosticLimit: 100,
+        diagnosticWindowMs: 7 * 24 * 60 * 60_000,
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("SELECT statement_timestamp() AS snapshot_at");
+    expect(calls[0].sql).toContain("jsonb_agg");
+    expect(calls[0].sql).toContain("AS expired_total_count");
+    expect(calls[0].params).toEqual([10 * 60_000, 7 * 24 * 60 * 60_000, 100]);
+  });
+
   it("persists projection wake relay cursors with active lease fencing", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const cursorRow = {

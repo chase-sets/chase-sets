@@ -389,7 +389,7 @@ export type PlatformControlPlane = Readonly<{
   ) => Promise<void>;
   listProjectionStatusSnapshots: () => Promise<readonly Record<string, unknown>[]>;
   listWorkerHeartbeats: () => Promise<readonly Record<string, unknown>[]>;
-  summarizeWorkerHeartbeatHistory: () => Promise<WorkerHeartbeatHistorySummary>;
+  readWorkerHeartbeatHistory: () => Promise<WorkerHeartbeatHistorySnapshot>;
   listRunnerStatuses: () => Promise<readonly Record<string, unknown>[]>;
   listLeases: () => Promise<readonly Record<string, unknown>[]>;
   enqueueProjectionOperation: (
@@ -488,6 +488,21 @@ export type WorkerHeartbeatHistorySummary = Readonly<{
   expiredTruncated: boolean;
   expiredDiagnosticLimit: number;
   diagnosticWindowMs: number;
+}>;
+
+export type WorkerHeartbeatHistorySnapshot = Readonly<{
+  snapshotAt: string;
+  workers: readonly Record<string, unknown>[];
+  summary: WorkerHeartbeatHistorySummary;
+}>;
+
+type WorkerHeartbeatHistoryQueryRow = Readonly<{
+  snapshot_at: Date | string;
+  workers: unknown;
+  active_or_stale_count: string | number;
+  expired_total_count: string | number;
+  expired_within_diagnostic_window_count: string | number;
+  expired_returned_count: string | number;
 }>;
 
 type LeaseRow = Readonly<{
@@ -652,6 +667,93 @@ export function createPostgresPlatformControlPlane(
     name: "platform-control-plane.projection-operation-waiter",
     stop: () => projectionOperationWaiter.stop(),
   });
+  const readWorkerHeartbeatHistory = async (): Promise<WorkerHeartbeatHistorySnapshot> => {
+    const result = await db.query<WorkerHeartbeatHistoryQueryRow>(
+      `WITH snapshot AS (
+         SELECT statement_timestamp() AS snapshot_at
+       ),
+       classified AS (
+         SELECT
+           heartbeat.worker_id,
+           heartbeat.worker_kind,
+           heartbeat.metadata,
+           heartbeat.started_at,
+           heartbeat.heartbeat_at,
+           snapshot.snapshot_at,
+           CASE
+             WHEN heartbeat.heartbeat_at >= snapshot.snapshot_at - ($1::bigint * interval '1 millisecond')
+               THEN 'active_or_stale'
+             ELSE 'expired'
+           END AS history_state
+         FROM platform_worker_heartbeats AS heartbeat
+         CROSS JOIN snapshot
+       ),
+       recent_expired AS (
+         SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at, history_state
+         FROM classified
+         WHERE history_state = 'expired'
+           AND heartbeat_at >= snapshot_at - ($2::bigint * interval '1 millisecond')
+         ORDER BY heartbeat_at DESC, worker_id DESC
+         LIMIT $3
+       ),
+       bounded_workers AS (
+         SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at, history_state
+         FROM classified
+         WHERE history_state = 'active_or_stale'
+         UNION ALL
+         SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at, history_state
+         FROM recent_expired
+       )
+       SELECT
+         snapshot.snapshot_at,
+         COALESCE(
+           (
+             SELECT jsonb_agg(
+               to_jsonb(worker) - 'history_state'
+               ORDER BY worker.heartbeat_at DESC, worker.worker_id DESC
+             )
+             FROM bounded_workers AS worker
+           ),
+           '[]'::jsonb
+         ) AS workers,
+         (SELECT count(*) FROM classified WHERE history_state = 'active_or_stale') AS active_or_stale_count,
+         (SELECT count(*) FROM classified WHERE history_state = 'expired') AS expired_total_count,
+         (
+           SELECT count(*)
+           FROM classified
+           WHERE history_state = 'expired'
+             AND heartbeat_at >= snapshot_at - ($2::bigint * interval '1 millisecond')
+         ) AS expired_within_diagnostic_window_count,
+         (SELECT count(*) FROM bounded_workers WHERE history_state = 'expired') AS expired_returned_count
+       FROM snapshot`,
+      [
+        EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS,
+        WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
+        DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Worker heartbeat history query did not return its snapshot row.");
+    }
+
+    const expiredTotalCount = Number(row.expired_total_count);
+    const expiredReturnedCount = Number(row.expired_returned_count);
+
+    return {
+      snapshotAt: formatTimestamp(row.snapshot_at),
+      workers: readJsonRecordArray(row.workers),
+      summary: {
+        activeOrStaleCount: Number(row.active_or_stale_count),
+        expiredTotalCount,
+        expiredWithinDiagnosticWindowCount: Number(row.expired_within_diagnostic_window_count),
+        expiredReturnedCount,
+        expiredTruncated: expiredReturnedCount < expiredTotalCount,
+        expiredDiagnosticLimit: DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
+        diagnosticWindowMs: WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
+      },
+    };
+  };
 
   return {
     bootstrap: () => bootstrapPlatformControlPlane(db),
@@ -845,70 +947,8 @@ export function createPostgresPlatformControlPlane(
          ORDER BY target_context_name, projection_name`,
         )
       ).rows,
-    listWorkerHeartbeats: async () =>
-      (
-        await db.query(
-          `WITH recent_expired AS (
-             SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
-             FROM platform_worker_heartbeats
-             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
-               AND heartbeat_at >= now() - ($2::bigint * interval '1 millisecond')
-             ORDER BY heartbeat_at DESC, worker_id DESC
-             LIMIT $3
-           )
-           SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
-           FROM platform_worker_heartbeats
-           WHERE heartbeat_at >= now() - ($1::bigint * interval '1 millisecond')
-           UNION ALL
-           SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
-           FROM recent_expired
-           ORDER BY heartbeat_at DESC, worker_id DESC`,
-          [
-            EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS,
-            WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
-            DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
-          ],
-        )
-      ).rows,
-    summarizeWorkerHeartbeatHistory: async () => {
-      const result = await db.query<{
-        active_or_stale_count: string | number;
-        expired_total_count: string | number;
-        expired_within_diagnostic_window_count: string | number;
-      }>(
-        `SELECT
-           count(*) FILTER (
-             WHERE heartbeat_at >= now() - ($1::bigint * interval '1 millisecond')
-           ) AS active_or_stale_count,
-           count(*) FILTER (
-             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
-           ) AS expired_total_count,
-           count(*) FILTER (
-             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
-               AND heartbeat_at >= now() - ($2::bigint * interval '1 millisecond')
-           ) AS expired_within_diagnostic_window_count
-         FROM platform_worker_heartbeats`,
-        [EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS, WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS],
-      );
-      const row = result.rows[0];
-      const activeOrStaleCount = Number(row?.active_or_stale_count ?? 0);
-      const expiredTotalCount = Number(row?.expired_total_count ?? 0);
-      const expiredWithinDiagnosticWindowCount = Number(row?.expired_within_diagnostic_window_count ?? 0);
-      const expiredReturnedCount = Math.min(
-        expiredWithinDiagnosticWindowCount,
-        DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
-      );
-
-      return {
-        activeOrStaleCount,
-        expiredTotalCount,
-        expiredWithinDiagnosticWindowCount,
-        expiredReturnedCount,
-        expiredTruncated: expiredReturnedCount < expiredTotalCount,
-        expiredDiagnosticLimit: DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
-        diagnosticWindowMs: WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
-      };
-    },
+    listWorkerHeartbeats: async () => (await readWorkerHeartbeatHistory()).workers,
+    readWorkerHeartbeatHistory,
     listRunnerStatuses: async () =>
       (
         await db.query(
@@ -1667,6 +1707,23 @@ function readJsonRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+function readJsonRecordArray(value: unknown): readonly Record<string, unknown>[] {
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      return readJsonRecordArray(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = readJsonRecord(entry);
+        return record ? [record] : [];
+      })
+    : [];
 }
 
 async function runControlPlaneWrite<T>(db: PgTransactionalPool, work: (queryable: PgQueryable) => Promise<T>) {

@@ -2302,16 +2302,20 @@ function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane>
     recordProjectionStatusSnapshot: overrides.recordProjectionStatusSnapshot ?? (async () => {}),
     listProjectionStatusSnapshots: overrides.listProjectionStatusSnapshots ?? (async () => []),
     listWorkerHeartbeats: overrides.listWorkerHeartbeats ?? (async () => []),
-    summarizeWorkerHeartbeatHistory:
-      overrides.summarizeWorkerHeartbeatHistory ??
+    readWorkerHeartbeatHistory:
+      overrides.readWorkerHeartbeatHistory ??
       (async () => ({
-        activeOrStaleCount: 0,
-        expiredTotalCount: 0,
-        expiredWithinDiagnosticWindowCount: 0,
-        expiredReturnedCount: 0,
-        expiredTruncated: false,
-        expiredDiagnosticLimit: 100,
-        diagnosticWindowMs: 604_800_000,
+        snapshotAt: new Date().toISOString(),
+        workers: [],
+        summary: {
+          activeOrStaleCount: 0,
+          expiredTotalCount: 0,
+          expiredWithinDiagnosticWindowCount: 0,
+          expiredReturnedCount: 0,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 604_800_000,
+        },
       })),
     listRunnerStatuses: overrides.listRunnerStatuses ?? (async () => []),
     listLeases: overrides.listLeases ?? (async () => []),
@@ -2352,14 +2356,18 @@ function createNeverLeasedControlPlane(
     recordProjectionStatusSnapshot: async () => {},
     listProjectionStatusSnapshots: async () => [],
     listWorkerHeartbeats: async () => [],
-    summarizeWorkerHeartbeatHistory: async () => ({
-      activeOrStaleCount: 0,
-      expiredTotalCount: 0,
-      expiredWithinDiagnosticWindowCount: 0,
-      expiredReturnedCount: 0,
-      expiredTruncated: false,
-      expiredDiagnosticLimit: 100,
-      diagnosticWindowMs: 604_800_000,
+    readWorkerHeartbeatHistory: async () => ({
+      snapshotAt: new Date().toISOString(),
+      workers: [],
+      summary: {
+        activeOrStaleCount: 0,
+        expiredTotalCount: 0,
+        expiredWithinDiagnosticWindowCount: 0,
+        expiredReturnedCount: 0,
+        expiredTruncated: false,
+        expiredDiagnosticLimit: 100,
+        diagnosticWindowMs: 604_800_000,
+      },
     }),
     listRunnerStatuses: async () => [],
     listLeases: async () => [],

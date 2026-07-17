@@ -88,8 +88,8 @@ describe("retention sweep Postgres integration", () => {
     );
     const controlPlane = createPostgresPlatformControlPlane(pools.retention);
 
-    const workers = await controlPlane.listWorkerHeartbeats();
-    const history = await controlPlane.summarizeWorkerHeartbeatHistory();
+    const history = await controlPlane.readWorkerHeartbeatHistory();
+    const workers = history.workers;
 
     expect(workers).toHaveLength(DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT + 1);
     expect(workers[0]).toMatchObject({ worker_id: "current-worker" });
@@ -98,7 +98,7 @@ describe("retention sweep Postgres integration", () => {
         .sort((left, right) => Date.parse(String(right.heartbeat_at)) - Date.parse(String(left.heartbeat_at)))
         .map((worker) => worker.worker_id),
     );
-    expect(history).toEqual({
+    expect(history.summary).toEqual({
       activeOrStaleCount: 1,
       expiredTotalCount: 20_000,
       expiredWithinDiagnosticWindowCount: 20_000,

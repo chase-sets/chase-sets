@@ -14,7 +14,7 @@ import {
   EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS,
   type PlatformControlPlane,
   type ProjectionOperationKind,
-  type WorkerHeartbeatHistorySummary,
+  type WorkerHeartbeatHistorySnapshot,
 } from "./control-plane";
 import { createDurableJobEventStream } from "./durable-job-events";
 import { listProjectionPushMigrationEntries, summarizeProjectionPushMigration } from "./projection-push-migration";
@@ -68,14 +68,13 @@ export function createProjectionOperationsRoutes(
     const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
     const projectionGroups = snapshotOverlay.projectionGroups;
 
-    const [workers, workerHeartbeatHistory] = options.controlPlane
-      ? await Promise.all([
-          options.controlPlane.listWorkerHeartbeats(),
-          options.controlPlane.summarizeWorkerHeartbeatHistory(),
-        ])
-      : [[], emptyWorkerHeartbeatHistorySummary()];
-    const classifiedWorkers = classifyWorkerHeartbeats(workers);
-    const returnedExpiredCount = classifiedWorkers.filter((worker) => worker.worker_state === "expired").length;
+    const workerHeartbeatHistory = options.controlPlane
+      ? await options.controlPlane.readWorkerHeartbeatHistory()
+      : emptyWorkerHeartbeatHistorySnapshot();
+    const classifiedWorkers = classifyWorkerHeartbeats(
+      workerHeartbeatHistory.workers,
+      Date.parse(workerHeartbeatHistory.snapshotAt),
+    );
 
     return c.json({
       summary: summarizeProjectionReplayStatuses(projectionGroups),
@@ -83,11 +82,7 @@ export function createProjectionOperationsRoutes(
       blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
       projectionStatusSource: snapshotOverlay.source,
       workers: classifiedWorkers,
-      workerHeartbeatHistory: {
-        ...workerHeartbeatHistory,
-        expiredReturnedCount: returnedExpiredCount,
-        expiredTruncated: returnedExpiredCount < workerHeartbeatHistory.expiredTotalCount,
-      },
+      workerHeartbeatHistory: workerHeartbeatHistory.summary,
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
       operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
       operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
@@ -477,7 +472,11 @@ async function readWakeSchedulerStatus(controlPlane: PlatformControlPlane | unde
     return { available: false } as const;
   }
 
-  const workers = classifyWorkerHeartbeats(await controlPlane.listWorkerHeartbeats());
+  const workerHeartbeatHistory = await controlPlane.readWorkerHeartbeatHistory();
+  const workers = classifyWorkerHeartbeats(
+    workerHeartbeatHistory.workers,
+    Date.parse(workerHeartbeatHistory.snapshotAt),
+  );
   const wakeWorkers = workers.flatMap((worker) => {
     const metadata = readJsonRecord(worker.metadata);
     const runnerGroups = metadata ? readJsonRecord(metadata.runnerGroups) : null;
@@ -594,9 +593,10 @@ function summarizeBlockedProjectionKeys(
   return activeProjectionKeys;
 }
 
-function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {
-  const now = Date.now();
-
+function classifyWorkerHeartbeats(
+  workers: readonly Record<string, unknown>[],
+  now: number,
+): readonly Record<string, unknown>[] {
   return workers.map((worker) => {
     const heartbeatAt = parseTimestamp(worker.heartbeat_at);
     const heartbeatAgeMs = heartbeatAt ? Math.max(0, now - heartbeatAt.getTime()) : null;
@@ -617,15 +617,19 @@ function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): 
   });
 }
 
-function emptyWorkerHeartbeatHistorySummary(): WorkerHeartbeatHistorySummary {
+function emptyWorkerHeartbeatHistorySnapshot(): WorkerHeartbeatHistorySnapshot {
   return {
-    activeOrStaleCount: 0,
-    expiredTotalCount: 0,
-    expiredWithinDiagnosticWindowCount: 0,
-    expiredReturnedCount: 0,
-    expiredTruncated: false,
-    expiredDiagnosticLimit: 0,
-    diagnosticWindowMs: 0,
+    snapshotAt: new Date(0).toISOString(),
+    workers: [],
+    summary: {
+      activeOrStaleCount: 0,
+      expiredTotalCount: 0,
+      expiredWithinDiagnosticWindowCount: 0,
+      expiredReturnedCount: 0,
+      expiredTruncated: false,
+      expiredDiagnosticLimit: 0,
+      diagnosticWindowMs: 0,
+    },
   };
 }
 
