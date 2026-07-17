@@ -174,13 +174,17 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Plan production environment DNS at shipped defaults
+      - name: Plan production environment DNS at retained cutover inputs
         working-directory: infrastructure/digitalocean/environment-dns
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "$PRODUCTION_DOKS_INGRESS_TARGET" ]; then
+            echo "A production DOKS ingress target is required to preserve the live shadow records." >&2
+            exit 1
+          fi
           ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
             -backend-config=key=environment-dns/production.tfstate \
@@ -196,8 +200,8 @@ jobs:
           terraform validate
           terraform plan -lock=false -out=production-environment-dns.tfplan \
             -var=production_app_serving=app-platform \
-            -var=doks_ingress_target= \
-            -var=production_doks_certificate_ready=false \
+            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
+            -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
           terraform show -json production-environment-dns.tfplan > production-environment-dns.tfplan.json
           mkdir -p ../../../artifacts/production-cutover-live-plans

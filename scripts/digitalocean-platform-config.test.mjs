@@ -3290,7 +3290,7 @@ describe("DigitalOcean platform configuration", () => {
 
   it("offers guarded live production plans for both serving modes with no apply edge", () => {
     const planJob = workflowJob(platformProductionWorkflow, "production-cutover-live-plan");
-    const environmentDnsPlan = workflowStep(planJob, "Plan production environment DNS at shipped defaults");
+    const environmentDnsPlan = workflowStep(planJob, "Plan production environment DNS at retained cutover inputs");
     const platformPlans = workflowStep(planJob, "Plan production platform in both serving modes");
     const resolveReleaseJob = workflowJob(platformProductionWorkflow, "resolve-release");
 
@@ -3310,8 +3310,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(planJob, "-var=production_app_serving=app-platform")).toBe(2);
     expect(occurrenceCount(planJob, "-var=production_app_serving=doks")).toBe(1);
     expect(occurrenceCount(planJob, "-var=doks_ingress_target=")).toBe(3);
-    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=false")).toBe(1);
-    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=true")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=false")).toBe(0);
+    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=true")).toBe(3);
     expect(occurrenceCount(planJob, "-var=production_marketplace_public_enabled=false")).toBe(3);
     expect(occurrenceCount(planJob, "test \"$(jq -r '.destroy'")).toBe(2);
     expect(platformPlans).toContain('terraform state pull > "$plan_root/terraform.tfstate"');
