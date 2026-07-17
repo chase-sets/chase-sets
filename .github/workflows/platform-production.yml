@@ -83,7 +83,7 @@ jobs:
       - name: Known Failure Guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
         run: |
           node ./scripts/release-health-merge-group-failure-signatures.mjs \
             --command guard \
@@ -205,7 +205,7 @@ jobs:
       - name: Known Failure Guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
         run: |
           node ./scripts/release-health-merge-group-failure-signatures.mjs \
             --command guard \

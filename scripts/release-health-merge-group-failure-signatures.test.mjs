@@ -450,8 +450,10 @@ describe("workflow contracts", () => {
     expect(detector).toContain("workflows: [Platform PR, Platform Deploy, Platform Ephemeral Verification]");
     expect(detector).toContain("issues: write");
     expect(platformPr).toContain("known-failure-guard:");
+    expect(platformPr).toContain("DELIVERY_FAILURE_MERGE_GROUP_CIRCUIT_ENFORCEMENT");
     expect(platformPr.indexOf("known-failure-guard:")).toBeLessThan(platformPr.indexOf("  static:"));
     expect(production).toContain("--lane staging");
+    expect(production).toContain("DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT");
     expect(production).toContain("--circuit-issue-number");
     expect(production.indexOf("Known Failure Guard")).toBeLessThan(
       production.indexOf("Activate immutable release before staging mutation"),

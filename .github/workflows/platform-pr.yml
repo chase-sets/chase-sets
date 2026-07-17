@@ -34,7 +34,7 @@ jobs:
         if: github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_MERGE_GROUP_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
         run: |
           node ./scripts/release-health-merge-group-failure-signatures.mjs \
             --command guard \
