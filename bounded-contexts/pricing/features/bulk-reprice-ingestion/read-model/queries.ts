@@ -64,7 +64,9 @@ export async function upsertBulkRepriceRows(
        previous_price_amount = EXCLUDED.previous_price_amount,
        outcome = EXCLUDED.outcome,
        error_message = EXCLUDED.error_message,
-       updated_at = now()`,
+       updated_at = now()
+     WHERE pricing_bulk_reprice_rows.outcome = 'failed'
+       AND EXCLUDED.outcome IN ('applied', 'unchanged')`,
     values,
   );
 }
@@ -113,17 +115,54 @@ export async function summarizeBulkRepriceRowOutcomes(
   return { applied, unchanged, failed, total: applied + unchanged + failed };
 }
 
-/** Counts an account's queued/running bulk-reprice jobs -- backs the "one active job per account" cap. */
-export async function countActiveBulkRepriceJobsForAccount(
+export type BulkRepriceCreateRateLimitDecision = Readonly<{
+  limited: boolean;
+  count: number;
+  limit: number;
+  retryAfterSeconds: number;
+}>;
+
+/**
+ * Atomically increments the feature-owned create-request bucket. The policy
+ * supplies the effective m110 rule; Postgres supplies the cross-replica
+ * counter because the repo has no shared rate-limit bucket service.
+ */
+export async function checkBulkRepriceCreateRateLimit(
   db: PgQueryable,
-  params: Readonly<{ accountId: string }>,
-): Promise<number> {
-  const result = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
-     FROM pricing_bulk_reprice_jobs
-     WHERE status IN ('queued', 'running')
-       AND (event_context->'audit'->>'forAccountId') = $1`,
-    [params.accountId],
+  params: Readonly<{ accountId: string; max: number; windowMs: number }>,
+): Promise<BulkRepriceCreateRateLimitDecision> {
+  const result = await db.query<{ request_count: number | string; retry_after_seconds: number | string }>(
+    `WITH bucket AS (
+       INSERT INTO pricing_bulk_reprice_create_rate_limit_buckets
+         (account_id, request_count, window_started_at, updated_at)
+       VALUES ($1, 1, now(), now())
+       ON CONFLICT (account_id) DO UPDATE SET
+         request_count = CASE
+           WHEN pricing_bulk_reprice_create_rate_limit_buckets.window_started_at
+             + ($2::text || ' milliseconds')::interval <= now() THEN 1
+           ELSE pricing_bulk_reprice_create_rate_limit_buckets.request_count + 1
+         END,
+         window_started_at = CASE
+           WHEN pricing_bulk_reprice_create_rate_limit_buckets.window_started_at
+             + ($2::text || ' milliseconds')::interval <= now() THEN now()
+           ELSE pricing_bulk_reprice_create_rate_limit_buckets.window_started_at
+         END,
+         updated_at = now()
+       RETURNING request_count, window_started_at
+     )
+     SELECT request_count,
+            GREATEST(
+              CEIL(EXTRACT(EPOCH FROM (window_started_at + ($2::text || ' milliseconds')::interval - now())))::integer,
+              1
+            ) AS retry_after_seconds
+     FROM bucket`,
+    [params.accountId, params.windowMs],
   );
-  return Number(result.rows[0]?.count ?? "0");
+  const count = Number(result.rows[0]?.request_count ?? 1);
+  return {
+    limited: count > params.max,
+    count,
+    limit: params.max,
+    retryAfterSeconds: Number(result.rows[0]?.retry_after_seconds ?? 1),
+  };
 }

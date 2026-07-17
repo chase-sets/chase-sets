@@ -1079,6 +1079,19 @@ describe("platform worker runner loop", () => {
       heartbeatWorker: vi.fn(async () => undefined),
       listProjectionStatusSnapshots: vi.fn(async () => []),
       listWorkerHeartbeats: vi.fn(async () => []),
+      readWorkerHeartbeatHistory: vi.fn(async () => ({
+        snapshotAt: new Date().toISOString(),
+        workers: [],
+        summary: {
+          activeOrStaleCount: 0,
+          expiredTotalCount: 0,
+          expiredWithinDiagnosticWindowCount: 0,
+          expiredReturnedCount: 0,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 604_800_000,
+        },
+      })),
       listRunnerStatuses: vi.fn(async () => []),
       listLeases: vi.fn(async () => []),
       enqueueProjectionOperation: vi.fn(async () => {

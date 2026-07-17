@@ -1,15 +1,9 @@
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
-import { createPolicyBackedRateLimiter } from "@chase-sets/http/rate-limit";
 import type { PricingApiEnv } from "../../../api";
 import { buildBulkRepriceCsvTemplate } from "../domain/csv";
 import { toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
-
-/** Volume ceiling on job creation, independent of the per-account concurrent-job cap (which is a policy dial, see ../domain/policy.ts). */
-const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_SURFACE = "pricing.bulk-reprice-ingestion.create-job";
-const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_MAX = 10;
-const BULK_REPRICE_CREATE_JOB_RATE_LIMIT_WINDOW_MS = 60_000;
 
 function requireBulkRepriceAccess(c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -81,11 +75,17 @@ async function parseCreateJobRequest(
 
 export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionServices) {
   const app = new Hono<PricingApiEnv>();
-  const createJobRateLimiter = createPolicyBackedRateLimiter(
-    BULK_REPRICE_CREATE_JOB_RATE_LIMIT_SURFACE,
-    { max: BULK_REPRICE_CREATE_JOB_RATE_LIMIT_MAX, windowMs: BULK_REPRICE_CREATE_JOB_RATE_LIMIT_WINDOW_MS },
-    async (_surface, defaults) => defaults,
-  );
+
+  // The policy flag gates the whole mounted route tree, including the CSV
+  // template and read endpoints. Disabled means the removable on-ramp is not
+  // an addressable product surface, not merely that writes happen to fail.
+  app.use("*", async (c, next) => {
+    const policy = await services.resolvePolicy();
+    if (!policy.enabled) {
+      return c.notFound();
+    }
+    await next();
+  });
 
   app.get("/template.csv", (c) =>
     c.body(buildBulkRepriceCsvTemplate(), 200, {
@@ -100,7 +100,7 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
       return access.response;
     }
 
-    const rateLimit = await createJobRateLimiter.check(`account:${access.actor.accountId}`);
+    const rateLimit = await services.checkCreateJobRateLimit(access.actor.accountId);
     if (rateLimit.limited) {
       return c.json(
         {

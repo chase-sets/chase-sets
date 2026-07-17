@@ -5,6 +5,7 @@ import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { classifyDeploymentRootCause, redactDeployDiagnosticText } from "./platform-deploy-incident.mjs";
 
 const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANCELLED", "SUPERSEDED"]);
 
@@ -13,6 +14,7 @@ const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
 const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
 const DEPLOYMENT_SUMMARY_API_PAGE_SIZE = 20;
 const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
+const FAILED_DEPLOYMENT_RELEVANCE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
 const APP_SPEC_IMAGE_COLLECTIONS = ["jobs", "services", "workers", "static_sites", "functions"];
 const ROLLBACK_TARGET_SCHEMA_VERSION = "digitalocean-app-rollback-target/v1";
@@ -247,56 +249,79 @@ function componentNamesFromSpecCollection(collection) {
 
 function deploymentProgressSteps(deployment) {
   const progress = deployment?.progress ?? deployment?.Progress ?? {};
-  return progress.steps ?? progress.Steps ?? [];
+  return normalizeDeploymentProgressSteps(progress.steps ?? progress.Steps ?? []);
 }
 
 function normalizeDiagnosticStep(step) {
+  const reason = step.reason ?? step.Reason ?? {};
   return {
     name: step.name ?? step.Name ?? step.component_name ?? step.componentName ?? "unnamed-step",
-    status: step.status ?? step.Status ?? step.phase ?? step.Phase ?? "unknown",
-    reason: step.reason?.message ?? step.reason?.code ?? step.Reason?.Message ?? step.Reason?.Code ?? "",
+    componentName: step.componentName ?? step.component_name ?? step.name ?? step.Name ?? "unknown",
+    phase: step.phase ?? step.Phase ?? step.status ?? step.Status ?? "unknown",
+    reasonCode: step.reasonCode ?? reason.code ?? reason.Code ?? "",
+    message: step.message ?? step.Message ?? reason.message ?? reason.Message ?? "",
   };
 }
 
-function diagnosticStepIsBootstrapFailure(step) {
-  return (
-    /platform-bootstrap/i.test(step.name) &&
-    /DeployContainerExitNonZero/i.test(step.reason) &&
-    /error|failed/i.test(step.status)
-  );
+function childDiagnosticSteps(step) {
+  const progress = step.progress ?? step.Progress ?? {};
+  return [
+    ...(step.steps ?? step.Steps ?? []),
+    ...(step.children ?? step.Children ?? []),
+    ...(step.substeps ?? step.sub_steps ?? step.Substeps ?? []),
+    ...(progress.steps ?? progress.Steps ?? []),
+  ];
 }
 
-function redactDiagnosticOutput(output) {
-  return String(output ?? "")
-    .replace(/(authorization\s*:\s*bearer\s+)\S+/gi, "$1[REDACTED]")
-    .replace(/(bearer\s+)\S+/gi, "$1[REDACTED]")
-    .replace(/(postgres(?:ql)?:\/\/)[^\s"']+/gi, "$1[REDACTED]")
-    .replace(/\b(?:gho_|ghp_|dop_v1_|sk_(?:live|test)_)[A-Za-z0-9_-]+/g, "[REDACTED_TOKEN]")
-    .replace(/((?:password|secret|token|api[_-]?key|cookie|database[_-]?url)\s*[=:]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
+export function normalizeDeploymentProgressSteps(steps, inheritedComponent = "") {
+  return (steps ?? []).flatMap((step) => {
+    const normalized = normalizeDiagnosticStep(step);
+    const genericStepName = /^(?:deploy|build|prepare|finalize|route|wait)$/i.test(normalized.name);
+    const explicitComponent = step.componentName ?? step.component_name ?? "";
+    const componentName =
+      explicitComponent || (!genericStepName ? normalized.name : "") || inheritedComponent || "unknown";
+    const current = { ...normalized, componentName: componentName || "unknown" };
+    return [current, ...normalizeDeploymentProgressSteps(childDiagnosticSteps(step), current.componentName)];
+  });
 }
 
 export function buildDeploymentDiagnosticsRecord(options = {}) {
-  const steps = (options.steps ?? []).map(normalizeDiagnosticStep);
+  const steps = (options.steps ?? []).map(normalizeDiagnosticStep).map((step) => ({
+    name: redactDeployDiagnosticText(step.name),
+    componentName: redactDeployDiagnosticText(step.componentName),
+    phase: redactDeployDiagnosticText(step.phase),
+    reasonCode: redactDeployDiagnosticText(step.reasonCode),
+    message: redactDeployDiagnosticText(step.message),
+  }));
+  const logs = (options.logs ?? []).map((entry) => ({
+    componentName: entry.componentName,
+    logType: entry.logType,
+    ok: entry.ok,
+    ...(entry.ok
+      ? {
+          output: redactDeployDiagnosticText(entry.output),
+        }
+      : { error: redactDeployDiagnosticText(entry.error) }),
+  }));
+  const rootCause = classifyDeploymentRootCause({ steps, logs, phase: "app-platform-bootstrap" });
   return {
-    schemaVersion: "digitalocean-app-deployment-diagnostics/v1",
+    schemaVersion: "digitalocean-app-deployment-diagnostics/v2",
     capturedAt: options.capturedAt ?? new Date().toISOString(),
     appId: options.appId ?? "",
     deploymentId: options.deploymentId ?? "",
     deploymentPhase: options.deploymentPhase ?? "",
     componentNames: [...(options.componentNames ?? [])].sort(),
     logTypes: [...(options.logTypes ?? [])].sort(),
-    bootstrapFailure: steps.some(diagnosticStepIsBootstrapFailure),
+    bootstrapFailure: rootCause.rootCauseCode.startsWith("app-platform-bootstrap-"),
+    rootCauseCode: rootCause.rootCauseCode,
+    rootCauseSummary: rootCause.rootCauseSummary,
+    affectedComponent: rootCause.affectedComponent,
+    phase: rootCause.phase,
+    remediation: rootCause.remediation,
+    providerReason: rootCause.providerReason,
+    rootCauseSignature: rootCause.rootCauseSignature,
     steps,
-    logs: (options.logs ?? []).map((entry) => ({
-      componentName: entry.componentName,
-      logType: entry.logType,
-      ok: entry.ok,
-      ...(entry.ok
-        ? {
-            output: redactDiagnosticOutput(entry.output),
-          }
-        : { error: redactDiagnosticOutput(entry.error) }),
-    })),
+    logs,
   };
 }
 
@@ -697,10 +722,22 @@ export function latestDeployment(deployments) {
     })[0];
 }
 
-export function deploymentForDiagnostics(deployments) {
+export function deploymentForDiagnostics(deployments, options = {}) {
   const summaries = deployments.map(normalizeDeploymentSummary).filter((deployment) => deployment.id);
-  const failed = summaries.filter((deployment) => deployment.phase === "ERROR");
-  return latestDeployment(failed.length > 0 ? failed : summaries);
+  const latest = latestDeployment(summaries);
+  const latestFailed = latestDeployment(summaries.filter((deployment) => deployment.phase === "ERROR"));
+  if (!latestFailed || !latest || latestFailed.id === latest.id) {
+    return latest;
+  }
+
+  const latestTimestamp = timestampValue(latest.updatedAt || latest.createdAt);
+  const failedTimestamp = timestampValue(latestFailed.updatedAt || latestFailed.createdAt);
+  const relevanceWindowMs = options.failureRelevanceWindowMs ?? FAILED_DEPLOYMENT_RELEVANCE_WINDOW_MS;
+  if (latestTimestamp <= 0 || failedTimestamp <= 0 || latestTimestamp - failedTimestamp <= relevanceWindowMs) {
+    return latestFailed;
+  }
+
+  return latest;
 }
 
 export function deploymentComponentNames(app) {
@@ -902,7 +939,11 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
       for (const step of steps) {
         const normalizedStep = normalizeDiagnosticStep(step);
         log(
-          `- ${normalizedStep.name}: ${normalizedStep.status}${normalizedStep.reason ? ` - ${normalizedStep.reason}` : ""}`,
+          `- ${normalizedStep.name}: ${normalizedStep.phase}${
+            normalizedStep.reasonCode || normalizedStep.message
+              ? ` - ${[normalizedStep.reasonCode, normalizedStep.message].filter(Boolean).join(": ")}`
+              : ""
+          }`,
         );
       }
     }
@@ -945,7 +986,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
       log(`\n--- ${componentName} ${logType} logs (${deployment.id}) ---`);
       try {
         const output = await command("doctl", args, { timeoutMs: commandTimeoutMs });
-        const trimmed = redactDiagnosticOutput(output.trim());
+        const trimmed = redactDeployDiagnosticText(output.trim());
         log(trimmed || "(no log lines returned)");
         collectedLogs.push({ componentName, logType, ok: true, output });
       } catch (error) {

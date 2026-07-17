@@ -6,7 +6,7 @@ import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
-  assertFeeLockTermsPreserved,
+  assertFeeLockTranchesPreserved,
   currentMarketplaceListingFeeLock,
   normalizeMarketplaceListingFeeLock,
   resizeMarketplaceListingFeeLocks,
@@ -671,7 +671,7 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
       const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
-      assertFeeLockTermsPreserved(state.feeLocks, feeLocks);
+      assertFeeLockTranchesPreserved(state.feeLocks, feeLocks);
       assert(totalFeeLockedUnits(feeLocks) === state.quantityCap, "Price edit fee locks must cover listed quantity.");
       const data = {
         priceAmount: normalizeMoneyAmount(command.priceAmount),

@@ -422,6 +422,37 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getAllByText("Stale workers").length).toBeGreaterThan(0);
   });
 
+  it("server-renders a 20,000-row heartbeat history as only the capped diagnostic repair queue", () => {
+    const expiredWorkers = Array.from({ length: 100 }, (_, index) => ({
+      worker_id: `expired-${String(index).padStart(3, "0")}`,
+      worker_kind: "platform-worker",
+      worker_state: "expired",
+    }));
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok", outstandingEventCount: "0" },
+      projectionStatusSource: "worker-snapshot",
+      workers: [{ worker_id: "active", worker_kind: "platform-worker", worker_state: "active" }, ...expiredWorkers],
+      workerHeartbeatHistory: {
+        activeOrStaleCount: 1,
+        expiredTotalCount: 20_000,
+        expiredWithinDiagnosticWindowCount: 20_000,
+        expiredReturnedCount: expiredWorkers.length,
+        expiredTruncated: true,
+        expiredDiagnosticLimit: expiredWorkers.length,
+        diagnosticWindowMs: 7 * 24 * 60 * 60_000,
+      },
+    });
+
+    const { container } = render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
+
+    expect(screen.getByText("1 / 20000 stale")).toBeTruthy();
+    const detailTargets = new Set(
+      screen.getAllByRole("link", { name: "Details" }).map((link) => link.getAttribute("href")),
+    );
+    expect(detailTargets.size).toBe(100);
+    expect(Buffer.byteLength(container.innerHTML, "utf8")).toBeLessThan(2 * 1024 * 1024);
+  });
+
   it("renders the push-wake handoff without duplicating Grafana telemetry sections", () => {
     const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
     const wakeStatus = normalizeWakeStatusSnapshot({

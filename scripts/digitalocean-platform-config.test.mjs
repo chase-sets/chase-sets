@@ -407,6 +407,18 @@ function platformApiContextNames() {
     .map(({ dirName }) => dirName);
 }
 
+function platformApiRuntimeContextNames(runtimeProfile) {
+  return listContextManifests()
+    .filter(
+      ({ manifest }) =>
+        (manifest.apiDeployables?.includes("platform-api") && manifest.apiRuntimeProfiles?.includes(runtimeProfile)) ||
+        (manifest.sourceRuntimeDeployables?.includes("platform-api") &&
+          manifest.sourceRuntimeProfiles?.includes(runtimeProfile)),
+    )
+    .map(({ manifest }) => manifest.contextName)
+    .sort((left, right) => left.localeCompare(right, "en"));
+}
+
 describe("DigitalOcean platform configuration", () => {
   it("keeps project assignment optional and all automated plans offline", () => {
     const validationProjectId = "TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000";
@@ -1164,6 +1176,7 @@ describe("DigitalOcean platform configuration", () => {
       "Seed staging Kubernetes scenario data",
     );
     const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
+    const stagingFailureClassificationStep = workflowStep(deployStagingJob, "Classify staging deployment failure");
     const stagingIngressWaitStep = workflowStep(deployStagingJob, "Wait for staging ingress URLs");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
@@ -1185,6 +1198,10 @@ describe("DigitalOcean platform configuration", () => {
     const productionKubernetesDiagnosticsUpload = workflowStep(
       deployProductionJob,
       "Upload production Kubernetes deploy diagnostics",
+    );
+    const productionFailureClassificationStep = workflowStep(
+      deployProductionJob,
+      "Classify production deployment failure",
     );
     const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
@@ -1211,6 +1228,11 @@ describe("DigitalOcean platform configuration", () => {
       "--out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json",
     );
     expect(stagingAppPlatformBootstrapDiagnosticsUpload).toContain("name: staging-app-platform-bootstrap-diagnostics");
+    expect(stagingFailureClassificationStep).toContain("--command classify-root-cause");
+    expect(stagingFailureClassificationStep).toContain("--phase staging-deploy");
+    expect(stagingFailureClassificationStep).toContain("staging-deploy-root-cause.json");
+    expect(stagingFailureClassificationStep).toContain('github-summary "$GITHUB_STEP_SUMMARY"');
+    expect(stagingFailureClassificationStep).not.toContain("grep -Eiq");
     expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
     expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
     expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
@@ -1532,6 +1554,9 @@ describe("DigitalOcean platform configuration", () => {
       "name: production-app-platform-bootstrap-diagnostics",
     );
     expect(productionKubernetesDiagnosticsUpload).toContain("name: production-kubernetes-deploy-diagnostics");
+    expect(productionFailureClassificationStep).toContain("--command classify-root-cause");
+    expect(productionFailureClassificationStep).toContain("--phase production-deploy");
+    expect(productionFailureClassificationStep).toContain("production-deploy-root-cause.json");
 
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
@@ -1632,6 +1657,20 @@ describe("DigitalOcean platform configuration", () => {
       "provisioned_context_names = local.is_production ? local.production_provisioned_context_names : local.active_runtime_context_names",
     );
     expect(platformLocals).toContain("context_database_names = local.provisioned_context_names");
+  });
+
+  it("wires every manifest-selected landing platform-api context to a pooled database URL", () => {
+    const landingContexts = terraformStringList(platformLocals, "landing_context_names");
+
+    expect(landingContexts).toEqual(expect.arrayContaining(platformApiRuntimeContextNames("landing")));
+    expect(landingContexts).toContain("marketplace");
+    expect(platformLocals).toContain(
+      "context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes",
+    );
+    expect(platformLocals).toContain(
+      "connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))",
+    );
+    expect(platformMain).toContain("for_each = local.context_database_env");
   });
 
   it("pre-provisions production context databases even when public marketplace exposure is gated", () => {
@@ -2113,8 +2152,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).toContain("name: Classify deploy outcome");
     expect(notifyProductionDeployIncidentJob).toContain("id: classify_deploy_outcome");
     expect(notifyProductionDeployIncidentJob).toContain("node ./scripts/platform-deploy-incident.mjs");
+    expect(notifyProductionDeployIncidentJob).toContain("--command build-incident-body");
+    expect(notifyProductionDeployIncidentJob).toContain("ROOT_CAUSE_SIGNATURE:");
     expect(notifyProductionDeployIncidentJob).toContain(
-      "Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION:-unknown}",
+      'title="Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON} [${ROOT_CAUSE_SIGNATURE}]"',
     );
     expect(notifyProductionDeployIncidentJob).toContain(
       "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}",
@@ -2129,7 +2170,7 @@ describe("DigitalOcean platform configuration", () => {
       'issue_create_args+=(--milestone "${incident_milestone_title}")',
     );
     expect(notifyProductionDeployIncidentJob).not.toContain('--milestone "Incidents"');
-    expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
+    expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON}");
     expect(notifyProductionDeployIncidentJob).not.toContain("Kind: production-superseded");
     expect(notifyProductionDeployIncidentJob).not.toContain("needs.deploy-production.outputs.superseded == 'true'");
     expect(notifyProductionDeployIncidentJob).toContain('gh issue close "${issue_number}"');
@@ -2148,9 +2189,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(closeResolvedDeployIncidentsJob).toContain("issues: write");
     expect(closeResolvedDeployIncidentsJob).toContain("Close resolved deploy incidents");
     expect(closeResolvedDeployIncidentsJob).toContain('--search "\\"Incident: Platform Deploy\\" in:title"');
-    expect(closeResolvedDeployIncidentsJob).toContain(
-      'startswith("Incident: Platform Deploy superseded before production for ")',
-    );
+    expect(closeResolvedDeployIncidentsJob).toContain('startswith("Incident: Platform Deploy ")');
     expect(closeResolvedDeployIncidentsJob).toContain("Resolving workflow run: ${RUN_URL}");
     expect(closeResolvedDeployIncidentsJob).toContain("Resolving release commit: ${release_commit}");
     expect(closeResolvedDeployIncidentsJob).toContain('gh issue close "${issue_number}"');
@@ -2388,6 +2427,15 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("captures sensitive Terraform errored state artifacts when platform apply fails", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const stagingDnsApplyStep = workflowStep(stagingJob, "Terraform apply staging environment DNS");
+    const stagingPlanStep = workflowStep(stagingJob, "Terraform plan");
+    const stagingApplyStep = workflowSteps(stagingJob, "Terraform apply").at(-1);
+    const productionPlanStep = workflowStep(productionJob, "Terraform plan");
+    const productionApplyStep = workflowSteps(productionJob, "Terraform apply").at(-1);
+    const stagingClassificationStep = workflowStep(stagingJob, "Classify staging deployment failure");
+    const productionClassificationStep = workflowStep(productionJob, "Classify production deployment failure");
     const stagingCaptureStep = workflowStep(platformProductionWorkflow, "Capture staging Terraform errored state");
     const stagingUploadStep = workflowStep(platformProductionWorkflow, "Upload staging Terraform errored state");
     const productionCaptureStep = workflowStep(
@@ -2422,6 +2470,26 @@ describe("DigitalOcean platform configuration", () => {
     expect(productionCaptureIndex).toBeGreaterThan(productionApplyIndex);
     expect(productionUploadIndex).toBeGreaterThan(productionCaptureIndex);
     expect(productionDiagnosticsIndex).toBeGreaterThan(productionUploadIndex);
+
+    expect(stagingDnsApplyStep).toContain(
+      '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)',
+    );
+    expect(stagingPlanStep).toContain(
+      '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)',
+    );
+    expect(stagingApplyStep).toContain(
+      '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)',
+    );
+    expect(stagingClassificationStep).toContain("artifacts/release-health/staging-terraform-diagnostics.txt");
+    expect(productionPlanStep).toContain(
+      '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)',
+    );
+    expect(productionApplyStep).toContain(
+      '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)',
+    );
+    expect(productionClassificationStep).toContain("artifacts/release-health/production-terraform-diagnostics.txt");
+    expect(productionClassificationStep).toContain("--phase production-deploy");
+    expect(productionClassificationStep).not.toContain("--phase production-verification");
 
     expect(stagingCaptureStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(stagingCaptureStep).toContain("id: capture_staging_terraform_errored_state");

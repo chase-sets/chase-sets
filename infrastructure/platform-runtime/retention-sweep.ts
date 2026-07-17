@@ -54,6 +54,14 @@ export const sharedNotificationOutboxRetentionSweep: BcRetentionSweep = {
 
 export const platformControlRetentionSweeps: readonly BcRetentionSweep[] = [
   {
+    name: "expired-worker-heartbeats",
+    tableName: "platform_worker_heartbeats",
+    predicateSql: "candidate.heartbeat_at < now() - interval '7 days'",
+    orderBySql: "candidate.heartbeat_at ASC, candidate.worker_id ASC",
+    intervalMs: 6 * HOUR_MS,
+    batchLimit: 500,
+  },
+  {
     name: "terminal-projection-operations",
     tableName: "platform_projection_operations",
     predicateSql: `candidate.state IN ('succeeded', 'failed', 'cancelled')

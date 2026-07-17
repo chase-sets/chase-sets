@@ -43,6 +43,19 @@ function createControlPlane(overrides: Partial<PlatformControlPlane> = {}): Plat
   return {
     listProjectionStatusSnapshots: vi.fn(async () => []),
     listWorkerHeartbeats: vi.fn(async () => []),
+    readWorkerHeartbeatHistory: vi.fn(async () => ({
+      snapshotAt: new Date().toISOString(),
+      workers: [],
+      summary: {
+        activeOrStaleCount: 0,
+        expiredTotalCount: 0,
+        expiredWithinDiagnosticWindowCount: 0,
+        expiredReturnedCount: 0,
+        expiredTruncated: false,
+        expiredDiagnosticLimit: 100,
+        diagnosticWindowMs: 604_800_000,
+      },
+    })),
     listRunnerStatuses: vi.fn(async () => []),
     listProjectionOperations: vi.fn(async () => []),
     summarizeProjectionOperations: vi.fn(async () => ({
@@ -382,6 +395,94 @@ describe("projection operations routes", () => {
       projectionStatusSource: "runtime-memory",
       workers: [],
       runners: [],
+    });
+  });
+
+  it("bounds a 20,000-row expired heartbeat fixture and publishes truncation metadata", async () => {
+    const now = Date.now();
+    const expiredFixture = Array.from({ length: 20_000 }, (_, index) => ({
+      worker_id: `expired-${String(index).padStart(5, "0")}`,
+      worker_kind: "platform-worker",
+      metadata: { process: index },
+      started_at: new Date(now - 24 * 60 * 60_000).toISOString(),
+      heartbeat_at: new Date(now - 11 * 60_000 - index * 1_000).toISOString(),
+    }));
+    const returnedExpired = expiredFixture.slice(0, 100);
+    const currentWorker = {
+      worker_id: "current-worker",
+      worker_kind: "platform-worker",
+      metadata: {},
+      started_at: new Date(now - 30_000).toISOString(),
+      heartbeat_at: new Date(now).toISOString(),
+    };
+    const controlPlane = createControlPlane({
+      readWorkerHeartbeatHistory: vi.fn(async () => ({
+        snapshotAt: new Date(now).toISOString(),
+        workers: [currentWorker, ...returnedExpired],
+        summary: {
+          activeOrStaleCount: 1,
+          expiredTotalCount: expiredFixture.length,
+          expiredWithinDiagnosticWindowCount: expiredFixture.length,
+          expiredReturnedCount: returnedExpired.length,
+          expiredTruncated: true,
+          expiredDiagnosticLimit: returnedExpired.length,
+          diagnosticWindowMs: 7 * 24 * 60 * 60_000,
+        },
+      })),
+    });
+    const response = await createRouteApp(platformActor, createRuntime(), { controlPlane }).request("/");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      workers: Array<Record<string, unknown>>;
+      workerHeartbeatHistory: Record<string, unknown>;
+    };
+    expect(body.workers).toHaveLength(101);
+    expect(body.workers[0]).toMatchObject({ worker_id: "current-worker", worker_state: "active" });
+    expect(body.workers.slice(1).map((worker) => worker.worker_id)).toEqual(
+      returnedExpired.map((worker) => worker.worker_id),
+    );
+    expect(body.workerHeartbeatHistory).toMatchObject({
+      expiredTotalCount: 20_000,
+      expiredReturnedCount: 100,
+      expiredTruncated: true,
+    });
+    expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeLessThan(2 * 1024 * 1024);
+  });
+
+  it("classifies an exact staleness-boundary row with the database snapshot clock", async () => {
+    const snapshotAt = Date.now() - 60_000;
+    const boundaryWorker = {
+      worker_id: "boundary-worker",
+      worker_kind: "platform-worker",
+      metadata: {},
+      started_at: new Date(snapshotAt - 60 * 60_000).toISOString(),
+      heartbeat_at: new Date(snapshotAt - 10 * 60_000).toISOString(),
+    };
+    const controlPlane = createControlPlane({
+      readWorkerHeartbeatHistory: vi.fn(async () => ({
+        snapshotAt: new Date(snapshotAt).toISOString(),
+        workers: [boundaryWorker],
+        summary: {
+          activeOrStaleCount: 1,
+          expiredTotalCount: 0,
+          expiredWithinDiagnosticWindowCount: 0,
+          expiredReturnedCount: 0,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 7 * 24 * 60 * 60_000,
+        },
+      })),
+    });
+
+    const response = await createRouteApp(platformActor, createRuntime(), { controlPlane }).request("/");
+    const body = (await response.json()) as { workers: Array<Record<string, unknown>> };
+
+    expect(body.workers).toHaveLength(1);
+    expect(body.workers[0]).toMatchObject({
+      worker_id: "boundary-worker",
+      worker_state: "stale",
+      heartbeat_age_ms: 10 * 60_000,
     });
   });
 

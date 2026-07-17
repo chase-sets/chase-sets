@@ -59,6 +59,17 @@ describe("parseBulkRepriceCsv", () => {
     expect(rows[1]!.validationErrors).toHaveLength(1);
   });
 
+  it("flags prices above the shared numeric(12,2) money ceiling per row", () => {
+    const rows = parseBulkRepriceCsv(
+      ["sellerSku,listingId,newPrice", "ABC-123,,10000000000.00", "ABC-124,,9999999999.99"].join("\n"),
+    );
+
+    expect(rows[0]!.validationErrors).toEqual([
+      "New price '10000000000.00' is not a valid positive money amount at or below 9999999999.99.",
+    ]);
+    expect(rows[1]!.validationErrors).toEqual([]);
+  });
+
   it("handles quoted fields with embedded commas", () => {
     const csv = ["sellerSku,listingId,newPrice", '"ABC, 123",,12.99'].join("\n");
     const rows = parseBulkRepriceCsv(csv);
@@ -111,5 +122,24 @@ describe("buildBulkRepriceResultsCsv", () => {
       "rowNumber,sellerSku,listingId,requestedPrice,resolvedListingId,previousPrice,outcome,errorMessage",
     );
     expect(lines[1]).toBe("1,ABC-123,,12.99,lst_1,11.00,applied,");
+  });
+
+  it("neutralizes spreadsheet formulas in every user-controlled result cell", () => {
+    const csv = buildBulkRepriceResultsCsv([
+      {
+        row_number: 1,
+        seller_sku: '=HYPERLINK("https://example.invalid")',
+        listing_id: "+cmd",
+        requested_price_amount: "12.99",
+        resolved_listing_id: "-1+1",
+        previous_price_amount: "11.00",
+        outcome: "failed",
+        error_message: "@SUM(1+1)",
+      },
+    ]);
+
+    expect(csv.split("\n")[1]).toBe(
+      '1,"\'=HYPERLINK(""https://example.invalid"")",\'+cmd,12.99,\'-1+1,11.00,failed,\'@SUM(1+1)',
+    );
   });
 });

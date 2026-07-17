@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BcRetentionSweep } from "@chase-sets/bounded-context-module";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createRetentionSweepRunner, executeRetentionSweepBatch } from "./retention-sweep";
+import {
+  createRetentionSweepRunner,
+  executeRetentionSweepBatch,
+  platformControlRetentionSweeps,
+} from "./retention-sweep";
 
 const sweep: BcRetentionSweep = {
   name: "expired-example-rows",
@@ -13,6 +17,17 @@ const sweep: BcRetentionSweep = {
 };
 
 describe("retention sweep", () => {
+  it("registers bounded oldest-first worker-heartbeat retention on the platform control runner", () => {
+    expect(platformControlRetentionSweeps).toContainEqual({
+      name: "expired-worker-heartbeats",
+      tableName: "platform_worker_heartbeats",
+      predicateSql: "candidate.heartbeat_at < now() - interval '7 days'",
+      orderBySql: "candidate.heartbeat_at ASC, candidate.worker_id ASC",
+      intervalMs: 6 * 60 * 60_000,
+      batchLimit: 500,
+    });
+  });
+
   it("executes one lock-safe bounded delete batch", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 2 });
 

@@ -30,10 +30,49 @@ describe("projection operation view models", () => {
 
     expect(snapshot.runners).toEqual([]);
     expect(snapshot.workers).toEqual([]);
+    expect(snapshot.workerHeartbeatHistory).toEqual({
+      activeOrStaleCount: 0,
+      expiredTotalCount: 0,
+      expiredWithinDiagnosticWindowCount: 0,
+      expiredReturnedCount: 0,
+      expiredTruncated: false,
+      expiredDiagnosticLimit: 0,
+      diagnosticWindowMs: 0,
+    });
     expect(snapshot.projectionGroups[0]?.subscriptions).toEqual([]);
     expect(snapshot.blockedProjections[0]?.blockedStreams).toEqual([]);
     expect(snapshot.blockedProjections[0]?.poisonEvents).toEqual([]);
     expect(snapshot.projectionStatusSource).toBe("runtime-memory");
+  });
+
+  it("keeps the repair queue bounded while stale-worker attention reflects truncated history", () => {
+    const workers = [
+      { worker_id: "active", worker_kind: "platform-worker", worker_state: "active" },
+      ...Array.from({ length: 100 }, (_, index) => ({
+        worker_id: `expired-${index}`,
+        worker_kind: "platform-worker",
+        worker_state: "expired",
+      })),
+    ];
+    const snapshot = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+      projectionStatusSource: "worker-snapshot",
+      workers,
+      workerHeartbeatHistory: {
+        activeOrStaleCount: 1,
+        expiredTotalCount: 20_000,
+        expiredWithinDiagnosticWindowCount: 20_000,
+        expiredReturnedCount: 100,
+        expiredTruncated: true,
+        expiredDiagnosticLimit: 100,
+        diagnosticWindowMs: 604_800_000,
+      },
+    });
+
+    expect(buildProjectionRepairQueue(snapshot)).toHaveLength(100);
+    expect(buildAttentionItems(snapshot)).toContainEqual(
+      expect.objectContaining({ id: "stale-workers", count: 20_000 }),
+    );
   });
 
   it("normalizes operation states and summary metrics for queued history", () => {

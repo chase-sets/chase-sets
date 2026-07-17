@@ -1,0 +1,21 @@
+{
+  "name": "unknown provider failure remains blocking",
+  "input": {
+    "phase": "staging-deploy",
+    "steps": [
+      {
+        "name": "deploy",
+        "componentName": "unknown-provider-component",
+        "phase": "ERROR",
+        "reasonCode": "ProviderFailure",
+        "message": "Unexpected provider response token=do-not-publish"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "unknown",
+    "affectedComponent": "unknown-provider-component",
+    "phase": "unknown",
+    "blocking": true
+  }
+}

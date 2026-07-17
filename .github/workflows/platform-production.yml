@@ -410,7 +410,14 @@ jobs:
     outputs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
-      failure_classification: ${{ steps.staging_failure_classification.outputs.failure_classification || 'staging-deploy-failure' }}
+      failure_classification: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
+      root_cause_code: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
+      root_cause_summary: ${{ steps.staging_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
+      affected_component: ${{ steps.staging_failure_classification.outputs.affected_component || 'unknown' }}
+      root_cause_phase: ${{ steps.staging_failure_classification.outputs.phase || 'unknown' }}
+      root_cause_remediation: ${{ steps.staging_failure_classification.outputs.remediation || 'Inspect the redacted provider reason and diagnostic artifacts before retrying or recovering.' }}
+      root_cause_provider_reason: ${{ steps.staging_failure_classification.outputs.provider_reason || 'No provider reason was captured.' }}
+      root_cause_signature: ${{ steps.staging_failure_classification.outputs.root_cause_signature }}
       platform_image_digest: ${{ steps.image.outputs.digest }}
       active_release_commit: ${{ steps.activate_release.outputs.active_release_commit }}
       active_image_digest: ${{ steps.activate_release.outputs.active_image_digest }}
@@ -733,7 +740,11 @@ jobs:
           # and publishes the DOKS shadow hosts when DOKS_INGRESS_TARGET is set.
           TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}
           TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
-        run: terraform apply -auto-approve
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
@@ -887,7 +898,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          terraform plan -out=tfplan
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform plan -out=tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/staging-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
@@ -911,7 +924,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform apply -auto-approve tfplan
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - name: Capture staging Terraform errored state
         if: failure() && env.SHOULD_DEPLOY != 'false'
@@ -1265,21 +1282,6 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --out artifacts/release-health/staging-kubernetes-deploy-diagnostics.json || true
-
-      - name: Classify staging deployment failure
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        id: staging_failure_classification
-        run: |
-          set -euo pipefail
-          diagnostics_path="artifacts/release-health/staging-kubernetes-deploy-diagnostics.json"
-          classification="staging-deploy-failure"
-          if [ -f "$diagnostics_path" ] && grep -Eiq 'Schema bootstrap hit PostgreSQL lock_timeout|Schema bootstrap lock was not acquired' "$diagnostics_path"; then
-            classification="staging-bootstrap-schema-lock-timeout"
-          elif [ -f "$diagnostics_path" ] && grep -Eiq 'Bootstrap command timed out|Bootstrap failed with exit code 124|seed-api-host.*exceeded [0-9]+ms' "$diagnostics_path"; then
-            classification="staging-bootstrap-timeout"
-          fi
-          echo "failure_classification=${classification}" >> "$GITHUB_OUTPUT"
-          echo "Staging deployment failure classification: ${classification}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload staging Kubernetes deploy diagnostics
         if: always() && env.SHOULD_DEPLOY != 'false'
@@ -1841,6 +1843,34 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled true || true
 
+      - name: Classify staging deployment failure
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        id: staging_failure_classification
+        run: |
+          set -euo pipefail
+          node ./scripts/platform-deploy-incident.mjs \
+            --command classify-root-cause \
+            --phase staging-deploy \
+            --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
+            --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
+            --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
+            --diagnostics artifacts/release-health/account-buy-now-freshness-probe.json \
+            --diagnostics artifacts/release-health/account-cart-consistency-probe.json \
+            --out artifacts/release-health/staging-deploy-root-cause.json \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            --format github-output >> "$GITHUB_OUTPUT"
+
+      - name: Upload staging deployment root cause
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-deploy-root-cause
+          path: artifacts/release-health/staging-deploy-root-cause.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Mark staging applied
         id: staging_applied
         if: env.SHOULD_DEPLOY != 'false'
@@ -2116,6 +2146,13 @@ jobs:
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
       rollback_reference: ${{ steps.production_rollback.outputs.rollback_reference || '' }}
+      root_cause_code: ${{ steps.production_failure_classification.outputs.root_cause_code || 'unknown' }}
+      root_cause_summary: ${{ steps.production_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
+      affected_component: ${{ steps.production_failure_classification.outputs.affected_component || 'unknown' }}
+      root_cause_phase: ${{ steps.production_failure_classification.outputs.phase || 'unknown' }}
+      root_cause_remediation: ${{ steps.production_failure_classification.outputs.remediation || 'Inspect the redacted provider reason and diagnostic artifacts before retrying or recovering.' }}
+      root_cause_provider_reason: ${{ steps.production_failure_classification.outputs.provider_reason || 'No provider reason was captured.' }}
+      root_cause_signature: ${{ steps.production_failure_classification.outputs.root_cause_signature }}
     concurrency:
       group: platform-deploy-production
       cancel-in-progress: false
@@ -2523,7 +2560,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          terraform plan -out=tfplan
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform plan -out=tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
@@ -2838,7 +2877,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform apply -auto-approve tfplan
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)
 
       - name: Capture production Terraform errored state
         if: failure() && env.SHOULD_DEPLOY != 'false'
@@ -3585,6 +3628,23 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Classify production deployment failure
+        if: failure()
+        id: production_failure_classification
+        run: |
+          set -euo pipefail
+          node ./scripts/platform-deploy-incident.mjs \
+            --command classify-root-cause \
+            --phase production-deploy \
+            --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json \
+            --diagnostics artifacts/release-health/production-terraform-diagnostics.txt \
+            --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
+            --diagnostics artifacts/release-health/production-readiness-gate.json \
+            --diagnostics artifacts/release-health/production-rollback.json \
+            --out artifacts/release-health/production-deploy-root-cause.json \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            --format github-output >> "$GITHUB_OUTPUT"
+
       - name: Write release health summary
         if: always()
         env:
@@ -3669,6 +3729,7 @@ jobs:
             artifacts/release-health/production-rollback-readiness.json
             artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
+            artifacts/release-health/production-deploy-root-cause.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -3717,7 +3778,13 @@ jobs:
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
-          STAGING_FAILURE_CLASSIFICATION: ${{ needs.deploy-staging.outputs.failure_classification || 'staging-deploy-failure' }}
+          STAGING_ROOT_CAUSE_CODE: ${{ needs.deploy-staging.outputs.root_cause_code || 'unknown' }}
+          PRODUCTION_ROOT_CAUSE_CODE: ${{ needs.deploy-production.outputs.root_cause_code || 'unknown' }}
+          ROOT_CAUSE_SUMMARY: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_summary || needs.deploy-production.outputs.root_cause_summary }}
+          AFFECTED_COMPONENT: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.affected_component || needs.deploy-production.outputs.affected_component }}
+          ROOT_CAUSE_PHASE: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_phase || needs.deploy-production.outputs.root_cause_phase }}
+          ROOT_CAUSE_REMEDIATION: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_remediation || needs.deploy-production.outputs.root_cause_remediation }}
+          ROOT_CAUSE_PROVIDER_REASON: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_provider_reason || needs.deploy-production.outputs.root_cause_provider_reason }}
           STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
           PRODUCTION_SUPERSEDED: "false"
@@ -3734,7 +3801,13 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
           DEPLOY_INCIDENT_ACTION: ${{ steps.classify_deploy_outcome.outputs.action }}
-          PLATFORM_DEPLOY_INCIDENT_REASON: ${{ steps.classify_deploy_outcome.outputs.reason }}
+          PLATFORM_DEPLOY_INCIDENT_REASON: ${{ steps.classify_deploy_outcome.outputs.root_cause_code }}
+          ROOT_CAUSE_SUMMARY: ${{ steps.classify_deploy_outcome.outputs.root_cause_summary }}
+          AFFECTED_COMPONENT: ${{ steps.classify_deploy_outcome.outputs.affected_component }}
+          ROOT_CAUSE_PHASE: ${{ steps.classify_deploy_outcome.outputs.phase }}
+          ROOT_CAUSE_REMEDIATION: ${{ steps.classify_deploy_outcome.outputs.remediation }}
+          ROOT_CAUSE_PROVIDER_REASON: ${{ steps.classify_deploy_outcome.outputs.provider_reason }}
+          ROOT_CAUSE_SIGNATURE: ${{ steps.classify_deploy_outcome.outputs.root_cause_signature }}
           DEPLOYMENT_CONTRACT_PREFLIGHT_RESULT: ${{ needs.deployment-contract-preflight.result }}
           SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit || '' }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
@@ -3746,9 +3819,6 @@ jobs:
           ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
         run: |
           set -euo pipefail
-
-          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
-          release_short="${release_commit:0:12}"
 
           if [ "${DEPLOY_INCIDENT_ACTION}" = "close" ]; then
             close_comment="$(node ./scripts/platform-deploy-incident.mjs --command build-comment)"
@@ -3792,36 +3862,8 @@ jobs:
             exit 0
           fi
 
-          title="Incident: Platform Deploy failed for ${release_short}"
-
-          body="$(cat <<EOF
-          Automated production deploy incident signal.
-
-          - Kind: production-deploy-failure
-          - Workflow run: ${RUN_URL}
-          - Release commit: ${release_commit}
-          - Resolve Release: ${RESOLVE_RELEASE_RESULT}
-          - Deployment Contract Preflight: ${DEPLOYMENT_CONTRACT_PREFLIGHT_RESULT}
-          - Build Release Image: ${BUILD_IMAGE_RESULT}
-          - Deploy Staging: ${DEPLOY_STAGING_RESULT}
-          - Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION:-unknown}
-          - Deploy Production: ${DEPLOY_PRODUCTION_RESULT}
-          - Rollback: ${ROLLBACK_RESULT}
-          - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}
-          - Diagnostics artifacts: ${ARTIFACTS_URL}
-            - staging-app-platform-bootstrap-diagnostics
-            - staging-kubernetes-deploy-diagnostics
-            - production-app-platform-bootstrap-diagnostics
-            - production-kubernetes-deploy-diagnostics
-            - production-release-health
-
-          Next steps:
-          1. Inspect the failed job logs and uploaded release-health artifacts.
-          2. If the failure is at Create production database restore point or mentions DigitalOcean database quota/limit errors, run the Platform Production Restore Point Cleanup workflow or \`node ./scripts/production-db-restore-point-cleanup.mjs --min-age-hours 6 --out artifacts/release-health/production-db-restore-point-cleanup.json\` first; apply cleanup only after reviewing candidates and passing \`--hold-name\` for any restore-point fork still referenced by an in-flight run.
-          3. Link the fix-forward PR, rollback-readiness evidence, cleanup artifact, or emergency release reference here.
-          4. Close this issue only after the replacement deploy or accepted no-op signal is documented.
-          EOF
-          )"
+          title="Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON} [${ROOT_CAUSE_SIGNATURE}]"
+          body="$(node ./scripts/platform-deploy-incident.mjs --command build-incident-body)"
 
           existing_issue="$(
             gh issue list \
@@ -3974,7 +4016,7 @@ jobs:
               --search "\"Incident: Platform Deploy\" in:title" \
               --limit 200 \
               --json number,title \
-              --jq '.[] | select(.title | startswith("Incident: Platform Deploy failed for ") or startswith("Incident: Platform Deploy rollback failed for ") or startswith("Incident: Platform Deploy superseded before production for ")) | [.number, .title] | @tsv'
+              --jq '.[] | select(.title | startswith("Incident: Platform Deploy ")) | [.number, .title] | @tsv'
           )"
 
           if [ -z "${open_incidents}" ]; then

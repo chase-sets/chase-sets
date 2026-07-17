@@ -1,7 +1,9 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 
 /**
- * Bulk reprice ingestion (m113) owns three tables, all inside this feature
+ * Bulk reprice ingestion (m113) owns its durable inputs/jobs/outcomes plus
+ * the feature-local create-rate bucket table, all inside this feature
  * directory so a removal is exactly "drop this file's DDL + delete the
  * directory" (see ../../../docs/bulk-reprice-ingestion.md):
  *
@@ -15,6 +17,8 @@ import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-st
  * - `pricing_bulk_reprice_rows`: per-row outcome tracking (applied /
  *   unchanged / failed), upserted per processing wave and read back for the
  *   downloadable results CSV.
+ * - `pricing_bulk_reprice_create_rate_limit_buckets`: the m110-resolved,
+ *   Postgres-backed request counters shared by every API replica.
  */
 export const pricingBulkRepriceIngestionSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_bulk_reprice_job_inputs (
@@ -34,6 +38,13 @@ ${durableJobSchemaSql({
   eventsTable: "pricing_bulk_reprice_job_events",
 })}
 
+CREATE TABLE IF NOT EXISTS pricing_bulk_reprice_create_rate_limit_buckets (
+  account_id text PRIMARY KEY,
+  request_count integer NOT NULL CHECK (request_count >= 1),
+  window_started_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pricing_bulk_reprice_rows (
   job_id text NOT NULL,
   row_number integer NOT NULL,
@@ -51,3 +62,15 @@ CREATE TABLE IF NOT EXISTS pricing_bulk_reprice_rows (
 CREATE INDEX IF NOT EXISTS pricing_bulk_reprice_rows_job_outcome_idx
   ON pricing_bulk_reprice_rows (job_id, outcome);
 `;
+
+export const pricingBulkRepriceIngestionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260716_pricing_bulk_reprice_one_active_job_per_account",
+    description: "Enforce one queued or running bulk-reprice job per account across every API replica.",
+    statements: [
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pricing_bulk_reprice_jobs_one_active_per_account_idx
+  ON pricing_bulk_reprice_jobs ((payload->>'accountId'))
+  WHERE job_kind = 'bulk-reprice' AND status IN ('queued', 'running')`,
+    ],
+  },
+];
