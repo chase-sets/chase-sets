@@ -84,6 +84,7 @@ import {
   getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
   marketAnalyticsDisplayPolicy,
+  marketEstimatePolicy,
   marketStatHygienePolicy,
 } from "@chase-sets/pricing/server";
 import {
@@ -366,6 +367,7 @@ export function createPlatformApiHost(
       definitions: [
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
+        marketEstimatePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,

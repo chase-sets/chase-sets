@@ -6,6 +6,7 @@ import { pricingRecommendationSchemaSql } from "../../features/recommendations/r
 import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
 import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
 import { pricingMarketRollupsSchemaSql } from "../../features/market-rollups/read-model/schema";
+import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
 import {
   pricingBulkRepriceIngestionSchemaMigrations,
@@ -25,6 +26,7 @@ export const pricingSchemaSql = [
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
   pricingMarketRollupsSchemaSql,
+  pricingMarketEstimatesSchemaSql,
   // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,

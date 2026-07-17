@@ -18,7 +18,23 @@ A **Market Price Snapshot** is the recorded fair-value output for a resolved pro
 
 ## Market Price
 
-**Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` publishes that derived answer; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
+**Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` (`pricing.market-price.estimated`) publishes that derived answer -- one event-sourced stream per product, carrying the estimate amount, its Confidence Band, input counts, the previous published amount (so downstream tolerance filtering needs no read), and a freshness horizon; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
+
+## Market-Value Estimate
+
+A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Below the policy's minimum-input gate -- raw Comparable Sale count AND effective sample size after decay and source weighting -- there is NO estimate: never a number derived from too little evidence, and never one where almost all weight sits in a single comparable. Every input price is winsorized around the platform-trade core's weighted median (the policy's outlier price ratio), so one extreme comparable can never drag the estimate or its Confidence Band off the core. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`).
+
+## Comparable Sale
+
+A **Comparable Sale** is one completed-transaction or provider comp input selected as relevant to a product's Market-Value Estimate: a non-excluded Trades Tape trade (verified or unverified) inside the lookback window, or the latest external price signal per provider SKU reference when that latest signal is current per the signal store's own lifecycle (status and stale-after horizon). Excluded trades never comp, and a stale or superseded signal counts toward nothing -- neither the blend nor the minimum-input gate.
+
+## Confidence Band
+
+A **Confidence Band** is the published uncertainty range around a Market-Value Estimate -- the policy-configured low/high weighted percentiles of the same blended input set, always containing the estimate amount -- so surfaces show ranges, not false precision.
+
+## Market-Estimate Policy
+
+The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of every blended Market-Value Estimate algorithm parameter: decay half-life, comparable-sale lookback window, estimate and band percentiles, source weights (platform verified >= platform unverified >= external comps), the minimum-input gate, the effective-sample-size gate, the winsorizing outlier price ratio, confidence sample sizes, and the published estimate's freshness horizon. Declared with a compiled fallback (`features/market-estimates/domain/estimate-policy.ts`); a revision changes estimation behavior without a deploy -- and takes effect on the next closer pass, same day (a freshness or lookback revision republishes immediately).
 
 ## Liquidity Estimate
 
@@ -129,14 +145,6 @@ These planned terms pre-register upcoming market, analytics, and repricing langu
 
 A **Price Observation** is a planned Pricing input captured from a marketplace, provider, or commerce fact before it becomes a Price Signal.
 
-### Market-Value Estimate
-
-A **Market-Value Estimate** is the planned derived fair-value answer calculated from Price Signals and Market Price Snapshots.
-
-### Comparable Sale
-
-A **Comparable Sale** is a planned completed-transaction input selected as relevant to a product's price estimate.
-
 ### Active Ask
 
 An **Active Ask** is a planned current listing-price input used to evaluate seller-side market position.
@@ -156,10 +164,6 @@ A **Liquidity Score** is the planned normalized expression of a Liquidity Estima
 ### Price Volatility
 
 **Price Volatility** is the planned measure of how much Market Price Snapshots change over time.
-
-### Confidence Band
-
-A **Confidence Band** is the planned uncertainty range around a price estimate.
 
 ### Market Segment
 

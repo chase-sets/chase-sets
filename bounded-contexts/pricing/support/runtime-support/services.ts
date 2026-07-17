@@ -10,6 +10,7 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import { createPriceSignalRuntime } from "../../features/price-signals/api/runtime";
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
+import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
@@ -18,6 +19,7 @@ export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
+  marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
@@ -49,7 +51,27 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     checkpointStore,
     db,
   });
-  const marketRollups = createMarketRollupsRuntime({ db, policies });
+  const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
+  const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
+  /**
+   * The Market-Value Estimate recompute RIDES the market-rollups closer job
+   * (the m112 blended-estimate slice): platform-worker already schedules
+   * `marketRollups.runDailyRollupCloser` every few minutes, and every
+   * estimate trigger -- new trades, fresh observations, the daily refresh --
+   * is served by running the estimate pass right after the rollup pass on
+   * that same cadence. The estimate closer is idempotent (the aggregate
+   * decider no-ops unchanged same-day recomputes), so the ride-along costs
+   * stream reads, not events. Composed here rather than inside the
+   * market-rollups slice so neither slice imports the other.
+   */
+  const marketRollups: typeof marketRollupsBase = {
+    ...marketRollupsBase,
+    runDailyRollupCloser: async (params) => {
+      const result = await marketRollupsBase.runDailyRollupCloser(params);
+      await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
+      return result;
+    },
+  };
   const repricingPolicies = createRepricingPolicyRuntime({ eventStore, db });
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });
@@ -58,6 +80,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     priceSignals,
     recommendations,
     marketRollups,
+    marketEstimates,
     repricingPolicies,
     publicMarketPages,
     policies,
@@ -65,6 +88,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     projectors: [
       ...priceSignals.projectors,
       ...recommendations.projectors,
+      ...marketEstimates.projectors,
       ...repricingPolicies.projectors,
       ...policies.projectors,
     ],
