@@ -18,13 +18,23 @@ import type { BlendedMarketValueEstimate, MarketEstimateInputCounts } from "./bl
  * estimate so the m113 engine's downstream tolerance filtering works
  * without a read.
  *
- * Idempotence: a recompute that produces the identical published values on
- * the same UTC day as the current estimate is a no-op -- the every-few-minutes
- * closer pass never floods the stream. A recompute on a LATER day always
- * publishes (even with identical values) so `freshUntil` advances while the
- * inputs still clear the minimum-input gate. A below-gate recompute never
- * publishes anything: the estimate simply ages past its `freshUntil` and
- * consumers classify it stale.
+ * Idempotence: a recompute that is SEMANTICALLY identical to the current
+ * estimate on the same UTC day is a no-op -- the every-few-minutes closer
+ * pass never floods the stream. "Semantically identical" covers everything
+ * a consumer or a policy revision could care about: amount, band,
+ * confidence, input counts, currency, the lookback-window DURATION, and the
+ * freshness DURATION (`freshUntil - estimatedAt`). Durations, not absolute
+ * timestamps, because each pass legitimately advances `window.endedAt` and
+ * `freshUntil` with the clock -- but a same-day Market-Estimate Policy
+ * revision (say freshness 48h -> 1h, or a different lookback) changes the
+ * duration and MUST publish immediately, not at the next UTC day. Durations
+ * are policy-derived constants (hours x 3.6e6 ms), so they compare exactly
+ * across passes regardless of input-timestamp clock skew.
+ *
+ * A recompute on a LATER day always publishes (even with identical values)
+ * so `freshUntil` advances while the inputs still clear the minimum-input
+ * gate. A below-gate recompute never publishes anything: the estimate simply
+ * ages past its `freshUntil` and consumers classify it stale.
  */
 
 export const marketPriceEstimatedEventType = "pricing.market-price.estimated" as const;
@@ -40,6 +50,10 @@ export type MarketPriceEstimateState = Readonly<{
   confidence: "low" | "medium" | "high" | null;
   inputCounts: MarketEstimateInputCounts | null;
   estimatedAt: string | null;
+  currencyCode: string | null;
+  windowStartedAt: string | null;
+  windowEndedAt: string | null;
+  freshUntil: string | null;
 }>;
 
 export const initialMarketPriceEstimateState: MarketPriceEstimateState = {
@@ -52,6 +66,10 @@ export const initialMarketPriceEstimateState: MarketPriceEstimateState = {
   confidence: null,
   inputCounts: null,
   estimatedAt: null,
+  currencyCode: null,
+  windowStartedAt: null,
+  windowEndedAt: null,
+  freshUntil: null,
 };
 
 export type RecomputeMarketPriceEstimateCommand = Readonly<{
@@ -133,7 +151,20 @@ export const decideMarketPriceEstimate: AggregateDecider<
     throw new Error("Confidence band must contain its estimate amount.");
   }
 
-  if (isUnchangedSameDayEstimate(state, { amount, bandLowAmount, bandHighAmount, command, estimatedAt })) {
+  if (
+    isUnchangedSameDayEstimate(state, {
+      amount,
+      bandLowAmount,
+      bandHighAmount,
+      confidence: command.estimate.confidence,
+      inputCounts: command.estimate.inputCounts,
+      currencyCode,
+      windowStartedAt,
+      windowEndedAt,
+      estimatedAt,
+      freshUntil,
+    })
+  ) {
     return [];
   }
 
@@ -176,6 +207,10 @@ export const evolveMarketPriceEstimate: AggregateEvolver<MarketPriceEstimateStat
         confidence: event.data.confidence,
         inputCounts: event.data.inputs,
         estimatedAt: event.data.estimatedAt,
+        currencyCode: event.data.currencyCode,
+        windowStartedAt: event.data.window.startedAt,
+        windowEndedAt: event.data.window.endedAt,
+        freshUntil: event.data.freshUntil,
       };
     default:
       return state;
@@ -188,11 +223,22 @@ function isUnchangedSameDayEstimate(
     amount: string;
     bandLowAmount: string;
     bandHighAmount: string;
-    command: RecomputeMarketPriceEstimateCommand;
+    confidence: "low" | "medium" | "high";
+    inputCounts: MarketEstimateInputCounts;
+    currencyCode: string;
+    windowStartedAt: string;
+    windowEndedAt: string;
     estimatedAt: string;
+    freshUntil: string;
   }>,
 ): boolean {
-  if (state.estimatedAt === null || candidate.command.estimate.status !== "estimated") {
+  if (
+    state.estimatedAt === null ||
+    state.currencyCode === null ||
+    state.windowStartedAt === null ||
+    state.windowEndedAt === null ||
+    state.freshUntil === null
+  ) {
     return false;
   }
   return (
@@ -200,9 +246,20 @@ function isUnchangedSameDayEstimate(
     state.amount === candidate.amount &&
     state.bandLowAmount === candidate.bandLowAmount &&
     state.bandHighAmount === candidate.bandHighAmount &&
-    state.confidence === candidate.command.estimate.confidence &&
-    inputCountsEqual(state.inputCounts, candidate.command.estimate.inputCounts)
+    state.confidence === candidate.confidence &&
+    inputCountsEqual(state.inputCounts, candidate.inputCounts) &&
+    state.currencyCode === candidate.currencyCode &&
+    // Durations, not absolute timestamps (see the module header): the
+    // lookback window and freshness horizon are the policy inputs consumers
+    // feel; their absolute endpoints legitimately ride the clock every pass.
+    durationMs(state.windowStartedAt, state.windowEndedAt) ===
+      durationMs(candidate.windowStartedAt, candidate.windowEndedAt) &&
+    durationMs(state.estimatedAt, state.freshUntil) === durationMs(candidate.estimatedAt, candidate.freshUntil)
   );
+}
+
+function durationMs(startedAt: string, endedAt: string): number {
+  return Date.parse(endedAt) - Date.parse(startedAt);
 }
 
 function inputCountsEqual(left: MarketEstimateInputCounts | null, right: MarketEstimateInputCounts): boolean {

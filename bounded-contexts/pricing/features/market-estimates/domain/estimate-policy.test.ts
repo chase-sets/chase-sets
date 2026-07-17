@@ -49,6 +49,38 @@ describe("marketEstimatePolicy", () => {
     ).toThrow(/contain the estimate percentile/);
   });
 
+  it("decodes a pre-guard-dial policy value to the compiled fallbacks (additive m110 shape change)", () => {
+    const { minimumEffectiveSampleSize, outlierPriceRatio, ...preGuardShape } = MARKET_ESTIMATE_LAUNCH_POLICY_VALUE;
+
+    const decoded = decodeMarketEstimatePolicyValue(encodePolicyValue(preGuardShape));
+
+    expect(decoded.minimumEffectiveSampleSize).toBe(minimumEffectiveSampleSize);
+    expect(decoded.outlierPriceRatio).toBe(outlierPriceRatio);
+  });
+
+  it("accepts fractional effective-sample-size gates and rejects out-of-bounds guard dials", () => {
+    const revised = decodeMarketEstimatePolicyValue(
+      encodePolicyValue({
+        ...MARKET_ESTIMATE_LAUNCH_POLICY_VALUE,
+        minimumEffectiveSampleSize: 2.5,
+        outlierPriceRatio: 4,
+      }),
+    );
+    expect(revised.minimumEffectiveSampleSize).toBe(2.5);
+    expect(revised.outlierPriceRatio).toBe(4);
+
+    expect(() =>
+      decodeMarketEstimatePolicyValue(
+        encodePolicyValue({ ...MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, minimumEffectiveSampleSize: 0.5 }),
+      ),
+    ).toThrow(/Minimum effective sample size/);
+    expect(() =>
+      decodeMarketEstimatePolicyValue(
+        encodePolicyValue({ ...MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, outlierPriceRatio: 1 }),
+      ),
+    ).toThrow(/Outlier price ratio/);
+  });
+
   it("rejects an out-of-bounds minimum-input gate", () => {
     expect(() =>
       decodeMarketEstimatePolicyValue(

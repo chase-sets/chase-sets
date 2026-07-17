@@ -82,15 +82,23 @@ export async function getMarketPriceEstimate(
 
 /**
  * Products the estimate closer pass considers: anything with non-excluded
- * Trades Tape activity or an external comp observation inside the
- * comparable-sale lookback window. Deterministically ordered so a bounded
- * pass recomputes a stable candidate set; the aggregate decider dedupes
- * unchanged same-day recomputes, so re-visiting a candidate every pass costs
- * one stream read, never an event.
+ * Trades Tape activity or a CURRENT external price signal (see
+ * `loadComparableSales` for the signal-lifecycle rule) inside the
+ * comparable-sale lookback window.
+ *
+ * Full coverage, not a fixed window: candidates are deterministically
+ * keyset-ordered by (catalog item, product) and each pass resumes AFTER the
+ * persisted closer cursor (`pricing_market_estimate_closer_cursors`), so a
+ * candidate population larger than one pass's `limit` is fully visited
+ * across successive closer passes -- the tail beyond the first page is never
+ * starved. When a pass drains past the end of the keyspace the cursor resets
+ * and the next pass starts over from the beginning. Re-visiting a candidate
+ * costs one stream read, never an event (the aggregate decider dedupes
+ * unchanged same-day recomputes).
  */
 export async function listMarketEstimateCandidateTuples(
   db: PgQueryable,
-  params: Readonly<{ since: string; limit: number }>,
+  params: Readonly<{ since: string; now: string; limit: number; after: MarketEstimateProductTuple | null }>,
 ): Promise<readonly MarketEstimateProductTuple[]> {
   const result = await db.query<{ catalog_catalog_item_id: string; product_id: string }>(
     `SELECT catalog_catalog_item_id, product_id
@@ -102,12 +110,51 @@ export async function listMarketEstimateCandidateTuples(
        SELECT catalog_item_id AS catalog_catalog_item_id, catalog_product_key AS product_id
        FROM pricing_tcgplayer_price_signals
        WHERE market_price_amount IS NOT NULL AND observed_at >= $1
+         AND status = 'current' AND stale_after > $2
      ) AS estimate_candidates
+     WHERE ($3::text IS NULL OR (catalog_catalog_item_id, product_id) > ($3::text, $4::text))
      ORDER BY catalog_catalog_item_id, product_id
-     LIMIT $2`,
-    [params.since, params.limit],
+     LIMIT $5`,
+    [params.since, params.now, params.after?.catalogItemId ?? null, params.after?.productId ?? null, params.limit],
   );
   return result.rows.map((row) => ({ catalogItemId: row.catalog_catalog_item_id, productId: row.product_id }));
+}
+
+const MARKET_ESTIMATE_CLOSER_NAME = "market-price-estimate-closer";
+
+/** Where the last closer pass stopped in the candidate keyspace, or null when the next pass starts from the beginning. */
+export async function getMarketEstimateCloserCursor(db: PgQueryable): Promise<MarketEstimateProductTuple | null> {
+  const result = await db.query<{ after_catalog_item_id: string; after_product_id: string }>(
+    `SELECT after_catalog_item_id, after_product_id
+     FROM pricing_market_estimate_closer_cursors
+     WHERE closer_name = $1`,
+    [MARKET_ESTIMATE_CLOSER_NAME],
+  );
+  const row = result.rows[0];
+  return row ? { catalogItemId: row.after_catalog_item_id, productId: row.after_product_id } : null;
+}
+
+/** Persists (or resets, with null) the closer cursor after a pass -- see `listMarketEstimateCandidateTuples`. */
+export async function saveMarketEstimateCloserCursor(
+  db: PgQueryable,
+  cursor: MarketEstimateProductTuple | null,
+  updatedAt: string,
+): Promise<void> {
+  if (cursor === null) {
+    await db.query(`DELETE FROM pricing_market_estimate_closer_cursors WHERE closer_name = $1`, [
+      MARKET_ESTIMATE_CLOSER_NAME,
+    ]);
+    return;
+  }
+  await db.query(
+    `INSERT INTO pricing_market_estimate_closer_cursors (closer_name, after_catalog_item_id, after_product_id, updated_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (closer_name) DO UPDATE SET
+       after_catalog_item_id = EXCLUDED.after_catalog_item_id,
+       after_product_id = EXCLUDED.after_product_id,
+       updated_at = EXCLUDED.updated_at`,
+    [MARKET_ESTIMATE_CLOSER_NAME, cursor.catalogItemId, cursor.productId, updatedAt],
+  );
 }
 
 /**
@@ -115,19 +162,25 @@ export async function listMarketEstimateCandidateTuples(
  *
  * - Platform trades from the Trades Tape (excluded trades never comp;
  *   the verified marker splits verified from unverified weighting).
- * - External comps from the latest current price signal per provider SKU
- *   reference (one comp per external source, not one per ingestion pass --
- *   re-observing the same SKU must not multiply its weight). TCGplayer price
- *   signals are the only external observation store shipped today
- *   (`pricing_tcgplayer_price_signals`, keyed by the same product-key space
- *   as the tape); comp inputs are optional by design -- the blend works
- *   platform-only from day one and widens when the m112 Price Observation
- *   store lands.
+ * - External comps from the latest price signal per provider SKU reference
+ *   (one comp per external source, not one per ingestion pass --
+ *   re-observing the same SKU must not multiply its weight), kept ONLY when
+ *   that latest signal is current per the signal store's own lifecycle:
+ *   `status = 'current'` AND `stale_after` not yet elapsed. A stale,
+ *   superseded, expired, or missing-price signal counts toward NOTHING --
+ *   neither the blend nor the minimum-input gate -- and the latest
+ *   observation per SKU always speaks for that SKU (an older still-current
+ *   signal never resurrects a reference whose newest observation went stale
+ *   or lost its price). TCGplayer price signals are the only external
+ *   observation store shipped today (`pricing_tcgplayer_price_signals`,
+ *   keyed by the same product-key space as the tape); comp inputs are
+ *   optional by design -- the blend works platform-only from day one and
+ *   widens when the m112 Price Observation store lands.
  */
 export async function loadComparableSales(
   db: PgQueryable,
   params: MarketEstimateProductTuple,
-  since: string,
+  window: Readonly<{ since: string; now: string }>,
 ): Promise<readonly ComparableSale[]> {
   const [trades, externalComps] = await Promise.all([
     db.query<{ unit_price_amount: string; sold_at: Date; verified: boolean }>(
@@ -135,16 +188,19 @@ export async function loadComparableSales(
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1 AND product_id = $2
          AND excluded = false AND sold_at IS NOT NULL AND sold_at >= $3`,
-      [params.catalogItemId, params.productId, since],
+      [params.catalogItemId, params.productId, window.since],
     ),
     db.query<{ market_price_amount: string; observed_at: Date }>(
-      `SELECT DISTINCT ON (external_key)
-         market_price_amount::text AS market_price_amount, observed_at
-       FROM pricing_tcgplayer_price_signals
-       WHERE catalog_item_id = $1 AND catalog_product_key = $2
-         AND market_price_amount IS NOT NULL AND observed_at >= $3
-       ORDER BY external_key, observed_at DESC`,
-      [params.catalogItemId, params.productId, since],
+      `SELECT market_price_amount::text AS market_price_amount, observed_at
+       FROM (
+         SELECT DISTINCT ON (external_key)
+           market_price_amount, observed_at, status, stale_after
+         FROM pricing_tcgplayer_price_signals
+         WHERE catalog_item_id = $1 AND catalog_product_key = $2 AND observed_at >= $3
+         ORDER BY external_key, observed_at DESC
+       ) AS latest_signal_per_reference
+       WHERE status = 'current' AND stale_after > $4 AND market_price_amount IS NOT NULL`,
+      [params.catalogItemId, params.productId, window.since, window.now],
     ),
   ]);
 

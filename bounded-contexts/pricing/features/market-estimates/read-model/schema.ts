@@ -37,4 +37,16 @@ CREATE TABLE IF NOT EXISTS pricing_market_price_estimates (
 
 CREATE INDEX IF NOT EXISTS pricing_market_price_estimates_freshness_idx
   ON pricing_market_price_estimates (fresh_until);
+
+-- Where the estimate closer pass stopped in the (catalog item, product)
+-- candidate keyspace, so successive passes cover EVERY eligible product
+-- instead of revisiting the same first page (see queries.ts
+-- listMarketEstimateCandidateTuples). One row per closer; absent row means
+-- the next pass starts from the beginning.
+CREATE TABLE IF NOT EXISTS pricing_market_estimate_closer_cursors (
+  closer_name text PRIMARY KEY,
+  after_catalog_item_id text NOT NULL,
+  after_product_id text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 `;

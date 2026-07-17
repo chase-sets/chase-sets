@@ -17,7 +17,30 @@
  * publish what was never computed, and the aggregate decider
  * (./domain.ts) publishes nothing for a `no-estimate` recompute.
  *
+ * Two guards keep the blend honest against degenerate input mixes (the
+ * "never a garbage number" acceptance criterion):
+ *
+ * - The EFFECTIVE-sample-size gate: raw input count is not enough when decay
+ *   and source weights concentrate almost all weight in one comparable (two
+ *   heavily-aged trades plus one fresh comp is really a one-input estimate).
+ *   Effective sample size = (sum(w))^2 / sum(w^2) -- the standard
+ *   normalized-weights measure, scale-invariant -- must clear the policy's
+ *   `minimumEffectiveSampleSize` or there is NO estimate.
+ * - The outlier guard: every price is winsorized (clamped, not dropped --
+ *   the observation still counts, its magnitude cannot dominate) into
+ *   [core / outlierPriceRatio, core * outlierPriceRatio], where core is the
+ *   weighted median of the platform-trade core (verified + unverified;
+ *   falling back to all usable inputs when no platform trade comps). A
+ *   single extreme external comp can therefore never drag the estimate or
+ *   its band orders of magnitude away from the trade core.
+ *
  * Deterministic: same inputs + same `now` always produce the same estimate.
+ * Skew-invariant within a day: ages are NOT clamped at zero -- a comparable
+ * with a slightly-future `observedAt` (writer clock skew) gets weight
+ * 0.5^(negative/halfLife) > 1, exactly like the source algorithm, so
+ * advancing `now` rescales EVERY weight by the same factor and same-day
+ * recomputes with unchanged inputs reproduce identical published values
+ * (the aggregate decider's same-day dedupe depends on this).
  */
 
 export type ComparableSaleSource = "platform-verified-trade" | "platform-trade" | "external-comp";
@@ -44,6 +67,10 @@ export type BlendedEstimateParams = Readonly<{
   bandLowPercentile: number;
   bandHighPercentile: number;
   minimumComparableSales: number;
+  /** The effective-sample-size gate: (sum(w))^2 / sum(w^2) must reach this or NO estimate is produced. */
+  minimumEffectiveSampleSize: number;
+  /** The outlier guard: prices are winsorized into [core / ratio, core * ratio] around the trade-core weighted median. */
+  outlierPriceRatio: number;
   confidenceSampleSizes: Readonly<{ medium: number; high: number }>;
 }>;
 
@@ -64,7 +91,7 @@ export type BlendedMarketValueEstimate =
     }>
   | Readonly<{
       status: "no-estimate";
-      reason: "below-minimum-inputs" | "no-usable-inputs";
+      reason: "below-minimum-inputs" | "below-minimum-effective-inputs" | "no-usable-inputs";
       inputCounts: MarketEstimateInputCounts;
     }>;
 
@@ -91,25 +118,56 @@ export function calculateBlendedMarketValueEstimate(
   const nowMs = timestampMs(params.now, "Estimate recompute time");
   const weighted = usable
     .map((sale) => {
-      const ageDays =
-        Math.max(0, nowMs - timestampMs(sale.observedAt, "Comparable sale observation time")) / MS_PER_DAY;
+      // Age MAY be negative under writer clock skew -- deliberately NOT
+      // clamped at zero (faithful to the source algorithm): clamping one
+      // input's age while others decay would shift weight RATIOS as `now`
+      // advances and break same-day recompute idempotency. A negative age
+      // yields weight > 1, and every weight still rescales uniformly.
+      const ageDays = (nowMs - timestampMs(sale.observedAt, "Comparable sale observation time")) / MS_PER_DAY;
       // Exponential time decay ported from getSuggestedPriceFromLatestSales:
       // weight = 0.5^(age/halfLife), multiplied by the source weight so
       // platform verified trades anchor the blend, unverified trades count
       // for less, and external comps least (Market-Estimate Policy dials).
       const timeWeight = Math.pow(0.5, ageDays / params.decayHalfLifeDays);
-      return { price: sale.priceAmount, weight: timeWeight * sourceWeight(sale.source, params.sourceWeights) };
+      return {
+        price: sale.priceAmount,
+        weight: timeWeight * sourceWeight(sale.source, params.sourceWeights),
+        source: sale.source,
+      };
     })
-    .filter((sale) => sale.weight > 0)
-    .sort((left, right) => left.price - right.price);
+    // A garbage far-future timestamp would produce an unusably-infinite
+    // weight; treat it as no input at all rather than letting it dominate.
+    .filter((sale) => sale.weight > 0 && Number.isFinite(sale.weight));
 
   const totalWeight = weighted.reduce((sum, sale) => sum + sale.weight, 0);
-  if (weighted.length === 0 || totalWeight <= 0) {
+  if (weighted.length === 0 || totalWeight <= 0 || !Number.isFinite(totalWeight)) {
     return { status: "no-estimate", reason: "no-usable-inputs", inputCounts };
   }
 
+  // The effective-sample-size gate (see the module header): decay + source
+  // weights concentrated in one comparable make the raw count a lie -- two
+  // months-old trades plus one fresh comp is effectively ONE input, and one
+  // input never publishes.
+  const sumOfSquares = weighted.reduce((sum, sale) => sum + sale.weight * sale.weight, 0);
+  const effectiveSampleSize = (totalWeight * totalWeight) / sumOfSquares;
+  if (effectiveSampleSize < params.minimumEffectiveSampleSize) {
+    return { status: "no-estimate", reason: "below-minimum-effective-inputs", inputCounts };
+  }
+
+  // The outlier guard (see the module header): winsorize every price around
+  // the trade core's weighted median so one extreme comparable bounds the
+  // estimate AND its band to within outlierPriceRatio of the core.
+  const core = weighted.filter((sale) => sale.source !== "external-comp");
+  const corePrice = weightedMedianPrice(core.length > 0 ? core : weighted);
+  const winsorized = weighted
+    .map((sale) => ({
+      weight: sale.weight,
+      price: Math.min(Math.max(sale.price, corePrice / params.outlierPriceRatio), corePrice * params.outlierPriceRatio),
+    }))
+    .sort((left, right) => left.price - right.price);
+
   let cumulative = 0;
-  const cumulativeData = weighted.map((sale) => {
+  const cumulativeData = winsorized.map((sale) => {
     cumulative += sale.weight;
     return { price: sale.price, cumulativeWeight: cumulative };
   });
@@ -169,6 +227,17 @@ function weightedPercentilePrice(
   const weightSpan = upper.cumulativeWeight - lower.cumulativeWeight;
   const ratio = weightSpan === 0 ? 0 : (targetWeight - lower.cumulativeWeight) / weightSpan;
   return lower.price + (upper.price - lower.price) * ratio;
+}
+
+/** The weighted median over already-weighted comparables -- the outlier guard's robust core reference. */
+function weightedMedianPrice(sales: readonly Readonly<{ price: number; weight: number }>[]): number {
+  const sorted = [...sales].sort((left, right) => left.price - right.price);
+  let cumulative = 0;
+  const cumulativeData = sorted.map((sale) => {
+    cumulative += sale.weight;
+    return { price: sale.price, cumulativeWeight: cumulative };
+  });
+  return weightedPercentilePrice(cumulativeData, cumulative, 50);
 }
 
 function sourceWeight(source: ComparableSaleSource, weights: MarketEstimateSourceWeights): number {

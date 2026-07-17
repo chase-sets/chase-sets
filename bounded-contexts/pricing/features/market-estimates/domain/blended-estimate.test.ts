@@ -15,6 +15,8 @@ const params: BlendedEstimateParams = {
   bandLowPercentile: 20,
   bandHighPercentile: 80,
   minimumComparableSales: 3,
+  minimumEffectiveSampleSize: 2,
+  outlierPriceRatio: 10,
   confidenceSampleSizes: { medium: 8, high: 20 },
 };
 
@@ -134,6 +136,75 @@ describe("calculateBlendedMarketValueEstimate", () => {
     expect(low.status === "estimated" && low.confidence).toBe("low");
     expect(medium.status === "estimated" && medium.confidence).toBe("medium");
     expect(high.status === "estimated" && high.confidence).toBe("high");
+  });
+
+  it("never publishes a garbage number: a fresh extreme comp next to aged consistent trades fails the effective-sample-size gate (review probe)", () => {
+    // The review-gate probe verbatim: two $10/$11 verified trades aged 89
+    // days + one fresh $9,999,999,999 external comp. Decay leaves the trades
+    // ~1.5e-4 weight each against the comp's 0.4 -- effectively ONE input,
+    // and one input never publishes (previously published ~$5.0B).
+    const result = calculateBlendedMarketValueEstimate(
+      [trade(10, 89, true), trade(11, 89, true), comp(9_999_999_999, 0)],
+      params,
+    );
+
+    expect(result).toEqual({
+      status: "no-estimate",
+      reason: "below-minimum-effective-inputs",
+      inputCounts: { platformVerifiedTradeCount: 2, platformTradeCount: 0, externalCompCount: 1 },
+    });
+  });
+
+  it("winsorizes an extreme high comp against the trade core when effective inputs DO clear the gate", () => {
+    // Enough fresh trades to clear both gates -- the extreme comp still
+    // counts as an observation, but its magnitude is clamped to
+    // core * outlierPriceRatio, so neither the estimate nor the band can
+    // leave the core's order of magnitude.
+    const result = calculateBlendedMarketValueEstimate(
+      [trade(10, 0), trade(10, 0), trade(10, 0), trade(10, 0), trade(10, 0), comp(9_999_999_999, 0)],
+      params,
+    );
+
+    expect(result.status).toBe("estimated");
+    if (result.status !== "estimated") return;
+    expect(result.amount).toBe("10.00");
+    expect(Number(result.bandHighAmount)).toBeLessThanOrEqual(100); // core 10 x ratio 10
+  });
+
+  it("winsorizes an extreme low comp symmetrically (band floor at core / ratio)", () => {
+    const result = calculateBlendedMarketValueEstimate(
+      [trade(10, 0), trade(10, 0), trade(10, 0), trade(10, 0), trade(10, 0), comp(0.01, 0)],
+      params,
+    );
+
+    expect(result.status).toBe("estimated");
+    if (result.status !== "estimated") return;
+    expect(result.amount).toBe("10.00");
+    expect(Number(result.bandLowAmount)).toBeGreaterThanOrEqual(1); // core 10 / ratio 10
+  });
+
+  it("winsorizes a comps-only extreme mix against the overall weighted median (no trade core to anchor on)", () => {
+    const result = calculateBlendedMarketValueEstimate([comp(20, 0), comp(22, 0), comp(9_999_999_999, 0)], params);
+
+    expect(result.status).toBe("estimated");
+    if (result.status !== "estimated") return;
+    expect(Number(result.amount)).toBeLessThan(30);
+    expect(Number(result.bandHighAmount)).toBeLessThanOrEqual(220); // median ~21 x ratio 10
+  });
+
+  it("is skew-invariant: a comparable observed 3h in the future changes nothing across same-day recomputes (review probe)", () => {
+    // +3h writer clock skew: the un-clamped decay gives the future comp
+    // weight > 1, so advancing `now` rescales EVERY weight uniformly and the
+    // published values are identical -- the same-day dedupe's contract.
+    const sales = [trade(10, 1, true), trade(11, 2), comp(12, -3 / 24)];
+    const atNoon = calculateBlendedMarketValueEstimate(sales, params);
+    const sixHoursLater = calculateBlendedMarketValueEstimate(sales, {
+      ...params,
+      now: new Date(Date.parse(NOW) + 6 * 60 * 60 * 1000).toISOString(),
+    });
+
+    expect(atNoon.status).toBe("estimated");
+    expect(atNoon).toEqual(sixHoursLater);
   });
 
   it("is deterministic: same inputs and same now always produce the same estimate", () => {

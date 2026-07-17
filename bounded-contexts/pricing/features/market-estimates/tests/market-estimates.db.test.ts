@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -15,6 +15,7 @@ import { createPriceSignalRuntime } from "../../price-signals/api/runtime";
 import { createMarketEstimatesRuntime, marketPriceEstimateStreamId } from "../api/runtime";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
 import { marketPriceEstimatedEventType } from "../domain/domain";
+import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -45,6 +46,11 @@ function event(type: string, data: Record<string, unknown>, recordedAt: string, 
 
 function daysBefore(iso: string, days: number): string {
   return new Date(Date.parse(iso) - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** A one-value PolicyRuntime: exactly the `resolvePolicy` surface the closer consumes, without console machinery. */
+function stubPolicies(value: MarketEstimatePolicyValue): PolicyRuntime {
+  return { resolvePolicy: async () => ({ value }) } as unknown as PolicyRuntime;
 }
 
 describeDb("pricing market-estimates blended estimate publication (#4315)", () => {
@@ -110,10 +116,15 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     );
   }
 
-  /** Links a TCGplayer SKU reference and records one current price signal as the external comp. */
+  /**
+   * Links a TCGplayer SKU reference and records one price signal as the
+   * external comp. Current by default; `calculatedAt: null` records a
+   * status-'stale' signal, and an old `observedAt` (beyond the default 24h
+   * stale window) records a signal whose `stale_after` has already elapsed.
+   */
   async function seedExternalComp(
     pool: PgTransactionalPool,
-    input: Readonly<{ skuId: number; marketPrice: number; observedAt: string }>,
+    input: Readonly<{ skuId: number; marketPrice: number; observedAt: string; calculatedAt?: string | null }>,
   ) {
     const catalogHandlers = buildPricingPriceSignalCatalogProjectionHandlers(pool);
     await catalogHandlers["catalog.catalog-item.external-product-reference-linked"]!(
@@ -128,7 +139,11 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     const recorded = await priceSignals.recordTcgplayerPriceSignal({
       skuId: input.skuId,
       observedAt: input.observedAt,
-      pricePoint: { skuId: input.skuId, marketPrice: input.marketPrice, calculatedAt: input.observedAt },
+      pricePoint: {
+        skuId: input.skuId,
+        marketPrice: input.marketPrice,
+        calculatedAt: input.calculatedAt === undefined ? input.observedAt : input.calculatedAt,
+      },
     });
     expect(recorded.status).toBe("recorded");
   }
@@ -138,7 +153,8 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     await seedTrade(pool, { orderId: "ord_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
     await seedTrade(pool, { orderId: "ord_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
     await seedTrade(pool, { orderId: "ord_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
-    await seedExternalComp(pool, { skuId: 123, marketPrice: 13.5, observedAt: daysBefore(NOW, 1) });
+    // Half a day old: comfortably inside the signal's own 24h stale window.
+    await seedExternalComp(pool, { skuId: 123, marketPrice: 13.5, observedAt: daysBefore(NOW, 0.5) });
 
     const { eventStore, runtime } = createRuntime(pool);
     const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
@@ -236,6 +252,127 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
 
     const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
     expect(stored).toHaveLength(0);
+  });
+
+  it("stale signals count toward NOTHING: three stale signals never clear the gate or publish", async () => {
+    const pool = pools.pricing;
+    // Two status-'stale' signals (recorded without a calculation time) plus
+    // one recorded 'current' whose stale_after (observedAt + the 24h default
+    // window) has since elapsed -- all three are dead per the signal store's
+    // own lifecycle, so they are eligible inputs for neither the blend nor
+    // the minimum-input gate.
+    await seedExternalComp(pool, { skuId: 201, marketPrice: 10, observedAt: daysBefore(NOW, 5), calculatedAt: null });
+    await seedExternalComp(pool, { skuId: 202, marketPrice: 11, observedAt: daysBefore(NOW, 4), calculatedAt: null });
+    await seedExternalComp(pool, { skuId: 203, marketPrice: 12, observedAt: daysBefore(NOW, 2) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.candidatesConsidered).toBe(0);
+    expect(result.estimatesPublished).toBe(0);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    expect(stored).toHaveLength(0);
+  });
+
+  it("a newer stale observation silences its SKU: the older still-current signal never resurrects as a comp", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+    // Same SKU: first a current signal, then a NEWER stale observation --
+    // the latest observation per reference always speaks for it.
+    await seedExternalComp(pool, { skuId: 204, marketPrice: 13.5, observedAt: daysBefore(NOW, 0.5) });
+    await seedExternalComp(pool, {
+      skuId: 204,
+      marketPrice: 13.5,
+      observedAt: daysBefore(NOW, 0.2),
+      calculatedAt: null,
+    });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.estimatesPublished).toBe(1);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const payload = stored[0]!.payload as Record<string, unknown>;
+    expect(payload.inputs).toEqual({
+      platformVerifiedTradeCount: 0,
+      platformTradeCount: 3,
+      externalCompCount: 0,
+    });
+  });
+
+  it("covers every eligible product across successive closer passes (501 products vs the 500-per-pass default)", async () => {
+    const pool = pools.pricing;
+    // Bulk-seed 501 products x 3 fresh trades straight into the Trades Tape
+    // read model -- the closer reads the tape, and event-by-event seeding of
+    // 1503 trades proves nothing the other tests don't already.
+    await pool.query(
+      `INSERT INTO pricing_market_trades (
+         order_id, line_id, seller_account_id, buyer_account_id,
+         catalog_catalog_item_id, product_id, unit_price_amount, quantity,
+         sale_channel, sold_at, updated_at
+       )
+       SELECT
+         'ord_cov_' || item.i || '_' || line.j, 'line_1', 'seller_1', 'buyer_1',
+         'cat_cov_' || lpad(item.i::text, 4, '0'),
+         'cat_cov_' || lpad(item.i::text, 4, '0') || '::',
+         10.00 + line.j, 1, 'listing',
+         $1::timestamptz - (line.j || ' days')::interval, $1
+       FROM generate_series(1, 501) AS item(i), generate_series(1, 3) AS line(j)`,
+      [NOW],
+    );
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const first = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+    expect(first.candidatesConsidered).toBe(500);
+    expect(first.estimatesPublished).toBe(500);
+
+    // The second pass resumes AFTER the persisted cursor and reaches the
+    // tail the old ORDER BY + LIMIT approach revisited-forever past.
+    const second = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+    expect(second.candidatesConsidered).toBe(1);
+    expect(second.estimatesPublished).toBe(1);
+    const tail = await eventStore.readStream({ streamId: marketPriceEstimateStreamId("cat_cov_0501::") });
+    expect(tail).toHaveLength(1);
+
+    // Drained past the end: the cursor reset, so a third same-day pass
+    // starts over from the beginning -- and dedupes every unchanged estimate.
+    const third = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+    expect(third.candidatesConsidered).toBe(500);
+    expect(third.estimatesPublished).toBe(0);
+    expect(third.unchanged).toBe(500);
+  });
+
+  it("a same-day freshness-policy revision (48h -> 1h) republishes immediately, not at the next UTC day", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+
+    const eventStore = createPostgresEventStore({ pool });
+    const launch = createMarketEstimatesRuntime({
+      eventStore,
+      db: pool,
+      policies: stubPolicies(MARKET_ESTIMATE_LAUNCH_POLICY_VALUE),
+    });
+    const first = await launch.runMarketPriceEstimateCloser({ now: NOW });
+    expect(first.estimatesPublished).toBe(1);
+
+    // The console revises freshness 48h -> 1h two hours later the same day.
+    const revised = createMarketEstimatesRuntime({
+      eventStore,
+      db: pool,
+      policies: stubPolicies({ ...MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, freshForHours: 1 }),
+    });
+    const second = await revised.runMarketPriceEstimateCloser({ now: "2026-07-16T14:00:00.000Z" });
+    expect(second.estimatesPublished).toBe(1);
+
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    expect(stored).toHaveLength(2);
+    const payload = stored[1]!.payload as Record<string, unknown>;
+    expect(payload.freshUntil).toBe("2026-07-16T15:00:00.000Z");
+    expect(payload.previousAmount).toBe(stored[0]!.payload.amount);
   });
 
   it("excluded trades never comp: a cancelled order drops the product below the gate", async () => {

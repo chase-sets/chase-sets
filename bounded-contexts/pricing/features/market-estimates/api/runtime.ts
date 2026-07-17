@@ -18,9 +18,11 @@ import {
 import { marketEstimatePolicy, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
 import {
+  getMarketEstimateCloserCursor,
   getMarketPriceEstimate,
   listMarketEstimateCandidateTuples,
   loadComparableSales,
+  saveMarketEstimateCloserCursor,
   type MarketEstimateProductTuple,
   type MarketPriceEstimateRecord,
 } from "../read-model/queries";
@@ -103,13 +105,19 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
     const since = new Date(now.getTime() - policy.lookbackDays * MS_PER_DAY).toISOString();
     const limit = params.limit ?? DEFAULT_CLOSER_LIMIT;
 
-    const tuples = await listMarketEstimateCandidateTuples(deps.db, { since, limit });
+    // Full candidate coverage across cadences: each pass resumes AFTER the
+    // persisted cursor in the deterministic candidate keyset order, so a
+    // population larger than one pass's limit is fully visited by successive
+    // passes instead of the first page shadowing the tail forever (see
+    // listMarketEstimateCandidateTuples).
+    const after = await getMarketEstimateCloserCursor(deps.db);
+    const tuples = await listMarketEstimateCandidateTuples(deps.db, { since, now: nowIso, limit, after });
     let estimatesPublished = 0;
     let belowGate = 0;
     let unchanged = 0;
 
     for (const tuple of tuples) {
-      const comparableSales = await loadComparableSales(deps.db, tuple, since);
+      const comparableSales = await loadComparableSales(deps.db, tuple, { since, now: nowIso });
       const estimate = calculateBlendedMarketValueEstimate(comparableSales, {
         now: nowIso,
         decayHalfLifeDays: policy.decayHalfLifeDays,
@@ -118,6 +126,8 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
         bandLowPercentile: policy.bandLowPercentile,
         bandHighPercentile: policy.bandHighPercentile,
         minimumComparableSales: policy.minimumComparableSales,
+        minimumEffectiveSampleSize: policy.minimumEffectiveSampleSize,
+        outlierPriceRatio: policy.outlierPriceRatio,
         confidenceSampleSizes: policy.confidenceSampleSizes,
       });
 
@@ -137,6 +147,12 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
         unchanged += 1;
       }
     }
+
+    // A short page means the pass drained past the end of the candidate
+    // keyspace: reset so the next pass starts over from the beginning.
+    // Otherwise resume after the last visited tuple.
+    const reachedEnd = tuples.length < limit;
+    await saveMarketEstimateCloserCursor(deps.db, reachedEnd ? null : tuples[tuples.length - 1]!, nowIso);
 
     return {
       candidatesConsidered: tuples.length,

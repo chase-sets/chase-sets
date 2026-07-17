@@ -22,11 +22,11 @@ A **Market Price Snapshot** is the recorded fair-value output for a resolved pro
 
 ## Market-Value Estimate
 
-A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Below the policy's minimum-input gate there is NO estimate -- never a number derived from too little evidence. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`).
+A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Below the policy's minimum-input gate -- raw Comparable Sale count AND effective sample size after decay and source weighting -- there is NO estimate: never a number derived from too little evidence, and never one where almost all weight sits in a single comparable. Every input price is winsorized around the platform-trade core's weighted median (the policy's outlier price ratio), so one extreme comparable can never drag the estimate or its Confidence Band off the core. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`).
 
 ## Comparable Sale
 
-A **Comparable Sale** is one completed-transaction or provider comp input selected as relevant to a product's Market-Value Estimate: a non-excluded Trades Tape trade (verified or unverified) inside the lookback window, or the latest current external price signal per provider SKU reference. Excluded trades never comp.
+A **Comparable Sale** is one completed-transaction or provider comp input selected as relevant to a product's Market-Value Estimate: a non-excluded Trades Tape trade (verified or unverified) inside the lookback window, or the latest external price signal per provider SKU reference when that latest signal is current per the signal store's own lifecycle (status and stale-after horizon). Excluded trades never comp, and a stale or superseded signal counts toward nothing -- neither the blend nor the minimum-input gate.
 
 ## Confidence Band
 
@@ -34,7 +34,7 @@ A **Confidence Band** is the published uncertainty range around a Market-Value E
 
 ## Market-Estimate Policy
 
-The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of every blended Market-Value Estimate algorithm parameter: decay half-life, comparable-sale lookback window, estimate and band percentiles, source weights (platform verified >= platform unverified >= external comps), the minimum-input gate, confidence sample sizes, and the published estimate's freshness horizon. Declared with a compiled fallback (`features/market-estimates/domain/estimate-policy.ts`); a revision changes estimation behavior without a deploy.
+The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of every blended Market-Value Estimate algorithm parameter: decay half-life, comparable-sale lookback window, estimate and band percentiles, source weights (platform verified >= platform unverified >= external comps), the minimum-input gate, the effective-sample-size gate, the winsorizing outlier price ratio, confidence sample sizes, and the published estimate's freshness horizon. Declared with a compiled fallback (`features/market-estimates/domain/estimate-policy.ts`); a revision changes estimation behavior without a deploy -- and takes effect on the next closer pass, same day (a freshness or lookback revision republishes immediately).
 
 ## Liquidity Estimate
 

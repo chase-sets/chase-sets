@@ -89,6 +89,72 @@ describe("decideMarketPriceEstimate", () => {
     expect(events).toEqual([]);
   });
 
+  it("no-ops an unchanged same-day recompute whose window and freshUntil merely rode the clock (same durations)", () => {
+    // Exactly what the closer produces every few minutes: identical values,
+    // window.endedAt and freshUntil advanced with `now`, durations unchanged.
+    const state = stateAfter(decideMarketPriceEstimate(initialMarketPriceEstimateState, recompute()));
+
+    const events = decideMarketPriceEstimate(
+      state,
+      recompute({
+        window: { startedAt: "2026-04-17T18:30:00.000Z", endedAt: "2026-07-16T18:30:00.000Z" },
+        estimatedAt: "2026-07-16T18:30:00.000Z",
+        freshUntil: "2026-07-18T18:30:00.000Z",
+      }),
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  it("republishes SAME DAY when a policy revision shortens the freshness horizon (48h -> 1h takes effect immediately)", () => {
+    const state = stateAfter(decideMarketPriceEstimate(initialMarketPriceEstimateState, recompute()));
+
+    const events = decideMarketPriceEstimate(
+      state,
+      recompute({
+        estimatedAt: "2026-07-16T14:00:00.000Z",
+        freshUntil: "2026-07-16T15:00:00.000Z", // 1h horizon, was 48h
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.freshUntil).toBe("2026-07-16T15:00:00.000Z");
+    expect(events[0]!.data.estimateVersion).toBe("2");
+  });
+
+  it("republishes SAME DAY when a policy revision changes the lookback-window duration", () => {
+    const state = stateAfter(decideMarketPriceEstimate(initialMarketPriceEstimateState, recompute()));
+
+    const events = decideMarketPriceEstimate(
+      state,
+      recompute({
+        // 30-day window instead of the state's 90-day one, same end.
+        window: { startedAt: "2026-06-16T12:00:00.000Z", endedAt: "2026-07-16T12:00:00.000Z" },
+        estimatedAt: "2026-07-16T14:00:00.000Z",
+        freshUntil: "2026-07-18T14:00:00.000Z",
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.estimateVersion).toBe("2");
+  });
+
+  it("republishes SAME DAY when the currency changes", () => {
+    const state = stateAfter(decideMarketPriceEstimate(initialMarketPriceEstimateState, recompute()));
+
+    const events = decideMarketPriceEstimate(
+      state,
+      recompute({
+        currencyCode: "eur",
+        estimatedAt: "2026-07-16T14:00:00.000Z",
+        freshUntil: "2026-07-18T14:00:00.000Z",
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.currencyCode).toBe("eur");
+  });
+
   it("republishes an unchanged estimate on a LATER day so freshUntil advances, carrying previousAmount", () => {
     const state = stateAfter(decideMarketPriceEstimate(initialMarketPriceEstimateState, recompute()));
 
