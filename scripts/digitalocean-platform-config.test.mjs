@@ -407,6 +407,18 @@ function platformApiContextNames() {
     .map(({ dirName }) => dirName);
 }
 
+function platformApiRuntimeContextNames(runtimeProfile) {
+  return listContextManifests()
+    .filter(
+      ({ manifest }) =>
+        (manifest.apiDeployables?.includes("platform-api") && manifest.apiRuntimeProfiles?.includes(runtimeProfile)) ||
+        (manifest.sourceRuntimeDeployables?.includes("platform-api") &&
+          manifest.sourceRuntimeProfiles?.includes(runtimeProfile)),
+    )
+    .map(({ manifest }) => manifest.contextName)
+    .sort((left, right) => left.localeCompare(right, "en"));
+}
+
 describe("DigitalOcean platform configuration", () => {
   it("keeps project assignment optional and all automated plans offline", () => {
     const validationProjectId = "TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000";
@@ -1645,6 +1657,20 @@ describe("DigitalOcean platform configuration", () => {
       "provisioned_context_names = local.is_production ? local.production_provisioned_context_names : local.active_runtime_context_names",
     );
     expect(platformLocals).toContain("context_database_names = local.provisioned_context_names");
+  });
+
+  it("wires every manifest-selected landing platform-api context to a pooled database URL", () => {
+    const landingContexts = terraformStringList(platformLocals, "landing_context_names");
+
+    expect(landingContexts).toEqual(expect.arrayContaining(platformApiRuntimeContextNames("landing")));
+    expect(landingContexts).toContain("marketplace");
+    expect(platformLocals).toContain(
+      "context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes",
+    );
+    expect(platformLocals).toContain(
+      "connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))",
+    );
+    expect(platformMain).toContain("for_each = local.context_database_env");
   });
 
   it("pre-provisions production context databases even when public marketplace exposure is gated", () => {

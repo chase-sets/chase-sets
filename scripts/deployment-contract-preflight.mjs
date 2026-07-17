@@ -8,8 +8,9 @@ import {
   extractDigitalOceanPlatformContextNames,
   readPlatformSources,
 } from "./render-platform-helm-values.mjs";
+import { listContextManifests } from "./lib/repo.mjs";
 
-export const DEPLOYMENT_CONTRACT_SCHEMA_VERSION = 1;
+export const DEPLOYMENT_CONTRACT_SCHEMA_VERSION = 2;
 
 const controlPlanes = ["app-platform", "doks"];
 const databaseUrlKeyPattern = /^(?:PLATFORM_CONTROL_DATABASE_URL|DATABASE_URL_[A-Z0-9_]+)$/;
@@ -21,7 +22,8 @@ export function renderDeploymentContract(input, options = {}) {
   const sources = options.sources ?? readPlatformSources(rootDir);
   const terraformComponents = extractDigitalOceanPlatformComponents(sources);
   const helmValues = buildPlatformHelmValues({ sources });
-  const contextNames = extractDigitalOceanPlatformContextNames(sources);
+  const terraformContextNames = extractDigitalOceanPlatformContextNames(sources);
+  const contextManifests = options.contextManifests ?? readDeploymentContextManifests(rootDir);
   const environment = String(input.environment ?? "");
   const runtimeProfile = environment === "staging" ? "public" : String(input.runtimeProfile ?? "landing");
   const bootstrapOwner = String(input.bootstrapOwner ?? "");
@@ -39,10 +41,20 @@ export function renderDeploymentContract(input, options = {}) {
         );
   const doksComponentNames = paths.doks.runtimeMode === "inactive" ? [] : allComponentNames;
 
-  const requiredDatabaseUrlKeys = databaseUrlKeys(helmValues.components["platform-bootstrap"]?.env);
+  const runtimeRequiredDatabaseUrlKeys = platformApiRuntimeDatabaseUrlKeys(contextManifests, runtimeProfile);
+  const requiredDatabaseUrlKeys = [
+    ...new Set([
+      ...databaseUrlKeys(helmValues.components["platform-bootstrap"]?.env),
+      ...runtimeRequiredDatabaseUrlKeys,
+    ]),
+  ].sort((left, right) => left.localeCompare(right, "en"));
   const terraformBootstrap = terraformComponents.find(({ name }) => name === "platform-bootstrap");
+  const terraformApi = terraformComponents.find(({ name }) => name === "platform-api");
   const appPlatformKeys = databaseUrlKeys(terraformBootstrap?.env).filter((key) =>
-    activeAppPlatformDatabaseKey(key, runtimeProfile, contextNames),
+    activeAppPlatformDatabaseKey(key, runtimeProfile, terraformContextNames),
+  );
+  const appPlatformRuntimeKeys = databaseUrlKeys(terraformApi?.env).filter((key) =>
+    activeAppPlatformDatabaseKey(key, runtimeProfile, terraformContextNames),
   );
   const doksKeys = databaseUrlKeys(helmValues.components["platform-bootstrap"]?.env);
 
@@ -70,7 +82,9 @@ export function renderDeploymentContract(input, options = {}) {
     },
     databaseUrlKeys: {
       required: requiredDatabaseUrlKeys,
+      runtimeRequired: runtimeRequiredDatabaseUrlKeys,
       "app-platform": keyStatuses(requiredDatabaseUrlKeys, appPlatformKeys),
+      "app-platform-runtime": keyStatuses(requiredDatabaseUrlKeys, appPlatformRuntimeKeys),
       doks: keyStatuses(requiredDatabaseUrlKeys, doksKeys),
     },
   };
@@ -145,7 +159,7 @@ export function renderWorkflowDeploymentContract(input, options = {}) {
       rolloutMode: doksActive ? (argoRolloutsEnabled ? "doks-argo-rollouts" : "doks-helm") : "app-platform",
       imageIdentity: workflowImageIdentity(environment, job),
     },
-    { rootDir },
+    { rootDir, contextManifests: options.contextManifests },
   );
 }
 
@@ -221,6 +235,18 @@ export function validateDeploymentContract(contract) {
     );
   }
 
+  if (contract.controlPlanes["app-platform"].runtimeMode !== "inactive") {
+    const runtimeRequiredKeys = new Set(contract.databaseUrlKeys.runtimeRequired ?? []);
+    const missingAppPlatformRuntimeKeys = (contract.databaseUrlKeys["app-platform-runtime"] ?? [])
+      .filter(({ name, status }) => runtimeRequiredKeys.has(name) && status === "missing")
+      .map(({ name }) => name);
+    if (missingAppPlatformRuntimeKeys.length > 0) {
+      errors.push(
+        `${capitalize(environmentLabel)} App Platform platform-api is missing manifest-required database URL keys for the '${contract.runtimeProfile}' runtime profile: ${missingAppPlatformRuntimeKeys.join(", ")}. Add every manifest-selected platform-api context to the matching Terraform database wiring.`,
+      );
+    }
+  }
+
   const ownerComponents = contract.controlPlanes[contract.runtimeOwner]?.activeComponents ?? [];
   for (const component of ["platform-api", "platform-bootstrap"]) {
     if (!ownerComponents.includes(component)) {
@@ -262,6 +288,37 @@ function databaseUrlKeys(env = []) {
     .map(({ name }) => name)
     .filter((name) => databaseUrlKeyPattern.test(name))
     .sort((left, right) => left.localeCompare(right, "en"));
+}
+
+function readDeploymentContextManifests(rootDir) {
+  const rootManifests = listContextManifests({ repoRoot: rootDir });
+  return rootManifests.length > 0 ? rootManifests : listContextManifests();
+}
+
+function platformApiRuntimeDatabaseUrlKeys(contextManifests, runtimeProfile) {
+  const contextNames = contextManifests
+    .filter(({ manifest }) => platformApiRuntimeMatches(manifest, runtimeProfile))
+    .map(({ dirName, manifest }) => manifest.contextName ?? dirName)
+    .filter((contextName) => contextName !== "control");
+  if (contextNames.length === 0) {
+    throw new Error(`No bounded-context manifests select platform-api for the '${runtimeProfile}' runtime profile.`);
+  }
+
+  const contextKeys = contextNames.map(
+    (contextName) => `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`,
+  );
+
+  return [...new Set(["PLATFORM_CONTROL_DATABASE_URL", ...contextKeys])].sort((left, right) =>
+    left.localeCompare(right, "en"),
+  );
+}
+
+function platformApiRuntimeMatches(manifest, runtimeProfile) {
+  return Boolean(
+    (manifest.apiDeployables?.includes("platform-api") && manifest.apiRuntimeProfiles?.includes(runtimeProfile)) ||
+    (manifest.sourceRuntimeDeployables?.includes("platform-api") &&
+      manifest.sourceRuntimeProfiles?.includes(runtimeProfile)),
+  );
 }
 
 function activeAppPlatformDatabaseKey(key, runtimeProfile, contextNames) {

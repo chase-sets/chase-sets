@@ -564,6 +564,7 @@ locals {
     "control",
     "fulfillment",
     "identity",
+    "marketplace",
     "ordering",
     "platform-operations",
     "public-presence",
