@@ -166,6 +166,9 @@ jobs:
 
       - name: Plan production environment DNS at shipped defaults
         working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           ../../../scripts/terraform-init-with-retry.sh \
@@ -2748,6 +2751,9 @@ jobs:
       - name: Plan production environment DNS
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           terraform plan -out=production-environment-dns.tfplan
@@ -2767,6 +2773,9 @@ jobs:
       - name: Apply production environment DNS
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve production-environment-dns.tfplan
 
       - name: Terraform init

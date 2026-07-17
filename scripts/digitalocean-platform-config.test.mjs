@@ -3220,6 +3220,7 @@ describe("DigitalOcean platform configuration", () => {
     const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const environmentDnsInit = workflowStep(deployProductionJob, "Initialize production environment DNS");
     const environmentDnsPlan = workflowStep(deployProductionJob, "Plan production environment DNS");
+    const environmentDnsApply = workflowStep(deployProductionJob, "Apply production environment DNS");
     const addOnsStep = workflowStep(deployProductionJob, "Install production DOKS ingress and certificate add-ons");
     const preflightStep = workflowStep(deployProductionJob, "Verify production DOKS certificate before DNS flip");
     const shadowStep = workflowStep(deployProductionJob, "Verify production DOKS shadow hosts and certificate");
@@ -3241,6 +3242,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(environmentDnsInit).toContain("environment-dns/production.tfstate");
     expect(environmentDnsPlan).toContain('select(.change.actions | index("delete"))');
+    for (const step of [environmentDnsInit, environmentDnsPlan, environmentDnsApply]) {
+      expect(step).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(step).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
+    }
     expect(addOnsStep).toContain("node ./scripts/doks-cluster-addons.mjs --environment production");
     expect(addOnsStep).toContain("DIGITALOCEAN_ACCESS_TOKEN");
     expect(preflightStep).toContain("PRODUCTION_DOKS_CERTIFICATE_READY");
@@ -3263,6 +3268,7 @@ describe("DigitalOcean platform configuration", () => {
 
   it("offers a destroy-free live production cutover plan path with no apply edge", () => {
     const planJob = workflowJob(platformProductionWorkflow, "production-cutover-live-plan");
+    const environmentDnsPlan = workflowStep(planJob, "Plan production environment DNS at shipped defaults");
     const resolveReleaseJob = workflowJob(platformProductionWorkflow, "resolve-release");
 
     expect(planJob).toContain("inputs.cutover_plan_only == true");
@@ -3273,6 +3279,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(planJob).toContain("x-chase-sets-observability-token=plan-only-placeholder");
     expect(planJob).toContain("environment-dns/production.tfstate");
+    expect(environmentDnsPlan).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+    expect(environmentDnsPlan).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(planJob).toContain("landing/production.tfstate");
     expect(occurrenceCount(planJob, "terraform plan -lock=false")).toBe(2);
     expect(occurrenceCount(planJob, "-var=production_app_serving=app-platform")).toBe(2);
