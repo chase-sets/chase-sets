@@ -20,6 +20,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 - Acquisition cost and cost basis
 - Storage locations and their ship-from location mapping
 - Hold state
+- Hold-collision decisions and evidence
 - Bulk stock import workflows
 - Recovered return custody, identification, disposition, and value evidence
 
@@ -55,6 +56,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 - `InventoryAvailabilityChanged`
 - `InventoryHeld`
 - `InventoryReleased`
+- `inventory.hold-collision-recorded`
 - `InventoryItemAdjusted`
 - `inventory.recovered-item.authenticity-review-required.v1`
 - `inventory.recovered-item.sellable.v1`
@@ -74,6 +76,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 8. Platform import rows must resolve to Catalog-owned Product identity before they create inventory or draft listings.
 9. Facility intake creates quarantined recovered stock, never ordinary available stock.
 10. A recovered item can become sellable only after identity, inspection, explicit disposition authority, and every policy-required authenticity review are complete.
+11. Stock reductions that collide with active holds protect order commitments by default; only an explicit manager-or-owner Honor Offline decision may release affected order reservations.
 
 ## Recovered Returns
 

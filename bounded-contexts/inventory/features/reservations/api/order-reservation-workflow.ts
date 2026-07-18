@@ -118,7 +118,8 @@ export async function reserveOrderInventoryRequest(
     return;
   }
 
-  const appends = [...(holdPlan.kind === "append" ? [holdPlan.append] : []), reservationPlan.append];
+  const holdAppends = holdPlan.kind === "append" ? ("appends" in holdPlan ? holdPlan.appends : [holdPlan.append]) : [];
+  const appends = [...holdAppends, reservationPlan.append];
   const results = await services.appendToStreams(appends);
   recordCommittedEvents(results.flatMap((result) => result.storedEvents));
 }

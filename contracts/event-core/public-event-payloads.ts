@@ -88,6 +88,7 @@ export const inventoryHoldReleaseReasons = [
   "checkout-cancelled",
   "checkout-expired",
   "payment-deadline",
+  "hold-collision",
   "manual",
   "superseded",
 ] as const;
@@ -149,6 +150,31 @@ export type InventoryHoldConsumedPayload = Readonly<{
   consumedAt: string;
   consumptionReason: string;
   sourceRef: InventoryHoldSourceRef;
+}>;
+
+export type InventoryHoldCollisionRecordedPayload = Readonly<{
+  collisionId: string;
+  accountId: AccountId;
+  itemId: string;
+  storageLocationId: string;
+  reason: string;
+  mode: "protect-orders" | "honor-offline";
+  requestedQuantity: number;
+  appliedQuantity: number;
+  refusedQuantity: number;
+  heldQuantity: number;
+  availableQuantity: number;
+  releasedHoldQuantity: number;
+  totalQuantityBefore: number;
+  totalQuantityAfter: number;
+  affectedOrders: readonly Readonly<{
+    holdId: string;
+    orderId: string;
+    reservationRequestId: string;
+    quantity: number;
+    disposition: "protected" | "released";
+  }>[];
+  recordedAt: string;
 }>;
 
 export const inventoryRestockDecisionOutcomes = ["restocked", "written-off"] as const;
@@ -248,6 +274,7 @@ export type InventoryEventPayloads = Readonly<{
   "inventory.hold.expired": InventoryHoldExpiredPayload;
   "inventory.hold.extended": InventoryHoldExtendedPayload;
   "inventory.hold.consumed": InventoryHoldConsumedPayload;
+  "inventory.hold-collision-recorded": InventoryHoldCollisionRecordedPayload;
   "inventory.reservation.confirmed": InventoryReservationConfirmedPayload;
   "inventory.reservation.rejected": InventoryReservationRejectedPayload;
   "inventory.reservation.released": InventoryReservationReleasedPayload;

@@ -14,7 +14,7 @@ import type {
 } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
-import { loadInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
+import { loadAuthoritativeInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
 import {
   decideInventoryItem,
   evolveInventoryItem,
@@ -54,7 +54,7 @@ export type InventoryHoldPlacementPlan =
   | Readonly<{
       kind: "append";
       holdId: InventoryHoldId;
-      append: AppendToStreamInput;
+      appends: readonly AppendToStreamInput[];
     }>;
 
 export type InventoryHoldConversionPlan =
@@ -150,6 +150,7 @@ export type InventoryHoldServices = Readonly<{
 
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
   const codec = createPassthroughDomainEventCodec<InventoryHoldEvent>();
+  const itemCodec = createPassthroughDomainEventCodec<InventoryItemEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec,
@@ -159,7 +160,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
   });
   const { repository: itemRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
+    codec: itemCodec,
     initialState: () => initialInventoryItemState,
     evolve: evolveInventoryItem,
     decide: decideInventoryItem,
@@ -191,12 +192,14 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
     }
 
-    const stock = await loadInventoryStockSnapshot({
+    const itemAggregate = await itemRepository.load(`inventory.item-${params.itemId}`);
+    const stock = await loadAuthoritativeInventoryStockSnapshot({
       db: deps.db,
       itemRepository,
       itemId: params.itemId,
       accountId: params.accountId,
       context,
+      itemAggregate,
       missingItemError: () => new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found."),
     });
 
@@ -219,16 +222,30 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       sourceRef: params.sourceRef,
       expiresAt: params.expiresAt ?? null,
     });
+    const authorityEvents = decideInventoryItem(itemAggregate.state, {
+      type: "ClaimInventoryStockAuthority",
+      authorityRef: holdId,
+      operation: "hold-placement",
+      quantity: params.quantity,
+    });
 
     return {
       kind: "append",
       holdId,
-      append: {
-        streamId: `inventory.hold-${holdId}`,
-        expectedVersion: existing.version,
-        events: events.map((event) => codec.encode(event)),
-        context,
-      },
+      appends: [
+        {
+          streamId: `inventory.item-${params.itemId}`,
+          expectedVersion: itemAggregate.version,
+          events: authorityEvents.map((event) => itemCodec.encode(event)),
+          context,
+        },
+        {
+          streamId: `inventory.hold-${holdId}`,
+          expectedVersion: existing.version,
+          events: events.map((event) => codec.encode(event)),
+          context,
+        },
+      ],
     };
   };
 
@@ -294,21 +311,38 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     planCreateHold,
     planConvertCheckoutHold,
     createHold: async (params, context) => {
-      const plan = await planCreateHold(params, context);
-      if (plan.kind === "already-placed") {
-        return {
-          holdId: plan.holdId,
-          version: plan.version,
-        };
+      const appendToStreams = deps.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new InventoryDomainError("Inventory hold placement requires atomic stock authority.");
       }
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const plan = await planCreateHold(params, context);
+        if (plan.kind === "already-placed") {
+          return {
+            holdId: plan.holdId,
+            version: plan.version,
+          };
+        }
 
-      const storedEvents = await deps.eventStore.appendToStream(plan.append);
-      recordCommittedEvents(storedEvents);
+        try {
+          const results = await appendToStreams(plan.appends);
+          const storedEvents = results.flatMap((result) => result.storedEvents);
+          recordCommittedEvents(storedEvents);
+          const holdEvents =
+            results.find((result) => result.streamId === `inventory.hold-${plan.holdId}`)?.storedEvents ?? [];
 
-      return {
-        holdId: plan.holdId,
-        version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
-      };
+          return {
+            holdId: plan.holdId,
+            version: holdEvents.length === 0 ? 0 : holdEvents[holdEvents.length - 1].streamVersion,
+          };
+        } catch (error) {
+          if (attempt < 3 && isConcurrencyConflict(error)) {
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw new InventoryDomainError("Inventory stock changed while placing the hold.");
     },
     releaseHold: async (params, context) => {
       const hold = await getInventoryHold(deps.db, params.holdId, params.accountId);
@@ -401,4 +435,8 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
 
 function hasSystemHoldReleaseAuthority(context: EventStoreContext) {
   return (context as Partial<InventorySystemHoldReleaseContext>)[inventorySystemHoldReleaseAuthority] === true;
+}
+
+function isConcurrencyConflict(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
 }

@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/platform-runtime/mcp";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import type { InventoryItemServices } from "./runtime";
+import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 
 export type InventoryItemMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -154,6 +155,7 @@ function itemReceipt(
 export function createInventoryItemMcpHandlers(
   services: InventoryItemServices,
   storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
+  holdCollisions: InventoryHoldCollisionServices,
 ): InventoryItemMcpHandlers {
   const listItems: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
@@ -187,19 +189,49 @@ export function createInventoryItemMcpHandlers(
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const result = await services.adjustItem(
-      {
-        accountId: scopedActor.accountId,
-        itemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
-        quantityDelta: readQuantityDelta(args),
-        reason: readRequiredString(args, "reason"),
-        idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),
-      },
-      createActorEventStoreContext(scopedActor),
-    );
+    const quantityDelta = readQuantityDelta(args);
+    const itemId = readMcpTypedIdArgument(args, "inventoryItemId", "inv");
+    const mode = readMcpStringArgument(args, "collisionMode") ?? "protect-orders";
+    if (mode !== "protect-orders" && mode !== "honor-offline") {
+      throw new Error("collisionMode must be protect-orders or honor-offline.");
+    }
+    if (mode === "honor-offline" && quantityDelta >= 0) {
+      throw new Error("Honor offline is only valid for stock reductions.");
+    }
+    if (mode === "honor-offline" && !["manager", "owner", "platform-admin"].includes(scopedActor.roleKey)) {
+      throw new Error("Honor offline requires a manager or owner.");
+    }
+    if (mode === "honor-offline" && args.confirmSellerCannotFulfill !== true) {
+      throw new Error("Honor offline requires explicit seller-cannot-fulfill confirmation.");
+    }
+    const result =
+      quantityDelta < 0
+        ? await holdCollisions.reduceItem(
+            {
+              accountId: scopedActor.accountId,
+              itemId,
+              requestedQuantity: -quantityDelta,
+              reason: readRequiredString(args, "reason"),
+              mode,
+              honorOfflineAuthorized: mode === "honor-offline",
+            },
+            createActorEventStoreContext(scopedActor),
+          )
+        : await services.adjustItem(
+            {
+              accountId: scopedActor.accountId,
+              itemId,
+              quantityDelta,
+              reason: readRequiredString(args, "reason"),
+              idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),
+            },
+            createActorEventStoreContext(scopedActor),
+          );
 
-    return itemReceipt(scopedActor.accountId, result, "adjusted", {
-      quantityDelta: readQuantityDelta(args),
+    const collision = result && "collision" in result ? result.collision : null;
+    return itemReceipt(scopedActor.accountId, result, collision ? "hold-collision-recorded" : "adjusted", {
+      quantityDelta,
+      ...(collision ? { collision } : {}),
     });
   };
 

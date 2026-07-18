@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
+import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { parseGradedCardShape } from "./graded-card-shape";
 
@@ -51,7 +52,11 @@ function parseShipFromAddress(value: unknown) {
   };
 }
 
-export function inventoryItemRoutes(items: InventoryItemServices, holds: InventoryHoldServices) {
+export function inventoryItemRoutes(
+  items: InventoryItemServices,
+  holds: InventoryHoldServices,
+  holdCollisions: InventoryHoldCollisionServices,
+) {
   const app = new Hono<InventoryApiEnv>();
 
   app.get("/", async (c) => {
@@ -152,17 +157,80 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
   app.post("/:id/adjustments", async (c) => {
     const actor = c.get("actor");
     const body = await c.req.json();
-    let result: Awaited<ReturnType<InventoryItemServices["adjustItem"]>>;
-    try {
-      result = await items.adjustItem(
+    const quantityDelta = Number(body.quantityDelta ?? 0);
+    const collisionMode = body.collisionMode ?? "protect-orders";
+    if (collisionMode !== "protect-orders" && collisionMode !== "honor-offline") {
+      return c.json(
         {
-          accountId: actor.accountId,
-          itemId: c.req.param("id"),
-          quantityDelta: Number(body.quantityDelta ?? 0),
-          reason: String(body.reason ?? ""),
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.collision.mode.invalid"),
+          },
         },
-        c.get("context"),
+        400,
       );
+    }
+    if (collisionMode === "honor-offline" && quantityDelta >= 0) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.honor.offline.reduction.required"),
+          },
+        },
+        400,
+      );
+    }
+    if (collisionMode === "honor-offline") {
+      if (!actor.roleKey || !["manager", "owner", "platform-admin"].includes(actor.roleKey)) {
+        return c.json(
+          {
+            error: {
+              code: "authorization_forbidden",
+              message: t("inventory.features.inventoryItems.api.route.honor.offline.authority.required"),
+            },
+          },
+          403,
+        );
+      }
+      if (body.confirmSellerCannotFulfill !== true) {
+        return c.json(
+          {
+            error: {
+              code: "honor_offline_confirmation_required",
+              message: t("inventory.features.inventoryItems.api.route.honor.offline.confirmation.required"),
+            },
+          },
+          400,
+        );
+      }
+    }
+    let result:
+      | Awaited<ReturnType<InventoryItemServices["adjustItem"]>>
+      | Awaited<ReturnType<InventoryHoldCollisionServices["reduceItem"]>>;
+    try {
+      result =
+        quantityDelta < 0
+          ? await holdCollisions.reduceItem(
+              {
+                accountId: actor.accountId,
+                itemId: c.req.param("id"),
+                requestedQuantity: -quantityDelta,
+                reason: String(body.reason ?? ""),
+                mode: collisionMode,
+                honorOfflineAuthorized: collisionMode === "honor-offline",
+              },
+              c.get("context"),
+            )
+          : await items.adjustItem(
+              {
+                accountId: actor.accountId,
+                itemId: c.req.param("id"),
+                quantityDelta,
+                reason: String(body.reason ?? ""),
+              },
+              c.get("context"),
+            );
     } catch (error) {
       const committedUnits =
         error instanceof Error ? /^(\d+) units are committed to open orders\.$/.exec(error.message) : null;
@@ -182,7 +250,34 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
       throw error;
     }
 
-    return c.json({ id: result.itemId, version: result.version, status: "adjusted" });
+    const collision = "collision" in result ? result.collision : null;
+    return c.json({
+      id: result.itemId,
+      version: result.version,
+      status: collision ? "hold-collision-recorded" : "adjusted",
+      ...(collision
+        ? {
+            collision,
+            message:
+              collision.mode === "protect-orders"
+                ? [
+                    t("inventory.features.inventoryItems.api.route.protect.orders.refused", {
+                      count: collision.refusedQuantity,
+                    }),
+                    collision.affectedOrders.length > 0
+                      ? t("inventory.features.inventoryItems.api.route.protect.orders.affected", {
+                          orders: [...new Set(collision.affectedOrders.map((order) => order.orderId))].join(", "),
+                        })
+                      : null,
+                  ]
+                    .filter((part): part is string => part !== null)
+                    .join(" ")
+                : t("inventory.features.inventoryItems.api.route.honor.offline.affected.orders", {
+                    count: collision.affectedOrders.length,
+                  }),
+          }
+        : {}),
+    });
   });
 
   app.post("/:id/holds", async (c) => {

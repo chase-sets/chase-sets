@@ -32,26 +32,19 @@ type AggregateHoldSnapshotRow = Readonly<{
 }>;
 
 export type InventoryItemRepository = Readonly<{
-  load: (streamId: string) => Promise<Readonly<{ state: InventoryItemState }>>;
+  load: (streamId: string) => Promise<Readonly<{ state: InventoryItemState; version: number }>>;
 }>;
 
-export async function loadInventoryStockSnapshot(input: {
+export async function loadAuthoritativeInventoryStockSnapshot(input: {
   db: PgQueryable;
   itemRepository: InventoryItemRepository;
   itemId: string;
   accountId: AccountId;
   context: EventStoreContext;
+  itemAggregate?: Readonly<{ state: InventoryItemState; version: number }>;
   missingItemError?: () => Error;
 }): Promise<InventoryStockSnapshot> {
-  const item = await getInventoryHoldableItem(input.db, {
-    itemId: input.itemId,
-    accountId: input.accountId,
-  });
-  if (item) {
-    return stockSnapshotFromReadModel(item);
-  }
-
-  const aggregate = await input.itemRepository.load(`inventory.item-${input.itemId}`);
+  const aggregate = input.itemAggregate ?? (await input.itemRepository.load(`inventory.item-${input.itemId}`));
   if (aggregate.state.id !== input.itemId || aggregate.state.accountId !== input.accountId) {
     throw input.missingItemError?.() ?? new InventoryDomainError("Inventory item not found.");
   }
@@ -73,6 +66,25 @@ export async function loadInventoryStockSnapshot(input: {
     heldQuantity,
     availableQuantity: aggregate.state.totalQuantity - heldQuantity,
   };
+}
+
+export async function loadInventoryStockSnapshot(input: {
+  db: PgQueryable;
+  itemRepository: InventoryItemRepository;
+  itemId: string;
+  accountId: AccountId;
+  context: EventStoreContext;
+  missingItemError?: () => Error;
+}): Promise<InventoryStockSnapshot> {
+  const item = await getInventoryHoldableItem(input.db, {
+    itemId: input.itemId,
+    accountId: input.accountId,
+  });
+  if (item) {
+    return stockSnapshotFromReadModel(item);
+  }
+
+  return loadAuthoritativeInventoryStockSnapshot(input);
 }
 
 function stockSnapshotFromReadModel(item: InventoryHoldableItemRow): InventoryStockSnapshot {
@@ -109,7 +121,7 @@ async function loadAggregateHoldSnapshots(input: {
          AND jsonb_typeof(payload -> 'quantity') = 'number'
      )
      SELECT
-       stream_id,
+       placed_holds.stream_id,
        hold_id,
        account_id,
        item_id,
@@ -119,7 +131,7 @@ async function loadAggregateHoldSnapshots(input: {
      LEFT JOIN event_store_events AS terminal_holds
        ON terminal_holds.stream_id = placed_holds.stream_id
       AND terminal_holds.tenant_id = $1
-      AND terminal_holds.event_type IN ('inventory.hold.released', 'inventory.hold.expired')`,
+      AND terminal_holds.event_type IN ('inventory.hold.released', 'inventory.hold.expired', 'inventory.hold.consumed')`,
     [input.tenantId, input.accountId, input.itemId],
   );
 

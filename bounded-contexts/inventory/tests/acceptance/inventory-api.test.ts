@@ -169,6 +169,7 @@ describe("inventory api", () => {
     app.use("/api/inventory/*", async (c, next) => {
       c.set("actor", {
         accountId: "acc_inventory",
+        roleKey: "owner",
         permissions: ["inventory.view", "inventory.manage"],
       });
       c.set("context", inventoryContext);
@@ -606,7 +607,7 @@ describe("inventory api", () => {
     ).resolves.toBe(0);
   });
 
-  it("prevents over-holds and invalid negative adjustments", async () => {
+  it("prevents over-holds and defaults colliding reductions to protect orders with a partial fill", async () => {
     const location = await app.request("/api/inventory/storage-locations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -659,7 +660,7 @@ describe("inventory api", () => {
     });
     expect(overHold.status).toBe(400);
 
-    const invalidAdjustment = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
+    const protectedAdjustment = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -667,7 +668,182 @@ describe("inventory api", () => {
         reason: "Bad cycle count",
       }),
     });
-    expect(invalidAdjustment.status).toBe(400);
+    expect(protectedAdjustment.status).toBe(200);
+    await expect(protectedAdjustment.json()).resolves.toMatchObject({
+      status: "hold-collision-recorded",
+      collision: {
+        mode: "protect-orders",
+        requestedQuantity: 4,
+        appliedQuantity: 3,
+        refusedQuantity: 1,
+      },
+    });
+
+    const protectedItem = await services.items.getItem(itemBody.id, "acc_inventory");
+    expect(protectedItem).toMatchObject({
+      total_quantity: 2,
+      held_quantity: 2,
+      available_quantity: 0,
+    });
+  });
+
+  it("honors an explicit manager override by atomically releasing affected order commitments", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Counter collision",
+        shipFromCode: "CHI-COUNTER",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 5,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    await reserveOrderInventoryRequest(services, {
+      orderId: "ord_collision_1",
+      request: {
+        reservationRequestId: "rsv_collision_1",
+        sellerAccountId: "acc_inventory",
+        inventoryItemId: item.itemId,
+        quantity: 3,
+      },
+      context: inventoryContext,
+    });
+    await drainContextProcesses({ subscriptionRunners });
+
+    const response = await app.request(`/api/inventory/items/${item.itemId}/adjustments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -4,
+        reason: "Counter sale",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      collision: {
+        mode: "honor-offline",
+        appliedQuantity: 4,
+        releasedHoldQuantity: 3,
+        affectedOrders: [
+          {
+            orderId: "ord_collision_1",
+            reservationRequestId: "rsv_collision_1",
+            disposition: "released",
+          },
+        ],
+      },
+    });
+
+    await expect(services.items.getItem(item.itemId, "acc_inventory")).resolves.toMatchObject({
+      total_quantity: 1,
+      held_quantity: 0,
+      available_quantity: 1,
+    });
+    await expect(services.reservations.getReservationState("rsv_collision_1")).resolves.toMatchObject({
+      status: "released",
+    });
+    const collisions = await pools.inventory.query<{ mode: string; affected_orders: unknown }>(
+      "SELECT mode, affected_orders FROM inventory_hold_collisions WHERE item_id = $1",
+      [item.itemId],
+    );
+    expect(collisions.rows).toEqual([
+      expect.objectContaining({
+        mode: "honor-offline",
+        affected_orders: [expect.objectContaining({ orderId: "ord_collision_1" })],
+      }),
+    ]);
+  });
+
+  it("serializes a simultaneous reservation and stock reduction so one unit is never double-committed", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Race shelf",
+        shipFromCode: "CHI-RACE",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 1,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const reservationInput = {
+      orderId: "ord_collision_race",
+      request: {
+        reservationRequestId: "rsv_collision_race",
+        sellerAccountId: "acc_inventory",
+        inventoryItemId: item.itemId,
+        quantity: 1,
+      },
+      context: inventoryContext,
+    } as const;
+    const [reservationAttempt] = await Promise.allSettled([
+      reserveOrderInventoryRequest(services, reservationInput),
+      services.holdCollisions.reduceItem(
+        {
+          accountId: "acc_inventory",
+          itemId: item.itemId,
+          requestedQuantity: 1,
+          reason: "Concurrent counter sale",
+        },
+        inventoryContext,
+      ),
+    ]);
+    if (reservationAttempt.status === "rejected") {
+      await reserveOrderInventoryRequest(services, reservationInput);
+    }
+    await drainContextProcesses({ subscriptionRunners });
+
+    const stock = await services.items.getItem(item.itemId, "acc_inventory");
+    expect(stock).not.toBeNull();
+    expect(stock!.total_quantity).toBeGreaterThanOrEqual(stock!.held_quantity);
+    expect(stock!.available_quantity).toBe(stock!.total_quantity - stock!.held_quantity);
+    expect([
+      [0, 0],
+      [1, 1],
+    ]).toContainEqual([stock!.total_quantity, stock!.held_quantity]);
   });
 
   it("enforces inventory write permissions", async () => {

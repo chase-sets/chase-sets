@@ -2,11 +2,13 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
 import {
@@ -17,7 +19,11 @@ import {
 } from "../integrations/catalog/versioning";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
-import { loadInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
+import {
+  loadAuthoritativeInventoryStockSnapshot,
+  loadInventoryStockSnapshot,
+  type InventoryItemRepository,
+} from "../../../support/runtime-support/stock-snapshot";
 import { getStorageLocation } from "../../storage-locations/read-model/queries";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import {
@@ -101,9 +107,10 @@ export function createInventoryItemRuntime(
   catalogItems: InventoryCatalogItemServices,
   storageLocations: StorageLocationServices,
 ): InventoryItemServices {
+  const codec = createPassthroughDomainEventCodec<InventoryItemEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
+    codec,
     initialState: () => initialInventoryItemState,
     evolve: evolveInventoryItem,
     decide: decideInventoryItem,
@@ -232,14 +239,6 @@ export function createInventoryItemRuntime(
       };
     },
     adjustItem: async (params, context) => {
-      const stock = await loadInventoryStockSnapshot({
-        db: deps.db,
-        itemRepository: repository,
-        itemId: params.itemId,
-        accountId: params.accountId as AccountId,
-        context,
-      });
-
       const idempotencyKey = normalizeIdempotencyKey(params.idempotencyKey);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
         accountId: params.accountId,
@@ -281,24 +280,44 @@ export function createInventoryItemRuntime(
         }
       }
 
-      let result: Awaited<ReturnType<typeof commandHandler>>;
+      let resultVersion: number;
       try {
-        result = await commandHandler({
-          streamId: `inventory.item-${params.itemId}`,
-          command: {
-            type: "AdjustInventoryItemQuantity",
-            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-              accountId: params.accountId as AccountId,
-              itemId: params.itemId as InventoryItemId,
-              idempotencyKey: idempotencyKey ?? `inventory:item.adjusted:${params.itemId}:${commandFingerprint}`,
-            }),
-            quantityDelta: params.quantityDelta,
-            heldQuantity: stock.heldQuantity,
-            reason: params.reason,
-            sourceRef: params.sourceRef ?? null,
-          },
-          context,
+        const csatOutcomeFact = createInventoryItemAdjustedCsatOutcomeFact({
+          accountId: params.accountId as AccountId,
+          itemId: params.itemId as InventoryItemId,
+          idempotencyKey: idempotencyKey ?? `inventory:item.adjusted:${params.itemId}:${commandFingerprint}`,
         });
+        if (params.quantityDelta < 0) {
+          resultVersion = await appendAuthoritativeNegativeAdjustment({
+            deps,
+            repository,
+            codec,
+            params,
+            context,
+            csatOutcomeFact,
+          });
+        } else {
+          const stock = await loadInventoryStockSnapshot({
+            db: deps.db,
+            itemRepository: repository,
+            itemId: params.itemId,
+            accountId: params.accountId as AccountId,
+            context,
+          });
+          const result = await commandHandler({
+            streamId: `inventory.item-${params.itemId}`,
+            command: {
+              type: "AdjustInventoryItemQuantity",
+              csatOutcomeFact,
+              quantityDelta: params.quantityDelta,
+              heldQuantity: stock.heldQuantity,
+              reason: params.reason,
+              sourceRef: params.sourceRef ?? null,
+            },
+            context,
+          });
+          resultVersion = result.version;
+        }
       } catch (error) {
         if (idempotencyKey) {
           await releaseInventoryAdjustmentIdempotency(deps.db, idempotencyKey);
@@ -310,13 +329,13 @@ export function createInventoryItemRuntime(
         await completeInventoryAdjustmentIdempotency(deps.db, {
           idempotencyKey,
           resultItemId: params.itemId,
-          resultVersion: result.version,
+          resultVersion,
         });
       }
 
       return {
         itemId: params.itemId,
-        version: result.version,
+        version: resultVersion,
       };
     },
     listItems: (params) => listInventoryItems(deps.db, params),
@@ -501,6 +520,61 @@ export function createInventoryItemRuntime(
   };
 }
 
+async function appendAuthoritativeNegativeAdjustment(
+  input: Readonly<{
+    deps: InventoryRuntimeDeps;
+    repository: InventoryItemRepository;
+    codec: ReturnType<typeof createPassthroughDomainEventCodec<InventoryItemEvent>>;
+    params: Readonly<{
+      accountId: string;
+      itemId: string;
+      quantityDelta: number;
+      reason: string;
+      sourceRef?: InventoryAdjustmentSourceRef;
+    }>;
+    context: EventStoreContext;
+    csatOutcomeFact: JsonObject;
+  }>,
+): Promise<number> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const aggregate = await input.repository.load(`inventory.item-${input.params.itemId}`);
+    const stock = await loadAuthoritativeInventoryStockSnapshot({
+      db: input.deps.db,
+      itemRepository: input.repository,
+      itemId: input.params.itemId,
+      accountId: input.params.accountId as AccountId,
+      context: input.context,
+      itemAggregate: aggregate,
+    });
+    const events = decideInventoryItem(aggregate.state, {
+      type: "AdjustInventoryItemQuantity",
+      csatOutcomeFact: input.csatOutcomeFact,
+      quantityDelta: input.params.quantityDelta,
+      heldQuantity: stock.heldQuantity,
+      reason: input.params.reason,
+      sourceRef: input.params.sourceRef ?? null,
+    });
+
+    try {
+      const storedEvents = await input.deps.eventStore.appendToStream({
+        streamId: `inventory.item-${input.params.itemId}`,
+        expectedVersion: aggregate.version,
+        events: events.map((event) => input.codec.encode(event)),
+        context: input.context,
+      });
+      recordCommittedEvents(storedEvents);
+      return storedEvents.at(-1)?.streamVersion ?? aggregate.version;
+    } catch (error) {
+      if (attempt < 3 && isConcurrencyConflict(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new InventoryDomainError("Inventory stock changed while applying the adjustment.");
+}
+
 type InventoryAdjustmentIdempotencyRow = Readonly<{
   inserted: boolean;
   command_fingerprint: string;
@@ -648,4 +722,8 @@ async function releaseInventoryAdjustmentIdempotency(db: InventoryRuntimeDeps["d
        AND status = 'in_progress'`,
     [idempotencyKey],
   );
+}
+
+function isConcurrencyConflict(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
 }

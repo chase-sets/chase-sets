@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
+import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import { inventoryItemRoutes } from "./route";
 import type { InventoryItemServices } from "./runtime";
 
@@ -46,17 +47,31 @@ const listingStockResult = {
   },
 } satisfies Awaited<ReturnType<InventoryItemServices["ensureListingStock"]>>;
 
-function buildApp(items: InventoryItemServices) {
+function buildApp(
+  items: InventoryItemServices,
+  options: Readonly<{ roleKey?: string; holdCollisions?: InventoryHoldCollisionServices }> = {},
+) {
   const app = new Hono<InventoryApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", {
       accountId: "acc_inventory",
+      roleKey: options.roleKey,
       permissions: ["inventory.view", "inventory.manage"],
     });
     c.set("context", context);
     await next();
   });
-  app.route("/items", inventoryItemRoutes(items, createHoldServices()));
+  app.route(
+    "/items",
+    inventoryItemRoutes(
+      items,
+      createHoldServices(),
+      options.holdCollisions ?? {
+        reduceItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3, collision: null })),
+        projectors: [],
+      },
+    ),
+  );
   return app;
 }
 
@@ -169,33 +184,77 @@ describe("inventory item routes", () => {
     expect(ensureListingStock).toHaveBeenCalledWith(expect.objectContaining({ gradedCard: null }), context);
   });
 
-  it("returns localized copy when an adjustment would drop below committed stock", async () => {
-    const app = buildApp(
-      createItemServices({
-        adjustItem: vi.fn(async () => {
-          throw new Error("2 units are committed to open orders.");
-        }),
-      }),
-    );
+  it("defaults negative adjustments to protect orders and returns the partial collision outcome", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async () => ({
+      itemId: "inv_1",
+      version: 3,
+      collision: {
+        mode: "protect-orders",
+        requestedQuantity: 4,
+        appliedQuantity: 2,
+        refusedQuantity: 2,
+        heldQuantity: 3,
+        availableQuantity: 2,
+        releasedHoldQuantity: 0,
+        affectedOrders: [
+          {
+            holdId: "hld_1",
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+            quantity: 3,
+            disposition: "protected",
+          },
+        ],
+      },
+    }));
+    const app = buildApp(createItemServices(), {
+      holdCollisions: { reduceItem, projectors: [] },
+    });
 
-    const response = await app.fetch(
-      new Request("http://inventory.test/items/inv_1/adjustments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quantityDelta: -1,
-          reason: "Cycle count",
-        }),
-      }),
-    );
-    const body = await response.json();
+    const response = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: -4, reason: "Counter count" }),
+    });
 
-    expect(response.status).toBe(400);
-    expect(body).toEqual({
-      error: {
-        code: "inventory_adjustment_below_committed_quantity",
-        message: "2 units are committed to open orders.",
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "hold-collision-recorded",
+      message: "2 units are committed and were not removed. Protected online orders: ord_1.",
+      collision: {
+        mode: "protect-orders",
+        appliedQuantity: 2,
+        refusedQuantity: 2,
+        affectedOrders: [{ orderId: "ord_1", disposition: "protected" }],
       },
     });
+    expect(reduceItem).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "protect-orders", honorOfflineAuthorized: false }),
+      context,
+    );
+  });
+
+  it("requires manager-or-owner authority and explicit confirmation for honor offline", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+    const collisions = { reduceItem, projectors: [] } satisfies InventoryHoldCollisionServices;
+    const fulfillmentApp = buildApp(createItemServices(), { roleKey: "fulfillment", holdCollisions: collisions });
+    const forbidden = await fulfillmentApp.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: -1, reason: "Counter sale", collisionMode: "honor-offline" }),
+    });
+    expect(forbidden.status).toBe(403);
+
+    const managerApp = buildApp(createItemServices(), { roleKey: "manager", holdCollisions: collisions });
+    const unconfirmed = await managerApp.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: -1, reason: "Counter sale", collisionMode: "honor-offline" }),
+    });
+    expect(unconfirmed.status).toBe(400);
+    await expect(unconfirmed.json()).resolves.toMatchObject({
+      error: { code: "honor_offline_confirmation_required" },
+    });
+    expect(reduceItem).not.toHaveBeenCalled();
   });
 });

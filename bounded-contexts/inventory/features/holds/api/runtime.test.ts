@@ -81,9 +81,34 @@ function createInventoryDb(
   };
 }
 
+async function seedInventoryItem(eventStore: EventStore) {
+  await eventStore.appendToStream({
+    streamId: "inventory.item-inv_1",
+    expectedVersion: "no_stream",
+    events: [
+      {
+        eventType: "inventory.item.created",
+        payload: {
+          itemId: "inv_1",
+          accountId: "acc_seller",
+          catalogItemId: "cat_1",
+          productId: "prod_1",
+          selectedOptions: [],
+          gradedCard: null,
+          storageLocationId: "loc_1",
+          totalQuantity: 1,
+          acquisitionCostAmount: null,
+        },
+      },
+    ],
+    context,
+  });
+}
+
 describe("inventory hold runtime", () => {
   it("reuses a matching stable hold id without appending a duplicate hold", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
     const db = createInventoryDb();
     const services = createInventoryHoldRuntime({
       eventStore,
@@ -112,8 +137,9 @@ describe("inventory hold runtime", () => {
     expect(db.query).toHaveBeenCalledTimes(1);
   });
 
-  it("places holds from stock rows without storage location detail joins", async () => {
+  it("places holds from authoritative item and hold streams", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
     const db = createInventoryDb({
       itemRows: [
         {
@@ -150,8 +176,8 @@ describe("inventory hold runtime", () => {
     );
 
     const stockQuery = String(db.query.mock.calls[0]?.[0] ?? "");
-    expect(stockQuery).toContain("FROM inventory_items AS item");
-    expect(stockQuery).not.toContain("inventory_storage_locations");
+    expect(stockQuery).toContain("FROM event_store_events");
+    expect(stockQuery).toContain("stream_category = 'inventory.hold'");
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
   });
 

@@ -1,4 +1,17 @@
 export const inventoryEnglishTranslations = {
+  "inventory.features.inventoryItems.api.route.collision.mode.invalid":
+    "Collision mode must protect orders or honor offline.",
+  "inventory.features.inventoryItems.api.route.honor.offline.authority.required":
+    "Honor offline requires a manager or owner.",
+  "inventory.features.inventoryItems.api.route.honor.offline.reduction.required":
+    "Honor offline is only valid for stock reductions.",
+  "inventory.features.inventoryItems.api.route.honor.offline.confirmation.required":
+    "Confirm that affected orders will enter seller-cannot-fulfill support, buyers will be refunded, and account reputation may be affected.",
+  "inventory.features.inventoryItems.api.route.protect.orders.affected": "Protected online orders: {orders}.",
+  "inventory.features.inventoryItems.api.route.protect.orders.refused":
+    "{count} units are committed and were not removed.",
+  "inventory.features.inventoryItems.api.route.honor.offline.affected.orders":
+    "{count} affected orders require seller-cannot-fulfill support.",
   "inventory.features.holds.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_holds (\n  hold_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  item_id text NOT NULL REFERENCES inventory_items(item_id),\n  quantity integer NOT NULL CHECK (quantity > 0),\n  reason text NOT NULL,\n  notes text NULL,\n  status text NOT NULL DEFAULT 'active',\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now(),\n  released_at timestamptz NULL,\n  last_stream_version bigint NOT NULL DEFAULT 0\n);\n\nCREATE INDEX IF NOT EXISTS inventory_holds_account_idx\n  ON inventory_holds (account_id, status, created_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_holds_item_idx\n  ON inventory_holds (item_id, status);\n",
   "inventory.features.holds.api.route.only.manual.holds.can.be.released.by.sellers":

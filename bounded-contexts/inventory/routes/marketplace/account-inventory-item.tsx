@@ -26,14 +26,16 @@ export const action = defineFormAction({
   authorization: { permission: "inventory.manage" },
   errorAdapter: inventoryApiErrorAdapter,
   intents: {
-    "adjust-item": async ({ request, params, formData }) =>
-      formActionRedirect(
-        await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
-          quantityDelta: Number(formData.get("quantityDelta") ?? 0),
-          reason: formData.get("reason"),
-        }),
-        new URL(request.url).pathname,
-      ),
+    "adjust-item": async ({ request, params, formData }) => {
+      const result = await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
+        quantityDelta: Number(formData.get("quantityDelta") ?? 0),
+        reason: formData.get("reason"),
+      });
+      if (result && typeof result === "object" && "status" in result && result.status === "hold-collision-recorded") {
+        return { message: "message" in result ? String(result.message ?? "") : "" };
+      }
+      return formActionRedirect(result, new URL(request.url).pathname);
+    },
     "create-hold": async ({ request, params, formData }) =>
       formActionRedirect(
         await createInventoryRequestApiClient(request).createHold(params.itemId!, {
@@ -61,14 +63,14 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string } | undefined;
+  const actionData = useActionData<typeof action>() as { error?: string; message?: string } | undefined;
   const location = useLocation();
 
   return (
     <InventoryItemDetailPage
       item={data.item as InventoryItemDetail}
       currentPath={`${location.pathname}${location.search}`}
-      errorMessage={actionData?.error ?? null}
+      errorMessage={actionData?.error ?? actionData?.message ?? null}
     />
   );
 }
