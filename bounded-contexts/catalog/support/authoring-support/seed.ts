@@ -111,7 +111,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
     await seedOnePieceCategories(services);
     await seedLorcanaCategories(services);
     await syncDisplayTemplateAuthoringDependencies(pool, services);
-    await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
+    await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(pool, services, fields);
     await seedProductContentConfiguration(services);
     return {
       ...staticCatalogIntegrationIds(),
@@ -128,7 +128,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
   await syncDisplayTemplateAuthoringDependencies(pool, services);
-  await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
+  await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(pool, services, fields);
   await seedProductContentConfiguration(services);
 
   return {
@@ -159,6 +159,7 @@ async function syncDisplayTemplateAuthoringDependencies(
  * Catalog-owned projections before this reconciliation pass publishes templates.
  */
 async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
+  pool: PgTransactionalPool,
   services: CatalogServices,
   fields: FieldIds,
 ): Promise<void> {
@@ -180,6 +181,7 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
   }
 
   await seedDisplayTemplates(services);
+  await drainLocalProjectionHandlerSets("catalog", pool, services.displayTemplates.projectors);
 }
 
 async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
