@@ -173,6 +173,15 @@ describe("catalog integration reset argument and environment gates", () => {
     expect(errors).toContain("--backup-target-data-set is required for the selected backup decision.");
   });
 
+  it("accepts the post-reset smoke verification reference through its CLI contract", () => {
+    const parsed = parseCatalogIntegrationResetArgs(
+      ["--smoke-verification-reference", "https://github.com/chase-sets/chase-sets/actions/runs/456"],
+      { DATABASE_URL_CATALOG: "postgresql://must-not-appear.example/catalog" },
+    );
+
+    expect(parsed.smokeVerificationReference).toBe("https://github.com/chase-sets/chase-sets/actions/runs/456");
+  });
+
   it("fails closed when the connected database is not the exact staging Catalog database", async () => {
     await expect(assertStagingCatalogDatabaseIdentity(database("chase_sets_production_catalog"))).rejects.toThrow(
       "did not match required staging Catalog database",
@@ -331,6 +340,9 @@ describe("Catalog Integration Staging Reset workflow", () => {
     expect(workflow).toContain(`inputs.confirm != '${CATALOG_INTEGRATION_RESET_CONFIRMATION}'`);
     expect(workflow).toContain("pnpm run ops catalog:integration-reset");
     expect(workflow).toContain("--approval-reference");
+    expect(workflow).toContain("smoke_verification_reference:");
+    expect(workflow).toContain("RESET_SMOKE_VERIFICATION_REFERENCE: ${{ inputs.smoke_verification_reference }}");
+    expect(workflow).toContain('--smoke-verification-reference "$RESET_SMOKE_VERIFICATION_REFERENCE"');
     expect(workflow).toContain("--connection-mode pooled");
     expect(workflow).toContain("retention-days: 30");
     expect(workflowFilesWithConcurrencyGroup("platform-staging-mutating-operations")).toEqual(
