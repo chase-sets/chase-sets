@@ -31,12 +31,7 @@ import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
-import {
-  seedLorcanaReferenceData,
-  seedMagicReferenceData,
-  seedOnePieceReferenceData,
-  seedReferenceData,
-} from "../../features/reference-data/api/seed";
+import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
@@ -98,9 +93,8 @@ export async function seedTcgdexCatalogIntegrationProfile(
     console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
     const dimensions = staticCatalogIntegrationIds().dimensions;
     const fields = await seedFields(services);
-    await seedMagicReferenceData(services);
-    await seedOnePieceReferenceData(services);
-    await seedLorcanaReferenceData(services);
+    await syncDisplayTemplateAuthoringDependencies(pool, services);
+    await seedReferenceData(services);
     const components = await seedMagicComponents(services, dimensions, fields);
     Object.assign(components, await seedOnePieceComponents(services, dimensions, fields));
     Object.assign(components, await seedLorcanaComponents(services, dimensions, fields));

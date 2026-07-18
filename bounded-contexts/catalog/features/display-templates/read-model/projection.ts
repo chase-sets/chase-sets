@@ -141,7 +141,7 @@ async function upsertDisplayTemplate(
        title_template = EXCLUDED.title_template,
        subtitle_template = EXCLUDED.subtitle_template,
        required_field_keys = EXCLUDED.required_field_keys,
-       status = COALESCE(EXCLUDED.status, catalog_display_templates.status),
+       status = COALESCE($13::text, catalog_display_templates.status),
        updated_at = EXCLUDED.updated_at`,
     [
       input.displayTemplateId,

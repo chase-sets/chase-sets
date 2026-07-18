@@ -316,21 +316,58 @@ describe("reference data seed", () => {
 function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?: ReadonlySet<string> }> = {}) {
   const existingReferenceTypeKeys =
     input.existingReferenceTypeKeys ?? new Set(["manufacturer", "product-line", "series", "expansion"]);
-  type ReferenceTypeRow = { reference_type_id: string; key: string; status: string };
+  const attributeKeysByType = {
+    manufacturer: ["homepage-url"],
+    "product-line": ["official-name", "short-name"],
+    series: ["tcgdex-series-id"],
+    expansion: [
+      "abbreviation",
+      "card-count",
+      "parallel-set-card-count",
+      "printed-card-count",
+      "release-date",
+      "tcgdex-set-id",
+    ],
+    set: [
+      "set-code",
+      "printed-card-count",
+      "release-date",
+      "mtgjson-set-code",
+      "scryfall-set-code",
+      "scrydex-set-id",
+      "chapter-number",
+      "set-kind",
+      "lorcanajson-set-code",
+      "lorcanajson-set-name",
+      "lorcast-set-code",
+      "lorcast-set-name",
+      "tcgplayer-set-name",
+    ],
+  } as const;
+  type ReferenceTypeRow = {
+    reference_type_id: string;
+    key: keyof typeof attributeKeysByType;
+    name_i18n: { defaultLocale: "en"; values: { en: string } };
+    description_i18n: { defaultLocale: "en"; values: Record<string, string> };
+    attribute_keys: string[];
+    status: string;
+  };
+  const referenceTypeRow = (referenceTypeId: string, key: keyof typeof attributeKeysByType): ReferenceTypeRow => ({
+    reference_type_id: referenceTypeId,
+    key,
+    name_i18n: { defaultLocale: "en", values: { en: key } },
+    description_i18n: { defaultLocale: "en", values: {} },
+    attribute_keys: [...attributeKeysByType[key]],
+    status: "active",
+  });
   const referenceTypeEntries: [string, ReferenceTypeRow][] = [
-    [
-      "manufacturer",
-      { reference_type_id: catalogSeedIds.referenceTypes.manufacturer, key: "manufacturer", status: "active" },
-    ],
-    [
-      "product-line",
-      { reference_type_id: catalogSeedIds.referenceTypes.productLine, key: "product-line", status: "active" },
-    ],
-    ["series", { reference_type_id: catalogSeedIds.referenceTypes.series, key: "series", status: "active" }],
-    ["expansion", { reference_type_id: catalogSeedIds.referenceTypes.expansion, key: "expansion", status: "active" }],
-    ["set", { reference_type_id: catalogSeedIds.referenceTypes.set, key: "set", status: "active" }],
+    ["manufacturer", referenceTypeRow(catalogSeedIds.referenceTypes.manufacturer, "manufacturer")],
+    ["product-line", referenceTypeRow(catalogSeedIds.referenceTypes.productLine, "product-line")],
+    ["series", referenceTypeRow(catalogSeedIds.referenceTypes.series, "series")],
+    ["expansion", referenceTypeRow(catalogSeedIds.referenceTypes.expansion, "expansion")],
+    ["set", referenceTypeRow(catalogSeedIds.referenceTypes.set, "set")],
   ];
-  const referenceTypes = new Map<string, { reference_type_id: string; key: string; status: string }>(
+  const referenceTypes = new Map<string, ReferenceTypeRow>(
     referenceTypeEntries.filter(([key]) => existingReferenceTypeKeys.has(key)),
   );
   const referenceRecords = new Map<
@@ -392,16 +429,27 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
         command,
       }: {
         streamId: string;
-        command: { type: string; referenceTypeId?: string; key?: string };
+        command: {
+          type: string;
+          referenceTypeId?: string;
+          key?: keyof typeof attributeKeysByType;
+          attributeKeys?: readonly string[];
+        };
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
         details.push({ key: command.key });
         if (command.type === "CreateReferenceType" && command.referenceTypeId && command.key) {
           referenceTypes.set(command.key, {
-            reference_type_id: command.referenceTypeId,
-            key: command.key,
+            ...referenceTypeRow(command.referenceTypeId, command.key),
+            attribute_keys: [...(command.attributeKeys ?? [])],
             status: "draft",
           });
+        }
+        if (command.type === "ReviseReferenceType" && command.key) {
+          const row = referenceTypes.get(command.key);
+          if (row) {
+            row.attribute_keys = [...(command.attributeKeys ?? row.attribute_keys)];
+          }
         }
         if (command.type === "PublishReferenceType") {
           const row = Array.from(referenceTypes.values()).find((candidate) =>

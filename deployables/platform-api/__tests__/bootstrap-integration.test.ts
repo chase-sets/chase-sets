@@ -6,10 +6,14 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   bootstrapContextDatabase,
+  drainContextRuntime,
+  drainLocalProjectionHandlerSets,
   refreshProjectionReplaySummary,
   SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
   SCHEMA_MIGRATIONS_TABLE,
 } from "@chase-sets/bounded-context-runtime";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import {
   getApiHostContextNames,
   getApiHostSeedOrder,
@@ -459,4 +463,116 @@ describe("platform api bootstrap", () => {
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);
   }, 180_000);
+
+  it("upgrades legacy published Display Templates through the not-empty Catalog reconciliation path", async () => {
+    const runtime = createPlatformApiHost({
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const bootstrapOptions = {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "production",
+    } as const;
+
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
+    await drainContextRuntime(runtime);
+
+    // Recreate the long-lived production shape: the active expansion type predates the
+    // seeded attribute, while the active template projection still has the old required-key set.
+    const catalogServices = catalogModule.createServices(pools.catalog, {});
+    const expansionType = await pools.catalog.query<
+      Readonly<{
+        reference_type_id: string;
+        key: string;
+        name_i18n: unknown;
+        description_i18n: unknown;
+        attribute_keys: string[];
+      }>
+    >(
+      `SELECT reference_type_id, key, name_i18n, description_i18n, attribute_keys
+       FROM catalog_reference_types
+       WHERE key = 'expansion'`,
+    );
+    const expansion = expansionType.rows[0]!;
+    const legacyAttributeKeys = [
+      ...expansion.attribute_keys.filter((key) => key !== "printed-card-count"),
+      "operator-owned-legacy-attribute",
+    ];
+
+    await catalogServices.referenceData.referenceTypeCommandHandler({
+      streamId: `catalog.reference-type-${expansion.reference_type_id}`,
+      command: {
+        type: "ReviseReferenceType",
+        key: expansion.key,
+        name: expansion.name_i18n as never,
+        description: expansion.description_i18n as never,
+        attributeKeys: legacyAttributeKeys,
+      },
+      context: {
+        tenantId: "tnt_bootstrap-legacy" as never,
+        audit: {
+          performedByUserId: "usr_bootstrap-legacy" as never,
+          forAccountId: "acc_bootstrap-legacy" as never,
+        },
+      },
+    });
+    await drainLocalProjectionHandlerSets("catalog", pools.catalog, catalogServices.referenceData.projectors);
+
+    await pools.catalog.query(
+      `UPDATE catalog_display_templates
+       SET required_field_keys = $2::jsonb
+       WHERE display_template_id = $1`,
+      [
+        catalogSeedIds.displayTemplates.pokemonSingleCardDefault,
+        JSON.stringify(["card-name", "card-number", "expansion"]),
+      ],
+    );
+
+    // Negative control: authoring remains fail-closed until bootstrap reconciles the seed-owned dependency.
+    await expect(
+      catalogServices.displayTemplates.commandHandler({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
+        command: {
+          type: "ReviseDisplayTemplate",
+          key: "pokemon-single-card-default",
+          name: { defaultLocale: "en", values: { en: "Pokemon single card" } },
+          target: { kind: "blueprint", id: catalogSeedIds.blueprints.pokemonCardSingle },
+          priority: 10,
+          titleTemplate: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+          subtitleTemplate: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+        },
+        context: {
+          tenantId: "tnt_bootstrap-negative-control" as never,
+          audit: {
+            performedByUserId: "usr_bootstrap-negative-control" as never,
+            forAccountId: "acc_bootstrap-negative-control" as never,
+          },
+        },
+      }),
+    ).rejects.toThrow("references undeclared attribute 'printed-card-count'");
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
+    ).resolves.toBeUndefined();
+
+    const reconciledExpansion = await pools.catalog.query<Readonly<{ attribute_keys: string[] }>>(
+      `SELECT attribute_keys FROM catalog_reference_types WHERE key = 'expansion'`,
+    );
+    const activeTemplate = await pools.catalog.query<Readonly<{ required_field_keys: string[]; status: string }>>(
+      `SELECT required_field_keys, status
+       FROM catalog_display_templates
+       WHERE display_template_id = $1`,
+      [catalogSeedIds.displayTemplates.pokemonSingleCardDefault],
+    );
+
+    expect(reconciledExpansion.rows[0]?.attribute_keys).toContain("printed-card-count");
+    expect(reconciledExpansion.rows[0]?.attribute_keys).toContain("operator-owned-legacy-attribute");
+    expect(activeTemplate.rows[0]).toEqual({
+      required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
+      status: "active",
+    });
+  }, 240_000);
 });
