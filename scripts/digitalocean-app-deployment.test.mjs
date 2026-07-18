@@ -490,11 +490,19 @@ The resources are retired by a reviewed context merge.
     ]);
   });
 
-  it("keeps the checked-in production destructive approval in no-active-approval state", () => {
+  it("pins the checked-in production destructive approval to Flip attempt 4's attachment release", () => {
     const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
 
-    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([]);
-    expect(approvalText).toContain("Approval state: no-active-approval");
+    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([
+      'digitalocean_app.platform.domain["chasesets.com"]',
+      'digitalocean_app.platform.domain["www.chasesets.com"]',
+      'digitalocean_app.platform.domain["admin.chasesets.com"]',
+    ]);
+    expect(approvalText).toContain("Approval state: active");
+    expect(approvalText).toContain(
+      "Plan fingerprint: sha256:692539e7511fb7339e40c58120900ed89799367ab9e9220520f3c7d2d231eaa1",
+    );
+    expect(approvalText).toContain("#5574 + Todd 2026-07-18 standing retry grant");
     expect(approvalText).not.toContain('digitalocean_database_db.contexts["experience"]');
   });
 
