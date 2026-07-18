@@ -438,7 +438,7 @@ This separation is intentional: matching an already-active App Platform value on
    gh variable set PRODUCTION_APP_SERVING --env production --body doks
    ```
 
-2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply then releases App Platform domain attachments and creates the production DOKS A records. App Platform and its parked fallback routes remain intact.
+2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply changes App Platform's desired domain set from the live hosts to `app-platform.chasesets.com`. The leaf A resources depend on that completed update, and the apex A depends on the leaves, so App Platform has released its provider-managed DNS records before DOKS record creation begins. App Platform and its parked fallback routes remain intact.
 
    ```bash
    gh workflow run platform-production.yml --ref main
@@ -464,7 +464,7 @@ The three-day soak clock begins only after these probes and both workflow steps 
 
 #### Phase B: DNS-only rollback
 
-Rollback is the serving variable re-flip. Leave the ingress target and ready certificate in place so the shadow/live DOKS path stays warm:
+Rollback is the serving variable re-flip after the separate `prepare-app-platform` TTL phase has aged. Leave the ingress target and ready certificate in place so the shadow/live DOKS path stays warm. The dependency graph deletes the DOKS apex and leaf A records before changing the App Platform domain set from the parking host back to the live hosts; App Platform then recreates its provider-managed apex and CNAME records:
 
 ```bash
 gh variable set PRODUCTION_APP_SERVING --env production --body app-platform

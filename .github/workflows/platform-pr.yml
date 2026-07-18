@@ -652,9 +652,15 @@ jobs:
 
             for name in admin www; do
               address="digitalocean_record.app_serving[\"${name}\"]"
-              jq -e --arg address "$address" --arg type "$expected_type" \
-                'any(.planned_values.root_module.resources[]?; .address == $address and .values.type == $type)' \
-                "$plan_json" >/dev/null
+              if [ "$expected_type" = "none" ]; then
+                jq -e --arg address "$address" \
+                  'all(.planned_values.root_module.resources[]?; .address != $address)' \
+                  "$plan_json" >/dev/null
+              else
+                jq -e --arg address "$address" --arg type "$expected_type" \
+                  'any(.planned_values.root_module.resources[]?; .address == $address and .values.type == $type)' \
+                  "$plan_json" >/dev/null
+              fi
             done
             jq -e 'all(.planned_values.root_module.resources[]?; .address != "digitalocean_record.app_serving[\"marketplace\"]")' \
               "$plan_json" >/dev/null
@@ -666,11 +672,19 @@ jobs:
               jq -e 'all(.planned_values.root_module.resources[]?; .address != "digitalocean_record.doks_apex[0]")' \
                 "$plan_json" >/dev/null
             fi
+
+            if [ "$expected_type" = "A" ]; then
+              jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and .values.spec[0].domain == [{"name":"app-platform.chasesets.com","type":"PRIMARY","zone":"chasesets.com"}])' \
+                "$plan_json" >/dev/null
+            else
+              jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and ([.values.spec[0].domain[].name] | sort) == ["admin.chasesets.com","chasesets.com","www.chasesets.com"])' \
+                "$plan_json" >/dev/null
+            fi
           }
 
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=app-platform.tfplan \
             -var=production_app_serving=app-platform
-          assert_serving_plan app-platform.tfplan CNAME false
+          assert_serving_plan app-platform.tfplan none false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=doks.tfplan \
             -var=production_app_serving=doks \
             -var=doks_ingress_target=203.0.113.10 \

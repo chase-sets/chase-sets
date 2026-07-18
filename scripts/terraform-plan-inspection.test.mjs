@@ -39,6 +39,45 @@ function resourceChange(address, actions) {
 }
 
 describe("Terraform plan inspection", () => {
+  it("pins the App Platform domain releases and DOKS record creates in the forward fixture", () => {
+    const plan = JSON.parse(
+      readFileSync(
+        resolve("scripts/fixtures/terraform-plans/production-platform-app-platform-state-to-doks.json"),
+        "utf8",
+      ),
+    );
+
+    expect(assertProductionServingModeReplacement(plan, { from: "app-platform", to: "doks" })).toEqual([
+      'digitalocean_app.platform.domain["admin.chasesets.com"]',
+      'digitalocean_app.platform.domain["chasesets.com"]',
+      'digitalocean_app.platform.domain["www.chasesets.com"]',
+    ]);
+    const destructiveChanges = destructiveResourceChanges(plan);
+    expect(destructiveChanges).toEqual([
+      {
+        address: 'digitalocean_app.platform.domain["chasesets.com"]',
+        type: "digitalocean_app_domain_attachment",
+        name: "chasesets.com",
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_app.platform.domain["www.chasesets.com"]',
+        type: "digitalocean_app_domain_attachment",
+        name: "www.chasesets.com",
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_app.platform.domain["admin.chasesets.com"]',
+        type: "digitalocean_app_domain_attachment",
+        name: "admin.chasesets.com",
+        actions: ["delete"],
+      },
+    ]);
+    expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
+      "sha256:692539e7511fb7339e40c58120900ed89799367ab9e9220520f3c7d2d231eaa1",
+    );
+  });
+
   it("limits the App Platform rollback deletes in the DOKS-state fixture to the intended records", () => {
     const plan = JSON.parse(
       readFileSync(
@@ -48,6 +87,7 @@ describe("Terraform plan inspection", () => {
     );
 
     expect(assertProductionServingModeReplacement(plan, { from: "doks", to: "app-platform" })).toEqual([
+      'digitalocean_app.platform.domain["app-platform.chasesets.com"]',
       'digitalocean_record.app_serving["admin"]',
       'digitalocean_record.app_serving["www"]',
       "digitalocean_record.doks_apex[0]",

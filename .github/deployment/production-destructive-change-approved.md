@@ -13,6 +13,10 @@ Any production Terraform plan containing destructive actions must fail closed un
 operator commits an active approval that names the exact destructive resource addresses and
 the current plan fingerprint reported by the failed deployment check.
 
+Nested App Platform domain releases are enumerated by the plan inspector as
+`digitalocean_app.platform.domain["<hostname>"]` and must be pinned individually alongside
+any Terraform resources deleted by the same serving swap.
+
 ## Active Approval Format
 
 Use this shape only for a reviewed pending production plan:
