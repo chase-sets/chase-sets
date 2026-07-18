@@ -1,6 +1,7 @@
 export { default as contextManifest } from "./context.json";
 
 import {
+  buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
   defineBoundedContextModule,
   type BcContextManifest,
@@ -34,6 +35,7 @@ import {
   buildSupportShipmentSourceProjectionHandlers,
 } from "./features/support-requests/integrations/source/source-projection";
 import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/support-requests/integrations/source/return-label-source-projection";
+import { buildInventoryCollisionSupportReactionHandlers } from "./features/support-requests/integrations/inventory-collision/inventory-collision-reaction";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -79,8 +81,8 @@ export const module = defineBoundedContextModule<
     };
   },
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) =>
-    buildEventSubscriptionsFromManifest({
+  buildSubscriptions: (services) => [
+    ...buildEventSubscriptionsFromManifest({
       contextName: "platform-operations",
       manifest: platformOperationsContextManifest,
       handlers: {
@@ -143,5 +145,16 @@ export const module = defineBoundedContextModule<
         },
       },
     }),
+    ...buildEventReactionsFromManifest({
+      contextName: "platform-operations",
+      manifest: platformOperationsContextManifest,
+      handlers: {
+        "inventory.support-inventory-hold-collision": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildInventoryCollisionSupportReactionHandlers(services.supportRequests),
+        },
+      },
+    }),
+  ],
   seed: seedPlatformOperationsDatabase,
 });

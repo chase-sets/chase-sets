@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -172,6 +173,11 @@ function normalizeOrderId(value: string): OrderId {
   }
 }
 
+function deterministicSupportId(prefix: "sup" | "sev", sourceReference: string): string {
+  const digest = createHash("sha256").update(sourceReference, "utf8").digest("hex").slice(0, 26);
+  return `${prefix}_${digest}`;
+}
+
 export type SupportRequestServices = Readonly<{
   commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
   /**
@@ -190,6 +196,16 @@ export type SupportRequestServices = Readonly<{
       accountId: string;
       flowType: SupportFlowType | string;
       affectedLineIds?: readonly string[] | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  openAutomatedSellerCannotFulfillRequest: (
+    params: Readonly<{
+      orderId: string;
+      sellerAccountId: string;
+      reservationRequestId: string;
+      holdId: string;
+      releasedAt: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
@@ -771,6 +787,87 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
             }
           : {}),
       };
+    },
+    openAutomatedSellerCannotFulfillRequest: async (params, context) => {
+      const orderId = normalizeOrderId(params.orderId);
+      const order = await getOrderSource(deps.db, orderId);
+      if (!order) {
+        throw new SupportDomainError("Order not found for support.");
+      }
+      if (order.seller_account_id !== params.sellerAccountId) {
+        throw new SupportDomainError("Seller cannot open support for this order.");
+      }
+
+      const flowType = normalizeFlowType("seller-cannot-fulfill");
+      const deadlineHours = deps.policies
+        ? resolveSupportFlowDeadlineHours(flowType, (await deps.policies.resolvePolicy(supportDeadlinePolicy)).value)
+        : null;
+      const sourceReference = `inventory.reservation.released:${params.reservationRequestId}`;
+      const supportRequestId = parseTypedId(deterministicSupportId("sup", sourceReference), "sup");
+      const streamId = `support.support-request-${supportRequestId}`;
+      const affectedLineItems = selectAffectedLineItems(order, null);
+
+      await commandHandler({
+        streamId,
+        command: {
+          type: "OpenSupportRequest",
+          supportRequestId,
+          orderId: order.order_id as OrderId,
+          orderTotalAmount: order.total_amount,
+          buyerAccountId: order.buyer_account_id as AccountId,
+          sellerAccountId: order.seller_account_id as AccountId,
+          flowType,
+          openedByAccountId: params.sellerAccountId as AccountId,
+          openedByRole: "seller",
+          openedAt: params.releasedAt,
+          deliveredAt: order.delivered_at,
+          orderReturnContext: order.return_context,
+          ...(affectedLineItems.length > 0 ? { affectedLineItems } : {}),
+          ...(deadlineHours
+            ? {
+                sellerResponseHours: deadlineHours.sellerResponseHours,
+                supportReviewHours: deadlineHours.supportReviewHours,
+              }
+            : {}),
+        },
+        context,
+      });
+
+      await commandHandler({
+        streamId,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: deterministicSupportId("sev", sourceReference),
+          submittedByAccountId: params.sellerAccountId as AccountId,
+          submittedByRole: "seller",
+          evidenceType: "seller-attestation",
+          summary: `Authorized Honor Offline released inventory reservation ${params.reservationRequestId} (hold ${params.holdId}); the seller cannot fulfill this order.`,
+          occurredAt: params.releasedAt,
+          submittedAt: params.releasedAt,
+          attachments: [],
+        },
+        context,
+      });
+
+      const result = await commandHandler({
+        streamId,
+        command: {
+          type: "ResolveSupportRequest",
+          resolutionType: "cancel-order",
+          summary:
+            "Automatically cancelled because an authorized Honor Offline decision released the order reservation.",
+          refundAmount: null,
+          responsibility: "seller",
+          evidenceBasis: { type: "deterministic-policy", reference: "inventory.honor-offline.v1" },
+          responsibilityReasonCode: "seller-cannot-fulfill.seller-unable-to-fulfill",
+          resolvedByAccountId: null,
+          resolvedByRole: null,
+          resolvedAt: params.releasedAt,
+        },
+        context,
+      });
+
+      return { supportRequestId, version: result.version };
     },
     openSupportRequest: async (params, context) => {
       const orderId = normalizeOrderId(params.orderId);

@@ -6,6 +6,7 @@
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
+    "hold-collisions",
     "import-batches",
     "holds",
     "reservations",
@@ -147,6 +148,13 @@
       "projectionName": "inventory-item-ledger-projection",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["inventory_item_ledger"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "inventory-hold-collision-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_hold_collisions"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -748,6 +756,11 @@
       "purpose": "Own holds feature behavior, read models, and UI contracts for the inventory context.",
       "expectedConsumers": ["Internal inventory module composition"]
     },
+    "hold-collisions": {
+      "classification": "slice",
+      "purpose": "Resolve stock reductions that collide with active holds and publish the resulting order evidence.",
+      "expectedConsumers": ["Internal inventory module composition"]
+    },
     "reservations": {
       "classification": "slice",
       "purpose": "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
@@ -783,6 +796,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": [
+        "hold-collisions",
         "holds",
         "import-batches",
         "inventory-items",

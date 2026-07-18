@@ -7,6 +7,7 @@ import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
+import { createInventoryHoldCollisionRuntime } from "../../features/hold-collisions/api/runtime";
 import {
   createInventoryImportBatchRuntime,
   type InventoryDraftListingCreator,
@@ -23,6 +24,7 @@ export type InventoryServices = Readonly<{
   items: ReturnType<typeof createInventoryItemRuntime>;
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
+  holdCollisions: ReturnType<typeof createInventoryHoldCollisionRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
   recoveredItems: ReturnType<typeof createRecoveredItemRuntime>;
@@ -65,6 +67,7 @@ export function createInventoryServices(
   });
   const holds = createInventoryHoldRuntime(deps);
   const reservations = createInventoryReservationRuntime(deps);
+  const holdCollisions = createInventoryHoldCollisionRuntime(deps);
   const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
   const recoveredItems = createRecoveredItemRuntime(deps);
 
@@ -74,6 +77,7 @@ export function createInventoryServices(
     items,
     importBatches,
     holds,
+    holdCollisions,
     reservations,
     restockDecisions,
     recoveredItems,
@@ -83,6 +87,7 @@ export function createInventoryServices(
       ...storageLocations.projectors,
       ...items.projectors,
       ...holds.projectors,
+      ...holdCollisions.projectors,
       ...reservations.projectors,
       ...restockDecisions.projectors,
       ...recoveredItems.projectors,

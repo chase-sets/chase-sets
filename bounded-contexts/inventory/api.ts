@@ -11,6 +11,7 @@ import { inventoryRecoveredItemRoutes } from "./features/recovered-items/api/rou
 
 export type InventoryActor = Readonly<{
   accountId: string;
+  roleKey?: string;
   permissions: readonly string[];
 }>;
 
@@ -79,7 +80,7 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/catalog-items", inventoryCatalogItemRoutes(services.catalogItems));
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
   app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
-  app.route("/items", inventoryItemRoutes(services.items, services.holds));
+  app.route("/items", inventoryItemRoutes(services.items, services.holds, services.holdCollisions));
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/recovered-items", inventoryRecoveredItemRoutes(services.recoveredItems));
   app.route("/holds", inventoryHoldRoutes(services.holds));

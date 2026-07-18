@@ -63,6 +63,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Hold | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Inventory-owned block against available stock. |
 | Hold Purpose | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why stock is held; Marketplace mirrors it from Inventory events. |
 | Hold Release Reason | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why held stock returned to availability without consumption. |
+| Hold Collision | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | A stock reduction that conflicts with active Inventory Holds and resolves through Protect Orders or Honor Offline. |
 | Restock Decision | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Seller choice for returned stock after dispatch; outcomes are `restocked` and `written-off`, with `return-restocked` as the restock adjustment reason. |
 | Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |
 | Offer | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-submitted purchase proposal before an order exists. |
@@ -144,7 +145,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 | Term | Source of truth | Other context use |
 | --- | --- | --- |
-| Hold family | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) owns stock Holds, Hold Purpose, Hold Source Reference, Hold Expiry, and Hold Release Reason. | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) owns Payout Release Hold for wallet availability. Other contexts consume the qualified Inventory terms or name a qualified local hold. |
+| Hold family | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) owns stock Holds, Hold Purpose, Hold Source Reference, Hold Expiry, Hold Release Reason, Hold Collision, Protect Orders, and Honor Offline. | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) owns Payout Release Hold for wallet availability. Other contexts consume the qualified Inventory terms or name a qualified local hold. |
 | Policy family | The context that owns the decision owns each named policy, such as Ordering Postage Policy, Marketplace High-Dollar Listing Publication Policy, Pricing Repricing Policy, or Payments Marketplace Checkout Fee Policy. | Do not use bare Policy as a durable term. Consumers reference the named policy and its owner, and adapters translate provider policy vocabulary at the boundary. |
 | Channel family | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) owns account notification delivery language, while platform architecture docs own wake/listener transport channels. | Qualify channel by surface or transport, such as notification channel, wake channel, or listener channel. Do not let transport channels become notification preferences. |
 | Shipping Evidence Tier | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) evaluates and stores the tier in the order shipping plan. | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) consumes the committed tier during label purchase and records it on postage diagnostics. |

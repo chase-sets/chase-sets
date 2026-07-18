@@ -201,6 +201,7 @@ export type BcEventReactionDeclaration = Readonly<{
   readonly reactionName: string;
   readonly subscriptionVersion: number;
   readonly reactionHandlerSetNames: readonly string[];
+  readonly sourceContextMount?: BcSourceContextMount;
   readonly idempotencyPolicy: BcReactionIdempotencyPolicy;
   readonly retryPolicy: BcReactionRetryPolicy;
   readonly failurePolicy: BcReactionFailurePolicy;
@@ -241,7 +242,10 @@ type BcEventSubscriptionManifestDeclaration = Omit<BcEventSubscriptionDeclaratio
     readonly sourceContextMount?: string;
   }>;
 
-type BcEventReactionManifestDeclaration = BcEventReactionDeclaration;
+type BcEventReactionManifestDeclaration = Omit<BcEventReactionDeclaration, "sourceContextMount"> &
+  Readonly<{
+    readonly sourceContextMount?: string;
+  }>;
 
 type BcProjectionGroupManifestDeclaration = Omit<BcProjectionGroupDeclaration, "sourceContextMount" | "resetStrategy"> &
   Readonly<{
@@ -427,26 +431,30 @@ export function buildEventReactionsFromManifest<TEventPayloads extends EventPayl
       );
     }
 
+    const normalizedDeclaration = normalizeEventReactionDeclaration(contextName, declaration);
     const normalizedRegistration = normalizeEventReactionHandlerRegistration(contextName, reactionName, registration);
-    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(declaration));
+    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(normalizedDeclaration));
 
     return {
       subscriptionName: normalizedRegistration.subscriptionName,
       handlerKind: "reaction",
-      sourceContextName: declaration.sourceContextName,
-      projectionName: declaration.reactionName,
-      reactionName: declaration.reactionName,
-      subscriptionVersion: declaration.subscriptionVersion,
+      sourceContextName: normalizedDeclaration.sourceContextName,
+      ...(normalizedDeclaration.sourceContextMount
+        ? { sourceContextMount: normalizedDeclaration.sourceContextMount }
+        : {}),
+      projectionName: normalizedDeclaration.reactionName,
+      reactionName: normalizedDeclaration.reactionName,
+      subscriptionVersion: normalizedDeclaration.subscriptionVersion,
       handlers: normalizedRegistration.filterToEventTypes
-        ? selectEventSubscriptionHandlers(handlerMap, declaration.eventTypes)
+        ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
         : handlerMap,
-      idempotencyPolicy: declaration.idempotencyPolicy,
-      retryPolicy: declaration.retryPolicy,
-      failurePolicy: declaration.failurePolicy,
-      eventTypes: declaration.eventTypes,
-      streamPrefixes: declaration.streamPrefixes,
-      errorPolicy: declaration.errorPolicy,
-      order: declaration.order,
+      idempotencyPolicy: normalizedDeclaration.idempotencyPolicy,
+      retryPolicy: normalizedDeclaration.retryPolicy,
+      failurePolicy: normalizedDeclaration.failurePolicy,
+      eventTypes: normalizedDeclaration.eventTypes,
+      streamPrefixes: normalizedDeclaration.streamPrefixes,
+      errorPolicy: normalizedDeclaration.errorPolicy,
+      order: normalizedDeclaration.order,
     };
   });
 }
@@ -625,7 +633,13 @@ function normalizeContextManifest(manifest: BcContextManifestInput): BcContextMa
           ),
         }
       : {}),
-    ...(manifest.eventReactions ? { eventReactions: manifest.eventReactions } : {}),
+    ...(manifest.eventReactions
+      ? {
+          eventReactions: manifest.eventReactions.map((declaration) =>
+            normalizeEventReactionDeclaration(manifest.contextName, declaration),
+          ),
+        }
+      : {}),
     ...(manifest.projectionGroups
       ? {
           projectionGroups: manifest.projectionGroups.map((declaration) =>
@@ -662,6 +676,23 @@ function normalizeEventSubscriptionDeclaration(
   const sourceContextMount = normalizeOptionalSourceContextMount(
     contextName,
     declaration.projectionName,
+    rawSourceContextMount,
+  );
+
+  return {
+    ...rest,
+    ...(sourceContextMount ? { sourceContextMount } : {}),
+  };
+}
+
+function normalizeEventReactionDeclaration(
+  contextName: string,
+  declaration: BcEventReactionManifestDeclaration,
+): BcEventReactionDeclaration {
+  const { sourceContextMount: rawSourceContextMount, ...rest } = declaration;
+  const sourceContextMount = normalizeOptionalSourceContextMount(
+    contextName,
+    declaration.reactionName,
     rawSourceContextMount,
   );
 

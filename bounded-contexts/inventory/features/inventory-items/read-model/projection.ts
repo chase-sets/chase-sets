@@ -85,5 +85,16 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
         [itemId, quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
     },
+    "inventory.item.stock-authority-claimed": async (event) => {
+      const { itemId } = event.data as { itemId: string };
+      await db.query(
+        `UPDATE inventory_items
+         SET last_stream_version = $2,
+             updated_at = $3
+         WHERE item_id = $1
+           AND last_stream_version < $2`,
+        [itemId, event.streamVersion, event.timing.recordedAt],
+      );
+    },
   };
 }

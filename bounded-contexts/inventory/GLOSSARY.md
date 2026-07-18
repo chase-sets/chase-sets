@@ -22,6 +22,10 @@ Notes:
 
 **Available Quantity** is the number of units in an inventory item that can still be sold after active holds are applied.
 
+## Stock Authority
+
+**Stock Authority** is the Inventory Item stream's serialization boundary for quantity reductions and new hold commitments. Both operations claim it so concurrent requests resolve in commit order and can never commit the same unit twice.
+
 ## Hold
 
 A **Hold** is a temporary block against available stock while checkout or another in-progress commerce flow completes.
@@ -78,8 +82,29 @@ Values:
 - `checkout-cancelled`: a Checkout-owned session cancellation released the checkout hold before order commitment.
 - `checkout-expired`: a planned checkout hold expired before order commitment.
 - `payment-deadline`: a planned payment-deadline cancellation released the hold.
+- `hold-collision`: an authorized Honor Offline decision released an order hold so recorded offline stock could win.
 - `manual`: an account-initiated Inventory action released the hold.
 - `superseded`: a newer hold or lifecycle transition replaced the hold.
+
+## Hold Collision
+
+A **Hold Collision** occurs when a requested stock reduction is larger than Available Quantity because active Inventory Holds already commit part of the Inventory Item.
+
+Notes:
+
+- **Protect Orders** is the default: Inventory applies only the available portion and refuses the remainder.
+- **Honor Offline** is an explicit manager-or-owner decision: Inventory applies the full reduction and releases the newest whole order reservations needed to restore the commitment floor.
+- Earlier order commitments win when only some reservations must be displaced.
+- Manual and checkout holds cannot be displaced by Honor Offline.
+- Every collision records its quantities, mode, Storage Location, and affected order evidence.
+
+## Protect Orders
+
+**Protect Orders** is the default Hold Collision mode that preserves every active commitment, applies only Available Quantity, and refuses the remainder of the requested reduction.
+
+## Honor Offline
+
+**Honor Offline** is the permission-gated Hold Collision mode in which recorded offline stock wins over the newest affected order commitments. It is chosen for one event and is never a sticky account setting.
 
 ## Restock Decision
 

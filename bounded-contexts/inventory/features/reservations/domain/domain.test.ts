@@ -17,12 +17,14 @@ describe("inventory reservations", () => {
     const [released] = decideInventoryReservation(confirmedState, {
       type: "ReleaseInventoryReservation",
       releasedAt: "2026-04-30T00:00:00.000Z",
+      releaseReason: "hold-collision",
     });
 
     expect(decideInventoryReservation(confirmedState, command)).toEqual([]);
     expect(evolveInventoryReservation(confirmedState, released!)).toMatchObject({
       status: "released",
       releasedAt: "2026-04-30T00:00:00.000Z",
+      releaseReason: "hold-collision",
     });
   });
 
@@ -31,6 +33,7 @@ describe("inventory reservations", () => {
       decideInventoryReservation(initialInventoryReservationState, {
         type: "ReleaseInventoryReservation",
         releasedAt: "2026-04-30T00:00:00.000Z",
+        releaseReason: "order-cancelled",
       }),
     ).toThrow("Only confirmed inventory reservations can be released.");
   });

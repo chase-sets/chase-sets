@@ -433,6 +433,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "checkout:checkout-inventory-supply-projection",
       "discovery:discovery-market-projection",
+      "inventory:inventory-hold-collision-projection",
       "inventory:inventory-hold-projection",
       "inventory:inventory-item-ledger-projection",
       "inventory:inventory-item-projection",
@@ -445,6 +446,7 @@ export const sourceContextWakeRegistry = [
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-inventory-reservation-outcomes",
       "ordering:ordering-inventory-supply-input-projection",
+      "platform-operations:support-inventory-hold-collision",
       "pricing:pricing-inventory-input-projection",
       "settlement:settlement-inventory-recovery-workflow",
     ],

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
+import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import { createInventoryItemMcpHandlers } from "./mcp";
 import type { InventoryItemServices } from "./runtime";
 
@@ -75,6 +76,13 @@ function services(): InventoryItemServices {
   } as unknown as InventoryItemServices;
 }
 
+function collisionServices(): InventoryHoldCollisionServices {
+  return {
+    reduceItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3, collision: null })),
+    projectors: [],
+  };
+}
+
 function storageLocationRow(overrides: Record<string, unknown> = {}) {
   return {
     storage_location_id: "loc_1",
@@ -100,7 +108,7 @@ function storageLocations(
 describe("inventory item MCP handlers", () => {
   it("lists account inventory with natural key and hold-derived availability filters", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisionServices());
 
     const result = await handlers.toolHandlers["inventory.list-items"]?.(
       mcpRequest({
@@ -131,7 +139,7 @@ describe("inventory item MCP handlers", () => {
     const fakeStorageLocations = storageLocations([
       storageLocationRow({ storage_location_id: "loc_1", name: "Shelf A" }),
     ]);
-    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations, collisionServices());
 
     await handlers.toolHandlers["inventory.list-items"]?.(
       mcpRequest({ accountId: "acc_1", storageLocationName: "shelf a" }),
@@ -147,7 +155,7 @@ describe("inventory item MCP handlers", () => {
   it("prefers storageLocationId over storageLocationName when both are given", async () => {
     const fakeServices = services();
     const fakeStorageLocations = storageLocations();
-    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations, collisionServices());
 
     await handlers.toolHandlers["inventory.list-items"]?.(
       mcpRequest({ accountId: "acc_1", storageLocationId: "loc_explicit", storageLocationName: "Shelf A" }),
@@ -159,7 +167,7 @@ describe("inventory item MCP handlers", () => {
 
   it("rejects an unknown storageLocationName", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations([]));
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations([]), collisionServices());
 
     await expect(
       handlers.toolHandlers["inventory.list-items"]?.(
@@ -174,7 +182,7 @@ describe("inventory item MCP handlers", () => {
       storageLocationRow({ storage_location_id: "loc_1", name: "Warehouse" }),
       storageLocationRow({ storage_location_id: "loc_2", name: "Warehouse" }),
     ]);
-    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations, collisionServices());
 
     await expect(
       handlers.toolHandlers["inventory.list-items"]?.(
@@ -184,9 +192,33 @@ describe("inventory item MCP handlers", () => {
     expect(fakeServices.listItems).not.toHaveBeenCalled();
   });
 
-  it("adjusts stock through Inventory and returns an MCP write receipt", async () => {
+  it("defaults MCP stock reductions to protect orders and returns the collision evidence", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
+    const collisions = collisionServices();
+    vi.mocked(collisions.reduceItem).mockResolvedValue({
+      itemId: "inv_1",
+      version: 3,
+      collision: {
+        mode: "protect-orders",
+        authorizedByRole: null,
+        requestedQuantity: 1,
+        appliedQuantity: 0,
+        refusedQuantity: 1,
+        heldQuantity: 1,
+        availableQuantity: 0,
+        releasedHoldQuantity: 0,
+        affectedOrders: [
+          {
+            holdId: "hld_1",
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+            quantity: 1,
+            disposition: "protected",
+          },
+        ],
+      },
+    });
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisions);
 
     const result = await handlers.toolHandlers["inventory.adjust-item"]?.(
       mcpRequest({
@@ -194,7 +226,6 @@ describe("inventory item MCP handlers", () => {
         inventoryItemId: "inv_1",
         quantityDelta: -1,
         reason: "Correct physical count",
-        idempotencyKey: "idem_1",
       }),
     );
 
@@ -203,17 +234,22 @@ describe("inventory item MCP handlers", () => {
       id: "inv_1",
       inventoryItemId: "inv_1",
       version: 3,
-      status: "adjusted",
+      status: "hold-collision-recorded",
       quantityDelta: -1,
+      collision: {
+        mode: "protect-orders",
+        refusedQuantity: 1,
+        affectedOrders: [{ orderId: "ord_1" }],
+      },
       resourceUri: "chase-sets://inventory/acc_1/items/inv_1",
     });
-    expect(fakeServices.adjustItem).toHaveBeenCalledWith(
+    expect(collisions.reduceItem).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_1",
         itemId: "inv_1",
-        quantityDelta: -1,
+        requestedQuantity: 1,
         reason: "Correct physical count",
-        idempotencyKey: "idem_1",
+        mode: "protect-orders",
       }),
       expect.objectContaining({
         audit: {
@@ -226,7 +262,7 @@ describe("inventory item MCP handlers", () => {
 
   it("rejects account mismatches and dry-run writes before mutating stock", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisionServices());
 
     await expect(
       handlers.toolHandlers["inventory.adjust-item"]?.(
@@ -248,7 +284,7 @@ describe("inventory item MCP handlers", () => {
   });
 
   it("reads inventory item resources by URI", async () => {
-    const handlers = createInventoryItemMcpHandlers(services(), storageLocations());
+    const handlers = createInventoryItemMcpHandlers(services(), storageLocations(), collisionServices());
 
     const result = await handlers.resourceHandlers["chase-sets://inventory/{accountId}/items/{inventoryItemId}"]?.({
       actor,

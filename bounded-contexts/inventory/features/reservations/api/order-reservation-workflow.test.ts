@@ -36,6 +36,7 @@ function reservationState(status: InventoryReservationState["status"] = null): I
     status,
     rejectionReason: status === "rejected" ? "not available" : null,
     releasedAt: null,
+    releaseReason: null,
   };
 }
 
@@ -55,7 +56,7 @@ function createServices(
       return {
         kind: "append",
         holdId,
-        append: appendInput(`inventory.hold-${holdId}`, "inventory.hold.placed", { holdId }, planContext),
+        appends: [appendInput(`inventory.hold-${holdId}`, "inventory.hold.placed", { holdId }, planContext)],
       };
     });
   const planConfirmation = vi.fn<InventoryReservationServices["planConfirmation"]>(async (params, planContext) => ({

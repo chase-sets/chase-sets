@@ -74,7 +74,17 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 
-export type InventoryItemCommand = CreateInventoryItemCommand | AdjustInventoryItemQuantityCommand;
+export type ClaimInventoryStockAuthorityCommand = Readonly<{
+  type: "ClaimInventoryStockAuthority";
+  authorityRef: string;
+  operation: "hold-placement" | "stock-reduction";
+  quantity: number;
+}>;
+
+export type InventoryItemCommand =
+  | CreateInventoryItemCommand
+  | AdjustInventoryItemQuantityCommand
+  | ClaimInventoryStockAuthorityCommand;
 
 export type InventoryItemCreatedEvent = DomainEvent<
   "inventory.item.created",
@@ -103,7 +113,20 @@ export type InventoryItemAdjustedEvent = DomainEvent<
   }>
 >;
 
-export type InventoryItemEvent = InventoryItemCreatedEvent | InventoryItemAdjustedEvent;
+export type InventoryItemStockAuthorityClaimedEvent = DomainEvent<
+  "inventory.item.stock-authority-claimed",
+  Readonly<{
+    itemId: InventoryItemId;
+    authorityRef: string;
+    operation: "hold-placement" | "stock-reduction";
+    quantity: number;
+  }>
+>;
+
+export type InventoryItemEvent =
+  | InventoryItemCreatedEvent
+  | InventoryItemAdjustedEvent
+  | InventoryItemStockAuthorityClaimedEvent;
 
 export const decideInventoryItem: AggregateDecider<InventoryItemState, InventoryItemCommand, InventoryItemEvent> = (
   state,
@@ -156,6 +179,20 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
           },
         },
       ];
+    case "ClaimInventoryStockAuthority":
+      requireCreatedInventoryItem(state);
+      ensurePositiveInteger(command.quantity, "Inventory stock authority requires a positive quantity.");
+      return [
+        {
+          type: "inventory.item.stock-authority-claimed",
+          data: {
+            itemId: state.id!,
+            authorityRef: normalizeLabel(command.authorityRef),
+            operation: command.operation,
+            quantity: command.quantity,
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -180,6 +217,8 @@ export const evolveInventoryItem: AggregateEvolver<InventoryItemState, Inventory
         ...state,
         totalQuantity: state.totalQuantity + event.data.quantityDelta,
       };
+    case "inventory.item.stock-authority-claimed":
+      return state;
     default:
       return assertNever(event);
   }

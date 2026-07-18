@@ -104,6 +104,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
 | `inventory:inventory-fulfillment-recovered-item-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
+| `inventory:inventory-hold-collision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-ledger-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
@@ -161,6 +162,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
 | `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
+| `platform-operations:support-inventory-hold-collision` | Platform Operations | **inventory** | push-enabled | 1/1 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-return-label-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |

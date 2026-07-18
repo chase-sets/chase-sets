@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 /** Reason recorded on an order cancellation that a support resolution drove. */
 export const SUPPORT_CANCEL_ORDER_REASON = "support-cancel-order";
+export const SELLER_CANNOT_FULFILL_REASON = "seller-cannot-fulfill";
 
 export type OrderingSupportCancellationDispatch = (
   input: Readonly<{
@@ -28,6 +29,7 @@ export function buildOrderingSupportCancellationReactionHandlers(
     "support.support-request.resolved": async (event) => {
       const data = event.data as Readonly<{
         orderId: string;
+        flowType?: string | null;
         resolution: Readonly<{ resolutionType: string; resolvedAt: string }>;
       }>;
       if (data.resolution.resolutionType !== "cancel-order") {
@@ -39,7 +41,8 @@ export function buildOrderingSupportCancellationReactionHandlers(
         command: {
           type: "CancelOrder",
           cancelledAt: data.resolution.resolvedAt,
-          reason: SUPPORT_CANCEL_ORDER_REASON,
+          reason:
+            data.flowType === "seller-cannot-fulfill" ? SELLER_CANNOT_FULFILL_REASON : SUPPORT_CANCEL_ORDER_REASON,
         },
         context: {
           tenantId: event.tenantId,

@@ -47,7 +47,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   buildApis: (services) => [buildInventoryApi(services)],
   buildMcpHandlers: (services) => {
     const importBatches = createInventoryImportBatchMcpHandlers(services.importBatches, services.storageLocations);
-    const items = createInventoryItemMcpHandlers(services.items, services.storageLocations);
+    const items = createInventoryItemMcpHandlers(services.items, services.storageLocations, services.holdCollisions);
 
     return {
       toolHandlers: {
@@ -150,6 +150,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
                 command: {
                   type: "ReleaseInventoryReservation",
                   releasedAt: data.cancelledAt,
+                  releaseReason: data.reason === "payment-deadline" ? "payment-deadline" : "order-cancelled",
                 },
                 context,
               });
