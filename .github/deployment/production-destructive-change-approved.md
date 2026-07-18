@@ -1,17 +1,16 @@
 # Production Destructive Change Approval
 
-Approval state: no-active-approval
-Approval reference: none
-Reviewed on: not active
+Approval state: active
+Approval reference: #5574 + Todd 2026-07-18 standing retry grant (Phase B2c for #4053)
+Reviewed on: 2026-07-18
 Owner: Platform Operations
+Plan fingerprint: sha256:692539e7511fb7339e40c58120900ed89799367ab9e9220520f3c7d2d231eaa1
 
-## Current State
+## Approved Destructive Changes
 
-There is no active production destructive-change approval.
-
-Any production Terraform plan containing destructive actions must fail closed until an
-operator commits an active approval that names the exact destructive resource addresses and
-the current plan fingerprint reported by the failed deployment check.
+- `digitalocean_app.platform.domain["chasesets.com"]`
+- `digitalocean_app.platform.domain["www.chasesets.com"]`
+- `digitalocean_app.platform.domain["admin.chasesets.com"]`
 
 Nested App Platform domain releases are enumerated by the plan inspector as
 `digitalocean_app.platform.domain["<hostname>"]` and must be pinned individually alongside
