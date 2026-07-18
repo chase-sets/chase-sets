@@ -1792,6 +1792,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
     expect(platformMain).toContain("for_each = local.app_platform_admin_domains");
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
+    expect(platformMain).not.toContain("domains = local.is_production && local.serving_from_doks ? [] : null");
+    expect(platformMain).toContain("for_each = local.production_app_platform_parking_domains");
+    expect(platformLocals).toContain('production_app_platform_parking_domain = "app-platform.${var.root_domain}"');
     expect(platformLocals).toContain("app_serving_record_names");
     expect(platformLocals).toContain("]) : local.is_production ? toset(concat(");
     expect(platformLocals).not.toContain("local.is_production && local.serving_from_doks ? toset(concat(");
@@ -1808,15 +1811,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain(
       "app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)",
     );
-    expect(platformLocals).toContain("app_platform_doks_ingress_routes = local.serving_from_doks ? concat(");
+    expect(platformLocals).toContain("app_platform_parking_ingress_routes = (");
+    expect(platformLocals).toContain("local.serving_from_doks || local.production_app_platform_parking_attached");
     expect(platformLocals).toContain('component   = "public-web"');
     expect(platformLocals).toContain('path_prefix = "/"');
     expect(platformLocals).toContain('component   = "admin-web"');
     expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/admin"');
+    expect(platformLocals).toContain('component   = "platform-api"');
+    expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/api"');
     expect(platformLocals).toContain('component   = "marketplace"');
     expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/marketplace"');
+    expect(platformLocals).toContain(
+      "authority   = local.is_production ? local.production_app_platform_parking_domain : null",
+    );
     expect(platformLocals).toContain("local.marketplace_public_enabled ? [");
-    expect(platformMain).toContain("for_each = local.app_platform_doks_ingress_routes");
+    expect(platformMain).toContain("for_each = local.app_platform_parking_ingress_routes");
+    expect(platformMain).toContain("for_each = rule.value.authority == null ? [] : [rule.value.authority]");
+    expect(platformMain).toContain("exact = authority.value");
     expect(platformMain).toContain("prefix = rule.value.path_prefix");
     expect(platformMain).toContain("name                 = rule.value.component");
     expect(platformMain).not.toContain("for_each = local.serving_from_doks ? [1] : []");
@@ -3276,6 +3287,8 @@ describe("DigitalOcean platform configuration", () => {
     const preflightStep = workflowStep(deployProductionJob, "Verify production DOKS certificate before DNS flip");
     const reconcileStep = workflowStep(deployProductionJob, "Reconcile production serving DNS state");
     const replacementGateStep = workflowStep(deployProductionJob, "Gate production serving DNS replacement");
+    const restoreParkingStep = workflowStep(deployProductionJob, "Restore production parking preparation state");
+    const parkingGateStep = workflowStep(deployProductionJob, "Gate DOKS flip on warm App Platform parking target");
     const releaseCnameStateStep = workflowStep(deployProductionJob, "Release production App Platform CNAME state");
     const shadowStep = workflowStep(deployProductionJob, "Verify production DOKS shadow hosts and certificate");
     const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
@@ -3283,6 +3296,7 @@ describe("DigitalOcean platform configuration", () => {
     const preflightIndex = deployProductionJob.indexOf("- name: Verify production DOKS certificate before DNS flip");
     const reconcileIndex = deployProductionJob.indexOf("- name: Reconcile production serving DNS state");
     const replacementGateIndex = deployProductionJob.indexOf("- name: Gate production serving DNS replacement");
+    const parkingGateIndex = deployProductionJob.indexOf("- name: Gate DOKS flip on warm App Platform parking target");
     const releaseCnameStateIndex = deployProductionJob.indexOf("- name: Release production App Platform CNAME state");
     const terraformPlanIndex = deployProductionJob.indexOf("- name: Terraform plan");
 
@@ -3320,6 +3334,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(reconcileIndex).toBeGreaterThan(-1);
     expect(replacementGateIndex).toBeGreaterThan(reconcileIndex);
     expect(releaseCnameStateIndex).toBeGreaterThan(replacementGateIndex);
+    expect(parkingGateIndex).toBeGreaterThan(replacementGateIndex);
+    expect(releaseCnameStateIndex).toBeGreaterThan(parkingGateIndex);
     expect(terraformPlanIndex).toBeGreaterThan(releaseCnameStateIndex);
     expect(reconcileStep).toContain('address="digitalocean_record.app_serving[\\"${name}\\"]"');
     expect(reconcileStep).toContain('(.type == "CNAME" and (.data | rtrimstr(".")) == $app_target)');
@@ -3338,7 +3354,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(replacementGateStep).toContain("the previous ${retained_previous_ttl}s TTL has not expired");
     expect(replacementGateStep).toContain("terraform output -json production_serving_dns_ttl_preparation");
     expect(replacementGateStep).toContain("PRODUCTION_SERVING_DNS_REPLACEMENT_FROM");
-    for (const terraformStateStep of [reconcileStep, replacementGateStep, releaseCnameStateStep]) {
+    expect(restoreParkingStep).toContain("production_app_platform_parking_preparation");
+    expect(restoreParkingStep).toContain("TF_VAR_production_app_platform_parking_prepared_at");
+    expect(parkingGateStep).toContain("parking-preparation-state-missing");
+    expect(parkingGateStep).toContain("parking-attachment-not-ready");
+    expect(parkingGateStep).toContain("parking-dns-record-not-ready");
+    expect(parkingGateStep).toContain("parking-probe-not-ready");
+    expect(parkingGateStep).toContain("--expect-status 200");
+    for (const terraformStateStep of [
+      restoreParkingStep,
+      reconcileStep,
+      replacementGateStep,
+      parkingGateStep,
+      releaseCnameStateStep,
+    ]) {
       expect(hasSpacesBackendCredentials(terraformStateStep)).toBe(true);
     }
     const credentialNegativeControl = reconcileStep
@@ -3350,8 +3379,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(productionPlanStep).toContain("-var=production_app_serving=app-platform");
     expect(productionPlanStep).toContain("-var=production_app_serving=doks");
     expect(productionPlanStep).toContain('.address == "digitalocean_record.doks_apex[0]"');
-    expect(occurrenceCount(productionPlanStep, "assert-no-destructive-changes")).toBe(2);
+    expect(occurrenceCount(productionPlanStep, "assert-no-destructive-changes")).toBe(3);
     expect(platformMain).toContain('resource "terraform_data" "production_serving_dns_ttl_preparation"');
+    expect(platformMain).toContain('resource "terraform_data" "production_app_platform_parking_preparation"');
+    expect(platformMain).toContain("--expect-status 200");
     expect(platformMain).toContain("ttl    = local.app_serving_record_ttl");
     expect(platformMain).toContain('check "production_serving_dns_ttl"');
     expect(digitaloceanPlatformRunbook).toContain("### Production Serving DNS Flip and Rollback");
@@ -3398,8 +3429,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPlans).toContain('terraform -chdir="$plan_root" state rm "$address"');
     expect(platformPlans).toContain("Expected exactly one live A/CNAME record");
     expect(platformPlans).toContain("plan -refresh=false -lock=false -out=doks.tfplan");
-    expect(platformPlans).toContain("graph -type=plan -plan=app-platform.tfplan");
+    expect(platformPlans).toContain("graph -type=plan -plan=parking-preparation.tfplan");
     expect(platformPlans).toContain("graph -type=plan -plan=doks.tfplan");
+    expect(platformPlans).toContain("terraform.tfstate.prepared");
     expect(platformPlans).toContain("assert-serving-mode-replacement");
     expect(platformPlans).toContain("list-destructive-changes");
     expect(hasSpacesBackendCredentials(platformPlans)).toBe(true);
@@ -3409,7 +3441,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPlans).toContain('.change.actions == ["create"]');
     expect(platformPlans).toContain('digitalocean_app.platform.domain["chasesets.com"]');
     expect(platformPlans).toContain("for name in admin www");
-    expect(platformPlans).toContain("platform-app-platform-summary.json");
+    expect(platformPlans).toContain("platform-parking-preparation-summary.json");
     expect(platformPlans).toContain("platform-doks-summary.json");
     expect(planJob).toContain("production-cutover-live-plan-summaries");
     expect(planJob).not.toContain("terraform apply");

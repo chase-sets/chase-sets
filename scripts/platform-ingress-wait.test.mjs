@@ -33,6 +33,25 @@ describe("platform ingress wait", () => {
     });
   });
 
+  it("can require an exact success status for a warm-target probe", async () => {
+    const fetchImpl = async () => ({ status: 302 });
+
+    await expect(
+      waitForIngressUrls({
+        urls: ["https://app-platform.chasesets.com/"],
+        attempts: 1,
+        expectedStatus: 200,
+        fetchImpl,
+      }),
+    ).rejects.toThrow("302");
+
+    const result = await probeIngressUrl("https://app-platform.chasesets.com/", {
+      expectedStatus: 200,
+      fetchImpl: async () => ({ status: 200 }),
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("retries until every ingress URL is ready", async () => {
     let calls = 0;
     const sleeps = [];

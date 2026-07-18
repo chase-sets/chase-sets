@@ -102,6 +102,15 @@ check "production_serving_dns_preparation_inputs" {
   }
 }
 
+check "production_app_platform_parking_preparation_inputs" {
+  assert {
+    condition = !local.is_production || trimspace(var.production_app_platform_parking_prepared_at) == "" || can(
+      timeadd(trimspace(var.production_app_platform_parking_prepared_at), "0s")
+    )
+    error_message = "production_app_platform_parking_prepared_at must be empty for the first preparation or a retained RFC3339 timestamp from Terraform state."
+  }
+}
+
 check "production_database_standby_approval" {
   assert {
     condition = var.environment != "production" || var.database_node_count == 1 || (
@@ -513,14 +522,14 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    # Keep a non-empty desired domain list while production serves from DOKS.
-    # digitalocean_app.spec.domain is Optional+Computed; this explicit parking
-    # attachment makes removal of the live domains observable to the provider.
+    # digitalocean_app.spec.domain is Optional+Computed, so an empty desired
+    # list retains the live attachments. This explicit production-only parking
+    # domain forces their release before dependent DOKS records can create.
     dynamic "domain" {
       for_each = local.production_app_platform_parking_domains
       content {
         name = domain.value
-        type = "PRIMARY"
+        type = local.serving_from_doks ? "PRIMARY" : "ALIAS"
         zone = var.root_domain
       }
     }
@@ -1916,9 +1925,15 @@ resource "digitalocean_app" "platform" {
 
     ingress {
       dynamic "rule" {
-        for_each = local.app_platform_doks_ingress_routes
+        for_each = local.app_platform_parking_ingress_routes
         content {
           match {
+            dynamic "authority" {
+              for_each = rule.value.authority == null ? [] : [rule.value.authority]
+              content {
+                exact = authority.value
+              }
+            }
             path {
               prefix = rule.value.path_prefix
             }
@@ -2115,6 +2130,41 @@ resource "digitalocean_record" "app_serving" {
   name   = each.value
   value  = local.serving_from_doks ? var.doks_ingress_target : "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
   ttl    = local.app_serving_record_ttl
+
+  depends_on = [
+    digitalocean_app.platform,
+    terraform_data.production_app_platform_parking_preparation,
+  ]
+}
+
+# The first prepare-doks apply attaches the zone-backed parking hostname while
+# App Platform still owns every live domain. The replacement marker is committed
+# only after DNS, certificate issuance, routing, and the old deployment all
+# converge to an exact HTTPS 200. Later workflow invocations round-trip its
+# timestamp so the marker and attachment stay warm across cutover and rollback.
+resource "terraform_data" "production_app_platform_parking_preparation" {
+  count = local.production_app_platform_parking_attached ? 1 : 0
+
+  triggers_replace = [local.production_app_platform_parking_domain]
+
+  input = {
+    domain       = local.production_app_platform_parking_domain
+    prepared_at  = local.production_app_platform_parking_prepared ? trimspace(var.production_app_platform_parking_prepared_at) : timestamp()
+    probe_status = "ready"
+  }
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/../../.."
+    command = join(" ", [
+      "node scripts/platform-ingress-wait.mjs",
+      "--url https://${local.production_app_platform_parking_domain}/",
+      "--expect-status 200",
+      "--attempts 180",
+      "--delay-ms 10000",
+      "--topology-streak 180",
+      "--warmup-grace-ms 1800000",
+    ])
+  }
 
   depends_on = [digitalocean_app.platform]
 }

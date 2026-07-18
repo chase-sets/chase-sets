@@ -2,7 +2,7 @@
   "format_version": "1.2",
   "terraform_version": "1.14.0",
   "fixture": {
-    "description": "Plan inspection fixture representing production App Platform state after TTL preparation and a cutover to DOKS."
+    "description": "Plan inspection fixture representing production App Platform state after the TTL and warm-parking preparations, followed by the live-domain release before DOKS serves."
   },
   "resource_changes": [
     {
@@ -18,7 +18,8 @@
               "domain": [
                 { "name": "chasesets.com", "type": "PRIMARY", "zone": "chasesets.com" },
                 { "name": "www.chasesets.com", "type": "ALIAS", "zone": "chasesets.com" },
-                { "name": "admin.chasesets.com", "type": "ALIAS", "zone": "chasesets.com" }
+                { "name": "admin.chasesets.com", "type": "ALIAS", "zone": "chasesets.com" },
+                { "name": "app-platform.chasesets.com", "type": "ALIAS", "zone": "chasesets.com" }
               ]
             }
           ]
@@ -60,6 +61,25 @@
         "actions": ["create"],
         "before": null,
         "after": { "type": "A", "name": "@", "value": "203.0.113.10", "ttl": 300 }
+      }
+    },
+    {
+      "address": "terraform_data.production_app_platform_parking_preparation[0]",
+      "type": "terraform_data",
+      "name": "production_app_platform_parking_preparation",
+      "index": 0,
+      "change": {
+        "actions": ["no-op"],
+        "before": {
+          "domain": "app-platform.chasesets.com",
+          "prepared_at": "2026-07-17T20:05:00Z",
+          "probe_status": "ready"
+        },
+        "after": {
+          "domain": "app-platform.chasesets.com",
+          "prepared_at": "2026-07-17T20:05:00Z",
+          "probe_status": "ready"
+        }
       }
     },
     {

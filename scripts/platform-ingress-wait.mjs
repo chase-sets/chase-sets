@@ -29,7 +29,10 @@ export async function probeIngressUrl(url, options = {}) {
   return {
     url,
     status: response.status,
-    ok: response.status >= 200 && response.status < 400,
+    ok:
+      options.expectedStatus == null
+        ? response.status >= 200 && response.status < 400
+        : response.status === options.expectedStatus,
   };
 }
 
@@ -67,6 +70,7 @@ export async function waitForIngressUrls(options) {
   const topologyStreak = options.topologyStreak ?? defaultTopologyStreak;
   const warmupGraceMs = options.warmupGraceMs ?? defaultWarmupGraceMs;
   const fetchImpl = options.fetchImpl;
+  const expectedStatus = options.expectedStatus;
   const sleepImpl = options.sleepImpl ?? sleep;
   const nowImpl = options.nowImpl ?? Date.now;
   const startedAt = nowImpl();
@@ -77,7 +81,7 @@ export async function waitForIngressUrls(options) {
     lastResults = await Promise.all(
       urls.map(async (url) => {
         try {
-          return await probeIngressUrl(url, { fetchImpl });
+          return await probeIngressUrl(url, { fetchImpl, expectedStatus });
         } catch (error) {
           return {
             url,
@@ -169,6 +173,13 @@ function parsePositiveInteger(value, flagName) {
   return Number(value);
 }
 
+function parseHttpStatus(value, flagName) {
+  if (!/^\d{3}$/.test(String(value)) || Number(value) < 100 || Number(value) > 599) {
+    throw new Error(`${flagName} must be an HTTP status from 100 through 599.`);
+  }
+  return Number(value);
+}
+
 function parseNonNegativeInteger(value, flagName) {
   if (!/^\d+$/.test(String(value))) {
     throw new Error(`${flagName} must be a non-negative integer.`);
@@ -183,6 +194,7 @@ function parseArgs(argv) {
     delayMs: defaultDelayMs,
     topologyStreak: defaultTopologyStreak,
     warmupGraceMs: defaultWarmupGraceMs,
+    expectedStatus: undefined,
     dryRun: false,
   };
 
@@ -198,12 +210,15 @@ function parseArgs(argv) {
       options.topologyStreak = parsePositiveInteger(readNextArg(argv, ++index, arg), arg);
     } else if (arg === "--warmup-grace-ms") {
       options.warmupGraceMs = parseNonNegativeInteger(readNextArg(argv, ++index, arg), arg);
+    } else if (arg === "--expect-status") {
+      options.expectedStatus = parseHttpStatus(readNextArg(argv, ++index, arg), arg);
     } else if (arg === "--dry-run") {
       options.dryRun = true;
     } else {
       throw new Error(
         "Usage: node ./scripts/platform-ingress-wait.mjs --url <https-url> [--url <https-url>...] " +
-          "[--attempts <count>] [--delay-ms <ms>] [--topology-streak <count>] [--warmup-grace-ms <ms>] [--dry-run]",
+          "[--attempts <count>] [--delay-ms <ms>] [--topology-streak <count>] [--warmup-grace-ms <ms>] " +
+          "[--expect-status <status>] [--dry-run]",
       );
     }
   }
@@ -232,6 +247,7 @@ async function main(argv) {
           delayMs: options.delayMs,
           topologyStreak: options.topologyStreak,
           warmupGraceMs: options.warmupGraceMs,
+          expectedStatus: options.expectedStatus ?? null,
         },
         null,
         2,

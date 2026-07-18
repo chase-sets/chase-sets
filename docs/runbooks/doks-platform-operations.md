@@ -397,16 +397,17 @@ The serving flip must reproduce the runtime behavior already active on App Platf
 Sequence these deliberately:
 
 1. Before rehearsal, verify the generated production overlay still has every value above. Treat any difference from `local.production_runtime_parity_env` as a blocker.
-2. During rehearsal and the serving flip, change only the target, certificate gate, and `PRODUCTION_APP_SERVING`. Do not change public indexing, the realtime set, wake signaling, or projection sources.
+2. During rehearsal and the serving flip, change only the target, certificate gate, serving-DNS preparation phase, and `PRODUCTION_APP_SERVING`. Do not change public indexing, the realtime set, wake signaling, or projection sources.
 3. Defer every launch-only transition to the launch runbook: public-indexing exposure changes require the launch SEO/crawler gate; realtime maintenance/wake changes require their own capacity and rollback evidence; projection wake-source expansion requires connection-budget and convergence evidence. If the launch posture retains a current value, record that as an explicit no-op there rather than silently inheriting it.
 
 This separation is intentional: matching an already-active App Platform value on DOKS is cutover parity, while changing that value is a launch decision with a different rollback surface.
 
 #### Phase B: rehearse and issue the certificate before the flip
 
-1. Dispatch `Platform Deploy` from `main`. With serving still `app-platform`, the production job applies `environment-dns/production.tfstate` to create only the applicable shadow A records, deploys both shadow and live Ingress rules, and waits for the DNS-01 certificate plus shadow HTTPS probes:
+1. Set `PRODUCTION_SERVING_DNS_PHASE=prepare-doks`, then dispatch `Platform Deploy` from `main` while serving remains `app-platform`. The production job applies `environment-dns/production.tfstate` to create only the applicable shadow A records, deploys both shadow and live DOKS Ingress rules, lowers live App Platform CNAME TTLs, attaches `app-platform.chasesets.com` alongside every live App Platform domain, and records the parking preparation only after its DNS/certificate route serves exact HTTPS 200:
 
    ```bash
+   gh variable set PRODUCTION_SERVING_DNS_PHASE --env production --body prepare-doks
    gh workflow run platform-production.yml --ref main
    RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
    gh run watch "$RUN_ID" --exit-status
@@ -425,6 +426,9 @@ This separation is intentional: matching an already-active App Platform value on
      --url https://doks.chasesets.com/ \
      --url https://www.doks.chasesets.com/ \
      --url https://admin.doks.chasesets.com/health/ready
+   node ./scripts/platform-ingress-wait.mjs \
+     --url https://app-platform.chasesets.com/ \
+     --expect-status 200
    ```
 
 3. Retain the rehearsal run link: its `Smoke check` creates a synthetic production waitlist signup and verifies the admin read model. This is the before-flip signup evidence.
@@ -438,7 +442,7 @@ This separation is intentional: matching an already-active App Platform value on
    gh variable set PRODUCTION_APP_SERVING --env production --body doks
    ```
 
-2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply changes App Platform's desired domain set from the live hosts to `app-platform.chasesets.com`. The leaf A resources depend on that completed update, and the apex A depends on the leaves, so App Platform has released its provider-managed DNS records before DOKS record creation begins. App Platform and its parked fallback routes remain intact.
+2. Dispatch and watch `Platform Deploy`. Before any CNAME state release, the production job rechecks the DOKS certificate/shadow HTTPS and requires the retained parking marker, the exact live-plus-parking attachment set, the parking CNAME, and a fresh exact-200 trusted-TLS probe. The platform apply then removes only the live App Platform domains, promotes the already-warm parking alias to primary, and creates DOKS records after that update. A refusal names the failed parking condition; never bypass it.
 
    ```bash
    gh workflow run platform-production.yml --ref main
@@ -464,7 +468,7 @@ The three-day soak clock begins only after these probes and both workflow steps 
 
 #### Phase B: DNS-only rollback
 
-Rollback is the serving variable re-flip after the separate `prepare-app-platform` TTL phase has aged. Leave the ingress target and ready certificate in place so the shadow/live DOKS path stays warm. The dependency graph deletes the DOKS apex and leaf A records before changing the App Platform domain set from the parking host back to the live hosts; App Platform then recreates its provider-managed apex and CNAME records:
+Rollback is the serving variable re-flip after the separate `prepare-app-platform` TTL phase has aged. Leave the ingress target, ready certificate, and retained parking preparation in place so both platforms stay warm. The dependency graph deletes the DOKS apex and leaf A records before restoring the live App Platform hosts; parking remains attached as an alias while App Platform recreates its provider-managed apex and CNAME records:
 
 ```bash
 gh variable set PRODUCTION_APP_SERVING --env production --body app-platform

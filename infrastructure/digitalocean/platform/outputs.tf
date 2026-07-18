@@ -59,6 +59,10 @@ output "production_serving_dns_ttl_preparation" {
   value = local.is_production ? terraform_data.production_serving_dns_ttl_preparation[0].output : null
 }
 
+output "production_app_platform_parking_preparation" {
+  value = local.is_production ? try(terraform_data.production_app_platform_parking_preparation[0].output, null) : null
+}
+
 output "uptime_check_targets" {
   value = local.uptime_check_targets
 }

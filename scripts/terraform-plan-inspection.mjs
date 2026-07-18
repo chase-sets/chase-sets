@@ -228,14 +228,18 @@ function productionLiveAppDomains(includeMarketplace) {
   ];
 }
 
-function productionParkingAppDomains() {
+function productionParkingAppDomains(type = "PRIMARY") {
   return [
     {
       name: PRODUCTION_APP_PLATFORM_PARKING_DOMAIN,
-      type: "PRIMARY",
+      type,
       zone: PRODUCTION_ROOT_DOMAIN,
     },
   ];
+}
+
+function productionPreparedAppPlatformDomains(includeMarketplace) {
+  return [...productionLiveAppDomains(includeMarketplace), ...productionParkingAppDomains("ALIAS")];
 }
 
 export function assertProductionServingModeReplacement(plan, options) {
@@ -253,7 +257,6 @@ export function assertProductionServingModeReplacement(plan, options) {
   if (from === "doks") {
     expectedDestroyedAddresses.push(...servingRecordAddresses);
     expectedDestroyedAddresses.push("digitalocean_record.doks_apex[0]");
-    expectedDestroyedAddresses.push(productionAppDomainAttachmentAddress(PRODUCTION_APP_PLATFORM_PARKING_DOMAIN));
   } else {
     expectedDestroyedAddresses.push(
       ...productionLiveAppDomains(Boolean(options?.includeMarketplace)).map((domain) =>
@@ -277,11 +280,11 @@ export function assertProductionServingModeReplacement(plan, options) {
   );
   const expectedBeforeDomains =
     from === "app-platform"
-      ? productionLiveAppDomains(Boolean(options?.includeMarketplace))
+      ? productionPreparedAppPlatformDomains(Boolean(options?.includeMarketplace))
       : productionParkingAppDomains();
   const expectedAfterDomains =
     to === "app-platform"
-      ? productionLiveAppDomains(Boolean(options?.includeMarketplace))
+      ? productionPreparedAppPlatformDomains(Boolean(options?.includeMarketplace))
       : productionParkingAppDomains();
   if (
     JSON.stringify(platformChange?.change?.actions) !== JSON.stringify(["update"]) ||

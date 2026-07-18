@@ -37,8 +37,16 @@ locals {
     local.is_production && var.production_serving_dns_phase != "steady"
   )
   production_app_platform_parking_domain = "app-platform.${var.root_domain}"
+  production_app_platform_parking_prepared = (
+    local.is_production && trimspace(var.production_app_platform_parking_prepared_at) != ""
+  )
+  production_app_platform_parking_attached = local.is_production && (
+    local.serving_from_doks ||
+    var.production_serving_dns_phase != "steady" ||
+    local.production_app_platform_parking_prepared
+  )
   production_app_platform_parking_domains = (
-    local.is_production && local.serving_from_doks
+    local.production_app_platform_parking_attached
     ? [local.production_app_platform_parking_domain]
     : []
   )
@@ -68,12 +76,12 @@ locals {
   all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
   app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
 
-  # App Platform stays warm during each DOKS soak, but it must release every
-  # live domain before the records below change to A. The provider models the
-  # domain block as Optional+Computed, so an empty dynamic block means "retain
-  # the computed domains" rather than "detach every domain". Production keeps
-  # one explicit parking domain in DOKS mode to force a real live-to-parking
-  # domain diff while excluding every flipped hostname.
+  # App Platform stays warm during each DOKS soak. The prepare-doks phase first
+  # adds a zone-backed parking alias while every live domain is still attached;
+  # the retained preparation timestamp keeps that verified target attached
+  # through forward cutover and rollback. The provider models the domain block
+  # as Optional+Computed, so the explicit parking domain also gives the DOKS
+  # spec a stable primary after the live domains are released.
   app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
@@ -85,21 +93,31 @@ locals {
   # default and park each other warm fallback component on an explicit path.
   # Marketplace is present only in an already-public runtime profile. This
   # shape was accepted by `doctl apps propose` for staging and production.
-  app_platform_doks_ingress_routes = local.serving_from_doks ? concat(
+  app_platform_parking_ingress_routes = (
+    local.serving_from_doks || local.production_app_platform_parking_attached
+    ) ? concat(
     [
       {
         component   = "public-web"
         path_prefix = "/"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
       {
         component   = "admin-web"
         path_prefix = "/_app-platform/doks/admin"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
+      },
+      {
+        component   = "platform-api"
+        path_prefix = "/_app-platform/doks/api"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
     ],
     local.marketplace_public_enabled ? [
       {
         component   = "marketplace"
         path_prefix = "/_app-platform/doks/marketplace"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
     ] : [],
   ) : []

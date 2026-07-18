@@ -240,11 +240,11 @@ jobs:
             exit 1
           fi
 
-          # Pull remote state read-only, then release any historical App
-          # Platform CNAME identities from a local-only copy. App Platform owns
-          # those records; the forward deploy performs the same state release
-          # so its app-spec update removes them before Terraform creates A
-          # records. Nothing in this plan lane mutates production state or DNS.
+          # Pull remote state read-only. The local copy first models the
+          # prepare-doks apply with imported App Platform CNAME identities, then
+          # adopts that plan's App Platform after-state and releases the CNAME
+          # identities locally before planning the forward flip. Nothing in
+          # this plan lane mutates production state, the live app, or DNS.
           plan_root="${RUNNER_TEMP}/production-platform-live-plan"
           rm -rf "$plan_root"
           mkdir -p "$plan_root"
@@ -264,10 +264,6 @@ jobs:
           records_json="$(doctl compute domain records list chasesets.com --output json)"
           for name in admin www; do
             address="digitalocean_record.app_serving[\"${name}\"]"
-            if terraform -chdir="$plan_root" state show "$address" >/dev/null 2>&1; then
-              terraform -chdir="$plan_root" state rm "$address"
-            fi
-
             mapfile -t serving_records < <(
               printf '%s' "$records_json" | jq -c --arg name "$name" \
                 '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
@@ -281,41 +277,69 @@ jobs:
               echo "The sole live serving record for ${name}.chasesets.com is not the expected App Platform CNAME." >&2
               exit 1
             fi
+            if ! terraform -chdir="$plan_root" state show "$address" >/dev/null 2>&1; then
+              terraform -chdir="$plan_root" import "$address" "chasesets.com,${record_id}"
+            fi
           done
 
-          terraform -chdir="$plan_root" plan -lock=false -out=app-platform.tfplan \
+          ttl_preparation_json="$(terraform -chdir="$plan_root" output -json production_serving_dns_ttl_preparation)"
+          ttl_prepared_at="$(printf '%s' "$ttl_preparation_json" | jq -r '.prepared_at // empty')"
+          ttl_previous_seconds="$(printf '%s' "$ttl_preparation_json" | jq -r '.previous_ttl_seconds // 0')"
+          if [ -z "$ttl_prepared_at" ] || ! [[ "$ttl_previous_seconds" =~ ^[1-9][0-9]*$ ]]; then
+            echo "The live cutover plan requires the retained prepare-doks TTL state." >&2
+            exit 1
+          fi
+
+          terraform -chdir="$plan_root" plan -lock=false -out=parking-preparation.tfplan \
             -var=production_app_serving=app-platform \
+            -var=production_serving_dns_phase=prepare-doks \
+            -var=production_serving_dns_prepared_at="$ttl_prepared_at" \
+            -var=production_serving_dns_previous_ttl_seconds="$ttl_previous_seconds" \
             -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
             -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
-          terraform -chdir="$plan_root" show -json app-platform.tfplan > app-platform.tfplan.json
-          terraform -chdir="$plan_root" graph -type=plan -plan=app-platform.tfplan \
-            > ../../../artifacts/production-cutover-live-plans/platform-app-platform-plan.dot
+          terraform -chdir="$plan_root" show -json parking-preparation.tfplan > parking-preparation.tfplan.json
+          terraform -chdir="$plan_root" graph -type=plan -plan=parking-preparation.tfplan \
+            > ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-plan.dot
           for name in admin www; do
             address="digitalocean_record.app_serving[\"${name}\"]"
             jq -e --arg address "$address" \
-              'all(.resource_changes[]?; .address != $address)' \
-              app-platform.tfplan.json >/dev/null
+              'any(.planned_values.root_module.resources[]?; .address == $address and .values.type == "CNAME" and .values.ttl <= 300)' \
+              parking-preparation.tfplan.json >/dev/null
           done
-          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes app-platform.tfplan.json > app-platform-destructive.txt
-          test ! -s app-platform-destructive.txt
-          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' app-platform-destructive.txt > app-platform-destructive.json
-          jq --slurpfile destructive app-platform-destructive.json '{root:"platform",serving:"app-platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
-            app-platform.tfplan.json \
-            > ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json
-          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json)" = "0"
+          jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and ([.values.spec[0].domain[].name] | sort) == ["admin.chasesets.com","app-platform.chasesets.com","chasesets.com","www.chasesets.com"] and any(.values.spec[0].domain[]; .name == "app-platform.chasesets.com" and .type == "ALIAS"))' \
+            parking-preparation.tfplan.json >/dev/null
+          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes parking-preparation.tfplan.json > parking-preparation-destructive.txt
+          test ! -s parking-preparation-destructive.txt
+          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' parking-preparation-destructive.txt > parking-preparation-destructive.json
+          jq --slurpfile destructive parking-preparation-destructive.json '{root:"platform",serving:"app-platform",phase:"parking-preparation",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
+            parking-preparation.tfplan.json \
+            > ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-summary.json
+          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-summary.json)" = "0"
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
-            app-platform.tfplan.json \
-            --title="Production platform App Platform live plan" >> "$GITHUB_STEP_SUMMARY"
+            parking-preparation.tfplan.json \
+            --title="Production platform parking-preparation live plan" >> "$GITHUB_STEP_SUMMARY"
 
-          # The real deploy requires a separate applied TTL phase. The CNAMEs
-          # are already at the retained low TTL; model its expired wait inputs
-          # while keeping provider-owned CNAME identities out of local state.
+          # Adopt only the prepared App Platform after-state in this backendless
+          # local state, then mimic the forward workflow's CNAME state release.
+          # This produces a strict read-only flip plan whose source domain set
+          # includes the live domains and already-warm parking alias.
+          jq --slurpfile plan parking-preparation.tfplan.json '
+            ($plan[0].resource_changes[] | select(.address == "digitalocean_app.platform") | .change.after) as $prepared_app |
+            (.resources[] | select(.type == "digitalocean_app" and .name == "platform") | .instances[0].attributes) = $prepared_app
+          ' "$plan_root/terraform.tfstate" > "$plan_root/terraform.tfstate.prepared"
+          mv "$plan_root/terraform.tfstate.prepared" "$plan_root/terraform.tfstate"
+          for name in admin www; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            terraform -chdir="$plan_root" state rm "$address"
+          done
+
           terraform -chdir="$plan_root" plan -refresh=false -lock=false -out=doks.tfplan \
             -var=production_app_serving=doks \
             -var=production_serving_dns_phase=prepare-doks \
-            -var=production_serving_dns_prepared_at=2000-01-01T00:00:00Z \
-            -var=production_serving_dns_previous_ttl_seconds=1800 \
+            -var=production_serving_dns_prepared_at="$ttl_prepared_at" \
+            -var=production_serving_dns_previous_ttl_seconds="$ttl_previous_seconds" \
+            -var=production_app_platform_parking_prepared_at=2000-01-01T00:00:00Z \
             -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
             -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
@@ -2482,6 +2506,7 @@ jobs:
       TF_VAR_production_serving_dns_phase: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}
       TF_VAR_production_serving_dns_prepared_at: ""
       TF_VAR_production_serving_dns_previous_ttl_seconds: "0"
+      TF_VAR_production_app_platform_parking_prepared_at: ""
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       TF_VAR_production_doks_certificate_ready: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
@@ -2927,6 +2952,33 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
+      - name: Restore production parking preparation state
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          parking_json="$(terraform output -json production_app_platform_parking_preparation 2>/dev/null || printf 'null')"
+          if [ "$parking_json" = "null" ]; then
+            echo "No retained App Platform parking preparation exists yet."
+            exit 0
+          fi
+
+          parking_domain="$(printf '%s' "$parking_json" | jq -r '.domain // empty')"
+          parking_prepared_at="$(printf '%s' "$parking_json" | jq -r '.prepared_at // empty')"
+          parking_probe_status="$(printf '%s' "$parking_json" | jq -r '.probe_status // empty')"
+          if [ "$parking_domain" != "app-platform.chasesets.com" ] ||
+             [ -z "$parking_prepared_at" ] ||
+             [ "$parking_probe_status" != "ready" ]; then
+            echo "Refusing production deploy (parking-preparation-state-invalid): retained parking state is incomplete or names the wrong domain." >&2
+            exit 1
+          fi
+
+          printf 'TF_VAR_production_app_platform_parking_prepared_at=%s\n' "$parking_prepared_at" >> "$GITHUB_ENV"
+          echo "Restored the verified App Platform parking preparation timestamp from Terraform state."
+
       - name: Reconcile production serving DNS state
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -3147,6 +3199,77 @@ jobs:
           fi
           write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" "$replacement_from"
           echo "The ${required_phase} wait expired; the bounded ${expected_source_type}-to-${target_type} replacement may be planned."
+
+      - name: Gate DOKS flip on warm App Platform parking target
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ "${PRODUCTION_SERVING_DNS_REPLACEMENT_FROM:-}" != "app-platform" ]; then
+            echo "No App Platform-to-DOKS replacement passed the TTL gate; no parking probe is required."
+            exit 0
+          fi
+          if [ "$PRODUCTION_APP_SERVING" != "doks" ]; then
+            echo "Refusing DOKS flip (parking-direction-invalid): the parking gate may run only for an approved App Platform-to-DOKS replacement." >&2
+            exit 1
+          fi
+
+          parking_domain="app-platform.chasesets.com"
+          parking_json="$(terraform output -json production_app_platform_parking_preparation 2>/dev/null || printf 'null')"
+          if ! printf '%s' "$parking_json" | jq -e \
+            --arg domain "$parking_domain" \
+            '.domain == $domain and (.prepared_at // "") != "" and .probe_status == "ready"' >/dev/null; then
+            echo "Refusing DOKS flip (parking-preparation-state-missing): Terraform state does not contain a completed parking preparation." >&2
+            exit 1
+          fi
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "Refusing DOKS flip (parking-app-missing): the App Platform app identity is unavailable." >&2
+            exit 1
+          fi
+          app_json="$(doctl apps get "$app_id" --output json)"
+          expected_domains=(admin.chasesets.com app-platform.chasesets.com chasesets.com www.chasesets.com)
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            expected_domains+=(marketplace.chasesets.com)
+          fi
+          mapfile -t expected_domains < <(printf '%s\n' "${expected_domains[@]}" | sort)
+          mapfile -t attached_domains < <(printf '%s' "$app_json" | jq -r '.[0].spec.domains[]?.domain' | sort)
+          if [ "${attached_domains[*]}" != "${expected_domains[*]}" ] ||
+             ! printf '%s' "$app_json" | jq -e \
+               --arg domain "$parking_domain" \
+               'any(.[0].spec.domains[]?; .domain == $domain and .type == "ALIAS" and .zone == "chasesets.com")' >/dev/null; then
+            echo "Refusing DOKS flip (parking-attachment-not-ready): the live app does not retain every live domain plus the parking alias." >&2
+            exit 1
+          fi
+
+          app_target="$(printf '%s' "$app_json" | jq -r '.[0].default_ingress // empty' | sed -e 's#^https://##' -e 's#/$##')"
+          records_json="$(doctl compute domain records list chasesets.com --output json)"
+          parking_record_count="$(
+            printf '%s' "$records_json" | jq \
+              --arg target "$app_target" \
+              '[.[] | select(.name == "app-platform" and .type == "CNAME" and (.data | rtrimstr(".")) == $target)] | length'
+          )"
+          if [ -z "$app_target" ] || [ "$parking_record_count" -ne 1 ]; then
+            echo "Refusing DOKS flip (parking-dns-record-not-ready): the parking hostname does not have exactly one App Platform CNAME." >&2
+            exit 1
+          fi
+
+          if ! parking_probe_output="$(
+            node ../../../scripts/platform-ingress-wait.mjs \
+              --url "https://${parking_domain}/" \
+              --expect-status 200 \
+              --attempts 6 \
+              --delay-ms 5000 2>&1
+          )"; then
+            echo "Refusing DOKS flip (parking-probe-not-ready): ${parking_probe_output}" >&2
+            exit 1
+          fi
+          printf '%s\n' "$parking_probe_output"
+          echo "Warm rollback target verified: ${parking_domain} serves exact HTTP 200 with trusted TLS."
 
       - name: Release production App Platform CNAME state
         if: env.SHOULD_DEPLOY != 'false'

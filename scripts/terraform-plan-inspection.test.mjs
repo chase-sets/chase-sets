@@ -87,11 +87,14 @@ describe("Terraform plan inspection", () => {
     );
 
     expect(assertProductionServingModeReplacement(plan, { from: "doks", to: "app-platform" })).toEqual([
-      'digitalocean_app.platform.domain["app-platform.chasesets.com"]',
       'digitalocean_record.app_serving["admin"]',
       'digitalocean_record.app_serving["www"]',
       "digitalocean_record.doks_apex[0]",
     ]);
+    const destructiveChanges = destructiveResourceChanges(plan);
+    expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
+      "sha256:1b67b5328049b409e0dc725a434e6571dec0f300246d27a3c4d22e3ead4cbec5",
+    );
 
     const ambiguousPlan = structuredClone(plan);
     ambiguousPlan.resource_changes.push(resourceChange("digitalocean_project_resources.platform", ["delete"]));
