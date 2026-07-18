@@ -656,6 +656,44 @@ describe("DigitalOcean platform configuration", () => {
     }
   });
 
+  it("gates a destructive staging reset on the support-safe staging-refresh preflight", () => {
+    const preflightStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Gate staging refresh provider and set-matrix preflight",
+    );
+
+    expect(platformStagingResetWorkflow).toContain("allow_scrydex_usage_check:");
+    expect(platformStagingResetWorkflow).toContain("confirm_no_staging_evidence_overlap:");
+    expect(platformStagingResetWorkflow).toContain("actions: read");
+    expect(preflightStep).toContain("node ./scripts/staging-refresh-preflight.mjs");
+    expect(preflightStep).toContain("--skip-github-metadata");
+    expect(preflightStep).toContain("--skip-doctl");
+    expect(preflightStep).toContain("STAGING_REFRESH_ALLOW_CREDITED_PROVIDER_READS");
+    expect(preflightStep).toContain("STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED");
+    expect(preflightStep).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(preflightStep).toContain("SCRYDEX_API_KEY");
+    expect(preflightStep).toContain("STRIPE_SECRET_KEY");
+    expect(preflightStep).toContain("EASYPOST_API_KEY");
+    expect(platformStagingResetWorkflow.indexOf("Gate staging refresh provider and set-matrix preflight")).toBeLessThan(
+      platformStagingResetWorkflow.indexOf("Terraform init staging environment DNS"),
+    );
+    expect(platformStagingResetWorkflow).toContain("staging-refresh-preflight-${{ github.run_id }}");
+
+    const overlapRecheckStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Re-check staging refresh overlap before destroy",
+    );
+    expect(overlapRecheckStep).toContain("node ./scripts/staging-refresh-preflight.mjs --overlap-only");
+    const overlapRecheckIndex = platformStagingResetWorkflow.indexOf(
+      "- name: Re-check staging refresh overlap before destroy",
+    );
+    const destroyIndex = platformStagingResetWorkflow.indexOf("- name: Terraform destroy staging platform");
+    expect(overlapRecheckIndex).toBeLessThan(destroyIndex);
+    expect(platformStagingResetWorkflow.slice(overlapRecheckIndex, destroyIndex).match(/^\s*- name:/gm)).toHaveLength(
+      1,
+    );
+  });
+
   it("keeps staging smoke under active auth registration rate limits", () => {
     const platformApiService = terraformServiceBlock(platformMain, "platform-api");
     const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
