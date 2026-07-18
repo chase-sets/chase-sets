@@ -234,7 +234,20 @@ export const csatAdminExportSchemaMigrations: readonly BcSchemaMigration[] = [
       "SET lock_timeout = '5s';",
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS customer_feedback_csat_export_audits_expiry_idx
   ON customer_feedback_csat_export_audits (artifact_expires_at)
-  WHERE result = 'completed'`,
+      WHERE result = 'completed'`,
+    ],
+  },
+  {
+    migrationId: "20260718_customer_feedback_csat_export_audit_lifecycle",
+    description: "Converge existing CSAT export audits on the pending and expiry lifecycle.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE customer_feedback_csat_export_audits ALTER COLUMN completed_at DROP NOT NULL",
+      "ALTER TABLE customer_feedback_csat_export_audits DROP CONSTRAINT IF EXISTS customer_feedback_csat_export_audits_result_check",
+      `ALTER TABLE customer_feedback_csat_export_audits
+  ADD CONSTRAINT customer_feedback_csat_export_audits_result_check
+  CHECK (result IN ('pending', 'completed', 'failed', 'expired')) NOT VALID`,
+      "ALTER TABLE customer_feedback_csat_export_audits VALIDATE CONSTRAINT customer_feedback_csat_export_audits_result_check",
     ],
   },
 ];

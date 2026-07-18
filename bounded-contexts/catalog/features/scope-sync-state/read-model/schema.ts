@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const catalogScopeSyncStateSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_scope_sync_state (
   scope_key text NOT NULL,
   provider_key text NOT NULL,
@@ -38,3 +40,11 @@ CREATE INDEX IF NOT EXISTS catalog_scope_sync_state_last_job_idx
 CREATE INDEX IF NOT EXISTS catalog_scope_sync_state_last_sync_run_idx
   ON catalog_scope_sync_state (last_sync_run_id)
   WHERE last_sync_run_id IS NOT NULL;`;
+
+export const catalogScopeSyncStateSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260718_catalog_scope_sync_state_scope_record_id",
+    description: "Converge existing scope sync state rows on canonical Scope Record linkage.",
+    statements: ["ALTER TABLE catalog_scope_sync_state ADD COLUMN IF NOT EXISTS scope_record_id text NULL"],
+  },
+];

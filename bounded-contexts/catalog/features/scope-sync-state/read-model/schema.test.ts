@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogScopeSyncStateSchemaSql } from "./schema";
+import { catalogScopeSyncStateSchemaMigrations, catalogScopeSyncStateSchemaSql } from "./schema";
 
 describe("catalogScopeSyncStateSchemaSql", () => {
   it("defines the durable per-scope-per-provider-unit sync state table", () => {
@@ -13,5 +13,15 @@ describe("catalogScopeSyncStateSchemaSql", () => {
     expect(catalogScopeSyncStateSchemaSql).toContain("last_job_id text NULL");
     expect(catalogScopeSyncStateSchemaSql).toContain("observed_count integer NULL");
     expect(catalogScopeSyncStateSchemaSql).toContain("changed_count integer NULL");
+  });
+
+  it("converges existing sync state tables on Scope Record linkage", () => {
+    const migration = catalogScopeSyncStateSchemaMigrations.find(
+      (entry) => entry.migrationId === "20260718_catalog_scope_sync_state_scope_record_id",
+    );
+
+    expect(migration?.statements).toEqual([
+      "ALTER TABLE catalog_scope_sync_state ADD COLUMN IF NOT EXISTS scope_record_id text NULL",
+    ]);
   });
 });

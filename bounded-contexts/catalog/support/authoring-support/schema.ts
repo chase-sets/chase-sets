@@ -23,7 +23,10 @@ import {
 import { catalogProviderScopeMappingSchemaSql } from "../../features/provider-scope-mapping/read-model/schema";
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
 import { catalogScopeRegistrySchemaSql } from "../../features/scope-registry/read-model/schema";
-import { catalogScopeSyncStateSchemaSql } from "../../features/scope-sync-state/read-model/schema";
+import {
+  catalogScopeSyncStateSchemaMigrations,
+  catalogScopeSyncStateSchemaSql,
+} from "../../features/scope-sync-state/read-model/schema";
 import { catalogScopeSyncBatchSchemaSql } from "../../features/scope-sync-batches/read-model/schema";
 import {
   catalogSourceObservationSchemaMigrations,
@@ -69,4 +72,5 @@ export const catalogAuthoringSchemaMigrations = [
   ...catalogSourceObservationSchemaMigrations,
   ...catalogCatalogItemSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
+  ...catalogScopeSyncStateSchemaMigrations,
 ] as const;

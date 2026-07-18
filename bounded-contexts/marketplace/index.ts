@@ -34,6 +34,8 @@ import {
   buildSellerMetricsShipmentSourceProjectionHandlers,
   buildSellerMetricsSupportSourceProjectionHandlers,
 } from "./features/seller-metrics/integrations/source/source-projection";
+import { marketplaceSellerMetricsSourceSchemaMigrations } from "./features/seller-metrics/integrations/source/source-schema";
+import { marketplaceSellerMetricsSummarySchemaMigrations } from "./features/seller-metrics/read-model/schema";
 import type { MarketplaceServiceOptions, MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
 import { buildReviewApi } from "./features/reviews/api/http";
@@ -58,6 +60,8 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
     ...marketplaceListingSchemaMigrations,
     ...marketplaceListingReadModelSchemaMigrations,
     ...reviewSchemaMigrations,
+    ...marketplaceSellerMetricsSourceSchemaMigrations,
+    ...marketplaceSellerMetricsSummarySchemaMigrations,
   ],
   retentionSweeps: marketplaceRetentionSweeps,
   retentionExemptions: marketplaceRetentionExemptions,

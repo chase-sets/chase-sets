@@ -8,7 +8,10 @@ import {
   paymentsOrderInputSchemaSql,
 } from "../features/payments/integrations/order-input/order-input-schema";
 import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../features/payments/read-model/schema";
-import { paymentsSupportRefundEffectSchemaSql } from "../features/refunds/integrations/support/support-refund-effect-schema";
+import {
+  paymentsSupportRefundEffectSchemaMigrations,
+  paymentsSupportRefundEffectSchemaSql,
+} from "../features/refunds/integrations/support/support-refund-effect-schema";
 
 const paymentsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(paymentsRoot, "..", "..");
@@ -55,9 +58,22 @@ describe("fresh payments schemas", () => {
     expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount");
     expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS seller_payout_amount");
     expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS pending_payment_at");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS authenticity_fee_amount");
     expect(migrationIds).toContain("20260707_payments_order_inputs_checkout_terms_convergence");
+    expect(migrationIds).toContain("20260718_payments_order_inputs_authenticity_fee_amount");
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts");
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at");
+  });
+
+  it("keeps additive migrations for support refund return inputs", () => {
+    const migrationSql = paymentsSupportRefundEffectSchemaMigrations
+      .flatMap((migration) => migration.statements)
+      .join("\n");
+
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS return_delivered_at");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS refund_release_due_at");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS return_condition_disputed_at");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS return_shipping_deduction_amount");
   });
 
   it("keeps indexes for migration-added payment instrument columns out of boot-time schema SQL", () => {

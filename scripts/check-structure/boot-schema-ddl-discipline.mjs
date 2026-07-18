@@ -182,7 +182,81 @@ export function extractSchemaMigrationStatements(source) {
   return statements;
 }
 
-export function findSchemaMigrationDdlSafetyViolationsInSource(source) {
+export function extractBootSchemaTableColumns(source) {
+  const tables = new Map();
+  const createTablePattern = /\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_.]*)\s*\(/gi;
+  const tableConstraintKeywords = new Set(["check", "constraint", "exclude", "foreign", "primary", "unique"]);
+
+  for (const template of extractExportedBootSchemaSqlTemplates(source)) {
+    for (const match of template.sql.matchAll(createTablePattern)) {
+      const tableName = match[1].toLowerCase();
+      const columnsStart = match.index + match[0].length - 1;
+      const columnsEnd = findBalancedEnd(template.sql, columnsStart, "(", ")");
+      if (columnsEnd === -1) {
+        continue;
+      }
+
+      const columns = tables.get(tableName) ?? new Set();
+      const definition = template.sql.slice(columnsStart + 1, columnsEnd);
+      for (const clause of splitTopLevelCommaClauses(definition)) {
+        const columnMatch = /^\s*"?([A-Za-z_][A-Za-z0-9_]*)"?\s+/i.exec(clause);
+        if (!columnMatch || tableConstraintKeywords.has(columnMatch[1].toLowerCase())) {
+          continue;
+        }
+        columns.add(columnMatch[1].toLowerCase());
+      }
+      tables.set(tableName, columns);
+    }
+  }
+
+  return tables;
+}
+
+export function findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource }) {
+  const baseTables = extractBootSchemaTableColumns(baseSource);
+  const currentTables = extractBootSchemaTableColumns(currentSource);
+  const migrationStatements = extractSchemaMigrationStatements(currentSource)
+    .flatMap((migration) => migration.statements)
+    .map((statement) => statement.sql);
+  const violations = [];
+
+  for (const [tableName, currentColumns] of currentTables) {
+    const baseColumns = baseTables.get(tableName);
+    if (!baseColumns) {
+      continue;
+    }
+
+    for (const columnName of currentColumns) {
+      if (baseColumns.has(columnName)) {
+        continue;
+      }
+
+      const reachableColumnPattern = new RegExp(
+        `\\bALTER\\s+TABLE(?:\\s+IF\\s+EXISTS)?\\s+${escapeRegExp(tableName)}\\b[\\s\\S]*?\\bADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(columnName)}\\b`,
+        "i",
+      );
+      if (!migrationStatements.some((statement) => reachableColumnPattern.test(statement))) {
+        violations.push({
+          tableName,
+          columnName,
+          message: `fresh-boot column ${tableName}.${columnName} was added to an existing table without a reachable exported schemaMigrations ADD COLUMN ledger entry; existing databases would retain the old shape (#4834).`,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+export function findSchemaMigrationDdlSafetyViolationsInSource(source, { baseSource } = {}) {
+  const baseStatementSql = new Set(
+    baseSource
+      ? extractSchemaMigrationStatements(baseSource)
+          .flatMap((migration) => migration.statements)
+          .map((statement) => statement.sql.trim())
+      : [],
+  );
+
   return extractSchemaMigrationStatements(source).flatMap((migration) => {
     const migrationHasLockTimeout = migration.statements.some((statement) => lockTimeoutPattern.test(statement.sql));
     const migrationHasValidatedConstraint = migration.statements.some((statement) =>
@@ -191,6 +265,9 @@ export function findSchemaMigrationDdlSafetyViolationsInSource(source) {
     const violations = [];
 
     for (const statement of migration.statements) {
+      if (baseStatementSql.has(statement.sql.trim())) {
+        continue;
+      }
       if (migrationCreateIndexPattern.test(statement.sql)) {
         violations.push({
           line: statement.startLine,
@@ -286,6 +363,7 @@ export function findBootSchemaMigrationAddedIndexViolationsInSource(source) {
 
 export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths } = {}) {
   const schemaFiles = await listSchemaFiles(path.join(repoRoot, "bounded-contexts"));
+  const mergeBase = readMergeBase({ repoRoot });
   const changedSchemaFiles = new Set(
     resolveChangedSchemaFiles({
       repoRoot,
@@ -315,6 +393,18 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
       continue;
     }
 
+    const relativeFilePath = normalizeRelative(repoRoot, filePath);
+    const baseSource = readFileAtRevision({ repoRoot, revision: mergeBase, relativeFilePath });
+    if (baseSource !== null) {
+      for (const violation of findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource: source })) {
+        violations.push({
+          file: relativeFilePath,
+          line: 1,
+          message: violation.message,
+        });
+      }
+    }
+
     for (const violation of findBootSchemaMigrationAddedIndexViolationsInSource(source)) {
       violations.push({
         file: normalizeRelative(repoRoot, filePath),
@@ -323,7 +413,9 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
       });
     }
 
-    for (const violation of findSchemaMigrationDdlSafetyViolationsInSource(source)) {
+    for (const violation of findSchemaMigrationDdlSafetyViolationsInSource(source, {
+      baseSource: baseSource ?? undefined,
+    })) {
       violations.push({
         file: normalizeRelative(repoRoot, filePath),
         line: violation.line,
@@ -463,6 +555,49 @@ function splitSqlStatements(sql) {
   return statements.filter((statement) => statement.sql.trim().length > 0);
 }
 
+function splitTopLevelCommaClauses(sql) {
+  const clauses = [];
+  let clauseStart = 0;
+  let depth = 0;
+  let quote = null;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (quote) {
+      if (character === quote) {
+        if (quote === "'" && sql[index + 1] === "'") {
+          index += 1;
+          continue;
+        }
+        if (sql[index - 1] !== "\\") {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth -= 1;
+      continue;
+    }
+    if (character === "," && depth === 0) {
+      clauses.push(sql.slice(clauseStart, index));
+      clauseStart = index + 1;
+    }
+  }
+
+  clauses.push(sql.slice(clauseStart));
+  return clauses;
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -523,10 +658,12 @@ function readChangedFilePaths({ repoRoot }) {
     const mergeBase = execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
       cwd: repoRoot,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     const output = execFileSync("git", ["diff", "--name-only", `${mergeBase}...HEAD`], {
       cwd: repoRoot,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     });
     return output
       .split(/\r?\n/)
@@ -534,6 +671,33 @@ function readChangedFilePaths({ repoRoot }) {
       .filter(Boolean);
   } catch {
     return [];
+  }
+}
+
+function readMergeBase({ repoRoot }) {
+  try {
+    return execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function readFileAtRevision({ repoRoot, revision, relativeFilePath }) {
+  if (!revision) {
+    return null;
+  }
+  try {
+    return execFileSync("git", ["show", `${revision}:${relativeFilePath}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -551,7 +715,7 @@ async function listSchemaFiles(root) {
       files.push(...(await listSchemaFiles(entryPath)));
       continue;
     }
-    if (entry.isFile() && entry.name === "schema.ts") {
+    if (entry.isFile() && /schema.*\.ts$/i.test(entry.name) && !/\.(?:test|spec)\.ts$/i.test(entry.name)) {
       files.push(entryPath);
     }
   }

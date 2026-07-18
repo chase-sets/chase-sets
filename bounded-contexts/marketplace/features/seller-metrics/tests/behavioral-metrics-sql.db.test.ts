@@ -370,6 +370,51 @@ describeDb("marketplace seller behavioral-metrics SQL persistence boundary", () 
     expect(summary?.dispute_rate).toBe("0.0000");
   });
 
+  it("repairs refund-inferred stale rows when the v2 support subscription replays", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    await createOrder(handlers, "ord_replayed");
+    await pool.query(
+      `INSERT INTO marketplace_seller_metrics_support_request_sources (
+         support_request_id, order_id, seller_account_id, resolution_type, flow_type,
+         responsibility, resolved_at, updated_at
+       ) VALUES (
+         'sup_replayed', 'ord_replayed', 'acc_seller', 'full-refund', 'product-not-received',
+         NULL, '2026-07-02T00:00:00.000Z', '2026-07-02T00:00:00.000Z'
+       )`,
+    );
+    await pool.query(
+      `UPDATE marketplace_seller_metrics_summary_pages
+       SET disputes_resolved_count = 1,
+           disputes_against_seller_count = 1,
+           dispute_rate = 1,
+           missing_responsibility_count = 0
+       WHERE seller_account_id = 'acc_seller'`,
+    );
+
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_replayed",
+      orderId: "ord_replayed",
+      flowType: "product-not-received",
+      resolutionType: "full-refund",
+      responsibility: "carrier",
+    });
+
+    const source = await pool.query<{ responsibility: string | null }>(
+      `SELECT responsibility
+       FROM marketplace_seller_metrics_support_request_sources
+       WHERE support_request_id = 'sup_replayed'`,
+    );
+    expect(source.rows).toEqual([{ responsibility: "carrier" }]);
+
+    const summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+    expect(summary?.disputes_resolved_count).toBe(1);
+    expect(summary?.disputes_against_seller_count).toBe(0);
+    expect(summary?.dispute_rate).toBe("0.0000");
+    expect(summary?.missing_responsibility_count).toBe(0);
+  });
+
   it("rebuilds identical buckets when the same source events are replayed after a schema reset", async () => {
     const pool = pools.marketplace;
 

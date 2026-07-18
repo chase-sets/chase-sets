@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 // The `disputes_*` / `dispute_rate` columns carry the externally-established
 // "dispute rate" product name but are defined as the seller-responsible issue
 // rate: `disputes_against_seller_count` is the count of distinct seller orders
@@ -29,3 +31,14 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_metrics_summary_pages (
   updated_at timestamptz NOT NULL
 );
 `;
+
+export const marketplaceSellerMetricsSummarySchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260718_marketplace_seller_metrics_missing_responsibility_count",
+    description: "Converge existing seller-metrics summaries on the missing-responsibility signal.",
+    statements: [
+      `ALTER TABLE marketplace_seller_metrics_summary_pages
+  ADD COLUMN IF NOT EXISTS missing_responsibility_count integer NOT NULL DEFAULT 0`,
+    ],
+  },
+];

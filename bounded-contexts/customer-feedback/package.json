@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:watch": "vitest --config ./tests/vitest.config.mjs",
     "test:fast": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs"
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/schema-upgrade.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs tests/schema-upgrade.db.test.ts"
   },
   "exports": {
     ".": "./index.ts",
@@ -19,6 +23,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",

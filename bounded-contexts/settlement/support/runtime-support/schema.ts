@@ -7,7 +7,10 @@ import {
   settlementWalletAdjustmentSchemaSql,
 } from "../../features/wallets/read-model/wallet-adjustment-schema";
 import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integrations/payment-source/payment-source-schema";
-import { settlementSupportSourceSchemaSql } from "../../features/wallets/integrations/support-source/support-source-schema";
+import {
+  settlementSupportSourceSchemaMigrations,
+  settlementSupportSourceSchemaSql,
+} from "../../features/wallets/integrations/support-source/support-source-schema";
 import { settlementFulfillmentSourceSchemaSql } from "../../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
 import {
   settlementAccountRiskSourceSchemaMigrations,
@@ -68,6 +71,7 @@ export const settlementSchemaSql = [
 ].join("\n\n");
 
 export const settlementSchemaMigrations = [
+  ...settlementSupportSourceSchemaMigrations,
   ...settlementWalletSchemaMigrations,
   ...settlementWalletAdjustmentSchemaMigrations,
   ...settlementAccountRiskSourceSchemaMigrations,

@@ -187,6 +187,31 @@ CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20260718_fulfillment_return_shipment_label_columns",
+    description: "Converge existing Return Shipment customer and operator pages on label and postage details.",
+    statements: [
+      `ALTER TABLE fulfillment_return_shipment_customer_pages
+         ADD COLUMN IF NOT EXISTS label_status text NOT NULL DEFAULT 'pending',
+         ADD COLUMN IF NOT EXISTS label_document_url text NULL,
+         ADD COLUMN IF NOT EXISTS label_failure_reason text NULL`,
+      `ALTER TABLE fulfillment_return_shipment_operator_pages
+         ADD COLUMN IF NOT EXISTS label_document_url text NULL,
+         ADD COLUMN IF NOT EXISTS postage_provider_name text NULL,
+         ADD COLUMN IF NOT EXISTS postage_provider_mode text NULL,
+         ADD COLUMN IF NOT EXISTS postage_provider_shipment_id text NULL,
+         ADD COLUMN IF NOT EXISTS postage_provider_label_id text NULL,
+         ADD COLUMN IF NOT EXISTS postage_amount_cents integer NULL,
+         ADD COLUMN IF NOT EXISTS estimated_postage_amount_cents integer NULL,
+         ADD COLUMN IF NOT EXISTS postage_currency text NULL,
+         ADD COLUMN IF NOT EXISTS label_failure_reason text NULL,
+         ADD COLUMN IF NOT EXISTS label_failure_detail text NULL,
+         ADD COLUMN IF NOT EXISTS label_refund_status text NULL,
+         ADD COLUMN IF NOT EXISTS label_refund_reference text NULL,
+         ADD COLUMN IF NOT EXISTS label_failed_at timestamptz NULL,
+         ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL`,
+    ],
+  },
+  {
     migrationId: "20260715_fulfillment_seller_return_destination",
     description: "Allow ordinary return shipments to target the seller snapshot instead of a platform facility.",
     statements: [
