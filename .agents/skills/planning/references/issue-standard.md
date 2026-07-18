@@ -30,6 +30,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
   re-biter and its root cause is an incomplete caller inventory.
+  Include any **operator actions** the work will need — credentials, sign-ins,
+  approvals, live watch windows — or state `Operator actions: none`. An
+  operator dependency discovered mid-lane stalls delivery on human latency;
+  enumerated actions let the orchestrator batch a single operator session and
+  dispatch operator-dependent work only into a signaled window.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
 
@@ -43,7 +48,9 @@ The orchestrator dispatches an issue only when ALL hold:
    provider's test-mode surface.
 4. Verification plan names runnable scoped commands.
 5. Footprint predicted — including every caller of any touched shared
-   handler; chain links wired if any.
+   handler; chain links wired if any; operator actions (credentials, sign-ins,
+   approvals, live watch windows) enumerated — explicitly `none` when there
+   are none.
 6. No unresolved full-path decision — or the issue is explicitly linked
    `Blocked by` the decision issue.
 7. Terms conform to the owning context's glossary; new terms are registered.
