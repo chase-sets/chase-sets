@@ -649,6 +649,7 @@ jobs:
             plan_file="$1"
             expected_type="$2"
             expected_apex="$3"
+            expected_parking_type="$4"
             plan_json="$tmp/${plan_file}.json"
             terraform -chdir="$tmp" show -json "$plan_file" > "$plan_json"
 
@@ -675,8 +676,11 @@ jobs:
                 "$plan_json" >/dev/null
             fi
 
-            if [ "$expected_type" = "A" ]; then
+            if [ "$expected_parking_type" = "PRIMARY" ]; then
               jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and .values.spec[0].domain == [{"name":"app-platform.chasesets.com","type":"PRIMARY","zone":"chasesets.com"}])' \
+                "$plan_json" >/dev/null
+            elif [ "$expected_parking_type" = "ALIAS" ]; then
+              jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and ([.values.spec[0].domain[].name] | sort) == ["admin.chasesets.com","app-platform.chasesets.com","chasesets.com","www.chasesets.com"] and any(.values.spec[0].domain[]; .name == "app-platform.chasesets.com" and .type == "ALIAS"))' \
                 "$plan_json" >/dev/null
             else
               jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and ([.values.spec[0].domain[].name] | sort) == ["admin.chasesets.com","chasesets.com","www.chasesets.com"])' \
@@ -686,15 +690,25 @@ jobs:
 
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=app-platform.tfplan \
             -var=production_app_serving=app-platform
-          assert_serving_plan app-platform.tfplan none false
+          assert_serving_plan app-platform.tfplan none false none
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=parking-preparation.tfplan \
+            -var=production_app_serving=app-platform \
+            -var=production_serving_dns_phase=prepare-doks \
+            -var=production_serving_dns_previous_ttl_seconds=1800
+          assert_serving_plan parking-preparation.tfplan CNAME false ALIAS
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=doks.tfplan \
             -var=production_app_serving=doks \
+            -var=production_serving_dns_phase=prepare-doks \
+            -var=production_serving_dns_prepared_at=2000-01-01T00:00:00Z \
+            -var=production_serving_dns_previous_ttl_seconds=1800 \
+            -var=production_app_platform_parking_prepared_at=2000-01-01T00:00:00Z \
             -var=doks_ingress_target=203.0.113.10 \
             -var=production_doks_certificate_ready=true
-          assert_serving_plan doks.tfplan A true
+          assert_serving_plan doks.tfplan A true PRIMARY
           (
             cd "$tmp"
             node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes app-platform.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes parking-preparation.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
             node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes doks.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           )
 

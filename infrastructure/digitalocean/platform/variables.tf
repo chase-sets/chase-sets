@@ -822,7 +822,7 @@ variable "staging_app_serving" {
 variable "production_app_serving" {
   type        = string
   default     = "app-platform"
-  description = "Which platform serves the live production apex, admin, www, and approved marketplace hosts. The default keeps those domains attached to App Platform; \"doks\" replaces them with the authority-qualified App Platform parking attachment before creating DOKS A records."
+  description = "Which platform serves the live production apex, admin, www, and approved marketplace hosts. The default keeps those domains attached to App Platform; \"doks\" releases them only after the separately prepared authority-qualified App Platform parking target is warm."
 
   validation {
     condition     = contains(["app-platform", "doks"], var.production_app_serving)
@@ -871,6 +871,12 @@ variable "production_serving_dns_previous_ttl_seconds" {
     condition     = var.production_serving_dns_previous_ttl_seconds >= 0 && var.production_serving_dns_previous_ttl_seconds <= 86400
     error_message = "production_serving_dns_previous_ttl_seconds must be between 0 and 86400 seconds."
   }
+}
+
+variable "production_app_platform_parking_prepared_at" {
+  description = "Retained RFC3339 completion time from the verified App Platform parking preparation. The production workflow round-trips this state value so the parking attachment remains warm through cutover and rollback."
+  type        = string
+  default     = ""
 }
 
 variable "production_doks_certificate_ready" {
