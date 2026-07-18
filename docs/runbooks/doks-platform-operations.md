@@ -408,7 +408,7 @@ This separation is intentional: matching an already-active App Platform value on
 
    ```bash
    gh variable set PRODUCTION_SERVING_DNS_PHASE --env production --body prepare-doks
-   gh workflow run platform-production.yml --ref main
+   gh workflow run platform-production.yml --ref main --field reason='Prepare DOKS serving cutover'
    RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
    gh run watch "$RUN_ID" --exit-status
    ```
@@ -445,7 +445,7 @@ This separation is intentional: matching an already-active App Platform value on
 2. Dispatch and watch `Platform Deploy`. Before any CNAME state release, the production job rechecks the DOKS certificate/shadow HTTPS and requires the retained parking marker, the exact live-plus-parking attachment set, the parking CNAME, and a fresh exact-200 trusted-TLS probe. The platform apply then removes only the live App Platform domains, promotes the already-warm parking alias to primary, and creates DOKS records after that update. A refusal names the failed parking condition; never bypass it.
 
    ```bash
-   gh workflow run platform-production.yml --ref main
+   gh workflow run platform-production.yml --ref main --field reason='Complete DOKS serving cutover'
    FLIP_RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
    gh run watch "$FLIP_RUN_ID" --exit-status
    ```
@@ -472,7 +472,7 @@ Rollback is the serving variable re-flip after the separate `prepare-app-platfor
 
 ```bash
 gh variable set PRODUCTION_APP_SERVING --env production --body app-platform
-gh workflow run platform-production.yml --ref main
+gh workflow run platform-production.yml --ref main --field reason='Roll back DOKS serving cutover'
 ROLLBACK_RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
 gh run watch "$ROLLBACK_RUN_ID" --exit-status
 node ./scripts/platform-ingress-wait.mjs \

@@ -1,0 +1,67 @@
+name: Platform Release Candidate Dispatch
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-release-candidate
+  cancel-in-progress: true
+
+jobs:
+  dispatch-release-candidate:
+    name: Dispatch Latest Release Candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Known Failure Guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+        run: |
+          node ./scripts/release-health-merge-group-failure-signatures.mjs \
+            --command guard \
+            --lane release-dispatch \
+            --lane staging \
+            --lane production \
+            --base-sha "${{ github.sha }}" \
+            --candidate-sha "${{ github.sha }}" \
+            --actor "${{ github.triggering_actor }}" \
+            --automatic true \
+            --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch automatic release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          latest_main="$(git rev-parse origin/main)"
+          if [ "$RELEASE_COMMIT" != "$latest_main" ]; then
+            echo "Candidate ${RELEASE_COMMIT} was superseded by ${latest_main} before dispatch." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh workflow run platform-production.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field release_ref="$RELEASE_COMMIT" \
+            --field dispatch_source=automatic \
+            --field dispatch_run_id="${{ github.run_id }}" \
+            --field dispatch_attempt="${{ github.run_attempt }}"
+          echo "Dispatched automatic release candidate ${RELEASE_COMMIT}." | tee -a "$GITHUB_STEP_SUMMARY"

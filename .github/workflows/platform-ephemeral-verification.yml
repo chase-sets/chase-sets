@@ -17,24 +17,46 @@ permissions:
   actions: read
 
 concurrency:
-  group: platform-ephemeral-verification-${{ github.event.workflow_run.head_sha || inputs.release_ref || github.sha }}
+  group: platform-ephemeral-verification-${{ github.event.workflow_run.id || inputs.release_ref || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  select-promoted-release:
+    name: Select Promoted Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      eligible: ${{ steps.eligibility.outputs.eligible }}
+    steps:
+      - name: Check triggering deploy promotion
+        id: eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          promoted_count="$(gh api --paginate \
+            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name == "Deploy Production" and .conclusion == "success")] | length' \
+            | awk '{ total += $1 } END { print total + 0 }')"
+          echo "eligible=$([ "$promoted_count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   verify-release:
     name: Verify Release in Ephemeral Namespace
-    # Automatic workflow_run execution stays disabled until the repaired image
-    # handoff passes a manual proof and success soak (issue #5497 rollout). A
-    # push-triggered "Platform Deploy" run only dispatches the release
-    # candidate and never builds an image, so triggering off every successful
-    # run reconstructed a commit tag that did not exist yet. Manual
+    # Automatic workflow_run execution stays disabled until the immutable
+    # promoted-release handoff passes a manual proof and success soak. Manual
     # workflow_dispatch remains available for the proof; automatic runs require
     # the explicit PLATFORM_EPHEMERAL_VERIFICATION_ENABLED repo variable.
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED == 'true')
+      needs.select-promoted-release.outputs.eligible == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED == 'true'))
+    needs: select-promoted-release
     runs-on: ubuntu-latest
     timeout-minutes: 75
     environment: preview
@@ -57,13 +79,31 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha || inputs.release_ref || 'main' }}
+          ref: ${{ inputs.release_ref || 'main' }}
+
+      - name: Download promoted release handoff
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: promoted-release
+          path: artifacts/promoted-release
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: Resolve release commit
         id: release
         run: |
           set -euo pipefail
-          release_commit="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            release_commit="$(jq -r '.releaseCommit // empty' artifacts/promoted-release/promoted-release.json)"
+          else
+            release_commit="$(git rev-parse HEAD)"
+          fi
+          if ! [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The selected release did not resolve to an immutable commit SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$release_commit"
           echo "release_commit=${release_commit}" >> "$GITHUB_OUTPUT"
           echo "Verifying release ${release_commit} in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
 
@@ -89,6 +129,20 @@ jobs:
           RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            node ./scripts/promoted-release.mjs validate \
+              --file artifacts/promoted-release/promoted-release.json \
+              --expected-producer-run-id "${{ github.event.workflow_run.id }}" \
+              --expected-environment production \
+              --github-output "$GITHUB_OUTPUT"
+            artifact_commit="$(jq -r '.releaseCommit' artifacts/promoted-release/promoted-release.json)"
+            if [ "$artifact_commit" != "$RELEASE_COMMIT" ]; then
+              echo "Promoted release artifact commit changed during validation." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]')"
           if [ -z "$registry_name" ]; then
             echo "DigitalOcean Container Registry is required for ephemeral release verification." >&2
@@ -96,13 +150,9 @@ jobs:
           fi
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${RELEASE_COMMIT}"
-          # The release pipeline pins every deploy to the immutable image digest,
-          # never the mutable commit tag. Confirm the promoted image exists and
-          # resolve its digest here, before any namespace or cluster mutation, so
-          # a run whose triggering release never built/activated this commit
-          # (for example a push-triggered Platform Deploy that only dispatched
-          # the release candidate) fails fast with a concise message instead of
-          # leaking a verification namespace.
+          # Manual proof resolves a known promoted tag before any namespace or
+          # cluster mutation. Automatic verification always uses the producer's
+          # exact promoted-release/v1 repository and immutable digest above.
           if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Promoted release image ${image} does not exist; the triggering run did not build or activate this commit. Verify a run that promoted an immutable image." >&2
             exit 1

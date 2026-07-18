@@ -1,15 +1,37 @@
 name: Platform Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       release_ref:
         description: Ref to deploy. Defaults to main.
-        required: false
+        required: true
         default: main
+        type: string
+      dispatch_source:
+        description: Audited source of this release request.
+        required: true
+        default: manual
+        type: choice
+        options:
+          - automatic
+          - manual
+          - recovery
+          - emergency
+      dispatch_run_id:
+        description: Platform Release Candidate Dispatch run ID. Required for automatic releases.
+        required: false
+        default: ""
+        type: string
+      dispatch_attempt:
+        description: Platform Release Candidate Dispatch run attempt. Required for automatic releases.
+        required: false
+        default: ""
+        type: string
+      reason:
+        description: Audited reason required for manual, recovery, and emergency releases.
+        required: false
+        default: ""
         type: string
       force_deploy:
         description: Force deployment even when release diff has no deploy-scoped files.
@@ -36,11 +58,6 @@ on:
         required: false
         default: ""
         type: string
-      automatic_release:
-        description: Internal dispatcher flag. Automatic runs remain freshness-gated until staging mutation starts.
-        required: false
-        default: false
-        type: boolean
       circuit_issue_number:
         description: Active canonical delivery circuit issue required for manual recovery while a lane is held.
         required: false
@@ -74,59 +91,15 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Pushes are cheap dispatch candidates and coalesce before they enter the
-  # deployment critical section. Dispatched automatic, manual, and emergency
-  # releases share the registry-mutation lane: GitHub keeps one running and one
+  # Dispatched automatic, manual, recovery, and emergency releases share the
+  # registry-mutation lane: GitHub keeps one running and one
   # latest pending member, and never cancels the immutable active release. The
   # read-only cutover plan has its own ref-scoped lane and cannot delay or join
   # a registry/deployment mutation.
-  group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  group: ${{ inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation' }}
+  cancel-in-progress: false
 
 jobs:
-  dispatch-release-candidate:
-    name: Dispatch Latest Release Candidate
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
-      issues: write
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Known Failure Guard
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
-        run: |
-          node ./scripts/release-health-merge-group-failure-signatures.mjs \
-            --command guard \
-            --lane release-dispatch \
-            --lane staging \
-            --lane production \
-            --base-sha "${{ github.sha }}" \
-            --candidate-sha "${{ github.sha }}" \
-            --actor "${{ github.triggering_actor }}" \
-            --automatic true \
-            --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
-            --github-summary "$GITHUB_STEP_SUMMARY"
-
-      - name: Dispatch automatic release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          gh workflow run platform-production.yml \
-            --repo "${{ github.repository }}" \
-            --ref main \
-            --field release_ref="$RELEASE_COMMIT" \
-            --field automatic_release=true
-          echo "Dispatched automatic release candidate ${RELEASE_COMMIT}."
-
   production-cutover-live-plan:
     name: Production Cutover Live Plans
     if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only == true
@@ -390,6 +363,7 @@ jobs:
     timeout-minutes: 35
     if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only != true
     permissions:
+      actions: read
       checks: read
       contents: read
       issues: write
@@ -402,6 +376,7 @@ jobs:
       production_recovery_mode: ${{ steps.recovery_mode.outputs.production_recovery_mode }}
       production_recovery_reason: ${{ steps.recovery_mode.outputs.production_recovery_reason }}
       production_restore_point_required: ${{ steps.recovery_mode.outputs.production_restore_point_required }}
+      dispatch_created_at: ${{ steps.dispatch_contract.outputs.dispatch_created_at }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -413,9 +388,41 @@ jobs:
           set -euo pipefail
           node ./scripts/resolve-release-commit.mjs \
             --event-name "${{ github.event_name }}" \
-            --push-commit "${{ github.sha }}" \
             --release-ref "${{ inputs.release_ref }}" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate release dispatch contract
+        id: dispatch_contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          DISPATCH_SOURCE: ${{ inputs.dispatch_source }}
+          DISPATCH_RUN_ID: ${{ inputs.dispatch_run_id }}
+          DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
+          DISPATCH_REASON: ${{ inputs.reason }}
+          EMERGENCY_RELEASE: ${{ inputs.emergency_release == true && 'true' || 'false' }}
+          EMERGENCY_REFERENCE: ${{ inputs.emergency_reference }}
+        run: |
+          set -euo pipefail
+          node ./scripts/release-dispatch-contract.mjs
+
+          dispatch_created_at=""
+          if [ "$DISPATCH_SOURCE" = "automatic" ]; then
+            dispatch_run="$(gh api "repos/${{ github.repository }}/actions/runs/${DISPATCH_RUN_ID}")"
+            if ! jq -e \
+              --arg commit "$RELEASE_COMMIT" \
+              --argjson attempt "$DISPATCH_ATTEMPT" \
+              '.name == "Platform Release Candidate Dispatch" and
+               .event == "push" and
+               .head_branch == "main" and
+               .head_sha == $commit and
+               .run_attempt == $attempt' <<<"$dispatch_run" >/dev/null; then
+              echo "Automatic dispatch provenance does not match the selected release commit." >&2
+              exit 1
+            fi
+            dispatch_created_at="$(jq -r '.created_at' <<<"$dispatch_run")"
+          fi
+          echo "dispatch_created_at=${dispatch_created_at}" >> "$GITHUB_OUTPUT"
 
       - name: Validate release checks
         env:
@@ -489,7 +496,7 @@ jobs:
             --base-sha "${{ steps.release.outputs.release_commit }}" \
             --candidate-sha "${{ steps.release.outputs.release_commit }}" \
             --actor "${{ github.triggering_actor }}" \
-            --automatic "${{ inputs.automatic_release == true && 'true' || 'false' }}" \
+            --automatic "${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}" \
             --circuit-issue-number "${{ inputs.circuit_issue_number }}" \
             --circuit-reason "${{ inputs.circuit_reason }}" \
             --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
@@ -1026,7 +1033,7 @@ jobs:
         env:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ needs.build-image.outputs.platform_image_digest }}
-          AUTOMATIC_RELEASE: ${{ inputs.automatic_release == true && 'true' || 'false' }}
+          AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           if ! [[ "$RELEASE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
@@ -2228,7 +2235,7 @@ jobs:
       - name: Create or update advisory evidence incident
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit || github.sha }}
+          RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit || 'unresolved' }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -2285,7 +2292,7 @@ jobs:
       - name: Resolve staging release health metadata
         id: release_health_metadata
         env:
-          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
+          SOURCE_WORKFLOW_CREATED_AT: ${{ needs.resolve-release.outputs.dispatch_created_at }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -2353,6 +2360,10 @@ jobs:
         env:
           RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          DISPATCH_SOURCE: ${{ inputs.dispatch_source }}
+          DISPATCH_RUN_ID: ${{ inputs.dispatch_run_id }}
+          DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
+          DISPATCH_REASON: ${{ inputs.reason }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
@@ -2387,7 +2398,7 @@ jobs:
           STAGING_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit }}
           ACTIVE_RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit }}
           ACTIVE_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.active_image_digest }}
-          RELEASE_STATE_MODE: ${{ inputs.automatic_release == true && 'automatic' || inputs.emergency_release == true && 'emergency' || 'manual' }}
+          RELEASE_STATE_MODE: ${{ inputs.dispatch_source }}
           PRODUCTION_RESULT: skipped
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
@@ -4377,14 +4388,44 @@ jobs:
             echo "marker_error="
           } >> "$GITHUB_OUTPUT"
 
+      - name: Write promoted release handoff
+        if: steps.production_marker.outputs.marker_updated == 'true'
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          tree_hash="$(git rev-parse "${RELEASE_COMMIT}^{tree}")"
+          node ./scripts/promoted-release.mjs create \
+            --out artifacts/release-health/promoted-release.json \
+            --producer-run-id "${{ github.run_id }}" \
+            --producer-run-attempt "${{ github.run_attempt }}" \
+            --environment production \
+            --release-commit "$RELEASE_COMMIT" \
+            --tree-hash "$tree_hash" \
+            --image-repository "$RELEASE_IMAGE" \
+            --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --promotion-result promoted \
+            --promoted-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Upload promoted release handoff
+        if: steps.production_marker.outputs.marker_updated == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: promoted-release
+          path: artifacts/release-health/promoted-release.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Resolve terminal release state
         id: release_state
         if: always()
         env:
           RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.active_image_digest }}
-          RELEASE_STATE_MODE: ${{ inputs.automatic_release == true && 'automatic' || inputs.emergency_release == true && 'emergency' || 'manual' }}
-          AUTOMATIC_RELEASE: ${{ inputs.automatic_release == true && 'true' || 'false' }}
+          RELEASE_STATE_MODE: ${{ inputs.dispatch_source }}
+          AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
           PRODUCTION_MARKER_UPDATED: ${{ steps.production_marker.outputs.marker_updated || 'false' }}
           PRODUCTION_ROLLBACK_RESULT: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
         run: |
@@ -4428,7 +4469,7 @@ jobs:
         id: release_health_metadata
         if: always()
         env:
-          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
+          SOURCE_WORKFLOW_CREATED_AT: ${{ needs.resolve-release.outputs.dispatch_created_at }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -4515,6 +4556,10 @@ jobs:
         env:
           RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          DISPATCH_SOURCE: ${{ inputs.dispatch_source }}
+          DISPATCH_RUN_ID: ${{ inputs.dispatch_run_id }}
+          DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
+          DISPATCH_REASON: ${{ inputs.reason }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
@@ -4637,7 +4682,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}
           BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
           DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
@@ -4664,7 +4709,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}
           DEPLOY_INCIDENT_ACTION: ${{ steps.classify_deploy_outcome.outputs.action }}
           PLATFORM_DEPLOY_INCIDENT_REASON: ${{ steps.classify_deploy_outcome.outputs.root_cause_code }}
           ROOT_CAUSE_SUMMARY: ${{ steps.classify_deploy_outcome.outputs.root_cause_summary }}
@@ -4783,13 +4828,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}
           ROLLBACK_TARGET_COMMIT: ${{ needs.deploy-production.outputs.rollback_target_commit || 'unknown' }}
           ROLLBACK_REFERENCE: ${{ needs.deploy-production.outputs.rollback_reference || 'not-recorded' }}
         run: |
           set -euo pipefail
 
-          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
+          release_commit="${RELEASE_COMMIT:-unresolved}"
           release_short="${release_commit:0:12}"
           title="Incident: Platform Deploy rollback failed for ${release_short}"
 
@@ -4859,11 +4904,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}
         run: |
           set -euo pipefail
 
-          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
+          release_commit="${RELEASE_COMMIT:-unresolved}"
           close_comment="$(cat <<EOF
           Automated production deploy incident resolution.
 

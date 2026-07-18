@@ -12,7 +12,8 @@
     "generatedPaths": ["pnpm-lock.yaml", "*.snap", "**/generated/**", "**/*.generated.*"],
     "workflowSources": {
       "platformPr": "platform-pr.yml",
-      "releaseDispatchAndDeploy": "platform-production.yml",
+      "releaseDispatch": "platform-release-candidate.yml",
+      "platformDeploy": "platform-production.yml",
       "ephemeralVerification": "platform-ephemeral-verification.yml"
     }
   },

@@ -99,21 +99,24 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       return [];
     }
   };
-  const [pulls, platformPrRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
+  const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
     safely("pull-requests", () =>
       fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
     ),
     safely("platform-pr-runs", () =>
       fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
     ),
-    safely("release-runs", () =>
+    safely("release-dispatch-runs", () =>
       fetchWorkflowRuns(
         client,
-        workflows.releaseDispatchAndDeploy,
+        workflows.releaseDispatch,
         queryStart,
         policy.collection.maxPages,
         policy.windows.lastN,
       ),
+    ),
+    safely("platform-deploy-runs", () =>
+      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
     ),
     safely("ephemeral-verification-runs", () =>
       fetchWorkflowRuns(
@@ -178,6 +181,7 @@ async function collectSourceData({ options, policy, client, queryStart }) {
   return {
     pulls,
     platformPrRuns: platformPrRuns.map((run) => ({ ...run, jobs: jobsByRun.get(String(run.id)) ?? [] })),
+    dispatchRuns,
     deployRuns: deployRuns.map((run) => ({
       ...run,
       jobs: jobsByRun.get(String(run.id)) ?? [],
@@ -209,7 +213,8 @@ export function buildDeliveryHealth(input) {
       bounds: { start: windows.rolling7d.start, end: generatedAt },
       sourceRunIds: {
         platformPr: normalized.platformPrRuns.map((run) => run.id),
-        releaseDispatchAndDeploy: normalized.deployRuns.map((run) => run.id),
+        releaseDispatch: normalized.dispatchRuns.map((run) => run.id),
+        platformDeploy: normalized.deployRuns.map((run) => run.id),
         ephemeralVerification: normalized.ephemeralRuns.map((run) => run.id),
       },
     },
@@ -280,10 +285,14 @@ function pickRate(metric) {
 }
 
 function normalizeSource(source = {}) {
+  const combinedDeployRuns = Array.isArray(source.deployRuns) ? source.deployRuns : [];
   return {
     pulls: Array.isArray(source.pulls) ? source.pulls : [],
     platformPrRuns: Array.isArray(source.platformPrRuns) ? source.platformPrRuns : [],
-    deployRuns: Array.isArray(source.deployRuns) ? source.deployRuns : [],
+    dispatchRuns: Array.isArray(source.dispatchRuns)
+      ? source.dispatchRuns
+      : combinedDeployRuns.filter((run) => run.event === "push"),
+    deployRuns: combinedDeployRuns.filter((run) => run.event !== "push"),
     ephemeralRuns: Array.isArray(source.ephemeralRuns) ? source.ephemeralRuns : [],
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
@@ -311,13 +320,14 @@ function buildWindows(end, policy) {
 function summarizeWindow(source, window, policy) {
   const pulls = selectByWindow(source.pulls, window, (pull) => pull.updatedAt ?? pull.createdAt);
   const platformRuns = selectByWindow(source.platformPrRuns, window, runTimestamp);
+  const dispatchRuns = selectByWindow(source.dispatchRuns, window, runTimestamp);
   const deployRuns = selectByWindow(source.deployRuns, window, runTimestamp);
   const ephemeralRuns = selectByWindow(source.ephemeralRuns, window, runTimestamp);
   const circuits = selectByWindow(source.circuits, window, circuitTimestamp);
   const lastNSeries = [
     platformRuns.filter((run) => run.event === "pull_request"),
     platformRuns.filter((run) => run.event === "merge_group"),
-    deployRuns.filter((run) => run.event === "push"),
+    dispatchRuns,
     deployRuns.filter((run) => run.event === "workflow_dispatch"),
     ephemeralRuns,
   ].map((values) => selectMetricSeries(values, window, runTimestamp));
@@ -337,7 +347,7 @@ function summarizeWindow(source, window, policy) {
   return {
     bounds,
     prs,
-    releases: summarizeReleases(deployRuns, ephemeralRuns, window),
+    releases: summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window),
     failureSignatures,
   };
 }
@@ -422,12 +432,8 @@ function summarizeRuns(runs) {
   };
 }
 
-function summarizeReleases(deployRuns, ephemeralRuns, window) {
-  const dispatchRuns = selectMetricSeries(
-    deployRuns.filter((run) => run.event === "push"),
-    window,
-    runTimestamp,
-  );
+function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
+  dispatchRuns = selectMetricSeries(dispatchRuns, window, runTimestamp);
   const actualRuns = selectMetricSeries(
     deployRuns.filter((run) => run.event === "workflow_dispatch" && isActualReleaseRun(run)),
     window,
