@@ -1385,7 +1385,7 @@ export function createStripePaymentProcessorGateway(
             mode: "setup",
             customer: input.providerCustomerReference,
             currency: input.currencyCode,
-            ui_mode: "hosted",
+            ui_mode: "hosted_page",
             success_url: setupReturnUrl,
             cancel_url: setupReturnUrl,
             client_reference_id: input.accountId,

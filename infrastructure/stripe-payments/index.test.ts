@@ -468,7 +468,7 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
-  it("creates Stripe customers and hosted setup sessions for saved payment methods", async () => {
+  it("creates Stripe customers and hosted_page setup sessions for saved payment methods", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -521,9 +521,10 @@ describe("Stripe payment processor gateway", () => {
     });
     const [setupUrl, setupInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(setupUrl).toBe("https://stripe.test/v1/checkout/sessions");
+    expect((setupInit.headers as Headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
     expect(formSnapshot(setupInit.body)).toMatchObject({
       mode: "setup",
-      ui_mode: "hosted",
+      ui_mode: "hosted_page",
       customer: "cus_123",
       success_url: "https://marketplace.test/account/payment-methods?setupReferenceId=scs_1",
       "metadata[saved_payment_consent_id]": "consent_1",
