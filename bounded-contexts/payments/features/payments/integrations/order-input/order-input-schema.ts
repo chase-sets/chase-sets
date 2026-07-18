@@ -146,4 +146,12 @@ export const paymentsOrderInputSchemaMigrations = [
     description: "Carry Ordering's immutable buyer destination snapshot into the payment entry read model.",
     statements: [`ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NULL`],
   },
+  {
+    migrationId: "20260718_payments_order_inputs_authenticity_fee_amount",
+    description: "Converge existing payment order-input mirrors on the frozen authenticity fee amount.",
+    statements: [
+      `ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+    ],
+  },
 ] as const;

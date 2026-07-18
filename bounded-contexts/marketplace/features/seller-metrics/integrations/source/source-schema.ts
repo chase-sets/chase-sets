@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 // Self-contained source mirrors for the seller-behavioral-metrics slice
 // (m108 reputation). These tables are structurally similar to
 // `marketplace_review_*_sources` (../../../reviews/integrations/source) --
@@ -56,3 +58,13 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_metrics_support_request_sources (
 CREATE INDEX IF NOT EXISTS marketplace_seller_metrics_support_request_sources_seller_idx
   ON marketplace_seller_metrics_support_request_sources (seller_account_id, resolved_at DESC, support_request_id DESC);
 `;
+
+export const marketplaceSellerMetricsSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260718_marketplace_seller_metrics_support_responsibility",
+    description: "Converge existing seller-metrics support sources on canonical responsibility facts.",
+    statements: [
+      "ALTER TABLE marketplace_seller_metrics_support_request_sources ADD COLUMN IF NOT EXISTS responsibility text NULL",
+    ],
+  },
+];

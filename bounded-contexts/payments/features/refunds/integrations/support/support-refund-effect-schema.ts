@@ -49,6 +49,17 @@ CREATE INDEX IF NOT EXISTS payments_support_refund_effects_status_idx
 
 export const paymentsSupportRefundEffectSchemaMigrations = [
   {
+    migrationId: "20260718_payments_support_refund_effect_return_columns",
+    description: "Converge existing support refund effects on return-gate and seller-deduction inputs.",
+    statements: [
+      `ALTER TABLE payments_support_refund_effects
+  ADD COLUMN IF NOT EXISTS return_delivered_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS refund_release_due_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS return_condition_disputed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS return_shipping_deduction_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
     migrationId: "20260716_payments_support_refund_effect_attempts",
     description: "Track support refund effect retry attempts for bounded automatic retries",
     statements: [
