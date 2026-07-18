@@ -19,16 +19,16 @@ Use the stable IDs below in PR #1028, #1020, #1023, #1025, and milestone comment
 
 | ID | Section | Route | Actor | Required Evidence |
 | --- | --- | --- | --- | --- |
-| SMOKE-SHELL-ACCESS | Access | `/access` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
-| SMOKE-SHELL-CATALOG | Catalog | `/catalog` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
-| SMOKE-SHELL-COMMERCE | Commerce | `/commerce` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
-| SMOKE-SHELL-GROWTH | Growth | `/growth` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
-| SMOKE-SHELL-SUPPORT | Support | `/support` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
-| SMOKE-SHELL-PLATFORM | Platform | `/platform` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
+| SMOKE-SHELL-ACCESS | Access | `/access` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
+| SMOKE-SHELL-CATALOG | Catalog | `/catalog` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
+| SMOKE-SHELL-COMMERCE | Commerce | `/commerce` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
+| SMOKE-SHELL-GROWTH | Growth | `/growth` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
+| SMOKE-SHELL-SUPPORT | Support | `/support` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
+| SMOKE-SHELL-PLATFORM | Platform | `/platform` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |
 
 ## Deployed Page Rows
 
-These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` are configured. The smoke checks assert HTML, shared section navigation, account menu access, page-specific text, and absence of `Verified`.
+These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` are configured. The smoke checks assert HTML, shared section navigation, account menu access, page-specific text, and absence of the retired admin-shell SellerBadge `Verified` chip. Other page data and ratified copy may legitimately contain `Verified`.
 
 | ID | Route | Linked Coverage |
 | --- | --- | --- |
