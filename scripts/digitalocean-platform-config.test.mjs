@@ -3354,6 +3354,18 @@ describe("DigitalOcean platform configuration", () => {
     expect(replacementGateStep).toContain("the previous ${retained_previous_ttl}s TTL has not expired");
     expect(replacementGateStep).toContain("terraform output -json production_serving_dns_ttl_preparation");
     expect(replacementGateStep).toContain("PRODUCTION_SERVING_DNS_REPLACEMENT_FROM");
+    expect(replacementGateStep).toContain('completed_phase="prepare-app-platform"');
+    expect(replacementGateStep).toContain('completed_phase="prepare-doks"');
+    expect(replacementGateStep).toContain('[ "$PRODUCTION_SERVING_DNS_PHASE" = "$completed_phase" ]');
+    expect(replacementGateStep).toContain("write_steady_environment");
+    expect(replacementGateStep).toContain("PRODUCTION_SERVING_DNS_EXPECT_INERT=true");
+    expect(replacementGateStep).toContain("completing it as steady with no record-type replacement");
+    const deployPlanStep = workflowSteps(platformProductionWorkflow, "Terraform plan").at(-1);
+    expect(deployPlanStep).toContain('elif [ "${PRODUCTION_SERVING_DNS_EXPECT_INERT:-false}" = "true" ]');
+    expect(deployPlanStep).toContain("assert-serving-mode-steady");
+    expect(deployPlanStep).toContain("assert-serving-mode-replacement");
+    expect(deployPlanStep).toContain('--from="$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM"');
+    expect(deployPlanStep).toContain('--to="$PRODUCTION_APP_SERVING"');
     expect(restoreParkingStep).toContain("production_app_platform_parking_preparation");
     expect(restoreParkingStep).toContain("TF_VAR_production_app_platform_parking_prepared_at");
     expect(parkingGateStep).toContain("parking-preparation-state-missing");

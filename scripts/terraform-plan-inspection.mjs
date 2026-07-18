@@ -357,6 +357,50 @@ export function assertProductionServingModeReplacement(plan, options) {
   return destroyedAddresses;
 }
 
+export function assertProductionServingModeSteady(plan, options) {
+  const serving = options?.serving;
+  if (!new Set(["app-platform", "doks"]).has(serving)) {
+    throw new Error("Production steady serving-mode inspection requires app-platform or doks serving.");
+  }
+
+  const servingRecordAddresses = new Set([...PRODUCTION_SERVING_RECORD_ADDRESSES, "digitalocean_record.doks_apex[0]"]);
+  if (options?.includeMarketplace) {
+    servingRecordAddresses.add('digitalocean_record.app_serving["marketplace"]');
+  }
+
+  const topologyChanges = (plan.resource_changes ?? [])
+    .filter((resourceChange) => {
+      const actions = resourceChange.change?.actions ?? [];
+      const changesResource = actions.some((action) => !["no-op", "read"].includes(action));
+      return (
+        changesResource &&
+        (servingRecordAddresses.has(resourceChange.address) ||
+          resourceChange.address?.startsWith("digitalocean_app.platform.domain["))
+      );
+    })
+    .map((resourceChange) => resourceChange.address);
+
+  const platformChange = (plan.resource_changes ?? []).find(
+    (candidate) => candidate.type === "digitalocean_app" && candidate.name === "platform",
+  );
+  const platformActions = platformChange?.change?.actions ?? [];
+  if (
+    platformActions.some((action) => !["no-op", "read"].includes(action)) &&
+    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.before))) !==
+      JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.after)))
+  ) {
+    topologyChanges.push("digitalocean_app.platform domains");
+  }
+
+  if (topologyChanges.length > 0) {
+    throw new Error(
+      `Production ${serving} steady plan must be serving-topology-inert; observed changes to ${topologyChanges.join(", ")}.`,
+    );
+  }
+
+  return [];
+}
+
 function durableDatabaseDestructiveResource(change) {
   const names = DURABLE_DATABASE_DESTRUCTIVE_RESOURCE_NAMES.get(change.type);
   const baseName = change.name.split("[")[0];
@@ -581,6 +625,22 @@ async function main(argv) {
     return;
   }
 
+  if (command === "assert-serving-mode-steady") {
+    const [tfplanJsonPath, ...options] = args;
+    const serving = readStringOption(options, "--serving");
+    if (!tfplanJsonPath || !serving) {
+      throw new Error(
+        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-serving-mode-steady <tfplan-json> --serving=<app-platform|doks>",
+      );
+    }
+
+    assertProductionServingModeSteady(JSON.parse(readFileSync(tfplanJsonPath, "utf8")), {
+      serving,
+      includeMarketplace: readStringOption(options, "--include-marketplace", "false") === "true",
+    });
+    return;
+  }
+
   if (command === "postgres-cluster-id") {
     const [tfplanPath] = args;
     if (!tfplanPath) {
@@ -597,7 +657,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|list-destructive-changes|postgres-cluster-id|summarize-plan>",
+    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|assert-serving-mode-steady|list-destructive-changes|postgres-cluster-id|summarize-plan>",
   );
 }
 

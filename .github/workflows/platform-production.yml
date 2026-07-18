@@ -3074,11 +3074,20 @@ jobs:
               printf 'PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=%s\n' "$replacement_from"
             } >> "$GITHUB_ENV"
           }
+          write_steady_environment() {
+            write_preparation_environment "" 0 ""
+            {
+              printf 'PRODUCTION_SERVING_DNS_PHASE=steady\n'
+              printf 'TF_VAR_production_serving_dns_phase=steady\n'
+            } >> "$GITHUB_ENV"
+          }
           target_type="CNAME"
           preparation_phase="prepare-doks"
+          completed_phase="prepare-app-platform"
           if [ "$PRODUCTION_APP_SERVING" = "doks" ]; then
             target_type="A"
             preparation_phase="prepare-app-platform"
+            completed_phase="prepare-doks"
           fi
 
           records_json="$(doctl compute domain records list "$zone" --output json)"
@@ -3133,8 +3142,15 @@ jobs:
 
           if [ "$current_type" = "$target_type" ]; then
             if [ "$PRODUCTION_SERVING_DNS_PHASE" = "steady" ]; then
-              write_preparation_environment "" 0 ""
+              write_steady_environment
               echo "Production serving DNS is steady; no record-type replacement is planned."
+              exit 0
+            fi
+
+            if [ "$PRODUCTION_SERVING_DNS_PHASE" = "$completed_phase" ]; then
+              write_steady_environment
+              printf 'PRODUCTION_SERVING_DNS_EXPECT_INERT=true\n' >> "$GITHUB_ENV"
+              echo "The ${completed_phase} transition already reached ${PRODUCTION_APP_SERVING}; completing it as steady with no record-type replacement."
               exit 0
             fi
 
@@ -3326,6 +3342,11 @@ jobs:
               artifacts/terraform-plans/production-tfplan.json \
               --from="$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM" \
               --to="$PRODUCTION_APP_SERVING" \
+              --include-marketplace="${TF_VAR_production_marketplace_public_enabled:-false}"
+          elif [ "${PRODUCTION_SERVING_DNS_EXPECT_INERT:-false}" = "true" ]; then
+            node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-steady \
+              artifacts/terraform-plans/production-tfplan.json \
+              --serving="$PRODUCTION_APP_SERVING" \
               --include-marketplace="${TF_VAR_production_marketplace_public_enabled:-false}"
           fi
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
