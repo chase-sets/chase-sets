@@ -1,4 +1,25 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+
+const catalogWorkbenchCommand = {
+  sync: "scope.sync",
+  import: "scope.import",
+  promote: "observation.promote",
+  reapply: "observation.reapply",
+} as const;
+
+const sourceScopeWorksetDataContract = readFileSync(
+  "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-source-scope-workset.ts",
+  "utf8",
+);
+const sourceScopeWorksetRenderContract = readFileSync(
+  "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx",
+  "utf8",
+);
+const catalogSyncScopeRenderContract = readFileSync(
+  "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+  "utf8",
+);
 
 const runStagingProviderUat = process.env.CATALOG_STAGING_PROVIDER_UAT === "true";
 const providerUatJourneyScope = process.env.CATALOG_STAGING_PROVIDER_UAT_SCOPE?.trim() || "one-piece-launch";
@@ -1222,6 +1243,26 @@ async function expectSettledScopeSyncFastForward(page: Page, journey: ProviderSy
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("uses the canonical commands rendered by the Catalog workbench", async ({ page }) => {
+    const unitKey = "scrydex:lorcana:single-card:source-observation-import";
+    await page.setContent(
+      `<form data-catalog-primary-workbench-command="scope.import" data-catalog-source-scope-unit="${unitKey}"><button>Sync scope</button></form>`,
+    );
+
+    await expect(sourceScopeSyncForms(page, unitKey)).toHaveCount(1);
+    expect(sourceScopeWorksetRenderContract).toContain("data-catalog-primary-workbench-command={action.key}");
+    expect(catalogSyncScopeRenderContract).toContain(
+      `data-catalog-primary-workbench-command="${catalogWorkbenchCommand.sync}"`,
+    );
+    for (const command of [
+      catalogWorkbenchCommand.import,
+      catalogWorkbenchCommand.promote,
+      catalogWorkbenchCommand.reapply,
+    ]) {
+      expect(sourceScopeWorksetDataContract).toContain(`"${command}"`);
+    }
+  });
+
   test("recognizes a no-promotable settled operator state", () => {
     expect(
       promotionPreviewHasNoPromotableBlocker(
@@ -1829,7 +1870,9 @@ async function startCatalogSyncForSelectedProviderUnit(
   progress?: TargetedTcgplayerPokemonProgress,
 ): Promise<CatalogSyncAttempt> {
   await expandWorkflowStage(page, "run-sync");
-  const commandForm = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]').first();
+  const commandForm = page
+    .locator(`form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.sync}"]`)
+    .first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
   const participationRow = catalogSyncParticipationRowForUnit(page, unitKey);
   await expect(participationRow).toBeVisible({ timeout: sourceOptionTimeoutMs });
@@ -2495,7 +2538,7 @@ async function promoteFirstEligibleObservationFromReview(
   });
 
   const previewForms = page.locator(
-    'form[data-catalog-primary-workbench-command="preview-promotion"]:not([data-catalog-source-scope-unit])',
+    `form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.promote}"]:not([data-catalog-source-scope-unit])`,
   );
   const preview = await clickFirstEnabledObservationCommand(previewForms, {
     requireSelectedObservationIds: true,
@@ -2526,7 +2569,7 @@ async function promoteSelectedScopeFromSharedImporter(
   const scopePreviewForms = sourceScopeCommandForms(
     page,
     lorcanaDownstreamCatalogItemsJourney.unitKey,
-    "preview-promotion",
+    catalogWorkbenchCommand.promote,
   ).filter({ has: page.getByRole("button", { name: /^Preview / }) });
   if (!(await clickFirstEnabledCommandForm(scopePreviewForms))) {
     return null;
@@ -2564,7 +2607,7 @@ async function reapplyPromotedObservationFromSharedImporter(
   const sourceScopeReapplyForms = sourceScopeCommandForms(
     page,
     lorcanaDownstreamCatalogItemsJourney.unitKey,
-    "start-reapply",
+    catalogWorkbenchCommand.reapply,
   ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
   if (await clickFirstEnabledCommandForm(sourceScopeReapplyForms)) {
     if (!(await expectCommandQueuedOrSettledNoPromotable(page, selectedScope))) {
@@ -2583,7 +2626,7 @@ async function reapplyPromotedObservationFromSharedImporter(
 
   await expandWorkflowStage(page, "review-changes");
   const rowReapplyForms = page.locator(
-    'form[data-catalog-primary-workbench-command="start-reapply"]:not([data-catalog-source-scope-unit])',
+    `form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.reapply}"]:not([data-catalog-source-scope-unit])`,
   );
   const reapplied = await clickFirstEnabledObservationCommand(rowReapplyForms, {
     requireSelectedObservationIds: true,
@@ -2803,7 +2846,7 @@ async function executePromotionFromFreshPreview(
   }
 
   const executeForm = page
-    .locator('form[data-catalog-primary-workbench-command="execute-promotion"]')
+    .locator(`form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.promote}"]`)
     .filter({ has: page.getByRole("button", { name: "Create or update Catalog Items" }) })
     .first();
   const executeButton = executeForm.getByRole("button", { name: "Create or update Catalog Items" });
@@ -2924,7 +2967,7 @@ function sourceScopeCommandForms(page: Page, unitKey: string, command: string): 
 }
 
 function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
-  return sourceScopeCommandForms(page, unitKey, "start-provider-import").filter({
+  return sourceScopeCommandForms(page, unitKey, catalogWorkbenchCommand.import).filter({
     has: page.getByRole("button", { name: /^Sync / }),
   });
 }
