@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
+
+const retryLocalProjectionBlockedStream = vi.hoisted(() => vi.fn(async () => ({ state: "already-resolved" as const })));
+
+vi.mock("@chase-sets/bounded-context-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/bounded-context-runtime")>()),
+  retryLocalProjectionBlockedStream,
+}));
 
 describe("reference data seed", () => {
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -392,6 +399,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
   }[] = [];
 
   const services = {
+    pool: {},
     db: {
       query: async <T>(sql: string, values: readonly unknown[]) => {
         if (sql.includes("FROM catalog_reference_types")) {
@@ -424,6 +432,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
       },
     },
     referenceData: {
+      projectors: [{ projectionName: "catalog-reference-data-projection" }],
       referenceTypeCommandHandler: async ({
         streamId,
         command,

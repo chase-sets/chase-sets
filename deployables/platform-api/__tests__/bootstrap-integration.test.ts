@@ -601,6 +601,29 @@ describe("platform api bootstrap", () => {
       ],
     );
 
+    await catalogServices.referenceData.referenceTypeCommandHandler({
+      streamId: expansionStreamId,
+      command: {
+        type: "ReviseReferenceType",
+        key: expansion.key,
+        name: expansion.name_i18n as never,
+        description: expansion.description_i18n as never,
+        attributeKeys: [
+          ...expansion.attribute_keys.filter((key) => key !== "printed-card-count"),
+          "operator-owned-expansion-attribute",
+          "deferred-operator-owned-attribute",
+        ],
+      },
+      context: {
+        tenantId: "tnt_bootstrap-deferred-operator" as never,
+        audit: {
+          performedByUserId: "usr_bootstrap-deferred-operator" as never,
+          forAccountId: "acc_bootstrap-deferred-operator" as never,
+        },
+      },
+    });
+    await drainLocalProjectionHandlerSets("catalog", pools.catalog, catalogServices.referenceData.projectors);
+
     await pools.catalog.query(
       `UPDATE catalog_display_templates
        SET required_field_keys = $2::jsonb
@@ -671,6 +694,9 @@ describe("platform api bootstrap", () => {
       expect(referenceType.attribute_keys).toContain("printed-card-count");
       expect(referenceType.attribute_keys).toContain(`operator-owned-${referenceType.key}-attribute`);
     }
+    expect(reconciledReferenceTypes.rows.find((row) => row.key === "expansion")?.attribute_keys).toContain(
+      "deferred-operator-owned-attribute",
+    );
     expect(recoveredProjectionFailure.rows[0]?.state).toBe("resolved");
     expect(recoveredBlockedStream.rows[0]?.state).toBe("resolved");
     expect(activeTemplate.rows[0]).toEqual({
