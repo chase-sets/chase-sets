@@ -308,10 +308,7 @@ export function getApiHostSeedOrder(
 }
 
 function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
-  return (
-    options.enabledDataProfiles.includes("scenario-seed") ||
-    options.enabledDataProfiles.includes("catalog-integration-bootstrap")
-  );
+  return options.enabledDataProfiles.includes("scenario-seed");
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {

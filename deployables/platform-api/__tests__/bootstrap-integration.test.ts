@@ -426,6 +426,9 @@ describe("platform api bootstrap", () => {
        FROM event_store_events
        WHERE event_type = 'catalog.blueprint.created'`,
     );
+    const activeCatalogDisplayTemplates = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_display_templates WHERE status = 'active'",
+    );
     const publishedMarketplaceSalesFeeScheduleEvents = await pools["commercial-terms"].query<
       Readonly<{ count: string }>
     >(
@@ -450,6 +453,7 @@ describe("platform api bootstrap", () => {
     expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogItems.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogBlueprintEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(activeCatalogDisplayTemplates.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(publishedMarketplaceSalesFeeScheduleEvents.rows[0]?.count ?? 0)).toBe(1);
     expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);

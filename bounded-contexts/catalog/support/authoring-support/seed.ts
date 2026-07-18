@@ -1,4 +1,5 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import { createProjectionAwarePool, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices, type CatalogServices } from "./services";
 import {
@@ -41,8 +42,12 @@ import { seedCatalogProviderIntegrationProfileVersions } from "../../features/so
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
-export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
-  const services = createCatalogServices(pool);
+export async function seedCatalogDatabase(
+  pool: PgTransactionalPool,
+  providedServices?: CatalogServices,
+  options?: BcSeedOptions,
+) {
+  const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
   const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentativeProductContents = profileEnabled(options, "representative-commerce-state");
@@ -55,7 +60,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("Starting Catalog integration profile seed...\n");
 
   const authoring = shouldSeedIntegrationProfile
-    ? await seedCatalogIntegrationProfile(pool)
+    ? await seedCatalogIntegrationProfile(pool, services)
     : staticCatalogIntegrationIds();
 
   if (shouldSeedScenarioData) {
@@ -75,13 +80,19 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("\nCatalog seed reconciliation complete!");
 }
 
-async function seedCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<CatalogIntegrationIds> {
+async function seedCatalogIntegrationProfile(
+  pool: PgTransactionalPool,
+  services: CatalogServices,
+): Promise<CatalogIntegrationIds> {
   await seedCatalogProviderIntegrationProfileVersions(pool);
-  return seedTcgdexCatalogIntegrationProfile(pool);
+  return seedTcgdexCatalogIntegrationProfile(pool, services);
 }
 
-export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<CatalogIntegrationIds> {
-  const services = createCatalogServices(pool);
+export async function seedTcgdexCatalogIntegrationProfile(
+  pool: PgTransactionalPool,
+  providedServices?: CatalogServices,
+): Promise<CatalogIntegrationIds> {
+  const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
 
   if (await tableHasRows(services.db, "catalog_dimensions")) {
     console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
@@ -99,6 +110,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     await seedMagicCategories(services);
     await seedOnePieceCategories(services);
     await seedLorcanaCategories(services);
+    await syncDisplayTemplateAuthoringDependencies(pool, services);
     await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
     await seedProductContentConfiguration(services);
     return {
@@ -115,6 +127,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
+  await syncDisplayTemplateAuthoringDependencies(pool, services);
   await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
   await seedProductContentConfiguration(services);
 
@@ -128,10 +141,22 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
   };
 }
 
+async function syncDisplayTemplateAuthoringDependencies(
+  pool: PgTransactionalPool,
+  services: CatalogServices,
+): Promise<void> {
+  // Reference Types and Reference Records share one checkpointed projector, so the
+  // combined reference-data set is the narrow safe unit for making type status visible.
+  await drainLocalProjectionHandlerSets("catalog", pool, [
+    ...services.fields.projectors,
+    ...services.referenceData.projectors,
+  ]);
+}
+
 /**
  * Template publication validates against active Field and Reference Type read models.
- * Seed commands append those authoring facts first; bootstrap drains their projections
- * before this reconciliation pass publishes templates.
+ * Seed commands append those authoring facts first; the Catalog seed drains only their
+ * Catalog-owned projections before this reconciliation pass publishes templates.
  */
 async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
   services: CatalogServices,
