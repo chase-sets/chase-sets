@@ -1418,6 +1418,24 @@ export async function drainSubscriptionRunners(
   } while (processed > 0);
 }
 
+export async function drainLocalProjectionHandlerSets(
+  contextName: string,
+  pool: PgTransactionalPool,
+  projectionHandlerSets: readonly BcProjectionHandlerSet[],
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const runners = projectionHandlerSets.map((projectionHandlerSet, index) =>
+    createSubscriptionRunner(
+      contextName,
+      pool,
+      pool,
+      createLocalProjectionSubscription(contextName, projectionHandlerSet, index),
+    ),
+  );
+
+  await drainSubscriptionRunners(runners, context);
+}
+
 export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,

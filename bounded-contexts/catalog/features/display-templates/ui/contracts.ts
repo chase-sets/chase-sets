@@ -33,5 +33,4 @@ export interface DisplayTemplateInput {
   priority: number;
   titleTemplate: string;
   subtitleTemplate: string | null;
-  requiredFieldKeys: string[];
 }

@@ -84,7 +84,6 @@ describe("seedDisplayTemplates", () => {
           target: { kind: "blueprint", id: catalogSeedIds.blueprints.onePieceCardPrint },
           titleTemplate: "{field.card-name} {field.card-number}",
           subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
-          requiredFieldKeys: ["card-name", "card-number", "set"],
         }),
       }),
     );
@@ -110,7 +109,6 @@ describe("seedDisplayTemplates", () => {
           target: { kind: "blueprint", id: catalogSeedIds.blueprints.lorcanaCardPrint },
           titleTemplate: "{field.card-name} {field.card-number}",
           subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
-          requiredFieldKeys: ["card-name", "card-number", "set"],
         }),
       }),
     );
@@ -188,7 +186,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
       subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
-      required_field_keys: ["card-name", "card-number", "expansion"],
+      required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
       status: "active",
     },
     {
@@ -199,7 +197,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 100,
       title_template: "{field.card-name} {field.card-number}",
       subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
-      required_field_keys: ["card-name", "card-number", "expansion"],
+      required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
       status: "active",
     },
     {
@@ -210,7 +208,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{item.title}",
       subtitle_template: "{reference.expansion.name} sealed product",
-      required_field_keys: [],
+      required_field_keys: ["expansion"],
       status: "active",
     },
     {
@@ -221,7 +219,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{field.card-name} {field.card-number}",
       subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
-      required_field_keys: ["card-name", "card-number", "set"],
+      required_field_keys: ["card-name", "card-number", "rarity", "set"],
       status: "active",
     },
     {
@@ -232,7 +230,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{item.title}",
       subtitle_template: "{reference.set.name} sealed product",
-      required_field_keys: [],
+      required_field_keys: ["set"],
       status: "active",
     },
     {
@@ -243,7 +241,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{field.card-name} {field.card-number}",
       subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
-      required_field_keys: ["card-name", "card-number", "set"],
+      required_field_keys: ["card-name", "card-number", "rarity", "set"],
       status: "active",
     },
     {
@@ -254,7 +252,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{item.title}",
       subtitle_template: "{reference.set.name} sealed product",
-      required_field_keys: [],
+      required_field_keys: ["set"],
       status: "active",
     },
     {
@@ -265,7 +263,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       priority: 10,
       title_template: "{field.card-name} {field.card-number}",
       subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
-      required_field_keys: ["card-name", "card-number", "set"],
+      required_field_keys: ["card-name", "card-number", "ink-color", "rarity", "set"],
       status: "active",
     },
     {

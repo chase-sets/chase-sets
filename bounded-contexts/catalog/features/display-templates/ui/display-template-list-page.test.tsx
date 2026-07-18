@@ -91,9 +91,6 @@ describe("DisplayTemplateListPage", () => {
     fireEvent.change(screen.getByLabelText("Subtitle Template"), {
       target: { value: "{reference.expansion.name}" },
     });
-    fireEvent.change(screen.getByLabelText("Required Field Keys"), {
-      target: { value: "card-number, card-name, expansion" },
-    });
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
@@ -105,7 +102,6 @@ describe("DisplayTemplateListPage", () => {
           priority: 25,
           titleTemplate: "{field.card-name} {field.card-number}",
           subtitleTemplate: "{reference.expansion.name}",
-          requiredFieldKeys: ["card-name", "card-number", "expansion"],
         }),
       );
       expect(revalidate).toHaveBeenCalled();

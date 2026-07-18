@@ -14,6 +14,7 @@ import {
 } from "../domain/domain";
 import { buildDisplayTemplateProjectionHandlers } from "../read-model/projection";
 import { getDisplayTemplateDetail, listDisplayTemplates } from "../read-model/queries";
+import { validatePublishedDisplayTemplate } from "./validation";
 
 export type DisplayTemplateServices = Readonly<{
   commandHandler: CommandHandler<DisplayTemplateCommand, DisplayTemplateState, DisplayTemplateEvent>;
@@ -25,13 +26,27 @@ export type DisplayTemplateServices = Readonly<{
 }>;
 
 export function createDisplayTemplateRuntime(deps: CatalogRuntimeDeps): DisplayTemplateServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler: aggregateCommandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<DisplayTemplateEvent>(),
     initialState: () => initialDisplayTemplateState,
     evolve: evolveDisplayTemplate,
     decide: decideDisplayTemplate,
   });
+
+  const commandHandler: DisplayTemplateServices["commandHandler"] = async (input) => {
+    const loaded = await repository.load(input.streamId);
+    if (input.command.type === "PublishDisplayTemplate") {
+      await validatePublishedDisplayTemplate(deps.db, loaded.state);
+    } else if (input.command.type === "ReviseDisplayTemplate" && loaded.state.status === "active") {
+      await validatePublishedDisplayTemplate(deps.db, {
+        ...loaded.state,
+        ...input.command,
+        description: input.command.description ?? loaded.state.description,
+      });
+    }
+    return aggregateCommandHandler(input);
+  };
 
   return {
     commandHandler,

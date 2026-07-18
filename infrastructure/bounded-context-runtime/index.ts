@@ -39,6 +39,7 @@ export {
   compactRuntimeSubscriptionLedgers,
   createSubscriptionRunner,
   drainContextProcesses,
+  drainLocalProjectionHandlerSets,
   drainContextRuntime,
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,

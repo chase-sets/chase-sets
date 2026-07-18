@@ -216,6 +216,9 @@ describe("platform api bootstrap", () => {
     const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_items",
     );
+    const seededPublishedDisplayTemplates = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_display_templates WHERE status = 'active'",
+    );
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
@@ -257,6 +260,7 @@ describe("platform api bootstrap", () => {
     });
     expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
     expect(Number(seededCatalogItems.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(seededPublishedDisplayTemplates.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(orderingOrderCreatedEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
@@ -422,6 +426,9 @@ describe("platform api bootstrap", () => {
        FROM event_store_events
        WHERE event_type = 'catalog.blueprint.created'`,
     );
+    const activeCatalogDisplayTemplates = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_display_templates WHERE status = 'active'",
+    );
     const publishedMarketplaceSalesFeeScheduleEvents = await pools["commercial-terms"].query<
       Readonly<{ count: string }>
     >(
@@ -446,6 +453,7 @@ describe("platform api bootstrap", () => {
     expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogItems.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogBlueprintEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(activeCatalogDisplayTemplates.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(publishedMarketplaceSalesFeeScheduleEvents.rows[0]?.count ?? 0)).toBe(1);
     expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);

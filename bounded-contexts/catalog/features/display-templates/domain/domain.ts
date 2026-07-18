@@ -61,13 +61,13 @@ export type CreateDisplayTemplateCommand = Readonly<{
   displayTemplateId: DisplayTemplateId;
 }> &
   Omit<DisplayTemplateConfiguration, "description" | "requiredFieldKeys"> &
-  Partial<Pick<DisplayTemplateConfiguration, "description" | "requiredFieldKeys">>;
+  Partial<Pick<DisplayTemplateConfiguration, "description">>;
 
 export type ReviseDisplayTemplateCommand = Readonly<{
   type: "ReviseDisplayTemplate";
 }> &
   Omit<DisplayTemplateConfiguration, "description" | "requiredFieldKeys"> &
-  Partial<Pick<DisplayTemplateConfiguration, "description" | "requiredFieldKeys">>;
+  Partial<Pick<DisplayTemplateConfiguration, "description">>;
 
 export type PublishDisplayTemplateCommand = Readonly<{ type: "PublishDisplayTemplate" }>;
 export type DeprecateDisplayTemplateCommand = Readonly<{ type: "DeprecateDisplayTemplate" }>;
@@ -124,7 +124,6 @@ export const decideDisplayTemplate: AggregateDecider<
           data: normalizeConfiguration({
             ...command,
             description: command.description ?? state.description,
-            requiredFieldKeys: command.requiredFieldKeys ?? state.requiredFieldKeys,
           }),
         },
       ];
@@ -203,8 +202,38 @@ function normalizeConfiguration(
     priority: Number.isFinite(command.priority) ? Math.trunc(command.priority) : 0,
     titleTemplate,
     subtitleTemplate: command.subtitleTemplate?.trim() || null,
-    requiredFieldKeys: toSortedUniqueList((command.requiredFieldKeys ?? []).map(normalizeKey)),
+    requiredFieldKeys: deriveRequiredFieldKeys(titleTemplate, command.subtitleTemplate?.trim() || null),
   };
+}
+
+/** Required fields are derived from non-optional field and reference tokens. */
+export function deriveRequiredFieldKeys(titleTemplate: string, subtitleTemplate: string | null): readonly string[] {
+  return toSortedUniqueList(
+    [titleTemplate, subtitleTemplate ?? ""].flatMap((template) =>
+      displayTemplateTokens(removeOptionalSegments(template)).flatMap((token) => {
+        const [kind, key] = token.split(".");
+        return (kind === "field" || kind === "reference") && key ? [normalizeKey(key)] : [];
+      }),
+    ),
+  );
+}
+
+export function displayTemplateTokens(template: string): readonly string[] {
+  return [...template.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1].trim()).filter(Boolean);
+}
+
+export function titleHasNonOptionalContent(titleTemplate: string): boolean {
+  return removeOptionalSegments(titleTemplate).trim().length > 0;
+}
+
+function removeOptionalSegments(template: string): string {
+  let result = template;
+  let previous: string | undefined;
+  while (result !== previous) {
+    previous = result;
+    result = result.replace(/\[[^\[\]]*\]/g, "");
+  }
+  return result;
 }
 
 function normalizeTarget(target: DisplayTemplateTarget): DisplayTemplateTarget {

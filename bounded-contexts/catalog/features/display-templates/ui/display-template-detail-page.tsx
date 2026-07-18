@@ -10,7 +10,6 @@ import {
   localizedTextMapFromEnglish,
   parseRequiredFieldKeys,
   publishDisplayTemplate,
-  requiredFieldKeysFromInput,
   reviseDisplayTemplate,
   useDisplayTemplate,
 } from "./use-display-templates";
@@ -89,7 +88,6 @@ export function DisplayTemplateDetailPage({
   const [priority, setPriority] = useState("0");
   const [titleTemplate, setTitleTemplate] = useState("");
   const [subtitleTemplate, setSubtitleTemplate] = useState("");
-  const [requiredFieldKeys, setRequiredFieldKeys] = useState("");
 
   async function handleLifecycleAction(action: string) {
     const actions: Record<string, () => Promise<unknown>> = {
@@ -120,7 +118,6 @@ export function DisplayTemplateDetailPage({
     setPriority(String(data.priority));
     setTitleTemplate(data.title_template);
     setSubtitleTemplate(data.subtitle_template ?? "");
-    setRequiredFieldKeys(parseRequiredFieldKeys(data.required_field_keys).join(", "));
     setEditing(true);
   }
 
@@ -133,7 +130,6 @@ export function DisplayTemplateDetailPage({
       priority: Number.parseInt(priority, 10) || 0,
       titleTemplate,
       subtitleTemplate: subtitleTemplate.trim() || null,
-      requiredFieldKeys: requiredFieldKeysFromInput(requiredFieldKeys),
     });
     addToast(t("catalog.features.displayTemplates.ui.displayTemplateDetailPage.display.template.revised"), "success");
     setEditing(false);
@@ -267,14 +263,6 @@ export function DisplayTemplateDetailPage({
             value={subtitleTemplate}
             onChange={(event) => setSubtitleTemplate(event.target.value)}
             rows={3}
-          />
-          <TextInput
-            label={t("catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys")}
-            value={requiredFieldKeys}
-            onChange={(event) => setRequiredFieldKeys(event.target.value)}
-            placeholder={t(
-              "catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys.placeholder",
-            )}
           />
         </Stack>
       </Dialog>
