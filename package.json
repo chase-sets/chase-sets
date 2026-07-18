@@ -89,7 +89,7 @@
     "coverage:summary": "node ./scripts/coverage-summary.mjs",
     "build": "node ./scripts/run-workspaces.mjs build",
     "test:structure": "vitest run --testTimeout=120000 scripts/check-structure",
-    "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs scripts/platform-smoke-fetch.test.mjs scripts/platform-smoke-freshness.test.mjs scripts/platform-smoke-native-mcp.test.mjs",
+    "test:platform-smoke": "vitest run scripts/admin-shell-smoke-assertions.test.mjs scripts/platform-smoke-args.test.mjs scripts/platform-smoke-fetch.test.mjs scripts/platform-smoke-freshness.test.mjs scripts/platform-smoke-native-mcp.test.mjs",
     "test:no-legacy-forms": "vitest run scripts/check-no-legacy-forms.test.mjs",
     "test:design-system-legacy-inventory": "vitest run scripts/design-system-legacy-inventory.test.mjs",
     "test:design-system-legacy-evidence": "vitest run scripts/design-system-legacy-evidence.test.mjs",

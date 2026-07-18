@@ -9,6 +9,7 @@ import {
   selectAdminDeployedApiSmokeProbes,
   selectAdminDeployedPageSmokeRows,
 } from "./admin-shell-smoke-matrix.mjs";
+import { hasRetiredAdminVerifiedChip } from "./admin-shell-smoke-assertions.mjs";
 import {
   isNativeMcpPermissionBoundaryError,
   isNativeMcpPermissionBoundaryResult,
@@ -225,7 +226,7 @@ async function expectAdminHtmlPage({ adminOrigin, sessionToken, row }) {
   if (missing.length > 0) {
     throw new Error(`${row.id} ${row.path} did not include expected text: ${missing.join(", ")}.`);
   }
-  if (text.includes("Verified")) {
+  if (hasRetiredAdminVerifiedChip(text)) {
     throw new Error(`${row.id} ${row.path} rendered the retired Verified chip text.`);
   }
 }

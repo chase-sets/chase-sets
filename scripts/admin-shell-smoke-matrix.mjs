@@ -320,7 +320,12 @@ export const ADMIN_SHELL_SMOKE_MATRIX = [
     section,
     route: `/${section.toLowerCase()}`,
     actor: "all-admin-permissions",
-    assertions: ["shared top app bar", "account/sign-out access", "local navigation", "no Verified chip"],
+    assertions: [
+      "shared top app bar",
+      "account/sign-out access",
+      "local navigation",
+      "no retired SellerBadge Verified chip",
+    ],
     evidence: "browser or deployed Playwright smoke",
   })),
   ...ADMIN_PARTIAL_ACTORS.map((actor) => ({
