@@ -55,6 +55,10 @@ on:
         description: Required only when a backup/snapshot/export was created.
         required: false
         type: string
+      smoke_verification_reference:
+        description: Required for apply; durable reference to post-reset smoke verification evidence.
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -160,6 +164,7 @@ jobs:
           RESET_BACKUP_FIELD_2: ${{ inputs.backup_owner_or_rationale }}
           RESET_BACKUP_FIELD_3: ${{ inputs.backup_retention_or_target_data_set }}
           RESET_BACKUP_RESTORE_REFERENCE: ${{ inputs.backup_restore_verification_reference }}
+          RESET_SMOKE_VERIFICATION_REFERENCE: ${{ inputs.smoke_verification_reference }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/catalog-integration-reset
@@ -174,6 +179,7 @@ jobs:
               --approval-reference "$RESET_APPROVAL_REFERENCE"
               --operator "$RESET_OPERATOR"
               --backup-decision "$RESET_BACKUP_DECISION"
+              --smoke-verification-reference "$RESET_SMOKE_VERIFICATION_REFERENCE"
             )
             if [ "$RESET_BACKUP_DECISION" = "create-backup-snapshot-export" ]; then
               args+=(
