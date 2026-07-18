@@ -50,7 +50,6 @@
     "wake:mixed-version-drill": "node ./scripts/staging-mixed-version-wake-drill.mjs",
     "emergency-recovery:guide": "node ./scripts/emergency-recovery-guide.mjs",
     "rollback:readiness": "node ./scripts/rollback-readiness.mjs",
-    "rollback:staging-drill": "node ./scripts/digitalocean-staging-rollback-drill.mjs",
     "replay:projection": "node ./scripts/replay-projection.mjs",
     "stripe:listen": "node ./scripts/stripe-cli.mjs listen",
     "stripe:money-smoke": "node ./scripts/stripe-money-smoke-test.mjs",

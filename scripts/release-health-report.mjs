@@ -788,7 +788,7 @@ function capacityFollowUpIssues(input) {
   }
   if (input.imageGroupDecision === "open-image-group-split-investigation-issue") {
     issues.push({
-      title: "Investigate App Platform image group split",
+      title: "Investigate platform image group split",
       trigger: "Repeated release-health pressure signals crossed the image split investigation threshold.",
     });
   }

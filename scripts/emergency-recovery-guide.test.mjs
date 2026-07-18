@@ -27,6 +27,12 @@ describe("emergency recovery guide", () => {
       schemaVersion: EMERGENCY_RECOVERY_GUIDE_VERSION,
       mode: "rollback-readiness",
       lockBypassAllowed: false,
+      kubernetesRollback: {
+        platform: "doks",
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        timeout: "15m",
+      },
       result: "ready",
     });
   });
@@ -80,12 +86,36 @@ describe("emergency recovery guide", () => {
         EMERGENCY_RECOVERY_GUIDE_OUT: "artifacts/release-health/emergency-recovery-guide.json",
         EMERGENCY_RELEASE_REFERENCE: "INC-1",
         RECOVERY_TARGET_COMMIT: targetCommit,
+        CHASE_SETS_HELM_RELEASE: "release-from-env",
+        CHASE_SETS_KUBERNETES_NAMESPACE: "namespace-from-env",
+        CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: "20m",
       }),
     ).toMatchObject({
       outPath: "artifacts/release-health/emergency-recovery-guide.json",
       mode: "rollback",
       emergencyReference: "INC-1",
       targetCommit,
+      kubernetesRelease: "release-from-env",
+      kubernetesNamespace: "namespace-from-env",
+      kubernetesTimeout: "20m",
     });
+  });
+
+  it("records the exact DOKS rollback command for validated rollback mode", () => {
+    const result = buildEmergencyRecoveryGuide({
+      mode: "rollback",
+      emergencyReference: "INC-2026-06-01-001",
+      targetCommit,
+      releaseTag: "release-20260601120000-01234567",
+      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260601120000-01234567",
+      checkedAt: "2026-06-01T12:00:00.000Z",
+    });
+
+    expect(result.record.kubernetesRollback.commandText).toBe(
+      "pnpm run platform:kubernetes-deployment -- rollback --release chase-sets-platform --namespace chase-sets-platform --timeout 15m",
+    );
+    expect(result.record.nextActions).toEqual(
+      expect.arrayContaining([expect.stringContaining("Execute the source-owned DOKS rollback")]),
+    );
   });
 });

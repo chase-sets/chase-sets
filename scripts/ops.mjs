@@ -216,10 +216,6 @@ export const SUBCOMMANDS = {
     script: "rollback-readiness.mjs",
     description: "Rollback readiness gate record.",
   },
-  "rollback:staging-drill": {
-    script: "digitalocean-staging-rollback-drill.mjs",
-    description: "Run the staging-only App Platform rollback drill.",
-  },
   "wake:drills": {
     script: "staging-wake-drills.mjs",
     description: "Run staging wake recovery drills.",

@@ -5,6 +5,9 @@ import { isCommitSha, normalizeString, readEnv, readOption } from "./lib/cli-opt
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const EMERGENCY_RECOVERY_GUIDE_VERSION = "emergency-recovery-guide/v1";
+export const DEFAULT_EMERGENCY_KUBERNETES_RELEASE = "chase-sets-platform";
+export const DEFAULT_EMERGENCY_KUBERNETES_NAMESPACE = "chase-sets-platform";
+export const DEFAULT_EMERGENCY_KUBERNETES_TIMEOUT = "15m";
 
 const modes = new Set(["rollback-readiness", "rollback", "revert", "fix-forward"]);
 
@@ -17,6 +20,18 @@ export function parseEmergencyRecoveryGuideArgs(argv, env = process.env) {
     recoveryPullRequest: readOption(argv, "--recovery-pr") ?? readEnv("RECOVERY_PULL_REQUEST", env),
     releaseTag: readOption(argv, "--release-tag") ?? readEnv("ROLLBACK_RELEASE_TAG", env),
     imageRef: readOption(argv, "--image-ref") ?? readEnv("ROLLBACK_IMAGE_REF", env),
+    kubernetesRelease:
+      readOption(argv, "--kubernetes-release") ??
+      readEnv("CHASE_SETS_HELM_RELEASE", env) ??
+      DEFAULT_EMERGENCY_KUBERNETES_RELEASE,
+    kubernetesNamespace:
+      readOption(argv, "--kubernetes-namespace") ??
+      readEnv("CHASE_SETS_KUBERNETES_NAMESPACE", env) ??
+      DEFAULT_EMERGENCY_KUBERNETES_NAMESPACE,
+    kubernetesTimeout:
+      readOption(argv, "--kubernetes-timeout") ??
+      readEnv("CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT", env) ??
+      DEFAULT_EMERGENCY_KUBERNETES_TIMEOUT,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -51,8 +66,18 @@ export function buildEmergencyRecoveryGuide(input) {
   if (["revert", "fix-forward"].includes(mode) && !normalizeString(input.recoveryPullRequest)) {
     blockers.push("Revert and fix-forward recovery require a recovery pull request reference.");
   }
+  if (!normalizeString(input.kubernetesRelease ?? DEFAULT_EMERGENCY_KUBERNETES_RELEASE)) {
+    blockers.push("DOKS rollback release is required.");
+  }
+  if (!normalizeString(input.kubernetesNamespace ?? DEFAULT_EMERGENCY_KUBERNETES_NAMESPACE)) {
+    blockers.push("DOKS rollback namespace is required.");
+  }
+  if (!normalizeString(input.kubernetesTimeout ?? DEFAULT_EMERGENCY_KUBERNETES_TIMEOUT)) {
+    blockers.push("DOKS rollback timeout is required.");
+  }
 
   const lockBypassAllowed = ["rollback", "revert", "fix-forward"].includes(mode) && blockers.length === 0;
+  const kubernetesRollback = buildKubernetesRollback(input);
   const record = {
     schemaVersion: EMERGENCY_RECOVERY_GUIDE_VERSION,
     checkedAt: input.checkedAt,
@@ -63,7 +88,8 @@ export function buildEmergencyRecoveryGuide(input) {
     releaseTag: normalizeString(input.releaseTag),
     imageRef: normalizeString(input.imageRef),
     lockBypassAllowed,
-    nextActions: nextActions(mode, lockBypassAllowed),
+    kubernetesRollback,
+    nextActions: nextActions(mode, lockBypassAllowed, kubernetesRollback.commandText),
     productionDispatchInputs: lockBypassAllowed
       ? {
           emergency_release: true,
@@ -80,7 +106,34 @@ export function buildEmergencyRecoveryGuide(input) {
   };
 }
 
-function nextActions(mode, lockBypassAllowed) {
+function buildKubernetesRollback(input) {
+  const release = normalizeString(input.kubernetesRelease) ?? DEFAULT_EMERGENCY_KUBERNETES_RELEASE;
+  const namespace = normalizeString(input.kubernetesNamespace) ?? DEFAULT_EMERGENCY_KUBERNETES_NAMESPACE;
+  const timeout = normalizeString(input.kubernetesTimeout) ?? DEFAULT_EMERGENCY_KUBERNETES_TIMEOUT;
+  const command = [
+    "pnpm",
+    "run",
+    "platform:kubernetes-deployment",
+    "--",
+    "rollback",
+    "--release",
+    release,
+    "--namespace",
+    namespace,
+    "--timeout",
+    timeout,
+  ];
+  return {
+    platform: "doks",
+    release,
+    namespace,
+    timeout,
+    command,
+    commandText: command.join(" "),
+  };
+}
+
+function nextActions(mode, lockBypassAllowed, kubernetesRollbackCommand) {
   if (mode === "rollback-readiness") {
     return [
       "Run Platform Rollback Readiness for the target commit, release tag, and image reference.",
@@ -93,7 +146,8 @@ function nextActions(mode, lockBypassAllowed) {
   if (mode === "rollback") {
     return [
       "Attach rollback-readiness evidence to the incident or recovery thread.",
-      "Dispatch Platform Production with emergency_release=true and the emergency reference.",
+      `Execute the source-owned DOKS rollback from an approved production context: ${kubernetesRollbackCommand}`,
+      "Run production smoke and preserve the Helm revision, immutable image, and workflow evidence before moving the production marker.",
     ];
   }
   return [

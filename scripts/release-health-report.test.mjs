@@ -331,6 +331,41 @@ describe("release health report", () => {
     expect(result.markdown).toContain("| none | no follow-up issue trigger in current evidence |");
   });
 
+  it("uses platform-neutral language when image-split pressure crosses the investigation threshold", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-05-31T13:00:00.000Z",
+      records: [
+        record({
+          staging: {
+            startedAt: "2026-05-31T10:00:00.000Z",
+            completedAt: "2026-05-31T10:30:01.000Z",
+            result: "success",
+          },
+          production: {
+            startedAt: "2026-05-31T11:00:00.000Z",
+            completedAt: "2026-05-31T11:30:01.000Z",
+            result: "success",
+          },
+          recovery: {
+            mode: "rollback",
+            reference: "https://github.com/chase-sets/chase-sets/issues/4054",
+            targetCommit: "a".repeat(40),
+            rollbackReadinessResult: "success",
+          },
+        }),
+      ],
+      evidenceArtifacts: [{ record: buyNowFreshnessProbe() }],
+      capacityArtifacts: [{ record: capacityEvidence() }],
+    });
+
+    expect(result.summary.capacityReview.imageGroupDecision).toBe("open-image-group-split-investigation-issue");
+    expect(result.summary.capacityReview.followUpIssues).toContainEqual({
+      title: "Investigate platform image group split",
+      trigger: "Repeated release-health pressure signals crossed the image split investigation threshold.",
+    });
+    expect(result.markdown).not.toContain("App Platform image group split");
+  });
+
   it("summarizes projection freshness evidence with low-cardinality segment rows", () => {
     const result = buildReleaseHealthReport({
       checkedAt: "2026-05-31T13:00:00.000Z",
