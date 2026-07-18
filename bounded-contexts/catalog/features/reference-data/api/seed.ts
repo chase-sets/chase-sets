@@ -1,4 +1,5 @@
 import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
@@ -346,14 +347,16 @@ const lorcanaReferenceRecordIds = new Set<ReferenceRecordId>([
 ]);
 
 export async function seedReferenceData(services: CatalogServices): Promise<CatalogReferenceIds> {
-  console.log("Seeding reference data...");
+  console.log("Reconciling reference data...");
 
   for (const def of referenceTypes) {
-    await createReferenceType(services, def);
+    await reconcileReferenceType(services, def);
   }
 
   for (const def of referenceRecords) {
-    await createReferenceRecord(services, def);
+    if (!(await referenceRecordExists(services, def))) {
+      await createReferenceRecord(services, def);
+    }
   }
 
   await seedOnePieceReferenceAliases(services);
@@ -366,9 +369,7 @@ export async function seedMagicReferenceData(services: CatalogServices): Promise
   console.log("Reconciling Magic reference data...");
 
   for (const def of referenceTypes.filter((candidate) => magicReferenceTypeKeys.has(candidate.key))) {
-    if (!(await referenceTypeExists(services, def))) {
-      await createReferenceType(services, def);
-    }
+    await reconcileReferenceType(services, def);
   }
 
   for (const def of referenceRecords.filter((candidate) => magicReferenceRecordIds.has(candidate.referenceRecordId))) {
@@ -384,9 +385,7 @@ export async function seedOnePieceReferenceData(services: CatalogServices): Prom
   console.log("Reconciling One Piece reference data...");
 
   for (const def of referenceTypes.filter((candidate) => onePieceReferenceTypeKeys.has(candidate.key))) {
-    if (!(await referenceTypeExists(services, def))) {
-      await createReferenceType(services, def);
-    }
+    await reconcileReferenceType(services, def);
   }
 
   for (const def of referenceRecords.filter((candidate) =>
@@ -406,9 +405,7 @@ export async function seedLorcanaReferenceData(services: CatalogServices): Promi
   console.log("Reconciling Lorcana reference data...");
 
   for (const def of referenceTypes.filter((candidate) => lorcanaReferenceTypeKeys.has(candidate.key))) {
-    if (!(await referenceTypeExists(services, def))) {
-      await createReferenceType(services, def);
-    }
+    await reconcileReferenceType(services, def);
   }
 
   for (const def of referenceRecords.filter((candidate) =>
@@ -494,16 +491,24 @@ function staticReferenceIds(): CatalogReferenceIds {
   };
 }
 
-async function referenceTypeExists(services: CatalogServices, def: ReferenceTypeDef): Promise<boolean> {
-  const existing = await services.db.query<{ reference_type_id: string; key: string; status: string }>(
-    `SELECT reference_type_id, key, status
+async function reconcileReferenceType(services: CatalogServices, def: ReferenceTypeDef): Promise<void> {
+  const existing = await services.db.query<{
+    reference_type_id: string;
+    key: string;
+    name_i18n: LocalizedTextMap;
+    description_i18n: LocalizedTextMap;
+    attribute_keys: unknown;
+    status: string;
+  }>(
+    `SELECT reference_type_id, key, name_i18n, description_i18n, attribute_keys, status
      FROM catalog_reference_types
      WHERE reference_type_id = $1 OR key = $2`,
     [def.referenceTypeId, def.key],
   );
   const row = existing.rows.find((candidate) => candidate.reference_type_id === def.referenceTypeId);
   if (existing.rows.length === 0) {
-    return false;
+    await createReferenceType(services, def);
+    return;
   }
   if (!row || row.key !== def.key || existing.rows.length > 1) {
     throw new Error(`Catalog integration bootstrap reference type '${def.key}' conflicts with existing metadata.`);
@@ -511,7 +516,29 @@ async function referenceTypeExists(services: CatalogServices, def: ReferenceType
   if (row.status !== "active") {
     throw new Error(`Catalog integration bootstrap requires active reference type '${def.key}'.`);
   }
-  return true;
+
+  const existingAttributeKeys = asStrings(row.attribute_keys);
+  const missingAttributeKeys = def.attributeKeys.filter((key) => !existingAttributeKeys.includes(key));
+  if (missingAttributeKeys.length === 0) {
+    return;
+  }
+
+  await sendSeedCommand(
+    services.referenceData.referenceTypeCommandHandler,
+    `catalog.reference-type-${def.referenceTypeId}`,
+    {
+      type: "ReviseReferenceType",
+      key: row.key,
+      name: row.name_i18n,
+      description: row.description_i18n,
+      attributeKeys: [...new Set([...existingAttributeKeys, ...def.attributeKeys])].sort(),
+    },
+  );
+  console.log(`  Reference Type "${def.name}" reconciled with additive attributes`);
+}
+
+function asStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 async function referenceRecordExists(services: CatalogServices, def: ReferenceRecordDef): Promise<boolean> {
