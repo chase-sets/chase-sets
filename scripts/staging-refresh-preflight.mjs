@@ -252,6 +252,50 @@ export async function githubActiveRuns(options, run = execFile) {
   return [...new Map(pagesByStatus.flat().map((workflowRun) => [workflowRun.databaseId, workflowRun])).values()];
 }
 
+export async function resolveAuthenticatedGitHubActionsIdentity(options = {}, run = execFile) {
+  const { stdout: repositoryOutput } = await run("gh", [
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+  const repository = repositoryOutput.trim();
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) {
+    throw new Error("authenticated-github-repository-unavailable");
+  }
+
+  const runIdHint = String(options.runIdHint ?? "").trim();
+  if (!runIdHint) {
+    return { repository, currentRunId: null };
+  }
+  if (!/^\d+$/.test(runIdHint)) {
+    throw new Error("authenticated-github-run-invalid");
+  }
+
+  const { stdout: runOutput } = await run("gh", [
+    "api",
+    `repos/${repository}/actions/runs/${runIdHint}`,
+    "--jq",
+    "{databaseId: .id, repository: .repository.full_name, path, event, status} | @json",
+  ]);
+  const workflowRun = JSON.parse(runOutput.trim());
+  const expectedWorkflowFile = String(options.workflowFile ?? "").trim();
+  const actualWorkflowFile = String(workflowRun.path ?? "").split("@")[0];
+  if (
+    String(workflowRun.repository ?? "").toLocaleLowerCase("en-US") !== repository.toLocaleLowerCase("en-US") ||
+    String(workflowRun.databaseId ?? "") !== runIdHint ||
+    (expectedWorkflowFile && actualWorkflowFile !== expectedWorkflowFile) ||
+    workflowRun.event !== "workflow_dispatch" ||
+    workflowRun.status === "completed"
+  ) {
+    throw new Error("authenticated-github-run-identity-mismatch");
+  }
+
+  return { repository, currentRunId: String(workflowRun.databaseId) };
+}
+
 async function digitalOceanDeployedSecrets(options, run = execFile) {
   const commandOptions = { maxBuffer: 20 * 1024 * 1024 };
   const { stdout: listOutput } = await run("doctl", ["apps", "list", "--output", "json"], commandOptions);

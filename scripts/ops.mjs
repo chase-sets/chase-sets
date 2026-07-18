@@ -48,6 +48,10 @@ export const SUBCOMMANDS = {
     script: "catalog-provider-refresh-status.mjs",
     description: "Support-safe scheduled provider scope refresh health check for the catalog context.",
   },
+  "catalog:integration-reset": {
+    script: "run-catalog-integration-reset.mjs",
+    description: "Dry-run or apply the staging Catalog integration pre-launch wipe/rebuild policy.",
+  },
   "staging-refresh:preflight": {
     script: "staging-refresh-preflight.mjs",
     description: "Read-only credential, Scrydex credit, set-matrix, and overlap gate for a staging refresh.",

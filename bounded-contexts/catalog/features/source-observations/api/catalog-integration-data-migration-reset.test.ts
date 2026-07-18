@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
   catalogIntegrationDataBackfillDecisions,
   catalogIntegrationDataReleaseVerificationQueries,
   catalogIntegrationDataResetDeleteStatements,
@@ -63,9 +64,10 @@ describe("catalog integration data migration reset", () => {
 
     expect(catalogIntegrationDataResetDeleteStatements.at(-1)?.sql).toContain("authoring_audit_json IS NULL");
     expect(catalogIntegrationDataResetDeleteStatements.at(-1)?.sql).toContain("migration_evidence_json IS NULL");
-    expect(catalogIntegrationDataResetTargetTables()).toEqual(
-      catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName),
-    );
+    expect(catalogIntegrationDataResetTargetTables()).toEqual([
+      ...catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName),
+      CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+    ]);
     expect(catalogIntegrationDataResetTargetTables()).not.toContain("catalog_items");
     expect(catalogIntegrationDataResetTargetTables()).not.toContain("marketplace_listings");
   });
@@ -100,6 +102,8 @@ describe("catalog integration data migration reset", () => {
       referencedProfileVersions: 2,
       activeProviderProfiles: 1,
       sourceObservations: 12,
+      sourceObservationEventStreams: 12,
+      sourceObservationEvents: 24,
       legacySourceObservationReferences: 4,
       integrationDurableJobs: 5,
       activeIntegrationDurableJobs: 1,
@@ -119,6 +123,8 @@ describe("catalog integration data migration reset", () => {
       referencedProfileVersions: 2,
       activeProviderProfiles: 1,
       sourceObservations: 12,
+      sourceObservationEventStreams: 12,
+      sourceObservationEvents: 24,
       legacySourceObservationReferences: 4,
       integrationDurableJobs: 5,
       activeIntegrationDurableJobs: 1,
@@ -150,6 +156,8 @@ describe("catalog integration data migration reset", () => {
       providerProfileVersions: 4,
       adminAuthoredProfileVersions: 1,
       sourceObservations: 6,
+      sourceObservationEventStreams: 6,
+      sourceObservationEvents: 14,
       legacySourceObservationReferences: 6,
       integrationDurableJobs: 2,
       integrationWorkUnits: 5,
@@ -165,12 +173,16 @@ describe("catalog integration data migration reset", () => {
     expect(report.before).toMatchObject({
       providerProfileVersions: 4,
       sourceObservations: 6,
+      sourceObservationEventStreams: 6,
+      sourceObservationEvents: 14,
       integrationDurableJobs: 2,
     });
     expect(report.after).toMatchObject({
       providerProfileVersions: 1,
       adminAuthoredProfileVersions: 1,
       sourceObservations: 0,
+      sourceObservationEventStreams: 0,
+      sourceObservationEvents: 0,
       integrationDurableJobs: 0,
       integrationWorkUnits: 0,
       bulkReviewJobs: 0,
@@ -188,6 +200,32 @@ describe("catalog integration data migration reset", () => {
       rowsAffected: 1,
     });
     expect(seedCatalogProviderIntegrationProfileVersions).toHaveBeenCalledOnce();
+    expect(db.statements.findIndex((sql) => sql.startsWith("LOCK TABLE"))).toBeLessThan(
+      db.statements.findIndex((sql) => sql.includes("SELECT COUNT(*) AS count")),
+    );
+    expect(db.statements).toContain(
+      "LOCK TABLE catalog_source_observation_integration_durable_jobs, catalog_source_observation_bulk_review_jobs IN SHARE ROW EXCLUSIVE MODE",
+    );
+  });
+
+  it("fails the postcondition when Source Observation authority survives the projection wipe", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "local-dev-test",
+      generatedAt: "2026-07-18T20:00:00.000Z",
+      operator: "test-operator",
+      targetTables: catalogIntegrationDataResetTargetTables(),
+      dryRun: cleanVerificationReport({ sourceObservations: 1, sourceObservationEventStreams: 1 }),
+      before: cleanVerificationReport({ sourceObservations: 1, sourceObservationEventStreams: 1 }),
+      after: cleanVerificationReport({ sourceObservationEventStreams: 1, sourceObservationEvents: 3 }),
+    });
+
+    expect(findings).toEqual([
+      expect.objectContaining({
+        code: "post-reset-source-observation-event-streams-remain",
+        severity: "p0",
+        message: "Post-reset verification still has 1 Source Observation event stream row(s) and 3 event row(s).",
+      }),
+    ]);
   });
 
   it("allows explicit forced reset of active jobs for pre-launch cleanup", async () => {
@@ -282,6 +320,8 @@ describe("catalog integration data migration reset", () => {
       before: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
       after: cleanVerificationReport({
         sourceObservations: 1,
+        sourceObservationEventStreams: 1,
+        sourceObservationEvents: 2,
         legacySourceObservationReferences: 1,
         integrationDurableJobs: 1,
         providerOptionQueryCacheEntries: 2,
@@ -295,6 +335,7 @@ describe("catalog integration data migration reset", () => {
       "unsafe-target-table",
       "incomplete-forced-active-job-decision",
       "post-reset-source-observations-remain",
+      "post-reset-source-observation-event-streams-remain",
       "post-reset-legacy-references-remain",
       "post-reset-integration-jobs-remain",
       "post-reset-provider-option-cache-remain",
@@ -381,6 +422,8 @@ describe("catalog integration data migration reset", () => {
         referencedProfileVersions: 0,
         activeProviderProfiles: 1,
         sourceObservations: 0,
+        sourceObservationEventStreams: 0,
+        sourceObservationEvents: 0,
         legacySourceObservationReferences: 0,
         integrationDurableJobs: 0,
         activeIntegrationDurableJobs: 0,
@@ -419,6 +462,8 @@ type CatalogIntegrationCounts = Readonly<{
   referencedProfileVersions: number;
   activeProviderProfiles: number;
   sourceObservations: number;
+  sourceObservationEventStreams: number;
+  sourceObservationEvents: number;
   legacySourceObservationReferences: number;
   integrationDurableJobs: number;
   activeIntegrationDurableJobs: number;
@@ -439,6 +484,8 @@ function cleanVerificationReport(counts: Partial<CatalogIntegrationCounts> = {})
     referencedProfileVersions: 0,
     activeProviderProfiles: 3,
     sourceObservations: 0,
+    sourceObservationEventStreams: 0,
+    sourceObservationEvents: 0,
     legacySourceObservationReferences: 0,
     integrationDurableJobs: 0,
     activeIntegrationDurableJobs: 0,
@@ -465,6 +512,8 @@ class InMemoryCatalogIntegrationDataDb {
       referencedProfileVersions: 0,
       activeProviderProfiles: 0,
       sourceObservations: 0,
+      sourceObservationEventStreams: 0,
+      sourceObservationEvents: 0,
       legacySourceObservationReferences: 0,
       integrationDurableJobs: 0,
       activeIntegrationDurableJobs: 0,
@@ -490,7 +539,7 @@ class InMemoryCatalogIntegrationDataDb {
   async query<T>(sql: string): Promise<{ rows: T[] }> {
     this.statements.push(sql);
 
-    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK" || sql.startsWith("LOCK TABLE")) {
       return { rows: [] };
     }
 
@@ -502,6 +551,11 @@ class InMemoryCatalogIntegrationDataDb {
   }
 
   private applyDelete(sql: string): number {
+    if (sql.includes("event_store_streams")) {
+      const deleted = this.clear("sourceObservationEventStreams");
+      this.counts = { ...this.counts, sourceObservationEvents: 0 };
+      return deleted;
+    }
     if (sql.includes("catalog_source_observation_integration_work_units")) {
       return this.clear("integrationWorkUnits");
     }
@@ -562,6 +616,12 @@ class InMemoryCatalogIntegrationDataDb {
   }
 
   private countFor(sql: string): number {
+    if (sql.includes("event_store_streams")) {
+      return this.counts.sourceObservationEventStreams;
+    }
+    if (sql.includes("event_store_events")) {
+      return this.counts.sourceObservationEvents;
+    }
     if (sql.includes("authoring_audit_json IS NOT NULL")) {
       return this.counts.adminAuthoredProfileVersions;
     }

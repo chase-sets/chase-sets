@@ -109,6 +109,8 @@ export function cleanVerificationReport(
     referencedProfileVersions: 0,
     activeProviderProfiles: 3,
     sourceObservations: 0,
+    sourceObservationEventStreams: 0,
+    sourceObservationEvents: 0,
     legacySourceObservationReferences: 0,
     integrationDurableJobs: 0,
     activeIntegrationDurableJobs: 0,

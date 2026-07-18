@@ -1,5 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { withPgTransaction } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, withPgTransaction } from "@chase-sets/event-core-postgres";
 import { seedCatalogProviderIntegrationProfileVersionsInTransaction } from "./provider-integration-profile-store";
 import type { CatalogIntegrationSchemaCompatibilitySurfaceKey } from "./catalog-integration-schema-compatibility";
 
@@ -97,6 +97,8 @@ export type CatalogIntegrationDataVerificationReport = Readonly<{
   referencedProfileVersions: number;
   activeProviderProfiles: number;
   sourceObservations: number;
+  sourceObservationEventStreams: number;
+  sourceObservationEvents: number;
   legacySourceObservationReferences: number;
   integrationDurableJobs: number;
   activeIntegrationDurableJobs: number;
@@ -164,6 +166,7 @@ export type CatalogIntegrationDataResetEvidenceFinding = Readonly<{
     | "active-jobs-require-forced-decision"
     | "incomplete-forced-active-job-decision"
     | "post-reset-source-observations-remain"
+    | "post-reset-source-observation-event-streams-remain"
     | "post-reset-legacy-references-remain"
     | "post-reset-integration-jobs-remain"
     | "post-reset-bulk-review-jobs-remain"
@@ -179,6 +182,18 @@ type DeleteRow = Readonly<{ rows_deleted: number | string }>;
 
 const resettablePreLaunchReason =
   "The Catalog Integration Control Plane has not launched; reset/rebuild is preferred unless a retained-data exception exists.";
+
+export const CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX = "catalog.source-observation-";
+export const CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET = `event_store_streams / event_store_events WHERE stream_id LIKE '${CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX}%'`;
+
+const CATALOG_INTEGRATION_JOB_TABLES = [
+  "catalog_source_observation_integration_durable_jobs",
+  "catalog_source_observation_bulk_review_jobs",
+] as const;
+
+function sourceObservationStreamLikePattern(): string {
+  return `${escapeLikePattern(CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX)}%`;
+}
 
 export const catalogIntegrationDataResetEnvironmentPlans: readonly CatalogIntegrationDataResetEnvironmentPlan[] = [
   {
@@ -407,7 +422,10 @@ WHERE authoring_audit_json IS NULL
   }));
 
 export function catalogIntegrationDataResetTargetTables(): readonly string[] {
-  return catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName);
+  return [
+    ...catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName),
+    CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+  ];
 }
 
 export function evaluateCatalogIntegrationDataResetEvidence(
@@ -600,6 +618,16 @@ export async function collectCatalogIntegrationDataVerificationReport(
        WHERE active = true AND lifecycle = 'active'`,
   );
   const sourceObservations = await countRows(db, "SELECT COUNT(*) AS count FROM catalog_source_observations");
+  const sourceObservationEventStreams = await countRows(
+    db,
+    "SELECT COUNT(*) AS count FROM event_store_streams WHERE stream_id LIKE $1 ESCAPE '\\'",
+    [sourceObservationStreamLikePattern()],
+  );
+  const sourceObservationEvents = await countRows(
+    db,
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'",
+    [sourceObservationStreamLikePattern()],
+  );
   const legacySourceObservationReferences = await countRows(
     db,
     `SELECT COUNT(*) AS count
@@ -659,6 +687,8 @@ export async function collectCatalogIntegrationDataVerificationReport(
     referencedProfileVersions,
     activeProviderProfiles,
     sourceObservations,
+    sourceObservationEventStreams,
+    sourceObservationEvents,
     legacySourceObservationReferences,
     integrationDurableJobs,
     activeIntegrationDurableJobs,
@@ -716,6 +746,7 @@ export async function resetCatalogIntegrationPreLaunchData(
   } as const satisfies Required<CatalogIntegrationDataResetOptions>;
 
   return withResetTransaction(db, async (queryable) => {
+    await queryable.query(`LOCK TABLE ${CATALOG_INTEGRATION_JOB_TABLES.join(", ")} IN SHARE ROW EXCLUSIVE MODE`);
     const before = await collectCatalogIntegrationDataVerificationReport(queryable);
     if (!normalizedOptions.allowActiveJobReset) {
       assertNoActiveCatalogIntegrationJobs(before);
@@ -736,6 +767,14 @@ export async function resetCatalogIntegrationPreLaunchData(
       const rowsAffected = await deleteRows(queryable, statement.sql);
       steps.push({ tableName: statement.tableName, action: statement.action, rowsAffected });
     }
+
+    steps.push({
+      tableName: CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+      action: "delete",
+      rowsAffected: await deleteRows(queryable, "DELETE FROM event_store_streams WHERE stream_id LIKE $1 ESCAPE '\\'", [
+        sourceObservationStreamLikePattern(),
+      ]),
+    });
 
     if (normalizedOptions.rebuildSeedProfiles) {
       const seededProfiles = await seedCatalogProviderIntegrationProfileVersionsInTransaction(queryable);
@@ -773,6 +812,8 @@ export function catalogIntegrationDataReleaseVerificationQueries(): readonly str
     "SELECT COUNT(*) AS provider_profile_versions FROM catalog_provider_integration_profile_versions;",
     "SELECT COUNT(*) AS active_provider_profiles FROM catalog_provider_integration_profile_versions WHERE active = true AND lifecycle = 'active';",
     "SELECT COUNT(*) AS source_observations FROM catalog_source_observations;",
+    `SELECT COUNT(*) AS source_observation_event_streams FROM event_store_streams WHERE stream_id LIKE '${CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX}%' ESCAPE '\\';`,
+    `SELECT COUNT(*) AS source_observation_events FROM event_store_events WHERE stream_id LIKE '${CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX}%' ESCAPE '\\';`,
     "SELECT COUNT(*) AS legacy_source_observation_references FROM catalog_source_observations WHERE source_profile_version = 'legacy' OR source_mapping_fingerprint = 'legacy' OR promotion_profile_version = 'legacy';",
     "SELECT status, COUNT(*) AS jobs FROM catalog_source_observation_integration_durable_jobs GROUP BY status ORDER BY status;",
     "SELECT state, COUNT(*) AS work_units FROM catalog_source_observation_integration_work_units GROUP BY state ORDER BY state;",
@@ -819,7 +860,18 @@ function catalogIntegrationDataResetPostconditionFindings(
     findings.push({
       code: "post-reset-source-observations-remain",
       severity: "p0",
-      message: resetEvidenceFindingMessage("Post-reset verification still has Source Observations."),
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.sourceObservations} Source Observation row(s).`,
+      ),
+    });
+  }
+  if (report.sourceObservationEventStreams > 0 || report.sourceObservationEvents > 0) {
+    findings.push({
+      code: "post-reset-source-observation-event-streams-remain",
+      severity: "p0",
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.sourceObservationEventStreams} Source Observation event stream row(s) and ${report.sourceObservationEvents} event row(s).`,
+      ),
     });
   }
   if (report.legacySourceObservationReferences > 0) {
@@ -827,7 +879,7 @@ function catalogIntegrationDataResetPostconditionFindings(
       code: "post-reset-legacy-references-remain",
       severity: "p0",
       message: resetEvidenceFindingMessage(
-        "Post-reset verification still has legacy Source Observation profile markers.",
+        `Post-reset verification still has ${report.legacySourceObservationReferences} legacy Source Observation profile marker row(s).`,
       ),
     });
   }
@@ -835,28 +887,36 @@ function catalogIntegrationDataResetPostconditionFindings(
     findings.push({
       code: "post-reset-integration-jobs-remain",
       severity: "p0",
-      message: resetEvidenceFindingMessage("Post-reset verification still has integration jobs or work units."),
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.integrationDurableJobs} integration job row(s) and ${report.integrationWorkUnits} integration work-unit row(s).`,
+      ),
     });
   }
   if (report.bulkReviewJobs > 0 || report.bulkReviewWorkUnits > 0) {
     findings.push({
       code: "post-reset-bulk-review-jobs-remain",
       severity: "p0",
-      message: resetEvidenceFindingMessage("Post-reset verification still has bulk review jobs or work units."),
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.bulkReviewJobs} bulk-review job row(s) and ${report.bulkReviewWorkUnits} bulk-review work-unit row(s).`,
+      ),
     });
   }
   if (report.providerOptionQueryCacheEntries > 0) {
     findings.push({
       code: "post-reset-provider-option-cache-remain",
       severity: "p1",
-      message: resetEvidenceFindingMessage("Post-reset verification still has provider option query cache rows."),
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.providerOptionQueryCacheEntries} provider option query cache row(s).`,
+      ),
     });
   }
   if (report.providerOptionRateLimits > 0) {
     findings.push({
       code: "post-reset-provider-rate-limits-remain",
       severity: "p1",
-      message: resetEvidenceFindingMessage("Post-reset verification still has learned provider rate-limit rows."),
+      message: resetEvidenceFindingMessage(
+        `Post-reset verification still has ${report.providerOptionRateLimits} learned provider rate-limit row(s).`,
+      ),
     });
   }
   if (report.activeProviderProfiles === 0) {
@@ -873,14 +933,15 @@ function resetEvidenceFindingMessage(message: string): string {
   return message;
 }
 
-async function countRows(db: PgQueryable, sql: string): Promise<number> {
-  const result = await db.query<CountRow>(sql);
+async function countRows(db: PgQueryable, sql: string, params: readonly unknown[] = []): Promise<number> {
+  const result = await db.query<CountRow>(sql, params);
   return Number(result.rows[0]?.count ?? 0);
 }
 
-async function deleteRows(db: PgQueryable, sql: string): Promise<number> {
+async function deleteRows(db: PgQueryable, sql: string, params: readonly unknown[] = []): Promise<number> {
   const result = await db.query<DeleteRow>(
     `WITH deleted AS (${sql} RETURNING 1) SELECT COUNT(*) AS rows_deleted FROM deleted`,
+    params,
   );
   return Number(result.rows[0]?.rows_deleted ?? 0);
 }
