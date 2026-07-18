@@ -113,6 +113,40 @@ Staging Stripe webhook endpoints:
 - Payments: `https://marketplace.staging.chasesets.com/api/payments/provider/webhooks`
 - Connect money movement: `https://marketplace.staging.chasesets.com/api/settlement/provider/money-movement/webhooks`
 
+Stripe Dashboard owns the persistent shared-environment destinations; Terraform
+does not create them. Use the repository probe before editing a Payments
+destination:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_... pnpm run ops stripe:webhook-endpoint -- verify --environment staging
+STRIPE_SECRET_KEY=sk_live_... pnpm run ops stripe:webhook-endpoint -- verify --environment production
+```
+
+The probe is mode-bound and read-only. It requires one enabled canonical
+Payments destination and reports legacy matches plus missing events from the
+repository registry. Production is always verify-only. To migrate the one known
+dash-form staging destination, run:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_... pnpm run ops stripe:webhook-endpoint -- repoint-staging --environment staging
+```
+
+That command accepts only a test-mode key, mutates only the exact
+`marketplace-staging.chasesets.com` Payments destination, sends only Stripe's
+`url` update field, and refuses missing, duplicate, or ambiguous matches. It
+therefore preserves the destination id, signing secret, status, and enabled
+events. If the canonical URL already exists, it is an idempotent verification.
+
+Endpoint event coverage should follow
+`infrastructure/stripe-config/webhook-events.json` where the Stripe account has
+the corresponding capability. Do not remove existing subscriptions to make an
+update pass. Stripe can reject an entire endpoint update when a feature-gated
+event such as Shared Payment Token events is not enabled for the account; add
+the remaining supported events without treating unavailable feature-gated
+events as proof of URL drift. Saved-payment setup verification requires
+`setup_intent.succeeded`, `setup_intent.setup_failed`, and
+`payment_method.detached`.
+
 GitHub environment configuration:
 
 | Environment | Required Stripe secrets | Required Stripe variables | Webhook proof expectation |
@@ -134,6 +168,23 @@ not deploy configuration. For a private evidence-only smoke run, set
 the ephemeral `STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE` process environment.
 The smoke test records the reference under `webhookChecks.stripeDelivered`; its
 `webhookChecks.signedProbe` object is only a local signature and routing probe.
+
+For a Payments destination change, use a fresh Stripe-created test object tied
+to a Payments-owned target; do not use manual redelivery as the acceptance
+probe. Wait for Stripe to report zero pending webhooks, then query only the
+support-safe inbox columns for the fresh event:
+
+```sql
+SELECT provider_event_id, event_kind, received_at
+FROM payments_provider_webhook_events
+WHERE provider_event_id = '<private evt reference>';
+```
+
+Do not select `payload_json`. Store the event id, the sanitized query row,
+checked-at timestamp, endpoint configuration, operator, and commit/run reference
+in the private evidence record. A synthetic Stripe event with no Payments-owned
+target can exercise routing but can fail the handler; it does not replace a
+successful inbox-row proof.
 
 ## Stripe Money Smoke Test
 
