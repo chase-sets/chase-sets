@@ -1,0 +1,4 @@
+interface:
+  display_name: "Delivery"
+  short_description: "Deliver changes with bounded-context evidence"
+  default_prompt: "Use $delivery to deliver this change with process proportional to blast radius: fast path (targeted tests, scoped checks, short PR) for low-risk changes; full path (planning with repo evidence, bounded self-review) for money movement, cross-context contracts/events, schema migrations, or destructive data changes. In lane mode (orchestrator dispatch) stop at a green, ready, non-draft PR plus a completion report — never enqueue or merge; in solo mode land through the merge queue only after confirming no orchestrator lease is active."

@@ -13,7 +13,7 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   creep and anti-ratchet violations.
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
-  hits an UNsettled one stops and escalates (see bounded-context-delivery).
+  hits an UNsettled one stops and escalates (see the delivery skill).
 - **Acceptance criteria — each with its evidence method.** Every AC names how it
   is proven: a test name, a verifier script, a screenshot, an ops check. This is
   also the Closes-automation defense: structured ACs are what the orchestrator's
