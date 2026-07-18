@@ -6,6 +6,8 @@ Representative commerce state makes staging useful for product and operational r
 
 Run representative state after staging has been reset or after Catalog integrations import/promote new items that need marketplace activity for product and workflow review.
 
+Before dispatching `Platform Staging Reset`, run `pnpm run ops staging-refresh:preflight`; the reset workflow repeats the same read-only gate and requires explicit `allow_scrydex_usage_check` and `confirm_no_staging_evidence_overlap` decisions before it reads Scrydex usage/readiness or live Scrydex options and before it accepts the active-run overlap check. A `human-gated` result is not reset approval: resolve every named credential-value, credit, set-substitution, and overlap item first.
+
 Use the `Catalog Staging Provider UAT` workflow with `journey_scope=staging-representative-catalog` as the standard catalog-refresh mechanism before layering representative commerce state over freshly imported Catalog Items.
 
 Do not run it as part of production deployment. The platform API command rejects `DEPLOYMENT_ENVIRONMENT=production`.

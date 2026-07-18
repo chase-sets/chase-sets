@@ -12,8 +12,19 @@ on:
         description: Type "reset staging" to destroy and recreate staging App Platform and Postgres.
         required: true
         type: string
+      allow_scrydex_usage_check:
+        description: Allow the read-only Scrydex usage/readiness and live option checks required by staging-refresh preflight.
+        required: true
+        default: false
+        type: boolean
+      confirm_no_staging_evidence_overlap:
+        description: Confirm no wake drill or other staging evidence window is scheduled to overlap this reset.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
+  actions: read
   contents: read
   checks: read
 
@@ -210,6 +221,37 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Gate staging refresh provider and set-matrix preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          STAGING_REFRESH_ALLOW_CREDITED_PROVIDER_READS: ${{ inputs.allow_scrydex_usage_check && 'true' || 'false' }}
+          STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED: ${{ inputs.confirm_no_staging_evidence_overlap && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          node ./scripts/staging-refresh-preflight.mjs \
+            --skip-github-metadata \
+            --skip-doctl \
+            --out artifacts/staging-refresh-preflight.json
+
+      - name: Upload staging refresh preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-refresh-preflight-${{ github.run_id }}
+          path: artifacts/staging-refresh-preflight.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
