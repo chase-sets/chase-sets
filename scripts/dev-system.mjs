@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import { applyDevTargetEnvOverrides } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
@@ -499,11 +500,30 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 
 async function runDev(targetName = "all") {
   await runBootstrap(targetName);
+  if (targetName === "browser-e2e" && Boolean(process.env.CI)) {
+    const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
+    prefixedConsole("bootstrap", `Primed projection wake relay cursors at ${primedCount} seeded context event heads.`);
+  }
   const selectedProcesses = applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName));
   printDevUrls(targetName, selectedProcesses, targetName === "all");
 
   const children = [];
   let shuttingDown = false;
+
+  const terminateChild = (child, signal) => {
+    if (process.platform === "win32" && child.pid) {
+      // Node's child.kill() only terminates the immediate process on Windows.
+      // The package-manager and dev-server descendants would otherwise survive
+      // Playwright teardown and retain ports and database connections.
+      spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      return;
+    }
+
+    child.kill(signal);
+  };
 
   const shutdown = (signal, exitCode = 0) => {
     if (shuttingDown) {
@@ -515,14 +535,14 @@ async function runDev(targetName = "all") {
 
     for (const child of children) {
       if (!child.killed) {
-        child.kill("SIGTERM");
+        terminateChild(child, "SIGTERM");
       }
     }
 
     setTimeout(() => {
       for (const child of children) {
         if (!child.killed) {
-          child.kill("SIGKILL");
+          terminateChild(child, "SIGKILL");
         }
       }
     }, 3_000).unref();
@@ -607,8 +627,11 @@ async function runDev(targetName = "all") {
       await assertSandboxPortAvailable(definition.port, definition.name);
     }
 
-    const invocation = buildPackageManagerInvocation(["--filter", definition.workspace, "run", "dev"]);
+    const invocation = definition.command
+      ? { command: definition.command, args: definition.args ?? [] }
+      : buildPackageManagerInvocation(["--filter", definition.workspace, "run", definition.script ?? "dev"]);
     const child = spawnCommand(invocation.command, invocation.args, {
+      cwd: definition.cwd ? path.resolve(rootDir, definition.cwd) : undefined,
       env: definition.env,
       prefix: definition.name,
     });
@@ -621,9 +644,9 @@ async function runDev(targetName = "all") {
     });
 
     child.on("exit", (code) => {
-      if (!shuttingDown && code !== 0) {
+      if (!shuttingDown) {
         console.error(`[${definition.name}] exited unexpectedly with code ${code ?? "unknown"}.`);
-        shutdown(definition.name, code ?? 1);
+        shutdown(definition.name, code && code > 0 ? code : 1);
       }
     });
 
