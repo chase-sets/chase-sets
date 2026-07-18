@@ -3,14 +3,15 @@
 // support-safe: it emits credential names/states, provider state categories,
 // expected public set labels, and workflow links only.
 import { execFile as execFileCallback } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   STAGING_REFRESH_PREFLIGHT_VERSION,
   stagingRefreshCredentialedProviders,
-  stagingRefreshOverlapWorkflowNames,
+  stagingRefreshOverlapWorkflowFiles,
   stagingRefreshRequiredSecrets,
   stagingRefreshSetMatrix,
 } from "./staging-refresh-preflight-config.mjs";
@@ -19,6 +20,21 @@ const execFile = promisify(execFileCallback);
 const SESSION_COOKIE_NAME = "chase_sets_session";
 const DEFAULT_ADMIN_BASE_URL = "https://admin.staging.chasesets.com";
 const MAX_OPTION_PAGES = 20;
+const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const ACTIVE_GITHUB_RUN_STATUSES = Object.freeze(["in_progress", "queued", "requested", "waiting", "pending"]);
+
+export function workflowNameFromFile(workflowFile) {
+  const source = readFileSync(resolve(REPOSITORY_ROOT, workflowFile), "utf8");
+  const name = source.match(/^name:\s*([^\r\n]+?)\s*$/m)?.[1]?.replace(/^(['"])(.*)\1$/, "$2");
+  if (!name) {
+    throw new Error(`workflow-name-missing:${workflowFile}`);
+  }
+  return name;
+}
+
+export const stagingRefreshOverlapWorkflowNames = Object.freeze(
+  stagingRefreshOverlapWorkflowFiles.map(workflowNameFromFile),
+);
 
 function readOption(argv, name) {
   const index = argv.indexOf(name);
@@ -55,6 +71,7 @@ export function parseStagingRefreshPreflightArgs(argv, env = process.env) {
     skipDoctl: hasFlag(argv, "--skip-doctl"),
     skipOverlapCheck: hasFlag(argv, "--skip-overlap-check"),
     skipAdminChecks: hasFlag(argv, "--skip-admin-checks"),
+    overlapOnly: hasFlag(argv, "--overlap-only"),
     scheduledOverlapConfirmed:
       hasFlag(argv, "--confirm-no-scheduled-overlap") ||
       readEnv("STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED", env) === "true",
@@ -215,18 +232,24 @@ async function githubSecretMetadata(options, run = execFile) {
     });
 }
 
-async function githubActiveRuns(options, run = execFile) {
-  const { stdout } = await run("gh", [
-    "run",
-    "list",
-    "--repo",
-    options.repository,
-    "--limit",
-    "100",
-    "--json",
-    "databaseId,name,status,url",
-  ]);
-  return JSON.parse(stdout);
+export async function githubActiveRuns(options, run = execFile) {
+  const pagesByStatus = await Promise.all(
+    ACTIVE_GITHUB_RUN_STATUSES.map(async (status) => {
+      const endpoint = `repos/${options.repository}/actions/runs?status=${status}&per_page=100`;
+      const { stdout } = await run("gh", [
+        "api",
+        "--paginate",
+        endpoint,
+        "--jq",
+        ".workflow_runs[] | {databaseId: .id, name, status, url: .html_url} | @json",
+      ]);
+      return stdout
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    }),
+  );
+  return [...new Map(pagesByStatus.flat().map((workflowRun) => [workflowRun.databaseId, workflowRun])).values()];
 }
 
 async function digitalOceanDeployedSecrets(options, run = execFile) {
@@ -523,9 +546,34 @@ export async function runStagingRefreshPreflight(options, dependencies = {}) {
   });
 }
 
+export async function runStagingRefreshOverlapGate(options, dependencies = {}) {
+  const run = dependencies.execFile ?? execFile;
+  let runs = [];
+  let collectionFailed = false;
+  try {
+    runs = await githubActiveRuns(options, run);
+  } catch {
+    collectionFailed = true;
+  }
+  const overlaps = activeStagingRefreshOverlaps(runs, options.currentRunId);
+  return {
+    schemaVersion: STAGING_REFRESH_PREFLIGHT_VERSION,
+    generatedAt: new Date().toISOString(),
+    environment: options.environment,
+    result: overlaps.length > 0 || collectionFailed ? "blocked" : "pass",
+    overlaps,
+    blockers: collectionFailed
+      ? ["collection:github-run-overlap-unavailable"]
+      : overlaps.map((overlap) => `overlap:${overlap.name}:${overlap.status}`),
+    humanGates: [],
+  };
+}
+
 async function main() {
   const options = parseStagingRefreshPreflightArgs(process.argv.slice(2));
-  const report = await runStagingRefreshPreflight(options);
+  const report = options.overlapOnly
+    ? await runStagingRefreshOverlapGate(options)
+    : await runStagingRefreshPreflight(options);
   const serialized = JSON.stringify(report, null, 2);
   if (options.outPath) {
     writeFileSync(options.outPath, `${serialized}\n`);

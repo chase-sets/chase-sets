@@ -460,6 +460,13 @@ jobs:
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
+      - name: Re-check staging refresh overlap before destroy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/staging-refresh-preflight.mjs --overlap-only
+
       - name: Terraform destroy staging platform
         working-directory: infrastructure/digitalocean/platform
         env:

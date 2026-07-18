@@ -1,15 +1,23 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { stagingRefreshRequiredSecrets, stagingRefreshSetMatrix } from "./staging-refresh-preflight-config.mjs";
+import {
+  stagingRefreshOverlapWorkflowFiles,
+  stagingRefreshRequiredSecrets,
+  stagingRefreshSetMatrix,
+} from "./staging-refresh-preflight-config.mjs";
 import {
   activeStagingRefreshOverlaps,
   deployedSecretPostureFromApp,
   evaluateProviderPosture,
   evaluateStagingRefreshSecrets,
   findExpectedOptionAcrossPages,
+  githubActiveRuns,
   inspectSetMatrix,
   matchingExpectedOption,
   parseStagingRefreshPreflightArgs,
   runStagingRefreshPreflight,
+  runStagingRefreshOverlapGate,
+  stagingRefreshOverlapWorkflowNames,
+  workflowNameFromFile,
 } from "./staging-refresh-preflight.mjs";
 
 const originalEnv = { ...process.env };
@@ -271,26 +279,40 @@ describe("staging refresh set matrix", () => {
     ).toBe(true);
   });
 
-  it("covers every epic product line and provider while excluding the gated Scrydex Lorcana sealed profile", () => {
-    const coverage = new Set(stagingRefreshSetMatrix.map((check) => `${check.productLine}:${check.providerKey}`));
-    for (const expected of [
-      "pokemon:tcgdex",
-      "pokemon:tcgplayer",
-      "mtg:mtgjson",
-      "mtg:scryfall",
-      "mtg:tcgplayer",
-      "yugioh:ygoprodeck",
-      "yugioh:ygojson",
-      "yugioh:tcgplayer",
-      "one-piece:scrydex",
-      "one-piece:tcgplayer",
-      "lorcana:lorcanajson",
-      "lorcana:lorcast",
-      "lorcana:scrydex",
-      "lorcana:tcgplayer",
-    ]) {
-      expect(coverage, expected).toContain(expected);
-    }
+  it("pins every set and provider row required by the authoritative epic matrix", () => {
+    expect(stagingRefreshSetMatrix.map((check) => check.id)).toEqual([
+      "pokemon-en-base-set-tcgdex",
+      "pokemon-en-base-set-tcgplayer",
+      "pokemon-en-surging-sparks-tcgplayer",
+      "pokemon-en-surging-sparks-tcgdex",
+      "pokemon-ja-super-electric-breaker-tcgdex",
+      "pokemon-ja-triplet-beat-tcgdex",
+      "pokemon-zh-tw-surging-sparks-tcgdex",
+      "pokemon-ko-surging-sparks-tcgdex",
+      "mtg-fifth-dawn-mtgjson",
+      "mtg-time-spiral-mtgjson",
+      "mtg-fifth-dawn-scryfall",
+      "mtg-time-spiral-scryfall",
+      "mtg-fifth-dawn-tcgplayer",
+      "mtg-time-spiral-tcgplayer",
+      "yugioh-legend-blue-eyes-ygoprodeck",
+      "yugioh-rarity-collection-ygoprodeck",
+      "yugioh-legend-blue-eyes-ygojson",
+      "yugioh-rarity-collection-ygojson",
+      "yugioh-legend-blue-eyes-tcgplayer",
+      "yugioh-rarity-collection-tcgplayer",
+      "one-piece-romance-dawn-scrydex-cards",
+      "one-piece-op09-scrydex-sealed",
+      "one-piece-romance-dawn-tcgplayer",
+      "lorcana-first-chapter-lorcanajson",
+      "lorcana-first-chapter-lorcast",
+      "lorcana-first-chapter-scrydex",
+      "lorcana-first-chapter-tcgplayer",
+      "lorcana-rise-floodborn-lorcanajson",
+      "lorcana-rise-floodborn-lorcast",
+      "lorcana-rise-floodborn-scrydex",
+      "lorcana-rise-floodborn-tcgplayer",
+    ]);
     expect(stagingRefreshSetMatrix.flatMap((check) => check.unitKeys)).not.toContain(
       "scrydex:lorcana:sealed-product:source-observation-import",
     );
@@ -298,18 +320,92 @@ describe("staging refresh set matrix", () => {
 });
 
 describe("staging refresh overlap and CLI posture", () => {
-  it("reports only active workflows that can overlap the refresh and ignores the current run", () => {
+  it("derives the overlap allowlist from the real workflow names", () => {
+    expect(stagingRefreshOverlapWorkflowNames).toEqual([
+      "Platform Deploy",
+      "Platform Staging Reset",
+      "Platform Staging Wake Drills",
+      "Platform Staging Mixed-Version Wake Evidence",
+      "Platform Database Restore Drill",
+      "Catalog Staging Provider UAT",
+      "Platform Staging Representative Commerce State",
+    ]);
+    expect(stagingRefreshOverlapWorkflowFiles.map(workflowNameFromFile)).toEqual(stagingRefreshOverlapWorkflowNames);
+  });
+
+  it("reports real active overlap workflow names and ignores the current run", () => {
     expect(
       activeStagingRefreshOverlaps(
         [
           { databaseId: 1, name: "Platform Staging Reset", status: "in_progress", url: "https://example/1" },
           { databaseId: 2, name: "Platform Deploy", status: "queued", url: "https://example/2" },
           { databaseId: 3, name: "Platform PR", status: "in_progress", url: "https://example/3" },
-          { databaseId: 4, name: "Platform Staging Wake Drills", status: "completed", url: "https://example/4" },
+          {
+            databaseId: 4,
+            name: "Platform Staging Mixed-Version Wake Evidence",
+            status: "in_progress",
+            url: "https://example/4",
+          },
         ],
         "1",
       ),
-    ).toEqual([{ databaseId: 2, name: "Platform Deploy", status: "queued", url: "https://example/2" }]);
+    ).toEqual([
+      { databaseId: 2, name: "Platform Deploy", status: "queued", url: "https://example/2" },
+      {
+        databaseId: 4,
+        name: "Platform Staging Mixed-Version Wake Evidence",
+        status: "in_progress",
+        url: "https://example/4",
+      },
+    ]);
+  });
+
+  it("paginates every active GitHub run status beyond the first 100 results", async () => {
+    const calls = [];
+    const runs = await githubActiveRuns({ repository: "chase-sets/chase-sets" }, async (command, args) => {
+      calls.push({ command, args });
+      const endpoint = args.find((arg) => arg.startsWith("repos/"));
+      const status = new URL(`https://example.test/${endpoint}`).searchParams.get("status");
+      return {
+        stdout:
+          status === "in_progress"
+            ? Array.from({ length: 101 }, (_, index) => ({
+                databaseId: index + 1,
+                name: "Platform Deploy",
+                status,
+                url: `https://example/${index + 1}`,
+              }))
+                .map((run) => JSON.stringify(run))
+                .join("\n")
+            : "",
+      };
+    });
+
+    expect(runs).toHaveLength(101);
+    expect(calls).toHaveLength(5);
+    expect(calls.every(({ command, args }) => command === "gh" && args.includes("--paginate"))).toBe(true);
+    expect(calls.every(({ args }) => args.some((arg) => arg.includes("per_page=100")))).toBe(true);
+  });
+
+  it("fails the final overlap-only gate closed when an overlapping workflow starts", async () => {
+    const report = await runStagingRefreshOverlapGate(
+      { repository: "chase-sets/chase-sets", environment: "staging", currentRunId: "1" },
+      {
+        execFile: async (_command, args) => ({
+          stdout: args.some((arg) => arg.includes("status=in_progress"))
+            ? JSON.stringify({
+                databaseId: 2,
+                name: "Platform Staging Mixed-Version Wake Evidence",
+                status: "in_progress",
+                url: "https://example/2",
+              })
+            : "",
+        }),
+      },
+    );
+
+    expect(report.result).toBe("blocked");
+    expect(report.blockers).toContain("overlap:Platform Staging Mixed-Version Wake Evidence:in_progress");
   });
 
   it("requires an explicit flag before credited-provider reads", () => {

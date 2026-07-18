@@ -16,14 +16,14 @@ export const stagingRefreshRequiredSecrets = Object.freeze([
 
 export const stagingRefreshCredentialedProviders = Object.freeze(["tcgplayer", "scrydex"]);
 
-export const stagingRefreshOverlapWorkflowNames = Object.freeze([
-  "Platform Deploy",
-  "Platform Staging Reset",
-  "Platform Staging Wake Drills",
-  "Platform Staging Mixed-Version Wake Drills",
-  "Platform Database Restore Drill",
-  "Catalog Staging Provider UAT",
-  "Platform Staging Representative Commerce State",
+export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
+  ".github/workflows/platform-production.yml",
+  ".github/workflows/platform-staging-reset.yml",
+  ".github/workflows/platform-staging-wake-drills.yml",
+  ".github/workflows/platform-staging-mixed-version-wake-drills.yml",
+  ".github/workflows/platform-database-restore-drill.yml",
+  ".github/workflows/catalog-staging-provider-uat.yml",
+  ".github/workflows/platform-staging-representative-commerce-state.yml",
 ]);
 
 function choice(queryKind, labels, values = [], extra = {}) {
@@ -53,7 +53,15 @@ function tcgplayerSetCheck({ id, productLine, unitKeys, productLineLabels, produ
   });
 }
 
-function tcgdexExpansionCheck({ id, languageLabels, languageValues, expansionLabels, expansionValues }) {
+function tcgdexExpansionCheck({
+  id,
+  languageLabels,
+  languageValues,
+  seriesLabels = ["Scarlet & Violet"],
+  seriesValues = ["SV"],
+  expansionLabels,
+  expansionValues,
+}) {
   return Object.freeze({
     id,
     productLine: "pokemon",
@@ -61,7 +69,7 @@ function tcgdexExpansionCheck({ id, languageLabels, languageValues, expansionLab
     unitKeys: Object.freeze(["tcgdex:pokemon:single-card:source-observation-import"]),
     selections: Object.freeze([
       choice("languages", languageLabels, languageValues),
-      choice("series", ["Scarlet & Violet"], ["SV"], { languageFrom: 0 }),
+      choice("series", seriesLabels, seriesValues, { languageFrom: 0 }),
       choice("expansions", expansionLabels, expansionValues, { languageFrom: 0, parentFrom: 1 }),
     ]),
   });
@@ -83,6 +91,15 @@ const tcgplayerLorcanaUnits = [
 // This matrix mirrors the representative staging-refresh epic. It deliberately excludes the fixture-backed
 // Scrydex Lorcana sealed profile, which is not a production staging-refresh unit.
 export const stagingRefreshSetMatrix = Object.freeze([
+  tcgdexExpansionCheck({
+    id: "pokemon-en-base-set-tcgdex",
+    languageLabels: ["English"],
+    languageValues: ["en"],
+    seriesLabels: ["Base"],
+    seriesValues: ["base"],
+    expansionLabels: ["Base Set"],
+    expansionValues: ["base1"],
+  }),
   tcgplayerSetCheck({
     id: "pokemon-en-base-set-tcgplayer",
     productLine: "pokemon",
@@ -112,6 +129,13 @@ export const stagingRefreshSetMatrix = Object.freeze([
     languageValues: ["ja"],
     expansionLabels: ["Super Electric Breaker", "Surging Sparks"],
     expansionValues: ["SV8", "SV08"],
+  }),
+  tcgdexExpansionCheck({
+    id: "pokemon-ja-triplet-beat-tcgdex",
+    languageLabels: ["Japanese"],
+    languageValues: ["ja"],
+    expansionLabels: ["Triplet Beat"],
+    expansionValues: ["SV1a"],
   }),
   tcgdexExpansionCheck({
     id: "pokemon-zh-tw-surging-sparks-tcgdex",

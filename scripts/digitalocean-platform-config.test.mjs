@@ -678,6 +678,20 @@ describe("DigitalOcean platform configuration", () => {
       platformStagingResetWorkflow.indexOf("Terraform init staging environment DNS"),
     );
     expect(platformStagingResetWorkflow).toContain("staging-refresh-preflight-${{ github.run_id }}");
+
+    const overlapRecheckStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Re-check staging refresh overlap before destroy",
+    );
+    expect(overlapRecheckStep).toContain("node ./scripts/staging-refresh-preflight.mjs --overlap-only");
+    const overlapRecheckIndex = platformStagingResetWorkflow.indexOf(
+      "- name: Re-check staging refresh overlap before destroy",
+    );
+    const destroyIndex = platformStagingResetWorkflow.indexOf("- name: Terraform destroy staging platform");
+    expect(overlapRecheckIndex).toBeLessThan(destroyIndex);
+    expect(platformStagingResetWorkflow.slice(overlapRecheckIndex, destroyIndex).match(/^\s*- name:/gm)).toHaveLength(
+      1,
+    );
   });
 
   it("keeps staging smoke under active auth registration rate limits", () => {
