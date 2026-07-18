@@ -1436,6 +1436,23 @@ export async function drainLocalProjectionHandlerSets(
   await drainSubscriptionRunners(runners, context);
 }
 
+export async function retryLocalProjectionBlockedStream(
+  contextName: string,
+  pool: PgTransactionalPool,
+  projectionHandlerSet: BcProjectionHandlerSet,
+  streamId: string,
+  context?: ProjectionRunContext,
+): Promise<ProjectionStreamRetryResult> {
+  const runner = createSubscriptionRunner(
+    contextName,
+    pool,
+    pool,
+    createLocalProjectionSubscription(contextName, projectionHandlerSet, 0),
+  );
+
+  return runner.retryBlockedStream(streamId, context);
+}
+
 export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,

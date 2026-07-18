@@ -1,5 +1,6 @@
 import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import type { LocalizedTextMap } from "@chase-sets/localization";
+import { retryLocalProjectionBlockedStream } from "@chase-sets/bounded-context-runtime";
 import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
@@ -523,17 +524,30 @@ async function reconcileReferenceType(services: CatalogServices, def: ReferenceT
     return;
   }
 
-  await sendSeedCommand(
-    services.referenceData.referenceTypeCommandHandler,
-    `catalog.reference-type-${def.referenceTypeId}`,
-    {
-      type: "ReviseReferenceType",
-      key: row.key,
-      name: row.name_i18n,
-      description: row.description_i18n,
-      attributeKeys: [...new Set([...existingAttributeKeys, ...def.attributeKeys])].sort(),
-    },
+  const streamId = `catalog.reference-type-${def.referenceTypeId}`;
+  await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
+    type: "ReviseReferenceType",
+    key: row.key,
+    name: row.name_i18n,
+    description: row.description_i18n,
+    attributeKeys: [...new Set([...existingAttributeKeys, ...def.attributeKeys])].sort(),
+  });
+  const referenceDataProjector = services.referenceData.projectors.find(
+    (projector) => projector.projectionName === "catalog-reference-data-projection",
   );
+  if (!referenceDataProjector) {
+    throw new Error("Catalog integration bootstrap is missing the Reference Data projector.");
+  }
+
+  const recovery = await retryLocalProjectionBlockedStream("catalog", services.pool, referenceDataProjector, streamId);
+  if (recovery.state === "still-blocked") {
+    throw new Error(
+      `Catalog integration bootstrap could not recover blocked reference type '${def.key}': ${recovery.errorMessage ?? "unknown projection error"}`,
+    );
+  }
+  if (recovery.state === "resolved") {
+    console.log(`  Reference Type "${def.name}" projection stream recovered`);
+  }
   console.log(`  Reference Type "${def.name}" reconciled with additive attributes`);
 }
 

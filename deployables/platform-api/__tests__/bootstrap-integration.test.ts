@@ -480,10 +480,11 @@ describe("platform api bootstrap", () => {
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
     await drainContextRuntime(runtime);
 
-    // Recreate the long-lived production shape: the active expansion type predates the
-    // seeded attribute, while the active template projection still has the old required-key set.
+    // Recreate the long-lived production shape: both active card-scope Reference Types
+    // predate additive seed attributes, while the active template projection still has
+    // the old required-key set.
     const catalogServices = catalogModule.createServices(pools.catalog, {});
-    const expansionType = await pools.catalog.query<
+    const referenceTypes = await pools.catalog.query<
       Readonly<{
         reference_type_id: string;
         key: string;
@@ -494,32 +495,111 @@ describe("platform api bootstrap", () => {
     >(
       `SELECT reference_type_id, key, name_i18n, description_i18n, attribute_keys
        FROM catalog_reference_types
-       WHERE key = 'expansion'`,
+       WHERE key = ANY($1::text[])
+       ORDER BY key`,
+      [["expansion", "set"]],
     );
-    const expansion = expansionType.rows[0]!;
-    const legacyAttributeKeys = [
-      ...expansion.attribute_keys.filter((key) => key !== "printed-card-count"),
-      "operator-owned-legacy-attribute",
-    ];
-
-    await catalogServices.referenceData.referenceTypeCommandHandler({
-      streamId: `catalog.reference-type-${expansion.reference_type_id}`,
-      command: {
-        type: "ReviseReferenceType",
-        key: expansion.key,
-        name: expansion.name_i18n as never,
-        description: expansion.description_i18n as never,
-        attributeKeys: legacyAttributeKeys,
-      },
-      context: {
-        tenantId: "tnt_bootstrap-legacy" as never,
-        audit: {
-          performedByUserId: "usr_bootstrap-legacy" as never,
-          forAccountId: "acc_bootstrap-legacy" as never,
+    const expansion = referenceTypes.rows.find((row) => row.key === "expansion")!;
+    for (const referenceType of referenceTypes.rows) {
+      await catalogServices.referenceData.referenceTypeCommandHandler({
+        streamId: `catalog.reference-type-${referenceType.reference_type_id}`,
+        command: {
+          type: "ReviseReferenceType",
+          key: referenceType.key,
+          name: referenceType.name_i18n as never,
+          description: referenceType.description_i18n as never,
+          attributeKeys: [
+            ...referenceType.attribute_keys.filter((key) => key !== "printed-card-count"),
+            `operator-owned-${referenceType.key}-attribute`,
+          ],
         },
-      },
-    });
+        context: {
+          tenantId: "tnt_bootstrap-legacy" as never,
+          audit: {
+            performedByUserId: "usr_bootstrap-legacy" as never,
+            forAccountId: "acc_bootstrap-legacy" as never,
+          },
+        },
+      });
+    }
     await drainLocalProjectionHandlerSets("catalog", pools.catalog, catalogServices.referenceData.projectors);
+
+    // Production deploy 29662384117 found this stream durably blocked by a May connection-timeout
+    // poison event. Its new Expansion revision was deferred without an application-ledger row,
+    // while the unblocked Set revision applied and the shared projector checkpoint advanced.
+    const expansionStreamId = `catalog.reference-type-${expansion.reference_type_id}`;
+    const firstExpansionEvent = await pools.catalog.query<
+      Readonly<{ event_id: string; event_type: string; global_position: string; stream_version: string }>
+    >(
+      `SELECT event_id, event_type, global_position, stream_version
+       FROM event_store_events
+       WHERE stream_id = $1
+       ORDER BY stream_version
+       LIMIT 1`,
+      [expansionStreamId],
+    );
+    const firstBlocked = firstExpansionEvent.rows[0]!;
+    await pools.catalog.query(
+      `UPDATE event_subscription_applications
+       SET status = 'poison',
+           error_message = 'timeout exceeded when trying to connect',
+           updated_at = now()
+       WHERE projection_key = $1
+         AND event_id = $2`,
+      ["catalog-reference-data-projection:catalog:v1", firstBlocked.event_id],
+    );
+    await pools.catalog.query(
+      `INSERT INTO event_projection_poison_events (
+         projection_key,
+         event_id,
+         projection_name,
+         projection_kind,
+         target_context_name,
+         source_context_name,
+         projection_revision,
+         subscription_version,
+         stream_id,
+         stream_version,
+         event_type,
+         global_position,
+         failure_kind,
+         error_message,
+         error_stack,
+         state,
+         retry_count,
+         first_seen_at,
+         last_seen_at,
+         resolved_at
+       ) VALUES ($1, $2, 'catalog-reference-data-projection', 'subscription', 'catalog', 'catalog',
+                 NULL, 1, $3, $4::bigint, $5, $6::bigint, 'poison',
+                 'timeout exceeded when trying to connect', NULL, 'blocked', 0, now(), now(), NULL)`,
+      [
+        "catalog-reference-data-projection:catalog:v1",
+        firstBlocked.event_id,
+        expansionStreamId,
+        firstBlocked.stream_version,
+        firstBlocked.event_type,
+        firstBlocked.global_position,
+      ],
+    );
+    await pools.catalog.query(
+      `INSERT INTO event_projection_blocked_streams (
+         projection_key,
+         stream_id,
+         first_blocked_global_position,
+         first_blocked_stream_version,
+         last_seen_global_position,
+         deferred_event_count,
+         state,
+         updated_at
+       ) VALUES ($1, $2, $3::bigint, $4::bigint, $3::bigint, 0, 'blocked', now())`,
+      [
+        "catalog-reference-data-projection:catalog:v1",
+        expansionStreamId,
+        firstBlocked.global_position,
+        firstBlocked.stream_version,
+      ],
+    );
 
     await pools.catalog.query(
       `UPDATE catalog_display_templates
@@ -558,8 +638,12 @@ describe("platform api bootstrap", () => {
       seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
     ).resolves.toBeUndefined();
 
-    const reconciledExpansion = await pools.catalog.query<Readonly<{ attribute_keys: string[] }>>(
-      `SELECT attribute_keys FROM catalog_reference_types WHERE key = 'expansion'`,
+    const reconciledReferenceTypes = await pools.catalog.query<Readonly<{ key: string; attribute_keys: string[] }>>(
+      `SELECT key, attribute_keys
+       FROM catalog_reference_types
+       WHERE key = ANY($1::text[])
+       ORDER BY key`,
+      [["expansion", "set"]],
     );
     const activeTemplate = await pools.catalog.query<Readonly<{ required_field_keys: string[]; status: string }>>(
       `SELECT required_field_keys, status
@@ -567,9 +651,28 @@ describe("platform api bootstrap", () => {
        WHERE display_template_id = $1`,
       [catalogSeedIds.displayTemplates.pokemonSingleCardDefault],
     );
+    const recoveredProjectionFailure = await pools.catalog.query<Readonly<{ state: string }>>(
+      `SELECT state
+       FROM event_projection_poison_events
+       WHERE projection_key = 'catalog-reference-data-projection:catalog:v1'
+         AND stream_id = $1`,
+      [expansionStreamId],
+    );
+    const recoveredBlockedStream = await pools.catalog.query<Readonly<{ state: string }>>(
+      `SELECT state
+       FROM event_projection_blocked_streams
+       WHERE projection_key = 'catalog-reference-data-projection:catalog:v1'
+         AND stream_id = $1`,
+      [expansionStreamId],
+    );
 
-    expect(reconciledExpansion.rows[0]?.attribute_keys).toContain("printed-card-count");
-    expect(reconciledExpansion.rows[0]?.attribute_keys).toContain("operator-owned-legacy-attribute");
+    expect(reconciledReferenceTypes.rows).toHaveLength(2);
+    for (const referenceType of reconciledReferenceTypes.rows) {
+      expect(referenceType.attribute_keys).toContain("printed-card-count");
+      expect(referenceType.attribute_keys).toContain(`operator-owned-${referenceType.key}-attribute`);
+    }
+    expect(recoveredProjectionFailure.rows[0]?.state).toBe("resolved");
+    expect(recoveredBlockedStream.rows[0]?.state).toBe("resolved");
     expect(activeTemplate.rows[0]).toEqual({
       required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
       status: "active",

@@ -44,6 +44,7 @@ export {
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,
   resolveModuleSubscriptions,
+  retryLocalProjectionBlockedStream,
   retryProjectionBlockedStream,
   sortSubscriptionRunners,
   summarizeRuntimeSubscriptionLedgers,
