@@ -84,6 +84,45 @@ describe("inventory hold collision", () => {
     );
   });
 
+  it("rejects unauthorized Honor Offline plans in the domain decider", () => {
+    const command = {
+      type: "RecordInventoryHoldCollision" as const,
+      collisionId: "ihc_1",
+      accountId: "acc_1",
+      itemId: "inv_1",
+      storageLocationId: "loc_1",
+      reason: "Counter sale",
+      recordedAt: "2026-07-17T12:00:00.000Z",
+      totalQuantityBefore: 5,
+      plan: {
+        mode: "honor-offline" as const,
+        authorizedByRole: null,
+        requestedQuantity: 4,
+        appliedQuantity: 4,
+        refusedQuantity: 0,
+        heldQuantity: 3,
+        availableQuantity: 2,
+        releasedHoldQuantity: 3,
+        affectedOrders: [],
+      },
+    };
+
+    expect(() => decideInventoryHoldCollision(initialInventoryHoldCollisionState, command)).toThrow(
+      "manager or owner authorization",
+    );
+    expect(
+      decideInventoryHoldCollision(initialInventoryHoldCollisionState, {
+        ...command,
+        plan: { ...command.plan, authorizedByRole: "manager" },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        type: "inventory.hold-collision-recorded",
+        data: expect.objectContaining({ authorizedByRole: "manager", mode: "honor-offline" }),
+      }),
+    ]);
+  });
+
   it("records the collision quantities and affected order evidence as an event", () => {
     const plan = planInventoryHoldCollision({
       totalQuantity: 5,

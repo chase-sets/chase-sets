@@ -162,6 +162,12 @@ export const decideInventoryHoldCollision: AggregateDecider<
 > = (state, command) => {
   assert(state.collisionId === null, "Inventory hold collision has already been recorded.");
   assert(command.plan.refusedQuantity > 0 || command.plan.releasedHoldQuantity > 0, "A collision requires an effect.");
+  assert(
+    command.plan.mode !== "honor-offline" ||
+      (command.plan.authorizedByRole !== null &&
+        (inventoryHonorOfflineRoles as readonly string[]).includes(command.plan.authorizedByRole)),
+    "Honor offline requires manager or owner authorization.",
+  );
   return [
     {
       type: "inventory.hold-collision-recorded",
