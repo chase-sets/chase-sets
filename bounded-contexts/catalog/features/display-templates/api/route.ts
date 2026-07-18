@@ -25,7 +25,6 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
         priority: Number(body.priority ?? 0),
         titleTemplate: String(body.titleTemplate ?? ""),
         subtitleTemplate: typeof body.subtitleTemplate === "string" ? body.subtitleTemplate : null,
-        requiredFieldKeys: toStringArray(body.requiredFieldKeys),
       },
       context: c.get("context"),
     });
@@ -47,7 +46,6 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
         priority: Number(body.priority ?? 0),
         titleTemplate: String(body.titleTemplate ?? ""),
         subtitleTemplate: typeof body.subtitleTemplate === "string" ? body.subtitleTemplate : null,
-        requiredFieldKeys: toStringArray(body.requiredFieldKeys),
       },
       context: c.get("context"),
     });
@@ -132,8 +130,4 @@ function toDisplayTemplateTarget(value: unknown): DisplayTemplateTarget {
     kind: String(target.kind ?? "global") as DisplayTemplateTarget["kind"],
     id: typeof target.id === "string" ? target.id : undefined,
   };
-}
-
-function toStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }

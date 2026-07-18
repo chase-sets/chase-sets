@@ -37,14 +37,3 @@ export function archiveDisplayTemplate(id: string) {
 export function parseRequiredFieldKeys(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
-
-export function requiredFieldKeysFromInput(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-    ),
-  ).sort((left, right) => left.localeCompare(right));
-}

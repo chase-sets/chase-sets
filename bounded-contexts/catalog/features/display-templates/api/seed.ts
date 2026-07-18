@@ -3,6 +3,7 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedContext } from "../../../support/seed-support/context";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { enqueueAllCatalogItemDisplayIdentityRecomputeWork } from "../../catalog-items/read-model/display-identity-recompute";
+import { deriveRequiredFieldKeys } from "../domain/domain";
 
 export async function seedDisplayTemplates(services: CatalogServices): Promise<void> {
   const definitions = [
@@ -14,7 +15,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
       subtitleTemplate: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
-      requiredFieldKeys: ["card-name", "card-number", "expansion"],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.pokemonPromoCard,
@@ -27,7 +27,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 100,
       titleTemplate: "{field.card-name} {field.card-number}",
       subtitleTemplate: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
-      requiredFieldKeys: ["card-name", "card-number", "expansion"],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.pokemonSealedProduct,
@@ -37,7 +36,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{item.title}",
       subtitleTemplate: "{reference.expansion.name} sealed product",
-      requiredFieldKeys: [],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.magicCardPrintDefault,
@@ -47,7 +45,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{field.card-name} {field.card-number}",
       subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
-      requiredFieldKeys: ["card-name", "card-number", "set"],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.magicSealedProduct,
@@ -57,7 +54,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{item.title}",
       subtitleTemplate: "{reference.set.name} sealed product",
-      requiredFieldKeys: [],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.onePieceCardPrintDefault,
@@ -67,7 +63,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{field.card-name} {field.card-number}",
       subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
-      requiredFieldKeys: ["card-name", "card-number", "set"],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.onePieceSealedProduct,
@@ -77,7 +72,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{item.title}",
       subtitleTemplate: "{reference.set.name} sealed product",
-      requiredFieldKeys: [],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.lorcanaCardPrintDefault,
@@ -87,7 +81,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{field.card-name} {field.card-number}",
       subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
-      requiredFieldKeys: ["card-name", "card-number", "set"],
     },
     {
       displayTemplateId: catalogSeedIds.displayTemplates.lorcanaSealedProduct,
@@ -97,7 +90,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: 10,
       titleTemplate: "{item.title}",
       subtitleTemplate: "{reference.set.name} {field.sealed-product-form}",
-      requiredFieldKeys: ["set", "sealed-product-form"],
     },
   ];
 
@@ -118,7 +110,6 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       priority: definition.priority,
       titleTemplate: definition.titleTemplate,
       subtitleTemplate: definition.subtitleTemplate,
-      requiredFieldKeys: definition.requiredFieldKeys,
     };
 
     if (!current) {
@@ -224,7 +215,6 @@ function seedDefinitionMatches(
     priority: number;
     titleTemplate: string;
     subtitleTemplate: string | null;
-    requiredFieldKeys: readonly string[];
   }>,
 ): boolean {
   return (
@@ -234,8 +224,14 @@ function seedDefinitionMatches(
     current.priority === definition.priority &&
     current.title_template === definition.titleTemplate &&
     current.subtitle_template === definition.subtitleTemplate &&
-    sortedStrings(current.required_field_keys).join("\n") === [...definition.requiredFieldKeys].sort().join("\n")
+    sortedStrings(current.required_field_keys).join("\n") === derivedRequiredFieldKeys(definition).join("\n")
   );
+}
+
+function derivedRequiredFieldKeys(
+  definition: Readonly<{ titleTemplate: string; subtitleTemplate: string | null }>,
+): string[] {
+  return [...deriveRequiredFieldKeys(definition.titleTemplate, definition.subtitleTemplate)];
 }
 
 function sortedStrings(value: unknown): string[] {

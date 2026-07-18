@@ -19,11 +19,7 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import {
-  createDisplayTemplate,
-  localizedTextMapFromEnglish,
-  requiredFieldKeysFromInput,
-} from "./use-display-templates";
+import { createDisplayTemplate, localizedTextMapFromEnglish } from "./use-display-templates";
 import type { DisplayTemplate, DisplayTemplateTargetKind } from "./contracts";
 
 const ALL_TARGET_KINDS = "__all__";
@@ -85,7 +81,6 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
   const [priority, setPriority] = useState("10");
   const [titleTemplate, setTitleTemplate] = useState("");
   const [subtitleTemplate, setSubtitleTemplate] = useState("");
-  const [requiredFieldKeys, setRequiredFieldKeys] = useState("");
 
   async function handleCreate() {
     const displayTemplateId = createId("dtp");
@@ -98,7 +93,6 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
       priority: Number.parseInt(priority, 10) || 0,
       titleTemplate,
       subtitleTemplate: subtitleTemplate.trim() || null,
-      requiredFieldKeys: requiredFieldKeysFromInput(requiredFieldKeys),
     });
     addToast(t("catalog.features.displayTemplates.ui.displayTemplateListPage.display.template.created"), "success");
     resetCreateForm();
@@ -115,7 +109,6 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
     setPriority("10");
     setTitleTemplate("");
     setSubtitleTemplate("");
-    setRequiredFieldKeys("");
   }
 
   return (
@@ -218,14 +211,6 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
             value={subtitleTemplate}
             onChange={(event) => setSubtitleTemplate(event.target.value)}
             rows={3}
-          />
-          <TextInput
-            label={t("catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys")}
-            value={requiredFieldKeys}
-            onChange={(event) => setRequiredFieldKeys(event.target.value)}
-            placeholder={t(
-              "catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys.placeholder",
-            )}
           />
         </Stack>
       </Dialog>
