@@ -3,8 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/schema-upgrade.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs tests/schema-upgrade.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {

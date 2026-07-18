@@ -241,7 +241,7 @@
     {
       "sourceContextName": "platform-operations",
       "projectionName": "marketplace-seller-metrics-support-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": ["support.support-request.resolved"],
       "order": 97,
       "projectionHandlerSetNames": ["marketplace-seller-metrics-support-source-projection"]

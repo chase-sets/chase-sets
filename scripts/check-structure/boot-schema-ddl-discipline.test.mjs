@@ -4,9 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   extractExportedBootSchemaSqlTemplates,
+  extractBootSchemaTableColumns,
   extractSchemaMigrationStatements,
   findBootSchemaMigrationAddedIndexViolationsInSource,
   findBootSchemaDdlDisciplineViolations,
+  findBootSchemaLedgerConvergenceViolations,
   findSchemaMigrationDdlSafetyViolationsInSource,
   isFastDefaultSafeExpression,
 } from "./boot-schema-ddl-discipline.mjs";
@@ -87,6 +89,98 @@ export const exampleSchemaMigrations = [
           expect.objectContaining({ sql: expect.stringContaining("CREATE INDEX CONCURRENTLY") }),
         ],
       }),
+    ]);
+  });
+
+  it("extracts fresh-boot columns without mistaking table constraints or type commas for columns", () => {
+    const source = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY,
+  amount numeric(12, 2) NOT NULL DEFAULT 0,
+  state text NOT NULL,
+  CONSTRAINT example_pages_state_check CHECK (state IN ('open', 'closed')),
+  UNIQUE (state, id)
+);
+\`;
+`;
+
+    expect([...(extractBootSchemaTableColumns(source).get("example_pages") ?? [])]).toEqual(["id", "amount", "state"]);
+  });
+
+  it("rejects the #4834 pattern when a fresh-boot column has no existing-database migration", () => {
+    const baseSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY
+);
+\`;
+`;
+    const currentSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY,
+  authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0
+);
+\`;
+`;
+
+    expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([
+      expect.objectContaining({
+        tableName: "example_pages",
+        columnName: "authenticity_fee_amount",
+        message: expect.stringContaining("#4834"),
+      }),
+    ]);
+  });
+
+  it("accepts a fresh-boot column reachable through an exported migration ledger", () => {
+    const baseSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);
+\`;
+`;
+    const currentSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY,
+  authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0
+);
+\`;
+export const exampleSchemaMigrations = [{
+  migrationId: "m1",
+  description: "converge existing rows",
+  statements: [
+    \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0\`,
+  ],
+}];
+`;
+
+    expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([]);
+  });
+
+  it("does not treat a same-named column migration on another table as reachable", () => {
+    const baseSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);
+\`;
+`;
+    const currentSource = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY, status text NULL);
+\`;
+export const exampleSchemaMigrations = [{
+  migrationId: "m1",
+  description: "wrong table",
+  statements: [
+    \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS unrelated text NULL\`,
+    \`ALTER TABLE other_pages ADD COLUMN IF NOT EXISTS status text NULL\`,
+  ],
+}];
+`;
+
+    expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([
+      expect.objectContaining({ tableName: "example_pages", columnName: "status" }),
     ]);
   });
 
@@ -284,6 +378,30 @@ export const exampleSchemaMigrations = [
         expect.objectContaining({
           file: "bounded-contexts/example/features/pages/read-model/schema.ts",
           message: expect.stringContaining("CREATE INDEX without CONCURRENTLY"),
+        }),
+      ]);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("scans hyphenated schema-like files", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-ddl-discipline-"));
+    const source = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);
+UPDATE example_pages SET id = id;
+\`;
+`;
+    const integrationPath = path.join(repoRoot, "bounded-contexts/example/features/pages/integrations/source");
+    await mkdir(integrationPath, { recursive: true });
+    await writeFile(path.join(integrationPath, "source-schema.ts"), source, "utf8");
+
+    try {
+      await expect(findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths: [] })).resolves.toEqual([
+        expect.objectContaining({
+          file: "bounded-contexts/example/features/pages/integrations/source/source-schema.ts",
+          message: expect.stringContaining("boot-time UPDATE"),
         }),
       ]);
     } finally {

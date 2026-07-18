@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import contextManifest from "../context.json";
 import {
   marketplaceListingSchemaMigrations,
   marketplaceListingSchemaSql,
@@ -42,5 +43,10 @@ describe("marketplace fresh schema cleanup", () => {
     expect(summaryMigrationSql).toContain(
       "ADD COLUMN IF NOT EXISTS missing_responsibility_count integer NOT NULL DEFAULT 0",
     );
+
+    const supportSubscription = contextManifest.eventSubscriptions.find(
+      (subscription) => subscription.projectionName === "marketplace-seller-metrics-support-source-projection",
+    );
+    expect(supportSubscription?.subscriptionVersion).toBe(2);
   });
 });
