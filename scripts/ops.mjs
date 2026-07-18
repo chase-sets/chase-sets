@@ -52,6 +52,10 @@ export const SUBCOMMANDS = {
     script: "staging-refresh-preflight.mjs",
     description: "Read-only credential, Scrydex credit, set-matrix, and overlap gate for a staging refresh.",
   },
+  "stripe:webhook-endpoint": {
+    script: "stripe-webhook-endpoint.mjs",
+    description: "Verify shared Stripe Payments webhook endpoints or repoint the exact legacy staging endpoint.",
+  },
   "catalog:production-completion-report": {
     script: "run-catalog-production-completion-report.mjs",
     description: "Reconcile a frozen production Catalog completion manifest and gate launch on completeness blockers.",
