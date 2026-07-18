@@ -237,17 +237,11 @@ The resources are retired by a reviewed context merge.
     ).toEqual(destructiveChanges);
   });
 
-  it("pins the checked-in production destructive approval to the Phase B2b DNS swap", () => {
+  it("keeps the checked-in production destructive approval in no-active-approval state", () => {
     const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
 
-    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([
-      'digitalocean_record.app_serving["admin"]',
-      'digitalocean_record.app_serving["www"]',
-    ]);
-    expect(approvalText).toContain("Approval state: active");
-    expect(approvalText).toContain(
-      "Plan fingerprint: sha256:dfd925eb420d5cd85238442c0c84c10e1605631ef1dcd1955bb8ca59083633e6",
-    );
+    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([]);
+    expect(approvalText).toContain("Approval state: no-active-approval");
     expect(approvalText).not.toContain('digitalocean_database_db.contexts["experience"]');
   });
 

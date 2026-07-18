@@ -1,15 +1,17 @@
 # Production Destructive Change Approval
 
-Approval state: active
-Approval reference: #5574 (Phase B2b for #4053)
-Reviewed on: 2026-07-17
+Approval state: no-active-approval
+Approval reference: none
+Reviewed on: not active
 Owner: Platform Operations
-Plan fingerprint: sha256:dfd925eb420d5cd85238442c0c84c10e1605631ef1dcd1955bb8ca59083633e6
 
-## Approved Destructive Changes
+## Current State
 
-- `digitalocean_record.app_serving["admin"]`
-- `digitalocean_record.app_serving["www"]`
+There is no active production destructive-change approval.
+
+Any production Terraform plan containing destructive actions must fail closed until an
+operator commits an active approval that names the exact destructive resource addresses and
+the current plan fingerprint reported by the failed deployment check.
 
 ## Active Approval Format
 
