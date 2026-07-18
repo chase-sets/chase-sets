@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
-          pnpm run ops -- release-health:merge-queue-posture \
+          pnpm run ops -- release-health:queue-posture \
             --out artifacts/release-health/merge-queue-posture.json \
             >> "$GITHUB_STEP_SUMMARY"
 

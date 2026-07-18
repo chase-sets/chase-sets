@@ -1,10 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import {
-  buildMergeQueuePosture,
-  fetchRuleset,
-  readMergeQueueReleasePolicy,
-} from "./release-health-merge-queue-posture.mjs";
+import { buildMergeQueuePosture, fetchRuleset, readMergeQueueReleasePolicy } from "./release-health-queue-posture.mjs";
 
 const FIXTURE_ROOT = new URL("./fixtures/release-health-merge-queue/", import.meta.url);
 const CHECKED_AT = "2026-07-12T12:00:00.000Z";
@@ -125,6 +121,7 @@ describe("merge queue posture", () => {
     );
 
     expect(workflow).toContain("contents: read");
+    expect(workflow).toContain("release-health:queue-posture");
     expect(workflow).not.toContain("issues: write");
     expect(workflow).not.toContain("report-scheduled-workflow-alert");
   });
@@ -133,9 +130,8 @@ describe("merge queue posture", () => {
     const runbook = await readFile(new URL("../docs/runbooks/release-process-evolution.md", import.meta.url), "utf8");
 
     expect(runbook).toContain("scripts/release-health-merge-queue-policy.json");
-    expect(runbook).toContain("pnpm run ops -- release-health:merge-queue-posture");
+    expect(runbook).toContain("pnpm run ops -- release-health:queue-posture");
     expect(runbook).toContain(".github/workflows/platform-merge-queue-posture.yml");
     expect(runbook).toContain("| Minimum merge wait | `0 minutes` |");
-    expect(runbook).not.toContain("scripts/release-health-queue-posture.mjs");
   });
 });
