@@ -660,21 +660,23 @@ The workflow:
 
 ### Production Serving DNS Flip and Rollback
 
-Production record-type changes are deliberately two-invocation operations. Never change `PRODUCTION_APP_SERVING` and begin a TTL phase in the same invocation. The workflow imports exactly one A/CNAME owner per affected name, rejects duplicates or an unknown owner, and stores the applied TTL-preparation phase, timestamp, and observed previous maximum TTL in the platform Terraform state. A later replacement is refused until every affected live record is at 300 seconds or less and the stored previous TTL has elapsed. The replacement plan may delete only the affected `digitalocean_record.app_serving` identities (and, on rollback, `digitalocean_record.doks_apex[0]`) before immediately creating the opposite record type; the new records also use a TTL of 300 seconds or less.
+Production serving changes are deliberately two-invocation operations. Never change `PRODUCTION_APP_SERVING` and begin a TTL phase in the same invocation. The workflow reconciles exactly one A/CNAME owner per affected name, rejects duplicates or an unknown owner, and stores the applied TTL-preparation phase, timestamp, and observed previous maximum TTL in platform Terraform state. A later swap is refused until every affected live record is at 300 seconds or less and the stored previous TTL has elapsed.
+
+App Platform owns production CNAMEs while its live domains are attached. Terraform imports those records only for `prepare-doks` TTL lowering, then releases their state identities before the forward plan. DOKS mode gives the app the single `app-platform.chasesets.com` parking attachment, which forces the provider to detach apex, `www`, `admin`, and conditional marketplace domains. DOKS A creates depend on that completed app update. In reverse, the DOKS A resources and apex are deleted before the app update restores the live attachments, allowing App Platform to recreate its records without a competing Terraform CNAME create.
 
 Forward cutover:
 
 1. Keep `PRODUCTION_APP_SERVING=app-platform`. Set `PRODUCTION_SERVING_DNS_PHASE=prepare-doks` and run Platform Deploy. This separate managed change lowers the live App Platform CNAME TTLs to at most 300 seconds and records apply time plus the prior TTL in Terraform state. It must not replace a serving record.
-2. Wait until the recorded prior TTL has elapsed. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-doks`, set `PRODUCTION_APP_SERVING=doks`, and run Platform Deploy again. The workflow also requires the DOKS certificate preflight, rejects a premature or missing preparation, and bounds the CNAME-to-A replacement to the intended record set.
+2. Wait until the recorded prior TTL has elapsed. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-doks`, set `PRODUCTION_APP_SERVING=doks`, and run Platform Deploy again. The workflow also requires the DOKS certificate preflight, rejects a premature or missing preparation, releases the prepared CNAME state identities, and pins the destructive set to the exact live App Platform domain attachments. The app must finish moving to its parking domain before the DOKS A records create.
 3. After DOKS smoke is green, set `PRODUCTION_SERVING_DNS_PHASE=steady`. DOKS records remain at 300 seconds or less through the rollback-confidence window.
 
 Rollback uses the same discipline in reverse:
 
 1. Keep `PRODUCTION_APP_SERVING=doks`. Set `PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform` and run Platform Deploy. Even though DOKS A records should already be low-TTL, this separate invocation records a fresh rollback preparation time and the live previous TTL.
-2. Wait for that recorded TTL to expire. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform`, set `PRODUCTION_APP_SERVING=app-platform`, and run Platform Deploy. The guarded plan removes the DOKS apex and replaces only the affected leaf A records with App Platform CNAMEs at 300 seconds or less.
-3. After rollback smoke and resolver convergence are green, set `PRODUCTION_SERVING_DNS_PHASE=steady` and run the next reviewed deployment to restore the App Platform CNAME TTLs to 1800 seconds.
+2. Wait for that recorded TTL to expire. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform`, set `PRODUCTION_APP_SERVING=app-platform`, and run Platform Deploy. The guarded graph removes the DOKS apex and leaf A records before changing the app from its parking attachment back to the live domains; App Platform then recreates its CNAME and apex records.
+3. After rollback smoke and resolver convergence are green, set `PRODUCTION_SERVING_DNS_PHASE=steady`. App Platform remains the DNS owner; do not import its CNAMEs outside a future `prepare-doks` phase.
 
-The production destructive-plan approval remains an independent boundary: review the exact plan fingerprint and addresses before either replacement invocation. Do not bypass the TTL gate with a manual Terraform apply or direct DNS edit.
+The production destructive-plan approval remains an independent boundary: review the exact plan fingerprint and enumerated addresses before either swap invocation. The inspector represents nested app removals as `digitalocean_app.platform.domain["<hostname>"]`, so a forward approval must name every released live attachment and rollback must name the parking attachment plus every deleted DOKS record. Do not bypass the TTL gate with a manual Terraform apply or direct DNS edit.
 
 ### DOKS Rollouts Scaffold
 

@@ -3238,12 +3238,14 @@ describe("DigitalOcean platform configuration", () => {
     const preflightStep = workflowStep(deployProductionJob, "Verify production DOKS certificate before DNS flip");
     const reconcileStep = workflowStep(deployProductionJob, "Reconcile production serving DNS state");
     const replacementGateStep = workflowStep(deployProductionJob, "Gate production serving DNS replacement");
+    const releaseCnameStateStep = workflowStep(deployProductionJob, "Release production App Platform CNAME state");
     const shadowStep = workflowStep(deployProductionJob, "Verify production DOKS shadow hosts and certificate");
     const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
     const terraformApplyIndex = deployProductionJob.indexOf("- name: Terraform apply");
     const preflightIndex = deployProductionJob.indexOf("- name: Verify production DOKS certificate before DNS flip");
     const reconcileIndex = deployProductionJob.indexOf("- name: Reconcile production serving DNS state");
     const replacementGateIndex = deployProductionJob.indexOf("- name: Gate production serving DNS replacement");
+    const releaseCnameStateIndex = deployProductionJob.indexOf("- name: Release production App Platform CNAME state");
     const terraformPlanIndex = deployProductionJob.indexOf("- name: Terraform plan");
 
     expect(deployProductionJob).toContain(
@@ -3279,12 +3281,18 @@ describe("DigitalOcean platform configuration", () => {
     expect(terraformApplyIndex).toBeGreaterThan(preflightIndex);
     expect(reconcileIndex).toBeGreaterThan(-1);
     expect(replacementGateIndex).toBeGreaterThan(reconcileIndex);
-    expect(terraformPlanIndex).toBeGreaterThan(replacementGateIndex);
+    expect(releaseCnameStateIndex).toBeGreaterThan(replacementGateIndex);
+    expect(terraformPlanIndex).toBeGreaterThan(releaseCnameStateIndex);
     expect(reconcileStep).toContain('address="digitalocean_record.app_serving[\\"${name}\\"]"');
     expect(reconcileStep).toContain('(.type == "CNAME" and (.data | rtrimstr(".")) == $app_target)');
     expect(reconcileStep).toContain('(.type == "A" and $doks_target != "" and .data == $doks_target)');
     expect(reconcileStep).toContain('terraform import "$address" "${zone},${record_id}"');
+    expect(releaseCnameStateStep).toContain('terraform state rm "$address"');
+    expect(releaseCnameStateStep).toContain("PRODUCTION_SERVING_DNS_REPLACEMENT_FROM:-");
+    expect(releaseCnameStateStep).toContain('[ "$record_type" != "CNAME" ]');
+    expect(reconcileStep).toContain('[ "$PRODUCTION_SERVING_DNS_PHASE" != "prepare-doks" ]');
     expect(reconcileStep).toContain("Multiple A/CNAME records own");
+    expect(reconcileStep).toContain("refusing to plan a production ownership swap");
     expect(reconcileStep).toContain("refusing to import or create a conflicting serving record");
     expect(replacementGateStep).toContain('if [ "$current_max_ttl" -gt 300 ]');
     expect(replacementGateStep).toContain("minimum_previous_ttl=1800");
@@ -3292,14 +3300,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(replacementGateStep).toContain("the previous ${retained_previous_ttl}s TTL has not expired");
     expect(replacementGateStep).toContain("terraform output -json production_serving_dns_ttl_preparation");
     expect(replacementGateStep).toContain("PRODUCTION_SERVING_DNS_REPLACEMENT_FROM");
-    for (const terraformStateStep of [reconcileStep, replacementGateStep]) {
+    for (const terraformStateStep of [reconcileStep, replacementGateStep, releaseCnameStateStep]) {
       expect(hasSpacesBackendCredentials(terraformStateStep)).toBe(true);
     }
     const credentialNegativeControl = reconcileStep
       .replace("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}", "")
       .replace("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}", "");
     expect(hasSpacesBackendCredentials(credentialNegativeControl)).toBe(false);
-    expect(productionPlanStep).toContain("assert_serving_plan app-platform.tfplan CNAME false");
+    expect(productionPlanStep).toContain("assert_serving_plan app-platform.tfplan none false");
     expect(productionPlanStep).toContain("assert_serving_plan doks.tfplan A true");
     expect(productionPlanStep).toContain("-var=production_app_serving=app-platform");
     expect(productionPlanStep).toContain("-var=production_app_serving=doks");
@@ -3349,17 +3357,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(planJob, "-var=production_marketplace_public_enabled=false")).toBe(3);
     expect(occurrenceCount(planJob, "test \"$(jq -r '.destroy'")).toBe(2);
     expect(platformPlans).toContain('terraform state pull > "$plan_root/terraform.tfstate"');
-    expect(platformPlans).toContain('terraform -chdir="$plan_root" import "$address"');
+    expect(platformPlans).toContain('terraform -chdir="$plan_root" state rm "$address"');
     expect(platformPlans).toContain("Expected exactly one live A/CNAME record");
-    expect(platformPlans).toContain("attributes.ttl) = 300");
     expect(platformPlans).toContain("plan -refresh=false -lock=false -out=doks.tfplan");
+    expect(platformPlans).toContain("graph -type=plan -plan=app-platform.tfplan");
+    expect(platformPlans).toContain("graph -type=plan -plan=doks.tfplan");
     expect(platformPlans).toContain("assert-serving-mode-replacement");
+    expect(platformPlans).toContain("list-destructive-changes");
     expect(hasSpacesBackendCredentials(platformPlans)).toBe(true);
-    expect(platformPlans).toContain('.change.actions == ["no-op"]');
-    expect(platformPlans).toContain("DOKS plan deletes were not limited to the two intended CNAME-to-A replacements.");
-    expect(platformPlans).toContain('.change.before.type == "CNAME" and .change.after.type == "A"');
-    expect(platformPlans).toContain('digitalocean_record.app_serving[\"admin\"]');
-    expect(platformPlans).toContain('digitalocean_record.app_serving[\"www\"]');
+    expect(platformPlans).toContain(
+      "DOKS plan destructive changes were not limited to the three intended App Platform domain releases.",
+    );
+    expect(platformPlans).toContain('.change.actions == ["create"]');
+    expect(platformPlans).toContain('digitalocean_app.platform.domain["chasesets.com"]');
+    expect(platformPlans).toContain("for name in admin www");
     expect(platformPlans).toContain("platform-app-platform-summary.json");
     expect(platformPlans).toContain("platform-doks-summary.json");
     expect(planJob).toContain("production-cutover-live-plan-summaries");

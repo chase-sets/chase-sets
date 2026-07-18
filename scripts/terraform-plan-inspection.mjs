@@ -17,6 +17,12 @@ const PRODUCTION_SERVING_RECORD_ADDRESSES = [
   'digitalocean_record.app_serving["admin"]',
   'digitalocean_record.app_serving["www"]',
 ];
+const PRODUCTION_ROOT_DOMAIN = "chasesets.com";
+const PRODUCTION_APP_PLATFORM_PARKING_DOMAIN = `app-platform.${PRODUCTION_ROOT_DOMAIN}`;
+
+function productionAppDomainAttachmentAddress(name) {
+  return `digitalocean_app.platform.domain["${name}"]`;
+}
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
@@ -156,7 +162,7 @@ export function postgresClusterIdFromPlan(plan) {
 }
 
 export function destructiveResourceChanges(plan) {
-  return (plan.resource_changes ?? [])
+  const resourceDeletes = (plan.resource_changes ?? [])
     .filter((resourceChange) => {
       if (resourceChange.type === "terraform_data") {
         return false;
@@ -171,16 +177,71 @@ export function destructiveResourceChanges(plan) {
       name: resourceChange.name ?? "",
       actions: resourceChange.change?.actions ?? [],
     }));
+
+  const platformChange = (plan.resource_changes ?? []).find(
+    (resourceChange) =>
+      resourceChange.type === "digitalocean_app" &&
+      resourceChange.name === "platform" &&
+      JSON.stringify(resourceChange.change?.actions) === JSON.stringify(["update"]),
+  );
+  const beforeDomains = appDomainsFromState(platformChange?.change?.before);
+  const afterDomainNames = new Set(appDomainsFromState(platformChange?.change?.after).map((domain) => domain.name));
+  const domainDetaches = beforeDomains
+    .filter((domain) => !afterDomainNames.has(domain.name))
+    .map((domain) => ({
+      address: productionAppDomainAttachmentAddress(domain.name),
+      type: "digitalocean_app_domain_attachment",
+      name: domain.name,
+      actions: ["delete"],
+    }));
+
+  return [...resourceDeletes, ...domainDetaches];
+}
+
+function appDomainsFromState(state) {
+  const domains = state?.spec?.[0]?.domain;
+  if (!Array.isArray(domains)) {
+    return [];
+  }
+
+  return domains
+    .filter((domain) => typeof domain?.name === "string" && domain.name.length > 0)
+    .map((domain) => ({
+      name: domain.name,
+      type: domain.type ?? "",
+      zone: domain.zone ?? "",
+    }));
+}
+
+function appDomainSignature(domains) {
+  return domains.map((domain) => `${domain.name}|${domain.type}|${domain.zone}`).sort();
+}
+
+function productionLiveAppDomains(includeMarketplace) {
+  return [
+    { name: PRODUCTION_ROOT_DOMAIN, type: "PRIMARY", zone: PRODUCTION_ROOT_DOMAIN },
+    { name: `admin.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN },
+    { name: `www.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN },
+    ...(includeMarketplace
+      ? [{ name: `marketplace.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN }]
+      : []),
+  ];
+}
+
+function productionParkingAppDomains() {
+  return [
+    {
+      name: PRODUCTION_APP_PLATFORM_PARKING_DOMAIN,
+      type: "PRIMARY",
+      zone: PRODUCTION_ROOT_DOMAIN,
+    },
+  ];
 }
 
 export function assertProductionServingModeReplacement(plan, options) {
   const from = options?.from;
   const to = options?.to;
-  const expectedTypes = {
-    "app-platform": "CNAME",
-    doks: "A",
-  };
-  if (!expectedTypes[from] || !expectedTypes[to] || from === to) {
+  if (!new Set(["app-platform", "doks"]).has(from) || !new Set(["app-platform", "doks"]).has(to) || from === to) {
     throw new Error("Production serving-mode replacement requires different app-platform/doks from and to modes.");
   }
 
@@ -188,14 +249,21 @@ export function assertProductionServingModeReplacement(plan, options) {
   if (options?.includeMarketplace) {
     servingRecordAddresses.push('digitalocean_record.app_serving["marketplace"]');
   }
-  const expectedDestroyedAddresses = [...servingRecordAddresses];
+  const expectedDestroyedAddresses = [];
   if (from === "doks") {
+    expectedDestroyedAddresses.push(...servingRecordAddresses);
     expectedDestroyedAddresses.push("digitalocean_record.doks_apex[0]");
+    expectedDestroyedAddresses.push(productionAppDomainAttachmentAddress(PRODUCTION_APP_PLATFORM_PARKING_DOMAIN));
+  } else {
+    expectedDestroyedAddresses.push(
+      ...productionLiveAppDomains(Boolean(options?.includeMarketplace)).map((domain) =>
+        productionAppDomainAttachmentAddress(domain.name),
+      ),
+    );
   }
   expectedDestroyedAddresses.sort();
 
-  const destroyedAddresses = (plan.resource_changes ?? [])
-    .filter((change) => (change.change?.actions ?? []).includes("delete"))
+  const destroyedAddresses = destructiveResourceChanges(plan)
     .map((change) => change.address)
     .sort();
   if (JSON.stringify(destroyedAddresses) !== JSON.stringify(expectedDestroyedAddresses)) {
@@ -204,21 +272,50 @@ export function assertProductionServingModeReplacement(plan, options) {
     );
   }
 
+  const platformChange = (plan.resource_changes ?? []).find(
+    (candidate) => candidate.type === "digitalocean_app" && candidate.name === "platform",
+  );
+  const expectedBeforeDomains =
+    from === "app-platform"
+      ? productionLiveAppDomains(Boolean(options?.includeMarketplace))
+      : productionParkingAppDomains();
+  const expectedAfterDomains =
+    to === "app-platform"
+      ? productionLiveAppDomains(Boolean(options?.includeMarketplace))
+      : productionParkingAppDomains();
+  if (
+    JSON.stringify(platformChange?.change?.actions) !== JSON.stringify(["update"]) ||
+    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.before))) !==
+      JSON.stringify(appDomainSignature(expectedBeforeDomains)) ||
+    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.after))) !==
+      JSON.stringify(appDomainSignature(expectedAfterDomains))
+  ) {
+    throw new Error(
+      `Production ${from}-to-${to} must update digitalocean_app.platform from exactly the expected source attachments to exactly the expected destination attachments.`,
+    );
+  }
+
   for (const address of servingRecordAddresses) {
     const change = (plan.resource_changes ?? []).find((candidate) => candidate.address === address);
     const before = change?.change?.before;
     const after = change?.change?.after;
-    if (
-      JSON.stringify(change?.change?.actions) !== JSON.stringify(["delete", "create"]) ||
-      before?.type !== expectedTypes[from] ||
-      after?.type !== expectedTypes[to] ||
-      !Number.isFinite(before?.ttl) ||
-      before.ttl > 300 ||
-      !Number.isFinite(after?.ttl) ||
-      after.ttl > 300
-    ) {
+    const validForwardCreate =
+      from === "app-platform" &&
+      JSON.stringify(change?.change?.actions) === JSON.stringify(["create"]) &&
+      before === null &&
+      after?.type === "A" &&
+      Number.isFinite(after?.ttl) &&
+      after.ttl <= 300;
+    const validRollbackDelete =
+      from === "doks" &&
+      JSON.stringify(change?.change?.actions) === JSON.stringify(["delete"]) &&
+      before?.type === "A" &&
+      Number.isFinite(before?.ttl) &&
+      before.ttl <= 300 &&
+      after === null;
+    if (!validForwardCreate && !validRollbackDelete) {
       throw new Error(
-        `${address} must be a destroy-then-create ${expectedTypes[from]}-to-${expectedTypes[to]} replacement with before and after TTLs at 300 seconds or less.`,
+        `${address} must be a low-TTL A create after App Platform releases its CNAME (${from === "app-platform" ? "forward" : "not applicable"}) or a low-TTL A delete before App Platform reattaches its CNAME (${from === "doks" ? "rollback" : "not applicable"}).`,
       );
     }
   }
@@ -236,6 +333,21 @@ export function assertProductionServingModeReplacement(plan, options) {
       throw new Error(
         "DOKS rollback must delete only the low-TTL DOKS apex A record in addition to the leaf replacements.",
       );
+    }
+  }
+
+  if (from === "app-platform") {
+    const apex = (plan.resource_changes ?? []).find(
+      (candidate) => candidate.address === "digitalocean_record.doks_apex[0]",
+    );
+    if (
+      JSON.stringify(apex?.change?.actions) !== JSON.stringify(["create"]) ||
+      apex?.change?.before !== null ||
+      apex?.change?.after?.type !== "A" ||
+      !Number.isFinite(apex?.change?.after?.ttl) ||
+      apex.change.after.ttl > 300
+    ) {
+      throw new Error("DOKS cutover must create the low-TTL DOKS apex A record after the leaf A records.");
     }
   }
 
@@ -436,6 +548,18 @@ async function main(argv) {
     return;
   }
 
+  if (command === "list-destructive-changes") {
+    const [tfplanJsonPath] = args;
+    if (!tfplanJsonPath) {
+      throw new Error("Usage: node ./scripts/terraform-plan-inspection.mjs list-destructive-changes <tfplan-json>");
+    }
+
+    for (const change of destructiveResourceChanges(JSON.parse(readFileSync(tfplanJsonPath, "utf8")))) {
+      console.log(change.address);
+    }
+    return;
+  }
+
   if (command === "assert-serving-mode-replacement") {
     const [tfplanJsonPath, ...options] = args;
     const from = readStringOption(options, "--from");
@@ -470,7 +594,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|postgres-cluster-id|summarize-plan>",
+    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|list-destructive-changes|postgres-cluster-id|summarize-plan>",
   );
 }
 

@@ -513,6 +513,18 @@ resource "digitalocean_app" "platform" {
       }
     }
 
+    # Keep a non-empty desired domain list while production serves from DOKS.
+    # digitalocean_app.spec.domain is Optional+Computed; this explicit parking
+    # attachment makes removal of the live domains observable to the provider.
+    dynamic "domain" {
+      for_each = local.production_app_platform_parking_domains
+      content {
+        name = domain.value
+        type = "PRIMARY"
+        zone = var.root_domain
+      }
+    }
+
     alert {
       rule = "DEPLOYMENT_FAILED"
       dynamic "destinations" {
@@ -2096,7 +2108,7 @@ resource "digitalocean_app" "platform" {
 }
 
 resource "digitalocean_record" "app_serving" {
-  for_each = local.app_serving_record_names
+  for_each = local.managed_app_serving_record_names
 
   domain = local.live_dns_zone
   type   = local.serving_from_doks ? "A" : "CNAME"

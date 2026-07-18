@@ -2,7 +2,7 @@
   "format_version": "1.2",
   "terraform_version": "1.14.0",
   "fixture": {
-    "description": "Plan inspection fixture representing production platform state after DOKS cutover and a prepared rollback to App Platform."
+    "description": "Plan inspection fixture representing production App Platform state after TTL preparation and a cutover to DOKS."
   },
   "resource_changes": [
     {
@@ -13,10 +13,6 @@
         "actions": ["update"],
         "before": {
           "id": "fixture-app",
-          "spec": [{ "domain": [{ "name": "app-platform.chasesets.com", "type": "PRIMARY", "zone": "chasesets.com" }] }]
-        },
-        "after": {
-          "id": "fixture-app",
           "spec": [
             {
               "domain": [
@@ -26,6 +22,10 @@
               ]
             }
           ]
+        },
+        "after": {
+          "id": "fixture-app",
+          "spec": [{ "domain": [{ "name": "app-platform.chasesets.com", "type": "PRIMARY", "zone": "chasesets.com" }] }]
         }
       }
     },
@@ -35,9 +35,9 @@
       "name": "app_serving",
       "index": "admin",
       "change": {
-        "actions": ["delete"],
-        "before": { "type": "A", "name": "admin", "value": "203.0.113.10", "ttl": 300 },
-        "after": null
+        "actions": ["create"],
+        "before": null,
+        "after": { "type": "A", "name": "admin", "value": "203.0.113.10", "ttl": 300 }
       }
     },
     {
@@ -46,9 +46,9 @@
       "name": "app_serving",
       "index": "www",
       "change": {
-        "actions": ["delete"],
-        "before": { "type": "A", "name": "www", "value": "203.0.113.10", "ttl": 300 },
-        "after": null
+        "actions": ["create"],
+        "before": null,
+        "after": { "type": "A", "name": "www", "value": "203.0.113.10", "ttl": 300 }
       }
     },
     {
@@ -57,9 +57,9 @@
       "name": "doks_apex",
       "index": 0,
       "change": {
-        "actions": ["delete"],
-        "before": { "type": "A", "name": "@", "value": "203.0.113.10", "ttl": 300 },
-        "after": null
+        "actions": ["create"],
+        "before": null,
+        "after": { "type": "A", "name": "@", "value": "203.0.113.10", "ttl": 300 }
       }
     },
     {
@@ -70,14 +70,14 @@
       "change": {
         "actions": ["no-op"],
         "before": {
-          "phase": "prepare-app-platform",
+          "phase": "prepare-doks",
           "prepared_at": "2026-07-17T20:00:00Z",
-          "previous_ttl_seconds": 300
+          "previous_ttl_seconds": 1800
         },
         "after": {
-          "phase": "prepare-app-platform",
+          "phase": "prepare-doks",
           "prepared_at": "2026-07-17T20:00:00Z",
-          "previous_ttl_seconds": 300
+          "previous_ttl_seconds": 1800
         }
       }
     }

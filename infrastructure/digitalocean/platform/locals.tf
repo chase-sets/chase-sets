@@ -36,6 +36,17 @@ locals {
   production_serving_dns_preparing = (
     local.is_production && var.production_serving_dns_phase != "steady"
   )
+  production_app_platform_parking_domain = "app-platform.${var.root_domain}"
+  production_app_platform_parking_domains = (
+    local.is_production && local.serving_from_doks
+    ? [local.production_app_platform_parking_domain]
+    : []
+  )
+  production_app_serving_records_managed = local.is_production && (
+    local.serving_from_doks || (
+      local.app_serving == "app-platform" && var.production_serving_dns_phase == "prepare-doks"
+    )
+  )
   app_serving_record_ttl = local.production_serving_dns_preparing ? min(var.doks_ingress_ttl, 300) : (
     local.serving_from_doks ? var.doks_ingress_ttl : 1800
   )
@@ -58,9 +69,11 @@ locals {
   app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
 
   # App Platform stays warm during each DOKS soak, but it must release every
-  # live domain before the records below change to A. These attachment sets
-  # preserve preview behavior and remove only the active environment's live
-  # attachments during its explicit cutover.
+  # live domain before the records below change to A. The provider models the
+  # domain block as Optional+Computed, so an empty dynamic block means "retain
+  # the computed domains" rather than "detach every domain". Production keeps
+  # one explicit parking domain in DOKS mode to force a real live-to-parking
+  # domain diff while excluding every flipped hostname.
   app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
@@ -831,10 +844,11 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
-  # One Terraform identity owns each leaf record in both serving modes. The
-  # provider marks record type ForceNew, so a flip destroys the old CNAME/A
-  # before creating its replacement and DigitalOcean never sees both types at
-  # the same owner name.
+  # Staging retains its established single-record identity. In production,
+  # Terraform owns App Platform CNAMEs only during prepare-doks so it can lower
+  # their TTL, and owns the DOKS A records while DOKS serves. Before the forward
+  # flip the workflow releases those CNAME identities from state; App Platform
+  # then removes its attached-domain records before these A resources create.
   app_serving_record_names = local.is_staging ? toset([
     "admin",
     "marketplace",
@@ -843,6 +857,7 @@ locals {
     ["admin", "www"],
     local.marketplace_public_enabled ? ["marketplace"] : [],
   )) : toset([])
+  managed_app_serving_record_names = local.is_staging || local.production_app_serving_records_managed ? local.app_serving_record_names : toset([])
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

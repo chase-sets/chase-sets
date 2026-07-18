@@ -240,10 +240,11 @@ jobs:
             exit 1
           fi
 
-          # Pull remote state read-only, then reconcile the externally created
-          # App Platform CNAMEs into a local-only copy. This proves the plan the
-          # deploy workflow will produce after its state-only import without
-          # mutating production state or DNS from the plan lane.
+          # Pull remote state read-only, then release any historical App
+          # Platform CNAME identities from a local-only copy. App Platform owns
+          # those records; the forward deploy performs the same state release
+          # so its app-spec update removes them before Terraform creates A
+          # records. Nothing in this plan lane mutates production state or DNS.
           plan_root="${RUNNER_TEMP}/production-platform-live-plan"
           rm -rf "$plan_root"
           mkdir -p "$plan_root"
@@ -264,7 +265,7 @@ jobs:
           for name in admin www; do
             address="digitalocean_record.app_serving[\"${name}\"]"
             if terraform -chdir="$plan_root" state show "$address" >/dev/null 2>&1; then
-              continue
+              terraform -chdir="$plan_root" state rm "$address"
             fi
 
             mapfile -t serving_records < <(
@@ -280,7 +281,6 @@ jobs:
               echo "The sole live serving record for ${name}.chasesets.com is not the expected App Platform CNAME." >&2
               exit 1
             fi
-            terraform -chdir="$plan_root" import "$address" "chasesets.com,${record_id}"
           done
 
           terraform -chdir="$plan_root" plan -lock=false -out=app-platform.tfplan \
@@ -289,13 +289,18 @@ jobs:
             -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
           terraform -chdir="$plan_root" show -json app-platform.tfplan > app-platform.tfplan.json
+          terraform -chdir="$plan_root" graph -type=plan -plan=app-platform.tfplan \
+            > ../../../artifacts/production-cutover-live-plans/platform-app-platform-plan.dot
           for name in admin www; do
             address="digitalocean_record.app_serving[\"${name}\"]"
             jq -e --arg address "$address" \
-              'any(.resource_changes[]?; .address == $address and .change.actions == ["no-op"] and .change.before.type == "CNAME" and .change.after.type == "CNAME")' \
+              'all(.resource_changes[]?; .address != $address)' \
               app-platform.tfplan.json >/dev/null
           done
-          jq '{root:"platform",serving:"app-platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes app-platform.tfplan.json > app-platform-destructive.txt
+          test ! -s app-platform-destructive.txt
+          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' app-platform-destructive.txt > app-platform-destructive.json
+          jq --slurpfile destructive app-platform-destructive.json '{root:"platform",serving:"app-platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
             app-platform.tfplan.json \
             > ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json
           test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-app-platform-summary.json)" = "0"
@@ -303,15 +308,9 @@ jobs:
             app-platform.tfplan.json \
             --title="Production platform App Platform live plan" >> "$GITHUB_STEP_SUMMARY"
 
-          # The real deploy requires a separate applied TTL phase. Model that
-          # already-applied phase in the local-only state copy so this read-only
-          # plan proves the eventual bounded replacement without touching DNS.
-          jq '(.resources[] | select(.mode == "managed" and .type == "digitalocean_record" and .name == "app_serving").instances[].attributes.ttl) = 300' \
-            "$plan_root/terraform.tfstate" > "$plan_root/prepared-terraform.tfstate"
-          mv "$plan_root/prepared-terraform.tfstate" "$plan_root/terraform.tfstate"
-          test "$(terraform -chdir="$plan_root" state show 'digitalocean_record.app_serving["admin"]' | awk '/^    ttl/{print $3}')" = "300"
-          test "$(terraform -chdir="$plan_root" state show 'digitalocean_record.app_serving["www"]' | awk '/^    ttl/{print $3}')" = "300"
-
+          # The real deploy requires a separate applied TTL phase. The CNAMEs
+          # are already at the retained low TTL; model its expired wait inputs
+          # while keeping provider-owned CNAME identities out of local state.
           terraform -chdir="$plan_root" plan -refresh=false -lock=false -out=doks.tfplan \
             -var=production_app_serving=doks \
             -var=production_serving_dns_phase=prepare-doks \
@@ -321,26 +320,32 @@ jobs:
             -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
           terraform -chdir="$plan_root" show -json doks.tfplan > doks.tfplan.json
+          terraform -chdir="$plan_root" graph -type=plan -plan=doks.tfplan \
+            > ../../../artifacts/production-cutover-live-plans/platform-doks-plan.dot
           node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement \
             doks.tfplan.json \
             --from=app-platform \
             --to=doks
-          jq '{root:"platform",serving:"doks",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes doks.tfplan.json > doks-destructive.txt
+          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' doks-destructive.txt > doks-destructive.json
+          jq --slurpfile destructive doks-destructive.json '{root:"platform",serving:"doks",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
             doks.tfplan.json \
             > ../../../artifacts/production-cutover-live-plans/platform-doks-summary.json
-          mapfile -t destroyed_addresses < <(jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address' doks.tfplan.json | sort)
+          mapfile -t destroyed_addresses < <(sort doks-destructive.txt)
           expected_destroyed_addresses=(
-            'digitalocean_record.app_serving["admin"]'
-            'digitalocean_record.app_serving["www"]'
+            'digitalocean_app.platform.domain["admin.chasesets.com"]'
+            'digitalocean_app.platform.domain["chasesets.com"]'
+            'digitalocean_app.platform.domain["www.chasesets.com"]'
           )
           if [ "${destroyed_addresses[*]}" != "${expected_destroyed_addresses[*]}" ]; then
-            echo "DOKS plan deletes were not limited to the two intended CNAME-to-A replacements." >&2
+            echo "DOKS plan destructive changes were not limited to the three intended App Platform domain releases." >&2
             printf 'Observed destroy: %s\n' "${destroyed_addresses[@]}" >&2
             exit 1
           fi
-          for address in "${expected_destroyed_addresses[@]}"; do
+          for name in admin www; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
             jq -e --arg address "$address" --arg target "$PRODUCTION_DOKS_INGRESS_TARGET" \
-              'any(.resource_changes[]?; .address == $address and (.change.actions | index("delete")) and (.change.actions | index("create")) and .change.before.type == "CNAME" and .change.after.type == "A" and .change.after.value == $target)' \
+              'any(.resource_changes[]?; .address == $address and .change.actions == ["create"] and .change.before == null and .change.after.type == "A" and .change.after.value == $target)' \
               doks.tfplan.json >/dev/null
           done
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
@@ -351,7 +356,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-cutover-live-plan-summaries
-          path: artifacts/production-cutover-live-plans/*.json
+          path: artifacts/production-cutover-live-plans/*
           if-no-files-found: error
           retention-days: 30
 
@@ -2951,10 +2956,6 @@ jobs:
 
           for name in "${record_names[@]}"; do
             address="digitalocean_record.app_serving[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1; then
-              continue
-            fi
-
             mapfile -t serving_records < <(
               printf '%s' "$records_json" | jq -c --arg name "$name" \
                 '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
@@ -2965,25 +2966,41 @@ jobs:
               exit 1
             fi
             if [ "${#serving_records[@]}" -eq 0 ]; then
-              echo "No live serving record found for ${name}.${zone}; Terraform will create it."
-              continue
+              echo "No live serving record found for ${name}.${zone}; refusing to plan a production ownership swap." >&2
+              exit 1
             fi
 
-            record_id="$(
+            record_type="$(printf '%s' "${serving_records[0]}" | jq -r '.type')"
+            record_id="$(printf '%s' "${serving_records[0]}" | jq -r '.id // empty')"
+            record_matches_expected_owner="$(
               printf '%s' "${serving_records[0]}" | jq -r \
                 --arg app_target "$app_target" \
                 --arg doks_target "${PRODUCTION_DOKS_INGRESS_TARGET:-}" \
-                'select(
+                '(
                   (.type == "CNAME" and (.data | rtrimstr(".")) == $app_target) or
                   (.type == "A" and $doks_target != "" and .data == $doks_target)
-                ) | .id // empty'
+                )'
             )"
-            if [ -z "$record_id" ]; then
+            if [ -z "$record_id" ] || [ "$record_matches_expected_owner" != "true" ]; then
               echo "An unmanaged A/CNAME record already owns ${name}.${zone}; refusing to import or create a conflicting serving record." >&2
               exit 1
             fi
 
-            terraform import "$address" "${zone},${record_id}"
+            # App Platform steady state owns its CNAMEs. Terraform temporarily
+            # imports them only for prepare-doks TTL lowering. A rollback keeps
+            # the DOKS A identity so its planned delete precedes app reattach.
+            if [ "$PRODUCTION_APP_SERVING" = "app-platform" ] &&
+               [ "$record_type" = "CNAME" ] &&
+               [ "$PRODUCTION_SERVING_DNS_PHASE" != "prepare-doks" ]; then
+              if terraform state show "$address" >/dev/null 2>&1; then
+                terraform state rm "$address"
+              fi
+              continue
+            fi
+
+            if ! terraform state show "$address" >/dev/null 2>&1; then
+              terraform import "$address" "${zone},${record_id}"
+            fi
           done
 
       - name: Gate production serving DNS replacement
@@ -3130,6 +3147,41 @@ jobs:
           fi
           write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" "$replacement_from"
           echo "The ${required_phase} wait expired; the bounded ${expected_source_type}-to-${target_type} replacement may be planned."
+
+      - name: Release production App Platform CNAME state
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ "${PRODUCTION_SERVING_DNS_REPLACEMENT_FROM:-}" != "app-platform" ]; then
+            echo "No App Platform-to-DOKS swap passed the TTL gate; no CNAME state identities will be released."
+            exit 0
+          fi
+          if [ "$PRODUCTION_APP_SERVING" != "doks" ]; then
+            echo "The App Platform CNAME state release is valid only for an approved forward DOKS swap." >&2
+            exit 1
+          fi
+
+          record_names=(admin www)
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            record_names+=(marketplace)
+          fi
+          for name in "${record_names[@]}"; do
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            if ! record_state="$(terraform state show "$address")"; then
+              echo "${address} is missing from the completed TTL-preparation state; refusing the state release." >&2
+              exit 1
+            fi
+            record_type="$(printf '%s\n' "$record_state" | awk -F' = ' '/^    type / {gsub(/\"/, "", $2); print $2}')"
+            if [ "$record_type" != "CNAME" ]; then
+              echo "${address} is not the prepared App Platform CNAME identity; refusing the state release." >&2
+              exit 1
+            fi
+            terraform state rm "$address"
+          done
 
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'
