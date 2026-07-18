@@ -10,8 +10,30 @@ const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 const packageManager = packageJson.packageManager ?? "pnpm@11.0.9";
 const pnpmVersion = packageManager.startsWith("pnpm@") ? packageManager.slice("pnpm@".length) : "11.0.9";
 
-function resolveStoreDir() {
-  return path.resolve(process.env.CHASE_SETS_PNPM_STORE_DIR ?? path.join(repoRoot, "..", ".chase-sets-pnpm-store"));
+function resolveStoreDirOverride() {
+  const override = process.env.CHASE_SETS_PNPM_STORE_DIR;
+  return override ? path.resolve(override) : null;
+}
+
+function storeDirArgs() {
+  const override = resolveStoreDirOverride();
+  return override ? ["--store-dir", override] : [];
+}
+
+function describeStoreDir() {
+  const override = resolveStoreDirOverride();
+  if (override) {
+    return `${override} (CHASE_SETS_PNPM_STORE_DIR)`;
+  }
+
+  const invocation = buildPnpmInvocation(["store", "path"]);
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+
+  return result.status === 0 ? `${result.stdout.trim()} (pnpm per-drive default)` : "pnpm default (unresolved)";
 }
 
 function resolveWindowsNpmCliPath() {
@@ -83,7 +105,6 @@ function readPnpmVersion() {
 }
 
 function printStatus() {
-  const storeDir = resolveStoreDir();
   const lockfilePath = path.join(repoRoot, "pnpm-lock.yaml");
   const nodeModulesPath = path.join(repoRoot, "node_modules");
   const ready = existsSync(lockfilePath) && existsSync(nodeModulesPath);
@@ -91,7 +112,7 @@ function printStatus() {
   console.log(`Repo root: ${repoRoot}`);
   console.log(`Node: ${process.version}`);
   console.log(`Package manager: pnpm@${readPnpmVersion()}`);
-  console.log(`Shared pnpm store: ${storeDir}`);
+  console.log(`pnpm store: ${describeStoreDir()}`);
   console.log(`Lockfile: ${existsSync(lockfilePath) ? "present" : "missing"}`);
   console.log(`node_modules: ${existsSync(nodeModulesPath) ? "present" : "missing"}`);
   console.log(`Worktree ready: ${ready ? "yes" : "no"}`);
@@ -100,16 +121,16 @@ function printStatus() {
 }
 
 async function install() {
-  const storeDir = resolveStoreDir();
-  mkdirSync(storeDir, { recursive: true });
-  console.log(`Using shared pnpm store: ${storeDir}`);
-  await runPnpm(["install", "--frozen-lockfile", "--prefer-offline", "--store-dir", storeDir]);
+  const override = resolveStoreDirOverride();
+  if (override) {
+    mkdirSync(override, { recursive: true });
+  }
+  await runPnpm(["install", "--frozen-lockfile", "--prefer-offline", ...storeDirArgs()]);
   printStatus();
 }
 
 async function pruneStore() {
-  const storeDir = resolveStoreDir();
-  await runPnpm(["store", "prune", "--store-dir", storeDir]);
+  await runPnpm(["store", "prune", ...storeDirArgs()]);
 }
 
 function printHelp() {
