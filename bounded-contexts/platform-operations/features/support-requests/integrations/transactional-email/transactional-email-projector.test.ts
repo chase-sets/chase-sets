@@ -43,6 +43,36 @@ describe("support request transactional email projector", () => {
     });
   });
 
+  it("notifies the buyer when Honor Offline opens seller-cannot-fulfill support", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com", buyer_account_id: "acc_buyer" }] })),
+    };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
+
+    await projectSupportRequestEventToTransactionalEmail(db, outbox, {
+      id: "evt_honor_offline_support",
+      type: "support.support-request.opened",
+      globalPosition: "16",
+      trace: { traceId: "trace_honor_offline" },
+      timing: { occurredAt: "2026-07-17T12:00:00.000Z", recordedAt: "2026-07-17T12:00:01.000Z" },
+      data: {
+        supportRequestId: "sup_honor_offline",
+        orderId: "ord_1",
+        flowType: "seller-cannot-fulfill",
+      },
+    } as never);
+
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "support.support-request.opened",
+          recipientAccountId: "acc_buyer",
+          templateData: expect.objectContaining({ flowType: "seller-cannot-fulfill", orderId: "ord_1" }),
+        }),
+      }),
+    );
+  });
+
   it("uses order source buyer email to enqueue support request resolution email", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),

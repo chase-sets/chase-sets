@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildOrderingSupportCancellationReactionHandlers,
+  SELLER_CANNOT_FULFILL_REASON,
   SUPPORT_CANCEL_ORDER_REASON,
 } from "./support-cancellation-reaction";
 
-function resolvedEvent(resolutionType: string) {
+function resolvedEvent(resolutionType: string, flowType = "buyer-cancel-request") {
   return {
     tenantId: "tnt_test",
     streamId: "support.support-request-sup_1",
@@ -15,6 +16,7 @@ function resolvedEvent(resolutionType: string) {
     data: {
       supportRequestId: "sup_1",
       orderId: "ord_1",
+      flowType,
       resolution: {
         resolutionType,
         refundAmount: null,
@@ -45,6 +47,19 @@ describe("ordering support cancellation reaction", () => {
           reason: SUPPORT_CANCEL_ORDER_REASON,
         },
         context: expect.objectContaining({ tenantId: "tnt_test" }),
+      }),
+    );
+  });
+
+  it("preserves the seller-cannot-fulfill cause when the automated case cancels the order", async () => {
+    const dispatch = vi.fn(async () => ({ version: 5 }));
+    const handlers = buildOrderingSupportCancellationReactionHandlers(dispatch);
+
+    await handlers["support.support-request.resolved"]?.(resolvedEvent("cancel-order", "seller-cannot-fulfill"));
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ reason: SELLER_CANNOT_FULFILL_REASON }),
       }),
     );
   });

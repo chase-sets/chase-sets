@@ -16,7 +16,7 @@ describe("inventory hold collision", () => {
         totalQuantity: 10,
         requestedQuantity: 4,
         mode: "protect-orders",
-        honorOfflineAuthorized: false,
+        actorRole: null,
         activeHolds: [orderHold("hld_1", 6, "ord_1", "2026-07-01T00:00:00.000Z")],
       }),
     ).toBeNull();
@@ -27,7 +27,7 @@ describe("inventory hold collision", () => {
       totalQuantity: 10,
       requestedQuantity: 6,
       mode: "protect-orders",
-      honorOfflineAuthorized: false,
+      actorRole: null,
       activeHolds: [orderHold("hld_1", 6, "ord_1", "2026-07-01T00:00:00.000Z")],
     });
 
@@ -44,7 +44,7 @@ describe("inventory hold collision", () => {
       totalQuantity: 10,
       requestedQuantity: 6,
       mode: "honor-offline",
-      honorOfflineAuthorized: true,
+      actorRole: "manager",
       activeHolds: [
         orderHold("hld_old", 3, "ord_old", "2026-07-01T00:00:00.000Z"),
         orderHold("hld_new", 3, "ord_new", "2026-07-02T00:00:00.000Z"),
@@ -52,6 +52,7 @@ describe("inventory hold collision", () => {
     });
 
     expect(plan).toMatchObject({
+      authorizedByRole: "manager",
       appliedQuantity: 6,
       refusedQuantity: 0,
       releasedHoldQuantity: 3,
@@ -75,10 +76,10 @@ describe("inventory hold collision", () => {
       ],
     };
 
-    expect(() => planInventoryHoldCollision({ ...input, honorOfflineAuthorized: false })).toThrow(
+    expect(() => planInventoryHoldCollision({ ...input, actorRole: "fulfillment" })).toThrow(
       "manager or owner authorization",
     );
-    expect(() => planInventoryHoldCollision({ ...input, honorOfflineAuthorized: true })).toThrow(
+    expect(() => planInventoryHoldCollision({ ...input, actorRole: "owner" })).toThrow(
       "cannot displace manual or checkout",
     );
   });
@@ -88,7 +89,7 @@ describe("inventory hold collision", () => {
       totalQuantity: 5,
       requestedQuantity: 4,
       mode: "protect-orders",
-      honorOfflineAuthorized: false,
+      actorRole: null,
       activeHolds: [orderHold("hld_1", 3, "ord_1", "2026-07-01T00:00:00.000Z")],
     })!;
 

@@ -36,6 +36,7 @@ function reservationState(status: InventoryReservationState["status"] = null): I
     status,
     rejectionReason: status === "rejected" ? "not available" : null,
     releasedAt: null,
+    releaseReason: null,
   };
 }
 

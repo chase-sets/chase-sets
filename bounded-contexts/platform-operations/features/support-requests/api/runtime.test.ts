@@ -39,6 +39,76 @@ const operatorSellerNonShipmentFinding = {
 } as const;
 
 describe("support request runtime", () => {
+  it("opens, evidences, and resolves an Honor Offline case idempotently", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+                affected_line_amounts: [],
+                delivered_at: null,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const input = {
+      orderId: "ord_1",
+      sellerAccountId: "acc_seller",
+      reservationRequestId: "rsv_collision_1",
+      holdId: "hld_collision_1",
+      releasedAt: "2026-07-17T12:00:00.000Z",
+    };
+
+    const first = await runtime.openAutomatedSellerCannotFulfillRequest(input, context);
+    const repeated = await runtime.openAutomatedSellerCannotFulfillRequest(input, context);
+
+    expect(repeated).toEqual(first);
+    expect(allEvents.filter((event) => event.eventType === "support.support-request.opened")).toHaveLength(1);
+    expect(allEvents.filter((event) => event.eventType === "support.support-request.evidence-submitted")).toHaveLength(
+      1,
+    );
+    expect(allEvents.filter((event) => event.eventType === "support.support-request.resolved")).toHaveLength(1);
+    expect(allEvents.find((event) => event.eventType === "support.support-request.opened")?.payload).toMatchObject({
+      orderId: "ord_1",
+      sellerAccountId: "acc_seller",
+      flowType: "seller-cannot-fulfill",
+      openedByRole: "seller",
+    });
+    expect(
+      allEvents.find((event) => event.eventType === "support.support-request.evidence-submitted")?.payload,
+    ).toMatchObject({
+      evidence: expect.objectContaining({
+        submittedByAccountId: "acc_seller",
+        evidenceType: "seller-attestation",
+        summary: expect.stringContaining("rsv_collision_1"),
+      }),
+    });
+    expect(allEvents.find((event) => event.eventType === "support.support-request.resolved")?.payload).toMatchObject({
+      flowType: "seller-cannot-fulfill",
+      resolution: expect.objectContaining({
+        resolutionType: "cancel-order",
+        responsibility: "seller",
+        responsibilityReasonCode: "seller-cannot-fulfill.seller-unable-to-fulfill",
+      }),
+    });
+  });
+
   it("limits attachment reads to the buyer, seller, and platform support operator", async () => {
     const body = new Uint8Array([0xff, 0xd8, 0xff]);
     const sha256 = createHash("sha256").update(body).digest("hex");

@@ -218,7 +218,7 @@ export function inventoryItemRoutes(
                 requestedQuantity: -quantityDelta,
                 reason: String(body.reason ?? ""),
                 mode: collisionMode,
-                honorOfflineAuthorized: collisionMode === "honor-offline",
+                actorRole: actor.roleKey ?? null,
               },
               c.get("context"),
             )

@@ -76,7 +76,9 @@ export type InventoryReservationReleasedPayload = Readonly<{
   orderId: string;
   reservationRequestId: string;
   holdId: string;
+  sellerAccountId: AccountId;
   releasedAt: string;
+  releaseReason: InventoryHoldReleaseReason;
 }>;
 
 export const inventoryHoldPurposes = ["order", "manual", "checkout", "pos", "channel", "transfer"] as const;
@@ -159,6 +161,7 @@ export type InventoryHoldCollisionRecordedPayload = Readonly<{
   storageLocationId: string;
   reason: string;
   mode: "protect-orders" | "honor-offline";
+  authorizedByRole: "manager" | "owner" | "platform-admin" | null;
   requestedQuantity: number;
   appliedQuantity: number;
   refusedQuantity: number;

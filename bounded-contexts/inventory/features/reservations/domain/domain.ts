@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { InventoryHoldReleaseReason } from "@chase-sets/event-core/public-event-payloads";
 import {
   assert,
   assertNever,
@@ -17,6 +18,7 @@ export type InventoryReservationState = Readonly<{
   status: "pending" | "confirmed" | "rejected" | "released" | null;
   rejectionReason: string | null;
   releasedAt: string | null;
+  releaseReason: InventoryHoldReleaseReason | null;
 }>;
 
 export const initialInventoryReservationState: InventoryReservationState = {
@@ -29,6 +31,7 @@ export const initialInventoryReservationState: InventoryReservationState = {
   status: null,
   rejectionReason: null,
   releasedAt: null,
+  releaseReason: null,
 };
 
 export type ConfirmInventoryReservationCommand = Readonly<{
@@ -54,6 +57,7 @@ export type RejectInventoryReservationCommand = Readonly<{
 export type ReleaseInventoryReservationCommand = Readonly<{
   type: "ReleaseInventoryReservation";
   releasedAt: string;
+  releaseReason: InventoryHoldReleaseReason;
 }>;
 
 export type InventoryReservationCommand =
@@ -91,7 +95,9 @@ export type InventoryReservationReleasedEvent = DomainEvent<
     reservationRequestId: string;
     orderId: string;
     holdId: string;
+    sellerAccountId: string;
     releasedAt: string;
+    releaseReason: InventoryHoldReleaseReason;
   }>
 >;
 
@@ -173,7 +179,9 @@ export const decideInventoryReservation: AggregateDecider<
             reservationRequestId: state.reservationRequestId!,
             orderId: state.orderId!,
             holdId: state.holdId!,
+            sellerAccountId: state.sellerAccountId!,
             releasedAt: normalizeLabel(command.releasedAt),
+            releaseReason: command.releaseReason,
           },
         },
       ];
@@ -198,6 +206,7 @@ export const evolveInventoryReservation: AggregateEvolver<InventoryReservationSt
         status: "confirmed",
         rejectionReason: null,
         releasedAt: null,
+        releaseReason: null,
       };
     case "inventory.reservation.rejected":
       return {
@@ -210,12 +219,14 @@ export const evolveInventoryReservation: AggregateEvolver<InventoryReservationSt
         status: "rejected",
         rejectionReason: normalizeOptionalText(event.data.reason),
         releasedAt: null,
+        releaseReason: null,
       };
     case "inventory.reservation.released":
       return {
         ...state,
         status: "released",
         releasedAt: event.data.releasedAt,
+        releaseReason: event.data.releaseReason,
       };
     default:
       return assertNever(event);

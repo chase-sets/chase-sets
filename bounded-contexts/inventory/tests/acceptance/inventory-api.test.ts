@@ -764,6 +764,18 @@ describe("inventory api", () => {
     });
     await expect(services.reservations.getReservationState("rsv_collision_1")).resolves.toMatchObject({
       status: "released",
+      releaseReason: "hold-collision",
+    });
+    const releaseEvents = await pools.inventory.query<{ payload: Record<string, unknown> }>(
+      `SELECT payload
+       FROM event_store_events
+       WHERE stream_id = 'inventory.reservation-rsv_collision_1'
+         AND event_type = 'inventory.reservation.released'`,
+    );
+    expect(releaseEvents.rows[0]?.payload).toMatchObject({
+      orderId: "ord_collision_1",
+      sellerAccountId: "acc_inventory",
+      releaseReason: "hold-collision",
     });
     const collisions = await pools.inventory.query<{ mode: string; affected_orders: unknown }>(
       "SELECT mode, affected_orders FROM inventory_hold_collisions WHERE item_id = $1",
@@ -775,6 +787,106 @@ describe("inventory api", () => {
         affected_orders: [expect.objectContaining({ orderId: "ord_collision_1" })],
       }),
     ]);
+  });
+
+  it("treats checkout conversion as the order commitment time when releasing the newest order", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Conversion collision",
+        shipFromCode: "CHI-CONVERT",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 2,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const checkoutHoldId = "hld_checkout_older_than_direct" as never;
+    await services.holds.createHold(
+      {
+        holdId: checkoutHoldId,
+        accountId: "acc_inventory" as never,
+        itemId: item.itemId,
+        quantity: 1,
+        reason: "Checkout payment step",
+        purpose: "checkout",
+        sourceRef: { checkoutSessionId: "chk_older" as never, lineKey: "line_1" },
+        expiresAt: "2099-07-17T12:00:00.000Z",
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    await reserveOrderInventoryRequest(services, {
+      orderId: "ord_direct_newer_than_checkout",
+      request: {
+        reservationRequestId: "rsv_direct_newer_than_checkout",
+        sellerAccountId: "acc_inventory",
+        inventoryItemId: item.itemId,
+        quantity: 1,
+      },
+      context: inventoryContext,
+    });
+    await drainContextProcesses({ subscriptionRunners });
+
+    await reserveOrderInventoryRequest(services, {
+      orderId: "ord_converted_newest",
+      request: {
+        reservationRequestId: "rsv_converted_newest",
+        sellerAccountId: "acc_inventory",
+        inventoryItemId: item.itemId,
+        quantity: 1,
+        holdId: checkoutHoldId,
+      },
+      context: inventoryContext,
+    });
+    await drainContextProcesses({ subscriptionRunners });
+
+    const result = await services.holdCollisions.reduceItem(
+      {
+        accountId: "acc_inventory",
+        itemId: item.itemId,
+        requestedQuantity: 1,
+        reason: "Counter sale after checkout conversion",
+        mode: "honor-offline",
+        actorRole: "owner",
+      },
+      inventoryContext,
+    );
+
+    expect(result.collision?.affectedOrders).toEqual([
+      expect.objectContaining({
+        orderId: "ord_converted_newest",
+        reservationRequestId: "rsv_converted_newest",
+        disposition: "released",
+      }),
+    ]);
+    await expect(services.reservations.getReservationState("rsv_converted_newest")).resolves.toMatchObject({
+      status: "released",
+    });
+    await expect(services.reservations.getReservationState("rsv_direct_newer_than_checkout")).resolves.toMatchObject({
+      status: "confirmed",
+    });
   });
 
   it("serializes a simultaneous reservation and stock reduction so one unit is never double-committed", async () => {

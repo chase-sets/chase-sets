@@ -87,7 +87,7 @@ function paymentCapturedEvent() {
 }
 
 describe("payments order cancellation refund effect projection", () => {
-  it("refunds the cancelled order total plus allocated checkout fee once", async () => {
+  it("refunds a seller-cannot-fulfill cancellation plus its allocated checkout fee once", async () => {
     const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -113,7 +113,9 @@ describe("payments order cancellation refund effect projection", () => {
     };
     const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
 
-    await handlers["ordering.order.cancelled"]?.(cancellationEvent());
+    await handlers["ordering.order.cancelled"]?.(
+      cancellationEvent({ orderId: "ord_1", reason: "seller-cannot-fulfill" }),
+    );
 
     expect(issueRefund).toHaveBeenCalledWith(
       {

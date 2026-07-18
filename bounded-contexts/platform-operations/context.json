@@ -187,7 +187,28 @@
       "projectionHandlerSetNames": ["support-return-label-source-projection"]
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "support-inventory-hold-collision",
+      "subscriptionVersion": 1,
+      "eventTypes": ["inventory.reservation.released"],
+      "order": 75,
+      "reactionHandlerSetNames": ["support-inventory-hold-collision"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
+    {
+      "projectionName": "support-inventory-hold-collision",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "commercial-terms-effective-date-attention-projection",
       "sourceContextNames": ["commercial-terms"],

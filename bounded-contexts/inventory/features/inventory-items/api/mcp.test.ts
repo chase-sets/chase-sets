@@ -200,6 +200,7 @@ describe("inventory item MCP handlers", () => {
       version: 3,
       collision: {
         mode: "protect-orders",
+        authorizedByRole: null,
         requestedQuantity: 1,
         appliedQuantity: 0,
         refusedQuantity: 1,

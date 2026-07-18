@@ -85,6 +85,7 @@ describe("inventory ordering cancellation subscription", () => {
       command: {
         type: "ReleaseInventoryReservation",
         releasedAt: "2026-03-31T01:00:00.000Z",
+        releaseReason: "payment-deadline",
       },
       context: expect.objectContaining({
         tenantId: "tenant_1",

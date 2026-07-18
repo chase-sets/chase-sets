@@ -213,7 +213,7 @@ export function createInventoryItemMcpHandlers(
               requestedQuantity: -quantityDelta,
               reason: readRequiredString(args, "reason"),
               mode,
-              honorOfflineAuthorized: mode === "honor-offline",
+              actorRole: scopedActor.roleKey,
             },
             createActorEventStoreContext(scopedActor),
           )

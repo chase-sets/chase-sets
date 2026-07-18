@@ -1021,8 +1021,21 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
 ) => {
   switch (command.type) {
     case "OpenSupportRequest": {
-      assert(state.supportRequestId === null, "Support request is already open.");
       const flowType = normalizeFlowType(command.flowType);
+      if (state.supportRequestId !== null) {
+        assert(
+          state.supportRequestId === command.supportRequestId &&
+            state.orderId === command.orderId &&
+            state.buyerAccountId === command.buyerAccountId &&
+            state.sellerAccountId === command.sellerAccountId &&
+            state.flowType === flowType &&
+            state.openedByAccountId === command.openedByAccountId &&
+            state.openedByRole === command.openedByRole &&
+            state.openedAt === command.openedAt,
+          "Support request is already open with different evidence.",
+        );
+        return [];
+      }
       const definition = getSupportFlowDefinition(flowType);
       const openedByRole = normalizeRequesterRole(command.openedByRole);
       assert(definition.openedBy.includes(openedByRole), "This support flow cannot be opened by that role.");
@@ -1097,12 +1110,20 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
     }
     case "SubmitSupportEvidence": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
+      const evidence = normalizeEvidence(command);
+      const existingEvidence = state.evidence.find((candidate) => candidate.evidenceId === evidence.evidenceId);
+      if (existingEvidence) {
+        assert(
+          JSON.stringify(existingEvidence) === JSON.stringify(evidence),
+          "Support evidence id is already used for different evidence.",
+        );
+        return [];
+      }
       assert(
         state.status !== "resolved" && state.status !== "closed" && state.status !== "cancelled",
         "Closed support requests cannot accept evidence.",
       );
       assert(state.flowType !== null, "Support request flow is missing.");
-      const evidence = normalizeEvidence(command);
       const definition = getSupportFlowDefinition(state.flowType);
       assert(
         includesEvidenceType(definition.allowedEvidenceTypes, evidence.evidenceType),

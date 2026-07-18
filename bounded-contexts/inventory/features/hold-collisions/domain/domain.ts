@@ -6,6 +6,10 @@ export const inventoryHoldCollisionModes = ["protect-orders", "honor-offline"] a
 
 export type InventoryHoldCollisionMode = (typeof inventoryHoldCollisionModes)[number];
 
+export const inventoryHonorOfflineRoles = ["manager", "owner", "platform-admin"] as const;
+
+export type InventoryHonorOfflineRole = (typeof inventoryHonorOfflineRoles)[number];
+
 export type ActiveInventoryHoldForCollision = Readonly<{
   holdId: string;
   quantity: number;
@@ -24,6 +28,7 @@ export type InventoryHoldCollisionOrder = Readonly<{
 
 export type InventoryHoldCollisionPlan = Readonly<{
   mode: InventoryHoldCollisionMode;
+  authorizedByRole: InventoryHonorOfflineRole | null;
   requestedQuantity: number;
   appliedQuantity: number;
   refusedQuantity: number;
@@ -38,7 +43,7 @@ export function planInventoryHoldCollision(
     totalQuantity: number;
     requestedQuantity: number;
     mode: InventoryHoldCollisionMode;
-    honorOfflineAuthorized: boolean;
+    actorRole: string | null;
     activeHolds: readonly ActiveInventoryHoldForCollision[];
   }>,
 ): InventoryHoldCollisionPlan | null {
@@ -59,6 +64,7 @@ export function planInventoryHoldCollision(
   if (input.mode === "protect-orders") {
     return {
       mode: input.mode,
+      authorizedByRole: null,
       requestedQuantity: input.requestedQuantity,
       appliedQuantity: availableQuantity,
       refusedQuantity: input.requestedQuantity - availableQuantity,
@@ -69,7 +75,11 @@ export function planInventoryHoldCollision(
     };
   }
 
-  assert(input.honorOfflineAuthorized, "Honor offline requires manager or owner authorization.");
+  assert(
+    input.actorRole !== null && (inventoryHonorOfflineRoles as readonly string[]).includes(input.actorRole),
+    "Honor offline requires manager or owner authorization.",
+  );
+  const authorizedByRole = input.actorRole as InventoryHonorOfflineRole;
   const deficit = input.requestedQuantity - availableQuantity;
   const releasableOrderQuantity = orderHolds.reduce((total, hold) => total + hold.quantity, 0);
   assert(releasableOrderQuantity >= deficit, "Honor offline cannot displace manual or checkout inventory holds.");
@@ -91,6 +101,7 @@ export function planInventoryHoldCollision(
 
   return {
     mode: input.mode,
+    authorizedByRole,
     requestedQuantity: input.requestedQuantity,
     appliedQuantity: input.requestedQuantity,
     refusedQuantity: 0,
@@ -130,6 +141,7 @@ export type InventoryHoldCollisionRecordedEvent = DomainEvent<
     storageLocationId: string;
     reason: string;
     mode: InventoryHoldCollisionMode;
+    authorizedByRole: InventoryHonorOfflineRole | null;
     requestedQuantity: number;
     appliedQuantity: number;
     refusedQuantity: number;
@@ -160,6 +172,7 @@ export const decideInventoryHoldCollision: AggregateDecider<
         storageLocationId: normalizeLabel(command.storageLocationId),
         reason: normalizeLabel(command.reason),
         mode: command.plan.mode,
+        authorizedByRole: command.plan.authorizedByRole,
         requestedQuantity: command.plan.requestedQuantity,
         appliedQuantity: command.plan.appliedQuantity,
         refusedQuantity: command.plan.refusedQuantity,

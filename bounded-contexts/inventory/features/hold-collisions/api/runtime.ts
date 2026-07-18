@@ -61,7 +61,7 @@ export type InventoryHoldCollisionServices = Readonly<{
       requestedQuantity: number;
       reason: string;
       mode?: InventoryHoldCollisionMode;
-      honorOfflineAuthorized?: boolean;
+      actorRole?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<InventoryHoldCollisionResult>;
@@ -120,7 +120,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             totalQuantity: item.state.totalQuantity,
             requestedQuantity: params.requestedQuantity,
             mode,
-            honorOfflineAuthorized: params.honorOfflineAuthorized ?? false,
+            actorRole: params.actorRole ?? null,
             activeHolds,
           });
           const releasedHoldQuantity = collision?.releasedHoldQuantity ?? 0;
@@ -169,6 +169,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
               const reservationEvents = decideInventoryReservation(reservation.state, {
                 type: "ReleaseInventoryReservation",
                 releasedAt,
+                releaseReason: "hold-collision",
               });
               appends.push(
                 {
@@ -275,10 +276,10 @@ async function loadActiveHolds(
        placed.payload ->> 'quantity' AS quantity,
        COALESCE(converted.payload ->> 'purpose', placed.payload ->> 'purpose', 'manual') AS purpose,
        COALESCE(converted.payload -> 'sourceRef', placed.payload -> 'sourceRef') AS source_ref,
-       placed.recorded_at AS committed_at
+       COALESCE(converted.recorded_at, placed.recorded_at) AS committed_at
      FROM placed
      LEFT JOIN LATERAL (
-       SELECT event.payload
+       SELECT event.payload, event.recorded_at
        FROM event_store_events AS event
        WHERE event.tenant_id = $1
          AND event.stream_id = placed.stream_id

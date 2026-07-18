@@ -190,6 +190,7 @@ describe("inventory item routes", () => {
       version: 3,
       collision: {
         mode: "protect-orders",
+        authorizedByRole: null,
         requestedQuantity: 4,
         appliedQuantity: 2,
         refusedQuantity: 2,
@@ -229,7 +230,7 @@ describe("inventory item routes", () => {
       },
     });
     expect(reduceItem).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: "protect-orders", honorOfflineAuthorized: false }),
+      expect.objectContaining({ mode: "protect-orders", actorRole: null }),
       context,
     );
   });
