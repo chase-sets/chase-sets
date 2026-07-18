@@ -1,0 +1,224 @@
+name: Catalog Integration Staging Reset
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Collect a support-safe dry run or apply the destructive reset.
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      environment:
+        description: Target environment. Production/prelaunch is explicitly refused by this staging workflow.
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production-prelaunch
+      confirm:
+        description: For apply, type "reset staging catalog integration data" exactly.
+        required: false
+        type: string
+      approval_reference:
+        description: Required for apply; issue comment or other durable approval reference.
+        required: false
+        type: string
+      operator:
+        description: Required for apply; support-safe operator identity.
+        required: false
+        type: string
+      backup_decision:
+        description: Backup was created, or data loss was explicitly accepted.
+        required: false
+        default: skip-backup-accepted-data-loss
+        type: choice
+        options:
+          - skip-backup-accepted-data-loss
+          - create-backup-snapshot-export
+      backup_reference_or_approver:
+        description: Backup reference, or accepted-data-loss approver.
+        required: false
+        type: string
+      backup_owner_or_rationale:
+        description: Backup owner, or accepted-data-loss rationale.
+        required: false
+        type: string
+      backup_retention_or_target_data_set:
+        description: Backup retention-until timestamp, or named prelaunch-only data set.
+        required: false
+        type: string
+      backup_restore_verification_reference:
+        description: Required only when a backup/snapshot/export was created.
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: platform-deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  refuse-production:
+    name: Refuse Production Catalog Integration Reset
+    runs-on: ubuntu-latest
+    if: inputs.environment != 'staging'
+    steps:
+      - name: Refuse production/prelaunch
+        run: |
+          echo "Production/prelaunch requires separately reviewed machinery after a successful staging rehearsal." >&2
+          exit 1
+
+  refuse-unconfirmed-apply:
+    name: Refuse Unconfirmed Catalog Integration Reset
+    runs-on: ubuntu-latest
+    if: inputs.action == 'apply' && inputs.confirm != 'reset staging catalog integration data'
+    steps:
+      - name: Refuse unconfirmed destructive apply
+        run: |
+          echo 'Confirmation text did not match exactly; expected "reset staging catalog integration data".' >&2
+          exit 1
+
+  catalog-integration-reset:
+    name: Catalog Integration Staging Reset
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    needs:
+      - refuse-production
+      - refuse-unconfirmed-apply
+    if: >-
+      always() &&
+      needs.refuse-production.result == 'skipped' &&
+      needs.refuse-unconfirmed-apply.result == 'skipped'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      DEPLOYMENT_ENVIRONMENT: staging
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export staging Catalog database URL
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform state pull > "$state_path"
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment staging \
+            --contexts catalog \
+            --connection-mode pooled \
+            --github-env "$GITHUB_ENV"
+
+      - name: Run Catalog integration reset policy
+        env:
+          RESET_ACTION: ${{ inputs.action }}
+          RESET_CONFIRM: ${{ inputs.confirm }}
+          RESET_APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+          RESET_OPERATOR: ${{ inputs.operator }}
+          RESET_BACKUP_DECISION: ${{ inputs.backup_decision }}
+          RESET_BACKUP_FIELD_1: ${{ inputs.backup_reference_or_approver }}
+          RESET_BACKUP_FIELD_2: ${{ inputs.backup_owner_or_rationale }}
+          RESET_BACKUP_FIELD_3: ${{ inputs.backup_retention_or_target_data_set }}
+          RESET_BACKUP_RESTORE_REFERENCE: ${{ inputs.backup_restore_verification_reference }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/catalog-integration-reset
+          args=(
+            --action "$RESET_ACTION"
+            --environment staging
+            --out artifacts/catalog-integration-reset/catalog-integration-reset.json
+          )
+          if [ "$RESET_ACTION" = "apply" ]; then
+            args+=(
+              --confirm "$RESET_CONFIRM"
+              --approval-reference "$RESET_APPROVAL_REFERENCE"
+              --operator "$RESET_OPERATOR"
+              --backup-decision "$RESET_BACKUP_DECISION"
+            )
+            if [ "$RESET_BACKUP_DECISION" = "create-backup-snapshot-export" ]; then
+              args+=(
+                --backup-reference "$RESET_BACKUP_FIELD_1"
+                --backup-owner "$RESET_BACKUP_FIELD_2"
+                --backup-retention-until "$RESET_BACKUP_FIELD_3"
+                --backup-restore-verification-reference "$RESET_BACKUP_RESTORE_REFERENCE"
+              )
+            else
+              args+=(
+                --backup-approver "$RESET_BACKUP_FIELD_1"
+                --backup-rationale "$RESET_BACKUP_FIELD_2"
+                --backup-target-data-set "$RESET_BACKUP_FIELD_3"
+              )
+            fi
+          fi
+          pnpm run ops catalog:integration-reset -- "${args[@]}"
+
+      - name: Summarize Catalog integration reset
+        if: always()
+        run: |
+          record=artifacts/catalog-integration-reset/catalog-integration-reset.json
+          if [ ! -f "$record" ]; then
+            echo "Catalog integration reset did not produce a report." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Catalog Integration Reset");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Action: ${record.action}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Target tables: ${record.targetTables.length}`);
+          console.log(`- Active integration jobs before: ${record.dryRun.activeIntegrationDurableJobs}`);
+          console.log(`- Active bulk-review jobs before: ${record.dryRun.activeBulkReviewJobs}`);
+          console.log(`- Evidence findings: ${record.evidenceFindings.length}`);
+          NODE
+
+      - name: Upload Catalog integration reset report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-integration-reset-${{ inputs.action }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-integration-reset/catalog-integration-reset.json
+          if-no-files-found: warn
+          retention-days: 30

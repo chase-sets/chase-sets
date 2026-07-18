@@ -190,6 +190,20 @@ For pre-launch data reset/drop runs, also record:
 - successful staging rehearsal reference for production/prelaunch resets;
 - staging or production smoke verification reference.
 
+Use `pnpm run ops catalog:integration-reset -- --action dry-run` through the
+`Catalog Integration Staging Reset` workflow to collect staging counts without
+mutation. The workflow resolves the staging Catalog database from reviewed
+Terraform state, verifies the connected database is exactly
+`chase_sets_staging_catalog`, and emits the exact non-empty policy target scope.
+
+Destructive staging apply requires the exact confirmation phrase
+`reset staging catalog integration data`, a support-safe operator, an approval
+reference, and either complete backup evidence or a complete accepted-data-loss
+decision. The command runs the staging-refresh overlap-only gate immediately
+before mutation and always invokes the policy with active-job reset disabled.
+`production-prelaunch` is recognized but refused; production requires separate
+reviewed machinery after a successful staging rehearsal.
+
 For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), also record:
 
 - dry-run and before/after counts from `collectCatalogScopeMergeCandidateVerificationReport`, covering Merge Candidates, Merge Candidate observations, `catalog.merge-candidate-*` event streams/events, and unreviewed Provider Scope Mapping proposals;

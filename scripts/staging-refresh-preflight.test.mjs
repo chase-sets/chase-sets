@@ -328,6 +328,7 @@ describe("staging refresh overlap and CLI posture", () => {
       "Platform Staging Mixed-Version Wake Evidence",
       "Platform Database Restore Drill",
       "Catalog Staging Provider UAT",
+      "Catalog Integration Staging Reset",
       "Platform Staging Representative Commerce State",
     ]);
     expect(stagingRefreshOverlapWorkflowFiles.map(workflowNameFromFile)).toEqual(stagingRefreshOverlapWorkflowNames);
