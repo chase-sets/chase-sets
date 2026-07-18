@@ -1792,6 +1792,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
     expect(platformMain).toContain("for_each = local.app_platform_admin_domains");
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
+    expect(platformMain).not.toContain("domains = local.is_production && local.serving_from_doks ? [] : null");
+    expect(platformMain).toContain("for_each = local.production_app_platform_parking_domains");
+    expect(platformLocals).toContain('production_app_platform_parking_domain = "app-platform.${var.root_domain}"');
     expect(platformLocals).toContain("app_serving_record_names");
     expect(platformLocals).toContain("]) : local.is_production ? toset(concat(");
     expect(platformLocals).not.toContain("local.is_production && local.serving_from_doks ? toset(concat(");
@@ -1813,10 +1816,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('path_prefix = "/"');
     expect(platformLocals).toContain('component   = "admin-web"');
     expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/admin"');
+    expect(platformLocals).toContain('component   = "platform-api"');
+    expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/api"');
     expect(platformLocals).toContain('component   = "marketplace"');
     expect(platformLocals).toContain('path_prefix = "/_app-platform/doks/marketplace"');
+    expect(platformLocals).toContain(
+      "authority   = local.is_production ? local.production_app_platform_parking_domain : null",
+    );
     expect(platformLocals).toContain("local.marketplace_public_enabled ? [");
     expect(platformMain).toContain("for_each = local.app_platform_doks_ingress_routes");
+    expect(platformMain).toContain("for_each = rule.value.authority == null ? [] : [rule.value.authority]");
+    expect(platformMain).toContain("exact = authority.value");
     expect(platformMain).toContain("prefix = rule.value.path_prefix");
     expect(platformMain).toContain("name                 = rule.value.component");
     expect(platformMain).not.toContain("for_each = local.serving_from_doks ? [1] : []");

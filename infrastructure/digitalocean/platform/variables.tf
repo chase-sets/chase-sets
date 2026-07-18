@@ -822,7 +822,7 @@ variable "staging_app_serving" {
 variable "production_app_serving" {
   type        = string
   default     = "app-platform"
-  description = "Which platform serves the live production apex, admin, www, and approved marketplace hosts. The default keeps those domains attached to App Platform; \"doks\" replaces them with the dedicated App Platform parking attachment before creating DOKS A records."
+  description = "Which platform serves the live production apex, admin, www, and approved marketplace hosts. The default keeps those domains attached to App Platform; \"doks\" replaces them with the authority-qualified App Platform parking attachment before creating DOKS A records."
 
   validation {
     condition     = contains(["app-platform", "doks"], var.production_app_serving)

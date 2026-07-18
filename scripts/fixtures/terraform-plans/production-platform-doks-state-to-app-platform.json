@@ -2,7 +2,7 @@
   "format_version": "1.2",
   "terraform_version": "1.14.0",
   "fixture": {
-    "description": "Plan inspection fixture representing production platform state after DOKS cutover and a prepared rollback to App Platform."
+    "description": "Plan inspection fixture representing production platform state on the authority-qualified parking domain after DOKS cutover and a prepared rollback to App Platform."
   },
   "resource_changes": [
     {

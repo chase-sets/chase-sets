@@ -70,10 +70,10 @@ locals {
 
   # App Platform stays warm during each DOKS soak, but it must release every
   # live domain before the records below change to A. The provider models the
-  # domain block as Optional+Computed, so an empty dynamic block means "retain
-  # the computed domains" rather than "detach every domain". Production keeps
-  # one explicit parking domain in DOKS mode to force a real live-to-parking
-  # domain diff while excluding every flipped hostname.
+  # domain block as Optional+Computed and retains computed attachments for an
+  # empty desired list, so production replaces the live set with one explicit
+  # parking domain. Every production fallback route below is authority-qualified
+  # to that same domain so the replacement app spec remains structurally valid.
   app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
@@ -90,16 +90,24 @@ locals {
       {
         component   = "public-web"
         path_prefix = "/"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
       {
         component   = "admin-web"
         path_prefix = "/_app-platform/doks/admin"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
+      },
+      {
+        component   = "platform-api"
+        path_prefix = "/_app-platform/doks/api"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
     ],
     local.marketplace_public_enabled ? [
       {
         component   = "marketplace"
         path_prefix = "/_app-platform/doks/marketplace"
+        authority   = local.is_production ? local.production_app_platform_parking_domain : null
       },
     ] : [],
   ) : []

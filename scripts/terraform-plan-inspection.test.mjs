@@ -92,6 +92,10 @@ describe("Terraform plan inspection", () => {
       'digitalocean_record.app_serving["www"]',
       "digitalocean_record.doks_apex[0]",
     ]);
+    const destructiveChanges = destructiveResourceChanges(plan);
+    expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
+      "sha256:afebfd77d39859535a9ff212d5cc7e094838acc86f141a7ab7e17b241d6010e6",
+    );
 
     const ambiguousPlan = structuredClone(plan);
     ambiguousPlan.resource_changes.push(resourceChange("digitalocean_project_resources.platform", ["delete"]));

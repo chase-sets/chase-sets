@@ -513,9 +513,9 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    # Keep a non-empty desired domain list while production serves from DOKS.
-    # digitalocean_app.spec.domain is Optional+Computed; this explicit parking
-    # attachment makes removal of the live domains observable to the provider.
+    # digitalocean_app.spec.domain is Optional+Computed, so an empty desired
+    # list retains the live attachments. This explicit production-only parking
+    # domain forces their release before dependent DOKS records can create.
     dynamic "domain" {
       for_each = local.production_app_platform_parking_domains
       content {
@@ -1919,6 +1919,12 @@ resource "digitalocean_app" "platform" {
         for_each = local.app_platform_doks_ingress_routes
         content {
           match {
+            dynamic "authority" {
+              for_each = rule.value.authority == null ? [] : [rule.value.authority]
+              content {
+                exact = authority.value
+              }
+            }
             path {
               prefix = rule.value.path_prefix
             }

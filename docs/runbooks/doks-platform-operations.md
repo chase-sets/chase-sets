@@ -438,7 +438,7 @@ This separation is intentional: matching an already-active App Platform value on
    gh variable set PRODUCTION_APP_SERVING --env production --body doks
    ```
 
-2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply changes App Platform's desired domain set from the live hosts to `app-platform.chasesets.com`. The leaf A resources depend on that completed update, and the apex A depends on the leaves, so App Platform has released its provider-managed DNS records before DOKS record creation begins. App Platform and its parked fallback routes remain intact.
+2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply replaces the live App Platform domains with `app-platform.chasesets.com` and authority-qualifies every warm fallback route to it. The leaf A resources depend on that completed update, and the apex A depends on the leaves, so App Platform has released its provider-managed DNS records before DOKS record creation begins.
 
    ```bash
    gh workflow run platform-production.yml --ref main
