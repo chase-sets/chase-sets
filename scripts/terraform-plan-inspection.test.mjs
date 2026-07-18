@@ -6,6 +6,7 @@ import {
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
   assertProductionServingModeReplacement,
+  assertProductionServingModeSteady,
   destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   durableDatabaseDestructiveResourceChanges,
@@ -39,6 +40,24 @@ function resourceChange(address, actions) {
 }
 
 describe("Terraform plan inspection", () => {
+  it("accepts a routine DOKS deploy that only completes the retained preparation marker", () => {
+    const plan = JSON.parse(
+      readFileSync(resolve("scripts/fixtures/terraform-plans/production-platform-doks-steady.json"), "utf8"),
+    );
+
+    expect(assertProductionServingModeSteady(plan, { serving: "doks" })).toEqual([]);
+
+    const dnsMutation = structuredClone(plan);
+    const adminRecord = dnsMutation.resource_changes.find(
+      (change) => change.address === 'digitalocean_record.app_serving["admin"]',
+    );
+    adminRecord.change.actions = ["update"];
+    adminRecord.change.after.value = "198.51.100.20";
+    expect(() => assertProductionServingModeSteady(dnsMutation, { serving: "doks" })).toThrow(
+      "must be serving-topology-inert",
+    );
+  });
+
   it("pins the App Platform domain releases and DOKS record creates in the forward fixture", () => {
     const plan = JSON.parse(
       readFileSync(
@@ -91,6 +110,9 @@ describe("Terraform plan inspection", () => {
       'digitalocean_record.app_serving["www"]',
       "digitalocean_record.doks_apex[0]",
     ]);
+    expect(() => assertProductionServingModeSteady(plan, { serving: "app-platform" })).toThrow(
+      "must be serving-topology-inert",
+    );
     const destructiveChanges = destructiveResourceChanges(plan);
     expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
       "sha256:1b67b5328049b409e0dc725a434e6571dec0f300246d27a3c4d22e3ead4cbec5",

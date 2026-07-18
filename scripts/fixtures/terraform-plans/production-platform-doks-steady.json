@@ -1,0 +1,73 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.14.0",
+  "fixture": {
+    "description": "Routine DOKS deploy after the completed prepare-doks phase is normalized to steady."
+  },
+  "resource_changes": [
+    {
+      "address": "digitalocean_app.platform",
+      "type": "digitalocean_app",
+      "name": "platform",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "image_tag": "release-before",
+          "spec": [{ "domain": [{ "name": "app-platform.chasesets.com", "type": "PRIMARY", "zone": "chasesets.com" }] }]
+        },
+        "after": {
+          "image_tag": "release-after",
+          "spec": [{ "domain": [{ "name": "app-platform.chasesets.com", "type": "PRIMARY", "zone": "chasesets.com" }] }]
+        }
+      }
+    },
+    {
+      "address": "digitalocean_record.app_serving[\"admin\"]",
+      "type": "digitalocean_record",
+      "name": "app_serving",
+      "index": "admin",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "type": "A", "name": "admin", "value": "203.0.113.10", "ttl": 300 },
+        "after": { "type": "A", "name": "admin", "value": "203.0.113.10", "ttl": 300 }
+      }
+    },
+    {
+      "address": "digitalocean_record.app_serving[\"www\"]",
+      "type": "digitalocean_record",
+      "name": "app_serving",
+      "index": "www",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "type": "A", "name": "www", "value": "203.0.113.10", "ttl": 300 },
+        "after": { "type": "A", "name": "www", "value": "203.0.113.10", "ttl": 300 }
+      }
+    },
+    {
+      "address": "digitalocean_record.doks_apex[0]",
+      "type": "digitalocean_record",
+      "name": "doks_apex",
+      "index": 0,
+      "change": {
+        "actions": ["no-op"],
+        "before": { "type": "A", "name": "@", "value": "203.0.113.10", "ttl": 300 },
+        "after": { "type": "A", "name": "@", "value": "203.0.113.10", "ttl": 300 }
+      }
+    },
+    {
+      "address": "terraform_data.production_serving_dns_ttl_preparation[0]",
+      "type": "terraform_data",
+      "name": "production_serving_dns_ttl_preparation",
+      "index": 0,
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "phase": "prepare-doks",
+          "prepared_at": "2026-07-18T08:59:55Z",
+          "previous_ttl_seconds": 1800
+        },
+        "after": { "phase": "steady", "prepared_at": "", "previous_ttl_seconds": 0 }
+      }
+    }
+  ]
+}
