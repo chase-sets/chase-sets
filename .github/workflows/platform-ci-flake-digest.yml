@@ -38,6 +38,11 @@ jobs:
           cat artifacts/release-health/ci-flake-digest.md >> "$GITHUB_STEP_SUMMARY"
           jq -r '.issueBody' artifacts/release-health/ci-flake-digest.json > artifacts/release-health/ci-flake-digest-issue.md
 
+      - name: Link canonical rolling delivery health
+        run: |
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Rolling event and stage posture: [Platform Delivery Health](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/platform-delivery-health.yml)." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create or update flake breach issue
         if: steps.digest.outputs.breach_count != '0'
         env:

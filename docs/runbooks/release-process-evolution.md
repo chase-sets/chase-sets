@@ -119,6 +119,28 @@ Post-deploy verification runs only when:
 
 When a check fails, recover by fix-forward or by rolling back to the last smoke-verified production release through the emergency-recovery and rollback-readiness workflows, and preserve the release-health record for investigation. Wider capability exposure stays governed by the deterministic rollout controls below, not by a deployment-time traffic split.
 
+## Rolling Delivery Health SLIs
+
+`.github/workflows/platform-delivery-health.yml` publishes the canonical `delivery-health/v1` record hourly and a distinct daily trend at 08:43 UTC. Every record includes rolling 24-hour, rolling 7-day, and last-20 views, so operators do not need to join separate artifacts. Records and Markdown summaries are retained for 30 days. The weekly flake and review-cadence digests link this record instead of calculating competing delivery rates.
+
+Run the collector locally with read access to Actions, pull requests, and issues:
+
+```powershell
+pnpm run ops -- release-health:delivery-health `
+  --repository chase-sets/chase-sets `
+  --publication-mode hourly `
+  --out .\artifacts\release-health\delivery-health\delivery-health.json `
+  --markdown-out .\artifacts\release-health\delivery-health\delivery-health.md
+```
+
+The workflow-source mapping and every target/minimum sample live in `scripts/release-health-delivery-health-policy.json`. Under the current workflow topology, `Platform Deploy` `push` events are dispatch candidates and `workflow_dispatch` events with release-stage jobs or a `release-health/v1` artifact are actual release decisions. This keeps the denominators separate until the dispatcher moves to its own public workflow; changing that topology requires updating the single policy mapping, not metric behavior scattered through workflow YAML.
+
+Intentional superseding, coalescing, newer-candidate cancellation, and not-eligible skips stay visible as capacity/churn but are excluded from pass/fail denominators. Unknown cancellations are not silently excluded as intentional success. Stage outcomes prefer existing `release-health/v1` artifacts and fall back to stable Actions job identities; root-cause and recovery metrics consume existing `delivery-failure-signature/v1` issue markers and never reclassify raw logs.
+
+Every collection records query bounds, source run IDs, API pagination/rate-limit status, artifact gaps, and overall completeness. A truncated API response, failed artifact read, missing successful-release artifact, or sample below policy minimum produces `insufficient-data`; it does not open or close a breach. Active breaches update one canonical issue per SLI using a hidden `delivery-health-sli/v1` marker. A complete recovery closes that same issue. P0 posture (0% eligible ephemeral verification, actual release below the P0 policy floor, or an open staging/production mutation circuit) also fails the scheduled publication after its canonical issue is updated.
+
+For recovery, start with the root failure job/signature in the artifact. Use the existing delivery-circuit issue and the [deployment recovery procedure](./digitalocean-platform-deployment.md) for held staging/production lanes; use the flake digest for retry-pass evidence. Do not retry deterministic failures or clear a circuit merely to improve a headline rate.
+
 ## Release Health Metrics
 
 Every deployable release attempt should produce a structured release-health record keyed by release commit and workflow run. Production releases write `production-release.json`; staging failures, cancellations, and stale automatic skips write `staging-release.json` before production starts.

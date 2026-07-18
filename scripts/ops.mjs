@@ -184,6 +184,10 @@ export const SUBCOMMANDS = {
     script: "release-health-ci-metadata.mjs",
     description: "Release health CI metadata record.",
   },
+  "release-health:delivery-health": {
+    script: "release-health-delivery-health.mjs",
+    description: "Rolling event- and stage-specific delivery-health SLIs.",
+  },
   "release-health:flake-digest": {
     script: "release-health-flake-digest.mjs",
     description: "Weekly CI flake digest from GitHub Actions retry telemetry.",

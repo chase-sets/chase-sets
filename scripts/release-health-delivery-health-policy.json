@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "delivery-health-policy/v1",
+  "windows": {
+    "rolling24hHours": 24,
+    "rolling7dDays": 7,
+    "lastN": 20
+  },
+  "collection": {
+    "maxPages": 20,
+    "concurrency": 6,
+    "retries": 3,
+    "generatedPaths": ["pnpm-lock.yaml", "*.snap", "**/generated/**", "**/*.generated.*"],
+    "workflowSources": {
+      "platformPr": "platform-pr.yml",
+      "releaseDispatchAndDeploy": "platform-production.yml",
+      "ephemeralVerification": "platform-ephemeral-verification.yml"
+    }
+  },
+  "baseline": {
+    "sourceIssue": 5496,
+    "capturedAt": "2026-07-15T14:12:55Z",
+    "metrics": {
+      "pullRequestCiSuccess": {
+        "value": 0.6853932584,
+        "currentPath": "windows.rolling7d.prs.platformPr.pullRequest.successRate"
+      },
+      "mergeGroupSuccess": {
+        "value": 0.6666666667,
+        "currentPath": "windows.rolling7d.prs.platformPr.mergeGroup.successRate"
+      },
+      "actualReleaseSuccess": {
+        "value": 0.5333333333,
+        "currentPath": "windows.lastN.releases.actual.successRate"
+      },
+      "ephemeralVerificationSuccess": {
+        "value": 0,
+        "currentPath": "windows.lastN.releases.ephemeral.successRate"
+      },
+      "prCiP90Seconds": {
+        "value": 768,
+        "currentPath": "windows.rolling7d.prs.platformPr.combined.executionSeconds.p90"
+      },
+      "creationToMergeP50Seconds": {
+        "value": 1266,
+        "currentPath": "windows.rolling7d.prs.creationToMergeSeconds.p50"
+      },
+      "creationToMergeP90Seconds": {
+        "value": 7680,
+        "currentPath": "windows.rolling7d.prs.creationToMergeSeconds.p90"
+      }
+    }
+  },
+  "rollouts": [
+    { "issue": 5497, "landedAt": "2026-07-16T03:44:38Z" },
+    { "issue": 5498, "landedAt": "2026-07-16T04:39:36Z" },
+    { "issue": 5499, "landedAt": "2026-07-16T04:39:36Z" },
+    { "issue": 5309, "landedAt": "2026-07-17T04:10:07Z" },
+    { "issue": 5500, "landedAt": "2026-07-17T07:33:17Z" },
+    { "issue": 5501, "landedAt": null }
+  ],
+  "targets": {
+    "pull-request-ci-success": {
+      "window": "rolling24h",
+      "metric": "prs.platformPr.pullRequest.successRate",
+      "sampleMetric": "prs.platformPr.pullRequest.denominator",
+      "operator": "gte",
+      "value": 0.9,
+      "minimumSample": 10,
+      "severity": "p1"
+    },
+    "merge-group-success": {
+      "window": "rolling24h",
+      "metric": "prs.platformPr.mergeGroup.successRate",
+      "sampleMetric": "prs.platformPr.mergeGroup.denominator",
+      "operator": "gte",
+      "value": 0.95,
+      "minimumSample": 10,
+      "severity": "p1"
+    },
+    "actual-release-success": {
+      "window": "lastN",
+      "metric": "releases.actual.successRate",
+      "sampleMetric": "releases.actual.denominator",
+      "operator": "gte",
+      "value": 0.9,
+      "minimumSample": 10,
+      "severity": "p1",
+      "p0Below": 0.5
+    },
+    "ephemeral-verification-success": {
+      "window": "lastN",
+      "metric": "releases.ephemeral.successRate",
+      "sampleMetric": "releases.ephemeral.denominator",
+      "operator": "gte",
+      "value": 0.95,
+      "minimumSample": 10,
+      "severity": "p1",
+      "p0At": 0
+    },
+    "pr-ci-p90": {
+      "window": "rolling24h",
+      "metric": "prs.platformPr.combined.executionSeconds.p90",
+      "sampleMetric": "prs.platformPr.combined.executionSeconds.sampleCount",
+      "operator": "lte",
+      "value": 720,
+      "minimumSample": 10,
+      "severity": "p1"
+    },
+    "creation-to-merge-p90": {
+      "window": "rolling7d",
+      "metric": "prs.creationToMergeSeconds.p90",
+      "sampleMetric": "prs.creationToMergeSeconds.sampleCount",
+      "operator": "lte",
+      "value": 3600,
+      "minimumSample": 10,
+      "severity": "p1"
+    },
+    "repeated-failure-detection": {
+      "window": "rolling7d",
+      "metric": "failureSignatures.detectionSeconds.p90",
+      "sampleMetric": "failureSignatures.detectionSeconds.sampleCount",
+      "operator": "lte",
+      "value": 300,
+      "minimumSample": 1,
+      "severity": "p1"
+    },
+    "open-mutation-circuit": {
+      "window": "rolling24h",
+      "metric": "failureSignatures.openMutationCircuitCount",
+      "sampleMetric": "failureSignatures.sourceCount",
+      "operator": "eq",
+      "value": 0,
+      "minimumSample": 0,
+      "severity": "p0"
+    }
+  }
+}

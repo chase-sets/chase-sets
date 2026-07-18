@@ -51,6 +51,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node ./scripts/review-cadence-digest.mjs
 
+      - name: Link canonical rolling delivery health
+        if: always()
+        run: |
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Rolling event and stage posture: [Platform Delivery Health](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/platform-delivery-health.yml)." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Force reporter alert dry-run
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_reporter_alert == 'true' }}
         run: |
