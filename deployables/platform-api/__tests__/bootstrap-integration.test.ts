@@ -216,6 +216,9 @@ describe("platform api bootstrap", () => {
     const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_items",
     );
+    const seededPublishedDisplayTemplates = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_display_templates WHERE status = 'active'",
+    );
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
@@ -257,6 +260,7 @@ describe("platform api bootstrap", () => {
     });
     expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
     expect(Number(seededCatalogItems.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(seededPublishedDisplayTemplates.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(orderingOrderCreatedEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);

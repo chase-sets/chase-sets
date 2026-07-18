@@ -1,6 +1,6 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createCatalogServices } from "./services";
+import { createCatalogServices, type CatalogServices } from "./services";
 import {
   seedBlueprints,
   seedLorcanaBlueprints,
@@ -99,7 +99,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     await seedMagicCategories(services);
     await seedOnePieceCategories(services);
     await seedLorcanaCategories(services);
-    await seedDisplayTemplates(services);
+    await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
     await seedProductContentConfiguration(services);
     return {
       ...staticCatalogIntegrationIds(),
@@ -115,7 +115,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
-  await seedDisplayTemplates(services);
+  await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(services, fields);
   await seedProductContentConfiguration(services);
 
   return {
@@ -126,6 +126,35 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     blueprints,
     categories,
   };
+}
+
+/**
+ * Template publication validates against active Field and Reference Type read models.
+ * Seed commands append those authoring facts first; bootstrap drains their projections
+ * before this reconciliation pass publishes templates.
+ */
+async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
+  services: CatalogServices,
+  fields: FieldIds,
+): Promise<void> {
+  const requiredFieldKeys = Object.keys(fields);
+  const [activeFields, activeReferenceTypes] = await Promise.all([
+    services.db.query<{ key: string }>(
+      `SELECT key FROM catalog_fields WHERE status = 'active' AND key = ANY($1::text[])`,
+      [requiredFieldKeys],
+    ),
+    services.db.query<{ key: string }>(
+      `SELECT key FROM catalog_reference_types WHERE status = 'active' AND key = ANY($1::text[])`,
+      [["expansion", "set"]],
+    ),
+  ]);
+
+  if (activeFields.rows.length !== requiredFieldKeys.length || activeReferenceTypes.rows.length !== 2) {
+    console.log("Catalog display template seed deferred until Field and Reference Type projections are active.");
+    return;
+  }
+
+  await seedDisplayTemplates(services);
 }
 
 async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
