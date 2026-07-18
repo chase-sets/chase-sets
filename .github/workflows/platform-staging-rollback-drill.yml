@@ -4,20 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: Type "run staging rollback drill" to confirm rolling the staging App Platform app back and forward.
+        description: Type "run staging rollback drill" to confirm rolling the staging DOKS Helm release back and forward.
         required: true
         type: string
-      rollback_digest:
-        description: Previous known-good staging image digest to deploy temporarily, in sha256:<64 hex> form.
+      rollback_revision:
+        description: Prior known-good staging Helm revision to serve temporarily.
         required: true
-        type: string
-      rollback_tag:
-        description: Optional DOCR tag for the previous known-good image. Evidence still requires rollback_digest.
-        required: false
-        default: ""
         type: string
       rollback_reference:
-        description: Link to the prior deploy, DOCR tag lookup, issue comment, or release evidence used to choose rollback_digest.
+        description: Deploy run, issue comment, or release evidence used to select the rollback revision.
         required: true
         type: string
 
@@ -40,7 +35,7 @@ jobs:
           exit 1
 
   staging-rollback-drill:
-    name: Staging Rollback Drill
+    name: Staging DOKS Rollback Drill
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -53,8 +48,15 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       DEPLOYMENT_ENVIRONMENT: staging
-      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
-      STAGING_APP_NAME: chase-sets-staging-platform
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      ROLLBACK_REVISION: ${{ inputs.rollback_revision }}
+      ROLLBACK_REFERENCE: ${{ inputs.rollback_reference }}
+      LANDING_URL: https://www.staging.chasesets.com
+      ADMIN_URL: https://admin.staging.chasesets.com
+      MARKETPLACE_URL: https://marketplace.staging.chasesets.com
+      MARKETPLACE_ROOT_WEB_URL: https://staging.chasesets.com
       SMOKE_REQUIRE_ADMIN: "true"
       SMOKE_REQUIRE_MARKETPLACE: "true"
       SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
@@ -64,10 +66,18 @@ jobs:
       PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
     steps:
-      - name: Confirm staging rollback drill
+      - name: Confirm staging DOKS rollback drill
         run: |
           set -euo pipefail
-          echo "Staging rollback drill confirmed."
+          if ! printf '%s' "$ROLLBACK_REVISION" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "rollback_revision must be a positive Helm revision." >&2
+            exit 1
+          fi
+          if [ -z "$ROLLBACK_REFERENCE" ]; then
+            echo "rollback_reference is required." >&2
+            exit 1
+          fi
+          echo "Staging DOKS rollback drill confirmed for revision ${ROLLBACK_REVISION}."
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -89,23 +99,17 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        id: buildx
-        continue-on-error: true
-
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        if: steps.buildx.outcome == 'failure'
-
-      - name: Terraform init staging platform state
-        working-directory: infrastructure/digitalocean/platform
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          terraform init \
+          ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=landing/staging.tfstate \
+            -backend-config=key=doks/staging.tfstate \
             -backend-config=region=us-east-1 \
             -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
             -backend-config=skip_credentials_validation=true \
@@ -115,85 +119,200 @@ jobs:
             -backend-config=use_path_style=true \
             -backend-config=use_lockfile=true
 
-      - name: Resolve staging app and smoke targets
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          landing_domain="$(terraform output -raw landing_domain)"
-          admin_domain="$(terraform output -raw admin_domain)"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$app_id" ] || [ -z "$landing_domain" ] || [ -z "$admin_domain" ] ||
-            [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ] || [ -z "$registry_name" ]; then
-            echo "Required staging app, smoke domain, or registry output was missing." >&2
-            exit 1
-          fi
-          {
-            echo "STAGING_APP_ID=${app_id}"
-            echo "DIGITALOCEAN_REGISTRY_NAME=${registry_name}"
-            echo "LANDING_URL=https://${landing_domain}"
-            echo "ADMIN_URL=https://${admin_domain}"
-            echo "MARKETPLACE_URL=https://${marketplace_domain}"
-            echo "MARKETPLACE_ROOT_WEB_URL=https://${staging_root_marketplace_domain}"
-          } >> "$GITHUB_ENV"
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
 
-      - name: Run staging rollback drill
-        env:
-          STAGING_ROLLBACK_DRILL_OUT: artifacts/staging-rollback-drill/staging-rollback-drill.json
-          ROLLBACK_TARGET_DIGEST: ${{ inputs.rollback_digest }}
-          ROLLBACK_TARGET_TAG: ${{ inputs.rollback_tag }}
-          ROLLBACK_TARGET_REFERENCE: ${{ inputs.rollback_reference }}
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(terraform state list | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }')"
+              if [ -n "$cluster_address" ]; then
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(printf '%s\n' "$cluster_state" | awk -F '=' '$1 ~ /^[[:space:]]*id[[:space:]]*$/ { value=$2; gsub(/^[[:space:]\"]+|[[:space:]\"]+$/, "", value); print value; exit }')"
+                cluster_name="$(printf '%s\n' "$cluster_state" | awk -F '=' '$1 ~ /^[[:space:]]*name[[:space:]]*$/ { value=$2; gsub(/^[[:space:]\"]+|[[:space:]\"]+$/, "", value); print value; exit }')"
+              fi
+            fi
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster identity." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Capture and validate Helm revisions
+        id: helm_revisions
         run: |
           set -euo pipefail
           mkdir -p artifacts/staging-rollback-drill
-          doctl registry login --expiry-seconds 3600
-          node ./scripts/digitalocean-staging-rollback-drill.mjs
+          history_path="artifacts/staging-rollback-drill/pre-drill-helm-history.json"
+          helm history "$CHASE_SETS_HELM_RELEASE" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --output json > "$history_path"
 
-      - name: Summarize staging rollback drill
-        if: ${{ always() }}
+          node - "$history_path" "$ROLLBACK_REVISION" "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require("node:fs");
+          const [historyPath, requestedRevision, outputPath] = process.argv.slice(2);
+          const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
+          const byRevision = [...history].sort((left, right) => Number(left.revision) - Number(right.revision));
+          const current = [...byRevision].reverse().find((entry) => entry.status === "deployed") ?? byRevision.at(-1);
+          const target = byRevision.find((entry) => String(entry.revision) === requestedRevision);
+          if (!current?.revision) {
+            throw new Error("Staging Helm history did not include a current revision.");
+          }
+          if (!target) {
+            throw new Error(`Requested rollback revision ${requestedRevision} is not present in Helm history.`);
+          }
+          if (String(current.revision) === requestedRevision) {
+            throw new Error("Requested rollback revision is already the current staging revision.");
+          }
+          fs.appendFileSync(outputPath, `original_revision=${current.revision}\n`);
+          fs.appendFileSync(outputPath, `target_revision=${target.revision}\n`);
+          NODE
+
+      - name: Capture pre-drill DOKS diagnostics
+        if: always()
         run: |
           set -euo pipefail
-          record="artifacts/staging-rollback-drill/staging-rollback-drill.json"
-          if [ ! -f "$record" ]; then
-            echo "No staging rollback drill record was written." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          mkdir -p artifacts/staging-rollback-drill
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            > artifacts/staging-rollback-drill/pre-drill-diagnostics.txt 2>&1 || true
 
-          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+      - name: Roll back staging DOKS Helm release
+        id: rollback
+        if: steps.helm_revisions.outputs.original_revision != ''
+        run: |
+          set -euo pipefail
+          echo "attempted=true" >> "$GITHUB_OUTPUT"
+          pnpm run platform:kubernetes-deployment -- rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --revision "$ROLLBACK_REVISION" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --runtime-env DEPLOYMENT_ENVIRONMENT=staging \
+            --out artifacts/staging-rollback-drill/rollback.json
+          jq -e '.result == "success"' artifacts/staging-rollback-drill/rollback.json >/dev/null
+          echo "completed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke rollback revision
+        id: rollback_smoke
+        if: steps.rollback.outputs.completed == 'true'
+        env:
+          SMOKE_SOURCE: staging-doks-rollback-drill-rollback
+        run: pnpm run smoke:platform -- "$LANDING_URL" "$ADMIN_URL" "$MARKETPLACE_URL"
+
+      - name: Roll forward staging DOKS Helm release
+        id: roll_forward
+        if: always() && steps.rollback.outputs.attempted == 'true'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --revision "${{ steps.helm_revisions.outputs.original_revision }}" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --runtime-env DEPLOYMENT_ENVIRONMENT=staging \
+            --out artifacts/staging-rollback-drill/roll-forward.json
+          jq -e '.result == "success"' artifacts/staging-rollback-drill/roll-forward.json >/dev/null
+          echo "completed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke restored revision
+        id: roll_forward_smoke
+        if: always() && steps.roll_forward.outputs.completed == 'true'
+        env:
+          SMOKE_SOURCE: staging-doks-rollback-drill-roll-forward
+        run: pnpm run smoke:platform -- "$LANDING_URL" "$ADMIN_URL" "$MARKETPLACE_URL"
+
+      - name: Capture post-drill DOKS diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            > artifacts/staging-rollback-drill/post-drill-diagnostics.txt 2>&1 || true
+          helm history "$CHASE_SETS_HELM_RELEASE" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --output json > artifacts/staging-rollback-drill/post-drill-helm-history.json || true
+
+      - name: Summarize staging rollback drill
+        if: always()
+        env:
+          ORIGINAL_REVISION: ${{ steps.helm_revisions.outputs.original_revision }}
+          TARGET_REVISION: ${{ steps.helm_revisions.outputs.target_revision }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          ROLLBACK_SMOKE_OUTCOME: ${{ steps.rollback_smoke.outcome }}
+          ROLL_FORWARD_OUTCOME: ${{ steps.roll_forward.outcome }}
+          ROLL_FORWARD_SMOKE_OUTCOME: ${{ steps.roll_forward_smoke.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/staging-rollback-drill
+          node <<'NODE'
           const fs = require("node:fs");
-          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-          console.log("## Staging Rollback Drill");
-          console.log("");
-          console.log(`- Result: ${record.result}`);
-          console.log(`- App: ${record.app?.name ?? "unknown"} (${record.app?.id ?? "unknown"})`);
-          console.log(`- Current image: ${record.current?.imageRef ?? "unknown"}`);
-          console.log(`- Rollback target: ${record.rollbackTarget?.imageRef ?? "unknown"}`);
-          console.log(`- Target image exists: ${record.rollbackTarget?.imageExists ?? "unknown"}`);
-          for (const [name, phase] of Object.entries(record.phases ?? {})) {
-            console.log(`- ${name}: ${phase.status}`);
-          }
-          if (record.errors?.length) {
-            console.log("");
-            console.log("### Errors");
-            for (const error of record.errors) {
-              console.log(`- ${error}`);
-            }
-          }
+          const path = require("node:path");
+          const artifactPath = "artifacts/staging-rollback-drill/staging-rollback-drill.json";
+          const readJson = (name) => {
+            const file = path.join("artifacts/staging-rollback-drill", name);
+            return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+          };
+          const phase = (outcome, evidence = null) => ({
+            status: outcome === "success" ? "success" : outcome === "skipped" ? "skipped" : "failure",
+            evidence,
+          });
+          const phases = {
+            rollback: phase(process.env.ROLLBACK_OUTCOME, readJson("rollback.json")),
+            rollbackSmoke: phase(process.env.ROLLBACK_SMOKE_OUTCOME),
+            rollForward: phase(process.env.ROLL_FORWARD_OUTCOME, readJson("roll-forward.json")),
+            rollForwardSmoke: phase(process.env.ROLL_FORWARD_SMOKE_OUTCOME),
+          };
+          const result = Object.values(phases).every((entry) => entry.status === "success") ? "success" : "failure";
+          const record = {
+            schemaVersion: "kubernetes-staging-rollback-drill/v1",
+            checkedAt: new Date().toISOString(),
+            environment: "staging",
+            workflow: {
+              runId: process.env.GITHUB_RUN_ID ?? null,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+              commitSha: process.env.GITHUB_SHA ?? null,
+            },
+            release: process.env.CHASE_SETS_HELM_RELEASE,
+            namespace: process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
+            rollbackReference: process.env.ROLLBACK_REFERENCE,
+            originalRevision: process.env.ORIGINAL_REVISION || null,
+            targetRevision: process.env.TARGET_REVISION || null,
+            phases,
+            supportSafe: true,
+            result,
+            errors: Object.entries(phases)
+              .filter(([, entry]) => entry.status !== "success")
+              .map(([name, entry]) => `${name}: ${entry.status}`),
+          };
+          fs.writeFileSync(artifactPath, `${JSON.stringify(record, null, 2)}\n`);
+          console.log(`Staging DOKS rollback drill result: ${result}`);
           NODE
 
       - name: Upload staging rollback drill evidence
-        if: ${{ always() }}
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-staging-rollback-drill-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/staging-rollback-drill/staging-rollback-drill.json
+          path: artifacts/staging-rollback-drill
           if-no-files-found: error
           retention-days: 30
+
+      - name: Enforce staging rollback drill result
+        if: always()
+        run: node -e 'const r=require("./artifacts/staging-rollback-drill/staging-rollback-drill.json"); if(r.result!=="success") process.exit(1)'
 
       - name: Report staging rollback drill failure
         if: ${{ failure() }}
@@ -202,7 +321,7 @@ jobs:
           github-token: ${{ github.token }}
           workflow-name: Platform Staging Rollback Drill
           alert-status: failure
-          alert-summary: Staging rollback drill failed. See the uploaded evidence artifact when present.
+          alert-summary: Staging DOKS rollback drill failed. See the uploaded evidence artifact when present.
 
       - name: Report staging rollback drill recovery
         if: ${{ success() }}
@@ -211,4 +330,4 @@ jobs:
           github-token: ${{ github.token }}
           workflow-name: Platform Staging Rollback Drill
           alert-status: success
-          alert-summary: Staging rollback drill completed, smoked the rollback image, and rolled forward.
+          alert-summary: Staging DOKS rollback drill served the prior Helm revision, smoked it, restored the original revision, and smoked again.

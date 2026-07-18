@@ -31,6 +31,25 @@ describe("rollback readiness", () => {
       schemaVersion: ROLLBACK_READINESS_VERSION,
       mode: "rollback",
       targetCommit: "a".repeat(40),
+      kubernetesRollbackTarget: {
+        platform: "doks",
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        timeout: "15m",
+        command: [
+          "pnpm",
+          "run",
+          "platform:kubernetes-deployment",
+          "--",
+          "rollback",
+          "--release",
+          "chase-sets-platform",
+          "--namespace",
+          "chase-sets-platform",
+          "--timeout",
+          "15m",
+        ],
+      },
       result: "success",
       blockers: [],
     });
@@ -75,6 +94,9 @@ describe("rollback readiness", () => {
       ROLLBACK_SMOKE_VERIFIED: "true",
       ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: "true",
       EMERGENCY_RELEASE_REFERENCE: "INC-1",
+      CHASE_SETS_HELM_RELEASE: "release-from-env",
+      CHASE_SETS_KUBERNETES_NAMESPACE: "namespace-from-env",
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: "20m",
     });
 
     expect(options).toMatchObject({
@@ -86,6 +108,9 @@ describe("rollback readiness", () => {
       smokeVerified: "true",
       destructivePlanApproved: true,
       emergencyReference: "INC-1",
+      kubernetesRelease: "release-from-env",
+      kubernetesNamespace: "namespace-from-env",
+      kubernetesTimeout: "20m",
     });
   });
 });

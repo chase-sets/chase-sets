@@ -200,6 +200,7 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
             --release "$CHASE_SETS_HELM_RELEASE"
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --runtime-env DEPLOYMENT_ENVIRONMENT=staging
             --out "$rollback_record"
             --github-output "$GITHUB_OUTPUT"
           )

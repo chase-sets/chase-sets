@@ -6,6 +6,9 @@ import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const ROLLBACK_READINESS_VERSION = "rollback-readiness/v1";
+export const DEFAULT_KUBERNETES_ROLLBACK_RELEASE = "chase-sets-platform";
+export const DEFAULT_KUBERNETES_ROLLBACK_NAMESPACE = "chase-sets-platform";
+export const DEFAULT_KUBERNETES_ROLLBACK_TIMEOUT = "15m";
 
 export function parseRollbackReadinessArgs(argv, env = process.env) {
   return {
@@ -23,6 +26,18 @@ export function parseRollbackReadinessArgs(argv, env = process.env) {
       "ROLLBACK_DESTRUCTIVE_PLAN_APPROVED",
     ),
     emergencyReference: readOption(argv, "--emergency-reference") ?? readEnv("EMERGENCY_RELEASE_REFERENCE", env),
+    kubernetesRelease:
+      readOption(argv, "--kubernetes-release") ??
+      readEnv("CHASE_SETS_HELM_RELEASE", env) ??
+      DEFAULT_KUBERNETES_ROLLBACK_RELEASE,
+    kubernetesNamespace:
+      readOption(argv, "--kubernetes-namespace") ??
+      readEnv("CHASE_SETS_KUBERNETES_NAMESPACE", env) ??
+      DEFAULT_KUBERNETES_ROLLBACK_NAMESPACE,
+    kubernetesTimeout:
+      readOption(argv, "--kubernetes-timeout") ??
+      readEnv("CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT", env) ??
+      DEFAULT_KUBERNETES_ROLLBACK_TIMEOUT,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -70,6 +85,15 @@ export function evaluateRollbackReadiness(input) {
   if (!isNonEmptyString(input.emergencyReference)) {
     blockers.push("Emergency reference is required before rollback or fix-forward recovery.");
   }
+  if (!isNonEmptyString(input.kubernetesRelease ?? DEFAULT_KUBERNETES_ROLLBACK_RELEASE)) {
+    blockers.push("DOKS rollback release is required.");
+  }
+  if (!isNonEmptyString(input.kubernetesNamespace ?? DEFAULT_KUBERNETES_ROLLBACK_NAMESPACE)) {
+    blockers.push("DOKS rollback namespace is required.");
+  }
+  if (!isNonEmptyString(input.kubernetesTimeout ?? DEFAULT_KUBERNETES_ROLLBACK_TIMEOUT)) {
+    blockers.push("DOKS rollback timeout is required.");
+  }
   if (destructiveChanges && !input.destructivePlanApproved) {
     blockers.push("Terraform plan contains destructive changes and requires explicit approval.");
   }
@@ -85,6 +109,7 @@ export function evaluateRollbackReadiness(input) {
     imageExists: input.imageExists,
     smokeVerified: input.smokeVerified,
     emergencyReference: emptyToNull(input.emergencyReference),
+    kubernetesRollbackTarget: buildKubernetesRollbackTarget(input),
     terraformPlan: {
       source: input.terraformPlan?.source ?? "inline",
       destructiveChanges,
@@ -98,6 +123,31 @@ export function evaluateRollbackReadiness(input) {
   return {
     record,
     passesRollbackReadinessGate: blockers.length === 0,
+  };
+}
+
+function buildKubernetesRollbackTarget(input) {
+  const release = input.kubernetesRelease ?? DEFAULT_KUBERNETES_ROLLBACK_RELEASE;
+  const namespace = input.kubernetesNamespace ?? DEFAULT_KUBERNETES_ROLLBACK_NAMESPACE;
+  const timeout = input.kubernetesTimeout ?? DEFAULT_KUBERNETES_ROLLBACK_TIMEOUT;
+  return {
+    platform: "doks",
+    release,
+    namespace,
+    timeout,
+    command: [
+      "pnpm",
+      "run",
+      "platform:kubernetes-deployment",
+      "--",
+      "rollback",
+      "--release",
+      release,
+      "--namespace",
+      namespace,
+      "--timeout",
+      timeout,
+    ],
   };
 }
 

@@ -110,6 +110,9 @@ jobs:
 
       - name: Evaluate rollback readiness
         env:
+          CHASE_SETS_HELM_RELEASE: chase-sets-platform
+          CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+          CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
           ROLLBACK_READINESS_OUT: artifacts/release-health/rollback-readiness.json
           RECOVERY_MODE: ${{ inputs.mode }}
           ROLLBACK_TARGET_COMMIT: ${{ inputs.target_commit }}

@@ -3909,6 +3909,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
   });
 
+  it("records the DOKS release and namespace in emergency and rollback-readiness evidence", () => {
+    for (const workflow of [platformEmergencyRecoveryWorkflow, platformRollbackReadinessWorkflow]) {
+      expect(workflow).toContain("CHASE_SETS_HELM_RELEASE: chase-sets-platform");
+      expect(workflow).toContain("CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform");
+      expect(workflow).toContain("CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m");
+      expect(workflow).not.toMatch(/app-platform|App Platform/);
+    }
+  });
+
   it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
     const restoreJob = workflowJob(platformDatabaseRestoreDrillWorkflow, "restore-drill");
     const restoreStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Run staging database restore drill");
@@ -3941,14 +3950,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformDatabaseRestoreDrillWorkflow).not.toContain("DEPLOYMENT_ENVIRONMENT: production");
   });
 
-  it("runs the App Platform rollback drill as a confirmed staging-only workflow", () => {
+  it("runs the DOKS Helm rollback drill as a confirmed staging-only workflow", () => {
     const drillJob = workflowJob(platformStagingRollbackDrillWorkflow, "staging-rollback-drill");
-    const drillStep = workflowStep(platformStagingRollbackDrillWorkflow, "Run staging rollback drill");
+    const revisionsStep = workflowStep(platformStagingRollbackDrillWorkflow, "Capture and validate Helm revisions");
+    const rollbackStep = workflowStep(platformStagingRollbackDrillWorkflow, "Roll back staging DOKS Helm release");
+    const rollForwardStep = workflowStep(
+      platformStagingRollbackDrillWorkflow,
+      "Roll forward staging DOKS Helm release",
+    );
     const uploadStep = workflowStep(platformStagingRollbackDrillWorkflow, "Upload staging rollback drill evidence");
 
     expect(platformStagingRollbackDrillWorkflow).toContain("workflow_dispatch:");
     expect(platformStagingRollbackDrillWorkflow).toContain("run staging rollback drill");
-    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_digest");
+    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_revision");
     expect(platformStagingRollbackDrillWorkflow).toContain("rollback_reference");
     expect(platformStagingRollbackDrillWorkflow).toContain("permissions:\n  contents: read");
     expect(platformStagingRollbackDrillWorkflow).toContain("group: platform-deploy-staging");
@@ -3956,25 +3970,28 @@ describe("DigitalOcean platform configuration", () => {
     expect(drillJob).toContain("environment: staging");
     expect(drillJob).toContain("timeout-minutes: 60");
     expect(drillJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
-    expect(drillJob).toContain("STAGING_APP_NAME: chase-sets-staging-platform");
+    expect(drillJob).toContain("CHASE_SETS_HELM_RELEASE: chase-sets-platform");
+    expect(drillJob).toContain("CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform");
     expect(platformStagingRollbackDrillWorkflow).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
     expect(platformStagingRollbackDrillWorkflow).toContain(
       "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
     );
-    expect(platformStagingRollbackDrillWorkflow).toContain(
-      "docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
-    );
-    expect(drillStep).toContain("STAGING_ROLLBACK_DRILL_OUT");
-    expect(drillStep).toContain("ROLLBACK_TARGET_DIGEST: ${{ inputs.rollback_digest }}");
-    expect(drillStep).toContain("ROLLBACK_TARGET_REFERENCE: ${{ inputs.rollback_reference }}");
-    expect(drillStep).toContain("node ./scripts/digitalocean-staging-rollback-drill.mjs");
-    expect(drillStep).toContain("doctl registry login --expiry-seconds 3600");
+    expect(platformStagingRollbackDrillWorkflow).toContain("backend-config=key=doks/staging.tfstate");
+    expect(revisionsStep).toContain('helm history "$CHASE_SETS_HELM_RELEASE"');
+    expect(revisionsStep).toContain("original_revision=${current.revision}");
+    expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).toContain('--revision "$ROLLBACK_REVISION"');
+    expect(rollbackStep).toContain("--runtime-env DEPLOYMENT_ENVIRONMENT=staging");
+    expect(rollForwardStep).toContain('--revision "${{ steps.helm_revisions.outputs.original_revision }}"');
+    expect(rollForwardStep).toContain("--runtime-env DEPLOYMENT_ENVIRONMENT=staging");
     expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(uploadStep).toContain("platform-staging-rollback-drill-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(uploadStep).toContain("if-no-files-found: error");
     expect(uploadStep).toContain("retention-days: 30");
     expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill failure");
     expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill recovery");
+    expect(platformStagingRollbackDrillWorkflow).not.toContain("digitalocean-staging-rollback-drill.mjs");
+    expect(platformStagingRollbackDrillWorkflow).not.toContain("doctl apps");
     expect(platformStagingRollbackDrillWorkflow).not.toContain("environment: production");
     expect(platformStagingRollbackDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
   });
@@ -4011,6 +4028,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
     expect(rollbackStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(rollbackStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(rollbackStep).toContain("--runtime-env DEPLOYMENT_ENVIRONMENT=staging");
     expect(rollbackStep).toContain('--out "$rollback_record"');
     expect(rollbackStep).toContain('--github-output "$GITHUB_OUTPUT"');
     expect(rollbackStep).toContain('args+=(--revision "$ROLLBACK_REVISION")');

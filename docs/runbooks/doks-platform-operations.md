@@ -2,7 +2,7 @@
 
 This runbook is the operator reference for the DOKS runtime accepted by [ADR 0018](../adr/0018-doks-compute-runtime.md). It covers the Kubernetes equivalents for the App Platform actions in [DigitalOcean Platform Deployment](./digitalocean-platform-deployment.md): deploy inspection, rollout status, rollback, logs, ingress/certificates, runtime Secret rotation, and cutover recovery.
 
-Use this runbook only after the target DOKS cluster exists through `infrastructure/digitalocean/doks` and the platform Helm chart exists through `infrastructure/helm/platform`. Until staging cutover completes, App Platform remains the live serving path.
+Use this runbook after the target DOKS cluster exists through `infrastructure/digitalocean/doks` and the platform Helm chart exists through `infrastructure/helm/platform`. Staging and production now serve from DOKS; keep the production App Platform target warm and unchanged through the post-cutover soak so the separately prepared serving rollback remains available.
 
 ## State And Names
 
@@ -10,7 +10,7 @@ Use this runbook only after the target DOKS cluster exists through `infrastructu
 | --- | --- | --- |
 | DOKS Terraform state | `doks/staging.tfstate` | `doks/production.tfstate` |
 | Runtime Terraform state | `landing/staging.tfstate` | `landing/production.tfstate` |
-| Environment DNS state | `environment-dns/staging.tfstate` | production DNS stays in platform/runtime roots until cutover |
+| Environment DNS state | `environment-dns/staging.tfstate` | `environment-dns/production.tfstate` owns shadow records; live records remain in the platform/runtime root |
 | Helm release | `chase-sets-platform` | `chase-sets-platform` |
 | Namespace | `chase-sets-platform` | `chase-sets-platform` |
 | Runtime Secret | `chase-sets-platform-runtime` | `chase-sets-platform-runtime` |
