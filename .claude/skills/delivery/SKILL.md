@@ -1,13 +1,13 @@
 ---
-name: bounded-context-delivery
+name: delivery
 description: Implement and deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes with process proportional to blast radius. Fast path for low-risk changes (docs, copy, config, tooling, single-context work); full planning for money movement, cross-context contracts/events, schema migrations, and destructive data changes. Use when implementing or delivering a change with repo evidence — including when dispatched a lane assignment by the milestone orchestrator.
 ---
 
-# Bounded Context Delivery
+# Delivery
 
 Deliver changes using the repo's bounded contexts as the source of truth, with process proportional to blast radius. Default to the fast path; escalate to the full path only when a full-path trigger applies.
 
-This skill is tracked identically at `.codex/skills/` and `.claude/skills/` so both harnesses see it; edit both copies in the same PR (guard: `scripts/check-structure/skill-mirror.test.mjs`).
+This skill is tracked identically at `.agents/skills/` (read by Codex) and `.claude/skills/` (read by Claude Code) so both harnesses see it; edit both copies in the same PR (guard: `scripts/check-structure/skill-mirror.test.mjs`).
 
 ## Modes
 

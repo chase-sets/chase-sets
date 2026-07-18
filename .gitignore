@@ -1,9 +1,7 @@
 .claude/*
 !.claude/skills/
 !.claude/skills/**
-.codex/*
-!.codex/skills/
-!.codex/skills/**
+.codex/
 node_modules/
 .pnpm-store/
 .chase-sets-pnpm-store/
