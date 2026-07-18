@@ -192,6 +192,7 @@
       "sourceContextName": "inventory",
       "reactionName": "support-inventory-hold-collision",
       "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
       "eventTypes": ["inventory.reservation.released"],
       "order": 75,
       "reactionHandlerSetNames": ["support-inventory-hold-collision"],
@@ -205,6 +206,7 @@
       "projectionName": "support-inventory-hold-collision",
       "handlerKind": "reaction",
       "sourceContextNames": ["inventory"],
+      "optionalSourceContextNames": ["inventory"],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
