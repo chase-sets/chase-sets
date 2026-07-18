@@ -1,0 +1,75 @@
+name: Platform Delivery Health
+
+on:
+  schedule:
+    # Hourly operational posture plus one distinct daily trend publication.
+    - cron: "17 * * * *"
+    - cron: "43 8 * * *"
+  workflow_dispatch:
+    inputs:
+      publication_mode:
+        description: Publication cadence. Auto selects daily at 08 UTC and hourly otherwise.
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - hourly
+          - daily
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: platform-delivery-health
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish Delivery Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Collect rolling delivery health
+        id: collect
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_PUBLICATION_MODE: ${{ inputs.publication_mode || (github.event.schedule == '43 8 * * *' && 'daily' || 'hourly') }}
+        run: |
+          set -euo pipefail
+          publication_mode="$REQUESTED_PUBLICATION_MODE"
+          if [ "$publication_mode" = "auto" ]; then
+            publication_mode="hourly"
+          fi
+          mkdir -p artifacts/release-health/delivery-health
+          pnpm run ops -- release-health:delivery-health \
+            --publication-mode "$publication_mode" \
+            --out artifacts/release-health/delivery-health/delivery-health.json \
+            --markdown-out artifacts/release-health/delivery-health/delivery-health.md \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            --update-issues true
+
+      - name: Upload delivery-health record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: delivery-health-${{ github.run_id }}
+          path: artifacts/release-health/delivery-health/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Escalate P0 delivery-health breach
+        if: steps.collect.outputs.p0_breach_count != '0'
+        env:
+          P0_BREACH_COUNT: ${{ steps.collect.outputs.p0_breach_count }}
+        run: |
+          echo "${P0_BREACH_COUNT} P0 delivery-health SLI breach(es) are active; canonical issues were updated." >&2
+          exit 1
