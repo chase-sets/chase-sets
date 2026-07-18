@@ -188,8 +188,8 @@ export const SUBCOMMANDS = {
     script: "release-health-merge-group-failure-signatures.mjs",
     description: "Evaluate delivery failure signatures, canonical circuit issues, and lane holds.",
   },
-  "release-health:merge-queue-posture": {
-    script: "release-health-merge-queue-posture.mjs",
+  "release-health:queue-posture": {
+    script: "release-health-queue-posture.mjs",
     description: "Read-only merge-queue ruleset posture against the checked-in release policy.",
   },
   "release-health:report": {
