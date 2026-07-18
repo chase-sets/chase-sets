@@ -21,10 +21,19 @@ describe("promoted release contract", () => {
     ).toEqual({ record: valid, errors: [] });
   });
 
-  it("pins validation to the triggering producer run", () => {
-    expect(validatePromotedReleaseRecord(valid, { producerRunId: "123", environment: "production" })).toEqual([]);
+  it("pins validation to the triggering producer run and attempt", () => {
+    expect(
+      validatePromotedReleaseRecord(valid, {
+        producerRunId: "123",
+        producerRunAttempt: "2",
+        environment: "production",
+      }),
+    ).toEqual([]);
     expect(validatePromotedReleaseRecord(valid, { producerRunId: "456", environment: "production" })).toContain(
       "producerRunId does not match the triggering Platform Deploy run.",
+    );
+    expect(validatePromotedReleaseRecord(valid, { producerRunId: "123", producerRunAttempt: "3" })).toContain(
+      "producerRunAttempt does not match the triggering Platform Deploy run attempt.",
     );
   });
 

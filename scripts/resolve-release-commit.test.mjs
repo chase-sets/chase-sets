@@ -295,33 +295,36 @@ describe("latest-only release state", () => {
     expect(retried.active?.commit).toBe(pendingCommit);
   });
 
-  it("gives the immutable active release precedence over newer manual and emergency requests", () => {
+  it("gives the immutable active release precedence over newer manual, recovery, and emergency requests", () => {
     const manualCommit = "b".repeat(40);
-    const emergencyCommit = "c".repeat(40);
+    const recoveryCommit = "c".repeat(40);
+    const emergencyCommit = "d".repeat(40);
     const state = reduceLatestOnlyReleaseState([
       { type: "candidate", commit, mode: "automatic" },
       { type: "activate", imageDigest: digest },
       { type: "candidate", commit: manualCommit, mode: "manual" },
+      { type: "candidate", commit: recoveryCommit, mode: "recovery" },
       { type: "candidate", commit: emergencyCommit, mode: "emergency" },
     ]);
 
     expect(state.active).toEqual({ commit, imageDigest: digest, mode: "automatic" });
     expect(state.pending).toEqual({ commit: emergencyCommit, mode: "emergency" });
-    expect(state.coalescedCount).toBe(1);
+    expect(state.coalescedCount).toBe(2);
   });
 
-  it("uses latest-only pending precedence regardless of automatic, manual, or emergency trigger type", () => {
+  it("uses latest-only pending precedence regardless of automatic, manual, recovery, or emergency trigger type", () => {
     const state = reduceLatestOnlyReleaseState([
       { type: "candidate", commit, mode: "automatic" },
       { type: "activate", imageDigest: digest },
       { type: "candidate", commit: "b".repeat(40), mode: "emergency" },
       { type: "candidate", commit: "c".repeat(40), mode: "manual" },
-      { type: "candidate", commit: "d".repeat(40), mode: "automatic" },
+      { type: "candidate", commit: "d".repeat(40), mode: "recovery" },
+      { type: "candidate", commit: "e".repeat(40), mode: "automatic" },
     ]);
 
     expect(state.active?.commit).toBe(commit);
-    expect(state.pending).toEqual({ commit: "d".repeat(40), mode: "automatic" });
-    expect(state.coalescedCount).toBe(2);
+    expect(state.pending).toEqual({ commit: "e".repeat(40), mode: "automatic" });
+    expect(state.coalescedCount).toBe(3);
   });
 
   it("starts from an explicit empty state", () => {

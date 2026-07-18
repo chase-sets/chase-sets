@@ -27,6 +27,7 @@ describe("platform ephemeral verification workflow", () => {
     expect(download).toContain("run-id: ${{ github.event.workflow_run.id }}");
     expect(image).toContain("promoted-release.mjs validate");
     expect(image).toContain('--expected-producer-run-id "${{ github.event.workflow_run.id }}"');
+    expect(image).toContain('--expected-producer-run-attempt "${{ github.event.workflow_run.run_attempt }}"');
     expect(step(verification, "Deploy verification Kubernetes release")).toContain(
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
     );

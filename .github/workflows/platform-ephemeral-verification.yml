@@ -133,6 +133,7 @@ jobs:
             node ./scripts/promoted-release.mjs validate \
               --file artifacts/promoted-release/promoted-release.json \
               --expected-producer-run-id "${{ github.event.workflow_run.id }}" \
+              --expected-producer-run-attempt "${{ github.event.workflow_run.run_attempt }}" \
               --expected-environment production \
               --github-output "$GITHUB_OUTPUT"
             artifact_commit="$(jq -r '.releaseCommit' artifacts/promoted-release/promoted-release.json)"

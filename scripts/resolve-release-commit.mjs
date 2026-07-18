@@ -8,7 +8,7 @@ import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 const execFile = promisify(execFileCallback);
 
-const RELEASE_MODES = new Set(["automatic", "manual", "emergency"]);
+const RELEASE_MODES = new Set(["automatic", "manual", "recovery", "emergency"]);
 const TERMINAL_OUTCOMES = new Set(["promoted", "failed", "rolled-back"]);
 
 export function createLatestOnlyReleaseState() {
@@ -107,7 +107,7 @@ function normalizeRelease(event) {
   const commit = requireCommit(event.commit);
   const mode = event.mode ?? "automatic";
   if (!RELEASE_MODES.has(mode)) {
-    throw new Error("Release mode must be automatic, manual, or emergency.");
+    throw new Error("Release mode must be automatic, manual, recovery, or emergency.");
   }
   return { commit, mode };
 }

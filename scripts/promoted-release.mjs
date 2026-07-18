@@ -45,6 +45,9 @@ export function validatePromotedReleaseRecord(record, expected = {}) {
   if (expected.producerRunId && String(record?.producerRunId) !== String(expected.producerRunId)) {
     errors.push("producerRunId does not match the triggering Platform Deploy run.");
   }
+  if (expected.producerRunAttempt && String(record?.producerRunAttempt) !== String(expected.producerRunAttempt)) {
+    errors.push("producerRunAttempt does not match the triggering Platform Deploy run attempt.");
+  }
   if (expected.environment && record?.environment !== expected.environment) {
     errors.push(`environment does not match expected ${expected.environment}.`);
   }
@@ -92,6 +95,7 @@ async function main(argv = process.argv.slice(2)) {
     assertValid(
       validatePromotedReleaseRecord(record, {
         producerRunId: readOption(argv, "--expected-producer-run-id"),
+        producerRunAttempt: readOption(argv, "--expected-producer-run-attempt"),
         environment: readOption(argv, "--expected-environment"),
       }),
     );

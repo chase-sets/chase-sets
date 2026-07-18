@@ -54,8 +54,8 @@ export function buildEmergencyRecoveryGuide(input) {
   if (!normalizeString(input.emergencyReference)) {
     blockers.push("Emergency reference is required for every guided recovery path.");
   }
-  if (["rollback-readiness", "rollback"].includes(mode) && !isCommitSha(input.targetCommit)) {
-    blockers.push("Rollback recovery requires a 40-character target commit.");
+  if (!isCommitSha(input.targetCommit)) {
+    blockers.push("Emergency recovery requires a 40-character target commit.");
   }
   if (["rollback-readiness", "rollback"].includes(mode) && !normalizeString(input.releaseTag)) {
     blockers.push("Rollback recovery requires the target production release tag.");
@@ -90,12 +90,7 @@ export function buildEmergencyRecoveryGuide(input) {
     lockBypassAllowed,
     kubernetesRollback,
     nextActions: nextActions(mode, lockBypassAllowed, kubernetesRollback.commandText),
-    productionDispatchInputs: lockBypassAllowed
-      ? {
-          emergency_release: true,
-          emergency_reference: normalizeString(input.emergencyReference),
-        }
-      : null,
+    productionDispatchInputs: lockBypassAllowed ? buildProductionDispatchInputs(mode, input) : null,
     blockers,
     result: blockers.length === 0 ? "ready" : "blocked",
   };
@@ -103,6 +98,18 @@ export function buildEmergencyRecoveryGuide(input) {
   return {
     record,
     passesEmergencyRecoveryGuide: blockers.length === 0,
+  };
+}
+
+function buildProductionDispatchInputs(mode, input) {
+  const emergencyReference = normalizeString(input.emergencyReference);
+  const recoveryReference = normalizeString(input.recoveryPullRequest) ?? emergencyReference;
+  return {
+    release_ref: normalizeString(input.targetCommit),
+    dispatch_source: "emergency",
+    reason: `Emergency ${mode} recovery for ${recoveryReference}.`,
+    emergency_release: true,
+    emergency_reference: emergencyReference,
   };
 }
 
@@ -152,7 +159,7 @@ function nextActions(mode, lockBypassAllowed, kubernetesRollbackCommand) {
   }
   return [
     "Merge the recovery pull request through required checks.",
-    "Dispatch Platform Production with emergency_release=true and the emergency reference if the release lock remains active.",
+    "Dispatch Platform Deploy with the emitted productionDispatchInputs after the recovery commit is on main.",
   ];
 }
 
