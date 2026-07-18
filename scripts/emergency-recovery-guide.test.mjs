@@ -8,6 +8,7 @@ import {
   parseEmergencyRecoveryGuideArgs,
   runEmergencyRecoveryGuide,
 } from "./emergency-recovery-guide.mjs";
+import { parseReleaseDispatchContractArgs, validateReleaseDispatchContract } from "./release-dispatch-contract.mjs";
 
 const targetCommit = "0123456789abcdef0123456789abcdef01234567";
 
@@ -37,10 +38,11 @@ describe("emergency recovery guide", () => {
     });
   });
 
-  it("allows lock bypass only for a validated recovery action", () => {
+  it.each(["fix-forward", "revert"])("emits a contract-valid %s production dispatch", (mode) => {
     const result = buildEmergencyRecoveryGuide({
-      mode: "fix-forward",
+      mode,
       emergencyReference: "INC-2026-06-01-001",
+      targetCommit,
       recoveryPullRequest: "https://github.com/chase-sets/chase-sets/pull/999",
       checkedAt: "2026-06-01T12:00:00.000Z",
     });
@@ -49,10 +51,23 @@ describe("emergency recovery guide", () => {
     expect(result.record).toMatchObject({
       lockBypassAllowed: true,
       productionDispatchInputs: {
+        release_ref: targetCommit,
+        dispatch_source: "emergency",
+        reason: `Emergency ${mode} recovery for https://github.com/chase-sets/chase-sets/pull/999.`,
         emergency_release: true,
         emergency_reference: "INC-2026-06-01-001",
       },
     });
+
+    const dispatch = result.record.productionDispatchInputs;
+    const contract = parseReleaseDispatchContractArgs([], {
+      RELEASE_COMMIT: dispatch.release_ref,
+      DISPATCH_SOURCE: dispatch.dispatch_source,
+      DISPATCH_REASON: dispatch.reason,
+      EMERGENCY_RELEASE: String(dispatch.emergency_release),
+      EMERGENCY_REFERENCE: dispatch.emergency_reference,
+    });
+    expect(validateReleaseDispatchContract(contract).errors).toEqual([]);
   });
 
   it("blocks recovery without an emergency reference", () => {
@@ -73,6 +88,7 @@ describe("emergency recovery guide", () => {
       outPath: outFile,
       mode: "fix-forward",
       emergencyReference: "INC-2026-06-01-001",
+      targetCommit,
       recoveryPullRequest: "PR-999",
       checkedAt: "2026-06-01T12:00:00.000Z",
     });

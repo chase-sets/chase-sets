@@ -133,7 +133,9 @@ pnpm run ops -- release-health:delivery-health `
   --markdown-out .\artifacts\release-health\delivery-health\delivery-health.md
 ```
 
-The workflow-source mapping and every target/minimum sample live in `scripts/release-health-delivery-health-policy.json`. Under the current workflow topology, `Platform Deploy` `push` events are dispatch candidates and `workflow_dispatch` events with release-stage jobs or a `release-health/v1` artifact are actual release decisions. This keeps the denominators separate until the dispatcher moves to its own public workflow; changing that topology requires updating the single policy mapping, not metric behavior scattered through workflow YAML.
+The workflow-source mapping and every target/minimum sample live in `scripts/release-health-delivery-health-policy.json`. `Platform Release Candidate Dispatch` runs measure automatic main-push dispatch, while `Platform Deploy` runs measure explicit release decisions. Release-stage job and `release-health/v1` evidence still exclude the read-only cutover-plan entry point from actual-release denominators. The two public workflow identities keep dispatch and release outcomes separate without event heuristics.
+
+The dispatcher rolling metrics have a deliberate epoch at the workflow split: dispatcher windows include only `Platform Release Candidate Dispatch` runs and do not union pre-split `Platform Deploy` push history. Expect dispatcher sample counts and rolling rates to reset when the split lands, then refill naturally over the 24-hour, 7-day, and last-20 windows.
 
 Intentional superseding, coalescing, newer-candidate cancellation, and not-eligible skips stay visible as capacity/churn but are excluded from pass/fail denominators. Unknown cancellations are not silently excluded as intentional success. Stage outcomes prefer existing `release-health/v1` artifacts and fall back to stable Actions job identities; root-cause and recovery metrics consume existing `delivery-failure-signature/v1` issue markers and never reclassify raw logs.
 
@@ -154,6 +156,7 @@ Minimum schema:
   "schemaVersion": "release-health/v1",
   "releaseCommit": "<40-char-sha>",
   "workflowRunId": "<github-run-id>",
+  "dispatch": { "source": "automatic|manual|recovery|emergency", "runId": "<dispatcher-run-id|null>", "attempt": "<dispatcher-attempt|null>", "reason": "<audited-reason|null>" },
   "releaseMode": "normal|emergency",
   "deploymentRequired": true,
   "pullRequest": { "openedAt": "<iso|null>", "readyForReviewAt": "<iso|null>", "approvedAt": "<iso|null>" },

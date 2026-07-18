@@ -18,8 +18,8 @@ on:
         required: true
         type: string
       target_commit:
-        description: Required for rollback-readiness and rollback.
-        required: false
+        description: Exact main-ancestor recovery commit; required for every guided recovery path.
+        required: true
         type: string
       recovery_pr:
         description: Required for revert and fix-forward.

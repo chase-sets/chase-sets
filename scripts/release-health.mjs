@@ -13,6 +13,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
     workflowRunId: readOption(argv, "--workflow-run-id") ?? readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readOption(argv, "--workflow-run-attempt") ?? readEnv("GITHUB_RUN_ATTEMPT", env),
+    dispatchSource: readOption(argv, "--dispatch-source") ?? readEnv("DISPATCH_SOURCE", env) ?? "manual",
+    dispatchRunId: readOption(argv, "--dispatch-run-id") ?? readEnv("DISPATCH_RUN_ID", env) ?? null,
+    dispatchAttempt: readOption(argv, "--dispatch-attempt") ?? readEnv("DISPATCH_ATTEMPT", env) ?? null,
+    dispatchReason: readOption(argv, "--dispatch-reason") ?? readEnv("DISPATCH_REASON", env) ?? null,
     releaseMode: readOption(argv, "--release-mode") ?? readEnv("RELEASE_MODE", env) ?? "normal",
     prOpenedAt: readOption(argv, "--pr-opened-at") ?? readEnv("PR_OPENED_AT", env) ?? null,
     prReadyForReviewAt: readOption(argv, "--pr-ready-for-review-at") ?? readEnv("PR_READY_FOR_REVIEW_AT", env) ?? null,
@@ -184,6 +188,7 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
 export function buildReleaseHealthRecord(input) {
   const errors = [];
   const releaseMode = input.releaseMode ?? "normal";
+  const dispatchSource = input.dispatchSource ?? (releaseMode === "emergency" ? "emergency" : "manual");
   const recoveryMode = input.recoveryMode ?? "none";
   const queueBatchSize = Number.isInteger(input.queueBatchSize) ? input.queueBatchSize : 1;
   const releaseCategory = input.releaseCategory ?? "ordinary-deploy";
@@ -204,6 +209,9 @@ export function buildReleaseHealthRecord(input) {
   }
   if (!["normal", "emergency"].includes(releaseMode)) {
     errors.push("releaseMode must be normal or emergency.");
+  }
+  if (!["automatic", "manual", "recovery", "emergency"].includes(dispatchSource)) {
+    errors.push("dispatchSource must be automatic, manual, recovery, or emergency.");
   }
   validateOptionalIsoInstant("prOpenedAt", input.prOpenedAt, errors);
   validateOptionalIsoInstant("prReadyForReviewAt", input.prReadyForReviewAt, errors);
@@ -255,6 +263,12 @@ export function buildReleaseHealthRecord(input) {
     workflowRunAttempt: input.workflowRunAttempt ?? "",
     checkedAt: input.checkedAt,
     releaseMode,
+    dispatch: {
+      source: dispatchSource,
+      runId: emptyToNull(input.dispatchRunId),
+      attempt: emptyToNull(input.dispatchAttempt),
+      reason: emptyToNull(input.dispatchReason),
+    },
     deploymentRequired: input.deploymentRequired,
     pullRequest: {
       openedAt: emptyToNull(input.prOpenedAt),

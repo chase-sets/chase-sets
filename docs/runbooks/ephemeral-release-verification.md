@@ -1,6 +1,6 @@
 # Ephemeral Release Verification
 
-`Platform Ephemeral Verification` proves the first staging-elimination workload without changing the persistent staging deploy gate. After a successful `Platform Deploy` run on `main`, it verifies the same release image in a new `chase-sets-verify-<run>-<attempt>` namespace on the staging DOKS cluster. Operators may also dispatch a specific release ref.
+`Platform Ephemeral Verification` proves the first staging-elimination workload without changing the persistent staging deploy gate. After a successful `Platform Deploy` run on `main`, it downloads that exact run's `promoted-release/v1` artifact and verifies the recorded immutable repository digest in a new `chase-sets-verify-<run>-<attempt>` namespace on the staging DOKS cluster. Producer run, environment, release commit/tree, repository, digest, and promotion result are validated before cluster mutation. Operators may also dispatch a specific release ref for manual proof.
 
 The workflow uses the preview Helm path and its containerized Postgres. It resets the namespace, registers test-mode Stripe account/Connect and EasyPost webhooks for the namespace host, applies namespace-local runtime secrets, deploys the promoted image, runs `representative-commerce-state`, platform smoke, and Stripe money smoke, uploads `ephemeral-verification/v1` evidence, deletes the provider registrations, and tears down the namespace. Persistent staging remains deployed and remains the release gate in phase 1.
 

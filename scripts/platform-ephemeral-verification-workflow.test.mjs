@@ -15,6 +15,24 @@ function step(workflow, name) {
 }
 
 describe("platform ephemeral verification workflow", () => {
+  it("downloads and validates the exact triggering deploy's promoted release artifact", () => {
+    const download = step(verification, "Download promoted release handoff");
+    const image = step(verification, "Resolve promoted release image");
+    expect(verification).toContain("workflows: [Platform Deploy]");
+    expect(step(verification, "Check triggering deploy promotion")).toContain(
+      '.name == "Deploy Production" and .conclusion == "success"',
+    );
+    expect(verification).toContain("needs.select-promoted-release.outputs.eligible == 'true'");
+    expect(download).toContain("name: promoted-release");
+    expect(download).toContain("run-id: ${{ github.event.workflow_run.id }}");
+    expect(image).toContain("promoted-release.mjs validate");
+    expect(image).toContain('--expected-producer-run-id "${{ github.event.workflow_run.id }}"');
+    expect(image).toContain('--expected-producer-run-attempt "${{ github.event.workflow_run.run_attempt }}"');
+    expect(step(verification, "Deploy verification Kubernetes release")).toContain(
+      "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
+    );
+  });
+
   it("reuses the preview deploy and smoke machinery around representative commerce state", () => {
     expect(step(verification, "Deploy verification Kubernetes release")).toContain(
       "platform:kubernetes-deployment -- deploy",

@@ -52,6 +52,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformReleaseCandidateWorkflow = readFileSync(
+  resolve(".github/workflows/platform-release-candidate.yml"),
+  "utf8",
+);
 const platformStagingAdvisoryEvidenceWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-advisory-evidence.yml"),
   "utf8",
@@ -2065,11 +2069,13 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("pull-requests: read");
     expect(platformProductionWorkflow).toContain("actions: read");
-    expect(workflowJob(platformProductionWorkflow, "dispatch-release-candidate")).toContain("actions: write");
+    expect(workflowJob(platformReleaseCandidateWorkflow, "dispatch-release-candidate")).toContain("actions: write");
     expect(platformProductionWorkflow).toContain(
-      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}",
+      "group: ${{ inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
     );
-    expect(platformProductionWorkflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
+    expect(platformProductionWorkflow).toContain("cancel-in-progress: false");
+    expect(platformReleaseCandidateWorkflow).toContain("group: platform-release-candidate");
+    expect(platformReleaseCandidateWorkflow).toContain("cancel-in-progress: true");
     expect(platformProductionWorkflow).toContain("emergency_release:");
     expect(platformProductionWorkflow).toContain(
       "description: Bypass an active production release lock for an audited fix-forward or revert.",
@@ -2481,7 +2487,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformRegistryCleanupWorkflow).toContain("actions: read");
     expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
-    expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation') }}");
+    expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation' }}");
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");

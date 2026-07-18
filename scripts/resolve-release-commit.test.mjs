@@ -174,18 +174,23 @@ describe("resolve release commit", () => {
 
   it("separates cancellable candidate dispatch from non-cancellable immutable active execution", () => {
     const workflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
-    const dispatcher = workflowJob(workflow, "dispatch-release-candidate");
+    const dispatcherWorkflow = readFileSync(resolve(".github/workflows/platform-release-candidate.yml"), "utf8");
+    const dispatcher = workflowJob(dispatcherWorkflow, "dispatch-release-candidate");
     const staging = workflowJob(workflow, "deploy-staging");
     const production = workflowJob(workflow, "deploy-production");
 
     expect(workflow).toContain(
-      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}",
+      "group: ${{ inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
     );
-    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
-    expect(dispatcher).toContain("if: github.event_name == 'push'");
+    expect(workflow).toContain("cancel-in-progress: false");
+    expect(dispatcherWorkflow).toContain("name: Platform Release Candidate Dispatch");
+    expect(dispatcherWorkflow).toContain("group: platform-release-candidate");
+    expect(dispatcherWorkflow).toContain("cancel-in-progress: true");
     expect(dispatcher).toContain("actions: write");
     expect(dispatcher).toContain("gh workflow run platform-production.yml");
-    expect(dispatcher).toContain("--field automatic_release=true");
+    expect(dispatcher).toContain("--field dispatch_source=automatic");
+    expect(dispatcher).toContain('--field dispatch_run_id="${{ github.run_id }}"');
+    expect(dispatcher).toContain('--field dispatch_attempt="${{ github.run_attempt }}"');
     expect(workflowJob(workflow, "resolve-release")).toContain("if: github.event_name == 'workflow_dispatch'");
 
     const activationIndex = staging.indexOf("- name: Activate immutable release before staging mutation");
@@ -204,6 +209,17 @@ describe("resolve release commit", () => {
     expect(production).toContain("group: platform-deploy-production");
     expect(production).toContain("cancel-in-progress: false");
     expect(production).toContain("- name: Resolve terminal release state");
+  });
+
+  it("has exactly one main-push dispatcher and one workflow-dispatch release root", () => {
+    const dispatcher = readFileSync(resolve(".github/workflows/platform-release-candidate.yml"), "utf8");
+    const deploy = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+
+    expect(dispatcher.match(/^  push:$/gm)).toHaveLength(1);
+    expect(dispatcher).not.toContain("workflow_dispatch:");
+    expect(deploy).not.toMatch(/^  push:$/m);
+    expect(deploy.match(/^  workflow_dispatch:$/gm)).toHaveLength(1);
+    expect(deploy).not.toContain("dispatch-release-candidate:");
   });
 });
 
@@ -279,33 +295,36 @@ describe("latest-only release state", () => {
     expect(retried.active?.commit).toBe(pendingCommit);
   });
 
-  it("gives the immutable active release precedence over newer manual and emergency requests", () => {
+  it("gives the immutable active release precedence over newer manual, recovery, and emergency requests", () => {
     const manualCommit = "b".repeat(40);
-    const emergencyCommit = "c".repeat(40);
+    const recoveryCommit = "c".repeat(40);
+    const emergencyCommit = "d".repeat(40);
     const state = reduceLatestOnlyReleaseState([
       { type: "candidate", commit, mode: "automatic" },
       { type: "activate", imageDigest: digest },
       { type: "candidate", commit: manualCommit, mode: "manual" },
+      { type: "candidate", commit: recoveryCommit, mode: "recovery" },
       { type: "candidate", commit: emergencyCommit, mode: "emergency" },
     ]);
 
     expect(state.active).toEqual({ commit, imageDigest: digest, mode: "automatic" });
     expect(state.pending).toEqual({ commit: emergencyCommit, mode: "emergency" });
-    expect(state.coalescedCount).toBe(1);
+    expect(state.coalescedCount).toBe(2);
   });
 
-  it("uses latest-only pending precedence regardless of automatic, manual, or emergency trigger type", () => {
+  it("uses latest-only pending precedence regardless of automatic, manual, recovery, or emergency trigger type", () => {
     const state = reduceLatestOnlyReleaseState([
       { type: "candidate", commit, mode: "automatic" },
       { type: "activate", imageDigest: digest },
       { type: "candidate", commit: "b".repeat(40), mode: "emergency" },
       { type: "candidate", commit: "c".repeat(40), mode: "manual" },
-      { type: "candidate", commit: "d".repeat(40), mode: "automatic" },
+      { type: "candidate", commit: "d".repeat(40), mode: "recovery" },
+      { type: "candidate", commit: "e".repeat(40), mode: "automatic" },
     ]);
 
     expect(state.active?.commit).toBe(commit);
-    expect(state.pending).toEqual({ commit: "d".repeat(40), mode: "automatic" });
-    expect(state.coalescedCount).toBe(2);
+    expect(state.pending).toEqual({ commit: "e".repeat(40), mode: "automatic" });
+    expect(state.coalescedCount).toBe(3);
   });
 
   it("starts from an explicit empty state", () => {
