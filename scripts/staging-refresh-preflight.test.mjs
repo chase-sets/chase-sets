@@ -14,6 +14,7 @@ import {
   inspectSetMatrix,
   matchingExpectedOption,
   parseStagingRefreshPreflightArgs,
+  resolveAuthenticatedGitHubActionsIdentity,
   runStagingRefreshPreflight,
   runStagingRefreshOverlapGate,
   stagingRefreshOverlapWorkflowNames,
@@ -386,6 +387,58 @@ describe("staging refresh overlap and CLI posture", () => {
     expect(calls).toHaveLength(5);
     expect(calls.every(({ command, args }) => command === "gh" && args.includes("--paginate"))).toBe(true);
     expect(calls.every(({ args }) => args.some((arg) => arg.includes("per_page=100")))).toBe(true);
+  });
+
+  it("derives repository and verifies the current reset run through authenticated gh responses", async () => {
+    const calls = [];
+    const identity = await resolveAuthenticatedGitHubActionsIdentity(
+      {
+        workflowFile: ".github/workflows/catalog-integration-staging-reset.yml",
+        runIdHint: "5718",
+      },
+      async (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "repo") return { stdout: "chase-sets/chase-sets\n" };
+        return {
+          stdout: JSON.stringify({
+            databaseId: 5718,
+            repository: "chase-sets/chase-sets",
+            path: ".github/workflows/catalog-integration-staging-reset.yml",
+            event: "workflow_dispatch",
+            status: "in_progress",
+          }),
+        };
+      },
+    );
+
+    expect(identity).toEqual({ repository: "chase-sets/chase-sets", currentRunId: "5718" });
+    expect(calls[0]).toEqual(
+      expect.objectContaining({ command: "gh", args: expect.arrayContaining(["repo", "view", "nameWithOwner"]) }),
+    );
+    expect(calls[1].args).toContain("repos/chase-sets/chase-sets/actions/runs/5718");
+  });
+
+  it("rejects a supplied run id when authenticated gh says it is not this reset workflow", async () => {
+    await expect(
+      resolveAuthenticatedGitHubActionsIdentity(
+        {
+          workflowFile: ".github/workflows/catalog-integration-staging-reset.yml",
+          runIdHint: "99",
+        },
+        async (_command, args) =>
+          args[0] === "repo"
+            ? { stdout: "chase-sets/chase-sets\n" }
+            : {
+                stdout: JSON.stringify({
+                  databaseId: 99,
+                  repository: "chase-sets/chase-sets",
+                  path: ".github/workflows/platform-production.yml",
+                  event: "workflow_dispatch",
+                  status: "in_progress",
+                }),
+              },
+      ),
+    ).rejects.toThrow("authenticated-github-run-identity-mismatch");
   });
 
   it("fails the final overlap-only gate closed when an overlapping workflow starts", async () => {

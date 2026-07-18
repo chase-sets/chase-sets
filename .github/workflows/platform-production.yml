@@ -781,7 +781,7 @@ jobs:
       account_cart_canary_completed_at: ${{ steps.account_cart_canary.outputs.completed_at }}
       advisory_dispatch_result: ${{ steps.dispatch_advisory_evidence.outcome || 'skipped' }}
     concurrency:
-      group: platform-deploy-staging
+      group: platform-staging-mutating-operations
       cancel-in-progress: false
     env:
       TF_IN_AUTOMATION: "true"

@@ -200,7 +200,15 @@ Destructive staging apply requires the exact confirmation phrase
 `reset staging catalog integration data`, a support-safe operator, an approval
 reference, and either complete backup evidence or a complete accepted-data-loss
 decision. The command runs the staging-refresh overlap-only gate immediately
-before mutation and always invokes the policy with active-job reset disabled.
+before mutation, derives repository/run identity from authenticated `gh`
+responses, and shares `platform-staging-mutating-operations` concurrency with
+every workflow in that overlap policy. The reset transaction takes a
+write-conflicting lock on both Catalog integration job tables before rechecking
+the zero-active-jobs condition, and always invokes the policy with active-job
+reset disabled. The wipe deletes both `catalog_source_observations` and the
+authoritative `catalog.source-observation-*` event streams; postconditions count
+both stream and event rows. Any P0 evidence finding produces `result: failed`,
+an exact remaining-row report, and a non-zero command exit.
 `production-prelaunch` is recognized but refused; production requires separate
 reviewed machinery after a successful staging rehearsal.
 

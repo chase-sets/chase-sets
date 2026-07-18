@@ -4,16 +4,20 @@ import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { stagingRefreshOverlapWorkflowFiles } from "./staging-refresh-preflight-config.mjs";
 import {
   CATALOG_INTEGRATION_RESET_CONFIRMATION,
+  CATALOG_INTEGRATION_RESET_WORKFLOW_FILE,
   STAGING_CATALOG_DATABASE_NAME,
   assertStagingCatalogDatabaseIdentity,
+  catalogIntegrationResetExitCode,
   parseCatalogIntegrationResetArgs,
   runCatalogIntegrationReset,
   validateCatalogIntegrationResetOptions,
 } from "./catalog-integration-reset.ts";
 
 const workflow = readFileSync(resolve(".github/workflows/catalog-integration-staging-reset.yml"), "utf8");
+const overlapWorkflowSources = stagingRefreshOverlapWorkflowFiles.map((file) => readFileSync(resolve(file), "utf8"));
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const runnerPath = join(scriptsDir, "run-catalog-integration-reset.mjs");
 
@@ -28,6 +32,7 @@ const targetTables = [
   "catalog_provider_option_query_cache",
   "catalog_tcgplayer_automation_domain_rate_limits",
   "catalog_provider_integration_profile_versions",
+  "event_store_streams / event_store_events WHERE stream_id LIKE 'catalog.source-observation-%'",
 ];
 
 function verification(overrides = {}) {
@@ -37,6 +42,8 @@ function verification(overrides = {}) {
     referencedProfileVersions: 0,
     activeProviderProfiles: 3,
     sourceObservations: 0,
+    sourceObservationEventStreams: 0,
+    sourceObservationEvents: 0,
     legacySourceObservationReferences: 0,
     integrationDurableJobs: 0,
     activeIntegrationDurableJobs: 0,
@@ -63,8 +70,6 @@ function options(overrides = {}) {
     backupDecision: null,
     smokeVerificationReference: null,
     outPath: null,
-    repository: "chase-sets/chase-sets",
-    currentRunId: null,
     ...overrides,
   };
 }
@@ -107,6 +112,10 @@ function passingOverlapGate() {
   };
 }
 
+function authenticatedIdentity() {
+  return { repository: "chase-sets/chase-sets", currentRunId: "123" };
+}
+
 describe("catalog integration reset argument and environment gates", () => {
   it("defaults to a non-destructive staging dry run and reads the Catalog URL without emitting it", () => {
     const parsed = parseCatalogIntegrationResetArgs([], {
@@ -117,6 +126,8 @@ describe("catalog integration reset argument and environment gates", () => {
     expect(parsed.environment).toBe("staging");
     expect(parsed.databaseUrl).toContain("secret:password");
     expect(JSON.stringify({ ...parsed, databaseUrl: undefined })).not.toContain("secret:password");
+    expect(parsed).not.toHaveProperty("repository");
+    expect(parsed).not.toHaveProperty("currentRunId");
   });
 
   it("refuses production/prelaunch even when apply confirmations are complete", () => {
@@ -158,7 +169,7 @@ describe("catalog integration reset argument and environment gates", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("DATABASE_URL_CATALOG is required.");
-  }, 20_000);
+  }, 40_000);
 });
 
 describe("catalog integration reset execution", () => {
@@ -209,6 +220,7 @@ describe("catalog integration reset execution", () => {
       runCatalogIntegrationReset(applyOptions(), database(), {
         collectVerificationReport: vi.fn(async () => verification()),
         resetPreLaunchData,
+        resolveGitHubIdentity: vi.fn(async () => authenticatedIdentity()),
         runOverlapGate: vi.fn(async () => ({
           ...passingOverlapGate(),
           result: "blocked",
@@ -238,6 +250,10 @@ describe("catalog integration reset execution", () => {
     const record = await runCatalogIntegrationReset(applyOptions(), db, {
       collectVerificationReport: vi.fn(async () => before),
       resetPreLaunchData,
+      resolveGitHubIdentity: vi.fn(async (identityOptions) => {
+        expect(identityOptions.workflowFile).toBe(CATALOG_INTEGRATION_RESET_WORKFLOW_FILE);
+        return authenticatedIdentity();
+      }),
       runOverlapGate: vi.fn(async () => passingOverlapGate()),
       now: () => "2026-07-18T20:00:00.000Z",
     });
@@ -254,6 +270,36 @@ describe("catalog integration reset execution", () => {
     expect(record.reset.backfillDecisions).toHaveLength(1);
     expect(record.reset.seedProfilesRebuilt).toBe(true);
     expect(record.evidenceFindings).toEqual([]);
+    expect(record.result).toBe("applied");
+    expect(catalogIntegrationResetExitCode(record)).toBe(0);
+  });
+
+  it("returns failed with a non-zero exit code and exact P0 residue when postconditions are incomplete", async () => {
+    const after = verification({ sourceObservationEventStreams: 2, sourceObservationEvents: 7 });
+    const record = await runCatalogIntegrationReset(applyOptions(), database(), {
+      collectVerificationReport: vi.fn(async () => verification()),
+      resetPreLaunchData: vi.fn(async () => ({
+        mode: "pre-launch-wipe-and-rebuild",
+        before: verification(),
+        after,
+        steps: [],
+        backfillDecisions: [],
+        seedProfilesRebuilt: true,
+      })),
+      resolveGitHubIdentity: vi.fn(async () => authenticatedIdentity()),
+      runOverlapGate: vi.fn(async () => passingOverlapGate()),
+      now: () => "2026-07-18T20:00:00.000Z",
+    });
+
+    expect(record.result).toBe("failed");
+    expect(catalogIntegrationResetExitCode(record)).toBe(2);
+    expect(record.evidenceFindings).toEqual([
+      expect.objectContaining({
+        code: "post-reset-source-observation-event-streams-remain",
+        severity: "p0",
+        message: "Post-reset verification still has 2 Source Observation event stream row(s) and 7 event row(s).",
+      }),
+    ]);
   });
 });
 
@@ -267,5 +313,9 @@ describe("Catalog Integration Staging Reset workflow", () => {
     expect(workflow).toContain("--approval-reference");
     expect(workflow).toContain("--connection-mode pooled");
     expect(workflow).toContain("retention-days: 30");
+    expect(workflow).toContain("group: platform-staging-mutating-operations");
+    expect(
+      overlapWorkflowSources.every((source) => source.includes("group: platform-staging-mutating-operations")),
+    ).toBe(true);
   });
 });

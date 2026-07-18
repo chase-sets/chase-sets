@@ -45,7 +45,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: platform-staging-mixed-version-wake-evidence
+  group: platform-staging-mutating-operations
   cancel-in-progress: false
 
 jobs:

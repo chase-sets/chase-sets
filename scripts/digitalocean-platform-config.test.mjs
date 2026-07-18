@@ -2489,7 +2489,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
     expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation' }}");
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
-    expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingResetWorkflow).toContain("group: platform-staging-mutating-operations");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
     expect(platformProductionWorkflow).toContain(
       'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
@@ -3949,7 +3949,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformDatabaseRestoreDrillWorkflow).toContain("workflow_dispatch:");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("run staging database restore drill");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("permissions:\n  contents: read");
-    expect(platformDatabaseRestoreDrillWorkflow).toContain("group: platform-database-restore-drill");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("group: platform-staging-mutating-operations");
     expect(restoreJob).toContain("environment: staging");
     expect(restoreJob).toContain("timeout-minutes: 90");
     expect(restoreJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
@@ -3983,7 +3983,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingRollbackDrillWorkflow).toContain("rollback_revision");
     expect(platformStagingRollbackDrillWorkflow).toContain("rollback_reference");
     expect(platformStagingRollbackDrillWorkflow).toContain("permissions:\n  contents: read");
-    expect(platformStagingRollbackDrillWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingRollbackDrillWorkflow).toContain("group: platform-staging-mutating-operations");
     expect(platformStagingRollbackDrillWorkflow).toContain("cancel-in-progress: false");
     expect(drillJob).toContain("environment: staging");
     expect(drillJob).toContain("timeout-minutes: 60");
@@ -4029,7 +4029,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingHelmRecoveryWorkflow).toContain("rollback_revision");
     expect(platformStagingHelmRecoveryWorkflow).toContain("recovery_reference");
     expect(platformStagingHelmRecoveryWorkflow).toContain("permissions:\n  contents: read");
-    expect(platformStagingHelmRecoveryWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("group: platform-staging-mutating-operations");
     expect(platformStagingHelmRecoveryWorkflow).toContain("cancel-in-progress: false");
     expect(recoveryJob).toContain("environment: staging");
     expect(recoveryJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
@@ -4073,7 +4073,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingBootstrapHookDrillWorkflow).toContain("run staging bootstrap hook drill");
     expect(platformStagingBootstrapHookDrillWorkflow).toContain("drill_reference");
     expect(platformStagingBootstrapHookDrillWorkflow).toContain("permissions:\n  contents: read");
-    expect(platformStagingBootstrapHookDrillWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("group: platform-staging-mutating-operations");
     expect(platformStagingBootstrapHookDrillWorkflow).toContain("cancel-in-progress: false");
     expect(drillJob).toContain("environment: staging");
     expect(drillJob).toContain("timeout-minutes: 90");

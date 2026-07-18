@@ -24,13 +24,17 @@ import {
   type CatalogIntegrationDataResetReport,
   type CatalogIntegrationDataVerificationReport,
 } from "../bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts";
-import { runStagingRefreshOverlapGate } from "./staging-refresh-preflight.mjs";
+import {
+  resolveAuthenticatedGitHubActionsIdentity,
+  runStagingRefreshOverlapGate,
+} from "./staging-refresh-preflight.mjs";
 
 const { Pool } = pg;
 
 export const CATALOG_INTEGRATION_RESET_VERSION = "catalog-integration-reset/v1";
 export const CATALOG_INTEGRATION_RESET_CONFIRMATION = "reset staging catalog integration data";
 export const STAGING_CATALOG_DATABASE_NAME = "chase_sets_staging_catalog";
+export const CATALOG_INTEGRATION_RESET_WORKFLOW_FILE = ".github/workflows/catalog-integration-staging-reset.yml";
 
 export type CatalogIntegrationResetAction = "dry-run" | "apply";
 
@@ -44,8 +48,6 @@ export type CatalogIntegrationResetOptions = Readonly<{
   backupDecision: CatalogIntegrationDataBackupDecision | null;
   smokeVerificationReference: string | null;
   outPath: string | null;
-  repository: string;
-  currentRunId: string | null;
 }>;
 
 type DatabaseIdentity = Readonly<{
@@ -70,7 +72,7 @@ export type CatalogIntegrationResetRecord = Readonly<{
   action: CatalogIntegrationResetAction;
   environment: CatalogIntegrationDataResetEnvironment;
   mode: "pre-launch-wipe-and-rebuild";
-  result: "dry-run-complete" | "applied";
+  result: "dry-run-complete" | "applied" | "failed";
   operator: string | null;
   approvalReference: string | null;
   databaseIdentity: DatabaseIdentity;
@@ -88,6 +90,12 @@ type CatalogIntegrationResetDependencies = Readonly<{
   runOverlapGate?: (
     options: Readonly<{ environment: string; repository: string; currentRunId: string | null }>,
   ) => Promise<OverlapGateReport>;
+  resolveGitHubIdentity?: (
+    options: Readonly<{
+      workflowFile: string;
+      runIdHint: string | null;
+    }>,
+  ) => Promise<Readonly<{ repository: string; currentRunId: string | null }>>;
   now?: () => string;
 }>;
 
@@ -123,8 +131,6 @@ export function parseCatalogIntegrationResetArgs(
       readOption(argv, "--smoke-verification-reference") ??
       readEnv(env, "CATALOG_INTEGRATION_RESET_SMOKE_VERIFICATION_REFERENCE"),
     outPath: readOption(argv, "--out"),
-    repository: readOption(argv, "--repository") ?? readEnv(env, "GITHUB_REPOSITORY") ?? "chase-sets/chase-sets",
-    currentRunId: readEnv(env, "GITHUB_RUN_ID"),
   };
 }
 
@@ -230,6 +236,7 @@ export async function runCatalogIntegrationReset(
   const resetPreLaunchData = dependencies.resetPreLaunchData ?? resetCatalogIntegrationPreLaunchData;
   const evaluateEvidence = dependencies.evaluateEvidence ?? evaluateCatalogIntegrationDataResetEvidence;
   const runOverlapGate = dependencies.runOverlapGate ?? runStagingRefreshOverlapGate;
+  const resolveGitHubIdentity = dependencies.resolveGitHubIdentity ?? resolveAuthenticatedGitHubActionsIdentity;
   const generatedAt = (dependencies.now ?? (() => new Date().toISOString()))();
   const databaseIdentity = await assertStagingCatalogDatabaseIdentity(db);
   const targetTables = catalogIntegrationDataResetTargetTables();
@@ -263,11 +270,18 @@ export async function runCatalogIntegrationReset(
   }
 
   // This is intentionally the last external preflight before the policy opens
-  // its transaction. The policy then re-reads active jobs in-transaction.
+  // its transaction. Repository identity comes from the authenticated gh
+  // context, and a workflow run hint is accepted only after gh verifies that
+  // it names this active reset workflow. The policy then locks both job tables
+  // and re-reads active jobs in-transaction.
+  const githubIdentity = await resolveGitHubIdentity({
+    workflowFile: CATALOG_INTEGRATION_RESET_WORKFLOW_FILE,
+    runIdHint: readEnv(process.env, "GITHUB_RUN_ID"),
+  });
   const overlapPreflight = await runOverlapGate({
     environment: "staging",
-    repository: options.repository,
-    currentRunId: options.currentRunId,
+    repository: githubIdentity.repository,
+    currentRunId: githubIdentity.currentRunId,
   });
   if (overlapPreflight.result !== "pass") {
     throw new Error(`Fresh staging overlap preflight blocked apply: ${overlapPreflight.blockers.join(", ")}.`);
@@ -290,6 +304,7 @@ export async function runCatalogIntegrationReset(
     before: reset.before,
     after: reset.after,
   });
+  const hasP0Finding = evidenceFindings.some((finding) => finding.severity === "p0");
 
   return {
     schemaVersion: CATALOG_INTEGRATION_RESET_VERSION,
@@ -297,7 +312,7 @@ export async function runCatalogIntegrationReset(
     action: options.action,
     environment: options.environment,
     mode: reset.mode,
-    result: "applied",
+    result: hasP0Finding ? "failed" : "applied",
     operator: options.operator,
     approvalReference: options.approvalReference,
     databaseIdentity,
@@ -307,6 +322,10 @@ export async function runCatalogIntegrationReset(
     reset,
     evidenceFindings,
   };
+}
+
+export function catalogIntegrationResetExitCode(record: CatalogIntegrationResetRecord): number {
+  return record.result === "failed" ? 2 : 0;
 }
 
 function redactFailure(error: unknown): string {
@@ -336,6 +355,7 @@ async function main(): Promise<void> {
       writeFileSync(options.outPath, `${serialized}\n`);
     }
     process.stdout.write(`${serialized}\n`);
+    process.exitCode = catalogIntegrationResetExitCode(record);
   } finally {
     await pool.end();
   }

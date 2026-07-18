@@ -70,7 +70,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: platform-staging-wake-drills
+  group: platform-staging-mutating-operations
   cancel-in-progress: false
 
 jobs:
