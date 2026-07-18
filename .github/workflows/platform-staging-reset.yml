@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
-      group: platform-staging-mutating-operations
+      group: platform-deploy-staging
       cancel-in-progress: false
     environment: staging
     env:

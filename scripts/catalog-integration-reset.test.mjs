@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,27 @@ import {
 } from "./catalog-integration-reset.ts";
 
 const workflow = readFileSync(resolve(".github/workflows/catalog-integration-staging-reset.yml"), "utf8");
-const overlapWorkflowSources = stagingRefreshOverlapWorkflowFiles.map((file) => readFileSync(resolve(file), "utf8"));
+const workflowSource = (file) => readFileSync(resolve(file), "utf8");
+const sharedResetConcurrencyWorkflowFiles = [
+  ".github/workflows/catalog-integration-staging-reset.yml",
+  ".github/workflows/catalog-staging-provider-uat.yml",
+  ".github/workflows/platform-staging-wake-drills.yml",
+  ".github/workflows/platform-staging-mixed-version-wake-drills.yml",
+  ".github/workflows/platform-staging-representative-commerce-state.yml",
+];
+const deployConcurrencyWorkflowFiles = [
+  ".github/workflows/platform-production.yml",
+  ".github/workflows/platform-staging-bootstrap-hook-drill.yml",
+  ".github/workflows/platform-staging-helm-recovery.yml",
+  ".github/workflows/platform-staging-reset.yml",
+  ".github/workflows/platform-staging-rollback-drill.yml",
+];
+const workflowFilesWithConcurrencyGroup = (group) =>
+  readdirSync(resolve(".github/workflows"))
+    .filter((file) => file.endsWith(".yml"))
+    .map((file) => `.github/workflows/${file}`)
+    .filter((file) => workflowSource(file).includes(`group: ${group}`))
+    .sort();
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const runnerPath = join(scriptsDir, "run-catalog-integration-reset.mjs");
 
@@ -313,9 +333,20 @@ describe("Catalog Integration Staging Reset workflow", () => {
     expect(workflow).toContain("--approval-reference");
     expect(workflow).toContain("--connection-mode pooled");
     expect(workflow).toContain("retention-days: 30");
-    expect(workflow).toContain("group: platform-staging-mutating-operations");
-    expect(
-      overlapWorkflowSources.every((source) => source.includes("group: platform-staging-mutating-operations")),
-    ).toBe(true);
+    expect(workflowFilesWithConcurrencyGroup("platform-staging-mutating-operations")).toEqual(
+      [...sharedResetConcurrencyWorkflowFiles].sort(),
+    );
+    expect(workflowFilesWithConcurrencyGroup("platform-deploy-staging")).toEqual(
+      [...deployConcurrencyWorkflowFiles].sort(),
+    );
+    expect(workflowSource(".github/workflows/platform-database-restore-drill.yml")).toContain(
+      "group: platform-database-restore-drill",
+    );
+    expect(stagingRefreshOverlapWorkflowFiles).toEqual(
+      expect.arrayContaining([
+        ".github/workflows/platform-production.yml",
+        ".github/workflows/platform-database-restore-drill.yml",
+      ]),
+    );
   });
 });

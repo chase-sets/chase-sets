@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: platform-staging-mutating-operations
+  group: platform-database-restore-drill
   cancel-in-progress: false
 
 jobs:

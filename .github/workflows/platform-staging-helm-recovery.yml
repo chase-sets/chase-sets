@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: platform-staging-mutating-operations
+  group: platform-deploy-staging
   cancel-in-progress: false
 
 jobs:
