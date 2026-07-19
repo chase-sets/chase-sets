@@ -86,8 +86,16 @@ describe("dev system target env overrides", () => {
     const processes = [
       { name: "platform-api", env: { PORT: "6182" }, port: 6182 },
       { name: "platform-worker", env: { PORT: "6183" }, port: 6183 },
-      { name: "admin-web", env: { PORT: "6174" }, port: 6174 },
-      { name: "marketplace", env: { PORT: "6173" }, port: 6173 },
+      {
+        name: "admin-web",
+        env: { PORT: "6174", PLATFORM_API_URL: "http://localhost:6182" },
+        port: 6174,
+      },
+      {
+        name: "marketplace",
+        env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182" },
+        port: 6173,
+      },
     ];
 
     const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, { ci: true });
@@ -102,8 +110,24 @@ describe("dev system target env overrides", () => {
     expect(productionProcesses[0].env).toMatchObject(browserE2eProductionIngressEnv);
     expect(productionProcesses[0]).not.toHaveProperty("publicPort");
     expect(productionProcesses[1]).not.toHaveProperty("publicPort");
-    expect(productionProcesses[2]).toMatchObject({ port: 6178, publicPort: 6174, env: { PORT: "6178" } });
-    expect(productionProcesses[3]).toMatchObject({ port: 6177, publicPort: 6173, env: { PORT: "6177" } });
+    expect(productionProcesses[2]).toMatchObject({
+      port: 6178,
+      publicPort: 6174,
+      env: {
+        ...browserE2eProductionIngressEnv,
+        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        PORT: "6178",
+      },
+    });
+    expect(productionProcesses[3]).toMatchObject({
+      port: 6177,
+      publicPort: 6173,
+      env: {
+        ...browserE2eProductionIngressEnv,
+        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        PORT: "6177",
+      },
+    });
     expect(browserE2eProductionBuilds).toEqual([
       { name: "admin-web", workspace: "@chase-sets/app-admin-web" },
       { name: "marketplace", workspace: "@chase-sets/app-marketplace-web" },
@@ -164,5 +188,13 @@ describe("dev system target env overrides", () => {
         port: 6173,
       },
     ]);
+  });
+
+  it("fails before boot when a production web lacks its deployed internal API origin", () => {
+    expect(() =>
+      applyDevTargetEnvOverrides(browserE2eProductionTarget, [
+        { name: "marketplace", env: { PORT: "6173" }, port: 6173 },
+      ]),
+    ).toThrow(/marketplace requires PLATFORM_API_URL/);
   });
 });

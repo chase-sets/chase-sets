@@ -133,13 +133,18 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci 
     }
 
     if (productionCommand) {
-      const originPort = browserE2eProductionWebNames.has(definition.name)
-        ? definition.port + browserE2eProductionWebOriginPortOffset
-        : definition.port;
+      const isProductionWeb = browserE2eProductionWebNames.has(definition.name);
+      const originPort = isProductionWeb ? definition.port + browserE2eProductionWebOriginPortOffset : definition.port;
+      const internalApiOrigin = definition.env.PLATFORM_API_URL ?? definition.env.VITE_PLATFORM_API_URL;
+      if (isProductionWeb && !internalApiOrigin) {
+        throw new Error(`${definition.name} requires PLATFORM_API_URL for production browser e2e.`);
+      }
       return {
         ...definition,
         env: {
           ...definition.env,
+          ...browserE2eProductionIngressEnv,
+          CHASE_SETS_INTERNAL_API_ORIGIN: internalApiOrigin,
           PORT: String(originPort),
         },
         ...productionCommand,
