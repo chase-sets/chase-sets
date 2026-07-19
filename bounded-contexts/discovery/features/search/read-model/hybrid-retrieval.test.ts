@@ -31,6 +31,7 @@ describe("Discovery hybrid retrieval", () => {
 
     expect(actual.retrievalMode).toBe("rescue");
     expect(actual.lexicalCount).toBe(1);
+    expect(actual.total).toBe(1);
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic"]);
     expect(provider.embed).toHaveBeenCalledWith(["blue dragon"], "query");
     expect(searchSemantic).toHaveBeenCalledWith(
@@ -203,6 +204,8 @@ describe("Discovery hybrid retrieval", () => {
 
     expect(actual.retrievalMode).toBe("hybrid");
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
+    expect(actual.total).toBe(1);
+    expect(actual.lexicalCount).toBe(1);
     expect(actual.nextCursor).not.toBeNull();
   });
 });

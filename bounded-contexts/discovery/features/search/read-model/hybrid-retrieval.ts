@@ -111,10 +111,10 @@ export async function retrieveDiscoveryItems(
     return {
       ...lexical,
       items: [...lexical.items, ...additions],
-      total: lexical.total === null ? null : lexical.total + additions.length,
+      total: lexical.total,
       nextCursor: null,
       retrievalMode: "rescue",
-      lexicalCount: lexical.items.length,
+      lexicalCount: lexical.total,
     };
   } catch {
     return lexicalResult(lexical);
@@ -135,7 +135,7 @@ async function retrieveHybridPage(
     cursor: undefined,
     offset: undefined,
     limit: DISCOVERY_HYBRID_CANDIDATE_WINDOW,
-    includeTotal: false,
+    includeTotal: offset === 0,
   };
   const [lexical, semantic] = await Promise.all([
     searchLexical(dependencies.db, candidateParams, { loadMarketSummaries: false }),
@@ -171,10 +171,10 @@ async function retrieveHybridPage(
   return {
     items,
     facets: lexical.facets,
-    total: null,
+    total: lexical.total,
     nextCursor: nextOffset < ranked.length ? encodeHybridCursor(nextOffset) : null,
     retrievalMode: "hybrid",
-    lexicalCount: null,
+    lexicalCount: lexical.total,
   };
 }
 
@@ -215,7 +215,7 @@ function relevanceCandidate(
 }
 
 function lexicalResult(result: ListResult<DiscoverySearchItemRow>): DiscoverySearchResult {
-  return { ...result, retrievalMode: "lexical", lexicalCount: result.items.length };
+  return { ...result, retrievalMode: "lexical", lexicalCount: result.total };
 }
 
 function searchLimit(limit: number | undefined): number {

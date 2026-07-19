@@ -360,10 +360,8 @@ export function SearchPage({
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
-  const exactTotal = data?.total ?? data?.items.length ?? 0;
+  const exactTotal = data?.total ?? 0;
   const featuredCategories = categories.slice(0, 5);
-  const liveListingItems = data?.items.filter((item) => item.market_summary?.active_listing_count).length ?? 0;
-  const marketOnlyItems = data ? data.items.length - liveListingItems : 0;
   const catalogDepth = categories.reduce((total, current) => total + current.item_count, 0);
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ??
@@ -376,10 +374,17 @@ export function SearchPage({
     : t("discovery.features.search.ui.searchPage.any.market.activity");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
-  const resultsSummary = t("discovery.features.search.ui.searchPage.results.summary", {
-    count: exactTotal,
-    category: activeCategoryLabel,
-  });
+  const resultsSummary =
+    data && data.items.length !== exactTotal
+      ? t("discovery.features.search.ui.searchPage.results.summary.showing", {
+          shown: data.items.length,
+          count: exactTotal,
+          category: activeCategoryLabel,
+        })
+      : t("discovery.features.search.ui.searchPage.results.summary", {
+          count: exactTotal,
+          category: activeCategoryLabel,
+        });
   const hasFocusedResults =
     committedSearch.trim().length > 0 ||
     Boolean(category) ||
@@ -687,13 +692,8 @@ export function SearchPage({
                   detail: activeCategoryLabel,
                 },
                 {
-                  label: t("discovery.features.search.ui.searchPage.available.now"),
-                  value: liveListingItems,
-                  detail: t("discovery.features.search.ui.searchPage.with.active.listings"),
-                },
-                {
-                  label: t("discovery.features.search.ui.searchPage.market.only.2"),
-                  value: marketOnlyItems,
+                  label: t("discovery.features.search.ui.searchPage.catalog.depth"),
+                  value: catalogDepth,
                   detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }),
                 },
               ]}

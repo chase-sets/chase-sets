@@ -188,6 +188,34 @@ describe("SearchPage", () => {
     expect(announcedSummary?.closest('[aria-live="polite"]')?.getAttribute("aria-atomic")).toBe("true");
   });
 
+  it("shows the true Result Set total after more items are loaded", () => {
+    renderSearchPage({
+      committedSearch: "abra",
+      data: {
+        ...searchResponse,
+        items: Array.from({ length: 24 }, (_, index) => ({
+          ...searchResult,
+          catalog_item_id: `cat_${index}`,
+          slug: `item-${index}`,
+        })),
+        total: 352,
+        count: 24,
+      },
+    });
+
+    expect(screen.getAllByText("Showing 24 of 352 results in All Categories").length).toBeGreaterThan(0);
+  });
+
+  it("uses only Result Set and catalog-depth metrics in the landing hero", () => {
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    expect(screen.getByText("Results")).toBeTruthy();
+    expect(screen.getByText("352")).toBeTruthy();
+    expect(screen.getByText("Catalog depth")).toBeTruthy();
+    expect(screen.queryByText("Available Now")).toBeNull();
+    expect(screen.queryByText("Market Only")).toBeNull();
+  });
+
   it("marks stale results busy and shows transition feedback", () => {
     renderSearchPage({ committedSearch: "abra", loading: true });
 

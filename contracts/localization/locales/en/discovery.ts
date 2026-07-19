@@ -169,6 +169,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.browse.categories": "Browse categories",
   "discovery.features.search.ui.searchPage.buyer.confidence.is.built.into.discovery":
     "Order confidence is built into discovery.",
+  "discovery.features.search.ui.searchPage.catalog.depth": "Catalog depth",
   "discovery.features.search.ui.searchPage.category.count.label": "{category} ({count})",
   "discovery.features.search.ui.searchPage.category.filter.label": "Category: {category}",
   "discovery.features.search.ui.searchPage.clear.all": "Clear all",
@@ -268,6 +269,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.relevance": "Relevance",
   "discovery.features.search.ui.searchPage.results": "Results",
   "discovery.features.search.ui.searchPage.results.summary": "{count} results in {category}",
+  "discovery.features.search.ui.searchPage.results.summary.showing": "Showing {shown} of {count} results in {category}",
   "discovery.features.search.ui.searchPage.retry.loading.results": "Retry loading results",
   "discovery.features.search.ui.searchPage.open.filters": "Open filters",
   "discovery.features.search.ui.searchPage.search.catalog.items": "Search catalog items...",

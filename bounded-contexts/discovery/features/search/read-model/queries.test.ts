@@ -54,6 +54,30 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("counts a requested first page but never a cursor page", async () => {
+    const firstPage = createCapturingDb();
+    await searchDiscoveryItems(
+      firstPage.db,
+      { includeTotal: true, limit: 24 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(firstPage.calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(true);
+
+    const cursorPage = createCapturingDb();
+    await searchDiscoveryItems(
+      cursorPage.db,
+      {
+        includeTotal: true,
+        cursor: encodeCursor({ id: "cat_001", title: "Bulbasaur", updatedAt: "2026-05-16T00:00:00.000Z" }),
+        limit: 24,
+      },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(cursorPage.calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(false);
+  });
+
   it("issues only the result query and no facet queries for load-more requests", async () => {
     const { db, calls } = createCapturingDb();
 
