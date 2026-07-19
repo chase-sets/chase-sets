@@ -961,6 +961,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(terraformObservabilityJob).toContain("observability-shared-tfplan.txt");
     expect(terraformObservabilityJob).toContain("name: observability-shared-terraform-plan");
+    expect(terraformProductionJob).toContain('cd "$tmp"');
+    expect(terraformProductionJob).toContain(
+      'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan',
+    );
 
     expect(requiredJob).toContain(
       "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
