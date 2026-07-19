@@ -398,6 +398,7 @@ describe("marketplace search route", () => {
     expect(apiParams.get("priceMax")).toBe("25.00");
     expect(apiParams.get("inStock")).toBe("true");
     expect(apiParams.get("sort")).toBe("price_desc");
+    expect(apiParams.get("includeTotal")).toBe("true");
   });
 
   it("loads the home result set and newest arrivals in parallel", async () => {
@@ -569,6 +570,7 @@ describe("marketplace search route", () => {
     expect(requestedUrl).toContain("search=pikachu");
     expect(requestedUrl).toContain("limit=24");
     expect(requestedUrl).toContain("cursor=cursor_2");
+    expect(requestedUrl).not.toContain("includeTotal=true");
     expect(requestedUrl).not.toContain("offset=");
     expect(setSearchParams).not.toHaveBeenCalled();
   });

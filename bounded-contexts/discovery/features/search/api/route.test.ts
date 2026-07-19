@@ -112,6 +112,20 @@ describe("discovery item search routes", () => {
     );
   });
 
+  it("passes total requests only for first pages", async () => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+
+    await app.request("/?search=pikachu&includeTotal=true");
+    await app.request("/?search=pikachu&cursor=next-page");
+
+    expect(services.searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ includeTotal: true }));
+    expect(services.searchItems).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: "next-page", includeTotal: false }),
+    );
+  });
+
   it("ignores malformed price and in-stock query values", async () => {
     const services = createServices();
     const app = discoveryItemSearchRoutes(services);

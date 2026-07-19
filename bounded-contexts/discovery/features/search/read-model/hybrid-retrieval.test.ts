@@ -31,6 +31,7 @@ describe("Discovery hybrid retrieval", () => {
 
     expect(actual.retrievalMode).toBe("rescue");
     expect(actual.lexicalCount).toBe(1);
+    expect(actual.total).toBe(1);
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic"]);
     expect(provider.embed).toHaveBeenCalledWith(["blue dragon"], "query");
     expect(searchSemantic).toHaveBeenCalledWith(
@@ -203,7 +204,40 @@ describe("Discovery hybrid retrieval", () => {
 
     expect(actual.retrievalMode).toBe("hybrid");
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
+    expect(actual.total).toBe(1);
+    expect(actual.lexicalCount).toBe(1);
     expect(actual.nextCursor).not.toBeNull();
+  });
+
+  it("skips the total on hybrid cursor pages", async () => {
+    const searchLexical = vi.fn(async (_db, params) => ({
+      ...result([row("exact", "Pikachu")]),
+      total: params.includeTotal ? 1 : null,
+    }));
+    const dependencies = {
+      db: {} as never,
+      provider: fakeProvider(),
+      cache: createQueryEmbeddingCache(),
+      rescueEnabled: true,
+      hybridEnabled: true,
+      searchLexical,
+      searchSemantic: vi.fn(async () => [{ item: row("semantic", "Electric mascot"), similarity: 0.99 }]),
+      hydrateItems: vi.fn(async (_db, items) => [...items]),
+    };
+
+    const firstPage = await retrieveDiscoveryItems(dependencies, { search: "Pikachu", limit: 1 });
+    const cursorPage = await retrieveDiscoveryItems(dependencies, {
+      search: "Pikachu",
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+
+    expect(searchLexical).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ includeTotal: false }),
+      expect.anything(),
+    );
+    expect(cursorPage.total).toBeNull();
   });
 });
 

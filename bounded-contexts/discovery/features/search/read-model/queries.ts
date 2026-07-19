@@ -634,7 +634,7 @@ export async function searchDiscoveryItems(
   const selectBaseMatch = baseMatchExpression ? `, ${baseMatchExpression} AS search_base_match` : "";
 
   const countPromise =
-    params.includeTotal || useLegacyOffset
+    !params.cursor && (params.includeTotal || useLegacyOffset)
       ? db.query<{ count: string }>(
           `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`,
           values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch, cursor) : 0)),

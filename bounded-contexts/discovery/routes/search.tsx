@@ -152,6 +152,8 @@ function buildSearchQuery({
   params.set("limit", String(limit));
   if (cursor) {
     params.set("cursor", cursor);
+  } else {
+    params.set("includeTotal", "true");
   }
   appendDynamicSearchFilters(params, dynamicFilters);
   return params.toString();
