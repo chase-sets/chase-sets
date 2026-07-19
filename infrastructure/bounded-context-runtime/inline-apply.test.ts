@@ -64,7 +64,7 @@ function createQueryCaptureGroup(
     eventTypes: ["checkout.session.started"],
     streamPrefixes: ["checkout.session-"],
     order: 0,
-  } as ContextProjectionGroup["subscriptionRunners"][number];
+  };
   const group = {
     projectionName: "checkout.session-projection",
     handlerKind: "projection" as const,
