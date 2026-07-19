@@ -13,6 +13,7 @@ import {
   Checkbox,
   LoadingSpinner,
   Banner,
+  Badge,
   Box,
   Stack,
   Inline,
@@ -1048,6 +1049,9 @@ export function SearchPage({
                   const hasActiveListings = listingCount > 0;
                   const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
                   const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
+                  const displayBadges = (item.display_badges ?? []).filter(
+                    (badge) => badge.kind === "variant" || badge.kind === "rarity",
+                  );
                   const productAssetImage = buildDiscoveryProductAssetImage(
                     item.product_asset_sets,
                     "search-card",
@@ -1132,6 +1136,17 @@ export function SearchPage({
                       watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                       price={hasActiveListings ? formatPrice(item) : undefined}
                       subtitle={formatSearchIdentityLine(item)}
+                      badges={
+                        displayBadges.length > 0 ? (
+                          <Inline gap={1}>
+                            {displayBadges.map((badge) => (
+                              <Badge key={`${badge.kind}:${badge.label}`} tone="neutral" variant="outline">
+                                {badge.label}
+                              </Badge>
+                            ))}
+                          </Inline>
+                        ) : undefined
+                      }
                       valueCue={formatSearchResultMetadata(item)}
                       primaryAction={
                         <LinkButton

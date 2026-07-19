@@ -672,6 +672,13 @@ describe("design system marketplace patterns", () => {
         cardLayout="search-result"
         title="Abra 054/132"
         subtitle="Base Set 43 Parallel Set - Reverse Foil Common"
+        badges={
+          <Inline gap={1}>
+            <Badge tone="neutral" variant="outline">
+              Reverse Foil
+            </Badge>
+          </Inline>
+        }
         image={{
           src: "/assets/abra-224w.webp",
           srcSet: "/assets/abra-224w.webp 224w, /assets/abra-448w.webp 448w",
@@ -692,6 +699,7 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("max-w-[7.25rem]");
     expect(markup).toContain("md:max-w-[10.25rem]");
     expect(markup).toContain("Base Set 43 Parallel Set - Reverse Foil Common");
+    expect(markup).toContain("Reverse Foil");
     expect(markup).not.toContain("line-clamp-1");
     expect(markup).not.toContain("Market open");
     expect(markup).not.toContain("Offers open");
@@ -700,6 +708,25 @@ describe("design system marketplace patterns", () => {
     expect(markup).not.toContain('data-card-promotion-placement="content"');
     expect(markup).not.toContain("Supply wanted");
     expect(markup).not.toContain("absolute left-2 top-2");
+  });
+
+  it("keeps search-result badges out of the standard listing layout", () => {
+    const markup = renderToString(
+      <ListingCard
+        {...listingCardLabels}
+        title="Abra 054/132"
+        badges={
+          <Inline gap={1}>
+            <Badge tone="neutral" variant="outline">
+              Reverse Foil
+            </Badge>
+          </Inline>
+        }
+        primaryAction={<Button>Buy</Button>}
+      />,
+    );
+
+    expect(markup).not.toContain("Reverse Foil");
   });
 
   it("keeps linked search result detail targets separate from rail actions", () => {
