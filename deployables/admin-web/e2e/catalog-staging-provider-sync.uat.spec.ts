@@ -1253,6 +1253,24 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ).toBe(true);
   });
 
+  test("falls back to the scope label when only one provider scope has an execution identity", () => {
+    const commandScope: SelectedProviderScope = {
+      providerKey: "scrydex",
+      importScope: "en:TFC",
+      displayLabel: "scrydex · en / The First Chapter",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "setCode", value: "TFC" },
+      ],
+    };
+    const routeScope: SelectedProviderScope = {
+      ...commandScope,
+      importScope: null,
+    };
+
+    expect(selectedProviderScopeMatchesSelectedScope(commandScope, routeScope)).toBe(true);
+  });
+
   test("does not equate provider scopes that share a label but have different execution identities", () => {
     const scope = (importScope: string): SelectedProviderScope => ({
       providerKey: "lorcast",
@@ -3403,12 +3421,8 @@ function selectedProviderScopeMatchesSelectedScope(
     return false;
   }
 
-  if (candidate.importScope || expected.importScope) {
-    return Boolean(
-      candidate.importScope &&
-      expected.importScope &&
-      selectedProviderScopeMatchesImportScope(candidate, expected.importScope),
-    );
+  if (candidate.importScope && expected.importScope) {
+    return selectedProviderScopeMatchesImportScope(candidate, expected.importScope);
   }
 
   if (normalizeWhitespace(candidate.displayLabel) === normalizeWhitespace(expected.displayLabel)) {
