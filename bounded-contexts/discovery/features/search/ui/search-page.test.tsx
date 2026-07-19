@@ -172,6 +172,30 @@ describe("SearchPage", () => {
     ).toBeTruthy();
   });
 
+  it("gives focused Result Sets one named page heading and consistent filter-group headings", () => {
+    renderSearchPage({ committedSearch: "abra" });
+
+    expect(screen.getByRole("heading", { level: 1, name: "Search results for abra" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    for (const name of ["Browse categories", "Price and availability", "Language", "Market activity"]) {
+      expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
+      expect(screen.queryByRole("heading", { level: 3, name })).toBeNull();
+    }
+  });
+
+  it("keeps the landing hero as the only page heading when no Result Set is focused", () => {
+    renderSearchPage();
+
+    expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("names category-focused Result Sets", () => {
+    renderSearchPage({ category: "singles" });
+
+    expect(screen.getByRole("heading", { level: 1, name: "Search results in Singles" })).toBeTruthy();
+  });
+
   it("submits the current search from the keyboard", () => {
     const props = renderSearchPage({ search: "charizard", committedSearch: "pikachu" });
 
@@ -246,6 +270,12 @@ describe("SearchPage", () => {
     expect(props.onClearSearch).toHaveBeenCalledTimes(1);
     expect(recoveryView.getByRole("link", { name: "Clear filters" }).getAttribute("href")).toBe("/search?q=missing");
     expect(recoveryView.queryByRole("link", { name: "All Categories" })).toBeNull();
+    expect(recoveryView.getByText("Save this search")).toBeTruthy();
+    expect(
+      recoveryView.getByText(
+        "We'll alert you when matching items are listed. Clearing filters won't lose this search.",
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps home merchandising out of focused search states", () => {
