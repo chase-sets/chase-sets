@@ -10,6 +10,7 @@ import {
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { applyCommittedProjectionEventsInline } from "./inline-apply";
+import { ProjectionFreshnessTimeoutError, waitForProjectionFreshness } from "./api-mounts";
 import { bootstrapContextDatabase } from "./schema";
 import { claimSubscriptionApplication, recordSubscriptionApplicationCompleted } from "./subscription-store";
 import {
@@ -122,6 +123,139 @@ describeDb("projection inline apply Postgres integration", () => {
     await runtime.subscriptionRunners[0]!.runOnce();
     expect(testState.handlerCalls).toBe(1);
     await expect(readItems(pool)).resolves.toEqual([{ item_id: "item-1", seen_count: 1 }]);
+  });
+
+  it("returns fresh from the applied ledger on the first check while the checkpoint remains behind", async () => {
+    const runtime = createRuntime(pool);
+    const runner = runtime.subscriptionRunners[0]!;
+    const event = (await appendEvents(pool, "inline.item-fresh", [{ itemId: "fresh" }]))[0]!;
+
+    await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 1, deferred: 0, failed: 0 });
+    await expect(runner.refreshStatus()).resolves.toMatchObject({ lastGlobalPosition: "0", state: "behind" });
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: runtime.projectionGroups,
+        targetContextNames: ["inline"],
+        receipt: {
+          observedAtMs: Date.now(),
+          sources: [
+            {
+              sourceContextName: "inline",
+              maxGlobalPosition: event.globalPosition,
+              eventIds: [String(event.eventId)],
+            },
+          ],
+        },
+        timeoutMs: 0,
+      }),
+    ).resolves.toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+  });
+
+  it("ignores real non-subscribed receipt events once the subscribed subset is applied", async () => {
+    const runtime = createRuntime(pool);
+    const events = await appendTypedEvents(pool, "inline.item-mixed", [
+      { eventType: "inline.item-recorded", payload: { itemId: "mixed" } },
+      { eventType: "inline.audit-recorded", payload: { itemId: "ignored" } },
+    ]);
+
+    await expect(applyInline(runtime, events)).resolves.toEqual({ applied: 1, deferred: 0, failed: 0 });
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: runtime.projectionGroups,
+        targetContextNames: ["inline"],
+        receipt: {
+          observedAtMs: Date.now(),
+          sources: [
+            {
+              sourceContextName: "inline",
+              maxGlobalPosition: events[1]!.globalPosition,
+              eventIds: events.map((event) => String(event.eventId)),
+            },
+          ],
+        },
+        timeoutMs: 0,
+      }),
+    ).resolves.toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+  });
+
+  it("does not report an applied receipt event fresh while its stream is blocked", async () => {
+    const runtime = createRuntime(pool);
+    const runner = runtime.subscriptionRunners[0]!;
+    const event = (await appendEvents(pool, "inline.item-poisoned", [{ itemId: "poisoned" }]))[0]!;
+    await applyInline(runtime, [event]);
+    await pool.query(
+      `INSERT INTO event_projection_blocked_streams (
+         projection_key, stream_id, first_blocked_global_position, first_blocked_stream_version,
+         last_seen_global_position, deferred_event_count, state, updated_at
+       ) VALUES ($1, $2, $3::bigint, 1, $3::bigint, 0, 'blocked', now())`,
+      [runner.checkpointKey, event.streamId, event.globalPosition],
+    );
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: runtime.projectionGroups,
+        targetContextNames: ["inline"],
+        receipt: {
+          observedAtMs: Date.now(),
+          sources: [
+            {
+              sourceContextName: "inline",
+              maxGlobalPosition: event.globalPosition,
+              eventIds: [String(event.eventId)],
+            },
+          ],
+        },
+        timeoutMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+  });
+
+  it("does not report an applied receipt event fresh while it has an active poison record", async () => {
+    const runtime = createRuntime(pool);
+    const runner = runtime.subscriptionRunners[0]!;
+    const event = (await appendEvents(pool, "inline.item-active-poison", [{ itemId: "active-poison" }]))[0]!;
+    await applyInline(runtime, [event]);
+    await pool.query(
+      `INSERT INTO event_projection_poison_events (
+         projection_key, event_id, projection_name, projection_kind,
+         target_context_name, source_context_name, projection_revision, subscription_version,
+         stream_id, stream_version, event_type, global_position, failure_kind,
+         error_message, error_stack, state, retry_count, first_seen_at, last_seen_at, resolved_at
+       ) VALUES (
+         $1, $2, 'inline.items', 'subscription',
+         'inline', 'inline', 1, 1,
+         $3, 1, 'inline.item-recorded', $4::bigint, 'poison',
+         'test poison', NULL, 'blocked', 0, now(), now(), NULL
+       )`,
+      [runner.checkpointKey, String(event.eventId), event.streamId, event.globalPosition],
+    );
+
+    await expect(waitForEventFreshness(runtime, event)).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+  });
+
+  it("does not let an unknown receipt event id bypass the checkpoint predicate", async () => {
+    const runtime = createRuntime(pool);
+    const event = (await appendEvents(pool, "inline.item-forged", [{ itemId: "forged" }]))[0]!;
+    await applyInline(runtime, [event]);
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: runtime.projectionGroups,
+        targetContextNames: ["inline"],
+        receipt: {
+          observedAtMs: Date.now(),
+          sources: [
+            {
+              sourceContextName: "inline",
+              maxGlobalPosition: event.globalPosition,
+              eventIds: ["evt_unknown"],
+            },
+          ],
+        },
+        timeoutMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
   });
 
   it("defers without blocking or stealing an in-flight runner claim", async () => {
@@ -247,6 +381,18 @@ async function appendEvents(
   streamId: string,
   payloads: readonly Readonly<{ itemId: string }>[],
 ): Promise<readonly StoredEvent[]> {
+  return appendTypedEvents(
+    pool,
+    streamId,
+    payloads.map((payload) => ({ eventType: "inline.item-recorded", payload })),
+  );
+}
+
+async function appendTypedEvents(
+  pool: PgTransactionalPool,
+  streamId: string,
+  eventsToAppend: readonly Readonly<{ eventType: string; payload: Readonly<{ itemId: string }> }>[],
+): Promise<readonly StoredEvent[]> {
   return runWithEventCommitMetadata(async () => {
     const eventStore = createPostgresEventStore({ pool });
     const events = await eventStore.appendToStream({
@@ -259,7 +405,7 @@ async function appendEvents(
           forAccountId: "acc_test" as StoredEvent["forAccountId"],
         },
       },
-      events: payloads.map((payload) => ({ eventType: "inline.item-recorded", payload })),
+      events: eventsToAppend,
     });
     return events;
   });
@@ -279,6 +425,24 @@ async function applyInline(
     commitSources: metadata.sources,
     projectionGroups: runtime.projectionGroups,
     budgetMs,
+  });
+}
+
+function waitForEventFreshness(runtime: ReturnType<typeof createRuntime>, event: StoredEvent) {
+  return waitForProjectionFreshness({
+    projectionGroups: runtime.projectionGroups,
+    targetContextNames: ["inline"],
+    receipt: {
+      observedAtMs: Date.now(),
+      sources: [
+        {
+          sourceContextName: "inline",
+          maxGlobalPosition: event.globalPosition,
+          eventIds: [String(event.eventId)],
+        },
+      ],
+    },
+    timeoutMs: 0,
   });
 }
 

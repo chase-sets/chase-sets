@@ -1,6 +1,10 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import { describe, expect, it } from "vitest";
-import { createCheckpointKey, loadSubscriptionCheckpointRecoveryState } from "./subscription-store";
+import {
+  areSubscribedReceiptEventsApplied,
+  createCheckpointKey,
+  loadSubscriptionCheckpointRecoveryState,
+} from "./subscription-store";
 
 const tenantShardingTrap =
   "Checkpoint keys are durable single-tenant row identities. If the event store becomes tenant-partitioned, " +
@@ -58,5 +62,40 @@ describe("loadSubscriptionCheckpointRecoveryState", () => {
       checkpoint: "10",
       recoveryRequired,
     });
+  });
+});
+
+describe("areSubscribedReceiptEventsApplied", () => {
+  it("uses one indexed statement for the subscribed receipt subset without COUNT(*) backlog reads", async () => {
+    const queries: Readonly<{ sql: string; params: readonly unknown[] }>[] = [];
+    const db = {
+      query: async (sql: string, params: readonly unknown[]) => {
+        queries.push({ sql, params });
+        return { rows: [{ fresh: true }] };
+      },
+    };
+
+    await expect(
+      areSubscribedReceiptEventsApplied(
+        db as never,
+        "inline.items:inline:v1",
+        ["evt_subscribed", "evt_ignored", "evt_subscribed"],
+        ["inline.item-recorded"],
+        ["inline.item-"],
+      ),
+    ).resolves.toBe(true);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]!.sql).toContain("WHERE event_id = ANY($2::text[])");
+    expect(queries[0]!.sql).toContain("event_type = ANY($3::text[])");
+    expect(queries[0]!.sql).toContain("application.status IS DISTINCT FROM 'applied'");
+    expect(queries[0]!.sql).toContain("blocked_stream.state IN ('blocked', 'retrying')");
+    expect(queries[0]!.sql).toContain("poison_event.state IN ('blocked', 'retrying')");
+    expect(queries[0]!.sql).not.toContain("COUNT(*)");
+    expect(queries[0]!.params.slice(0, 3)).toEqual([
+      "inline.items:inline:v1",
+      ["evt_subscribed", "evt_ignored"],
+      ["inline.item-recorded"],
+    ]);
   });
 });

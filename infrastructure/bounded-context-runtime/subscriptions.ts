@@ -30,6 +30,7 @@ import {
 import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
 import {
   applyLagMetrics,
+  areSubscribedReceiptEventsApplied,
   calculateOutstandingEventCount,
   claimSubscriptionApplication,
   clearCascadeProgress,
@@ -177,6 +178,7 @@ export type ContextSubscriptionRunner = Readonly<{
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
+  areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
   reset: (context?: ProjectionRunContext, options?: SubscriptionResetOptions) => Promise<void>;
   retryBlockedStream: (streamId: string, context?: ProjectionRunContext) => Promise<ProjectionStreamRetryResult>;
 }>;
@@ -640,6 +642,18 @@ export function createSubscriptionRunner(
       status.updatedAt = new Date().toISOString();
       return { ...status };
     },
+    ...(subscription.inlineApply === true
+      ? {
+          areReceiptEventsApplied: (eventIds: readonly string[]) =>
+            areSubscribedReceiptEventsApplied(
+              targetPool,
+              checkpointKey,
+              eventIds,
+              subscriptionEventTypes,
+              subscription.streamPrefixes,
+            ),
+        }
+      : {}),
     reset: async (context, options) => {
       await deleteSubscriptionCheckpoint(options?.db ?? targetPool, checkpointKey, context);
       status.initialized = false;

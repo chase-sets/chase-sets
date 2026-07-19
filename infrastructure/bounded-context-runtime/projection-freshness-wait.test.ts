@@ -194,6 +194,127 @@ describe("bounded context projection freshness waits", () => {
     ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
   });
 
+  it("returns fresh from an eligible runner's completed receipt applications while its checkpoint is behind", async () => {
+    const areReceiptEventsApplied = vi.fn(async () => true);
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: [
+          {
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            subscriptionRunners: [
+              {
+                sourceContextName: "marketplace",
+                inlineApply: true,
+                errorPolicy: "strict-per-stream",
+                areReceiptEventsApplied,
+                refreshStatus: async () => ({
+                  lastGlobalPosition: "1",
+                  state: "behind",
+                  lastError: null,
+                }),
+              },
+            ],
+          },
+        ],
+        targetContextNames: ["marketplace"],
+        receipt: {
+          observedAtMs: 1,
+          sources: [
+            {
+              sourceContextName: "marketplace",
+              maxGlobalPosition: "5",
+              eventIds: ["evt_subscribed", "evt_ignored"],
+            },
+          ],
+        },
+        timeoutMs: 0,
+      }),
+    ).resolves.toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+    expect(areReceiptEventsApplied).toHaveBeenCalledOnce();
+    expect(areReceiptEventsApplied).toHaveBeenCalledWith(["evt_subscribed", "evt_ignored"]);
+  });
+
+  it("keeps checkpoint-only behavior for receipts without event ids and when the ledger query fails", async () => {
+    const noIdsLedgerCheck = vi.fn(async () => true);
+    const failedLedgerCheck = vi.fn(async () => {
+      throw new Error("ledger unavailable");
+    });
+    const createInput = (
+      eventIds: readonly string[],
+      areReceiptEventsApplied: (ids: readonly string[]) => Promise<boolean>,
+    ) => ({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              inlineApply: true,
+              areReceiptEventsApplied,
+              refreshStatus: async () => ({ lastGlobalPosition: "1", state: "behind", lastError: null }),
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds }],
+      },
+      timeoutMs: 0,
+      pollIntervalMs: 1,
+    });
+
+    await expect(waitForProjectionFreshness(createInput([], noIdsLedgerCheck))).rejects.toBeInstanceOf(
+      ProjectionFreshnessTimeoutError,
+    );
+    expect(noIdsLedgerCheck).not.toHaveBeenCalled();
+
+    await expect(waitForProjectionFreshness(createInput(["evt_5"], failedLedgerCheck))).rejects.toBeInstanceOf(
+      ProjectionFreshnessTimeoutError,
+    );
+    expect(failedLedgerCheck).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { label: "global-strict", group: {}, runner: { errorPolicy: "global-strict" } },
+    { label: "side-effect-only", group: { sideEffectOnly: true }, runner: {} },
+    { label: "reaction", group: { handlerKind: "reaction" }, runner: {} },
+  ])("does not use ledger freshness for $label runner-owned work", async ({ group, runner }) => {
+    const areReceiptEventsApplied = vi.fn(async () => true);
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: [
+          {
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            ...group,
+            subscriptionRunners: [
+              {
+                sourceContextName: "marketplace",
+                inlineApply: true,
+                areReceiptEventsApplied,
+                ...runner,
+                refreshStatus: async () => ({ lastGlobalPosition: "1", state: "behind", lastError: null }),
+              },
+            ],
+          },
+        ],
+        targetContextNames: ["marketplace"],
+        receipt: {
+          observedAtMs: 1,
+          sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+        },
+        timeoutMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+    expect(areReceiptEventsApplied).not.toHaveBeenCalled();
+  });
+
   it("requests a wake and registers waiters once for exactly the pending dependencies", async () => {
     const wakeCalls: { requests: readonly unknown[]; metadata?: unknown }[] = [];
     const waiterCalls: { requests: readonly unknown[]; timeoutMs: number }[] = [];
