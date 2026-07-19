@@ -627,6 +627,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.headerSearch.no.recent.searches": "No recent searches",
   "discovery.features.search.ui.headerSearch.placeholder": "Search items",
   "discovery.features.search.ui.headerSearch.recent.search": "Recent search",
+  "discovery.features.search.ui.headerSearch.search.query": "Search for '{query}'",
   "discovery.features.itemDetail.ui.itemDetailPage.active.listing.count": "{count} active {listingLabel}",
   "discovery.features.itemDetail.ui.itemDetailPage.buyer.count.plural": "{count} accounts",
   "discovery.features.itemDetail.ui.itemDetailPage.buyer.count.singular": "{count} account",

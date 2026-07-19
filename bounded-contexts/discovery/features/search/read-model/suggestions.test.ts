@@ -27,6 +27,7 @@ describe("suggestDiscoveryItems", () => {
       {
         catalog_item_id: "cat_1",
         title: "Charizard ex",
+        subtitle: "Obsidian Flames 125/197",
         slug: "charizard-ex-cat-1",
         category: "Pokemon TCG",
       },
@@ -36,6 +37,7 @@ describe("suggestDiscoveryItems", () => {
       {
         catalogItemId: "cat_1",
         title: "Charizard ex",
+        subtitle: "Obsidian Flames 125/197",
         slug: "charizard-ex-cat-1",
         category: "Pokemon TCG",
       },
@@ -43,6 +45,7 @@ describe("suggestDiscoveryItems", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sql).toContain("status = $1");
+    expect(calls[0]?.sql).toContain("catalog_item_id, title, subtitle, slug");
     expect(calls[0]?.sql).toContain("search_text_simple @@ to_tsquery('simple', $2)");
     expect(calls[0]?.sql).toContain("ORDER BY ts_rank(search_text_simple");
     expect(calls[0]?.values).toEqual(["active", "Mega & Char:*", DISCOVERY_SEARCH_SUGGESTION_LIMIT]);

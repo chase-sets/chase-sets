@@ -34,15 +34,23 @@ describe("MarketplaceHeaderSearch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("debounces typeahead suggestions and submits from item detail with the keyboard", async () => {
+  it("opens the selected item detail without recording a recent search", async () => {
     const user = userEvent.setup();
     const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({
         items: [
           {
             catalogItemId: "cat_1",
-            title: "Charizard ex",
-            slug: "charizard-ex-cat-1",
+            title: "Acerola's Mischief 113/132",
+            subtitle: "Parallel Set - Reverse Foil",
+            slug: "acerolas-mischief-113-132-reverse-foil-cat-1",
+            category: "Pokemon TCG",
+          },
+          {
+            catalogItemId: "cat_2",
+            title: "Acerola's Mischief 113/132",
+            subtitle: "Standard Set",
+            slug: "acerolas-mischief-113-132-standard-cat-2",
             category: "Pokemon TCG",
           },
         ],
@@ -54,22 +62,44 @@ describe("MarketplaceHeaderSearch", () => {
 
     const searchbox = screen.getByRole("combobox", { name: "Search marketplace" });
     await user.click(searchbox);
-    fireEvent.change(searchbox, { target: { value: "char" } });
+    fireEvent.change(searchbox, { target: { value: "acer" } });
     expect(fetch).not.toHaveBeenCalled();
 
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    expect(String(fetch.mock.calls[0]?.[0])).toContain("/api/marketplace/items/suggest?q=char");
-    const option = await screen.findByRole("option", { name: /Charizard ex/ });
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/api/marketplace/items/suggest?q=acer");
+    const suggestions = await screen.findAllByRole("option", { name: /Acerola's Mischief 113\/132/ });
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]?.textContent).toContain("Parallel Set - Reverse Foil");
+    expect(suggestions[1]?.textContent).toContain("Standard Set");
 
-    searchbox.focus();
-    await user.keyboard("{ArrowDown}");
-    await waitFor(() => expect(option.getAttribute("data-highlighted")).not.toBeNull());
-    await user.keyboard("{Enter}");
+    await user.click(suggestions[0]);
 
-    await waitFor(() => expect(screen.getByLabelText("Current location").textContent).toBe("/search?q=Charizard%20ex"));
-    expect(JSON.parse(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY) ?? "[]")).toEqual([
-      "Charizard ex",
-    ]);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Current location").textContent).toBe(
+        "/items/acerolas-mischief-113-132-reverse-foil-cat-1",
+      ),
+    );
+    expect(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("shows the query submit row first and records only that query", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ items: [], count: 0 })),
+    );
+    renderSearch();
+
+    const searchbox = screen.getByRole("combobox", { name: "Search marketplace" });
+    await user.click(searchbox);
+    fireEvent.change(searchbox, { target: { value: "char" } });
+
+    const queryOption = await screen.findByRole("option", { name: "Search for 'char'" });
+    expect(screen.getAllByRole("option")[0]).toBe(queryOption);
+    await user.click(queryOption);
+
+    await waitFor(() => expect(screen.getByLabelText("Current location").textContent).toBe("/search?q=char"));
+    expect(JSON.parse(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY) ?? "[]")).toEqual(["char"]);
   });
 
   it("loads persisted recent searches and clears them from the keyboard-accessible list", async () => {

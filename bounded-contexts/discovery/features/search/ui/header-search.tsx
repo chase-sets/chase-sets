@@ -53,11 +53,19 @@ export function MarketplaceHeaderSearch() {
 
   const items = useMemo(() => {
     if (query.trim()) {
-      return suggestions.map((suggestion) => ({
-        value: `suggestion:${suggestion.catalogItemId}`,
-        label: suggestion.title,
-        description: suggestion.category ?? t("discovery.features.search.ui.headerSearch.catalog.item"),
-      }));
+      return [
+        {
+          value: "action:submit-search",
+          label: t("discovery.features.search.ui.headerSearch.search.query", { query: boundedQuery(query).trim() }),
+        },
+        ...suggestions.map((suggestion) => ({
+          value: `suggestion:${suggestion.catalogItemId}`,
+          label: suggestion.title,
+          description:
+            (suggestion.subtitle?.trim() || suggestion.category) ??
+            t("discovery.features.search.ui.headerSearch.catalog.item"),
+        })),
+      ];
     }
 
     return [
@@ -114,6 +122,11 @@ export function MarketplaceHeaderSearch() {
       return;
     }
 
+    if (value === "action:submit-search") {
+      submitSearch(query);
+      return;
+    }
+
     if (value.startsWith("recent:")) {
       submitSearch(value.slice("recent:".length));
       return;
@@ -121,7 +134,7 @@ export function MarketplaceHeaderSearch() {
 
     const suggestion = suggestions.find((candidate) => `suggestion:${candidate.catalogItemId}` === value);
     if (suggestion) {
-      submitSearch(suggestion.title);
+      navigate(`/items/${encodeURIComponent(suggestion.slug)}`);
     }
   }
 

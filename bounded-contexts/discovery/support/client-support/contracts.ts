@@ -90,6 +90,7 @@ export interface DiscoverySearchResponse {
 export interface DiscoverySearchSuggestion {
   catalogItemId: string;
   title: string;
+  subtitle: string | null;
   slug: string;
   category: string | null;
 }

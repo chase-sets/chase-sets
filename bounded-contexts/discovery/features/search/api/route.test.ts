@@ -37,6 +37,7 @@ describe("discovery item search routes", () => {
       {
         catalogItemId: "cat_1",
         title: "Charizard ex",
+        subtitle: "Obsidian Flames 125/197",
         slug: "charizard-ex-cat-1",
         category: "Pokemon TCG",
       },
@@ -52,6 +53,7 @@ describe("discovery item search routes", () => {
         {
           catalogItemId: "cat_1",
           title: "Charizard ex",
+          subtitle: "Obsidian Flames 125/197",
           slug: "charizard-ex-cat-1",
           category: "Pokemon TCG",
         },

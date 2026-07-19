@@ -7,6 +7,7 @@ export const DISCOVERY_SEARCH_SUGGESTION_LIMIT = 8;
 type DiscoverySearchSuggestionRow = Readonly<{
   catalog_item_id: string;
   title: string;
+  subtitle: string | null;
   slug: string;
   category: string | null;
 }>;
@@ -23,7 +24,7 @@ export async function suggestDiscoveryItems(
 
   const limit = clampSuggestionLimit(requestedLimit);
   const result = await db.query<DiscoverySearchSuggestionRow>(
-    `SELECT catalog_item_id, title, slug,
+    `SELECT catalog_item_id, title, subtitle, slug,
             CASE WHEN jsonb_array_length(category_names) > 0 THEN category_names ->> 0 ELSE NULL END AS category
        FROM discovery_search_items
       WHERE status = $1
@@ -38,6 +39,7 @@ export async function suggestDiscoveryItems(
   return result.rows.map((row) => ({
     catalogItemId: row.catalog_item_id,
     title: row.title,
+    subtitle: row.subtitle,
     slug: row.slug,
     category: row.category,
   }));
