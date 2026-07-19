@@ -44,7 +44,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import SearchRoute, { clientLoader, loader } from "./search";
+import SearchRoute, { clientLoader, loader, PRICE_FILTER_DEBOUNCE_MS } from "./search";
 import {
   cacheSearchLoaderData,
   readCachedSearchLoaderData,
@@ -209,6 +209,54 @@ describe("marketplace search route", () => {
     expect(next.has("search")).toBe(false);
     expect(next.has("page")).toBe(false);
     expect(options).toMatchObject({ preventScrollReset: true, replace: true });
+  });
+
+  it("commits rapid price edits once with the settled values", () => {
+    vi.useFakeTimers();
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData());
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("page=2"), setSearchParams]);
+
+    render(<SearchRoute />);
+
+    const minimumPrice = screen.getByRole("spinbutton", { name: "Minimum price" });
+    fireEvent.change(minimumPrice, { target: { value: "1" } });
+    fireEvent.change(minimumPrice, { target: { value: "15" } });
+    fireEvent.change(minimumPrice, { target: { value: "150" } });
+
+    act(() => vi.advanceTimersByTime(PRICE_FILTER_DEBOUNCE_MS - 1));
+    expect(setSearchParams).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("page=2"));
+    expect(next.get("priceMin")).toBe("150.00");
+    expect(next.has("priceMax")).toBe(false);
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: true });
+  });
+
+  it("flushes a pending price edit when the field loses focus", () => {
+    vi.useFakeTimers();
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData());
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("page=2"), setSearchParams]);
+
+    render(<SearchRoute />);
+
+    const minimumPrice = screen.getByRole("spinbutton", { name: "Minimum price" });
+    fireEvent.change(minimumPrice, { target: { value: "150" } });
+    fireEvent.focusOut(minimumPrice);
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater] = setSearchParams.mock.calls[0];
+    expect(updater(new URLSearchParams("page=2")).get("priceMin")).toBe("150.00");
   });
 
   it("flushes the pending search immediately when Enter submits", () => {

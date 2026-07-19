@@ -4,7 +4,7 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
-import SearchRoute, { SEARCH_DEBOUNCE_MS } from "./search";
+import SearchRoute, { PRICE_FILTER_DEBOUNCE_MS, SEARCH_DEBOUNCE_MS } from "./search";
 
 // Regression for issue #4974 (same defect class as #4955): with the DS LinkAdapter
 // registered by the marketplace shell (DiscoveryShellLayout), a search result card's
@@ -140,6 +140,22 @@ describe("marketplace search detail navigation with a pending debounced search",
 
     // Let the debounce elapse while the detail loader is still in flight.
     await new Promise((resolveFn) => setTimeout(resolveFn, SEARCH_DEBOUNCE_MS * 3));
+    detailLoader.resolve();
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/items/pikachu"), { timeout: 2000 });
+    await screen.findByRole("heading", { name: "Item Detail" });
+  });
+
+  it("drops a pending price commit while a result navigation is in flight", async () => {
+    const detailLoader = createDeferred();
+    const router = renderMarketplaceSearchRouter(detailLoader);
+
+    const resultLink = await screen.findByRole("link", { name: RESULT_ACTION_NAME });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum price" }), { target: { value: "150" } });
+    fireEvent.click(resultLink);
+
+    await waitFor(() => expect(router.state.navigation.state).toBe("loading"));
+    await new Promise((resolveFn) => setTimeout(resolveFn, PRICE_FILTER_DEBOUNCE_MS * 3));
     detailLoader.resolve();
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/items/pikachu"), { timeout: 2000 });

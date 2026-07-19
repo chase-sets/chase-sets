@@ -143,6 +143,8 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     onMarketActivityChange: vi.fn(),
     onPriceMinChange: vi.fn(),
     onPriceMaxChange: vi.fn(),
+    onPriceMinStep: vi.fn(),
+    onPriceMaxStep: vi.fn(),
     onInStockChange: vi.fn(),
     onSortChange: vi.fn(),
     onDynamicFilterChange: vi.fn(),
@@ -621,9 +623,20 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Maximum price: $25.00" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove In stock" }));
 
-    expect(props.onPriceMinChange).toHaveBeenCalledWith("");
-    expect(props.onPriceMaxChange).toHaveBeenCalledWith("");
+    expect(props.onPriceMinStep).toHaveBeenCalledWith("");
+    expect(props.onPriceMaxStep).toHaveBeenCalledWith("");
     expect(props.onInStockChange).toHaveBeenCalledWith(false);
+  });
+
+  it("reports price stepper clicks as discrete changes", () => {
+    const props = renderSearchPage({ priceMin: "10.00" });
+    const increment = screen.getByRole("button", { name: "Increase minimum price" });
+
+    fireEvent.pointerDown(increment);
+    fireEvent.click(increment);
+
+    expect(props.onPriceMinStep).toHaveBeenCalledWith("10.01");
+    expect(props.onPriceMinChange).not.toHaveBeenCalled();
   });
 
   it("keeps the category facet visible when a category is selected", () => {
