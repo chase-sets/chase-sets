@@ -11,6 +11,10 @@ export const browserE2eReadConsistencyEnv = Object.freeze({
   READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED: "true",
 });
 
+export const browserE2eProductionIngressEnv = Object.freeze({
+  CHASE_SETS_TRUST_FORWARDED_HEADERS: "true",
+});
+
 export const browserE2ePlatformWorkerEnv = Object.freeze({
   // The support shard invokes this sweep explicitly and asserts its result.
   // Running the scheduled copy at worker startup consumes the fixtures first.
@@ -50,6 +54,9 @@ export const browserE2eProductionBuilds = Object.freeze([
   Object.freeze({ name: "marketplace", workspace: "@chase-sets/app-marketplace-web" }),
 ]);
 
+const browserE2eProductionWebOriginPortOffset = 4;
+const browserE2eProductionWebNames = new Set(browserE2eProductionBuilds.map(({ name }) => name));
+
 export const browserE2eDirectCiCommands = Object.freeze({
   "platform-worker": browserE2ePlatformWorkerCiCommand,
 });
@@ -69,6 +76,28 @@ export function isBrowserE2eTarget(targetName) {
   return targetName === "browser-e2e" || targetName === browserE2eProductionTarget;
 }
 
+export function createBrowserE2eProductionIngressDefinitions(processDefinitions, { apiUrl, ingressScriptPath }) {
+  return processDefinitions
+    .filter((definition) => browserE2eProductionWebNames.has(definition.name))
+    .map((definition) => ({
+      name: `${definition.name}-ingress`,
+      command: "node",
+      args: [
+        ingressScriptPath,
+        "--port",
+        String(definition.publicPort),
+        "--label",
+        definition.name,
+        "--web-target",
+        `http://127.0.0.1:${definition.port}`,
+        "--api-target",
+        apiUrl,
+      ],
+      env: {},
+      port: definition.publicPort,
+    }));
+}
+
 export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci = Boolean(process.env.CI) } = {}) {
   if (!isBrowserE2eTarget(targetName)) {
     return processDefinitions;
@@ -86,6 +115,7 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci 
           ...browserE2eRateLimitEnv,
           ...browserE2ePlatformAdminEnv,
           ...browserE2eReadConsistencyEnv,
+          ...(targetName === browserE2eProductionTarget ? browserE2eProductionIngressEnv : {}),
         },
         ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
       };
@@ -103,9 +133,18 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci 
     }
 
     if (productionCommand) {
+      const originPort = browserE2eProductionWebNames.has(definition.name)
+        ? definition.port + browserE2eProductionWebOriginPortOffset
+        : definition.port;
       return {
         ...definition,
+        env: {
+          ...definition.env,
+          PORT: String(originPort),
+        },
         ...productionCommand,
+        port: originPort,
+        publicPort: definition.port,
       };
     }
 

@@ -11,6 +11,7 @@ import {
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
   browserE2eProductionTarget,
+  createBrowserE2eProductionIngressDefinitions,
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
@@ -28,6 +29,7 @@ const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
 const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url));
+const platformComposeIngressScript = fileURLToPath(new URL("./platform-compose-ingress.mjs", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeInvocation = resolveDockerComposeInvocation(buildDockerComposeArgs(sandbox));
 const localAdminDatabaseUrl =
@@ -496,7 +498,7 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   }
 
   for (const definition of selectedProcesses) {
-    console.log(`  ${definition.name.padEnd(16)} http://localhost:${definition.port}`);
+    console.log(`  ${definition.name.padEnd(16)} http://localhost:${definition.publicPort ?? definition.port}`);
   }
 
   console.log(`  Sandbox env:     ${path.relative(rootDir, sandbox.envFilePath)}`);
@@ -522,6 +524,13 @@ async function runDev(targetName = "all") {
         prefix: build.name,
       });
     }
+
+    selectedProcesses.push(
+      ...createBrowserE2eProductionIngressDefinitions(selectedProcesses, {
+        apiUrl: sandbox.urls.platformApi,
+        ingressScriptPath: platformComposeIngressScript,
+      }),
+    );
   }
 
   printDevUrls(targetName, selectedProcesses, targetName === "all");
