@@ -116,6 +116,7 @@ export interface HeadingProps extends FrameProps {
   level?: HeadingLevel;
   visualSize?: HeadingLevel;
   align?: TextAlignValue;
+  visuallyHidden?: boolean;
   /** Balance line lengths (`text-wrap: balance`) so short multi-line headings break evenly. */
   balance?: boolean;
 }
@@ -129,13 +130,26 @@ const headingClasses: Record<HeadingLevel, string> = {
   6: "font-heading text-base font-semibold leading-snug",
 };
 
-export function Heading({ children, level = 2, visualSize = level, align, balance = false, ...rest }: HeadingProps) {
+export function Heading({
+  children,
+  level = 2,
+  visualSize = level,
+  align,
+  balance = false,
+  visuallyHidden = false,
+  ...rest
+}: HeadingProps) {
   const Component = `h${level}` as const;
 
   return (
     <Component
       {...rest}
-      className={cx(headingClasses[visualSize], resolveTextAlignClass(align), balance && "text-balance")}
+      className={cx(
+        headingClasses[visualSize],
+        resolveTextAlignClass(align),
+        balance && "text-balance",
+        visuallyHidden && "sr-only",
+      )}
     >
       {children}
     </Component>

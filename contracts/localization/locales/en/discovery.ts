@@ -268,6 +268,9 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.price.low.to.high": "Price: low to high",
   "discovery.features.search.ui.searchPage.relevance": "Relevance",
   "discovery.features.search.ui.searchPage.results": "Results",
+  "discovery.features.search.ui.searchPage.results.heading": "Search results",
+  "discovery.features.search.ui.searchPage.results.heading.category": "Search results in {category}",
+  "discovery.features.search.ui.searchPage.results.heading.search": "Search results for {search}",
   "discovery.features.search.ui.searchPage.results.summary": "{count} results in {category}",
   "discovery.features.search.ui.searchPage.results.summary.showing": "Showing {shown} of {count} results in {category}",
   "discovery.features.search.ui.searchPage.retry.loading.results": "Retry loading results",
@@ -275,8 +278,8 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.search.catalog.items": "Search catalog items...",
   "discovery.features.search.ui.searchPage.search.filter.label": "Search: {search}",
   "discovery.features.search.ui.searchPage.saved.search.recovery.description":
-    "Save the search or clear filters without losing your account context; live seller supply, price, and protection cues appear when matching items return.",
-  "discovery.features.search.ui.searchPage.saved.search.recovery.title": "Recovery stays reversible",
+    "We'll alert you when matching items are listed. Clearing filters won't lose this search.",
+  "discovery.features.search.ui.searchPage.saved.search.recovery.title": "Save this search",
   "discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets":
     "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.",
   "discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage":

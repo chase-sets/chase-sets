@@ -85,6 +85,7 @@ function getProgressiveMarketplaceFacetItems({
 
 export interface MarketplaceFacetRailProps {
   title?: ReactNode;
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
   allLabel?: string;
   items: MarketplaceFacetItem[];
@@ -103,6 +104,7 @@ export interface MarketplaceFacetRailProps {
 
 export function MarketplaceFacetRail({
   title = "Browse Categories",
+  headingLevel = 2,
   description = "Narrow the marketplace by category and current catalog depth.",
   allLabel = "All Categories",
   items,
@@ -135,7 +137,11 @@ export function MarketplaceFacetRail({
   return (
     <section className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
       <div className="space-y-1 px-1">
-        <h2 className="font-heading text-base font-semibold text-foreground">{title}</h2>
+        {(() => {
+          const Heading = `h${headingLevel}` as const;
+
+          return <Heading className="font-heading text-base font-semibold text-foreground">{title}</Heading>;
+        })()}
         {description ? <div className="text-sm text-secondary">{description}</div> : null}
       </div>
       {searchable ? (
@@ -265,6 +271,7 @@ export function MarketplaceFacetStrip({
 
 export interface MarketplaceFacetChoiceGroupProps {
   title: ReactNode;
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
   allLabel: string;
   items: MarketplaceFacetItem[];
@@ -285,6 +292,7 @@ export interface MarketplaceFacetChoiceGroupProps {
 
 export function MarketplaceFacetChoiceGroup({
   title,
+  headingLevel = 3,
   description,
   allLabel,
   items,
@@ -366,7 +374,11 @@ export function MarketplaceFacetChoiceGroup({
   return (
     <section className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
       <div className="space-y-1">
-        <h3 className="m-0 font-heading text-sm font-semibold text-foreground">{title}</h3>
+        {(() => {
+          const Heading = `h${headingLevel}` as const;
+
+          return <Heading className="m-0 font-heading text-sm font-semibold text-foreground">{title}</Heading>;
+        })()}
         {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
       </div>
       {searchable ? (

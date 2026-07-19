@@ -61,6 +61,7 @@ type DynamicSearchFilterSelection = Readonly<{
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
 
 type PriceAndStockFiltersProps = Readonly<{
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   priceMin: string;
   priceMax: string;
   inStock: boolean;
@@ -128,6 +129,7 @@ function facetOptionSearchProps(facet: DiscoveryFacetGroup) {
 }
 
 function PriceAndStockFilters({
+  headingLevel = 2,
   priceMin,
   priceMax,
   inStock,
@@ -138,7 +140,7 @@ function PriceAndStockFilters({
   return (
     <Stack gap={3}>
       <Stack gap={1}>
-        <Heading level={3} visualSize={6}>
+        <Heading level={headingLevel} visualSize={6}>
           {t("discovery.features.search.ui.searchPage.price.and.availability")}
         </Heading>
         <Text size="sm" tone="secondary">
@@ -386,6 +388,11 @@ export function SearchPage({
           count: exactTotal,
           category: activeCategoryLabel,
         });
+  const focusedResultsHeading = committedSearch.trim()
+    ? t("discovery.features.search.ui.searchPage.results.heading.search", { search: committedSearch.trim() })
+    : category
+      ? t("discovery.features.search.ui.searchPage.results.heading.category", { category: activeCategoryLabel })
+      : t("discovery.features.search.ui.searchPage.results.heading");
   const hasFocusedResults =
     committedSearch.trim().length > 0 ||
     Boolean(category) ||
@@ -522,6 +529,7 @@ export function SearchPage({
   const filterRail = (
     <Stack gap={3}>
       <MarketplaceFacetRail
+        headingLevel={2}
         title={t("discovery.features.search.ui.searchPage.browse.categories")}
         description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
         allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
@@ -535,6 +543,7 @@ export function SearchPage({
         {...progressiveFacetLabels}
       />
       <PriceAndStockFilters
+        headingLevel={2}
         priceMin={priceMin}
         priceMax={priceMax}
         inStock={inStock}
@@ -543,6 +552,7 @@ export function SearchPage({
         onInStockChange={onInStockChange}
       />
       <MarketplaceFacetRail
+        headingLevel={2}
         title={t("discovery.features.search.ui.searchPage.language")}
         description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
         allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
@@ -555,6 +565,7 @@ export function SearchPage({
         {...progressiveFacetLabels}
       />
       <MarketplaceFacetRail
+        headingLevel={2}
         title={t("discovery.features.search.ui.searchPage.market.activity")}
         description={t("discovery.features.search.ui.searchPage.market.activity.description")}
         allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
@@ -574,6 +585,7 @@ export function SearchPage({
         return (
           <MarketplaceFacetRail
             key={`${facet.kind}:${facet.id}`}
+            headingLevel={2}
             title={facet.label}
             description={formatFacetDescription(facet)}
             allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
@@ -710,6 +722,11 @@ export function SearchPage({
     >
       <Stack gap={hasFocusedResults ? 6 : 4}>
         {hasFocusedResults ? (
+          <Heading level={1} visuallyHidden>
+            {focusedResultsHeading}
+          </Heading>
+        ) : null}
+        {hasFocusedResults ? (
           <SearchControlBar
             search={
               <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
@@ -808,6 +825,7 @@ export function SearchPage({
               }
             >
               <MarketplaceFacetChoiceGroup
+                headingLevel={2}
                 title={t("discovery.features.search.ui.searchPage.browse.categories")}
                 description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
                 allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
@@ -821,6 +839,7 @@ export function SearchPage({
                 {...progressiveFacetLabels}
               />
               <PriceAndStockFilters
+                headingLevel={2}
                 priceMin={priceMin}
                 priceMax={priceMax}
                 inStock={inStock}
@@ -829,6 +848,7 @@ export function SearchPage({
                 onInStockChange={onInStockChange}
               />
               <MarketplaceFacetChoiceGroup
+                headingLevel={2}
                 title={t("discovery.features.search.ui.searchPage.language")}
                 description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
                 allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
@@ -843,6 +863,7 @@ export function SearchPage({
                 {...progressiveFacetLabels}
               />
               <MarketplaceFacetChoiceGroup
+                headingLevel={2}
                 title={t("discovery.features.search.ui.searchPage.market.activity")}
                 description={t("discovery.features.search.ui.searchPage.market.activity.description")}
                 allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
@@ -864,6 +885,7 @@ export function SearchPage({
                 return (
                   <MarketplaceFacetChoiceGroup
                     key={`${facet.kind}:${facet.id}`}
+                    headingLevel={2}
                     title={facet.label}
                     description={formatFacetDescription(facet)}
                     allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
