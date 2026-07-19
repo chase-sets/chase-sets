@@ -44,6 +44,9 @@ export async function signInThroughMarketplaceForm(
   await identifier.fill(account.email);
   await page.getByRole("button", { name: /^Continue$/i }).click();
 
+  const passwordMethod = page.getByRole("radio", { name: /^Password$/i });
+  await passwordMethod.click();
+
   const password = page.getByLabel(/^Password$/i);
   await expect(password, "marketplace sign-in form must expose the password step").toBeVisible();
   await password.fill(account.password);
