@@ -39,6 +39,8 @@ Topology/release-health evidence for profile migration must include connection-b
 
 Platform Staging Reset targets only managed-Postgres resources protected by its reviewed reset flow. It preserves DOKS routing and queues a fresh DOKS deploy after recreation. The database restore, Helm recovery, bootstrap-hook, and rollback drill workflows are the supported rehearsal paths; do not reproduce them with ad-hoc applies.
 
+For a real loss of application compute or production database integrity, follow the complete [DOKS catastrophe-recovery contract](./doks-platform-operations.md#catastrophe-recovery-contract). It covers incident locking, managed-Postgres PITR, recovery from a retained `cs-prod-rp-*` fork, the source-owned Helm rollback command, mandatory revision evidence, verification, and durable reconciliation. App Platform is not a fallback.
+
 Terraform apply failures upload sensitive errored-state evidence under the protected environment retention policy. Download it only for incident recovery and delete local copies afterward.
 
 ## Stateful Destroy Guard Override

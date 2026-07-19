@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
+import { assertNoDestructiveChanges } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -417,6 +418,31 @@ describe("DigitalOcean platform configuration", () => {
     expect(decommissionJob).toContain("sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29");
     expect(decommissionJob).not.toMatch(/terraform\s+apply/);
     expect(existsSync(resolve(".github/deployment/production-destructive-change-approved.md"))).toBe(false);
+  });
+
+  it("fails the staging plan gate closed when a destroy has no active approval", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const stagingPlanStep = workflowStep(stagingJob, "Terraform plan");
+    const unapprovedStagingPlan = {
+      resource_changes: [
+        {
+          address: "digitalocean_app.platform",
+          type: "digitalocean_app",
+          name: "platform",
+          change: { actions: ["delete"] },
+        },
+      ],
+    };
+
+    expect(stagingJob).toContain(
+      "DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md",
+    );
+    expect(stagingPlanStep).toContain(
+      'assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
+    );
+    expect(() => assertNoDestructiveChanges(unapprovedStagingPlan)).toThrow(
+      "Terraform plan contains destructive changes and no reviewed override marker was found",
+    );
   });
 
   it("renders DOKS from the checked-in runtime contract", () => {

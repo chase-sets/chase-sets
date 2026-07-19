@@ -699,6 +699,9 @@ jobs:
       ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
       BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}
       BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}
+      # The same checked-in approval gates an identical retired App Platform
+      # delete address and fingerprint in both long-lived environment states.
+      DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
       # DOKS ingress load balancer IPv4 for live serving and retained diagnostics.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
@@ -987,6 +990,7 @@ jobs:
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
+          node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
 
       - name: Upload staging Terraform plan
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
