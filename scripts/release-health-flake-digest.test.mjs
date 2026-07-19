@@ -14,6 +14,22 @@ import {
 import { renderCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
 
 describe("release health flake digest", () => {
+  it("keeps breach issue filing authenticated, milestone-safe, and after artifact upload", async () => {
+    const workflow = await readFile(
+      new URL("../.github/workflows/platform-ci-flake-digest.yml", import.meta.url),
+      "utf8",
+    );
+    const uploadIndex = workflow.indexOf("uses: actions/upload-artifact@");
+    const issueIndex = workflow.indexOf("- name: Create or update flake breach issue");
+    const issueStep = workflow.slice(issueIndex);
+
+    expect(workflow).toContain("issues: write");
+    expect(issueStep).toContain("GH_TOKEN: ${{ github.token }}");
+    expect(issueStep).not.toContain("--milestone");
+    expect(uploadIndex).toBeGreaterThan(-1);
+    expect(issueIndex).toBeGreaterThan(uploadIndex);
+  });
+
   it("includes retry-pass delivery signature recovery without classifying deterministic holds as flakes", () => {
     const issue = (number, state, recoveryReason) => ({
       number,
