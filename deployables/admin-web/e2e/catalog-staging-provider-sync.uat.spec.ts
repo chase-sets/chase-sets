@@ -209,6 +209,11 @@ const tcgdexSurgingSparksExpansionChoice: SelectChoice = {
   fallbackToFirstAvailableOption: { valuePattern: /^SV0?8$/i },
 };
 
+const tcgdexKoreanTwilightMasqueradeExpansionChoice: SelectChoice = {
+  labels: ["변환의 가면"],
+  values: ["SV6"],
+};
+
 const tcgdexBattlePartnersExpansionChoice: SelectChoice = {
   labels: ["Battle Partners"],
   values: ["SV09", "SV9"],
@@ -590,13 +595,13 @@ const tcgdexRepresentativePokemonJourneys: readonly ProviderSyncJourney[] = [
     requiresTerminalSync: true,
   },
   {
-    name: "Pokemon Korean Surging Sparks through TCGdex",
+    name: "Pokemon Korean Twilight Masquerade through TCGdex",
     providerKey: "tcgdex",
     unitKey: "tcgdex:pokemon:single-card:source-observation-import",
     scope: [
       { label: "Language", choice: { labels: ["Korean"], values: ["ko"] } },
       { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
-      { label: "Expansion", choice: tcgdexSurgingSparksExpansionChoice },
+      { label: "Expansion", choice: tcgdexKoreanTwilightMasqueradeExpansionChoice },
     ],
     requiresTerminalSync: true,
   },
@@ -1448,6 +1453,18 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         expect.objectContaining({ providerKey: "tcgplayer", name: expect.stringContaining("Floodborn") }),
       ]),
     );
+  });
+
+  test("pins the Korean representative journey to the live TCGdex option", () => {
+    const koreanJourney = tcgdexRepresentativePokemonJourneys.find(
+      (journey) => journey.name === "Pokemon Korean Twilight Masquerade through TCGdex",
+    );
+
+    expect(koreanJourney?.scope).toEqual([
+      { label: "Language", choice: { labels: ["Korean"], values: ["ko"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: { labels: ["변환의 가면"], values: ["SV6"] } },
+    ]);
   });
 
   test("registers a dispatchable per-game scope for every matrix row and one full-matrix fan-out", () => {

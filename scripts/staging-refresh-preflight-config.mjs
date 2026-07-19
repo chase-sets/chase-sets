@@ -146,11 +146,11 @@ export const stagingRefreshSetMatrix = Object.freeze([
     expansionValues: ["SV08", "SV8"],
   }),
   tcgdexExpansionCheck({
-    id: "pokemon-ko-surging-sparks-tcgdex",
+    id: "pokemon-ko-twilight-masquerade-tcgdex",
     languageLabels: ["Korean"],
     languageValues: ["ko"],
-    expansionLabels: ["Surging Sparks"],
-    expansionValues: ["SV08", "SV8"],
+    expansionLabels: ["변환의 가면"],
+    expansionValues: ["SV6"],
   }),
   providerSetCheck({
     id: "mtg-fifth-dawn-mtgjson",

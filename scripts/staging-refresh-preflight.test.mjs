@@ -279,7 +279,7 @@ describe("staging refresh set matrix", () => {
       "pokemon-ja-super-electric-breaker-tcgdex",
       "pokemon-ja-triplet-beat-tcgdex",
       "pokemon-zh-tw-surging-sparks-tcgdex",
-      "pokemon-ko-surging-sparks-tcgdex",
+      "pokemon-ko-twilight-masquerade-tcgdex",
       "mtg-fifth-dawn-mtgjson",
       "mtg-time-spiral-mtgjson",
       "mtg-fifth-dawn-scryfall",
@@ -315,6 +315,16 @@ describe("staging refresh set matrix", () => {
 
     expect(pokemon?.selections.at(-1)?.labels).toContain("SV08: Surging Sparks");
     expect(yugioh?.selections.at(-1)?.labels).toContain("The Legend of Blue Eyes White Dragon");
+  });
+
+  it("pins the live Korean TCGdex expansion label and value exactly", () => {
+    const korean = stagingRefreshSetMatrix.find((check) => check.id === "pokemon-ko-twilight-masquerade-tcgdex");
+
+    expect(korean?.selections).toEqual([
+      expect.objectContaining({ labels: ["Korean"], values: ["ko"] }),
+      expect.objectContaining({ labels: ["Scarlet & Violet"], values: ["SV"] }),
+      expect.objectContaining({ labels: ["변환의 가면"], values: ["SV6"] }),
+    ]);
   });
 });
 
