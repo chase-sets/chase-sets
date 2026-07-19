@@ -179,7 +179,7 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
 }
 
 type SearchFilterBuildOptions = Readonly<{
-  excludeFacet?: Readonly<{ kind: DiscoveryFacetKind; id: string }>;
+  excludeFacet?: Readonly<{ kind: DiscoveryFacetKind | "category"; id: string }>;
   itemAlias?: string;
 }>;
 
@@ -225,7 +225,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     hasSearch = true;
   }
 
-  if (params.category) {
+  if (params.category && options.excludeFacet?.kind !== "category") {
     conditions.push(
       `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
     );
@@ -758,7 +758,10 @@ async function loadSearchCategoryCounts(
   db: PgQueryable,
   params: DiscoverySearchParams,
 ): Promise<DiscoveryCategoryCount[]> {
-  const filter = buildSearchFilter(params, { itemAlias: "item" });
+  const filter = buildSearchFilter(params, {
+    excludeFacet: { kind: "category", id: params.category ?? "" },
+    itemAlias: "item",
+  });
   const result = await db.query<{ slug: string; count: string | number }>(
     `SELECT category_slug AS slug, COUNT(DISTINCT item.catalog_item_id)::integer AS count
      FROM discovery_search_items AS item
