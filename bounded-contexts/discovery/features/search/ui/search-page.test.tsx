@@ -338,8 +338,8 @@ describe("SearchPage", () => {
                 variants: [
                   {
                     role: "search-card",
-                    width: 224,
-                    height: 314,
+                    width: 124,
+                    height: 170,
                     density: 1,
                     mediaType: "image/webp",
                     storageKey: "catalog/items/cat_test/product-image/search-card-224w-1x.webp",
@@ -369,11 +369,11 @@ describe("SearchPage", () => {
     const image = screen.getByRole("img", { name: "Prismatic Evolutions Booster Pack — Pokemon sealed product" });
     expect(image.getAttribute("src")).toBe("https://assets.example/search-card-224w.webp");
     expect(image.getAttribute("srcset")).toBe(
-      "https://assets.example/search-card-224w.webp 224w, https://assets.example/search-card-448w.webp 448w",
+      "https://assets.example/search-card-224w.webp 124w, https://assets.example/search-card-448w.webp 448w",
     );
     expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 164px, 124px");
-    expect(image.getAttribute("width")).toBe("224");
-    expect(image.getAttribute("height")).toBe("314");
+    expect(image.getAttribute("width")).toBe("124");
+    expect(image.getAttribute("height")).toBe("170");
     expect(image.className).toContain("max-w-[7.25rem]");
   });
 

@@ -147,6 +147,21 @@ describe("planCatalogProviderPromotionCommands", () => {
         },
       ]),
     );
+    const assetSetCommand = result.plan?.commands.find((command) => command.type === "SetCatalogItemProductAssetSets");
+    expect(assetSetCommand).toMatchObject({
+      productAssetSets: [
+        {
+          variants: expect.arrayContaining([
+            expect.objectContaining({
+              role: "search-card",
+              density: 1,
+              width: 124,
+              height: 170,
+            }),
+          ]),
+        },
+      ],
+    });
     expect(JSON.stringify(result.plan?.commands)).not.toContain(
       "https://assets.tcgdex.net/en/swsh/swsh1/001/high.webp",
     );
@@ -187,6 +202,29 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(result.plan?.commands[10]).toEqual({
       type: "SetCatalogItemProductAssetSets",
       productAssetSets: [],
+    });
+  });
+
+  it("preserves actual variant dimensions when refreshing a previously promoted item", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
+      providerKey: "tcgdex",
+      externalKey: "swsh1-001",
+      mode: "refresh",
+      catalogItemId: "cat_001" as CatalogItemId,
+      normalized: pokemonCardObservation(),
+      catalog: catalogMapping(),
+      expansionReferenceId: "ref_expansion_sword_shield" as ReferenceRecordId,
+      metadata: { title: "Pikachu", subtitle: "" },
+      productAssetSet: productAssetSet(),
+      preflight: { status: "ready" },
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual({
+      type: "SetCatalogItemProductAssetSets",
+      productAssetSets: [productAssetSet()],
     });
   });
 
@@ -1807,6 +1845,17 @@ function productAssetSet(): ProductAssetSet {
       generatedAt: "2026-06-03T00:00:00.000Z",
     },
     variants: [
+      {
+        role: "search-card",
+        width: 124,
+        height: 170,
+        density: 1,
+        mediaType: "image/webp",
+        storageKey: "catalog/items/cat_001/product-image/search-card-224w-1x.webp",
+        publicUrl: "https://assets.example/search-card-224w.webp",
+        byteSize: 256,
+        generatedAt: "2026-06-03T00:00:00.000Z",
+      },
       {
         role: "catalog-detail",
         width: 480,
