@@ -136,6 +136,7 @@ describe("marketplace SSR routes", () => {
     expect(result.data).toEqual({
       items: [],
       facets: [],
+      category_counts: [],
       total: 0,
       count: 0,
       nextCursor: null,

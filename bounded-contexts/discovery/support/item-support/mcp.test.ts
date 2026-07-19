@@ -91,6 +91,7 @@ function services(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryIte
       searchItems: vi.fn(async () => ({
         items: [searchRow()],
         facets: [],
+        category_counts: [],
         total: 1,
         nextCursor: null,
         retrievalMode: "lexical" as const,
@@ -193,6 +194,7 @@ describe("Discovery item MCP handlers", () => {
         searchItems: vi.fn(async () => ({
           items: [searchRow(), searchRow({ catalog_item_id: "cat_draft", slug: "draft-card" })],
           facets: [],
+          category_counts: [],
           total: 2,
           nextCursor: "cursor_1",
           retrievalMode: "lexical" as const,

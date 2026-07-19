@@ -424,6 +424,7 @@ describe("SearchPage", () => {
       data: {
         items: [japaneseSearchResult],
         facets: [],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -444,6 +445,7 @@ describe("SearchPage", () => {
       data: {
         items: [japaneseSearchResult],
         facets: [],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -489,6 +491,7 @@ describe("SearchPage", () => {
       data: {
         items: [standardAbraSearchResult, reverseAbraSearchResult],
         facets: [],
+        category_counts: [],
         total: 2,
         count: 2,
         nextCursor: null,
@@ -511,6 +514,7 @@ describe("SearchPage", () => {
       data: {
         items: [standardAbraSearchResult],
         facets: [],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -665,6 +669,7 @@ describe("SearchPage", () => {
             ],
           },
         ],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -732,6 +737,7 @@ describe("SearchPage", () => {
             ],
           },
         ],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -771,6 +777,7 @@ describe("SearchPage", () => {
             })),
           },
         ],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -816,6 +823,7 @@ describe("SearchPage", () => {
       data: {
         items: [japaneseSearchResult],
         facets: [],
+        category_counts: [],
         total: 1,
         count: 1,
         nextCursor: null,

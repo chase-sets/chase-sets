@@ -68,6 +68,7 @@ function page(id: string, nextCursor: string | null): DiscoverySearchResponse {
       },
     ],
     facets: [],
+    category_counts: [],
     total: null,
     count: 1,
     nextCursor,

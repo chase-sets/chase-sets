@@ -38,6 +38,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
           },
         ],
         facets: [],
+        category_counts: [],
         total: 1,
         nextCursor: null,
         retrievalMode: "lexical" as const,
