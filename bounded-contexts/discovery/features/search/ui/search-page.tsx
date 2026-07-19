@@ -1073,8 +1073,8 @@ export function SearchPage({
                       title={item.title}
                       image={productAssetImage ?? undefined}
                       imageSrc={imageSrc}
-                      imageWidth={SEARCH_CARD_IMAGE_WIDTH}
-                      imageHeight={SEARCH_CARD_IMAGE_HEIGHT}
+                      imageWidth={productAssetImage?.width ?? SEARCH_CARD_IMAGE_WIDTH}
+                      imageHeight={productAssetImage?.height ?? SEARCH_CARD_IMAGE_HEIGHT}
                       imageLoading={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "eager" : "lazy"}
                       imageFetchPriority={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "high" : "auto"}
                       imageSlot="compact-product"

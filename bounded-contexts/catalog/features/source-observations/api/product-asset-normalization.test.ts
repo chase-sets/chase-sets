@@ -66,8 +66,12 @@ describe("product asset normalization", () => {
         height: 160,
       }),
     );
+    expect(searchCard?.width).not.toBe(224);
+    expect(searchCard?.height).not.toBe(314);
     const storedSearchCard = storedAssets.find((asset) => asset.key.includes("search-card-224w-1x"));
     const searchCardMetadata = await sharp(storedSearchCard?.body).metadata();
+    expect(searchCardMetadata.width).toBe(searchCard?.width);
+    expect(searchCardMetadata.height).toBe(searchCard?.height);
     expect(searchCardMetadata.hasAlpha).toBe(true);
     expect(assetSet.variants.map((variant) => variant.storageKey)).toEqual(
       expect.arrayContaining([
