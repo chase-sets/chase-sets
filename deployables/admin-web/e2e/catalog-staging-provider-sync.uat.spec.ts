@@ -94,6 +94,19 @@ type SelectedProviderScopeField = Readonly<{
   value: string;
 }>;
 
+const selectedProviderScopeFieldNames = [
+  "languageCode",
+  "productLineId",
+  "productLineName",
+  "seriesId",
+  "seriesName",
+  "expansionId",
+  "expansionName",
+  "setId",
+  "setCode",
+  "setName",
+] as const;
+
 type ProviderSyncAttempt = Readonly<{
   previousJobRows: readonly string[];
 }>;
@@ -1253,22 +1266,47 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ).toBe(true);
   });
 
-  test("falls back to the scope label when only one provider scope has an execution identity", () => {
+  test("settles the traced Scrydex scope when the structured route has no execution identity", () => {
     const commandScope: SelectedProviderScope = {
       providerKey: "scrydex",
       importScope: "en:TFC",
-      displayLabel: "scrydex · en / The First Chapter",
+      displayLabel: "scrydex / en / Disney Lorcana / The First Chapter",
       fields: [
         { name: "languageCode", value: "en" },
-        { name: "setCode", value: "TFC" },
+        { name: "productLineName", value: "Disney Lorcana" },
+        { name: "expansionId", value: "TFC" },
+        { name: "expansionName", value: "The First Chapter" },
       ],
     };
-    const routeScope: SelectedProviderScope = {
-      ...commandScope,
-      importScope: null,
-    };
+    const routeScope = selectedProviderScopeFromRouteSearchParams(
+      new URLSearchParams(
+        "providerKey=scrydex&unitKey=scrydex%3Alorcana%3Asingle-card%3Asource-observation-import&expansionId=TFC&expansionName=&profileVersion=&sourceOptionAction=force-refresh-all",
+      ),
+      "scrydex",
+    );
 
-    expect(selectedProviderScopeMatchesSelectedScope(commandScope, routeScope)).toBe(true);
+    expect(routeScope).toEqual({
+      providerKey: "scrydex",
+      importScope: null,
+      displayLabel: "scrydex / TFC",
+      fields: [{ name: "expansionId", value: "TFC" }],
+    });
+    expect(
+      selectedProviderScopeDisplayLabelCandidates(
+        commandScope.providerKey,
+        commandScope.importScope,
+        commandScope.fields,
+      ),
+    ).toEqual(expect.arrayContaining(["scrydex / en / Disney Lorcana / The First Chapter", "scrydex / en / TFC"]));
+
+    expect(
+      selectedProviderScopeHasSettled(
+        commandScope,
+        routeScope!,
+        [{ label: "Set", values: ["TFC", "The First Chapter", "1"] }],
+        "scrydex:lorcana:single-card:source-observation-import",
+      ),
+    ).toBe(true);
   });
 
   test("does not equate provider scopes that share a label but have different execution identities", () => {
@@ -1735,9 +1773,9 @@ async function waitForSelectedProviderScope(
 
   const deadline = Date.now() + sourceOptionTimeoutMs;
   let lastScope: SelectedProviderScope | null = null;
-  let lastRouteImportScope: string | null = null;
+  let lastRouteScope: SelectedProviderScope | null = null;
   while (Date.now() < deadline) {
-    lastRouteImportScope = currentRouteImportScope(page);
+    lastRouteScope = selectedProviderScopeFromCurrentRoute(page, journey.providerKey);
     const count = await commandForms.count();
     for (let index = 0; index < count; index += 1) {
       const commandForm = commandForms.nth(index);
@@ -1750,10 +1788,8 @@ async function waitForSelectedProviderScope(
       }
       lastScope = selectedScope;
       if (
-        lastRouteImportScope &&
-        selectedProviderScopeMatchesImportScope(selectedScope, lastRouteImportScope) &&
-        selectedProviderScopeMatchesJourneySelection(selectedScope, selectedChoices) &&
-        selectedProviderScopeMatchesUnitDomain(selectedScope, journey.unitKey)
+        lastRouteScope &&
+        selectedProviderScopeHasSettled(selectedScope, lastRouteScope, selectedChoices, journey.unitKey)
       ) {
         return selectedScope;
       }
@@ -1763,11 +1799,11 @@ async function waitForSelectedProviderScope(
   }
 
   throw new Error(
-    `Selected source scope command form for ${journey.unitKey} did not settle on the current route scope for ${
+    `Selected source scope command form for ${journey.unitKey} did not settle on the current structured route scope for ${
       journey.name
-    }. Route import scope: ${lastRouteImportScope ?? "none"}. Last observed command scope: ${
-      lastScope?.importScope ?? lastScope?.displayLabel ?? "none"
-    }.`,
+    }. Route scope: ${lastRouteScope?.displayLabel ?? "none"}. Route import scope: ${
+      lastRouteScope?.importScope ?? "none"
+    }. Last observed command scope: ${lastScope?.importScope ?? lastScope?.displayLabel ?? "none"}.`,
   );
 }
 
@@ -2967,6 +3003,32 @@ function currentRouteImportScope(page: Page): string | null {
   return currentSearchParam(page, "importScope") ?? currentSearchParam(page, "filter.importScope");
 }
 
+function selectedProviderScopeFromCurrentRoute(page: Page, fallbackProviderKey: string): SelectedProviderScope | null {
+  return selectedProviderScopeFromRouteSearchParams(new URL(page.url()).searchParams, fallbackProviderKey);
+}
+
+function selectedProviderScopeFromRouteSearchParams(
+  searchParams: URLSearchParams,
+  fallbackProviderKey: string,
+): SelectedProviderScope | null {
+  const providerKey = emptyToNull(searchParams.get("providerKey") ?? "") ?? fallbackProviderKey;
+  const importScope =
+    emptyToNull(searchParams.get("importScope") ?? "") ?? emptyToNull(searchParams.get("filter.importScope") ?? "");
+  const fields = selectedProviderScopeFieldNames
+    .map((name) => ({ name, value: (searchParams.get(name) ?? "").trim() }))
+    .filter((field) => field.value.length > 0);
+  if (!importScope && fields.length === 0) {
+    return null;
+  }
+
+  return {
+    providerKey,
+    importScope,
+    fields,
+    displayLabel: selectedProviderScopeDisplayLabel(providerKey, importScope, fields),
+  };
+}
+
 function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
   return /\bimport job \S+ is (?:failed|cancelled|partial|stale)\b/i.test(row);
 }
@@ -3382,20 +3444,8 @@ async function hiddenInputValue(form: Locator, name: string): Promise<string> {
 async function selectedProviderScopeFieldsFromCommandForm(
   commandForm: Locator,
 ): Promise<readonly SelectedProviderScopeField[]> {
-  const fieldNames = [
-    "languageCode",
-    "productLineId",
-    "productLineName",
-    "seriesId",
-    "seriesName",
-    "expansionId",
-    "expansionName",
-    "setId",
-    "setCode",
-    "setName",
-  ];
   const fields = await Promise.all(
-    fieldNames.map(async (name) => ({
+    selectedProviderScopeFieldNames.map(async (name) => ({
       name,
       value: (await optionalHiddenInputValue(commandForm, name)).trim(),
     })),
@@ -3410,6 +3460,19 @@ function selectedProviderScopeMatchesJourneySelection(
   const scopeValues = selectedProviderScopeComparableValues(selectedScope);
   return selectedChoices.every((choice) =>
     choice.values.some((value) => scopeValues.has(comparableProviderScopeValue(value))),
+  );
+}
+
+function selectedProviderScopeHasSettled(
+  candidate: SelectedProviderScope,
+  expectedRouteScope: SelectedProviderScope,
+  selectedChoices: readonly SelectedScopeChoice[],
+  unitKey: string,
+): boolean {
+  return (
+    selectedProviderScopeMatchesSelectedScope(candidate, expectedRouteScope) &&
+    selectedProviderScopeMatchesJourneySelection(candidate, selectedChoices) &&
+    selectedProviderScopeMatchesUnitDomain(candidate, unitKey)
   );
 }
 
