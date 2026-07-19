@@ -13,6 +13,7 @@ import {
   Checkbox,
   LoadingSpinner,
   Banner,
+  Box,
   Stack,
   Inline,
   SearchResultsLayout,
@@ -177,7 +178,7 @@ function PriceAndStockFilters({
         </Text>
       </Stack>
       <Grid columns={{ base: 1, md: 2 }} gap={2}>
-        <div onPointerDownCapture={(event) => markPriceStepper("min", event)}>
+        <Box onPointerDownCapture={(event) => markPriceStepper("min", event)}>
           <CurrencyInput
             currencyCode="USD"
             label={t("discovery.features.search.ui.searchPage.minimum.price")}
@@ -189,8 +190,8 @@ function PriceAndStockFilters({
             decrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.decrease")}
             incrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.increase")}
           />
-        </div>
-        <div onPointerDownCapture={(event) => markPriceStepper("max", event)}>
+        </Box>
+        <Box onPointerDownCapture={(event) => markPriceStepper("max", event)}>
           <CurrencyInput
             currencyCode="USD"
             label={t("discovery.features.search.ui.searchPage.maximum.price")}
@@ -202,7 +203,7 @@ function PriceAndStockFilters({
             decrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.decrease")}
             incrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.increase")}
           />
-        </div>
+        </Box>
       </Grid>
       <Checkbox
         label={t("discovery.features.search.ui.searchPage.in.stock")}
