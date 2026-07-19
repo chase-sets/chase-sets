@@ -167,11 +167,12 @@ jobs:
             target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and (.name == "app_serving" or .name == "doks_apex")) | .instances[]?.attributes.value) // empty' "$state_file")"
             project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
             alert_emails="$(jq -c '[.resources[]?.instances[]?.attributes | ((.alerts? // []) + (.notifications? // []))[]?.email[]?] | unique' "$state_file")"
-            marketplace_public="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
-            has_checkout_pool="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_database_connection_pool" and .name == "contexts") | .instances[]?; .index_key == "checkout")' "$state_file")"
-            runtime_profile=public
+            marketplace_public=false
+            has_checkout_pool=false
+            runtime_profile=landing
             if [ "$environment" = "production" ]; then
-              runtime_profile=landing
+              marketplace_public="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              has_checkout_pool="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_database_connection_pool" and .name == "contexts") | .instances[]?; .index_key == "checkout")' "$state_file")"
               if [ "$marketplace_public" = "true" ]; then
                 runtime_profile=public
               elif [ "$has_checkout_pool" = "true" ]; then
