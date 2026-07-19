@@ -171,6 +171,7 @@ async function retrieveHybridPage(
   return {
     items,
     facets: lexical.facets,
+    category_counts: lexical.category_counts,
     total: lexical.total,
     nextCursor: nextOffset < ranked.length ? encodeHybridCursor(nextOffset) : null,
     retrievalMode: "hybrid",

@@ -15,6 +15,7 @@ type SearchItem = Record<string, unknown> & Readonly<{ catalog_item_id: string; 
 type SearchResponse = Readonly<{
   items: SearchItem[];
   facets: unknown[];
+  category_counts: Array<{ slug: string; count: number }>;
   total: number | null;
   count: number;
   nextCursor: string | null;
@@ -119,6 +120,7 @@ function pageFrom(template: SearchItem, marker: string, nextCursor: string | nul
       title: `${template.title} ${marker} item ${index + 1}`,
     })),
     facets: [],
+    category_counts: [],
     total: null,
     count: 24,
     nextCursor,

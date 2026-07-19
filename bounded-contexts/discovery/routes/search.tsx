@@ -81,6 +81,7 @@ const EMPTY_CATEGORY_LIST: CategoryListResponse = {
 const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
   items: [],
   facets: [],
+  category_counts: [],
   total: 0,
   count: 0,
   nextCursor: null,

@@ -358,6 +358,7 @@ export function SearchPage({
     { label: t("discovery.features.search.ui.searchPage.offers"), value: "offers" },
   ];
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const categoryCounts = new Map(data?.category_counts?.map(({ slug, count }) => [slug, count]) ?? []);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const exactTotal = data?.total ?? 0;
@@ -527,7 +528,7 @@ export function SearchPage({
         items={categories.map((item) => ({
           id: item.slug,
           label: item.name,
-          count: item.item_count,
+          count: categoryCounts.get(item.slug) ?? 0,
         }))}
         selectedId={category}
         onSelect={onCategoryChange}
@@ -813,7 +814,7 @@ export function SearchPage({
                 items={categories.map((item) => ({
                   id: item.slug,
                   label: item.name,
-                  count: item.item_count,
+                  count: categoryCounts.get(item.slug) ?? 0,
                 }))}
                 selectedId={category}
                 onSelect={onCategoryChange}

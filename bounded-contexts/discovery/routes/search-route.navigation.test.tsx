@@ -65,6 +65,7 @@ function searchResultsFixture(search = "") {
         },
       ],
       facets: [],
+      category_counts: [],
       total: 1,
       count: 1,
       nextCursor: null,

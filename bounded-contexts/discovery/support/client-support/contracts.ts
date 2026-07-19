@@ -79,6 +79,7 @@ export interface DiscoveryImageFallback {
 export interface DiscoverySearchResponse {
   items: DiscoverySearchItem[];
   facets: DiscoveryFacetGroup[];
+  category_counts: Array<{ slug: string; count: number }>;
   total: number | null;
   count: number;
   nextCursor: string | null;

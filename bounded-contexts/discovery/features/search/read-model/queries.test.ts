@@ -743,6 +743,7 @@ describe("searchDiscoveryItems facets", () => {
           },
         ],
       },
+      { rows: [] },
     ];
     const db = {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
@@ -761,7 +762,7 @@ describe("searchDiscoveryItems facets", () => {
       fieldFilters: [{ fieldId: "field_rarity", value: "rare" }],
     });
 
-    const valueQuery = calls.at(-1);
+    const valueQuery = calls.find((call) => call.sql.includes("BOOL_OR(facet.value->>'value' = ANY"));
     expect(valueQuery?.sql).toContain("BOOL_OR(facet.value->>'value' = ANY($3::text[])) AS selected");
     expect(valueQuery?.sql).toContain("WHERE selected OR facet_rank <= 50");
     expect(valueQuery?.sql).toContain("ORDER BY selected DESC");
@@ -950,6 +951,6 @@ describe("searchDiscoveryItemsByNaturalKey", () => {
 
     const result = await searchDiscoveryItemsByNaturalKey(db, { setCode: "zzz", cardNumber: "999" });
 
-    expect(result).toEqual({ items: [], facets: [], total: 0, nextCursor: null });
+    expect(result).toEqual({ items: [], facets: [], category_counts: [], total: 0, nextCursor: null });
   });
 });

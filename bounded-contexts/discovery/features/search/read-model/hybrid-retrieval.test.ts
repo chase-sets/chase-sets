@@ -250,7 +250,7 @@ function fakeProvider(): DiscoveryEmbeddingProvider {
 }
 
 function result(items: DiscoverySearchItemRow[]): ListResult<DiscoverySearchItemRow> {
-  return { items, facets: [], total: items.length, nextCursor: null };
+  return { items, facets: [], category_counts: [], total: items.length, nextCursor: null };
 }
 
 function row(catalogItemId: string, title = catalogItemId): DiscoverySearchItemRow {

@@ -124,4 +124,36 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXPECTED_ORDER.relevance);
     expect(result.nextCursor).toBeNull();
   });
+
+  it("keeps sibling category counts when the selected category is excluded from its own fan-out", async () => {
+    await pool.query(
+      `UPDATE discovery_search_items
+       SET category_slugs = CASE
+         WHEN catalog_item_id IN ('cat_a', 'cat_b') THEN '["singles"]'::jsonb
+         ELSE '["sealed"]'::jsonb
+       END`,
+      [],
+    );
+
+    const result = await searchDiscoveryItems(pool, { search: "charizard", category: "singles" });
+
+    expect(result.category_counts).toEqual([
+      { slug: "sealed", count: 3 },
+      { slug: "singles", count: 2 },
+    ]);
+  });
+
+  it("returns no sibling category count when the search genuinely matches only one category", async () => {
+    await pool.query(
+      `UPDATE discovery_search_items
+       SET search_text = to_tsvector('english', CASE WHEN category_slugs @> '["singles"]'::jsonb THEN 'mewtwo' ELSE 'lugia' END),
+           search_text_simple = to_tsvector('simple', CASE WHEN category_slugs @> '["singles"]'::jsonb THEN 'mewtwo' ELSE 'lugia' END)`,
+      [],
+    );
+
+    const result = await searchDiscoveryItems(pool, { search: "mewtwo" });
+
+    expect(result.category_counts).toEqual([{ slug: "singles", count: 2 }]);
+    expect(result.category_counts.find((category) => category.slug === "sealed")?.count ?? 0).toBe(0);
+  });
 });

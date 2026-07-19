@@ -44,6 +44,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
     return c.json({
       items: result.items,
       facets: result.facets,
+      category_counts: result.category_counts,
       total: result.total,
       count: result.items.length,
       nextCursor: result.nextCursor,
