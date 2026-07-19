@@ -126,7 +126,7 @@ jobs:
             state_key="environment-dns/${environment}.tfstate"
             (
               cd "$root"
-              ../../../scripts/terraform-init-with-retry.sh                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
+              ../../../scripts/terraform-init-with-retry.sh                 -reconfigure                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
             )
 
             state_file="${RUNNER_TEMP}/environment-dns-${environment}.tfstate"
@@ -159,7 +159,7 @@ jobs:
             state_key="landing/${environment}.tfstate"
             (
               cd "$root"
-              ../../../scripts/terraform-init-with-retry.sh                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
+              ../../../scripts/terraform-init-with-retry.sh                 -reconfigure                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
             )
 
             state_file="${RUNNER_TEMP}/platform-${environment}.tfstate"
