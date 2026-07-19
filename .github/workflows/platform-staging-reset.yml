@@ -269,6 +269,8 @@ jobs:
 
       - name: Terraform init staging environment DNS
         working-directory: infrastructure/digitalocean/environment-dns
+        # Keep provider credentials step-local. The workflow contract's negative
+        # control strips one key and must catch this credentials-not-threaded class.
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -287,10 +289,16 @@ jobs:
 
       - name: Terraform format staging environment DNS
         working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform fmt -check -recursive
 
       - name: Terraform validate staging environment DNS
         working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform validate
 
       - name: Terraform apply staging environment DNS
@@ -331,6 +339,9 @@ jobs:
 
       - name: Terraform format
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform fmt -check -recursive
 
       - name: Re-check staging refresh overlap before destroy
@@ -414,6 +425,9 @@ jobs:
 
       - name: Terraform format catalog assets
         working-directory: infrastructure/digitalocean/catalog-assets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform fmt -check -recursive
 
       - name: Reconcile missing staging catalog CDN state
@@ -497,6 +511,8 @@ jobs:
       - name: Verify staging catalog asset CDN
         working-directory: infrastructure/digitalocean/catalog-assets
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
