@@ -2080,6 +2080,39 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(executeForms.length).toBeGreaterThan(0);
   });
 
+  it("enables aggregate-backed promotion execution when row review is unavailable", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&promotionPreviewId=preview_scope",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      readModelFailures: ["source-observation-review"],
+      reviewObservations: null,
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.freshness).toBe("unavailable");
+    expect(readModel.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    expect(readModel.actions.find((action) => action.key === "observation.promote")).toMatchObject({
+      state: "available",
+      blockers: [],
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const confirmation = screen.getByLabelText(
+      "I confirm this will promote 124 eligible observation(s) from Matching filtered observations.",
+    );
+    const commitButton = screen.getAllByRole("button", { name: "Create or update Catalog Items" }).at(0);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(confirmation);
+
+    expect(commitButton?.hasAttribute("disabled")).toBe(false);
+  });
+
   it("keeps a durable Source Observation selection across a review-context re-render in the same scope", async () => {
     // Selection is durable page state (sessionStorage-backed), not a URL detour:
     // a re-render that drops `selectedObservationIds` from the URL (a filter

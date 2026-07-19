@@ -836,6 +836,10 @@ describe("Catalog source-scope workset", () => {
     expect(readModel.promotionPreview.freshness).toBe("fresh");
     expect(readModel.promotionPreview.executionSafeguards.staleReasons).toEqual([]);
     expect(readModel.promotionPreview.commandPlanHash).toContain("requested:242:eligible:242");
+    expect(readModel.actions.find((action) => action.key === "observation.promote")).toMatchObject({
+      state: "available",
+      blockers: [],
+    });
     expect(readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === unitKey)?.counts.eligible).toBe(242);
   });
 

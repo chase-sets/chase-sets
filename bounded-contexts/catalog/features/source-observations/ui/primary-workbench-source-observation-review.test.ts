@@ -382,8 +382,8 @@ describe("Catalog primary workbench read model - source observation review", () 
       expect.arrayContaining(["no-promotion-eligible-observations", "stale-promotion-preview"]),
     );
     expect(readModel.actions.find((action) => action.key === "observation.promote")).toMatchObject({
-      state: "disabled",
-      blockers: ["no-promotion-eligible-observations"],
+      state: "blocked",
+      blockers: expect.arrayContaining(["no-promotion-eligible-observations", "stale-promotion-preview"]),
     });
     expect(readModel.actions.filter((action) => action.key === "observation.promote")).toHaveLength(1);
   });

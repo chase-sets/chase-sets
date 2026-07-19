@@ -704,7 +704,6 @@ function buildSurfaceActions(
       unitKey: derived.unitKey,
       importScope: derived.importScope,
       activeProfileReady: Boolean(derived.activeProfile),
-      eligible: core.promotionPreview.outcomeCounts.eligible,
       reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
       reviewFreshness: core.sourceObservationReview.freshness,
       mergeCandidateReviewFreshness: core.mergeCandidateReview.freshness,
@@ -1313,7 +1312,6 @@ function buildActions(input: {
   unitKey: string | null;
   importScope: string | null;
   activeProfileReady: boolean;
-  eligible: number;
   reviewable: number;
   reviewFreshness: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["freshness"];
   mergeCandidateReviewFreshness: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"]["freshness"];
@@ -1329,11 +1327,11 @@ function buildActions(input: {
   const importBlockers = importBlockersForSelectedScope(input);
   const reviewReadModelBlockers = reviewReadModelBlockersFor(input.reviewFreshness);
   const previewBlockers =
-    reviewReadModelBlockers.length > 0
-      ? reviewReadModelBlockers
-      : input.eligible > 0
-        ? []
-        : (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+    input.promotionBlockers.length === 0
+      ? []
+      : reviewReadModelBlockers.length > 0
+        ? reviewReadModelBlockers
+        : input.promotionBlockers;
   const previewState = actionStateForBlockers(previewBlockers, manageState);
   const reviewDecisionBlockers =
     reviewReadModelBlockers.length > 0
