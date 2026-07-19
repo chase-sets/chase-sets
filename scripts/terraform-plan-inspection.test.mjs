@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
+  destructiveChangeApprovalFromText,
   destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   durableDatabaseDestructiveResourceChanges,
@@ -183,7 +185,7 @@ The resources are retired by a reviewed context merge.
     ).toEqual(destructiveChanges);
   });
 
-  it("pins the staged decommission fingerprint without activating owner approval", () => {
+  it("pins the active owner approval to the reviewed decommission fingerprint", () => {
     const changes = destructiveResourceChanges(
       planFor([
         resourceChange("digitalocean_app.platform", ["delete"]),
@@ -195,7 +197,24 @@ The resources are retired by a reviewed context merge.
     expect(destructiveChangesApprovalFingerprint(changes)).toBe(
       "sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29",
     );
-    expect(existsSync(".github/deployment/production-destructive-change-approved.md")).toBe(false);
+    const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
+    const approval = destructiveChangeApprovalFromText(approvalText);
+
+    expect(approval).toEqual({
+      state: "active",
+      planFingerprint: "sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29",
+      addresses: ["digitalocean_app.platform"],
+    });
+    expect(approvalText).toContain(
+      "Approval reference: https://github.com/chase-sets/chase-sets/issues/4055#issuecomment-5016949564",
+    );
+    expect(approvalText).toContain("Reviewed on: 2026-07-19");
+    expect(approvalText).toContain("Owner: todd.skelton@chasesets.com");
+    expect(
+      assertNoDestructiveChanges(planFor([resourceChange("digitalocean_app.platform", ["delete"])]), {
+        destructiveChangeApproval: approval,
+      }),
+    ).toEqual([changes[0]]);
   });
 
   it("summarizes Terraform plan change counts and changed resource addresses", () => {

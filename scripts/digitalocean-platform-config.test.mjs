@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
-import { assertNoDestructiveChanges } from "./terraform-plan-inspection.mjs";
+import { assertNoDestructiveChanges, destructiveChangeApprovalFromText } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -408,7 +408,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsMain).not.toMatch(/staging_app_alias/);
   });
 
-  it("keeps decommission planning read-only until exact owner approval exists", () => {
+  it("keeps decommission planning read-only with the exact owner approval", () => {
     const decommissionJob = workflowJob(platformProductionWorkflow, "decommission-live-plan");
     expect(decommissionJob).toContain("landing/staging.tfstate");
     expect(decommissionJob).toContain("landing/production.tfstate");
@@ -417,13 +417,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(decommissionJob).toContain("terraform_data.production_serving_dns_ttl_preparation[0]");
     expect(decommissionJob).toContain("sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29");
     expect(decommissionJob).not.toMatch(/terraform\s+apply/);
-    expect(existsSync(resolve(".github/deployment/production-destructive-change-approved.md"))).toBe(false);
+    expect(existsSync(resolve(".github/deployment/production-destructive-change-approved.md"))).toBe(true);
   });
 
-  it("fails the staging plan gate closed when a destroy has no active approval", () => {
+  it("requires the active matching approval for the staging delete gate", () => {
     const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const stagingPlanStep = workflowStep(stagingJob, "Terraform plan");
-    const unapprovedStagingPlan = {
+    const stagingPlan = {
       resource_changes: [
         {
           address: "digitalocean_app.platform",
@@ -440,9 +440,25 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingPlanStep).toContain(
       'assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
     );
-    expect(() => assertNoDestructiveChanges(unapprovedStagingPlan)).toThrow(
+    expect(() => assertNoDestructiveChanges(stagingPlan)).toThrow(
       "Terraform plan contains destructive changes and no reviewed override marker was found",
     );
+    const approval = destructiveChangeApprovalFromText(
+      readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8"),
+    );
+    expect(approval).toEqual({
+      state: "active",
+      planFingerprint: "sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29",
+      addresses: ["digitalocean_app.platform"],
+    });
+    expect(assertNoDestructiveChanges(stagingPlan, { destructiveChangeApproval: approval })).toEqual([
+      {
+        address: "digitalocean_app.platform",
+        type: "digitalocean_app",
+        name: "platform",
+        actions: ["delete"],
+      },
+    ]);
   });
 
   it("renders DOKS from the checked-in runtime contract", () => {
