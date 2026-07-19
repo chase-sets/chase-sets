@@ -414,7 +414,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(decommissionJob).toContain("digitalocean_app.platform");
     expect(decommissionJob).toContain("terraform_data.production_app_platform_parking_preparation[0]");
     expect(decommissionJob).toContain("terraform_data.production_serving_dns_ttl_preparation[0]");
-    expect(decommissionJob).toContain("sha256:8848c62acc0cb40a9dedb931db3c569c7ed66b100eb854a838f797de102658ad");
+    expect(decommissionJob).toContain("sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29");
     expect(decommissionJob).not.toMatch(/terraform\s+apply/);
     expect(existsSync(resolve(".github/deployment/production-destructive-change-approved.md"))).toBe(false);
   });

@@ -151,6 +151,9 @@ jobs:
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
+          expected_delete='digitalocean_app.platform'
+          expected_fingerprint='sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29'
+
           for environment in staging production; do
             root="infrastructure/digitalocean/platform"
             state_key="landing/${environment}.tfstate"
@@ -185,12 +188,6 @@ jobs:
             terraform -chdir="$root" show -no-color "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.txt"
             terraform -chdir="$root" show -json "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.json"
             node scripts/terraform-plan-inspection.mjs list-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-delete-set.txt"
-            expected_delete='digitalocean_app.platform'
-            expected_fingerprint='sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29'
-            if [ "$environment" = production ]; then
-              expected_delete="$(printf '%s\n'                 'digitalocean_app.platform'                 'terraform_data.production_app_platform_parking_preparation[0]'                 'terraform_data.production_serving_dns_ttl_preparation[0]')"
-              expected_fingerprint='sha256:8848c62acc0cb40a9dedb931db3c569c7ed66b100eb854a838f797de102658ad'
-            fi
             test "$(cat "$artifact_root/${environment}-platform-delete-set.txt")" = "$expected_delete"
             node scripts/terraform-plan-inspection.mjs fingerprint-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-fingerprint.txt"
             test "$(cat "$artifact_root/${environment}-platform-fingerprint.txt")" = "$expected_fingerprint"
@@ -202,11 +199,11 @@ jobs:
           {
             echo '## App Platform decommission live plans'
             echo
-            echo "- Production delete-set (\`landing/production.tfstate\`):"
-            echo "  - \`digitalocean_app.platform\`"
+            echo "- Production approval delete-set: \`digitalocean_app.platform\` (\`landing/production.tfstate\`)"
+            echo "- Production fingerprint: \`sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29\`"
+            echo "- Production plan also removes two inert \`terraform_data\` cutover markers, which the approval contract intentionally excludes:"
             echo "  - \`terraform_data.production_app_platform_parking_preparation[0]\`"
             echo "  - \`terraform_data.production_serving_dns_ttl_preparation[0]\`"
-            echo "- Production fingerprint: \`sha256:8848c62acc0cb40a9dedb931db3c569c7ed66b100eb854a838f797de102658ad\`"
             echo "- Staging delete-set: \`digitalocean_app.platform\` (\`landing/staging.tfstate\`)"
             echo '- Retained diagnostic DNS delete-set: empty'
           } >> "$GITHUB_STEP_SUMMARY"
