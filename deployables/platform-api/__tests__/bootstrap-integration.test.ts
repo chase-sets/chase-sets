@@ -11,6 +11,7 @@ import {
   refreshProjectionReplaySummary,
   SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
   SCHEMA_MIGRATIONS_TABLE,
+  seedProfilesOverlap,
 } from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -405,7 +406,7 @@ describe("platform api bootstrap", () => {
     }
   }, 30_000);
 
-  it("limits long-lived environment bootstrap to critical and integration data", async () => {
+  it("limits and reconciles every production-like seed context against current-code state", async () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
@@ -413,11 +414,46 @@ describe("platform api bootstrap", () => {
         listingPhotoStorage,
       },
     });
-
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+    const bootstrapOptions = {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
-    });
+    } as const;
+    const reconciliationAttempts = new Map<string, number[]>();
+    const productionSeedContextNames = runtime.mountedContexts
+      .filter((context) => context.module.seed && seedProfilesOverlap(context.module.seedProfiles, bootstrapOptions))
+      .map((context) => context.contextName);
+    const probedRuntime = {
+      ...runtime,
+      mountedContexts: runtime.mountedContexts.map((context) => {
+        const seed = context.module.seed;
+        if (!seed || !productionSeedContextNames.includes(context.contextName)) {
+          return context;
+        }
+
+        return {
+          ...context,
+          module: {
+            ...context.module,
+            seed: async (...args: Parameters<typeof seed>) => {
+              const existingEvents = await context.pool.query<Readonly<{ count: string }>>(
+                "SELECT COUNT(*) AS count FROM event_store_events",
+              );
+              const existingEventCount = Number(existingEvents.rows[0]?.count ?? 0);
+              const attempts = reconciliationAttempts.get(context.contextName) ?? [];
+              attempts.push(existingEventCount);
+              reconciliationAttempts.set(context.contextName, attempts);
+              await seed(...args);
+            },
+          },
+        };
+      }),
+    } satisfies typeof runtime;
+
+    expect(productionSeedContextNames.length).toBeGreaterThan(0);
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", probedRuntime, bootstrapOptions),
+    ).resolves.toBeUndefined();
 
     const identityAccounts = await pools.identity.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM identity_accounts",
@@ -462,7 +498,55 @@ describe("platform api bootstrap", () => {
     expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);
-  }, 180_000);
+
+    await drainContextRuntime(runtime);
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", probedRuntime, bootstrapOptions),
+    ).resolves.toBeUndefined();
+
+    expect([...reconciliationAttempts.keys()].sort()).toEqual([...productionSeedContextNames].sort());
+    for (const contextName of productionSeedContextNames) {
+      const attempts = reconciliationAttempts.get(contextName);
+      expect(attempts, `${contextName} should seed once and reconcile once`).toHaveLength(2);
+      expect(attempts?.[0], `${contextName} first boot should start empty`).toBe(0);
+      expect(attempts?.[1], `${contextName} second boot should traverse not-empty reconciliation`).toBeGreaterThan(0);
+    }
+
+    // Negative control: make the first production-like seed reject only when its context events
+    // already exist. The same host-level second boot must surface that reconciliation-hostile
+    // validation instead of silently skipping the context.
+    const hostileContextName = productionSeedContextNames[0]!;
+    let hostileExistingEventCount = 0;
+    const hostileRuntime = {
+      ...runtime,
+      mountedContexts: runtime.mountedContexts.map((context) => {
+        if (context.contextName !== hostileContextName || !context.module.seed) {
+          return context;
+        }
+
+        return {
+          ...context,
+          module: {
+            ...context.module,
+            seed: async () => {
+              const existingEvents = await context.pool.query<Readonly<{ count: string }>>(
+                "SELECT COUNT(*) AS count FROM event_store_events",
+              );
+              hostileExistingEventCount = Number(existingEvents.rows[0]?.count ?? 0);
+              if (hostileExistingEventCount > 0) {
+                throw new Error(`test-only reconciliation-hostile validation: ${context.contextName}`);
+              }
+            },
+          },
+        };
+      }),
+    } satisfies typeof runtime;
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", hostileRuntime, bootstrapOptions),
+    ).rejects.toThrow(`test-only reconciliation-hostile validation: ${hostileContextName}`);
+    expect(hostileExistingEventCount).toBeGreaterThan(0);
+  }, 240_000);
 
   it("upgrades legacy published Display Templates through the not-empty Catalog reconciliation path", async () => {
     const runtime = createPlatformApiHost({
