@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   DIGITALOCEAN_REGISTRY_CLEANUP_VERSION,
@@ -123,6 +124,36 @@ describe("digitalocean-registry-cleanup", () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].slice(0, 3)).toEqual(["registry", "repository", "list-tags"]);
+  });
+
+  it("resolves matching explicit apply flags through argument parsing", () => {
+    const options = parseDigitalOceanRegistryCleanupArgs(["--repository=chase-sets-platform", "--dry-run=false"], {
+      DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: "false",
+    });
+
+    expect(options).toMatchObject({
+      repository: "chase-sets-platform",
+      dryRun: false,
+      requestedDryRun: false,
+    });
+  });
+
+  it("exits nonzero when the cleanup gate rejects the requested mode", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["./scripts/digitalocean-registry-cleanup.mjs", "cleanup", "--dry-run=false"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: "true",
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('"result": "failure"');
   });
 
   it("fails closed before registry access when resolved and requested modes differ", async () => {
