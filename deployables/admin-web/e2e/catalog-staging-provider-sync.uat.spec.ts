@@ -1224,24 +1224,6 @@ function groupProviderSyncJourneysByCanonicalScope(
   return groups;
 }
 
-// Preserving the settled-scope re-run acceptance criterion (a unit whose
-// durable per-scope sync state is already "settled" for the current child
-// execution scope fast-forwards onto its prior completed job instead of
-// re-enqueuing a provider call): re-select and re-sync the last journey in an
-// already-settled canonical scope group and assert the visible import job
-// rows for that unit + scope did not grow. A fresh (non-fast-forwarded) run
-// would add a new job row; a fast-forwarded run reuses the prior one.
-async function expectSettledScopeSyncFastForward(page: Page, journey: ProviderSyncJourney): Promise<void> {
-  const selectedScope = await selectProviderScope(page, journey);
-  const rowsBeforeRerun = await visibleImportJobRowTexts(page, journey.unitKey, selectedScope);
-  await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
-  const rowsAfterRerun = await visibleImportJobRowTexts(page, journey.unitKey, selectedScope);
-  expect(
-    rowsAfterRerun.length,
-    `Re-running the settled scope for "${journey.name}" should fast-forward onto the prior completed job instead of enqueuing a new one (rows before: ${rowsBeforeRerun.join(", ") || "none"}; rows after: ${rowsAfterRerun.join(", ") || "none"}).`,
-  ).toBe(rowsBeforeRerun.length);
-}
-
 test.describe("catalog staging provider sync UAT helpers", () => {
   test("uses the canonical commands rendered by the Catalog workbench", async ({ page }) => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
@@ -1269,6 +1251,23 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         "Resolve before continuing 1 blocker(s). No promotable observations. Pull provider data or review rows.",
       ),
     ).toBe(true);
+  });
+
+  test("does not equate provider scopes that share a label but have different execution identities", () => {
+    const scope = (importScope: string): SelectedProviderScope => ({
+      providerKey: "lorcast",
+      importScope,
+      displayLabel: "lorcast · en / The First Chapter",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "setName", value: "The First Chapter" },
+      ],
+    });
+
+    expect(selectedProviderScopeMatchesSelectedScope(scope("en:1"), scope("en:1"))).toBe(true);
+    expect(
+      selectedProviderScopeMatchesSelectedScope(scope("en:set_7ecb0e0c71af496a9e0110e23824e0a5"), scope("en:1")),
+    ).toBe(false);
   });
 
   test("allows rerunnable no-promotable coverage for launch and regression scopes", () => {
@@ -1527,7 +1526,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     );
   });
 
-  test("matrix scopes accept settled fast-forward coverage so re-dispatch converges", () => {
+  test("matrix scopes accept already-settled no-promotable coverage", () => {
     for (const row of providerProductLineFormMatrix) {
       expect(providerUatScopeAcceptsSettledNoPromotableCoverage(row.scope), row.scope).toBe(true);
     }
@@ -1556,12 +1555,9 @@ test.describe("catalog staging provider sync UAT", () => {
 
     // Dispatch by canonical scope, not by per-unit: journeys pulling the SAME
     // real-world scope through different provider units are grouped and run
-    // together under one "Scope: <key>" step, with the settled-scope
-    // fast-forward property re-verified once the group's units have all
-    // reached settled state (see expectSettledScopeSyncFastForward above).
-    // Grouping only changes dispatch/reporting structure; each unit's own
-    // sync/preflight/settlement assertions are unchanged from the prior
-    // per-unit-only iteration.
+    // together under one "Scope: <key>" step. Each provider import is executed
+    // once. Settled-job reuse belongs to the parent scope.sync fan-out contract;
+    // a direct scope.import intentionally starts a new job after completion.
     for (const [scopeKey, journeysInScope] of groupProviderSyncJourneysByCanonicalScope(providerSyncJourneys)) {
       await test.step(`Scope: ${scopeKey}`, async () => {
         for (const journey of journeysInScope) {
@@ -1581,14 +1577,6 @@ test.describe("catalog staging provider sync UAT", () => {
                 { allowPartialWithReview: journey.allowPartialWithReview },
               );
             }
-          });
-        }
-
-        const lastJourneyInScope = journeysInScope[journeysInScope.length - 1];
-        const scopeFullySettled = journeysInScope.every((journey) => journey.requiresTerminalSync);
-        if (lastJourneyInScope && scopeFullySettled) {
-          await test.step(`Settled-scope fast-forward: ${scopeKey}`, async () => {
-            await expectSettledScopeSyncFastForward(page, lastJourneyInScope);
           });
         }
       });
@@ -1729,7 +1717,9 @@ async function waitForSelectedProviderScope(
 
   const deadline = Date.now() + sourceOptionTimeoutMs;
   let lastScope: SelectedProviderScope | null = null;
+  let lastRouteImportScope: string | null = null;
   while (Date.now() < deadline) {
+    lastRouteImportScope = currentRouteImportScope(page);
     const count = await commandForms.count();
     for (let index = 0; index < count; index += 1) {
       const commandForm = commandForms.nth(index);
@@ -1742,6 +1732,8 @@ async function waitForSelectedProviderScope(
       }
       lastScope = selectedScope;
       if (
+        lastRouteImportScope &&
+        selectedProviderScopeMatchesImportScope(selectedScope, lastRouteImportScope) &&
         selectedProviderScopeMatchesJourneySelection(selectedScope, selectedChoices) &&
         selectedProviderScopeMatchesUnitDomain(selectedScope, journey.unitKey)
       ) {
@@ -1753,8 +1745,10 @@ async function waitForSelectedProviderScope(
   }
 
   throw new Error(
-    `Selected source scope command form for ${journey.unitKey} did not settle on ${journey.name}. Last observed scope: ${
-      lastScope?.displayLabel ?? "none"
+    `Selected source scope command form for ${journey.unitKey} did not settle on the current route scope for ${
+      journey.name
+    }. Route import scope: ${lastRouteImportScope ?? "none"}. Last observed command scope: ${
+      lastScope?.importScope ?? lastScope?.displayLabel ?? "none"
     }.`,
   );
 }
@@ -2571,7 +2565,7 @@ async function promoteSelectedScopeFromSharedImporter(
     lorcanaDownstreamCatalogItemsJourney.unitKey,
     catalogWorkbenchCommand.promote,
   ).filter({ has: page.getByRole("button", { name: /^Preview / }) });
-  if (!(await clickFirstEnabledCommandForm(scopePreviewForms))) {
+  if (!(await clickSelectedScopeCommandForm(scopePreviewForms, selectedScope))) {
     return null;
   }
 
@@ -2609,7 +2603,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     lorcanaDownstreamCatalogItemsJourney.unitKey,
     catalogWorkbenchCommand.reapply,
   ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
-  if (await clickFirstEnabledCommandForm(sourceScopeReapplyForms)) {
+  if (await clickSelectedScopeCommandForm(sourceScopeReapplyForms, selectedScope)) {
     if (!(await expectCommandQueuedOrSettledNoPromotable(page, selectedScope))) {
       return null;
     }
@@ -2687,12 +2681,18 @@ async function clickFirstEnabledObservationCommand(
   return null;
 }
 
-async function clickFirstEnabledCommandForm(forms: Locator): Promise<boolean> {
+async function clickSelectedScopeCommandForm(forms: Locator, selectedScope: SelectedProviderScope): Promise<boolean> {
   const deadline = Date.now() + sourceOptionTimeoutMs;
   while (Date.now() < deadline) {
     const count = await forms.count();
     for (let index = 0; index < count; index += 1) {
-      if (await clickCommandFormButtonIfEnabled(forms.nth(index))) {
+      const form = forms.nth(index);
+      const candidate = await selectedProviderScopeFromCommandForm(form).catch(() => null);
+      if (
+        candidate &&
+        selectedProviderScopeMatchesSelectedScope(candidate, selectedScope) &&
+        (await clickCommandFormButtonIfEnabled(form))
+      ) {
         return true;
       }
     }
@@ -2803,13 +2803,17 @@ function promotionPreviewHasNoPromotableBlocker(stageText: string): boolean {
 }
 
 async function createItemsStageOperatorText(page: Page): Promise<string> {
-  const trigger = page.locator('[data-catalog-import-workflow-stage="create-items"]').first();
-  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
-  const panel = panelId ? page.locator(`[id="${cssAttrValue(panelId)}"]`).first() : trigger;
+  const panel = await createItemsStagePanel(page);
   return panel
     .innerText({ timeout: 2_000 })
     .then(normalizeWhitespace)
     .catch(() => "");
+}
+
+async function createItemsStagePanel(page: Page): Promise<Locator> {
+  const trigger = page.locator('[data-catalog-import-workflow-stage="create-items"]').first();
+  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
+  return panelId ? page.locator(`[id="${cssAttrValue(panelId)}"]`).first() : trigger;
 }
 
 function promotionPreviewOperatorState(selectedScope: SelectedProviderScope, stageText: string): string {
@@ -2834,18 +2838,15 @@ async function executePromotionFromFreshPreview(
     throw new Error(message);
   }
 
-  const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
+  const createItemsStage = await createItemsStagePanel(page);
+  const confirmation = createItemsStage.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
   await expect(confirmation).toBeEnabled({ timeout: syncTimeoutMs });
   if (!(await confirmation.isChecked().catch(() => false))) {
-    await page
-      .locator("label")
-      .filter({ hasText: /^I confirm this will promote/i })
-      .first()
-      .click();
+    await confirmation.check();
     await expect(confirmation).toBeChecked({ timeout: syncTimeoutMs });
   }
 
-  const executeForm = page
+  const executeForm = createItemsStage
     .locator(`form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.promote}"]`)
     .filter({ has: page.getByRole("button", { name: "Create or update Catalog Items" }) })
     .first();
@@ -3402,21 +3403,34 @@ function selectedProviderScopeMatchesSelectedScope(
     return false;
   }
 
-  if (normalizeWhitespace(candidate.displayLabel) === normalizeWhitespace(expected.displayLabel)) {
-    return true;
+  if (candidate.importScope || expected.importScope) {
+    return Boolean(
+      candidate.importScope &&
+      expected.importScope &&
+      selectedProviderScopeMatchesImportScope(candidate, expected.importScope),
+    );
   }
 
-  if (candidate.importScope && expected.importScope) {
-    const candidateScopes = importPreflightScopeCandidates(candidate.importScope).map(comparableImportScope);
-    const expectedScopes = importPreflightScopeCandidates(expected.importScope).map(comparableImportScope);
-    if (candidateScopes.some((scope) => expectedScopes.includes(scope))) {
-      return true;
-    }
+  if (normalizeWhitespace(candidate.displayLabel) === normalizeWhitespace(expected.displayLabel)) {
+    return true;
   }
 
   const candidateValues = selectedProviderScopeComparableValues(candidate);
   const expectedFieldValues = expected.fields.map((field) => comparableProviderScopeValue(field.value)).filter(Boolean);
   return expectedFieldValues.length > 0 && expectedFieldValues.every((value) => candidateValues.has(value));
+}
+
+function selectedProviderScopeMatchesImportScope(
+  candidate: SelectedProviderScope,
+  expectedImportScope: string,
+): boolean {
+  if (!candidate.importScope) {
+    return false;
+  }
+
+  const candidateScopes = importPreflightScopeCandidates(candidate.importScope).map(comparableImportScope);
+  const expectedScopes = importPreflightScopeCandidates(expectedImportScope).map(comparableImportScope);
+  return candidateScopes.some((scope) => expectedScopes.includes(scope));
 }
 
 function selectedProviderScopeComparableValues(selectedScope: SelectedProviderScope): ReadonlySet<string> {
