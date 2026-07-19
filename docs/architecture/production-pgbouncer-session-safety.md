@@ -24,7 +24,7 @@ Every steady-state production query path was checked for session-scoped state be
 - `infrastructure/event-core-postgres/event-store.ts` acquires the global append lock with `pg_advisory_xact_lock` (transaction-scoped per #3636), released at commit — pool-safe.
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` acquires the outbox append lock with `pg_advisory_xact_lock` — pool-safe.
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` retention prune acquires `pg_try_advisory_lock` and releases `pg_advisory_unlock` inside a single CTE statement (one implicit transaction, one backend) — pool-safe.
-- The only session-scoped path is the schema bootstrap (`infrastructure/bounded-context-runtime/schema.ts`), which holds a session advisory lock plus `SET lock_timeout` across multiple statements. It is a deploy-time migration path, not steady-state query traffic. DOKS staging and production bootstrap containers read dedicated `BOOTSTRAP_DATABASE_URL_*` / `BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL` secret keys populated from direct cluster URLs by `.github/workflows/platform-production.yml`; the interim App Platform bootstrap job rides the same pooled URLs staging has proven (single instance, worker quiesced, idempotent DDL).
+- The only session-scoped path is the schema bootstrap (`infrastructure/bounded-context-runtime/schema.ts`), which holds a session advisory lock plus `SET lock_timeout` across multiple statements. It is a deploy-time migration path, not steady-state query traffic. DOKS staging and production bootstrap containers read dedicated `BOOTSTRAP_DATABASE_URL_*` / `BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL` secret keys populated from direct cluster URLs by `.github/workflows/platform-production.yml`.
 
 No prepared-statement pinning, session GUC persistence, temp tables, `WITH HOLD` cursors, or `LISTEN` were found in the pooled query paths. `pg_notify` emission is transaction-pool-safe as a wake hint; durable event rows remain authoritative.
 
@@ -37,7 +37,7 @@ No prepared-statement pinning, session GUC persistence, temp tables, `WITH HOLD`
 | Platform control-plane work-signal store and projection-operation waiters | `PLATFORM_WORK_SIGNAL_DATABASE_URL` | Direct/session-compatible; falls back to `PLATFORM_CONTROL_DATABASE_URL` until a separate URL is configured. |
 | Context-owned durable/realtime waiters | `DATABASE_URL_<CONTEXT>_WAITER` for `catalog`, `discovery`, `inventory`, and `marketplace` | Direct/session-compatible; falls back to the context query pool only when no waiter URL is configured. |
 | Projection wake relay source listeners | `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` | Direct-only and least-privilege; never transaction-pooled. |
-| Schema bootstrap, migrations, grants, and production maintenance | DOKS-exported `BOOTSTRAP_*` direct cluster URLs, Terraform/admin direct URLs, or the interim App Platform bootstrap job | Direct-only for the DOKS session advisory lock; the interim App Platform bootstrap job rides the staging-proven pooled URLs. |
+| Schema bootstrap, migrations, grants, and production maintenance | DOKS-exported `BOOTSTRAP_*` direct cluster URLs or Terraform/admin direct URLs | Direct-only for the DOKS session advisory lock. |
 | Realtime cleanup and retention | Runtime pool with single-statement advisory-lock usage | Transaction-pool-safe (acquire and release inside one CTE statement). |
 
 ## Audit Evidence
@@ -51,7 +51,7 @@ Approved direct/session behavior found in the repo:
 - `infrastructure/platform-runtime/durable-job-store.ts` accepts `notificationWaiterPool` for context-owned durable job event waits while durable job writes stay on ordinary context pools.
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` uses realtime notification and retention paths over runtime pools with single-statement advisory locks.
 - `deployables/platform-worker/src/main.ts` already creates dedicated projection wake relay listener pools from `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`.
-- `infrastructure/digitalocean/platform/main.tf` keeps projection wake listener URLs on dedicated wake-listener users and checks that they do not regress to owning context users or App Platform bindings, and now provisions per-context production query pools (`production_context_database_connection_pool_size_overrides`).
+- `infrastructure/digitalocean/platform/main.tf` keeps projection wake listener URLs on dedicated wake-listener users, checks that they do not regress to owning context users, and provisions per-context production query pools (`production_context_database_connection_pool_size_overrides`).
 
 ## Rollout Gate (completed by #4655)
 

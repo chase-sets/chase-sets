@@ -6,7 +6,7 @@ import {
 } from "./staging-refresh-preflight-config.mjs";
 import {
   activeStagingRefreshOverlaps,
-  deployedSecretPostureFromApp,
+  deployedSecretPostureFromKeys,
   evaluateProviderPosture,
   evaluateStagingRefreshSecrets,
   findExpectedOptionAcrossPages,
@@ -75,26 +75,11 @@ describe("staging refresh credential posture", () => {
     expect(posture.every((secret) => secret.valueState === "not-inspectable")).toBe(true);
   });
 
-  it("reports only deployed secret names and component posture from DigitalOcean metadata", () => {
-    const encryptedValue = "EV[1:encrypted-must-not-appear]";
-    const posture = deployedSecretPostureFromApp({
-      spec: {
-        services: [
-          {
-            name: "platform-api",
-            envs: stagingRefreshRequiredSecrets.map((secret) => ({
-              key: secret.name,
-              value: encryptedValue,
-              type: "SECRET",
-            })),
-          },
-        ],
-      },
-    });
+  it("reports only deployed Kubernetes Secret key posture", () => {
+    const posture = deployedSecretPostureFromKeys(stagingRefreshRequiredSecrets.map((secret) => secret.name));
 
     expect(posture.every((secret) => secret.state === "configured")).toBe(true);
-    expect(posture[0]?.components).toEqual(["platform-api"]);
-    expect(JSON.stringify(posture)).not.toContain(encryptedValue);
+    expect(posture[0]).toEqual({ name: stagingRefreshRequiredSecrets[0].name, state: "configured" });
   });
 });
 
@@ -153,7 +138,12 @@ describe("staging refresh provider posture", () => {
     const report = await runStagingRefreshPreflight(
       {
         ...parseStagingRefreshPreflightArgs(
-          ["--skip-github-metadata", "--skip-doctl", "--skip-overlap-check", "--allow-credited-provider-reads"],
+          [
+            "--skip-github-metadata",
+            "--skip-deployed-secret-check",
+            "--skip-overlap-check",
+            "--allow-credited-provider-reads",
+          ],
           { ...validSecretEnv(), PLATFORM_ADMIN_EMAIL: "admin@example.test", PLATFORM_ADMIN_PASSWORD: "password" },
         ),
       },

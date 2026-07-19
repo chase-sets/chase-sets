@@ -13,16 +13,6 @@ const DURABLE_DATABASE_DESTRUCTIVE_RESOURCE_NAMES = new Map([
 
 const DESTRUCTIVE_APPROVAL_STATE_ACTIVE = "active";
 const DESTRUCTIVE_APPROVAL_STATE_NONE = "no-active-approval";
-const PRODUCTION_SERVING_RECORD_ADDRESSES = [
-  'digitalocean_record.app_serving["admin"]',
-  'digitalocean_record.app_serving["www"]',
-];
-const PRODUCTION_ROOT_DOMAIN = "chasesets.com";
-const PRODUCTION_APP_PLATFORM_PARKING_DOMAIN = `app-platform.${PRODUCTION_ROOT_DOMAIN}`;
-
-function productionAppDomainAttachmentAddress(name) {
-  return `digitalocean_app.platform.domain["${name}"]`;
-}
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
@@ -43,19 +33,6 @@ function commandOutput(command, args) {
 function readStringOption(argv, name, defaultValue = undefined) {
   const prefix = `${name}=`;
   return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
-}
-
-export function appPlatformChanges(plan) {
-  return Boolean(
-    plan.resource_changes?.some((resourceChange) => {
-      if (resourceChange.type !== "digitalocean_app" || resourceChange.name !== "platform") {
-        return false;
-      }
-
-      const actions = resourceChange.change?.actions ?? [];
-      return actions.length > 0 && actions.some((action) => action !== "no-op");
-    }),
-  );
 }
 
 export function terraformPlanSummary(plan, options = {}) {
@@ -162,7 +139,7 @@ export function postgresClusterIdFromPlan(plan) {
 }
 
 export function destructiveResourceChanges(plan) {
-  const resourceDeletes = (plan.resource_changes ?? [])
+  return (plan.resource_changes ?? [])
     .filter((resourceChange) => {
       if (resourceChange.type === "terraform_data") {
         return false;
@@ -177,228 +154,6 @@ export function destructiveResourceChanges(plan) {
       name: resourceChange.name ?? "",
       actions: resourceChange.change?.actions ?? [],
     }));
-
-  const platformChange = (plan.resource_changes ?? []).find(
-    (resourceChange) =>
-      resourceChange.type === "digitalocean_app" &&
-      resourceChange.name === "platform" &&
-      JSON.stringify(resourceChange.change?.actions) === JSON.stringify(["update"]),
-  );
-  const beforeDomains = appDomainsFromState(platformChange?.change?.before);
-  const afterDomainNames = new Set(appDomainsFromState(platformChange?.change?.after).map((domain) => domain.name));
-  const domainDetaches = beforeDomains
-    .filter((domain) => !afterDomainNames.has(domain.name))
-    .map((domain) => ({
-      address: productionAppDomainAttachmentAddress(domain.name),
-      type: "digitalocean_app_domain_attachment",
-      name: domain.name,
-      actions: ["delete"],
-    }));
-
-  return [...resourceDeletes, ...domainDetaches];
-}
-
-function appDomainsFromState(state) {
-  const domains = state?.spec?.[0]?.domain;
-  if (!Array.isArray(domains)) {
-    return [];
-  }
-
-  return domains
-    .filter((domain) => typeof domain?.name === "string" && domain.name.length > 0)
-    .map((domain) => ({
-      name: domain.name,
-      type: domain.type ?? "",
-      zone: domain.zone ?? "",
-    }));
-}
-
-function appDomainSignature(domains) {
-  return domains.map((domain) => `${domain.name}|${domain.type}|${domain.zone}`).sort();
-}
-
-function productionLiveAppDomains(includeMarketplace) {
-  return [
-    { name: PRODUCTION_ROOT_DOMAIN, type: "PRIMARY", zone: PRODUCTION_ROOT_DOMAIN },
-    { name: `admin.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN },
-    { name: `www.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN },
-    ...(includeMarketplace
-      ? [{ name: `marketplace.${PRODUCTION_ROOT_DOMAIN}`, type: "ALIAS", zone: PRODUCTION_ROOT_DOMAIN }]
-      : []),
-  ];
-}
-
-function productionParkingAppDomains(type = "PRIMARY") {
-  return [
-    {
-      name: PRODUCTION_APP_PLATFORM_PARKING_DOMAIN,
-      type,
-      zone: PRODUCTION_ROOT_DOMAIN,
-    },
-  ];
-}
-
-function productionPreparedAppPlatformDomains(includeMarketplace) {
-  return [...productionLiveAppDomains(includeMarketplace), ...productionParkingAppDomains("ALIAS")];
-}
-
-export function assertProductionServingModeReplacement(plan, options) {
-  const from = options?.from;
-  const to = options?.to;
-  if (!new Set(["app-platform", "doks"]).has(from) || !new Set(["app-platform", "doks"]).has(to) || from === to) {
-    throw new Error("Production serving-mode replacement requires different app-platform/doks from and to modes.");
-  }
-
-  const servingRecordAddresses = [...PRODUCTION_SERVING_RECORD_ADDRESSES];
-  if (options?.includeMarketplace) {
-    servingRecordAddresses.push('digitalocean_record.app_serving["marketplace"]');
-  }
-  const expectedDestroyedAddresses = [];
-  if (from === "doks") {
-    expectedDestroyedAddresses.push(...servingRecordAddresses);
-    expectedDestroyedAddresses.push("digitalocean_record.doks_apex[0]");
-  } else {
-    expectedDestroyedAddresses.push(
-      ...productionLiveAppDomains(Boolean(options?.includeMarketplace)).map((domain) =>
-        productionAppDomainAttachmentAddress(domain.name),
-      ),
-    );
-  }
-  expectedDestroyedAddresses.sort();
-
-  const destroyedAddresses = destructiveResourceChanges(plan)
-    .map((change) => change.address)
-    .sort();
-  if (JSON.stringify(destroyedAddresses) !== JSON.stringify(expectedDestroyedAddresses)) {
-    throw new Error(
-      `Production ${from}-to-${to} plan deletes must be limited to ${expectedDestroyedAddresses.join(", ")}; observed ${destroyedAddresses.join(", ") || "none"}.`,
-    );
-  }
-
-  const platformChange = (plan.resource_changes ?? []).find(
-    (candidate) => candidate.type === "digitalocean_app" && candidate.name === "platform",
-  );
-  const expectedBeforeDomains =
-    from === "app-platform"
-      ? productionPreparedAppPlatformDomains(Boolean(options?.includeMarketplace))
-      : productionParkingAppDomains();
-  const expectedAfterDomains =
-    to === "app-platform"
-      ? productionPreparedAppPlatformDomains(Boolean(options?.includeMarketplace))
-      : productionParkingAppDomains();
-  if (
-    JSON.stringify(platformChange?.change?.actions) !== JSON.stringify(["update"]) ||
-    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.before))) !==
-      JSON.stringify(appDomainSignature(expectedBeforeDomains)) ||
-    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.after))) !==
-      JSON.stringify(appDomainSignature(expectedAfterDomains))
-  ) {
-    throw new Error(
-      `Production ${from}-to-${to} must update digitalocean_app.platform from exactly the expected source attachments to exactly the expected destination attachments.`,
-    );
-  }
-
-  for (const address of servingRecordAddresses) {
-    const change = (plan.resource_changes ?? []).find((candidate) => candidate.address === address);
-    const before = change?.change?.before;
-    const after = change?.change?.after;
-    const validForwardCreate =
-      from === "app-platform" &&
-      JSON.stringify(change?.change?.actions) === JSON.stringify(["create"]) &&
-      before === null &&
-      after?.type === "A" &&
-      Number.isFinite(after?.ttl) &&
-      after.ttl <= 300;
-    const validRollbackDelete =
-      from === "doks" &&
-      JSON.stringify(change?.change?.actions) === JSON.stringify(["delete"]) &&
-      before?.type === "A" &&
-      Number.isFinite(before?.ttl) &&
-      before.ttl <= 300 &&
-      after === null;
-    if (!validForwardCreate && !validRollbackDelete) {
-      throw new Error(
-        `${address} must be a low-TTL A create after App Platform releases its CNAME (${from === "app-platform" ? "forward" : "not applicable"}) or a low-TTL A delete before App Platform reattaches its CNAME (${from === "doks" ? "rollback" : "not applicable"}).`,
-      );
-    }
-  }
-
-  if (from === "doks") {
-    const apex = (plan.resource_changes ?? []).find(
-      (candidate) => candidate.address === "digitalocean_record.doks_apex[0]",
-    );
-    if (
-      JSON.stringify(apex?.change?.actions) !== JSON.stringify(["delete"]) ||
-      apex?.change?.before?.type !== "A" ||
-      !Number.isFinite(apex?.change?.before?.ttl) ||
-      apex.change.before.ttl > 300
-    ) {
-      throw new Error(
-        "DOKS rollback must delete only the low-TTL DOKS apex A record in addition to the leaf replacements.",
-      );
-    }
-  }
-
-  if (from === "app-platform") {
-    const apex = (plan.resource_changes ?? []).find(
-      (candidate) => candidate.address === "digitalocean_record.doks_apex[0]",
-    );
-    if (
-      JSON.stringify(apex?.change?.actions) !== JSON.stringify(["create"]) ||
-      apex?.change?.before !== null ||
-      apex?.change?.after?.type !== "A" ||
-      !Number.isFinite(apex?.change?.after?.ttl) ||
-      apex.change.after.ttl > 300
-    ) {
-      throw new Error("DOKS cutover must create the low-TTL DOKS apex A record after the leaf A records.");
-    }
-  }
-
-  return destroyedAddresses;
-}
-
-export function assertProductionServingModeSteady(plan, options) {
-  const serving = options?.serving;
-  if (!new Set(["app-platform", "doks"]).has(serving)) {
-    throw new Error("Production steady serving-mode inspection requires app-platform or doks serving.");
-  }
-
-  const servingRecordAddresses = new Set([...PRODUCTION_SERVING_RECORD_ADDRESSES, "digitalocean_record.doks_apex[0]"]);
-  if (options?.includeMarketplace) {
-    servingRecordAddresses.add('digitalocean_record.app_serving["marketplace"]');
-  }
-
-  const topologyChanges = (plan.resource_changes ?? [])
-    .filter((resourceChange) => {
-      const actions = resourceChange.change?.actions ?? [];
-      const changesResource = actions.some((action) => !["no-op", "read"].includes(action));
-      return (
-        changesResource &&
-        (servingRecordAddresses.has(resourceChange.address) ||
-          resourceChange.address?.startsWith("digitalocean_app.platform.domain["))
-      );
-    })
-    .map((resourceChange) => resourceChange.address);
-
-  const platformChange = (plan.resource_changes ?? []).find(
-    (candidate) => candidate.type === "digitalocean_app" && candidate.name === "platform",
-  );
-  const platformActions = platformChange?.change?.actions ?? [];
-  if (
-    platformActions.some((action) => !["no-op", "read"].includes(action)) &&
-    JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.before))) !==
-      JSON.stringify(appDomainSignature(appDomainsFromState(platformChange?.change?.after)))
-  ) {
-    topologyChanges.push("digitalocean_app.platform domains");
-  }
-
-  if (topologyChanges.length > 0) {
-    throw new Error(
-      `Production ${serving} steady plan must be serving-topology-inert; observed changes to ${topologyChanges.join(", ")}.`,
-    );
-  }
-
-  return [];
 }
 
 function durableDatabaseDestructiveResource(change) {
@@ -531,11 +286,6 @@ export function assertNoDestructiveChanges(plan, options = {}) {
   );
 }
 
-export async function planAppChanged(tfplanPath, options = {}) {
-  const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
-  return appPlatformChanges(JSON.parse(output));
-}
-
 export async function readPostgresClusterIdFromPlan(tfplanPath, options = {}) {
   const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return postgresClusterIdFromPlan(JSON.parse(output));
@@ -552,16 +302,6 @@ export function readTerraformPlanSummaryMarkdown(tfplanJsonPath, options = {}) {
 
 async function main(argv) {
   const [command, ...args] = argv;
-
-  if (command === "plan-app-changed") {
-    const [tfplanPath] = args;
-    if (!tfplanPath) {
-      throw new Error("Usage: node ./scripts/terraform-plan-inspection.mjs plan-app-changed <tfplan>");
-    }
-
-    console.log(String(await planAppChanged(tfplanPath)));
-    return;
-  }
 
   if (command === "assert-no-destructive-changes") {
     const [tfplanPath, ...options] = args;
@@ -600,44 +340,21 @@ async function main(argv) {
     if (!tfplanJsonPath) {
       throw new Error("Usage: node ./scripts/terraform-plan-inspection.mjs list-destructive-changes <tfplan-json>");
     }
-
     for (const change of destructiveResourceChanges(JSON.parse(readFileSync(tfplanJsonPath, "utf8")))) {
       console.log(change.address);
     }
     return;
   }
 
-  if (command === "assert-serving-mode-replacement") {
-    const [tfplanJsonPath, ...options] = args;
-    const from = readStringOption(options, "--from");
-    const to = readStringOption(options, "--to");
-    if (!tfplanJsonPath || !from || !to) {
+  if (command === "fingerprint-destructive-changes") {
+    const [tfplanJsonPath] = args;
+    if (!tfplanJsonPath) {
       throw new Error(
-        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement <tfplan-json> --from=<app-platform|doks> --to=<app-platform|doks>",
+        "Usage: node ./scripts/terraform-plan-inspection.mjs fingerprint-destructive-changes <tfplan-json>",
       );
     }
-
-    assertProductionServingModeReplacement(JSON.parse(readFileSync(tfplanJsonPath, "utf8")), {
-      from,
-      to,
-      includeMarketplace: readStringOption(options, "--include-marketplace", "false") === "true",
-    });
-    return;
-  }
-
-  if (command === "assert-serving-mode-steady") {
-    const [tfplanJsonPath, ...options] = args;
-    const serving = readStringOption(options, "--serving");
-    if (!tfplanJsonPath || !serving) {
-      throw new Error(
-        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-serving-mode-steady <tfplan-json> --serving=<app-platform|doks>",
-      );
-    }
-
-    assertProductionServingModeSteady(JSON.parse(readFileSync(tfplanJsonPath, "utf8")), {
-      serving,
-      includeMarketplace: readStringOption(options, "--include-marketplace", "false") === "true",
-    });
+    const changes = destructiveResourceChanges(JSON.parse(readFileSync(tfplanJsonPath, "utf8")));
+    console.log(destructiveChangesApprovalFingerprint(changes));
     return;
   }
 
@@ -657,7 +374,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|assert-serving-mode-steady|list-destructive-changes|postgres-cluster-id|summarize-plan>",
+    "Usage: node ./scripts/terraform-plan-inspection.mjs <assert-no-destructive-changes|list-destructive-changes|fingerprint-destructive-changes|postgres-cluster-id|summarize-plan>",
   );
 }
 

@@ -2,8 +2,7 @@
 
 Cluster ingress, load balancer, and TLS add-ons for the DOKS runtime accepted by
 [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) and milestone #103
-(issue #4045). This is the DOKS equivalent of the routing and certificate surface
-App Platform provides today.
+(issue #4045). This is the routing and certificate surface for the live runtime.
 
 It owns five cluster-scoped concerns:
 
@@ -51,7 +50,7 @@ node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run
 ```
 
 `--environment` selects the per-environment DigitalOcean Load Balancer name
-(`chase-sets-<environment>-doks-ingress`) and DNS-01 zone. Staging additionally renders the preview wildcard Certificate; production uses DNS-01 to issue the live-and-shadow cutover certificate before its DNS flip.
+(`chase-sets-<environment>-doks-ingress`) and DNS-01 zone. Staging additionally renders the preview wildcard Certificate; production uses DNS-01 for the live production host certificate.
 
 ## Load Balancer And TLS Posture
 
@@ -70,9 +69,9 @@ docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-set
 `ClusterIssuer` is a cert-manager CRD, so schema validation must ignore missing
 schemas (the CRDs install with cert-manager, not with this chart).
 
-## Cutover
+## DNS
 
-The DNS records that point the staging or production shadow hosts at this load balancer live in
+The DNS records that point the live and diagnostic hosts at this load balancer live in
 [environment-dns](../../digitalocean/environment-dns/README.md). The end-to-end
-cutover and rollback sequence lives in
+operations sequence lives in
 [DOKS Platform Operations](../../../docs/runbooks/doks-platform-operations.md).

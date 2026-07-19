@@ -28,6 +28,8 @@ output "environment_endpoints" {
   }
 }
 
+# TODO: Rename in a dedicated state-safe migration. This intentionally retains
+# the legacy App Platform-era output name for current Terraform consumers.
 output "app_platform_otlp_headers" {
   value     = "X-Chase-Sets-Observability-Token=${var.otel_write_token}"
   sensitive = true

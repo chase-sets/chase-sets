@@ -11,7 +11,7 @@ It owns only DOKS compute foundation:
 - DOKS-to-DOCR registry integration through `digitalocean_kubernetes_cluster.registry_integration`.
 - Optional ownership of the account-level DigitalOcean Container Registry when `manage_container_registry=true`.
 
-It does not own App Platform, managed Postgres, context databases, PgBouncer pools, DNS, Spaces asset buckets, observability storage, Kubernetes workloads, ingress, secrets, Helm charts, or runtime manifests. Those remain in their current roots until a later #103 slice moves them deliberately.
+It does not own managed Postgres, context databases, PgBouncer pools, DNS, Spaces asset buckets, observability storage, Kubernetes workloads, ingress, secrets, Helm charts, or runtime manifests. Those remain in their bounded infrastructure roots.
 
 ## Defaults
 

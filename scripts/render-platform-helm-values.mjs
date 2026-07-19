@@ -7,8 +7,7 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
 export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
 export const chartProductionValuesRelativePath = "infrastructure/helm/platform/values.production.yaml";
-const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
-const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
+export const runtimeValuesRelativePath = "infrastructure/helm/platform/runtime-values.json";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
 const platformHelmChartName = "chase-sets-platform";
 const platformHelmReleaseName = "chase-sets-platform";
@@ -199,27 +198,24 @@ export const doksStagingWorkerEnvOverrides = {
   // 4 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch +
   // 1 scheduled + 3 wake = 12. Each projection runner holds ~1 connection
   // during its transaction, so DATABASE_POOL_MAX rises from 9 to 12 one-for-one
-  // with the +3 projection slots. DOKS staging query traffic is still DIRECT
-  // (its Secret exporter builds DATABASE_URL_* from cluster host/port, not from
-  // the PgBouncer pool resources), so this +3 counts one-for-one against the
-  // cluster backend budget: DOKS staging steady-state 30->33 and rolling
-  // overlap 56->62, both well under the 94 tier limit and the 75 upgrade
-  // trigger (see docs/architecture/push-wake-connection-budget.md). The direct
-  // relay LISTEN connections are separate and unchanged.
+  // with the +3 projection slots. DOKS staging query traffic uses managed
+  // transaction pools, so this client-side increase does not add cluster
+  // backends; direct relay, waiter, and bootstrap connections remain separately
+  // budgeted (see docs/architecture/push-wake-connection-budget.md).
   DATABASE_POOL_MAX: "12",
   WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4",
   WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3",
   WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2",
   // The staging DOKS worker owns the projection wake relay.
-  // Omitting the App Platform worker component entirely when DOKS owns the
+  // Omitting the retired worker component entirely when DOKS owns the
   // estate removes the only relay-enabled process: without this setting the
   // `projection-wake-relay:active` lease sits expired under the
   // dead owner and relay fan-out ceases fleet-wide (empty wake ledger;
   // authenticated login/session read-after-write times out while guest flows
   // pass). The Helm base keeps the relay off for previews (no listener URLs
   // there by design), but the estate's ONLY worker must run the relay. The
-  // seven direct LISTEN connections simply transfer from the removed App
-  // Platform worker, so the cluster connection budget is unchanged, and the
+  // seven direct LISTEN connections remain on the one active worker, so the
+  // cluster connection budget is unchanged, and the
   // relay lease stays single-flight if estates ever coexist again.
   WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
 };
@@ -282,7 +278,7 @@ export const doksStagingApiOverrides = {
   // The cutover-evidence battery fans authenticated setup across many
   // clients. Keep one API available while another is briefly busy or rolling,
   // and give the scheduler enough information to avoid memory-pressure churn.
-  // This mirrors the existing 1 vCPU / 1 GiB App Platform API envelope while
+  // This preserves the existing 1 vCPU / 1 GiB API envelope while
   // reserving a conservative baseline that lets the scheduler place both.
   //
   // Tolerant process liveness (startupPath/livenessPath/livenessProbe) is now
@@ -330,7 +326,7 @@ function helmDnsName(value) {
   return String(value).slice(0, 63).replace(/-+$/u, "");
 }
 
-// DOKS-only health wiring. App Platform workers expose no HTTP port, but the
+// DOKS-only health wiring. Workers expose no public HTTP port, but the
 // worker runs an in-process health server (/health/live + /health/ready) that
 // only binds after full boot (heartbeat + runner loops), so probing it makes a
 // boot-crashing worker fail the Helm rollout instead of silently passing.
@@ -407,144 +403,28 @@ const readinessProbeTuning = {
 };
 const componentsWithReadinessTuning = new Set(["platform-api"]);
 
-export function readPlatformSources(rootDir = repoRoot) {
-  return {
-    main: readFileSync(path.join(rootDir, platformMainRelativePath), "utf8"),
-    locals: readFileSync(path.join(rootDir, platformLocalsRelativePath), "utf8"),
-  };
-}
-
-export function extractDigitalOceanPlatformComponents(sources) {
-  const locals = parsePlatformLocals(sources.locals);
-  const platformResource = extractNamedBlock(sources.main, 'resource "digitalocean_app" "platform"');
-  const spec = extractNamedBlock(platformResource, "spec");
-  const terraformComponents = collectTopLevelComponents(spec).map((component) =>
-    normalizeTerraformComponent(component, locals),
-  );
-  const byName = new Map(terraformComponents.map((component) => [component.name, component]));
-
-  return componentOrder.map((name) => {
-    const component = byName.get(name);
-    if (!component) {
-      throw new Error(`DigitalOcean platform component '${name}' is missing from ${platformMainRelativePath}.`);
-    }
-    return component;
-  });
-}
-
-export function extractDigitalOceanPlatformContextNames(sources) {
-  return {
-    landing: extractQuotedListLocal(sources.locals, "landing_context_names"),
-    platform: extractQuotedListLocal(sources.locals, "platform_context_names"),
-  };
+function readPlatformRuntimeValues(rootDir) {
+  const runtimeValuesPath = path.join(rootDir, runtimeValuesRelativePath);
+  const runtimeValues = JSON.parse(readFileSync(runtimeValuesPath, "utf8"));
+  if (runtimeValues.schemaVersion !== "platform-runtime-values/v1") {
+    throw new Error(`${runtimeValuesRelativePath} must use schemaVersion platform-runtime-values/v1.`);
+  }
+  return runtimeValues;
 }
 
 export function buildPlatformHelmValues(options = {}) {
-  const sources = options.sources ?? readPlatformSources(options.repoRoot ?? repoRoot);
-  const components = extractDigitalOceanPlatformComponents(sources);
+  const rootDir = path.resolve(options.repoRoot ?? repoRoot);
+  const runtimeValues = readPlatformRuntimeValues(rootDir);
 
-  return {
-    generatedBy,
-    global: {
-      nameOverride: "",
-      fullnameOverride: "",
-      image: {
-        registry: "registry.digitalocean.com",
-        registryName: "chase-sets",
-        repository: "chase-sets-platform",
-        tag: "latest",
-        digest: "",
-        pullPolicy: "IfNotPresent",
-      },
-      imagePullSecrets: [],
-      envOverrides: {},
-      existingSecretName: "chase-sets-platform-runtime",
-      serviceAccount: {
-        create: true,
-        name: "",
-      },
-      rbac: {
-        create: true,
-      },
-      podAnnotations: {},
-      podLabels: {},
-      nodeSelector: {},
-      tolerations: [],
-      affinity: {},
-    },
-    observability: {
-      enabled: false,
-      environment: "",
-      clusterName: "",
-      collector: {
-        image: {
-          repository: "otel/opentelemetry-collector-contrib",
-          tag: "0.119.0",
-          pullPolicy: "IfNotPresent",
-        },
-        resources: {
-          requests: { cpu: "50m", memory: "128Mi" },
-          limits: { cpu: "500m", memory: "512Mi" },
-        },
-      },
-      kubeStateMetrics: {
-        image: {
-          repository: "registry.k8s.io/kube-state-metrics/kube-state-metrics",
-          tag: "v2.18.0",
-          pullPolicy: "IfNotPresent",
-        },
-        resources: {
-          requests: { cpu: "25m", memory: "64Mi" },
-          limits: { cpu: "250m", memory: "256Mi" },
-        },
-      },
-      exporter: {
-        endpoint: "",
-        secretName: "chase-sets-platform-runtime",
-        secretKey: "CHASE_SETS_OTLP_TOKEN",
-      },
-    },
-    doksIngress: {
-      enabled: false,
-      className: "nginx",
-      clusterIssuer: "",
-      annotations: {},
-      tls: {
-        enabled: true,
-        secretName: "chase-sets-platform-tls",
-        certificate: {
-          enabled: false,
-          clusterIssuer: "",
-          dnsNames: [],
-        },
-      },
-      hosts: [],
-    },
-    previewPostgres: {
-      enabled: false,
-      image: {
-        // Same image as local dev (docker-compose.dev.yml) and CI DB-test
-        // service containers: Debian-based Postgres 16 with pgvector baked in.
-        // The discovery context's schema bootstrap runs CREATE EXTENSION
-        // vector, which plain postgres:16-alpine does not ship.
-        repository: "pgvector/pgvector",
-        tag: "pg16",
-        pullPolicy: "IfNotPresent",
-      },
-      service: {
-        port: previewPostgresPort,
-      },
-      secretName: previewPostgresSecretName,
-      superuserSecretKey: "POSTGRES_PASSWORD",
-      applicationSecretKey: "APP_DATABASE_PASSWORD",
-      storage: {
-        emptyDir: {},
-      },
-      resources: {},
-    },
-    components: Object.fromEntries(components.map((component) => [component.name, toHelmComponent(component)])),
-  };
+  const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
+  return values;
 }
+
+/*
+ * The checked-in runtime values above are the canonical DOKS topology. They
+ * deliberately sever Helm generation from the retired application Terraform
+ * resource while retaining reviewable runtime defaults in source control.
+ */
 
 export function renderPlatformHelmValues(options = {}) {
   return `${renderYaml(buildPlatformHelmValues(options))}\n`
@@ -589,15 +469,13 @@ export function buildPlatformHelmStagingValues(options = {}) {
 }
 
 export function buildPlatformHelmProductionValues(options = {}) {
-  const sources = options.sources ?? readPlatformSources(options.repoRoot ?? repoRoot);
+  const rootDir = path.resolve(options.repoRoot ?? repoRoot);
+  const { productionEnvOverrides } = readPlatformRuntimeValues(rootDir);
 
   return {
     generatedBy,
     global: {
-      // Terraform's production_runtime_parity_env is deliberately shared by
-      // App Platform and this DOKS overlay so the serving flip cannot activate
-      // catalog operations or silently change launch-only runtime behavior.
-      envOverrides: extractStringMapLocal(sources.locals, "production_runtime_parity_env"),
+      envOverrides: productionEnvOverrides,
     },
     observability: {
       environment: "production",
@@ -633,21 +511,14 @@ export function buildDoksIngressValues(options = {}) {
 
   const production = environment === "production";
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
-  const servingVariable = production ? "PRODUCTION_APP_SERVING" : "STAGING_APP_SERVING";
   const target = String(env[targetVariable] ?? "").trim();
-  const serving = String(env[servingVariable] ?? "app-platform").trim() || "app-platform";
-
-  if (!["app-platform", "doks"].includes(serving)) {
-    throw new Error(`${servingVariable} must be either "app-platform" or "doks".`);
-  }
 
   const enabled = target !== "";
-  const hostMode = serving === "doks" ? "live" : "shadow";
   const marketplacePublicEnabled = env.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true";
   const hosts = enabled
     ? production
       ? buildProductionDoksIngressHosts({ marketplacePublicEnabled })
-      : buildDoksIngressHosts(stagingEnvironmentZone, hostMode, { apexService: "marketplace" })
+      : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
     : [];
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
 
@@ -747,13 +618,7 @@ function buildProductionDoksIngressHosts(options = {}) {
       (host) => includeMarketplace || !host.host.startsWith("marketplace."),
     );
 
-  // Keep both host sets routed before, during, and after the DNS flip. DNS
-  // continues to send live traffic to App Platform during rehearsal, while
-  // cert-manager can issue one DNS-01 certificate for every production name.
-  // Once the certificate is Ready, the Terraform flip is therefore only a
-  // DNS change: no Helm reconciliation or post-flip certificate race is left
-  // on the critical path. Shadow hosts remain usable for rollback evidence.
-  return [...buildHostSet("shadow"), ...buildHostSet("live")];
+  return buildHostSet("live");
 }
 
 // Single-level preview hostnames: `pr-<n>`, `pr-<n>-marketplace`, and
@@ -821,531 +686,6 @@ export function syncPlatformHelmValues(options = {}) {
     writeFileSync(path.join(rootDir, generatedFile.relativePath), generatedFile.content, "utf8");
   }
   return { checked: false };
-}
-
-function toHelmComponent(component) {
-  const result = {
-    enabled: true,
-    kind: deploymentKindByTerraformKind[component.terraformKind],
-    replicas: component.replicas,
-    source: {
-      digitalOceanKind: component.terraformKind,
-      instanceCountExpression: helmInstanceCountExpression(component),
-    },
-    command: helmCommand(component),
-    env: helmEnv(component),
-    resources: {},
-    podAnnotations: {},
-    podLabels: {},
-  };
-
-  if (component.name === "platform-worker") {
-    result.autoscaling = { ...doksStagingWorkerAutoscaling };
-  }
-
-  if (component.port) {
-    result.port = component.port;
-    result.service = { type: "ClusterIP", port: component.port };
-  }
-
-  if (component.healthPath) {
-    result.healthPath = component.healthPath;
-  }
-
-  // Attach the DOKS-only health probe port and readiness path for components
-  // (workers) that serve health over HTTP but declare no App Platform
-  // http_port. No ClusterIP Service is created: the probes target the pod's
-  // container port directly, and nothing in-cluster consumes the worker.
-  const healthProbe = doksHealthProbeByComponent[component.name];
-  if (healthProbe) {
-    result.port = healthProbe.port;
-    result.healthPath = healthProbe.readinessPath;
-  }
-
-  // Tolerant process liveness: only for components verified to serve
-  // /health/live. startupPath
-  // holds liveness off until boot completes for the components with a
-  // heavier boot sequence; livenessPath is the single explicit source of
-  // truth for which path liveness probes (see _helpers.tpl) and is
-  // intentionally independent of startupPath so a startup grace period never
-  // implies a liveness path, nor does opting into tolerant liveness imply a
-  // startup grace period.
-  if (componentsWithStartupProbe.has(component.name)) {
-    result.startupPath = tolerantLivenessPath;
-  }
-  if (componentsWithTolerantLiveness.has(component.name)) {
-    result.livenessPath = tolerantLivenessPath;
-    result.livenessProbe = { ...tolerantLivenessProbe };
-  }
-
-  // Readiness timing override: give the DB-aware readiness probe a
-  // realistic per-probe budget so pool contention under load can no longer
-  // flap the pod out of its Service endpoints.
-  if (componentsWithReadinessTuning.has(component.name)) {
-    result.readinessProbe = { ...readinessProbeTuning };
-  }
-
-  if (rolloutEligibleComponents.has(component.name)) {
-    result.rollout = rolloutValues(
-      false,
-      false,
-      component.name === "public-web" ? "/health/ready" : component.healthPath,
-    );
-  }
-
-  if (component.terraformKind === "job") {
-    result.job = {
-      suspend: false,
-      backoffLimit: 0,
-      activeDeadlineSeconds: bootstrapHookActiveDeadlineSeconds,
-      ttlSecondsAfterFinished: 600,
-      hook: {
-        enabled: true,
-        events: ["pre-install", "pre-upgrade"],
-        weight: -20,
-        deletePolicy: ["before-hook-creation", "hook-succeeded"],
-      },
-      quiesce: {
-        enabled: true,
-        targetComponents: ["platform-worker"],
-        timeoutSeconds: bootstrapQuiesceTimeoutSeconds,
-        commandTimeoutSeconds: bootstrapCommandTimeoutSeconds,
-        pollIntervalMs: 2000,
-        restoreOnFailure: true,
-        ignoreMissingDeployments: true,
-      },
-    };
-  }
-
-  return result;
-}
-
-function helmCommand(component) {
-  if (component.name === "platform-bootstrap") {
-    return platformBootstrapCommand;
-  }
-
-  return component.command;
-}
-
-function helmInstanceCountExpression(component) {
-  if (component.name === "platform-worker") {
-    return "local.worker_instances";
-  }
-
-  return component.instanceCountExpression;
-}
-
-function helmEnv(component) {
-  if (component.name === "platform-bootstrap") {
-    return [
-      ...component.env
-        .filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER")
-        .map((entry) =>
-          isBootstrapDatabaseEnv(entry.name)
-            ? { ...entry, secretKey: `${bootstrapDatabaseSecretKeyPrefix}${entry.name}` }
-            : entry,
-        ),
-      {
-        name: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
-        secret: true,
-        secretKey: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
-      },
-    ].sort((left, right) => left.name.localeCompare(right.name, "en"));
-  }
-
-  return component.env;
-}
-
-function isBootstrapDatabaseEnv(name) {
-  return name === "PLATFORM_CONTROL_DATABASE_URL" || /^DATABASE_URL_[A-Z0-9_]+$/.test(name);
-}
-
-function normalizeTerraformComponent(component, locals) {
-  const env = collectComponentEnv(component.block, component.name, locals);
-
-  return {
-    name: component.name,
-    terraformKind: component.kind,
-    command: requiredStringAttribute(component.block, "run_command", component.name),
-    instanceCountExpression: optionalAttributeExpression(component.block, "instance_count") ?? "1",
-    replicas: defaultReplicaCount(component.name),
-    port: optionalNumericAttribute(component.block, "http_port"),
-    healthPath: optionalNestedStringAttribute(component.block, "health_check", "http_path"),
-    env,
-  };
-}
-
-function collectComponentEnv(block, componentName, locals) {
-  const envByName = new Map();
-
-  for (const envBlock of collectNamedBlocks(block, "env")) {
-    const key = optionalStringAttribute(envBlock, "key");
-    if (!key) {
-      continue;
-    }
-    envByName.set(key, normalizeEnvEntry({ name: key, ...parseExplicitEnv(envBlock) }, componentName));
-  }
-
-  for (const dynamicBlock of collectDynamicEnvBlocks(block)) {
-    for (const entry of expandDynamicEnv(dynamicBlock, locals)) {
-      envByName.set(entry.name, normalizeEnvEntry(entry, componentName));
-    }
-  }
-
-  return [...envByName.values()].sort((left, right) => left.name.localeCompare(right.name, "en"));
-}
-
-function parseExplicitEnv(envBlock) {
-  return {
-    value: optionalStringAttribute(envBlock, "value"),
-    secret: optionalStringAttribute(envBlock, "type") === "SECRET",
-  };
-}
-
-function normalizeEnvEntry(entry, componentName) {
-  const secret = Boolean(entry.secret || secretEnvFallbacks.has(entry.name) || entry.name.startsWith("DATABASE_URL_"));
-  if (secret) {
-    return {
-      name: entry.name,
-      secret: true,
-      secretKey: entry.name,
-    };
-  }
-
-  return {
-    name: entry.name,
-    value: envValue(entry, componentName),
-  };
-}
-
-function envValue(entry, componentName) {
-  if (entry.name === "DATABASE_POOL_MAX") {
-    return databasePoolMaxByComponent[componentName] ?? envValueDefaults[entry.name] ?? "";
-  }
-
-  if (Object.hasOwn(envValueDefaults, entry.name)) {
-    return envValueDefaults[entry.name];
-  }
-
-  if (entry.value != null && !entry.value.includes("${")) {
-    return entry.value;
-  }
-
-  return "";
-}
-
-function expandDynamicEnv(dynamicBlock, locals) {
-  const forEachExpression = optionalAttributeExpression(dynamicBlock, "for_each");
-
-  if (forEachExpression === "local.observability_runtime_env") {
-    return locals.observabilityRuntimeEnv;
-  }
-
-  if (forEachExpression === "local.catalog_provider_runtime_env") {
-    return locals.catalogProviderRuntimeEnv;
-  }
-
-  if (forEachExpression === "local.rate_limit_runtime_env") {
-    return locals.rateLimitRuntimeEnv;
-  }
-
-  if (forEachExpression === "local.context_database_env") {
-    return locals.contextDatabaseEnv.map((name) => ({ name, secret: true }));
-  }
-
-  if (forEachExpression === "local.api_waiter_database_urls") {
-    return locals.contextWaiterDatabaseEnv.map((name) => ({ name, secret: true }));
-  }
-
-  if (forEachExpression === "local.worker_listener_database_urls") {
-    return locals.workerListenerDatabaseEnv.map((name) => ({ name, secret: true }));
-  }
-
-  throw new Error(`Unsupported dynamic platform env source '${forEachExpression}'.`);
-}
-
-function parsePlatformLocals(localsSource) {
-  const platformContextNames = extractQuotedListLocal(localsSource, "platform_context_names");
-  const apiWaiterContexts = extractQuotedListLocal(localsSource, "api_waiter_contexts");
-  const workerListenerSourceContexts = extractQuotedListLocal(localsSource, "worker_listener_source_contexts");
-
-  return {
-    platformContextNames,
-    apiWaiterContexts,
-    workerListenerSourceContexts,
-    observabilityRuntimeEnv: extractEnvMapLocal(localsSource, "observability_runtime_env"),
-    catalogProviderRuntimeEnv: extractEnvMapLocal(localsSource, "catalog_provider_runtime_env"),
-    rateLimitRuntimeEnv: extractEnvMapLocal(localsSource, "rate_limit_runtime_env"),
-    contextDatabaseEnv: platformContextNames
-      .filter((contextName) => contextName !== "control")
-      .map((contextName) => `DATABASE_URL_${envToken(contextName)}`),
-    contextWaiterDatabaseEnv: apiWaiterContexts.map((contextName) => `DATABASE_URL_${envToken(contextName)}_WAITER`),
-    workerListenerDatabaseEnv: workerListenerSourceContexts.map(
-      (contextName) => `WORKER_LISTENER_DATABASE_URL_${envToken(contextName)}`,
-    ),
-  };
-}
-
-function extractEnvMapLocal(source, localName) {
-  const assignmentIndex = source.indexOf(`${localName} =`);
-  if (assignmentIndex === -1) {
-    throw new Error(`local.${localName} is missing from ${platformLocalsRelativePath}.`);
-  }
-
-  const block = extractBlockAt(source, source.indexOf("{", assignmentIndex));
-  const keys = [];
-  let index = 0;
-
-  while (index < block.content.length) {
-    const match = /([A-Z][A-Z0-9_]*)\s*=\s*\{/g.exec(block.content.slice(index));
-    if (!match) {
-      break;
-    }
-    const keyIndex = index + match.index;
-    if (braceDepth(block.content.slice(0, keyIndex)) !== 0) {
-      index = keyIndex + match[0].length;
-      continue;
-    }
-
-    const entryBlock = extractBlockAt(block.content, keyIndex + match[0].lastIndexOf("{"));
-    keys.push({
-      name: match[1],
-      secret: /secret\s*=\s*true/.test(entryBlock.content),
-      value: optionalStringAttribute(entryBlock.content, "value"),
-    });
-    index = entryBlock.end;
-  }
-
-  return keys.sort((left, right) => left.name.localeCompare(right.name, "en"));
-}
-
-function extractQuotedListLocal(source, localName) {
-  const assignmentMatch = new RegExp(`${localName}\\s*=\\s*\\[`).exec(source);
-  const assignmentIndex = assignmentMatch?.index ?? -1;
-  if (assignmentIndex === -1) {
-    throw new Error(`local.${localName} is missing from ${platformLocalsRelativePath}.`);
-  }
-
-  const start = source.indexOf("[", assignmentIndex);
-  const end = source.indexOf("]", start);
-  return [...source.slice(start, end).matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-}
-
-function extractStringMapLocal(source, localName) {
-  const assignmentMatch = new RegExp(`${localName}\\s*=\\s*\\{`).exec(source);
-  const assignmentIndex = assignmentMatch?.index ?? -1;
-  if (assignmentIndex === -1) {
-    throw new Error(`local.${localName} is missing from ${platformLocalsRelativePath}.`);
-  }
-
-  const block = extractBlockAt(source, source.indexOf("{", assignmentIndex));
-  const entries = [...block.content.matchAll(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*"([^"]*)"\s*$/gmu)].map(([, name, value]) => [
-    name,
-    value,
-  ]);
-  if (entries.length === 0) {
-    throw new Error(`local.${localName} must contain literal string entries.`);
-  }
-
-  return Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right, "en")));
-}
-
-function collectTopLevelComponents(spec) {
-  const components = [];
-  let index = 0;
-
-  while (index < spec.length) {
-    const match =
-      /(dynamic\s+"service"\s*\{|dynamic\s+"worker"\s*\{|service\s*\{|worker\s*\{|job\s*\{|ingress\s*\{)/g.exec(
-        spec.slice(index),
-      );
-    if (!match) {
-      break;
-    }
-
-    const absoluteIndex = index + match.index;
-    if (braceDepth(spec.slice(0, absoluteIndex)) !== 0) {
-      index = absoluteIndex + match[0].length;
-      continue;
-    }
-
-    if (match[0].startsWith("ingress")) {
-      break;
-    }
-
-    // The platform-worker is rendered through a conditional
-    // dynamic "worker" block (absent when DOKS owns the runtime), so the DOKS
-    // helm renderer must resolve it the same as a static worker block.
-    const isWorker = match[0].startsWith("worker") || /dynamic\s+"worker"/.test(match[0]);
-    const kind = isWorker ? "worker" : match[0].startsWith("job") ? "job" : "service";
-    const block = extractBlockAt(spec, absoluteIndex + match[0].lastIndexOf("{"));
-    const componentBlock = match[0].startsWith("dynamic") ? extractNamedBlock(block.content, "content") : block.content;
-    const name = requiredStringAttribute(componentBlock, "name", kind);
-    components.push({ name, kind, block: componentBlock });
-    index = block.end;
-  }
-
-  return components;
-}
-
-function collectNamedBlocks(source, blockName) {
-  const blocks = [];
-  let index = 0;
-
-  while (index < source.length) {
-    const match = new RegExp(`${blockName}\\s*\\{`, "g").exec(source.slice(index));
-    if (!match) {
-      break;
-    }
-
-    const absoluteIndex = index + match.index;
-    const block = extractBlockAt(source, absoluteIndex + match[0].lastIndexOf("{"));
-    blocks.push(block.content);
-    index = block.end;
-  }
-
-  return blocks;
-}
-
-function collectDynamicEnvBlocks(source) {
-  const blocks = [];
-  let index = 0;
-
-  while (index < source.length) {
-    const match = /dynamic\s+"env"\s*\{/g.exec(source.slice(index));
-    if (!match) {
-      break;
-    }
-
-    const absoluteIndex = index + match.index;
-    const block = extractBlockAt(source, absoluteIndex + match[0].lastIndexOf("{"));
-    blocks.push(block.content);
-    index = block.end;
-  }
-
-  return blocks;
-}
-
-function extractNamedBlock(source, name) {
-  const index = source.indexOf(`${name} {`);
-  if (index === -1) {
-    throw new Error(`Block '${name}' is missing.`);
-  }
-
-  return extractBlockAt(source, source.indexOf("{", index)).content;
-}
-
-function extractBlockAt(source, openBraceIndex) {
-  if (source[openBraceIndex] !== "{") {
-    throw new Error("Expected block to start at an opening brace.");
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = openBraceIndex; index < source.length; index += 1) {
-    const char = source[index];
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        return {
-          content: source.slice(openBraceIndex + 1, index),
-          end: index + 1,
-        };
-      }
-    }
-  }
-
-  throw new Error("Unclosed block.");
-}
-
-function braceDepth(source) {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (const char of source) {
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-    } else if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-    }
-  }
-
-  return depth;
-}
-
-function requiredStringAttribute(source, name, owner) {
-  const value = optionalStringAttribute(source, name);
-  if (value == null) {
-    throw new Error(`${owner} is missing required string attribute '${name}'.`);
-  }
-  return value;
-}
-
-function optionalStringAttribute(source, name) {
-  const match = new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(source);
-  return match?.[1] ?? null;
-}
-
-function optionalAttributeExpression(source, name) {
-  const match = new RegExp(`${name}\\s*=\\s*([^\\n]+)`).exec(source);
-  return match?.[1]?.trim() ?? null;
-}
-
-function optionalNumericAttribute(source, name) {
-  const expression = optionalAttributeExpression(source, name);
-  return expression && /^\d+$/.test(expression) ? Number(expression) : null;
-}
-
-function optionalNestedStringAttribute(source, blockName, attributeName) {
-  const blocks = collectNamedBlocks(source, blockName);
-  return blocks.length > 0 ? optionalStringAttribute(blocks[0], attributeName) : null;
-}
-
-function defaultReplicaCount(componentName) {
-  if (componentName === "platform-bootstrap") {
-    return 1;
-  }
-  return 1;
-}
-
-function envToken(contextName) {
-  return contextName.replaceAll("-", "_").toUpperCase();
 }
 
 export function renderYaml(value, indent = 0) {

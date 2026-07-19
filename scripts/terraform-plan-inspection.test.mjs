@@ -2,15 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  appPlatformChanges,
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
-  assertProductionServingModeReplacement,
-  assertProductionServingModeSteady,
+  destructiveChangeApprovalFromText,
   destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   durableDatabaseDestructiveResourceChanges,
-  planAppChanged,
   postgresClusterIdFromPlan,
   renderTerraformPlanSummaryMarkdown,
   terraformPlanSummary,
@@ -19,14 +16,6 @@ import {
 function planFor(resourceChanges) {
   return {
     resource_changes: resourceChanges,
-  };
-}
-
-function appChange(actions) {
-  return {
-    type: "digitalocean_app",
-    name: "platform",
-    change: { actions },
   };
 }
 
@@ -40,117 +29,11 @@ function resourceChange(address, actions) {
 }
 
 describe("Terraform plan inspection", () => {
-  it("accepts a routine DOKS deploy that only completes the retained preparation marker", () => {
-    const plan = JSON.parse(
-      readFileSync(resolve("scripts/fixtures/terraform-plans/production-platform-doks-steady.json"), "utf8"),
-    );
-
-    expect(assertProductionServingModeSteady(plan, { serving: "doks" })).toEqual([]);
-
-    const dnsMutation = structuredClone(plan);
-    const adminRecord = dnsMutation.resource_changes.find(
-      (change) => change.address === 'digitalocean_record.app_serving["admin"]',
-    );
-    adminRecord.change.actions = ["update"];
-    adminRecord.change.after.value = "198.51.100.20";
-    expect(() => assertProductionServingModeSteady(dnsMutation, { serving: "doks" })).toThrow(
-      "must be serving-topology-inert",
-    );
-  });
-
-  it("pins the App Platform domain releases and DOKS record creates in the forward fixture", () => {
-    const plan = JSON.parse(
-      readFileSync(
-        resolve("scripts/fixtures/terraform-plans/production-platform-app-platform-state-to-doks.json"),
-        "utf8",
-      ),
-    );
-
-    expect(assertProductionServingModeReplacement(plan, { from: "app-platform", to: "doks" })).toEqual([
-      'digitalocean_app.platform.domain["admin.chasesets.com"]',
-      'digitalocean_app.platform.domain["chasesets.com"]',
-      'digitalocean_app.platform.domain["www.chasesets.com"]',
-    ]);
-    const destructiveChanges = destructiveResourceChanges(plan);
-    expect(destructiveChanges).toEqual([
-      {
-        address: 'digitalocean_app.platform.domain["chasesets.com"]',
-        type: "digitalocean_app_domain_attachment",
-        name: "chasesets.com",
-        actions: ["delete"],
-      },
-      {
-        address: 'digitalocean_app.platform.domain["www.chasesets.com"]',
-        type: "digitalocean_app_domain_attachment",
-        name: "www.chasesets.com",
-        actions: ["delete"],
-      },
-      {
-        address: 'digitalocean_app.platform.domain["admin.chasesets.com"]',
-        type: "digitalocean_app_domain_attachment",
-        name: "admin.chasesets.com",
-        actions: ["delete"],
-      },
-    ]);
-    expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
-      "sha256:692539e7511fb7339e40c58120900ed89799367ab9e9220520f3c7d2d231eaa1",
-    );
-  });
-
-  it("limits the App Platform rollback deletes in the DOKS-state fixture to the intended records", () => {
-    const plan = JSON.parse(
-      readFileSync(
-        resolve("scripts/fixtures/terraform-plans/production-platform-doks-state-to-app-platform.json"),
-        "utf8",
-      ),
-    );
-
-    expect(assertProductionServingModeReplacement(plan, { from: "doks", to: "app-platform" })).toEqual([
-      'digitalocean_record.app_serving["admin"]',
-      'digitalocean_record.app_serving["www"]',
-      "digitalocean_record.doks_apex[0]",
-    ]);
-    expect(() => assertProductionServingModeSteady(plan, { serving: "app-platform" })).toThrow(
-      "must be serving-topology-inert",
-    );
-    const destructiveChanges = destructiveResourceChanges(plan);
-    expect(destructiveChangesApprovalFingerprint(destructiveChanges)).toBe(
-      "sha256:1b67b5328049b409e0dc725a434e6571dec0f300246d27a3c4d22e3ead4cbec5",
-    );
-
-    const ambiguousPlan = structuredClone(plan);
-    ambiguousPlan.resource_changes.push(resourceChange("digitalocean_project_resources.platform", ["delete"]));
-    expect(() => assertProductionServingModeReplacement(ambiguousPlan, { from: "doks", to: "app-platform" })).toThrow(
-      "plan deletes must be limited",
-    );
-  });
-
-  it("detects create, update, and delete actions for the platform app", () => {
-    expect(appPlatformChanges(planFor([appChange(["create"])]))).toBe(true);
-    expect(appPlatformChanges(planFor([appChange(["update"])]))).toBe(true);
-    expect(appPlatformChanges(planFor([appChange(["delete"])]))).toBe(true);
-  });
-
-  it("ignores no-op platform app actions and unrelated resources", () => {
-    expect(appPlatformChanges(planFor([appChange(["no-op"])]))).toBe(false);
-    expect(
-      appPlatformChanges(
-        planFor([
-          {
-            type: "digitalocean_database_cluster",
-            name: "postgres",
-            change: { actions: ["update"] },
-          },
-        ]),
-      ),
-    ).toBe(false);
-  });
-
   it("summarizes destructive Terraform changes", () => {
     expect(
       destructiveResourceChanges(
         planFor([
-          resourceChange("digitalocean_app.platform", ["update"]),
+          resourceChange("digitalocean_uptime_check.platform", ["update"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
           resourceChange('digitalocean_database_db.contexts["auth"]', ["delete"]),
           {
@@ -181,7 +64,7 @@ describe("Terraform plan inspection", () => {
     expect(
       durableDatabaseDestructiveResourceChanges(
         planFor([
-          resourceChange("digitalocean_app.platform", ["delete", "create"]),
+          resourceChange("digitalocean_uptime_check.platform", ["delete", "create"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
           resourceChange('digitalocean_database_db.contexts["checkout"]', ["delete"]),
           resourceChange('digitalocean_database_user.contexts["checkout"]', ["delete"]),
@@ -240,13 +123,13 @@ describe("Terraform plan inspection", () => {
   });
 
   it("blocks destructive Terraform changes unless an override marker is present", () => {
-    const plan = planFor([resourceChange("digitalocean_app.platform", ["delete", "create"])]);
+    const plan = planFor([resourceChange("digitalocean_uptime_check.platform", ["delete", "create"])]);
 
     expect(() => assertNoDestructiveChanges(plan)).toThrow("Production Terraform plan contains destructive changes");
     expect(assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toEqual([
       {
-        address: "digitalocean_app.platform",
-        type: "digitalocean_app",
+        address: "digitalocean_uptime_check.platform",
+        type: "digitalocean_uptime_check",
         name: "platform",
         actions: ["delete", "create"],
       },
@@ -302,38 +185,42 @@ The resources are retired by a reviewed context merge.
     ).toEqual(destructiveChanges);
   });
 
-  it("pins the checked-in production destructive approval to Flip attempt 4's attachment release", () => {
-    const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
-
-    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([
-      'digitalocean_app.platform.domain["chasesets.com"]',
-      'digitalocean_app.platform.domain["www.chasesets.com"]',
-      'digitalocean_app.platform.domain["admin.chasesets.com"]',
-    ]);
-    expect(approvalText).toContain("Approval state: active");
-    expect(approvalText).toContain(
-      "Plan fingerprint: sha256:692539e7511fb7339e40c58120900ed89799367ab9e9220520f3c7d2d231eaa1",
+  it("pins the active owner approval to the reviewed decommission fingerprint", () => {
+    const changes = destructiveResourceChanges(
+      planFor([
+        resourceChange("digitalocean_app.platform", ["delete"]),
+        resourceChange("terraform_data.marker", ["delete"]),
+      ]),
     );
-    expect(approvalText).toContain("#5574 + Todd 2026-07-18 standing retry grant");
-    expect(approvalText).not.toContain('digitalocean_database_db.contexts["experience"]');
-  });
 
-  it("reads Terraform JSON plan output for app-change detection", async () => {
-    const changed = await planAppChanged("tfplan", {
-      commandOutput: async (command, args) => {
-        expect(command).toBe("terraform");
-        expect(args).toEqual(["show", "-json", "tfplan"]);
-        return JSON.stringify(planFor([appChange(["update"])]));
-      },
+    expect(changes.map((change) => change.address)).toEqual(["digitalocean_app.platform"]);
+    expect(destructiveChangesApprovalFingerprint(changes)).toBe(
+      "sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29",
+    );
+    const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
+    const approval = destructiveChangeApprovalFromText(approvalText);
+
+    expect(approval).toEqual({
+      state: "active",
+      planFingerprint: "sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29",
+      addresses: ["digitalocean_app.platform"],
     });
-
-    expect(changed).toBe(true);
+    expect(approvalText).toContain(
+      "Approval reference: https://github.com/chase-sets/chase-sets/issues/4055#issuecomment-5016949564",
+    );
+    expect(approvalText).toContain("Reviewed on: 2026-07-19");
+    expect(approvalText).toContain("Owner: todd.skelton@chasesets.com");
+    expect(
+      assertNoDestructiveChanges(planFor([resourceChange("digitalocean_app.platform", ["delete"])]), {
+        destructiveChangeApproval: approval,
+      }),
+    ).toEqual([changes[0]]);
   });
 
   it("summarizes Terraform plan change counts and changed resource addresses", () => {
     const summary = terraformPlanSummary(
       planFor([
-        resourceChange("digitalocean_app.platform", ["update"]),
+        resourceChange("digitalocean_uptime_check.platform", ["update"]),
         resourceChange('digitalocean_database_db.contexts["checkout"]', ["create"]),
         resourceChange("digitalocean_record.old", ["delete"]),
         resourceChange("digitalocean_database_user.contexts", ["no-op"]),
@@ -346,9 +233,9 @@ The resources are retired by a reviewed context merge.
       change: 1,
       destroy: 1,
       resources: [
-        { address: "digitalocean_app.platform", actions: ["update"] },
         { address: 'digitalocean_database_db.contexts["checkout"]', actions: ["create"] },
         { address: "digitalocean_record.old", actions: ["delete"] },
+        { address: "digitalocean_uptime_check.platform", actions: ["update"] },
       ],
       omittedResources: 0,
     });
@@ -356,7 +243,7 @@ The resources are retired by a reviewed context merge.
 
   it("renders Terraform plan summaries for workflow step summaries", () => {
     expect(
-      renderTerraformPlanSummaryMarkdown(planFor([resourceChange("digitalocean_app.platform", ["update"])]), {
+      renderTerraformPlanSummaryMarkdown(planFor([resourceChange("digitalocean_uptime_check.platform", ["update"])]), {
         title: "Production Terraform plan",
       }),
     ).toContain("### Production Terraform plan");

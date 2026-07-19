@@ -1,5 +1,5 @@
-# CI compose boot+smoke (#4864): boots the same production App Platform
-# image the docker-image job and the cluster preview deploy build --
+# CI compose boot+smoke (#4864): boots the same production platform image
+# the docker-image job and the cluster preview deploy build --
 # containerized platform-api, platform-worker, and all three web
 # deployables -- against a real compose Postgres, then platform-smoke.mjs
 # drives it exactly like it drives a cluster preview. This replaces the

@@ -71,7 +71,7 @@ Emergency release behavior:
 
 ## Release Locks
 
-`PRODUCTION_RELEASE_LOCKED=true` pauses production promotion. The production deployment workflow evaluates the lock before production configuration validation, Terraform planning, or App Platform deployment.
+`PRODUCTION_RELEASE_LOCKED=true` pauses production promotion. The production deployment workflow evaluates the lock before production configuration validation, Terraform planning, or DOKS deployment.
 
 Required production GitHub Environment variables:
 
@@ -101,7 +101,7 @@ The generator reads the current production lock inputs, validates lock reason re
 
 ## Post-Deploy Production Verification
 
-The platform ships via a DigitalOcean App Platform rolling deploy. There is no canary deployment: production is not split into cohorts and traffic is never weighted between an old and new release. After the rolling deploy reaches `ACTIVE`, the workflow runs synthetic, operator-safe post-deploy checks against the already-deployed release before advancing the `production` marker. The intent is to catch a broken production reality early, not to gate a traffic split that does not exist.
+The platform ships through the DOKS Helm release, with optional Argo Rollouts proportional exposure when the protected environment enables it. After workloads become ready, the workflow runs synthetic, operator-safe post-deploy checks before advancing the `production` marker. When proportional exposure is disabled these checks protect an ordinary rolling update; when it is enabled, AnalysisTemplate evidence and rollout state add the traffic-split gate.
 
 The post-deploy checks are:
 

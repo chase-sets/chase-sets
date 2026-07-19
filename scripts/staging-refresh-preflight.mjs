@@ -68,17 +68,21 @@ export function parseStagingRefreshPreflightArgs(argv, env = process.env) {
       hasFlag(argv, "--allow-credited-provider-reads") ||
       readEnv("STAGING_REFRESH_ALLOW_CREDITED_PROVIDER_READS", env) === "true",
     skipGithubMetadata: hasFlag(argv, "--skip-github-metadata"),
-    skipDoctl: hasFlag(argv, "--skip-doctl"),
+    skipDeployedSecretCheck: hasFlag(argv, "--skip-deployed-secret-check"),
     skipOverlapCheck: hasFlag(argv, "--skip-overlap-check"),
     skipAdminChecks: hasFlag(argv, "--skip-admin-checks"),
     overlapOnly: hasFlag(argv, "--overlap-only"),
     scheduledOverlapConfirmed:
       hasFlag(argv, "--confirm-no-scheduled-overlap") ||
       readEnv("STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED", env) === "true",
-    digitalOceanAppName:
-      readOption(argv, "--digitalocean-app-name") ??
-      readEnv("STAGING_REFRESH_DIGITALOCEAN_APP_NAME", env) ??
-      "chase-sets-staging-platform",
+    kubernetesNamespace:
+      readOption(argv, "--kubernetes-namespace") ??
+      readEnv("STAGING_REFRESH_KUBERNETES_NAMESPACE", env) ??
+      "chase-sets-platform",
+    kubernetesSecret:
+      readOption(argv, "--kubernetes-secret") ??
+      readEnv("STAGING_REFRESH_KUBERNETES_SECRET", env) ??
+      "chase-sets-runtime",
     currentRunId: readEnv("GITHUB_RUN_ID", env) ?? null,
     outPath: readOption(argv, "--out") ?? null,
   };
@@ -148,25 +152,12 @@ export function evaluateProviderPosture(overview) {
   return { credentialPosture, scrydexCreditCategory: creditCategory };
 }
 
-export function deployedSecretPostureFromApp(app) {
-  const spec = app?.spec ?? app?.active_deployment?.spec ?? {};
-  const components = [...(spec.services ?? []), ...(spec.workers ?? []), ...(spec.jobs ?? [])];
-  return stagingRefreshRequiredSecrets.map((requirement) => {
-    const configuredComponents = components
-      .filter((component) =>
-        (component.envs ?? []).some(
-          (entry) => entry.key === requirement.name && entry.type === "SECRET" && String(entry.value ?? "").length > 0,
-        ),
-      )
-      .map((component) => component.name)
-      .filter(Boolean)
-      .sort();
-    return {
-      name: requirement.name,
-      state: configuredComponents.length > 0 ? "configured" : "missing",
-      components: configuredComponents,
-    };
-  });
+export function deployedSecretPostureFromKeys(keys) {
+  const configuredKeys = new Set(keys);
+  return stagingRefreshRequiredSecrets.map((requirement) => ({
+    name: requirement.name,
+    state: configuredKeys.has(requirement.name) ? "configured" : "missing",
+  }));
 }
 
 export function activeStagingRefreshOverlaps(runs, currentRunId = null) {
@@ -296,18 +287,17 @@ export async function resolveAuthenticatedGitHubActionsIdentity(options = {}, ru
   return { repository, currentRunId: String(workflowRun.databaseId) };
 }
 
-async function digitalOceanDeployedSecrets(options, run = execFile) {
-  const commandOptions = { maxBuffer: 20 * 1024 * 1024 };
-  const { stdout: listOutput } = await run("doctl", ["apps", "list", "--output", "json"], commandOptions);
-  const apps = JSON.parse(listOutput);
-  const appSummary = apps.find((app) => app?.spec?.name === options.digitalOceanAppName);
-  if (!appSummary?.id) {
-    throw new Error("digitalocean-staging-app-not-found");
-  }
-  const { stdout: getOutput } = await run("doctl", ["apps", "get", appSummary.id, "--output", "json"], commandOptions);
-  const response = JSON.parse(getOutput);
-  const app = Array.isArray(response) ? response[0] : response;
-  return deployedSecretPostureFromApp(app);
+async function kubernetesDeployedSecrets(options, run = execFile) {
+  const { stdout } = await run("kubectl", [
+    "--namespace",
+    options.kubernetesNamespace,
+    "get",
+    "secret",
+    options.kubernetesSecret,
+    "--output",
+    "go-template={{range $key, $_ := .data}}{{println $key}}{{end}}",
+  ]);
+  return deployedSecretPostureFromKeys(stdout.split(/\r?\n/).filter(Boolean));
 }
 
 async function fetchJson(url, init, fetchImpl) {
@@ -555,11 +545,11 @@ export async function runStagingRefreshPreflight(options, dependencies = {}) {
       .filter((secret) => Boolean(process.env[secret.name]))
       .map((secret) => ({ name: secret.name, updatedAt: null }));
   }
-  if (!options.skipDoctl) {
+  if (!options.skipDeployedSecretCheck) {
     try {
-      deployedSecretPosture = await digitalOceanDeployedSecrets(options, run);
+      deployedSecretPosture = await kubernetesDeployedSecrets(options, run);
     } catch {
-      collectionErrors.push("digitalocean-deployed-credential-metadata-unavailable");
+      collectionErrors.push("kubernetes-deployed-credential-metadata-unavailable");
     }
   }
   if (!options.skipOverlapCheck) {

@@ -13,8 +13,6 @@ const ROOT_CAUSE_SCHEMA_VERSION = "platform-deploy-root-cause/v1";
 const MAX_PROVIDER_REASON_LENGTH = 500;
 
 export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
-  "app-platform-bootstrap-config",
-  "app-platform-bootstrap-runtime",
   "doks-bootstrap-or-migration",
   "terraform-provider-or-state",
   "staging-dns",
@@ -26,18 +24,6 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
 ]);
 
 const ROOT_CAUSES = Object.freeze({
-  "app-platform-bootstrap-config": {
-    summary: "App Platform bootstrap is missing required runtime configuration.",
-    remediation: "Restore the required App Platform runtime configuration, then start a replacement deploy.",
-    phase: "app-platform-bootstrap",
-    affectedComponent: "platform-bootstrap",
-  },
-  "app-platform-bootstrap-runtime": {
-    summary: "App Platform bootstrap exited unsuccessfully after configuration was loaded.",
-    remediation: "Inspect the redacted bootstrap logs, correct the runtime failure, then start a replacement deploy.",
-    phase: "app-platform-bootstrap",
-    affectedComponent: "platform-bootstrap",
-  },
   "doks-bootstrap-or-migration": {
     summary: "The DOKS bootstrap or database migration did not complete.",
     remediation: "Resolve the bootstrap or migration failure; do not retry deterministic failures until corrected.",
@@ -245,13 +231,6 @@ export function classifyDeploymentRootCause(input = {}) {
     .map((step) => [step.name, step.componentName, step.phase, step.reasonCode, step.message].join(" "))
     .join("\n");
   const allText = `${stepText}\n${text}`;
-  const bootstrapStep = steps.find(
-    (step) =>
-      /platform-bootstrap/i.test(`${step.name} ${step.componentName}`) &&
-      /DeployContainerExitNonZero/i.test(`${step.reasonCode} ${step.message}`) &&
-      /error|fail|cancel/i.test(step.phase),
-  );
-  const bootstrapComponent = bootstrapStep?.componentName || bootstrapStep?.name || "platform-bootstrap";
   const stagingDnsPattern =
     /DomainZoneInvalid|DomainCNAMEMismatch|domain (?:name )?.{0,40}(?:already exists|conflict|collision)|CNAME.{0,40}(?:mismatch|conflict)|staging-dns/i;
   const terraformPattern =
@@ -265,25 +244,6 @@ export function classifyDeploymentRootCause(input = {}) {
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
-  }
-  if (
-    bootstrapStep &&
-    /(?:missing|required|not (?:set|configured|defined|found)).{0,80}(?:environment|env|configuration|config|[A-Z][A-Z0-9_]{2,})|(?:environment|env|configuration|config|[A-Z][A-Z0-9_]{2,}).{0,80}(?:missing|required|not (?:set|configured|defined|found))/i.test(
-      text,
-    )
-  ) {
-    return rootCauseRecord("app-platform-bootstrap-config", input, steps, text, {
-      affectedComponent: bootstrapComponent,
-      providerReason:
-        relevantTextLine(text, /missing|required|not (?:set|configured|defined|found)/i) ||
-        boundedProviderReason([bootstrapStep.reasonCode, bootstrapStep.message].filter(Boolean).join(": ")),
-    });
-  }
-  if (bootstrapStep) {
-    return rootCauseRecord("app-platform-bootstrap-runtime", input, steps, text, {
-      affectedComponent: bootstrapComponent,
-      providerStep: bootstrapStep,
-    });
   }
   if (stagingDnsPattern.test(allText)) {
     return rootCauseRecord(

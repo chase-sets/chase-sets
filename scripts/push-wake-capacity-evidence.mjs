@@ -9,14 +9,34 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { doksStagingWorkerEnvOverrides } from "./render-platform-helm-values.mjs";
+import {
+  doksStagingApiOverrides,
+  doksStagingWorkerAutoscaling,
+  doksStagingWorkerEnvOverrides,
+} from "./render-platform-helm-values.mjs";
 
 export const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
 
 const DEFAULT_OUT_PATH = "artifacts/release-health/push-wake-capacity-evidence.json";
 const PLATFORM_LOCALS_PATH = "infrastructure/digitalocean/platform/locals.tf";
 const PLATFORM_VARIABLES_PATH = "infrastructure/digitalocean/platform/variables.tf";
+const PLATFORM_RUNTIME_VALUES_PATH = "infrastructure/helm/platform/runtime-values.json";
 const SOURCE_CONTEXT_WAKE_REGISTRY_PATH = "infrastructure/platform-runtime/source-context-wake-registry.ts";
+const CLUSTER_CONNECTION_LIMITS = Object.freeze({
+  "db-s-1vcpu-1gb": 19,
+  "db-s-1vcpu-2gb": 44,
+  "db-s-2vcpu-4gb": 94,
+  "db-s-4vcpu-8gb": 194,
+});
+const CONNECTION_BUDGET_UPGRADE_TRIGGER_PERCENT = 80;
+
+function runtimeEnvValue(component, name) {
+  const value = component.env.find((entry) => entry.name === name)?.value;
+  if (value === undefined) {
+    throw new Error(`Runtime component '${component}' is missing '${name}'.`);
+  }
+  return Number(value);
+}
 
 export function parsePushWakeCapacityArgs(argv, env = process.env) {
   return {
@@ -30,6 +50,7 @@ export function parsePushWakeCapacityArgs(argv, env = process.env) {
 export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
   const localsSource = readFileSync(resolve(repoRoot, PLATFORM_LOCALS_PATH), "utf8");
   const variablesSource = readFileSync(resolve(repoRoot, PLATFORM_VARIABLES_PATH), "utf8");
+  const runtimeValues = JSON.parse(readFileSync(resolve(repoRoot, PLATFORM_RUNTIME_VALUES_PATH), "utf8"));
   const registrySource = readFileSync(resolve(repoRoot, SOURCE_CONTEXT_WAKE_REGISTRY_PATH), "utf8");
 
   const platformContextNames = extractStringList(localsSource, "platform_context_names");
@@ -40,16 +61,16 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
     localsSource,
     "production_context_database_connection_pool_size_overrides",
   );
-  const clusterConnectionLimits = extractNumberMap(localsSource, "cluster_connection_limits");
-  const connectionBudgetUpgradeTriggerPercent = Number(
-    extractNumericLocal(localsSource, "connection_budget_upgrade_trigger_percent"),
-  );
+  const api = runtimeValues.components["platform-api"];
+  const worker = runtimeValues.components["platform-worker"];
+  const bootstrap = runtimeValues.components["platform-bootstrap"];
   const registryEntries = parseSourceContextWakeRegistryEntries(registrySource);
 
   return {
     sourcePaths: {
       platformLocals: PLATFORM_LOCALS_PATH,
       platformVariables: PLATFORM_VARIABLES_PATH,
+      platformRuntimeValues: PLATFORM_RUNTIME_VALUES_PATH,
       sourceContextWakeRegistry: SOURCE_CONTEXT_WAKE_REGISTRY_PATH,
     },
     platformContextNames,
@@ -63,15 +84,14 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       .map((entry) => entry.sourceContextName),
     stagingPoolOverrides,
     productionPoolOverrides,
-    clusterConnectionLimits,
+    clusterConnectionLimits: CLUSTER_CONNECTION_LIMITS,
     defaults: {
-      apiDatabasePoolMax: Number(extractQuotedLocal(localsSource, "api_database_pool_max")),
-      apiComponentCount: Number(extractNumericLocal(localsSource, "api_component_count")),
-      bootstrapDatabasePoolMax: Number(extractQuotedLocal(localsSource, "bootstrap_database_pool_max")),
-      workerComponentCount: Number(extractNumericLocal(localsSource, "worker_component_count")),
-      stagingWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max").trueValue,
-      productionWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max")
-        .falseValue,
+      apiDatabasePoolMax: runtimeEnvValue(api, "DATABASE_POOL_MAX"),
+      apiComponentCount: 1,
+      bootstrapDatabasePoolMax: runtimeEnvValue(bootstrap, "DATABASE_POOL_MAX"),
+      workerComponentCount: 1,
+      stagingWorkerDatabasePoolMax: Number(doksStagingWorkerEnvOverrides.DATABASE_POOL_MAX),
+      productionWorkerDatabasePoolMax: runtimeEnvValue(worker, "DATABASE_POOL_MAX"),
       doksStagingWorkerDatabasePoolMax: Number(doksStagingWorkerEnvOverrides.DATABASE_POOL_MAX),
       doksStagingProjectionMaxConcurrentRunners: Number(
         doksStagingWorkerEnvOverrides.WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS ?? 1,
@@ -80,13 +100,13 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       doksStagingWakeStandardLaneRunnerCount: Number(
         doksStagingWorkerEnvOverrides.WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT,
       ),
-      stagingWorkerInstances: extractTernaryNumbers(localsSource, "default_worker_instances").trueValue,
-      productionWorkerInstances: extractTernaryNumbers(localsSource, "default_worker_instances").falseValue,
-      stagingApiInstances: extractTernaryNumbers(localsSource, "api_instances").falseValue,
-      productionApiInstances: extractTernaryNumbers(localsSource, "api_instances").trueValue,
+      stagingWorkerInstances: doksStagingWorkerAutoscaling.minReplicaCount,
+      productionWorkerInstances: worker.replicas,
+      stagingApiInstances: doksStagingApiOverrides.replicas,
+      productionApiInstances: api.replicas,
       stagingDatabaseSize: extractVariableDefault(variablesSource, "staging_database_size"),
       productionDatabaseSize: extractVariableDefault(variablesSource, "database_size"),
-      connectionBudgetUpgradeTriggerPercent,
+      connectionBudgetUpgradeTriggerPercent: CONNECTION_BUDGET_UPGRADE_TRIGGER_PERCENT,
     },
   };
 }
@@ -148,26 +168,23 @@ export function buildPushWakeCapacityEvidence(input) {
     directAppBackendDemand: 0,
     productionLikeDirectBindings: false,
   });
-  const doksStagingDirectAppBackendDemand =
-    input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.stagingApiInstances +
-    input.defaults.doksStagingWorkerDatabasePoolMax * input.defaults.workerComponentCount;
   const doksStaging = {
     ...buildEnvironmentBudget({
       environment: "staging-doks",
       databaseSize: input.defaults.stagingDatabaseSize,
       clusterConnectionLimits: input.clusterConnectionLimits,
       upgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
-      pgbouncerServerBackendAllocation: 0,
+      pgbouncerServerBackendAllocation: stagingPgbouncerAllocation,
       directListenerCount: input.directListenerContexts.length,
       apiWaiterListenerDemand:
         input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
       bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
-      directAppBackendDemand: doksStagingDirectAppBackendDemand,
-      productionLikeDirectBindings: true,
+      directAppBackendDemand: 0,
+      productionLikeDirectBindings: false,
     }),
-    queryConnectionMode: "direct",
+    queryConnectionMode: "transaction-pool",
     queryConnectionSource:
-      "platform-production.yml exports DOKS staging DATABASE_URL_* and PLATFORM_* URLs from digitalocean_database_user.contexts plus digitalocean_database_cluster.postgres host/port, not digitalocean_database_connection_pool.contexts.",
+      "platform-production.yml exports staging DATABASE_URL_* and PLATFORM_CONTROL_DATABASE_URL from digitalocean_database_connection_pool.contexts; waiter, listener, and bootstrap keys remain direct.",
     apiPoolDemand:
       input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
     workerPoolDemand: input.defaults.doksStagingWorkerDatabasePoolMax * input.defaults.workerComponentCount,
@@ -184,10 +201,8 @@ export function buildPushWakeCapacityEvidence(input) {
         input.defaults.doksStagingWakeMaxConcurrentRunners,
       wakeMaxConcurrentRunners: input.defaults.doksStagingWakeMaxConcurrentRunners,
       wakeStandardLaneRunnerCount: input.defaults.doksStagingWakeStandardLaneRunnerCount,
-      steadyStatePoolDelta:
-        input.defaults.doksStagingWorkerDatabasePoolMax - input.defaults.productionWorkerDatabasePoolMax,
-      deployOverlapPoolDelta:
-        2 * (input.defaults.doksStagingWorkerDatabasePoolMax - input.defaults.productionWorkerDatabasePoolMax),
+      steadyStatePoolDelta: 0,
+      deployOverlapPoolDelta: 0,
     },
   };
 
@@ -420,32 +435,6 @@ function extractNumberMap(source, localName) {
   return Object.fromEntries(
     [...match[1].matchAll(/"?([A-Za-z0-9_-]+)"?\s+=\s+(\d+)/g)].map((entry) => [entry[1], Number(entry[2])]),
   );
-}
-
-function extractQuotedLocal(source, localName) {
-  const match = new RegExp(`${escapeRegExp(localName)}\\s*=\\s+"([^"]+)"`).exec(source);
-  if (!match) {
-    throw new Error(`Could not find Terraform quoted local '${localName}'.`);
-  }
-  return match[1];
-}
-
-function extractNumericLocal(source, localName) {
-  const match = new RegExp(`${localName}\\s+=\\s+([0-9]+)`).exec(source);
-  if (!match) {
-    throw new Error(`Unable to find numeric local ${localName}.`);
-  }
-  return Number(match[1]);
-}
-
-function extractTernaryNumbers(source, localName) {
-  const match = new RegExp(
-    `${escapeRegExp(localName)}\\s*=\\s+local\\.is_(?:staging|production) \\? (\\d+) : (\\d+)`,
-  ).exec(source);
-  if (!match) {
-    throw new Error(`Could not find Terraform numeric environment ternary local '${localName}'.`);
-  }
-  return { trueValue: Number(match[1]), falseValue: Number(match[2]) };
 }
 
 function extractVariableDefault(source, variableName) {

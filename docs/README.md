@@ -152,9 +152,9 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Ephemeral Release Verification](./runbooks/ephemeral-release-verification.md): phase-1 DOKS verification namespaces, guaranteed cleanup, evidence, and the explicit persistent-staging retirement decision.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
-- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current App Platform staging/production workflow, DNS operations, and production deployment workflow; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch DOKS compute migration decision.
+- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current DOKS deployment workflow, durable Terraform state ownership, recovery, and destructive-plan approval boundaries; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch compute migration decision.
 - [DigitalOcean DOKS Foundation](../infrastructure/digitalocean/doks/README.md): ADR 0018-aligned DOKS cluster, node-pool, and DOCR integration Terraform scaffold; #4044 remains open until live DigitalOcean evidence is recorded.
-- [DOKS Platform Operations](./runbooks/doks-platform-operations.md): Kubernetes operator runbook for rollout status, diagnostics, rollback, runtime Secret rotation, ingress/certificates, and App Platform-to-DOKS cutover recovery.
+- [DOKS Platform Operations](./runbooks/doks-platform-operations.md): Kubernetes operator runbook for rollout status, diagnostics, rollback, runtime Secret rotation, ingress, certificates, and bootstrap-hook drills.
 - [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [Admin Workflows Staging QA](./runbooks/admin-workflows-staging-qa.md): support-safe admin actor matrix, evidence rules, and representative state checks for deployed staging QA.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.

@@ -112,7 +112,6 @@ jobs:
             repository: process.env.PLATFORM_IMAGE_REPOSITORY,
             retentionDays: 7,
             retainRecentShaTreeTags: 25,
-            protectedAppNames: ["chase-sets-staging-platform", "chase-sets-platform"],
             protectedTags: [],
             protectedDigests: [],
             retainedRecentShaTreeTags: [],
@@ -151,8 +150,6 @@ jobs:
           node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
             --repository="${PLATFORM_IMAGE_REPOSITORY}" \
             --retain-recent-sha-tree-tags=25 \
-            --app-name=chase-sets-staging-platform \
-            --app-name=chase-sets-platform \
             --out artifacts/release-health/digitalocean-registry-cleanup.json \
             ${dry_run_arg}
 
@@ -175,8 +172,8 @@ jobs:
           console.log(`- Mode: ${record.mode}`);
           console.log(`- Repository: ${record.repository}`);
           console.log(`- Retained SHA/tree tags: ${record.retainedRecentShaTreeTags?.length ?? 0}/${record.retainRecentShaTreeTags ?? "unknown"}`);
-          console.log(`- Protected App Platform tags: ${record.protectedTags?.length ?? 0}`);
-          console.log(`- Protected App Platform digests: ${record.protectedDigests?.length ?? 0}`);
+          console.log(`- Explicitly protected tags: ${record.protectedTags?.length ?? 0}`);
+          console.log(`- Explicitly protected digests: ${record.protectedDigests?.length ?? 0}`);
           console.log(`- Cleanup candidates: ${record.selectedDeletionTags?.length ?? 0}`);
           console.log(`- Deleted tags: ${record.deletedTags?.length ?? 0}`);
           console.log(`- Failed deletes: ${record.failedTags?.length ?? 0}`);

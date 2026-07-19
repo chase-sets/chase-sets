@@ -68,21 +68,11 @@ on:
         required: false
         default: ""
         type: string
-      cutover_plan_only:
-        description: Run live read-only production plans for current App Platform serving and the DOKS cutover target. Never applies.
+      decommission_plan_only:
+        description: Run exact live read-only staging and production App Platform decommission plans. Never applies.
         required: false
         default: false
         type: boolean
-      cutover_plan_alert_emails:
-        description: Current production PLATFORM_ALERT_EMAILS JSON for a branch-scoped cutover plan; production-environment runs read the environment variable directly.
-        required: false
-        default: ""
-        type: string
-      cutover_plan_doks_ingress_target:
-        description: Current production DOKS ingress IPv4 address for a branch-scoped cutover plan; production-environment runs read the environment variable directly.
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: write
@@ -94,20 +84,17 @@ concurrency:
   # Dispatched automatic, manual, recovery, and emergency releases share the
   # registry-mutation lane: GitHub keeps one running and one
   # latest pending member, and never cancels the immutable active release. The
-  # read-only cutover plan has its own ref-scoped lane and cannot delay or join
+  # read-only decommission plan has its own ref-scoped lane and cannot delay or join
   # a registry/deployment mutation.
-  group: ${{ inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation' }}
+  group: ${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}
   cancel-in-progress: false
 
 jobs:
-  production-cutover-live-plan:
-    name: Production Cutover Live Plans
-    if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only == true
+  decommission-live-plan:
+    name: App Platform Decommission Live Plans
+    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Production deployment credentials are main-only by branch policy. A PR
-    # repair uses the preview environment's account-level DO/Spaces plan
-    # credentials; merged-main plan runs use production credentials.
     environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
     permissions:
       contents: read
@@ -117,21 +104,6 @@ jobs:
       TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      TF_VAR_environment: production
-      TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: ${{ github.sha }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      # A branch-scoped repair cannot read production environment variables.
-      # Preserve the currently managed alert resources by requiring the caller
-      # to pass the live, non-secret recipient JSON; the zero-destroy checks
-      # remain the final safety boundary.
-      TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || inputs.cutover_plan_alert_emails || '[]' }}
-      PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || inputs.cutover_plan_doks_ingress_target || '' }}
-      TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || 'x-chase-sets-observability-token=plan-only-placeholder' }}
-      TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
     steps:
@@ -143,217 +115,103 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-
-      - name: Plan production environment DNS at retained cutover inputs
-        working-directory: infrastructure/digitalocean/environment-dns
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      - name: Plan retained diagnostic DNS state
         run: |
           set -euo pipefail
-          if [ -z "$PRODUCTION_DOKS_INGRESS_TARGET" ]; then
-            echo "A production DOKS ingress target is required to preserve the live shadow records." >&2
-            exit 1
-          fi
-          ../../../scripts/terraform-init-with-retry.sh \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=environment-dns/production.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-          terraform fmt -check -recursive
-          terraform validate
-          terraform plan -lock=false -out=production-environment-dns.tfplan \
-            -var=production_app_serving=app-platform \
-            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
-            -var=production_doks_certificate_ready=true \
-            -var=production_marketplace_public_enabled=false
-          terraform show -json production-environment-dns.tfplan > production-environment-dns.tfplan.json
-          mkdir -p ../../../artifacts/production-cutover-live-plans
-          jq '{root:"environment-dns",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
-            production-environment-dns.tfplan.json \
-            > ../../../artifacts/production-cutover-live-plans/environment-dns-summary.json
-          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/environment-dns-summary.json)" = "0"
-          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
-            production-environment-dns.tfplan.json \
-            --title="Production environment DNS live plan" >> "$GITHUB_STEP_SUMMARY"
-          rm -f production-environment-dns.tfplan production-environment-dns.tfplan.json
+          artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
+          mkdir -p "$artifact_root"
 
-      - name: Plan production platform in both serving modes
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          ../../../scripts/terraform-init-with-retry.sh \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=landing/production.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-          terraform fmt -check -recursive
-          terraform validate
-
-          if [ -z "$PRODUCTION_DOKS_INGRESS_TARGET" ]; then
-            echo "A production DOKS ingress target is required for both serving-mode plans." >&2
-            exit 1
-          fi
-
-          # Pull remote state read-only. The local copy first models the
-          # prepare-doks apply with imported App Platform CNAME identities, then
-          # adopts that plan's App Platform after-state and releases the CNAME
-          # identities locally before planning the forward flip. Nothing in
-          # this plan lane mutates production state, the live app, or DNS.
-          plan_root="${RUNNER_TEMP}/production-platform-live-plan"
-          rm -rf "$plan_root"
-          mkdir -p "$plan_root"
-          cp -R . "$plan_root/"
-          rm -rf "$plan_root/.terraform" "$plan_root/artifacts"
-          sed -i '/backend "s3" {}/d' "$plan_root/versions.tf"
-          terraform state pull > "$plan_root/terraform.tfstate"
-          terraform -chdir="$plan_root" init -backend=false
-
-          app_id="$(terraform -chdir="$plan_root" output -raw app_id 2>/dev/null || true)"
-          app_target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
-          if [ -z "$app_id" ] || [ -z "$app_target" ]; then
-            echo "Production App Platform identity is unavailable; refusing to synthesize local plan state." >&2
-            exit 1
-          fi
-
-          records_json="$(doctl compute domain records list chasesets.com --output json)"
-          for name in admin www; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            mapfile -t serving_records < <(
-              printf '%s' "$records_json" | jq -c --arg name "$name" \
-                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
+          for environment in staging production; do
+            root="infrastructure/digitalocean/environment-dns"
+            state_key="environment-dns/${environment}.tfstate"
+            (
+              cd "$root"
+              ../../../scripts/terraform-init-with-retry.sh                 -reconfigure                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
             )
-            if [ "${#serving_records[@]}" -ne 1 ]; then
-              echo "Expected exactly one live A/CNAME record for ${name}.chasesets.com; refusing an ambiguous plan import." >&2
+
+            state_file="${RUNNER_TEMP}/environment-dns-${environment}.tfstate"
+            terraform -chdir="$root" state pull > "$state_file"
+            target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and .name == "doks_ingress_shadow") | .instances[]?.attributes.value) // empty' "$state_file")"
+            project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
+            google_dkim="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and .name == "google_workspace_dkim") | .instances[]?.attributes.value) // empty' "$state_file")"
+            marketplace_enabled=false
+            if [ "$environment" = production ]; then
+              marketplace_enabled="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "doks_ingress_shadow") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+            fi
+
+            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_google_workspace_dkim_txt_value="$google_dkim"             TF_VAR_production_marketplace_public_enabled="$marketplace_enabled"               terraform -chdir="$root" plan -lock=false -out="${environment}-environment-dns.tfplan"
+            terraform -chdir="$root" show -no-color "${environment}-environment-dns.tfplan"               > "$artifact_root/${environment}-environment-dns-plan.txt"
+            terraform -chdir="$root" show -json "${environment}-environment-dns.tfplan"               > "$artifact_root/${environment}-environment-dns-plan.json"
+            node scripts/terraform-plan-inspection.mjs list-destructive-changes               "$artifact_root/${environment}-environment-dns-plan.json"               > "$artifact_root/${environment}-environment-dns-delete-set.txt"
+            test ! -s "$artifact_root/${environment}-environment-dns-delete-set.txt"
+            rm -f "$state_file" "$root/${environment}-environment-dns.tfplan"
+          done
+
+      - name: Plan retired staging and production applications
+        run: |
+          set -euo pipefail
+          artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
+          expected_delete='digitalocean_app.platform'
+          expected_fingerprint='sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29'
+
+          for environment in staging production; do
+            root="infrastructure/digitalocean/platform"
+            state_key="landing/${environment}.tfstate"
+            (
+              cd "$root"
+              ../../../scripts/terraform-init-with-retry.sh                 -reconfigure                 -backend-config=bucket=chase-sets-terraform-state                 -backend-config=key="$state_key"                 -backend-config=region=us-east-1                 -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'                 -backend-config=skip_credentials_validation=true                 -backend-config=skip_metadata_api_check=true                 -backend-config=skip_region_validation=true                 -backend-config=skip_requesting_account_id=true                 -backend-config=use_path_style=true                 -backend-config=use_lockfile=true
+            )
+
+            state_file="${RUNNER_TEMP}/platform-${environment}.tfstate"
+            terraform -chdir="$root" state pull > "$state_file"
+            target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and (.name == "app_serving" or .name == "doks_apex")) | .instances[]?.attributes.value) // empty' "$state_file")"
+            project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
+            alert_emails="$(jq -c '[.resources[]?.instances[]?.attributes | ((.alerts? // []) + (.notifications? // []))[]?.email[]?] | unique' "$state_file")"
+            marketplace_public=false
+            has_checkout_pool=false
+            runtime_profile=landing
+            if [ "$environment" = "production" ]; then
+              marketplace_public="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              has_checkout_pool="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_database_connection_pool" and .name == "contexts") | .instances[]?; .index_key == "checkout")' "$state_file")"
+              if [ "$marketplace_public" = "true" ]; then
+                runtime_profile=public
+              elif [ "$has_checkout_pool" = "true" ]; then
+                runtime_profile=proof
+              fi
+            fi
+            if [ -z "$target" ]; then
+              echo "${environment} platform state did not expose its live DOKS target." >&2
               exit 1
             fi
-            record_id="$(printf '%s' "${serving_records[0]}" | jq -r --arg target "$app_target" 'select(.type == "CNAME" and (.data | rtrimstr(".")) == $target) | .id // empty')"
-            if [ -z "$record_id" ]; then
-              echo "The sole live serving record for ${name}.chasesets.com is not the expected App Platform CNAME." >&2
-              exit 1
-            fi
-            if ! terraform -chdir="$plan_root" state show "$address" >/dev/null 2>&1; then
-              terraform -chdir="$plan_root" import "$address" "chasesets.com,${record_id}"
-            fi
+
+            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_alert_emails="$alert_emails"             TF_VAR_production_runtime_profile="$runtime_profile"             TF_VAR_production_marketplace_public_enabled="$marketplace_public"             TF_VAR_observability_otlp_headers=plan-only-placeholder               terraform -chdir="$root" plan -lock=false -out="${environment}-platform.tfplan"
+            terraform -chdir="$root" show -no-color "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.txt"
+            terraform -chdir="$root" show -json "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.json"
+            node scripts/terraform-plan-inspection.mjs list-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-delete-set.txt"
+            test "$(cat "$artifact_root/${environment}-platform-delete-set.txt")" = "$expected_delete"
+            node scripts/terraform-plan-inspection.mjs fingerprint-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-fingerprint.txt"
+            test "$(cat "$artifact_root/${environment}-platform-fingerprint.txt")" = "$expected_fingerprint"
+            rm -f "$state_file" "$root/${environment}-platform.tfplan"
           done
 
-          ttl_preparation_json="$(terraform -chdir="$plan_root" output -json production_serving_dns_ttl_preparation)"
-          ttl_prepared_at="$(printf '%s' "$ttl_preparation_json" | jq -r '.prepared_at // empty')"
-          ttl_previous_seconds="$(printf '%s' "$ttl_preparation_json" | jq -r '.previous_ttl_seconds // 0')"
-          if [ -z "$ttl_prepared_at" ] || ! [[ "$ttl_previous_seconds" =~ ^[1-9][0-9]*$ ]]; then
-            echo "The live cutover plan requires the retained prepare-doks TTL state." >&2
-            exit 1
-          fi
+      - name: Summarize and upload decommission plans
+        run: |
+          {
+            echo '## App Platform decommission live plans'
+            echo
+            echo "- Production approval delete-set: \`digitalocean_app.platform\` (\`landing/production.tfstate\`)"
+            echo "- Production fingerprint: \`sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29\`"
+            echo "- Production plan also removes two inert \`terraform_data\` cutover markers, which the approval contract intentionally excludes:"
+            echo "  - \`terraform_data.production_app_platform_parking_preparation[0]\`"
+            echo "  - \`terraform_data.production_serving_dns_ttl_preparation[0]\`"
+            echo "- Staging delete-set: \`digitalocean_app.platform\` (\`landing/staging.tfstate\`)"
+            echo '- Retained diagnostic DNS delete-set: empty'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          terraform -chdir="$plan_root" plan -lock=false -out=parking-preparation.tfplan \
-            -var=production_app_serving=app-platform \
-            -var=production_serving_dns_phase=prepare-doks \
-            -var=production_serving_dns_prepared_at="$ttl_prepared_at" \
-            -var=production_serving_dns_previous_ttl_seconds="$ttl_previous_seconds" \
-            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
-            -var=production_doks_certificate_ready=true \
-            -var=production_marketplace_public_enabled=false
-          terraform -chdir="$plan_root" show -json parking-preparation.tfplan > parking-preparation.tfplan.json
-          terraform -chdir="$plan_root" graph -type=plan -plan=parking-preparation.tfplan \
-            > ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-plan.dot
-          for name in admin www; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            jq -e --arg address "$address" \
-              'any(.planned_values.root_module.resources[]?; .address == $address and .values.type == "CNAME" and .values.ttl <= 300)' \
-              parking-preparation.tfplan.json >/dev/null
-          done
-          jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_app.platform" and ([.values.spec[0].domain[].name] | sort) == ["admin.chasesets.com","app-platform.chasesets.com","chasesets.com","www.chasesets.com"] and any(.values.spec[0].domain[]; .name == "app-platform.chasesets.com" and .type == "ALIAS"))' \
-            parking-preparation.tfplan.json >/dev/null
-          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes parking-preparation.tfplan.json > parking-preparation-destructive.txt
-          test ! -s parking-preparation-destructive.txt
-          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' parking-preparation-destructive.txt > parking-preparation-destructive.json
-          jq --slurpfile destructive parking-preparation-destructive.json '{root:"platform",serving:"app-platform",phase:"parking-preparation",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
-            parking-preparation.tfplan.json \
-            > ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-summary.json
-          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-parking-preparation-summary.json)" = "0"
-          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
-            parking-preparation.tfplan.json \
-            --title="Production platform parking-preparation live plan" >> "$GITHUB_STEP_SUMMARY"
-
-          # Adopt only the prepared App Platform after-state in this backendless
-          # local state, then mimic the forward workflow's CNAME state release.
-          # This produces a strict read-only flip plan whose source domain set
-          # includes the live domains and already-warm parking alias.
-          jq --slurpfile plan parking-preparation.tfplan.json '
-            ($plan[0].resource_changes[] | select(.address == "digitalocean_app.platform") | .change.after) as $prepared_app |
-            (.resources[] | select(.type == "digitalocean_app" and .name == "platform") | .instances[0].attributes) = $prepared_app
-          ' "$plan_root/terraform.tfstate" > "$plan_root/terraform.tfstate.prepared"
-          mv "$plan_root/terraform.tfstate.prepared" "$plan_root/terraform.tfstate"
-          for name in admin www; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            terraform -chdir="$plan_root" state rm "$address"
-          done
-
-          terraform -chdir="$plan_root" plan -refresh=false -lock=false -out=doks.tfplan \
-            -var=production_app_serving=doks \
-            -var=production_serving_dns_phase=prepare-doks \
-            -var=production_serving_dns_prepared_at="$ttl_prepared_at" \
-            -var=production_serving_dns_previous_ttl_seconds="$ttl_previous_seconds" \
-            -var=production_app_platform_parking_prepared_at=2000-01-01T00:00:00Z \
-            -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
-            -var=production_doks_certificate_ready=true \
-            -var=production_marketplace_public_enabled=false
-          terraform -chdir="$plan_root" show -json doks.tfplan > doks.tfplan.json
-          terraform -chdir="$plan_root" graph -type=plan -plan=doks.tfplan \
-            > ../../../artifacts/production-cutover-live-plans/platform-doks-plan.dot
-          node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement \
-            doks.tfplan.json \
-            --from=app-platform \
-            --to=doks
-          node ../../../scripts/terraform-plan-inspection.mjs list-destructive-changes doks.tfplan.json > doks-destructive.txt
-          jq --raw-input --slurp 'split("\n") | map(select(length > 0))' doks-destructive.txt > doks-destructive.json
-          jq --slurpfile destructive doks-destructive.json '{root:"platform",serving:"doks",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length),destructive:$destructive[0]}' \
-            doks.tfplan.json \
-            > ../../../artifacts/production-cutover-live-plans/platform-doks-summary.json
-          mapfile -t destroyed_addresses < <(sort doks-destructive.txt)
-          expected_destroyed_addresses=(
-            'digitalocean_app.platform.domain["admin.chasesets.com"]'
-            'digitalocean_app.platform.domain["chasesets.com"]'
-            'digitalocean_app.platform.domain["www.chasesets.com"]'
-          )
-          if [ "${destroyed_addresses[*]}" != "${expected_destroyed_addresses[*]}" ]; then
-            echo "DOKS plan destructive changes were not limited to the three intended App Platform domain releases." >&2
-            printf 'Observed destroy: %s\n' "${destroyed_addresses[@]}" >&2
-            exit 1
-          fi
-          for name in admin www; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            jq -e --arg address "$address" --arg target "$PRODUCTION_DOKS_INGRESS_TARGET" \
-              'any(.resource_changes[]?; .address == $address and .change.actions == ["create"] and .change.before == null and .change.after.type == "A" and .change.after.value == $target)' \
-              doks.tfplan.json >/dev/null
-          done
-          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
-            doks.tfplan.json \
-            --title="Production platform DOKS live plan" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload production cutover live-plan summaries
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-cutover-live-plan-summaries
-          path: artifacts/production-cutover-live-plans/*
+          name: app-platform-decommission-live-plans
+          path: artifacts/decommission-live-plans/*
           if-no-files-found: error
           retention-days: 30
 
@@ -361,7 +219,7 @@ jobs:
     name: Resolve Release
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only != true
+    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only != true
     permissions:
       actions: read
       checks: read
@@ -548,7 +406,6 @@ jobs:
         env:
           PLATFORM_BOOTSTRAP_OWNER: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || '' }}
           ARGO_ROLLOUTS_ENABLED: ${{ vars[matrix.argo_rollouts_variable] || '' }}
-          APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || '' }}
           PRODUCTION_RUNTIME_PROFILE: ${{ vars.PRODUCTION_RUNTIME_PROFILE || '' }}
           PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || '' }}
         run: |
@@ -559,7 +416,6 @@ jobs:
             --production-runtime-profile-override "$PRODUCTION_RUNTIME_PROFILE" \
             --production-marketplace-public-enabled "$PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" \
             --argo-rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
-            --app-platform-lane "$APP_PLATFORM_LANE" \
             --out "artifacts/deployment-contract/${{ matrix.environment }}.json" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -667,8 +523,7 @@ jobs:
           set -euo pipefail
 
           # Build-time success does not prove runtime success (issue #1417):
-          # start each web component exactly as App Platform does (run_command
-          # and health_check from infrastructure/digitalocean/platform/main.tf)
+          # start each web component with its deployed command and health check
           # so a non-booting image fails this parallel job before the push and
           # never reaches the deploy lane.
           boot_smoke() {
@@ -836,10 +691,6 @@ jobs:
       TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-      # Bootstrap authority is an explicit environment-scoped contract. DOKS
-      # is the current owner; App Platform remains deployable for transition
-      # compatibility, but its bootstrap is a logged no-op and worker omitted.
-      TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
@@ -848,25 +699,11 @@ jobs:
       ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
       BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}
       BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}
-      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
-      # DOKS is the primary rollout lane and always runs. The App Platform lane
-      # is legacy: it exists only to keep App Platform's alias DNS reconciled
-      # while both platforms serve during the #4053 cutover window. Flipping the
-      # single APP_PLATFORM_LANE repo variable to "disabled" is the #4055 kill
-      # switch — it stops the workflow maintaining App Platform without touching
-      # the DOKS rollout, smoke, or shadow-host verification below.
-      APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || 'enabled' }}
-      # Which platform serves the live staging hosts. #4604 wires this into the
-      # environment-dns root: "app-platform" keeps App Platform on the live
-      # hosts (DOKS proven via shadow hosts); "doks" flips the live A records to
-      # the DOKS load balancer. Smoke always targets the live hosts, so it runs
-      # against whichever platform serves live traffic.
-      STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
-      # DOKS ingress load balancer IPv4. When set, environment-dns publishes the
-      # doks.<zone> shadow validation hosts so the rollout lane can prove DOKS
-      # ingress + cert-manager before any live-host flip.
+      # The same checked-in approval gates an identical retired App Platform
+      # delete address and fingerprint in both long-lived environment states.
+      DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
+      # DOKS ingress load balancer IPv4 for live serving and retained diagnostics.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
-      TF_VAR_staging_app_serving: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Record staging start
@@ -1072,9 +909,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
-          # #4604 serving flags: default reproduces today's App Platform serving
-          # and publishes the DOKS shadow hosts when DOKS_INGRESS_TARGET is set.
-          TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}
           TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
         run: |
           set -euo pipefail
@@ -1139,95 +973,6 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
-      # Legacy App Platform lane: only reconcile App Platform's alias CNAMEs
-      # while the lane is enabled. The #4055 kill switch (APP_PLATFORM_LANE
-      # = disabled) skips this without affecting the DOKS rollout below.
-      - name: Reconcile staging serving DNS state
-        if: env.SHOULD_DEPLOY != 'false' && env.APP_PLATFORM_LANE != 'disabled'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
-          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
-          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
-          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
-          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-        run: |
-          set -euo pipefail
-          zone="staging.chasesets.com"
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
-          if [ -z "$target" ]; then
-            echo "No App Platform default ingress was found for ${app_id}; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          records_json="$(doctl compute domain records list "$zone" --output json)"
-          for name in admin marketplace www; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            previous_address="digitalocean_record.staging_app_serving[\"${name}\"]"
-            legacy_address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1 \
-              || terraform state show "$previous_address" >/dev/null 2>&1 \
-              || terraform state show "$legacy_address" >/dev/null 2>&1; then
-              continue
-            fi
-
-            record_type="CNAME"
-            record_target="$target"
-            if [ "$STAGING_APP_SERVING" = "doks" ]; then
-              record_type="A"
-              record_target="$DOKS_INGRESS_TARGET"
-            fi
-
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg type "$record_type" --arg target "$record_target" 'first(.[] | select(.type == $type and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
-            if [ -z "$record_id" ]; then
-              echo "No live ${record_type} found for ${name}.${zone}; Terraform will create it."
-              continue
-            fi
-
-            terraform import "$address" "${zone},${record_id}"
-          done
-
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'
         id: terraform_plan
@@ -1245,8 +990,7 @@ jobs:
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
-          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+          node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
 
       - name: Upload staging Terraform plan
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
@@ -1298,40 +1042,6 @@ jobs:
           path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/staging-errored.tfstate
           if-no-files-found: error
           retention-days: 1
-
-      - name: Capture staging App Platform bootstrap diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
-            exit 0
-          fi
-
-          mkdir -p artifacts/release-health
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
-            --component=platform-bootstrap \
-            --log-type=deploy \
-            --log-type=run \
-            --log-type=run_restarted \
-            --tail-lines=300 \
-            --out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json || true
-
-      - name: Upload staging App Platform bootstrap diagnostics
-        if: always() && env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: staging-app-platform-bootstrap-diagnostics
-          path: infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json
-          if-no-files-found: ignore
-          retention-days: 30
 
       - name: Configure staging Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
@@ -1556,9 +1266,8 @@ jobs:
             exit 1
           fi
 
-          # Per-domain base URLs the App Platform path derives from Terraform
-          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
-          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
+          # Per-domain base URLs come from Terraform's environment-domain
+          # outputs. The DOKS Helm chart bakes these as ""
           # (see envValueDefaults in render-platform-helm-values.mjs), so without
           # threading them the DOKS public-web falls back to the hardcoded
           # production canonical origin (https://chasesets.com) on staging.
@@ -1571,8 +1280,8 @@ jobs:
 
           # Optional provider endpoint/origin overrides are only passed when set:
           # the deploy script fails closed on empty --runtime-env values, and the
-          # Helm chart's env defaults already carry the retired App Platform
-          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          # Helm chart env defaults carry the canonical posture when a repository
+          # variable is unset (mirrors platform-pr.yml).
           optional_runtime_env=()
           add_optional_runtime_env() {
             if [ -n "$2" ]; then
@@ -1681,45 +1390,6 @@ jobs:
             --warmup-grace-ms 60000 \
             "${ingress_args[@]}"
 
-      # Pre-cutover DOKS proof (#4604, epic #4059): while App Platform still
-      # serves the live hosts, prove the DOKS rollout is externally serving on
-      # the doks.<zone> shadow hosts with valid cert-manager TLS. The ingress
-      # wait does a TLS-validating HTTPS GET, so a missing or invalid
-      # certificate fails the step. Skips cleanly until DOKS_INGRESS_TARGET is
-      # set (no shadow hosts published yet). Once serving flips to DOKS, the
-      # live-host ingress wait above is itself the DOKS proof.
-      - name: Verify staging DOKS shadow hosts
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/environment-dns
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          serving="$(terraform output -raw staging_app_serving)"
-          echo "Staging live hosts serve from: ${serving}."
-          if [ "$serving" = "doks" ]; then
-            echo "Staging live hosts already serve from DOKS; skipping obsolete pre-cutover shadow verification."
-            exit 0
-          fi
-          mapfile -t shadow_domains < <(terraform output -json doks_ingress_shadow_domains | jq -r '.[]')
-          if [ "${#shadow_domains[@]}" -eq 0 ]; then
-            echo "No DOKS ingress shadow hosts are published (DOKS_INGRESS_TARGET unset); skipping pre-cutover shadow verification."
-            exit 0
-          fi
-
-          shadow_args=()
-          for hostname in "${shadow_domains[@]}"; do
-            shadow_args+=(--url "https://${hostname}/health/ready")
-          done
-
-          cd ../../..
-          node ./scripts/platform-ingress-wait.mjs \
-            --attempts 60 \
-            --delay-ms 30000 \
-            "${shadow_args[@]}"
-          echo "DOKS ingress shadow hosts served valid TLS and readiness ahead of the #4053 cutover."
-
       - name: Dispatch advisory staging evidence
         id: dispatch_advisory_evidence
         if: env.SHOULD_DEPLOY != 'false'
@@ -1764,9 +1434,7 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          # Smoke targets the live hosts, which resolve to whichever platform
-          # serves live traffic per the #4604 STAGING_APP_SERVING flag.
-          echo "Smoking the live staging hosts (serving platform: ${STAGING_APP_SERVING})."
+          echo "Smoking the live staging hosts served by DOKS."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2190,7 +1858,6 @@ jobs:
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase staging-deploy \
-            --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json \
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
@@ -2507,19 +2174,9 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
-      PRODUCTION_APP_SERVING: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
-      PRODUCTION_SERVING_DNS_PHASE: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}
-      PRODUCTION_SERVING_DNS_REPLACEMENT_FROM: ""
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
-      PRODUCTION_DOKS_CERTIFICATE_READY: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
-      TF_VAR_production_app_serving: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
-      TF_VAR_production_serving_dns_phase: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}
-      TF_VAR_production_serving_dns_prepared_at: ""
-      TF_VAR_production_serving_dns_previous_ttl_seconds: "0"
-      TF_VAR_production_app_platform_parking_prepared_at: ""
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
-      TF_VAR_production_doks_certificate_ready: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
@@ -2587,10 +2244,6 @@ jobs:
       TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-      # Keep production bootstrap authority explicit for push, manual, and
-      # emergency releases. It must never fall back to App Platform merely
-      # because an unrelated ingress/DNS variable is absent.
-      TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
@@ -2848,7 +2501,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
-      - name: Verify promoted App Platform image
+      - name: Verify promoted platform runtime image
         if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
@@ -2862,7 +2515,7 @@ jobs:
           doctl registry login --expiry-seconds 3600
           expected_digest="${TF_VAR_platform_image_digest}"
           if [ -z "$expected_digest" ]; then
-            echo "Staging did not publish a verified App Platform image digest; refusing production promotion." >&2
+            echo "Staging did not publish a verified platform runtime image digest; refusing production promotion." >&2
             exit 1
           fi
 
@@ -2924,7 +2577,7 @@ jobs:
               production-environment-dns.tfplan.json
           )"
           if [ "$delete_count" -ne 0 ]; then
-            echo "Production environment DNS plans must never delete or replace resources during cutover preparation." >&2
+            echo "Production environment DNS plans must never delete or replace retained diagnostic resources." >&2
             exit 1
           fi
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
@@ -2963,376 +2616,6 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
-      - name: Restore production parking preparation state
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          parking_json="$(terraform output -json production_app_platform_parking_preparation 2>/dev/null || printf 'null')"
-          if [ "$parking_json" = "null" ]; then
-            echo "No retained App Platform parking preparation exists yet."
-            exit 0
-          fi
-
-          parking_domain="$(printf '%s' "$parking_json" | jq -r '.domain // empty')"
-          parking_prepared_at="$(printf '%s' "$parking_json" | jq -r '.prepared_at // empty')"
-          parking_probe_status="$(printf '%s' "$parking_json" | jq -r '.probe_status // empty')"
-          if [ "$parking_domain" != "app-platform.chasesets.com" ] ||
-             [ -z "$parking_prepared_at" ] ||
-             [ "$parking_probe_status" != "ready" ]; then
-            echo "Refusing production deploy (parking-preparation-state-invalid): retained parking state is incomplete or names the wrong domain." >&2
-            exit 1
-          fi
-
-          printf 'TF_VAR_production_app_platform_parking_prepared_at=%s\n' "$parking_prepared_at" >> "$GITHUB_ENV"
-          echo "Restored the verified App Platform parking preparation timestamp from Terraform state."
-
-      - name: Reconcile production serving DNS state
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          zone="chasesets.com"
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "Production App Platform app is missing from Terraform state; refusing to reconcile serving DNS." >&2
-            exit 1
-          fi
-
-          app_target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
-          if [ -z "$app_target" ]; then
-            echo "Production App Platform default ingress is unavailable; refusing to reconcile serving DNS." >&2
-            exit 1
-          fi
-
-          records_json="$(doctl compute domain records list "$zone" --output json)"
-          record_names=(admin www)
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            record_names+=(marketplace)
-          fi
-
-          for name in "${record_names[@]}"; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            mapfile -t serving_records < <(
-              printf '%s' "$records_json" | jq -c --arg name "$name" \
-                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
-            )
-
-            if [ "${#serving_records[@]}" -gt 1 ]; then
-              echo "Multiple A/CNAME records own ${name}.${zone}; refusing an ambiguous import." >&2
-              exit 1
-            fi
-            if [ "${#serving_records[@]}" -eq 0 ]; then
-              echo "No live serving record found for ${name}.${zone}; refusing to plan a production ownership swap." >&2
-              exit 1
-            fi
-
-            record_type="$(printf '%s' "${serving_records[0]}" | jq -r '.type')"
-            record_id="$(printf '%s' "${serving_records[0]}" | jq -r '.id // empty')"
-            record_matches_expected_owner="$(
-              printf '%s' "${serving_records[0]}" | jq -r \
-                --arg app_target "$app_target" \
-                --arg doks_target "${PRODUCTION_DOKS_INGRESS_TARGET:-}" \
-                '(
-                  (.type == "CNAME" and (.data | rtrimstr(".")) == $app_target) or
-                  (.type == "A" and $doks_target != "" and .data == $doks_target)
-                )'
-            )"
-            if [ -z "$record_id" ] || [ "$record_matches_expected_owner" != "true" ]; then
-              echo "An unmanaged A/CNAME record already owns ${name}.${zone}; refusing to import or create a conflicting serving record." >&2
-              exit 1
-            fi
-
-            # App Platform steady state owns its CNAMEs. Terraform temporarily
-            # imports them only for prepare-doks TTL lowering. A rollback keeps
-            # the DOKS A identity so its planned delete precedes app reattach.
-            if [ "$PRODUCTION_APP_SERVING" = "app-platform" ] &&
-               [ "$record_type" = "CNAME" ] &&
-               [ "$PRODUCTION_SERVING_DNS_PHASE" != "prepare-doks" ]; then
-              if terraform state show "$address" >/dev/null 2>&1; then
-                terraform state rm "$address"
-              fi
-              continue
-            fi
-
-            if ! terraform state show "$address" >/dev/null 2>&1; then
-              terraform import "$address" "${zone},${record_id}"
-            fi
-          done
-
-      - name: Gate production serving DNS replacement
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          zone="chasesets.com"
-          write_preparation_environment() {
-            local prepared_at="$1"
-            local previous_ttl="$2"
-            local replacement_from="$3"
-            {
-              printf 'TF_VAR_production_serving_dns_prepared_at=%s\n' "$prepared_at"
-              printf 'TF_VAR_production_serving_dns_previous_ttl_seconds=%s\n' "$previous_ttl"
-              printf 'PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=%s\n' "$replacement_from"
-            } >> "$GITHUB_ENV"
-          }
-          write_steady_environment() {
-            write_preparation_environment "" 0 ""
-            {
-              printf 'PRODUCTION_SERVING_DNS_PHASE=steady\n'
-              printf 'TF_VAR_production_serving_dns_phase=steady\n'
-            } >> "$GITHUB_ENV"
-          }
-          target_type="CNAME"
-          preparation_phase="prepare-doks"
-          completed_phase="prepare-app-platform"
-          if [ "$PRODUCTION_APP_SERVING" = "doks" ]; then
-            target_type="A"
-            preparation_phase="prepare-app-platform"
-            completed_phase="prepare-doks"
-          fi
-
-          records_json="$(doctl compute domain records list "$zone" --output json)"
-          record_names=(admin www)
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            record_names+=(marketplace)
-          fi
-
-          current_type=""
-          current_max_ttl=0
-          live_record_count=0
-          for name in "${record_names[@]}"; do
-            mapfile -t serving_records < <(
-              printf '%s' "$records_json" | jq -c --arg name "$name" \
-                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
-            )
-            if [ "${#serving_records[@]}" -gt 1 ]; then
-              echo "Multiple A/CNAME records own ${name}.${zone}; refusing to evaluate a DNS replacement." >&2
-              exit 1
-            fi
-            if [ "${#serving_records[@]}" -eq 0 ]; then
-              continue
-            fi
-
-            record_type="$(printf '%s' "${serving_records[0]}" | jq -r '.type')"
-            record_ttl="$(printf '%s' "${serving_records[0]}" | jq -r '.ttl')"
-            if ! [[ "$record_ttl" =~ ^[0-9]+$ ]]; then
-              echo "The live TTL for ${name}.${zone} is not an integer; refusing the DNS replacement." >&2
-              exit 1
-            fi
-            if [ -n "$current_type" ] && [ "$record_type" != "$current_type" ]; then
-              echo "Production serving records have mixed A/CNAME types; refusing a partial replacement." >&2
-              exit 1
-            fi
-            current_type="$record_type"
-            live_record_count=$((live_record_count + 1))
-            if [ "$record_ttl" -gt "$current_max_ttl" ]; then
-              current_max_ttl="$record_ttl"
-            fi
-          done
-
-          if [ "$live_record_count" -eq 0 ]; then
-            write_preparation_environment "" 0 ""
-            echo "No existing production serving records require a TTL preparation or replacement."
-            exit 0
-          fi
-
-          preparation_json="$(terraform output -json production_serving_dns_ttl_preparation 2>/dev/null || printf 'null')"
-          retained_phase="$(printf '%s' "$preparation_json" | jq -r '.phase // empty')"
-          retained_prepared_at="$(printf '%s' "$preparation_json" | jq -r '.prepared_at // empty')"
-          retained_previous_ttl="$(printf '%s' "$preparation_json" | jq -r '.previous_ttl_seconds // 0')"
-
-          if [ "$current_type" = "$target_type" ]; then
-            if [ "$PRODUCTION_SERVING_DNS_PHASE" = "steady" ]; then
-              write_steady_environment
-              echo "Production serving DNS is steady; no record-type replacement is planned."
-              exit 0
-            fi
-
-            if [ "$PRODUCTION_SERVING_DNS_PHASE" = "$completed_phase" ]; then
-              write_steady_environment
-              printf 'PRODUCTION_SERVING_DNS_EXPECT_INERT=true\n' >> "$GITHUB_ENV"
-              echo "The ${completed_phase} transition already reached ${PRODUCTION_APP_SERVING}; completing it as steady with no record-type replacement."
-              exit 0
-            fi
-
-            if [ "$PRODUCTION_SERVING_DNS_PHASE" != "$preparation_phase" ]; then
-              echo "${PRODUCTION_SERVING_DNS_PHASE} cannot prepare records currently served by ${PRODUCTION_APP_SERVING}; expected ${preparation_phase}." >&2
-              exit 1
-            fi
-
-            if [ "$retained_phase" = "$preparation_phase" ] && [ -n "$retained_prepared_at" ] && [[ "$retained_previous_ttl" =~ ^[1-9][0-9]*$ ]] && [ "$current_max_ttl" -le 300 ]; then
-              write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" ""
-              echo "The ${preparation_phase} TTL phase is already retained; preserving its original wait window."
-            else
-              previous_ttl="$current_max_ttl"
-              minimum_previous_ttl=1800
-              if [ "$preparation_phase" = "prepare-app-platform" ]; then
-                minimum_previous_ttl=300
-              fi
-              if [ "$previous_ttl" -lt "$minimum_previous_ttl" ]; then
-                previous_ttl="$minimum_previous_ttl"
-              fi
-              write_preparation_environment "" "$previous_ttl" ""
-              echo "Preparing ${preparation_phase}: Terraform will lower live TTLs to 300 seconds or less and record apply time plus the conservative ${previous_ttl}s prior TTL."
-            fi
-            exit 0
-          fi
-
-          required_phase="prepare-doks"
-          expected_source_type="CNAME"
-          if [ "$target_type" = "CNAME" ]; then
-            required_phase="prepare-app-platform"
-            expected_source_type="A"
-          fi
-          if [ "$current_type" != "$expected_source_type" ]; then
-            echo "Expected ${expected_source_type} records before the ${PRODUCTION_APP_SERVING} replacement; found ${current_type}." >&2
-            exit 1
-          fi
-          if [ "$PRODUCTION_SERVING_DNS_PHASE" != "$required_phase" ]; then
-            echo "Refusing the record replacement: PRODUCTION_SERVING_DNS_PHASE must remain ${required_phase}." >&2
-            exit 1
-          fi
-          if [ "$current_max_ttl" -gt 300 ]; then
-            echo "Refusing the record replacement: live TTL ${current_max_ttl}s has not been lowered to 300s or less." >&2
-            exit 1
-          fi
-          if [ "$retained_phase" != "$required_phase" ] || [ -z "$retained_prepared_at" ] || ! [[ "$retained_previous_ttl" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Refusing the record replacement: Terraform state does not contain the matching applied TTL preparation." >&2
-            exit 1
-          fi
-
-          prepared_epoch="$(date --date="$retained_prepared_at" +%s)"
-          ready_epoch=$((prepared_epoch + retained_previous_ttl))
-          now_epoch="$(date -u +%s)"
-          if [ "$now_epoch" -lt "$ready_epoch" ]; then
-            ready_at="$(date -u --date="@${ready_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
-            echo "Refusing the record replacement until ${ready_at}; the previous ${retained_previous_ttl}s TTL has not expired." >&2
-            exit 1
-          fi
-
-          replacement_from="app-platform"
-          if [ "$expected_source_type" = "A" ]; then
-            replacement_from="doks"
-          fi
-          write_preparation_environment "$retained_prepared_at" "$retained_previous_ttl" "$replacement_from"
-          echo "The ${required_phase} wait expired; the bounded ${expected_source_type}-to-${target_type} replacement may be planned."
-
-      - name: Gate DOKS flip on warm App Platform parking target
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          if [ "${PRODUCTION_SERVING_DNS_REPLACEMENT_FROM:-}" != "app-platform" ]; then
-            echo "No App Platform-to-DOKS replacement passed the TTL gate; no parking probe is required."
-            exit 0
-          fi
-          if [ "$PRODUCTION_APP_SERVING" != "doks" ]; then
-            echo "Refusing DOKS flip (parking-direction-invalid): the parking gate may run only for an approved App Platform-to-DOKS replacement." >&2
-            exit 1
-          fi
-
-          parking_domain="app-platform.chasesets.com"
-          parking_json="$(terraform output -json production_app_platform_parking_preparation 2>/dev/null || printf 'null')"
-          if ! printf '%s' "$parking_json" | jq -e \
-            --arg domain "$parking_domain" \
-            '.domain == $domain and (.prepared_at // "") != "" and .probe_status == "ready"' >/dev/null; then
-            echo "Refusing DOKS flip (parking-preparation-state-missing): Terraform state does not contain a completed parking preparation." >&2
-            exit 1
-          fi
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "Refusing DOKS flip (parking-app-missing): the App Platform app identity is unavailable." >&2
-            exit 1
-          fi
-          app_json="$(doctl apps get "$app_id" --output json)"
-          expected_domains=(admin.chasesets.com app-platform.chasesets.com chasesets.com www.chasesets.com)
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            expected_domains+=(marketplace.chasesets.com)
-          fi
-          mapfile -t expected_domains < <(printf '%s\n' "${expected_domains[@]}" | sort)
-          mapfile -t attached_domains < <(printf '%s' "$app_json" | jq -r '.[0].spec.domains[]?.domain' | sort)
-          if [ "${attached_domains[*]}" != "${expected_domains[*]}" ] ||
-             ! printf '%s' "$app_json" | jq -e \
-               --arg domain "$parking_domain" \
-               'any(.[0].spec.domains[]?; .domain == $domain and .type == "ALIAS" and .zone == "chasesets.com")' >/dev/null; then
-            echo "Refusing DOKS flip (parking-attachment-not-ready): the live app does not retain every live domain plus the parking alias." >&2
-            exit 1
-          fi
-
-          app_target="$(printf '%s' "$app_json" | jq -r '.[0].default_ingress // empty' | sed -e 's#^https://##' -e 's#/$##')"
-          records_json="$(doctl compute domain records list chasesets.com --output json)"
-          parking_record_count="$(
-            printf '%s' "$records_json" | jq \
-              --arg target "$app_target" \
-              '[.[] | select(.name == "app-platform" and .type == "CNAME" and (.data | rtrimstr(".")) == $target)] | length'
-          )"
-          if [ -z "$app_target" ] || [ "$parking_record_count" -ne 1 ]; then
-            echo "Refusing DOKS flip (parking-dns-record-not-ready): the parking hostname does not have exactly one App Platform CNAME." >&2
-            exit 1
-          fi
-
-          if ! parking_probe_output="$(
-            node ../../../scripts/platform-ingress-wait.mjs \
-              --url "https://${parking_domain}/" \
-              --expect-status 200 \
-              --attempts 6 \
-              --delay-ms 5000 2>&1
-          )"; then
-            echo "Refusing DOKS flip (parking-probe-not-ready): ${parking_probe_output}" >&2
-            exit 1
-          fi
-          printf '%s\n' "$parking_probe_output"
-          echo "Warm rollback target verified: ${parking_domain} serves exact HTTP 200 with trusted TLS."
-
-      - name: Release production App Platform CNAME state
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          if [ "${PRODUCTION_SERVING_DNS_REPLACEMENT_FROM:-}" != "app-platform" ]; then
-            echo "No App Platform-to-DOKS swap passed the TTL gate; no CNAME state identities will be released."
-            exit 0
-          fi
-          if [ "$PRODUCTION_APP_SERVING" != "doks" ]; then
-            echo "The App Platform CNAME state release is valid only for an approved forward DOKS swap." >&2
-            exit 1
-          fi
-
-          record_names=(admin www)
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            record_names+=(marketplace)
-          fi
-          for name in "${record_names[@]}"; do
-            address="digitalocean_record.app_serving[\"${name}\"]"
-            if ! record_state="$(terraform state show "$address")"; then
-              echo "${address} is missing from the completed TTL-preparation state; refusing the state release." >&2
-              exit 1
-            fi
-            record_type="$(printf '%s\n' "$record_state" | awk -F' = ' '/^    type / {gsub(/\"/, "", $2); print $2}')"
-            if [ "$record_type" != "CNAME" ]; then
-              echo "${address} is not the prepared App Platform CNAME identity; refusing the state release." >&2
-              exit 1
-            fi
-            terraform state rm "$address"
-          done
-
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'
         id: terraform_plan
@@ -3348,23 +2631,9 @@ jobs:
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
-          if [ -n "$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM" ]; then
-            node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement \
-              artifacts/terraform-plans/production-tfplan.json \
-              --from="$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM" \
-              --to="$PRODUCTION_APP_SERVING" \
-              --include-marketplace="${TF_VAR_production_marketplace_public_enabled:-false}"
-          elif [ "${PRODUCTION_SERVING_DNS_EXPECT_INERT:-false}" = "true" ]; then
-            node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-steady \
-              artifacts/terraform-plans/production-tfplan.json \
-              --serving="$PRODUCTION_APP_SERVING" \
-              --include-marketplace="${TF_VAR_production_marketplace_public_enabled:-false}"
-          fi
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
           node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
-          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Upload production Terraform plan
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
@@ -3580,50 +2849,6 @@ jobs:
             kubectl -n keda rollout status deployment/keda-operator --timeout=300s
           fi
 
-      - name: Verify production DOKS certificate before DNS flip
-        if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_APP_SERVING == 'doks'
-        run: |
-          set -euo pipefail
-          if [ "$PRODUCTION_DOKS_CERTIFICATE_READY" != "true" ]; then
-            echo "PRODUCTION_DOKS_CERTIFICATE_READY must be true only after the production DOKS certificate preflight passes." >&2
-            exit 1
-          fi
-
-          certificate_name="chase-sets-platform-doks-tls"
-          kubectl wait \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --for=condition=Ready \
-            "certificate/${certificate_name}" \
-            --timeout=30s
-
-          certificate_json="$(
-            kubectl get certificate "$certificate_name" \
-              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-              --output json
-          )"
-          required_dns_names=(
-            doks.chasesets.com
-            www.doks.chasesets.com
-            admin.doks.chasesets.com
-            chasesets.com
-            www.chasesets.com
-            admin.chasesets.com
-          )
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            required_dns_names+=(marketplace.doks.chasesets.com marketplace.chasesets.com)
-          fi
-          for dns_name in "${required_dns_names[@]}"; do
-            if ! jq -e --arg dns_name "$dns_name" '.spec.dnsNames | index($dns_name) != null' <<<"$certificate_json" >/dev/null; then
-              echo "Production DOKS Certificate is missing required DNS name ${dns_name}; refusing the DNS flip." >&2
-              exit 1
-            fi
-          done
-
-          node ./scripts/platform-ingress-wait.mjs \
-            --url https://doks.chasesets.com/ \
-            --url https://www.doks.chasesets.com/ \
-            --url https://admin.doks.chasesets.com/health/ready
-
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
@@ -3746,40 +2971,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Capture production App Platform bootstrap diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
-            exit 0
-          fi
-
-          mkdir -p artifacts/release-health
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
-            --component=platform-bootstrap \
-            --log-type=deploy \
-            --log-type=run \
-            --log-type=run_restarted \
-            --tail-lines=300 \
-            --out=artifacts/release-health/production-app-platform-bootstrap-diagnostics.json || true
-
-      - name: Upload production App Platform bootstrap diagnostics
-        if: always() && env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: production-app-platform-bootstrap-diagnostics
-          path: infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
-          if-no-files-found: ignore
-          retention-days: 30
-
       - name: Export production Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -3875,11 +3066,8 @@ jobs:
             exit 1
           fi
 
-          # Per-domain base URLs the App Platform path derives from Terraform
-          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
-          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
-          # (see envValueDefaults in render-platform-helm-values.mjs), so they
-          # must be threaded here for the DOKS platform to match App Platform.
+          # Per-domain base URLs come from Terraform's environment-domain
+          # outputs and are threaded into the DOKS runtime.
           landing_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain)"
           marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
           if [ -z "$landing_domain" ]; then
@@ -3889,11 +3077,10 @@ jobs:
 
           # Optional provider endpoint/origin overrides are only passed when set:
           # the deploy script fails closed on empty --runtime-env values, and the
-          # Helm chart's env defaults already carry the retired App Platform
-          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          # Helm chart env defaults carry the canonical posture when a repository
+          # variable is unset (mirrors platform-pr.yml).
           # A landing-only production has no public marketplace domain, so
-          # CHASE_SETS_MARKETPLACE_ORIGIN stays unset exactly like App Platform's
-          # empty local.marketplace_origin.
+          # CHASE_SETS_MARKETPLACE_ORIGIN stays unset for landing-only production.
           optional_runtime_env=()
           add_optional_runtime_env() {
             if [ -n "$2" ]; then
@@ -3907,8 +3094,7 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
-          # Match App Platform's production default/override contract for the
-          # collector's upstream export. Application pods still send to the
+          # Application pods send to the in-cluster Collector Service; the
           # in-cluster Collector Service; the deployment helper owns that
           # endpoint and the production Kubernetes resource identity.
           observability_exporter_endpoint="${TF_VAR_observability_otlp_endpoint:-https://otel.chasesets.com}"
@@ -3959,7 +3145,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Verify production DOKS shadow hosts and certificate
+      - name: Verify production DOKS live hosts and certificate
         if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_DOKS_INGRESS_TARGET != ''
         run: |
           set -euo pipefail
@@ -3970,15 +3156,15 @@ jobs:
             "certificate/${certificate_name}" \
             --timeout=10m
 
-          shadow_urls=(
-            --url https://doks.chasesets.com/
-            --url https://www.doks.chasesets.com/
-            --url https://admin.doks.chasesets.com/health/ready
+          live_urls=(
+            --url https://chasesets.com/
+            --url https://www.chasesets.com/
+            --url https://admin.chasesets.com/health/ready
           )
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            shadow_urls+=(--url https://marketplace.doks.chasesets.com/health/ready)
+            live_urls+=(--url https://marketplace.chasesets.com/health/ready)
           fi
-          node ./scripts/platform-ingress-wait.mjs "${shadow_urls[@]}"
+          node ./scripts/platform-ingress-wait.mjs "${live_urls[@]}"
 
           unresolved="$(
             kubectl get orders.acme.cert-manager.io,challenges.acme.cert-manager.io \
@@ -4542,7 +3728,6 @@ jobs:
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase production-deploy \
-            --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json \
             --diagnostics artifacts/release-health/production-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
@@ -4637,7 +3822,6 @@ jobs:
             artifacts/release-health/production-rollback.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
-            artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
             artifacts/release-health/production-deploy-root-cause.json
           if-no-files-found: ignore

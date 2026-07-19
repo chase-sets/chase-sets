@@ -222,7 +222,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   // Lane runner leases are single-flight platform-wide, but claims are scoped to
   // THIS worker's hosted target contexts. When the fleet sharing the wake store
   // is heterogeneous in hosted contexts — rolling deploys, an estate cutover
-  // (App Platform + DOKS on one control DB), a `WORKER_WAKE_DISABLED_PROJECTIONS`
+  // (mixed DOKS revisions on one control DB), a `WORKER_WAKE_DISABLED_PROJECTIONS`
   // divergence, or a runtime-profile split — a lane lease won by a worker that
   // does not host a given target context would starve that context's intents at
   // ANY capacity: the holder's claim filter never matches them and no other
