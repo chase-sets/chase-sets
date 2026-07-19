@@ -159,6 +159,7 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
   });
   const cartProjector = createProjectionHandlerSet({
     projectionName: "checkout.cart-projection",
+    inlineApply: true,
     handlers: buildCheckoutCartProjectionHandlers(deps.db),
   });
 

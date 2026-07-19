@@ -65,6 +65,8 @@ components:
         pauseAfterWeight: 10
   platform-api:
     replicas: 2
+    envOverrides:
+      PROJECTION_INLINE_APPLY_ENABLED: "true"
     resources:
       requests:
         cpu: "250m"

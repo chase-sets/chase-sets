@@ -287,6 +287,9 @@ export const doksStagingApiOverrides = {
   // values.yaml + values.staging.yaml Helm merge, so it is intentionally NOT
   // duplicated in this staging-only overlay.
   replicas: 2,
+  envOverrides: {
+    PROJECTION_INLINE_APPLY_ENABLED: "true",
+  },
   resources: {
     requests: {
       cpu: "250m",

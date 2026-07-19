@@ -449,6 +449,8 @@ components:
         secretKey: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
       - name: "PORT"
         value: "8080"
+      - name: "PROJECTION_INLINE_APPLY_ENABLED"
+        value: "false"
       - name: "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED"
         value: "false"
       - name: "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"
