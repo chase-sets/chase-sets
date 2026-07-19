@@ -7,7 +7,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
-import { applyDevTargetEnvOverrides } from "./dev-system-config.mjs";
+import {
+  applyDevTargetEnvOverrides,
+  browserE2eProductionBuilds,
+  browserE2eProductionTarget,
+  isBrowserE2eTarget,
+} from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
 import {
@@ -229,6 +234,7 @@ const devTargets = {
   "platform-worker": ["platform-worker"],
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
   "browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"],
+  [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web", "marketplace"],
   marketplace: ["marketplace"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
@@ -500,11 +506,24 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 
 async function runDev(targetName = "all") {
   await runBootstrap(targetName);
-  if (targetName === "browser-e2e" && Boolean(process.env.CI)) {
+  if (isBrowserE2eTarget(targetName) && Boolean(process.env.CI)) {
     const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
     prefixedConsole("bootstrap", `Primed projection wake relay cursors at ${primedCount} seeded context event heads.`);
   }
   const selectedProcesses = applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName));
+
+  if (targetName === browserE2eProductionTarget) {
+    for (const build of browserE2eProductionBuilds) {
+      const processDefinition = selectedProcesses.find((definition) => definition.name === build.name);
+      prefixedConsole("build", `Building production ${build.name} artifact...`);
+      const invocation = buildPackageManagerInvocation(["--filter", build.workspace, "run", "build"]);
+      await runCommand(invocation.command, invocation.args, {
+        env: processDefinition?.env ?? {},
+        prefix: build.name,
+      });
+    }
+  }
+
   printDevUrls(targetName, selectedProcesses, targetName === "all");
 
   const children = [];

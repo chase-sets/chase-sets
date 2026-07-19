@@ -270,6 +270,7 @@ jobs:
 
       - name: Run marketplace e2e suites
         env:
+          CHASE_SETS_BROWSER_E2E_SYSTEM: production
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
 
