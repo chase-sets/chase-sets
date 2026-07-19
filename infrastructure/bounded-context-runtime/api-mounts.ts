@@ -45,6 +45,9 @@ export type ReadConsistencyRouteDependency = Readonly<{
 type ReadConsistencySubscriptionRunner = Readonly<{
   sourceContextName: string;
   checkpointKey?: string;
+  inlineApply?: boolean;
+  errorPolicy?: string;
+  areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
   refreshStatus: () => Promise<
     Readonly<{
       lastGlobalPosition: string;
@@ -139,6 +142,8 @@ function collectWakeRequests(
 export type ReadConsistencyProjectionGroup = Readonly<{
   targetContextName: string;
   projectionName: string;
+  handlerKind?: string;
+  sideEffectOnly?: boolean;
   ownedTables?: readonly string[];
   subscriptionRunners: readonly ReadConsistencySubscriptionRunner[];
 }>;
@@ -616,6 +621,25 @@ async function findPendingProjectionFreshness(
         const status = await runner.refreshStatus();
         if (BigInt(status.lastGlobalPosition) >= BigInt(source.maxGlobalPosition)) {
           continue;
+        }
+
+        if (
+          source.eventIds.length > 0 &&
+          runner.inlineApply === true &&
+          runner.errorPolicy !== "global-strict" &&
+          group.handlerKind !== "reaction" &&
+          group.sideEffectOnly !== true &&
+          runner.areReceiptEventsApplied
+        ) {
+          try {
+            if (await runner.areReceiptEventsApplied(source.eventIds)) {
+              continue;
+            }
+          } catch {
+            // The application ledger is an optimization over the durable
+            // checkpoint predicate. Query failures retain checkpoint-only
+            // behavior so read consistency always fails closed.
+          }
         }
 
         pending.push({

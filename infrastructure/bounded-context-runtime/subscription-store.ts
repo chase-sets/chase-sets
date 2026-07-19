@@ -307,6 +307,78 @@ export async function loadSubscriptionApplicationStatuses(
 }
 
 /**
+ * Returns true only when every receipt id is a real source event and every event
+ * this subscription matches has completed application. Inline Apply is limited
+ * to same-context projections, so the source event rows and application ledger
+ * are deliberately read in one indexed statement from the same database.
+ */
+export async function areSubscribedReceiptEventsApplied(
+  db: PgQueryable,
+  projectionKey: string,
+  eventIds: readonly string[],
+  eventTypes: readonly string[],
+  streamPrefixes?: readonly string[],
+): Promise<boolean> {
+  const uniqueEventIds = [...new Set(eventIds)];
+  const uniqueEventTypes = [...new Set(eventTypes)];
+  if (uniqueEventIds.length === 0 || uniqueEventTypes.length === 0) {
+    return false;
+  }
+
+  const params: unknown[] = [projectionKey, uniqueEventIds, uniqueEventTypes];
+  const subscriptionPredicates = ["event_type = ANY($3::text[])"];
+  if (streamPrefixes?.length) {
+    const streamPrefixFilter = buildStreamPrefixFilterSql(streamPrefixes, params.length + 1);
+    if (streamPrefixFilter) {
+      params.push(...streamPrefixFilter.params);
+      subscriptionPredicates.push(streamPrefixFilter.predicate);
+    }
+  }
+
+  const result = await db.query<Readonly<{ fresh: boolean }>>(
+    `WITH receipt_events AS MATERIALIZED (
+       SELECT event_id, stream_id, stream_context_name, event_type
+       FROM event_store_events
+       WHERE event_id = ANY($2::text[])
+     ),
+     subscribed_events AS MATERIALIZED (
+       SELECT event_id, stream_id
+       FROM receipt_events
+       WHERE ${subscriptionPredicates.join("\n         AND ")}
+     )
+     SELECT
+       NOT EXISTS (
+         SELECT 1
+         FROM unnest($2::text[]) AS receipt_id(event_id)
+         LEFT JOIN receipt_events AS stored_event
+           ON stored_event.event_id = receipt_id.event_id
+         WHERE stored_event.event_id IS NULL
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM subscribed_events AS event
+         LEFT JOIN event_subscription_applications AS application
+           ON application.projection_key = $1
+          AND application.event_id = event.event_id
+         LEFT JOIN event_projection_blocked_streams AS blocked_stream
+           ON blocked_stream.projection_key = $1
+          AND blocked_stream.stream_id = event.stream_id
+          AND blocked_stream.state IN ('blocked', 'retrying')
+         LEFT JOIN event_projection_poison_events AS poison_event
+           ON poison_event.projection_key = $1
+          AND poison_event.event_id = event.event_id
+          AND poison_event.state IN ('blocked', 'retrying')
+         WHERE application.status IS DISTINCT FROM 'applied'
+            OR blocked_stream.projection_key IS NOT NULL
+            OR poison_event.projection_key IS NOT NULL
+       ) AS fresh`,
+    params,
+  );
+
+  return result.rows[0]?.fresh === true;
+}
+
+/**
  * Elapsed time since a subscription application row was first claimed. `started_at`
  * is written once on the initial claim and preserved across re-claims, so it is a
  * durable "stuck since" marker for an event that keeps failing. Uses the database
