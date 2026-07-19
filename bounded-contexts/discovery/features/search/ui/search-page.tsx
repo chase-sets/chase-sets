@@ -62,6 +62,26 @@ type DynamicSearchFilterSelection = Readonly<{
 }>;
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
 
+type SearchFacetConfiguration =
+  | Readonly<{
+      id: string;
+      kind: "choice";
+      title: string;
+      description: string;
+      allLabel: string;
+      items: Array<{ id: string; label: string; count?: number }>;
+      selectedId?: string;
+      selectedIds?: readonly string[];
+      selectionMode?: "multiple";
+      onSelect: (value: string) => void;
+      mobileIcons?: Readonly<{ all: "book" | "search"; item: "book" | "search" }>;
+      searchable?: boolean;
+      searchLabel?: string;
+      searchPlaceholder?: string;
+      searchEmptyLabel?: string;
+    }>
+  | Readonly<{ id: "price-and-stock"; kind: "price-and-stock" }>;
+
 type PriceAndStockFiltersProps = Readonly<{
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   priceMin: string;
@@ -565,92 +585,114 @@ export function SearchPage({
       : []),
     ...dynamicAppliedFilters,
   ];
-  const filterRail = (
-    <Stack gap={3}>
-      <MarketplaceFacetRail
-        headingLevel={2}
-        title={t("discovery.features.search.ui.searchPage.browse.categories")}
-        description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
-        allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
-        items={categories.map((item) => ({
-          id: item.slug,
-          label: item.name,
-          count: categoryCounts.get(item.slug) ?? 0,
-        }))}
-        selectedId={category}
-        onSelect={onCategoryChange}
-        {...progressiveFacetLabels}
-      />
-      <PriceAndStockFilters
-        headingLevel={2}
-        priceMin={priceMin}
-        priceMax={priceMax}
-        inStock={inStock}
-        onPriceMinChange={onPriceMinChange}
-        onPriceMaxChange={onPriceMaxChange}
-        onPriceMinStep={onPriceMinStep}
-        onPriceMaxStep={onPriceMaxStep}
-        onInStockChange={onInStockChange}
-      />
-      <MarketplaceFacetRail
-        headingLevel={2}
-        title={t("discovery.features.search.ui.searchPage.language")}
-        description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
-        allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
-        items={languageOptions.map((item) => ({
-          id: item.value,
-          label: item.label,
-        }))}
-        selectedId={language}
-        onSelect={onLanguageChange}
-        {...progressiveFacetLabels}
-      />
-      <MarketplaceFacetRail
-        headingLevel={2}
-        title={t("discovery.features.search.ui.searchPage.market.activity")}
-        description={t("discovery.features.search.ui.searchPage.market.activity.description")}
-        allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
-        items={marketActivityOptions
-          .filter((item) => item.value)
-          .map((item) => ({
-            id: item.value,
-            label: item.label,
-          }))}
-        selectedId={marketActivity}
-        onSelect={(value) => onMarketActivityChange(value as MarketActivityFilter)}
-        {...progressiveFacetLabels}
-      />
-      {dynamicFacets.map((facet) => {
-        const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+  const searchFacetConfigurations: readonly SearchFacetConfiguration[] = [
+    {
+      id: "categories",
+      kind: "choice",
+      title: t("discovery.features.search.ui.searchPage.browse.categories"),
+      description: t("discovery.features.search.ui.searchPage.mobile.categories.description"),
+      allLabel: t("discovery.features.search.ui.searchPage.all.categories"),
+      items: categories.map((item) => ({
+        id: item.slug,
+        label: item.name,
+        count: categoryCounts.get(item.slug) ?? 0,
+      })),
+      selectedId: category,
+      onSelect: onCategoryChange,
+    },
+    { id: "price-and-stock", kind: "price-and-stock" },
+    {
+      id: "language",
+      kind: "choice",
+      title: t("discovery.features.search.ui.searchPage.language"),
+      description: t("discovery.features.search.ui.searchPage.mobile.language.description"),
+      allLabel: t("discovery.features.search.ui.searchPage.all.languages"),
+      items: languageOptions.map((item) => ({ id: item.value, label: item.label })),
+      selectedId: language,
+      onSelect: onLanguageChange,
+      mobileIcons: { all: "book", item: "book" },
+    },
+    {
+      id: "market-activity",
+      kind: "choice",
+      title: t("discovery.features.search.ui.searchPage.market.activity"),
+      description: t("discovery.features.search.ui.searchPage.market.activity.description"),
+      allLabel: t("discovery.features.search.ui.searchPage.any.market.activity"),
+      items: marketActivityOptions.filter((item) => item.value).map((item) => ({ id: item.value, label: item.label })),
+      selectedId: marketActivity,
+      onSelect: (value) => onMarketActivityChange(value as MarketActivityFilter),
+      mobileIcons: { all: "search", item: "search" },
+    },
+    ...dynamicFacets.map((facet) => ({
+      id: `${facet.kind}:${facet.id}`,
+      kind: "choice" as const,
+      title: facet.label,
+      description: formatFacetDescription(facet),
+      allLabel: t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label }),
+      items: facet.values.map((value) => ({ id: value.id, label: value.label, count: value.count })),
+      selectedIds: selectedFacetValues(facet).map((value) => value.id),
+      selectionMode: "multiple" as const,
+      onSelect: (value: string) => {
+        if (value) {
+          onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+        } else {
+          onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+        }
+      },
+      ...facetOptionSearchProps(facet),
+    })),
+  ];
 
+  function renderFacetConfigurations(presentation: "desktop" | "mobile") {
+    return searchFacetConfigurations.map((facet) => {
+      if (facet.kind === "price-and-stock") {
         return (
-          <MarketplaceFacetRail
-            key={`${facet.kind}:${facet.id}`}
+          <PriceAndStockFilters
+            key={facet.id}
             headingLevel={2}
-            title={facet.label}
-            description={formatFacetDescription(facet)}
-            allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-            items={facet.values.map((value) => ({
-              id: value.id,
-              label: value.label,
-              count: value.count,
-            }))}
-            {...facetOptionSearchProps(facet)}
-            selectedIds={selectedValues}
-            selectionMode="multiple"
-            onSelect={(value) => {
-              if (value) {
-                onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-              } else {
-                onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-              }
-            }}
-            {...progressiveFacetLabels}
+            priceMin={priceMin}
+            priceMax={priceMax}
+            inStock={inStock}
+            onPriceMinChange={onPriceMinChange}
+            onPriceMaxChange={onPriceMaxChange}
+            onPriceMinStep={onPriceMinStep}
+            onPriceMaxStep={onPriceMaxStep}
+            onInStockChange={onInStockChange}
           />
         );
-      })}
-    </Stack>
-  );
+      }
+
+      const sharedProps = {
+        key: facet.id,
+        headingLevel: 2 as const,
+        title: facet.title,
+        description: facet.description,
+        allLabel: facet.allLabel,
+        items: facet.items,
+        selectedId: facet.selectedId,
+        selectedIds: facet.selectedIds,
+        selectionMode: facet.selectionMode,
+        onSelect: facet.onSelect,
+        searchable: facet.searchable,
+        searchLabel: facet.searchLabel,
+        searchPlaceholder: facet.searchPlaceholder,
+        searchEmptyLabel: facet.searchEmptyLabel,
+        ...progressiveFacetLabels,
+      };
+
+      return presentation === "desktop" ? (
+        <MarketplaceFacetRail {...sharedProps} />
+      ) : (
+        <MarketplaceFacetChoiceGroup
+          {...sharedProps}
+          allLeadingIcon={facet.mobileIcons?.all}
+          itemLeadingIcon={facet.mobileIcons?.item}
+        />
+      );
+    });
+  }
+
+  const filterRail = <Stack gap={3}>{renderFacetConfigurations("desktop")}</Stack>;
   const bulkActionData = bulkAdd?.data;
   const bulkPreview = bulkActionData?.preview;
   const bulkBusy = bulkAdd?.status === "submitting";
@@ -865,92 +907,7 @@ export function SearchPage({
                 </Inline>
               }
             >
-              <MarketplaceFacetChoiceGroup
-                headingLevel={2}
-                title={t("discovery.features.search.ui.searchPage.browse.categories")}
-                description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
-                allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
-                items={categories.map((item) => ({
-                  id: item.slug,
-                  label: item.name,
-                  count: categoryCounts.get(item.slug) ?? 0,
-                }))}
-                selectedId={category}
-                onSelect={onCategoryChange}
-                {...progressiveFacetLabels}
-              />
-              <PriceAndStockFilters
-                headingLevel={2}
-                priceMin={priceMin}
-                priceMax={priceMax}
-                inStock={inStock}
-                onPriceMinChange={onPriceMinChange}
-                onPriceMaxChange={onPriceMaxChange}
-                onPriceMinStep={onPriceMinStep}
-                onPriceMaxStep={onPriceMaxStep}
-                onInStockChange={onInStockChange}
-              />
-              <MarketplaceFacetChoiceGroup
-                headingLevel={2}
-                title={t("discovery.features.search.ui.searchPage.language")}
-                description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
-                allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
-                items={languageOptions.map((item) => ({
-                  id: item.value,
-                  label: item.label,
-                }))}
-                selectedId={language}
-                onSelect={(value) => onLanguageChange(value)}
-                allLeadingIcon="book"
-                itemLeadingIcon="book"
-                {...progressiveFacetLabels}
-              />
-              <MarketplaceFacetChoiceGroup
-                headingLevel={2}
-                title={t("discovery.features.search.ui.searchPage.market.activity")}
-                description={t("discovery.features.search.ui.searchPage.market.activity.description")}
-                allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
-                items={marketActivityOptions
-                  .filter((item) => item.value)
-                  .map((item) => ({
-                    id: item.value,
-                    label: item.label,
-                  }))}
-                selectedId={marketActivity}
-                onSelect={(value) => onMarketActivityChange(value as MarketActivityFilter)}
-                allLeadingIcon="search"
-                itemLeadingIcon="search"
-                {...progressiveFacetLabels}
-              />
-              {dynamicFacets.map((facet) => {
-                const selectedValues = selectedFacetValues(facet).map((value) => value.id);
-
-                return (
-                  <MarketplaceFacetChoiceGroup
-                    key={`${facet.kind}:${facet.id}`}
-                    headingLevel={2}
-                    title={facet.label}
-                    description={formatFacetDescription(facet)}
-                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                    items={facet.values.map((value) => ({
-                      id: value.id,
-                      label: value.label,
-                      count: value.count,
-                    }))}
-                    {...facetOptionSearchProps(facet)}
-                    selectedIds={selectedValues}
-                    selectionMode="multiple"
-                    onSelect={(value) => {
-                      if (value) {
-                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                      } else {
-                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                      }
-                    }}
-                    {...progressiveFacetLabels}
-                  />
-                );
-              })}
+              {renderFacetConfigurations("mobile")}
             </MarketplaceFilterBottomSheet>
           </>
         ) : null}

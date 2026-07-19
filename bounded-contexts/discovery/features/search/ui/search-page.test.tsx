@@ -164,6 +164,14 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
+  it("renders the desktop rail and mobile filter sheet from one facet configuration", () => {
+    const source = readFileSync(join(__dirname, "search-page.tsx"), "utf8");
+
+    expect(source.match(/const searchFacetConfigurations:/g)).toHaveLength(1);
+    expect(source.match(/renderFacetConfigurations\("desktop"\)/g)).toHaveLength(1);
+    expect(source.match(/renderFacetConfigurations\("mobile"\)/g)).toHaveLength(1);
+  });
+
   it("allows wide desktop search result grids to use a third column", () => {
     renderSearchPage();
 
