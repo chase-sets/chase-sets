@@ -105,7 +105,7 @@ function readOption(argv, name, defaultValue) {
 
 export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
   const dryRunInput = readOption(argv, "--dry-run", null);
-  const envDryRun = env.DIGITALOCEAN_REGISTRY_CLEANUP_DRY_RUN;
+  const requestedDryRunInput = env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN;
   return {
     repository: readOption(argv, "--repository", env.PLATFORM_IMAGE_REPOSITORY ?? "chase-sets-platform"),
     retentionDays: Number.parseInt(
@@ -120,7 +120,11 @@ export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
       ),
       10,
     ),
-    dryRun: dryRunInput !== null ? true : parseBoolean(envDryRun ?? "false"),
+    dryRun: dryRunInput === null ? null : parseBoolean(dryRunInput, "--dry-run"),
+    requestedDryRun:
+      requestedDryRunInput === undefined
+        ? null
+        : parseBoolean(requestedDryRunInput, "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN"),
     protectedTags: readRepeatedOption(argv, "--protect-tag"),
     outPath: readOption(argv, "--out", env.DIGITALOCEAN_REGISTRY_CLEANUP_OUT),
     checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
@@ -147,7 +151,9 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
   const baseRecord = {
     schemaVersion: DIGITALOCEAN_REGISTRY_CLEANUP_VERSION,
     checkedAt: options.checkedAt,
-    mode: options.dryRun ? "dry-run" : "apply",
+    mode: options.dryRun === true ? "dry-run" : options.dryRun === false ? "apply" : "invalid",
+    requestedMode:
+      options.requestedDryRun === true ? "dry-run" : options.requestedDryRun === false ? "apply" : "unknown",
     repository: options.repository,
     retentionDays: options.retentionDays,
     retainRecentShaTreeTags: options.retainRecentShaTreeTags,
@@ -240,6 +246,16 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
 
 function validateCleanupOptions(options) {
   const errors = [];
+  if (typeof options.dryRun !== "boolean") {
+    errors.push("--dry-run=true|false is required.");
+  }
+  if (typeof options.requestedDryRun !== "boolean") {
+    errors.push("DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN=true|false is required.");
+  } else if (typeof options.dryRun === "boolean" && options.dryRun !== options.requestedDryRun) {
+    errors.push(
+      `Resolved cleanup mode ${options.dryRun ? "dry-run" : "apply"} does not match requested mode ${options.requestedDryRun ? "dry-run" : "apply"}.`,
+    );
+  }
   if (!isNonEmptyString(options.repository)) {
     errors.push("--repository is required.");
   }
@@ -279,7 +295,7 @@ function describeCommandFailure(error) {
   return details;
 }
 
-function parseBoolean(value) {
+function parseBoolean(value, name) {
   const normalized = String(value ?? "")
     .trim()
     .toLowerCase();
@@ -289,7 +305,7 @@ function parseBoolean(value) {
   if (normalized === "false") {
     return false;
   }
-  throw new Error("DIGITALOCEAN_REGISTRY_CLEANUP_DRY_RUN must be true or false.");
+  throw new Error(`${name} must be true or false.`);
 }
 
 function isNonEmptyString(value) {
@@ -305,7 +321,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] [--dry-run] [--out=<path>]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>]",
   );
 }
 

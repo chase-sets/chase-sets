@@ -841,6 +841,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployLaneStep).toContain('result: "deferred"');
     expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
     expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
+    expect(platformRegistryCleanupWorkflow).toContain(
+      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
+    );
+    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
+    expect(cleanupStep).not.toContain("dry_run_arg");
     expect(cleanupStep).not.toContain("--retention-days=7");
     expect(digitaloceanPlatformRunbook).toContain(
       "Platform Deploy, Platform Staging Reset, and Platform Registry Cleanup share the `platform-registry-mutation` GitHub Actions concurrency group",
