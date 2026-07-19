@@ -1,7 +1,7 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { Inline, Stack } from "../../primitives/layout";
+import { Box, Inline, Stack } from "../../primitives/layout";
 import { IconButton } from "../actions";
 import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
 import { Badge } from "../feedback";
@@ -54,6 +54,7 @@ export interface ListingCardProps {
   fulfillment?: ReactNode;
   availability?: ReactNode;
   condition?: ReactNode;
+  badges?: ReactNode;
   valueCue?: ReactNode;
   truncateValueCue?: boolean;
   recommendationReason?: ReactNode;
@@ -112,6 +113,7 @@ export function ListingCard({
   fulfillment,
   availability,
   condition,
+  badges,
   valueCue,
   truncateValueCue = true,
   recommendationReason,
@@ -304,6 +306,7 @@ export function ListingCard({
               {availability ? <span className="text-xs font-medium text-secondary">{availability}</span> : null}
             </Inline>
           ) : null}
+          {isSearchResultLayout && badges ? <Box>{badges}</Box> : null}
           <div className="relative">
             <h3
               className={cx(

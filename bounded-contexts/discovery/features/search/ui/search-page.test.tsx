@@ -81,6 +81,7 @@ const standardAbraSearchResult: DiscoverySearchItem = {
   language_code: "en",
   title: "Abra",
   subtitle: "Base Set 43 Standard Set Common",
+  display_badges: [{ kind: "rarity", label: "Common" }],
   description: "Standard set Abra",
   image_urls: ["/abra.webp"],
   market_summary: null,
@@ -91,6 +92,10 @@ const reverseAbraSearchResult: DiscoverySearchItem = {
   catalog_item_id: "cat_abra_reverse",
   slug: "abra-reverse-cat_abra_reverse",
   subtitle: "Base Set 43 Parallel Set - Reverse Foil Common",
+  display_badges: [
+    { kind: "variant", label: "Reverse Foil" },
+    { kind: "rarity", label: "Common" },
+  ],
   description: "Parallel set Abra",
 };
 
@@ -517,7 +522,7 @@ describe("SearchPage", () => {
     expect(screen.queryByText("No items found")).toBeNull();
   });
 
-  it("surfaces catalog subtitles on search cards so visually identical variants can be distinguished", () => {
+  it("renders variant badges that distinguish same-title search results", () => {
     renderSearchPage({
       committedSearch: "abra",
       data: {
@@ -534,6 +539,8 @@ describe("SearchPage", () => {
     });
 
     expect(screen.getAllByText("Abra")).toHaveLength(2);
+    expect(screen.getAllByText("Common")).toHaveLength(2);
+    expect(screen.getByText("Reverse Foil")).toBeTruthy();
     expect(screen.getByText("Base Set 43 Standard Set Common")).toBeTruthy();
     expect(screen.getByText("Base Set 43 Parallel Set - Reverse Foil Common")).toBeTruthy();
     expect(screen.queryByText("Pokemon Card Single")).toBeNull();
