@@ -44,6 +44,7 @@ function createQueryCaptureGroup(
       }
       return { rows: [], rowCount: 1 };
     }),
+    end: vi.fn(async () => undefined),
     release: vi.fn(),
   };
   const pool = {
@@ -178,6 +179,10 @@ describe("inline apply eligibility validation", () => {
       sourceContextNames: ["checkout", "catalog"],
       handlerKind: "projection" as const,
       cascade: false,
+      errorPolicy: undefined,
+      sideEffectOnly: false,
+      ownedTables: ["checkout_pages"],
+      resetStrategy: "truncate-owned-tables" as const,
       expected: "single-source, same-context",
     },
     {
@@ -185,6 +190,10 @@ describe("inline apply eligibility validation", () => {
       sourceContextNames: ["checkout"],
       handlerKind: "reaction" as const,
       cascade: false,
+      errorPolicy: undefined,
+      sideEffectOnly: false,
+      ownedTables: ["checkout_pages"],
+      resetStrategy: "truncate-owned-tables" as const,
       expected: "reaction handlers",
     },
     {
@@ -192,72 +201,112 @@ describe("inline apply eligibility validation", () => {
       sourceContextNames: ["checkout"],
       handlerKind: "projection" as const,
       cascade: true,
+      errorPolicy: undefined,
+      sideEffectOnly: false,
+      ownedTables: ["checkout_pages"],
+      resetStrategy: "truncate-owned-tables" as const,
       expected: "cascade-capable projections",
     },
-  ])("rejects $name projection declarations", ({ sourceContextNames, handlerKind, cascade, expected }) => {
-    const pool = { query: vi.fn() } as unknown as PgTransactionalPool;
-    const set = createProjectionHandlerSet({
-      projectionName: "checkout.pages",
-      handlers: { "checkout.changed": async () => undefined },
-      inlineApply: true,
-    });
-    const subscription: BcEventSubscription = {
-      subscriptionName: "checkout.pages",
-      handlerKind: "projection",
-      sourceContextName: "checkout",
-      projectionName: "checkout.pages",
-      subscriptionVersion: 1,
-      handlers: set.handlers,
-      checkpointBatchSize: cascade ? 1 : 10,
-    };
-    const module = defineBoundedContextModule({
-      manifest: {
-        contextName: "checkout",
-        apiBasePath: "/api/checkout",
-        streamPrefix: "checkout.",
-        projectionGroups: [
-          {
-            projectionName: "checkout.pages",
-            handlerKind,
-            sourceContextNames,
-            ownedTables: ["checkout_pages"],
-            resetStrategy: "truncate-owned-tables",
-          },
-        ],
-      },
-      schemaSql: "",
-      createServices: () => ({}),
-      buildApis: () => [],
-      projectionHandlerSets: () => [set],
-      buildSubscriptions: () => [subscription],
-    });
-    const mounted: MountedContextRuntimeEntry[] = [
-      {
-        contextName: "checkout",
-        module,
-        services: {},
-        pool,
-        projectionHandlerSets: [set],
-      },
-      ...(sourceContextNames.includes("catalog")
-        ? [
+    {
+      name: "global-strict",
+      sourceContextNames: ["checkout"],
+      handlerKind: "projection" as const,
+      cascade: false,
+      errorPolicy: "global-strict" as const,
+      sideEffectOnly: false,
+      ownedTables: ["checkout_pages"],
+      resetStrategy: "truncate-owned-tables" as const,
+      expected: "global-strict projections require total global order",
+    },
+    {
+      name: "side-effect-only",
+      sourceContextNames: ["checkout"],
+      handlerKind: "projection" as const,
+      cascade: false,
+      errorPolicy: undefined,
+      sideEffectOnly: true,
+      ownedTables: [],
+      resetStrategy: "replay-only" as const,
+      expected: "side-effect-only handlers",
+    },
+  ])(
+    "rejects $name projection declarations",
+    ({
+      sourceContextNames,
+      handlerKind,
+      cascade,
+      errorPolicy,
+      sideEffectOnly,
+      ownedTables,
+      resetStrategy,
+      expected,
+    }) => {
+      const pool = { query: vi.fn() } as unknown as PgTransactionalPool;
+      const set = createProjectionHandlerSet({
+        projectionName: "checkout.pages",
+        handlers: { "checkout.changed": async () => undefined },
+        inlineApply: true,
+      });
+      const subscription: BcEventSubscription = {
+        subscriptionName: "checkout.pages",
+        handlerKind: "projection",
+        sourceContextName: "checkout",
+        projectionName: "checkout.pages",
+        subscriptionVersion: 1,
+        handlers: set.handlers,
+        checkpointBatchSize: cascade ? 1 : 10,
+        errorPolicy,
+      };
+      const module = defineBoundedContextModule({
+        manifest: {
+          contextName: "checkout",
+          apiBasePath: "/api/checkout",
+          streamPrefix: "checkout.",
+          projectionGroups: [
             {
-              contextName: "catalog",
-              module: defineBoundedContextModule({
-                manifest: { contextName: "catalog", apiBasePath: "/api/catalog", streamPrefix: "catalog." },
-                schemaSql: "",
-                createServices: () => ({}),
-                buildApis: () => [],
-              }),
-              services: {},
-              pool,
-              projectionHandlerSets: [],
-            } satisfies MountedContextRuntimeEntry,
-          ]
-        : []),
-    ];
-    const runners = resolveModuleSubscriptions(mounted);
+              projectionName: "checkout.pages",
+              handlerKind,
+              sourceContextNames,
+              ownedTables,
+              sideEffectOnly,
+              resetStrategy,
+            },
+          ],
+        },
+        schemaSql: "",
+        createServices: () => ({}),
+        buildApis: () => [],
+        projectionHandlerSets: () => [set],
+        buildSubscriptions: () => [subscription],
+      });
+      const mounted: MountedContextRuntimeEntry[] = [
+        {
+          contextName: "checkout",
+          module,
+          services: {},
+          pool,
+          projectionHandlerSets: [set],
+        },
+        ...(sourceContextNames.includes("catalog")
+          ? [
+              {
+                contextName: "catalog",
+                module: defineBoundedContextModule({
+                  manifest: { contextName: "catalog", apiBasePath: "/api/catalog", streamPrefix: "catalog." },
+                  schemaSql: "",
+                  createServices: () => ({}),
+                  buildApis: () => [],
+                }),
+                services: {},
+                pool,
+                projectionHandlerSets: [],
+              } satisfies MountedContextRuntimeEntry,
+            ]
+          : []),
+      ];
+      const runners = resolveModuleSubscriptions(mounted);
 
-    expect(() => resolveModuleProjectionGroups(mounted, runners)).toThrow(expected);
-  });
+      expect(() => resolveModuleProjectionGroups(mounted, runners)).toThrow(expected);
+    },
+  );
 });

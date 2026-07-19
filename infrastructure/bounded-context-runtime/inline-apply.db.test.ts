@@ -30,6 +30,7 @@ const describeDb = adminDatabaseUrl ? describe : describe.skip;
 const testState = {
   handlerCalls: 0,
   failNextHandler: false,
+  handlerGate: null as Readonly<{ started: () => void; wait: Promise<void> }> | null,
 };
 
 const inlineModule = defineBoundedContextModule({
@@ -61,6 +62,9 @@ const inlineModule = defineBoundedContextModule({
         handlers: {
           "inline.item-recorded": async (event, context) => {
             testState.handlerCalls += 1;
+            const gate = testState.handlerGate;
+            gate?.started();
+            await gate?.wait;
             if (testState.failNextHandler) {
               testState.failNextHandler = false;
               throw new Error("inline handler failed");
@@ -96,6 +100,7 @@ describeDb("projection inline apply Postgres integration", () => {
   beforeEach(async () => {
     testState.handlerCalls = 0;
     testState.failNextHandler = false;
+    testState.handlerGate = null;
     await resetMultiContextTestSchemas({ inline: pool });
     await bootstrapContextDatabase(inlineModule, pool);
   });
@@ -195,6 +200,42 @@ describeDb("projection inline apply Postgres integration", () => {
       expect.objectContaining({ event_id: String(event.eventId), status: "applied" }),
     ]);
   });
+
+  it("aborts and releases the ledger claim before returning when the hard budget expires", async () => {
+    const runtime = createRuntime(pool);
+    const runner = runtime.subscriptionRunners[0]!;
+    const event = (await appendEvents(pool, "inline.item-budget", [{ itemId: "budget" }]))[0]!;
+    let markHandlerStarted: () => void = () => undefined;
+    const handlerStarted = new Promise<void>((resolve) => {
+      markHandlerStarted = resolve;
+    });
+    let releaseHandler: () => void = () => undefined;
+    const handlerWait = new Promise<void>((resolve) => {
+      releaseHandler = resolve;
+    });
+    testState.handlerGate = { started: markHandlerStarted, wait: handlerWait };
+
+    const inlineAttempt = applyInline(runtime, [event], 25);
+    await handlerStarted;
+    await expect(inlineAttempt).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
+
+    const claimant = await pool.connect();
+    try {
+      await claimant.query("BEGIN");
+      await claimant.query("SET LOCAL lock_timeout = '250ms'");
+      await expect(
+        claimSubscriptionApplication(claimant, runner.checkpointKey, toTransportEvent(event), {
+          ownerId: "async-runner",
+          fencingToken: "11",
+        }),
+      ).resolves.toBe("claimed");
+    } finally {
+      await claimant.query("ROLLBACK").catch(() => undefined);
+      claimant.release();
+      releaseHandler();
+      testState.handlerGate = null;
+    }
+  });
 });
 
 function createRuntime(pool: PgTransactionalPool) {
@@ -224,7 +265,11 @@ async function appendEvents(
   });
 }
 
-async function applyInline(runtime: ReturnType<typeof createRuntime>, events: readonly StoredEvent[]) {
+async function applyInline(
+  runtime: ReturnType<typeof createRuntime>,
+  events: readonly StoredEvent[],
+  budgetMs?: number,
+) {
   const metadata = await runWithEventCommitMetadata(async () => {
     recordCommittedEvents(events, "inline");
     return getEventCommitMetadata();
@@ -233,6 +278,7 @@ async function applyInline(runtime: ReturnType<typeof createRuntime>, events: re
     committedEvents: metadata.committedEvents,
     commitSources: metadata.sources,
     projectionGroups: runtime.projectionGroups,
+    budgetMs,
   });
 }
 

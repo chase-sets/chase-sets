@@ -147,23 +147,21 @@ async function attemptWithinBudget(
   deadlineMs: number,
   remainingMs: number,
 ): Promise<AttemptResult> {
+  const abortController = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const attempt = applyCandidate(candidate, deadlineMs, remainingMs).catch((error: unknown) =>
+  const attempt = applyCandidate(candidate, deadlineMs, remainingMs, abortController.signal).catch((error: unknown) =>
     classifyAttemptError(error),
   );
-  const timeout = new Promise<AttemptResult>((resolve) => {
-    timer = setTimeout(() => resolve({ outcome: "failed", reason: "budget-exceeded" }), Math.max(1, remainingMs));
-  });
+  timer = setTimeout(() => abortController.abort(new InlineApplyBudgetExceededError()), Math.max(1, remainingMs));
 
   try {
-    return await Promise.race([attempt, timeout]);
+    // Transaction abort owns the timeout result: it closes the PostgreSQL
+    // session and awaits implicit rollback before this attempt may return.
+    return await attempt;
   } finally {
     if (timer) {
       clearTimeout(timer);
     }
-    // `attempt` owns its rejection and transaction rollback even if the request
-    // budget wins the race while a JavaScript-only handler is still running.
-    void attempt;
   }
 }
 
@@ -171,6 +169,7 @@ async function applyCandidate(
   candidate: InlineCandidate,
   deadlineMs: number,
   remainingMs: number,
+  abortSignal: AbortSignal,
 ): Promise<AttemptResult> {
   const { group, runner } = candidate;
   const event = toTransportEvent(candidate.event);
@@ -225,6 +224,7 @@ async function applyCandidate(
       projectionName: group.projectionName,
       subscriptionName: runner.subscriptionName,
     },
+    { abortSignal },
   );
 }
 

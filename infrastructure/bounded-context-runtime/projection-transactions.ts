@@ -28,6 +28,10 @@ export type ProjectionTransactionTelemetry = Readonly<{
   subscriptionName?: string;
 }>;
 
+export type ProjectionTransactionControl = Readonly<{
+  abortSignal?: AbortSignal;
+}>;
+
 export function createProjectionAwarePool<TPool extends PgTransactionalPool>(pool: TPool): TPool {
   return new Proxy(pool, {
     get(target, property, receiver) {
@@ -59,6 +63,7 @@ export async function withProjectionTransaction<T>(
   context: ProjectionRunContext | undefined,
   work: (client: PgQueryable) => Promise<T>,
   telemetry: ProjectionTransactionTelemetry = {},
+  control: ProjectionTransactionControl = {},
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
   const client = await pool.connect();
@@ -66,6 +71,7 @@ export async function withProjectionTransaction<T>(
   const mutableClient = client as PgPoolClient & { query: PgQueryFunction };
   let committed = false;
   let releaseError: unknown;
+  let released = false;
   let appendAdvisoryLockAcquiredAtMs: number | null = null;
   let appendAdvisoryLockRecorded = false;
   const recordAppendAdvisoryLockHold = (outcome: "committed" | "rolled_back" | "released") => {
@@ -84,9 +90,17 @@ export async function withProjectionTransaction<T>(
       subscriptionName: telemetry.subscriptionName,
     });
   };
+  const releaseClient = (error?: unknown) => {
+    if (released) {
+      return;
+    }
+    released = true;
+    client.release(error);
+  };
+  const abortGate = createProjectionTransactionAbortGate(client, control.abortSignal, releaseClient);
 
   try {
-    await originalQuery("BEGIN");
+    await abortGate.run(() => originalQuery("BEGIN"));
     const timeoutGuard = createProjectionTransactionTimeoutGuard({
       startedAtMs: Date.now(),
       transactionTimeoutMs: normalizeProjectionTransactionTimeoutMs(context?.transactionTimeoutMs),
@@ -107,9 +121,11 @@ export async function withProjectionTransaction<T>(
       pool.idleInTransactionSessionTimeoutMillis,
     );
     if (idleInTransactionSessionTimeoutMs !== null) {
-      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
-        `${idleInTransactionSessionTimeoutMs}ms`,
-      ]);
+      await abortGate.run(() =>
+        client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+          `${idleInTransactionSessionTimeoutMs}ms`,
+        ]),
+      );
     }
 
     const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(
@@ -117,25 +133,37 @@ export async function withProjectionTransaction<T>(
       timeoutGuard.transactionTimeoutMs,
     );
     if (statementTimeoutMs !== null) {
-      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
+      await abortGate.run(() =>
+        client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]),
+      );
     }
 
     context?.throwIfLeaseLost?.();
-    const result = await work(client);
+    const result = await abortGate.run(() => work(client));
     context?.throwIfLeaseLost?.();
     timeoutGuard();
     mutableClient.query = originalQuery;
-    await originalQuery("COMMIT");
+    await abortGate.run(() => originalQuery("COMMIT"));
     committed = true;
     recordAppendAdvisoryLockHold("committed");
     return result;
   } catch (error) {
     mutableClient.query = originalQuery;
+    if (abortGate.aborted) {
+      const abortError = await abortGate.waitForClose();
+      releaseError = abortError;
+      throw abortError;
+    }
     if (!committed) {
       try {
-        await originalQuery("ROLLBACK");
+        await abortGate.run(() => originalQuery("ROLLBACK"));
         recordAppendAdvisoryLockHold("rolled_back");
       } catch (rollbackError) {
+        if (abortGate.aborted) {
+          const abortError = await abortGate.waitForClose();
+          releaseError = abortError;
+          throw abortError;
+        }
         releaseError = rollbackError;
       }
     }
@@ -144,10 +172,77 @@ export async function withProjectionTransaction<T>(
     }
     throw error;
   } finally {
+    abortGate.dispose();
     mutableClient.query = originalQuery;
     recordAppendAdvisoryLockHold("released");
-    client.release(releaseError);
+    releaseClient(releaseError);
   }
+}
+
+function createProjectionTransactionAbortGate(
+  client: PgPoolClient,
+  signal: AbortSignal | undefined,
+  releaseClient: (error?: unknown) => void,
+): Readonly<{
+  aborted: boolean;
+  run: <T>(operation: () => Promise<T>) => Promise<T>;
+  waitForClose: () => Promise<Error>;
+  dispose: () => void;
+}> {
+  let abortError: Error | undefined;
+  let closePromise: Promise<void> | undefined;
+  let rejectAborted: ((error: Error) => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAborted = reject;
+  });
+  // The rejection is normally consumed by run(). This also covers the narrow
+  // gap between transaction steps without weakening the raced rejection.
+  void aborted.catch(() => undefined);
+
+  const abort = () => {
+    if (closePromise) {
+      return;
+    }
+    abortError = projectionTransactionAbortReason(signal);
+    const abortableClient = client as PgPoolClient & Readonly<{ end?: () => Promise<void> }>;
+    closePromise = abortableClient.end
+      ? abortableClient.end()
+      : Promise.resolve().then(() => releaseClient(abortError));
+    void closePromise.then(
+      () => rejectAborted?.(abortError!),
+      () => rejectAborted?.(abortError!),
+    );
+  };
+
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) {
+    abort();
+  }
+
+  return {
+    get aborted() {
+      return abortError !== undefined;
+    },
+    run: async <T>(operation: () => Promise<T>): Promise<T> => {
+      if (!signal) {
+        return operation();
+      }
+      if (abortError) {
+        await closePromise?.catch(() => undefined);
+        throw abortError;
+      }
+      return Promise.race([operation(), aborted]);
+    },
+    waitForClose: async () => {
+      await closePromise?.catch(() => undefined);
+      return abortError ?? projectionTransactionAbortReason(signal);
+    },
+    dispose: () => signal?.removeEventListener("abort", abort),
+  };
+}
+
+function projectionTransactionAbortReason(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error("Projection transaction aborted.");
 }
 
 function normalizeProjectionIdleInTransactionSessionTimeoutMs(

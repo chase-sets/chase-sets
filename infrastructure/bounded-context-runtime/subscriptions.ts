@@ -166,6 +166,7 @@ export type ContextSubscriptionRunner = Readonly<{
   checkpointKey: string;
   handlers?: Readonly<Record<string, ProjectorHandler | undefined>>;
   inlineApply?: boolean;
+  errorPolicy?: NonNullable<BcEventSubscription["errorPolicy"]>;
   checkpointBatchSize?: number;
   projectionCascadeChunkSize?: number;
   projectionTransactionTimeoutMs?: number;
@@ -611,6 +612,7 @@ export function createSubscriptionRunner(
     checkpointKey,
     handlers: subscription.handlers,
     inlineApply: subscription.inlineApply === true,
+    errorPolicy,
     checkpointBatchSize,
     projectionCascadeChunkSize: subscription.projectionCascadeChunkSize,
     projectionTransactionTimeoutMs: subscription.projectionTransactionTimeoutMs,
