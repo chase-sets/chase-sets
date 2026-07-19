@@ -7,7 +7,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
-import { applyDevTargetEnvOverrides } from "./dev-system-config.mjs";
+import {
+  applyDevTargetEnvOverrides,
+  browserE2eProductionBuilds,
+  browserE2eProductionTarget,
+  createBrowserE2eProductionIngressDefinitions,
+  isBrowserE2eTarget,
+} from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
 import {
@@ -23,6 +29,7 @@ const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
 const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url));
+const platformComposeIngressScript = fileURLToPath(new URL("./platform-compose-ingress.mjs", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeInvocation = resolveDockerComposeInvocation(buildDockerComposeArgs(sandbox));
 const localAdminDatabaseUrl =
@@ -229,6 +236,7 @@ const devTargets = {
   "platform-worker": ["platform-worker"],
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
   "browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"],
+  [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web", "marketplace"],
   marketplace: ["marketplace"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
@@ -490,7 +498,7 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   }
 
   for (const definition of selectedProcesses) {
-    console.log(`  ${definition.name.padEnd(16)} http://localhost:${definition.port}`);
+    console.log(`  ${definition.name.padEnd(16)} http://localhost:${definition.publicPort ?? definition.port}`);
   }
 
   console.log(`  Sandbox env:     ${path.relative(rootDir, sandbox.envFilePath)}`);
@@ -500,11 +508,31 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 
 async function runDev(targetName = "all") {
   await runBootstrap(targetName);
-  if (targetName === "browser-e2e" && Boolean(process.env.CI)) {
+  if (isBrowserE2eTarget(targetName) && Boolean(process.env.CI)) {
     const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
     prefixedConsole("bootstrap", `Primed projection wake relay cursors at ${primedCount} seeded context event heads.`);
   }
   const selectedProcesses = applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName));
+
+  if (targetName === browserE2eProductionTarget) {
+    for (const build of browserE2eProductionBuilds) {
+      const processDefinition = selectedProcesses.find((definition) => definition.name === build.name);
+      prefixedConsole("build", `Building production ${build.name} artifact...`);
+      const invocation = buildPackageManagerInvocation(["--filter", build.workspace, "run", "build"]);
+      await runCommand(invocation.command, invocation.args, {
+        env: processDefinition?.env ?? {},
+        prefix: build.name,
+      });
+    }
+
+    selectedProcesses.push(
+      ...createBrowserE2eProductionIngressDefinitions(selectedProcesses, {
+        apiUrl: sandbox.urls.platformApi,
+        ingressScriptPath: platformComposeIngressScript,
+      }),
+    );
+  }
+
   printDevUrls(targetName, selectedProcesses, targetName === "all");
 
   const children = [];

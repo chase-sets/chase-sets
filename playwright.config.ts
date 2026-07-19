@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
 const retryTelemetryReporterPath = "./deployables/admin-web/e2e/support/retry-telemetry-reporter.ts";
@@ -9,6 +10,7 @@ const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marke
 const isCi = Boolean(process.env.CI);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
+const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
 const projects = [
   {
     name: "marketplace-chromium",
@@ -48,16 +50,18 @@ export default defineConfig({
     ? undefined
     : [
         {
-          command: "node ./scripts/dev-system.mjs dev browser-e2e",
+          command: `node ./scripts/dev-system.mjs dev ${browserE2eSystemTarget}`,
           url: `${marketplaceBaseUrl}/health/ready`,
           reuseExistingServer: !isCi,
           timeout: 600_000,
+          stdout: isCi ? "pipe" : "ignore",
         },
         {
           command: "node ./scripts/browser-e2e-readiness.mjs",
           url: `${sandbox.urls.portal}/health/ready`,
           reuseExistingServer: false,
           timeout: 600_000,
+          stdout: isCi ? "pipe" : "ignore",
         },
       ],
   projects,
