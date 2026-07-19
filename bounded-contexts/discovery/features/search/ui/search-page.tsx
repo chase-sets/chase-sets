@@ -1,5 +1,5 @@
 import { formatDisplayIdentity, formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import {
   Text,
   Heading,
@@ -67,6 +67,8 @@ type PriceAndStockFiltersProps = Readonly<{
   inStock: boolean;
   onPriceMinChange: (value: string) => void;
   onPriceMaxChange: (value: string) => void;
+  onPriceMinStep: (value: string) => void;
+  onPriceMaxStep: (value: string) => void;
   onInStockChange: (value: boolean) => void;
 }>;
 
@@ -135,8 +137,35 @@ function PriceAndStockFilters({
   inStock,
   onPriceMinChange,
   onPriceMaxChange,
+  onPriceMinStep,
+  onPriceMaxStep,
   onInStockChange,
 }: PriceAndStockFiltersProps) {
+  const priceStepperRef = useRef<"min" | "max" | null>(null);
+
+  function markPriceStepper(price: "min" | "max", event: PointerEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest("button")) {
+      priceStepperRef.current = price;
+      // Base UI can emit the value change from pointerdown and again from the
+      // following click. Keep this discrete-intent marker through that event
+      // turn, then release it before a later typed edit can reuse it.
+      setTimeout(() => {
+        if (priceStepperRef.current === price) {
+          priceStepperRef.current = null;
+        }
+      }, 0);
+    }
+  }
+
+  function handlePriceChange(price: "min" | "max", value: string) {
+    const steppedPrice = priceStepperRef.current;
+    if (steppedPrice === price) {
+      (price === "min" ? onPriceMinStep : onPriceMaxStep)(value);
+      return;
+    }
+    (price === "min" ? onPriceMinChange : onPriceMaxChange)(value);
+  }
+
   return (
     <Stack gap={3}>
       <Stack gap={1}>
@@ -148,28 +177,32 @@ function PriceAndStockFilters({
         </Text>
       </Stack>
       <Grid columns={{ base: 1, md: 2 }} gap={2}>
-        <CurrencyInput
-          currencyCode="USD"
-          label={t("discovery.features.search.ui.searchPage.minimum.price")}
-          value={priceMin || null}
-          onValueChange={(value) => onPriceMinChange(value ?? "")}
-          currencyAccessibleDescription={t(
-            "discovery.features.search.ui.searchPage.minimum.price.accessible.description",
-          )}
-          decrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.decrease")}
-          incrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.increase")}
-        />
-        <CurrencyInput
-          currencyCode="USD"
-          label={t("discovery.features.search.ui.searchPage.maximum.price")}
-          value={priceMax || null}
-          onValueChange={(value) => onPriceMaxChange(value ?? "")}
-          currencyAccessibleDescription={t(
-            "discovery.features.search.ui.searchPage.maximum.price.accessible.description",
-          )}
-          decrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.decrease")}
-          incrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.increase")}
-        />
+        <div onPointerDownCapture={(event) => markPriceStepper("min", event)}>
+          <CurrencyInput
+            currencyCode="USD"
+            label={t("discovery.features.search.ui.searchPage.minimum.price")}
+            value={priceMin || null}
+            onValueChange={(value) => handlePriceChange("min", value ?? "")}
+            currencyAccessibleDescription={t(
+              "discovery.features.search.ui.searchPage.minimum.price.accessible.description",
+            )}
+            decrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.decrease")}
+            incrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.increase")}
+          />
+        </div>
+        <div onPointerDownCapture={(event) => markPriceStepper("max", event)}>
+          <CurrencyInput
+            currencyCode="USD"
+            label={t("discovery.features.search.ui.searchPage.maximum.price")}
+            value={priceMax || null}
+            onValueChange={(value) => handlePriceChange("max", value ?? "")}
+            currencyAccessibleDescription={t(
+              "discovery.features.search.ui.searchPage.maximum.price.accessible.description",
+            )}
+            decrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.decrease")}
+            incrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.increase")}
+          />
+        </div>
       </Grid>
       <Checkbox
         label={t("discovery.features.search.ui.searchPage.in.stock")}
@@ -262,6 +295,8 @@ export interface SearchPageProps {
   onMarketActivityChange: (value: MarketActivityFilter) => void;
   onPriceMinChange: (value: string) => void;
   onPriceMaxChange: (value: string) => void;
+  onPriceMinStep: (value: string) => void;
+  onPriceMaxStep: (value: string) => void;
   onInStockChange: (value: boolean) => void;
   onSortChange: (value: string) => void;
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
@@ -335,6 +370,8 @@ export function SearchPage({
   onMarketActivityChange,
   onPriceMinChange,
   onPriceMaxChange,
+  onPriceMinStep,
+  onPriceMaxStep,
   onInStockChange,
   onSortChange,
   onDynamicFilterChange,
@@ -478,7 +515,7 @@ export function SearchPage({
             label: t("discovery.features.search.ui.searchPage.minimum.price.filter.label", {
               price: formatMoney(priceMin),
             }),
-            onRemove: () => onPriceMinChange(""),
+            onRemove: () => onPriceMinStep(""),
           },
         ]
       : []),
@@ -489,7 +526,7 @@ export function SearchPage({
             label: t("discovery.features.search.ui.searchPage.maximum.price.filter.label", {
               price: formatMoney(priceMax),
             }),
-            onRemove: () => onPriceMaxChange(""),
+            onRemove: () => onPriceMaxStep(""),
           },
         ]
       : []),
@@ -549,6 +586,8 @@ export function SearchPage({
         inStock={inStock}
         onPriceMinChange={onPriceMinChange}
         onPriceMaxChange={onPriceMaxChange}
+        onPriceMinStep={onPriceMinStep}
+        onPriceMaxStep={onPriceMaxStep}
         onInStockChange={onInStockChange}
       />
       <MarketplaceFacetRail
@@ -845,6 +884,8 @@ export function SearchPage({
                 inStock={inStock}
                 onPriceMinChange={onPriceMinChange}
                 onPriceMaxChange={onPriceMaxChange}
+                onPriceMinStep={onPriceMinStep}
+                onPriceMaxStep={onPriceMaxStep}
                 onInStockChange={onInStockChange}
               />
               <MarketplaceFacetChoiceGroup

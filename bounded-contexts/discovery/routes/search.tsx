@@ -56,6 +56,7 @@ const PAGE_SIZE = 24;
 const HOME_FEATURED_CATEGORY_LIMIT = 4;
 const HOME_NEW_ARRIVALS_LIMIT = 3;
 export const SEARCH_DEBOUNCE_MS = 300;
+export const PRICE_FILTER_DEBOUNCE_MS = 500;
 const MARKETPLACE_DESCRIPTION = t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
   search: "",
@@ -480,8 +481,11 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const [searchParams, setSearchParams] = useSearchParams();
   const draftSearchRef = useRef(data.search);
   const pendingSearchRef = useRef<string | null>(null);
+  const draftPriceRef = useRef({ min: data.priceMin, max: data.priceMax });
+  const pendingPriceRef = useRef<{ min: string; max: string } | null>(null);
   const restoreSearchFocusRef = useRef(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const priceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Kept fresh every render so the debounce timer below can observe the router's
   // *current* state when it fires, not the state captured when the timer was armed.
   const navigationRef = useRef(navigation);
@@ -491,6 +495,12 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const [draftSearchState, setDraftSearchState] = useState(() => ({
     committedSearch: data.search,
     value: data.search,
+  }));
+  const [draftPriceState, setDraftPriceState] = useState(() => ({
+    committedMin: data.priceMin,
+    committedMax: data.priceMax,
+    min: data.priceMin,
+    max: data.priceMax,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
   const resultSetKey = buildSearchResultSetKey({
@@ -530,6 +540,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const loadMoreInFlightRef = useRef(false);
   const bulkAddRequestIdRef = useRef(0);
   let draftSearch = draftSearchState.value;
+  let draftPriceMin = draftPriceState.min;
+  let draftPriceMax = draftPriceState.max;
   const activeExtraPages = extraPageState.key === resultSetKey ? extraPageState.pages : EMPTY_EXTRA_PAGES;
   const accumulatedData = useMemo(
     () => mergeDiscoverySearchResponses(data.data, activeExtraPages),
@@ -634,6 +646,21 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     });
   }
 
+  if (
+    (draftPriceState.committedMin !== data.priceMin || draftPriceState.committedMax !== data.priceMax) &&
+    pendingPriceRef.current === null
+  ) {
+    draftPriceRef.current = { min: data.priceMin, max: data.priceMax };
+    draftPriceMin = data.priceMin;
+    draftPriceMax = data.priceMax;
+    setDraftPriceState({
+      committedMin: data.priceMin,
+      committedMax: data.priceMax,
+      min: data.priceMin,
+      max: data.priceMax,
+    });
+  }
+
   const clearSearchTimer = useCallback(() => {
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
@@ -641,7 +668,15 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     }
   }, []);
 
+  const clearPriceTimer = useCallback(() => {
+    if (priceTimerRef.current) {
+      clearTimeout(priceTimerRef.current);
+      priceTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => clearSearchTimer, [clearSearchTimer]);
+  useEffect(() => clearPriceTimer, [clearPriceTimer]);
 
   const updateSearchParams = useCallback(
     (
@@ -791,6 +826,26 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     updateSearchParams({ search: pendingSearchRef.current ?? "" }, true);
   }, [updateSearchParams]);
 
+  const commitPendingPrice = useCallback(() => {
+    const pendingPrice = pendingPriceRef.current;
+    if (pendingPrice === null) {
+      return;
+    }
+
+    const currentNavigation = navigationRef.current;
+    const navigatingAwayFromSearch =
+      currentNavigation.state !== "idle" &&
+      currentNavigation.location !== undefined &&
+      currentNavigation.location.pathname !== pathnameRef.current;
+    if (navigatingAwayFromSearch) {
+      pendingPriceRef.current = null;
+      return;
+    }
+
+    pendingPriceRef.current = null;
+    updateSearchParams({ priceMin: pendingPrice.min, priceMax: pendingPrice.max }, true);
+  }, [updateSearchParams]);
+
   // Flush the pending debounce the moment focus leaves the search input.
   // `focusout` fires synchronously when a pointerdown lands elsewhere — BEFORE
   // the subsequent `click` runs a result card's client-side navigation — so the
@@ -813,6 +868,21 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     document.addEventListener("focusout", flushOnFocusOut, true);
     return () => document.removeEventListener("focusout", flushOnFocusOut, true);
   }, [clearSearchTimer, commitPendingSearch]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const flushOnFocusOut = () => {
+      if (priceTimerRef.current === null) {
+        return;
+      }
+      clearPriceTimer();
+      commitPendingPrice();
+    };
+    document.addEventListener("focusout", flushOnFocusOut, true);
+    return () => document.removeEventListener("focusout", flushOnFocusOut, true);
+  }, [clearPriceTimer, commitPendingPrice]);
 
   function handleSearchChange(value: string) {
     restoreSearchFocusRef.current = true;
@@ -842,6 +912,27 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     setDraftSearchState((current) => ({ ...current, value: "" }));
     clearSearchTimer();
     updateSearchParams({ search: "" }, true);
+  }
+
+  function handlePriceChange(price: "min" | "max", value: string) {
+    const nextPrice = { ...draftPriceRef.current, [price]: value };
+    draftPriceRef.current = nextPrice;
+    pendingPriceRef.current = nextPrice;
+    setDraftPriceState((current) => ({ ...current, [price]: value }));
+    clearPriceTimer();
+    priceTimerRef.current = setTimeout(() => {
+      priceTimerRef.current = null;
+      commitPendingPrice();
+    }, PRICE_FILTER_DEBOUNCE_MS);
+  }
+
+  function handleImmediatePriceChange(price: "min" | "max", value: string) {
+    const nextPrice = { ...draftPriceRef.current, [price]: value };
+    draftPriceRef.current = nextPrice;
+    pendingPriceRef.current = null;
+    setDraftPriceState((current) => ({ ...current, [price]: value }));
+    clearPriceTimer();
+    updateSearchParams({ priceMin: nextPrice.min, priceMax: nextPrice.max });
   }
 
   function handleImmediateSearchParamChange(nextValues: {
@@ -982,8 +1073,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       tag={data.tag}
       language={data.language}
       marketActivity={data.marketActivity}
-      priceMin={data.priceMin}
-      priceMax={data.priceMax}
+      priceMin={draftPriceMin}
+      priceMax={draftPriceMax}
       inStock={data.inStock}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
@@ -1009,8 +1100,10 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
       onMarketActivityChange={(value) => handleImmediateSearchParamChange({ marketActivity: value })}
-      onPriceMinChange={(value) => handleImmediateSearchParamChange({ priceMin: value })}
-      onPriceMaxChange={(value) => handleImmediateSearchParamChange({ priceMax: value })}
+      onPriceMinChange={(value) => handlePriceChange("min", value)}
+      onPriceMaxChange={(value) => handlePriceChange("max", value)}
+      onPriceMinStep={(value) => handleImmediatePriceChange("min", value)}
+      onPriceMaxStep={(value) => handleImmediatePriceChange("max", value)}
       onInStockChange={(value) => handleImmediateSearchParamChange({ inStock: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}
