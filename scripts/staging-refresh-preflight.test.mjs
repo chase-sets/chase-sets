@@ -318,6 +318,14 @@ describe("staging refresh set matrix", () => {
       "scrydex:lorcana:sealed-product:source-observation-import",
     );
   });
+
+  it("accepts the current TCGplayer display labels for pinned representative sets", () => {
+    const pokemon = stagingRefreshSetMatrix.find((check) => check.id === "pokemon-en-surging-sparks-tcgplayer");
+    const yugioh = stagingRefreshSetMatrix.find((check) => check.id === "yugioh-legend-blue-eyes-tcgplayer");
+
+    expect(pokemon?.selections.at(-1)?.labels).toContain("SV08: Surging Sparks");
+    expect(yugioh?.selections.at(-1)?.labels).toContain("The Legend of Blue Eyes White Dragon");
+  });
 });
 
 describe("staging refresh overlap and CLI posture", () => {
