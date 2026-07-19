@@ -25,8 +25,8 @@ spec:
             class: {{ $ingressClassName | quote }}
       {{- if and $issuer.dns01 $issuer.dns01.enabled }}
       # Scoped to the environment's explicit DNS zone. Staging uses it for
-      # the shared preview wildcard (#4857); production uses it to issue the
-      # complete cutover certificate before live DNS leaves App Platform.
+      # the shared preview wildcard (#4857); production uses it for the live
+      # production host certificate.
       - selector:
           dnsZones:
             {{- range $issuer.dns01.dnsZones }}

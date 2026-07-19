@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { retiredProfileComponentNames, runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -111,14 +110,13 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       registryRepository: options.repository,
       registryRetentionDays: options.registryRetentionDays,
       releaseTagPrefix: "release-",
-      runtimeTopologyModes: Object.keys(runtimeTopologyBaselines),
-      retiredProfileComponentNames,
+      retiredComputeProvider: "digitalocean-apps",
       observability: OBSERVABILITY_POLICIES,
       databaseBackups: DATABASE_BACKUP_POLICIES,
     },
     collections: collection.collections,
     expectedResources: {
-      apps: ["chase-sets-platform", "chase-sets-staging-platform", "chase-sets-pr-<number>-platform"],
+      apps: [],
       databases: ["chase-sets-postgres", "chase-sets-staging-postgres"],
       forbiddenPreviewDatabases: ["chase-sets-pr-<number>-postgres"],
       restorePoints: [`${RESTORE_POINT_PREFIX}<release-timestamp>-<sha>`],
@@ -335,29 +333,13 @@ function summarizeApp(app) {
     ...componentSummaries("worker", spec.workers ?? spec.Workers ?? []),
     ...componentSummaries("job", spec.jobs ?? spec.Jobs ?? []),
   ];
-  const componentNames = components.map((component) => component.name);
-  const hasAdminSupport = componentNames.includes("admin-support-api");
-  const hasMarketplaceFamily = componentNames.some((componentName) =>
-    ["marketplace", "platform-api", "platform-worker"].includes(componentName),
-  );
   return {
     id: readField(app, "id", "ID"),
     name,
     environment: classifyEnvironment(name),
-    terraformRoot: appTerraformRoot(name),
+    terraformRoot: null,
     classification: classifyApp(name),
     components,
-    componentTopologyFindings:
-      hasAdminSupport && hasMarketplaceFamily
-        ? [
-            {
-              severity: "warning",
-              reason: "admin-support and marketplace/platform component families coexist in one App Platform app",
-              action:
-                "Confirm production marketplace promotion state and reconcile App Platform component topology against Terraform variables.",
-            },
-          ]
-        : [],
   };
 }
 
@@ -556,25 +538,21 @@ function summarizeCdn(cdn) {
 }
 
 function appFindings(app) {
-  const findings = app.componentTopologyFindings.map((finding) => ({
-    ...finding,
-    category: "component-topology",
-    resourceType: "app",
-    resourceName: app.name,
-    owner: "platform",
-    terraformRoot: app.terraformRoot,
-    evidence: { components: app.components.map((component) => component.name).filter(Boolean) },
-  }));
-  if (app.classification === "unknown-chase-sets") {
-    findings.push(
-      unknownFinding(
-        "app",
-        app.name,
-        "App Platform app name starts with chase-sets but does not match Terraform naming.",
-      ),
-    );
+  if (app.classification === "retired-chase-sets-compute") {
+    return [
+      {
+        severity: "warning",
+        category: "retired-compute-present",
+        resourceType: "app",
+        resourceName: app.name,
+        owner: "platform",
+        terraformRoot: null,
+        action: "Confirm the DOKS cutover is complete, then remove this retired DigitalOcean application resource.",
+        evidence: { id: app.id, components: app.components.map((component) => component.name).filter(Boolean) },
+      },
+    ];
   }
-  return findings;
+  return [];
 }
 
 function databaseFindings(database) {
@@ -663,7 +641,7 @@ function registryTagFindings(tag) {
       resourceName: tag.name,
       owner: "ops",
       terraformRoot: tag.terraformRoot,
-      action: "Registry cleanup may delete this tag if it is not currently referenced by App Platform.",
+      action: "Registry cleanup may delete this tag if it is not explicitly protected by a release tag or digest.",
       evidence: { updatedAt: tag.updatedAt, digest: tag.digest },
     },
   ];
@@ -887,13 +865,7 @@ function summarizeDigest(input) {
 }
 
 function classifyApp(name) {
-  if (
-    ["chase-sets-platform", "chase-sets-staging-platform"].includes(name) ||
-    /^chase-sets-pr-\d+-platform$/.test(name)
-  ) {
-    return "terraform-managed";
-  }
-  return chaseSetsName(name) ? "unknown-chase-sets" : "external";
+  return chaseSetsName(name) ? "retired-chase-sets-compute" : "external";
 }
 
 function classifyDatabase(name) {
@@ -907,10 +879,6 @@ function classifyDatabase(name) {
     return "terraform-managed";
   }
   return chaseSetsName(name) ? "unknown-chase-sets" : "external";
-}
-
-function appTerraformRoot(name) {
-  return classifyApp(name) === "terraform-managed" ? TERRAFORM_ROOTS.platform : null;
 }
 
 function databaseTerraformRoot(name) {

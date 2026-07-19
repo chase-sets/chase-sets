@@ -46,53 +46,10 @@ variable "google_workspace_dkim_txt_value" {
   description = "Optional Google Workspace DKIM TXT value for google._domainkey.<environment>.<root_domain>."
 }
 
-variable "staging_app_serving" {
-  type        = string
-  default     = "app-platform"
-  description = "Which platform serves the live staging hosts. The platform root owns the mutually exclusive live records; this value lets environment-dns enforce that a DOKS target is configured and report the active serving mode. Shadow validation hosts do not depend on this switch."
-
-  validation {
-    condition     = contains(["app-platform", "doks"], var.staging_app_serving)
-    error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
-  }
-
-  validation {
-    condition     = var.environment == "staging" || var.staging_app_serving == "app-platform"
-    error_message = "staging_app_serving may only change for staging."
-  }
-}
-
-variable "production_app_serving" {
-  type        = string
-  default     = "app-platform"
-  description = "Coordinated production serving mode. This root retains shadow records; the platform root owns the live DNS flip."
-
-  validation {
-    condition     = contains(["app-platform", "doks"], var.production_app_serving)
-    error_message = "production_app_serving must be either \"app-platform\" or \"doks\"."
-  }
-
-  validation {
-    condition     = var.environment == "production" || var.production_app_serving == "app-platform"
-    error_message = "production_app_serving may only change for production."
-  }
-}
-
-variable "production_doks_certificate_ready" {
-  type        = bool
-  default     = false
-  description = "Operator evidence gate set only after the production live-and-shadow DOKS Certificate is Ready."
-
-  validation {
-    condition     = var.environment == "production" || var.production_doks_certificate_ready == false
-    error_message = "production_doks_certificate_ready may only be true for production."
-  }
-}
-
 variable "production_marketplace_public_enabled" {
   type        = bool
   default     = false
-  description = "Read-only production exposure posture used only to decide whether the marketplace shadow hostname is applicable. This root never promotes marketplace exposure."
+  description = "Read-only production exposure posture used only to decide whether the marketplace diagnostic hostname is applicable."
 
   validation {
     condition     = var.environment == "production" || var.production_marketplace_public_enabled == false
@@ -103,7 +60,7 @@ variable "production_marketplace_public_enabled" {
 variable "doks_ingress_target" {
   type        = string
   default     = ""
-  description = "Environment-specific DOKS ingress load balancer IPv4 address. When set, applicable shadow validation hosts resolve to the load balancer so ingress and certificate readiness can be proven before cutover."
+  description = "Environment-specific DOKS ingress load balancer IPv4 address used by retained diagnostic records."
 
   validation {
     condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
@@ -114,7 +71,7 @@ variable "doks_ingress_target" {
 variable "doks_ingress_ttl" {
   type        = number
   default     = 300
-  description = "TTL for opt-in DOKS ingress DNS records during cutover."
+  description = "TTL for retained DOKS diagnostic DNS records."
 
   validation {
     condition     = var.doks_ingress_ttl >= 60 && var.doks_ingress_ttl <= 3600

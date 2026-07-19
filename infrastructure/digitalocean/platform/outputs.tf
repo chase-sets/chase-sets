@@ -1,11 +1,3 @@
-output "app_id" {
-  value = digitalocean_app.platform.id
-}
-
-output "live_url" {
-  value = digitalocean_app.platform.live_url
-}
-
 output "postgres_cluster_id" {
   value = try(digitalocean_database_cluster.postgres[0].id, null)
 }
@@ -51,24 +43,8 @@ output "admin_domain" {
   value = local.admin_domain
 }
 
-output "app_serving" {
-  value = local.app_serving
-}
-
-output "production_serving_dns_ttl_preparation" {
-  value = local.is_production ? terraform_data.production_serving_dns_ttl_preparation[0].output : null
-}
-
-output "production_app_platform_parking_preparation" {
-  value = local.is_production ? try(terraform_data.production_app_platform_parking_preparation[0].output, null) : null
-}
-
 output "uptime_check_targets" {
   value = local.uptime_check_targets
-}
-
-output "connection_budget_profiles" {
-  value = local.connection_budget_profiles
 }
 
 output "production_database_standby_posture" {

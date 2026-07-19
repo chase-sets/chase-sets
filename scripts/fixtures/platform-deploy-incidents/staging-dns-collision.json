@@ -1,5 +1,5 @@
 {
-  "name": "staging App Platform DNS collision",
+  "name": "staging DNS collision",
   "input": {
     "phase": "staging-deploy",
     "steps": [

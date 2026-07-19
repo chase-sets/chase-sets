@@ -180,7 +180,7 @@ describe("resolve release commit", () => {
     const production = workflowJob(workflow, "deploy-production");
 
     expect(workflow).toContain(
-      "group: ${{ inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
+      "group: ${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
     );
     expect(workflow).toContain("cancel-in-progress: false");
     expect(dispatcherWorkflow).toContain("name: Platform Release Candidate Dispatch");

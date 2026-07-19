@@ -12,7 +12,6 @@ resource "digitalocean_project_resources" "environment" {
   count   = local.environment_project_id != "" ? 1 : 0
   project = local.environment_project_id
   resources = concat(
-    [digitalocean_app.platform.urn],
     [for cluster in digitalocean_database_cluster.postgres : cluster.urn],
     local.is_production ? ["do:domain:${var.root_domain}"] : [],
   )

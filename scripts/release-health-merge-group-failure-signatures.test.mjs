@@ -892,6 +892,6 @@ describe("workflow contracts", () => {
     expect(production.indexOf("Known Failure Guard")).toBeLessThan(
       production.indexOf("Activate immutable release before staging mutation"),
     );
-    expect(production).toContain("Verify staging DOKS shadow hosts");
+    expect(production).toContain("Wait for staging ingress URLs");
   });
 });

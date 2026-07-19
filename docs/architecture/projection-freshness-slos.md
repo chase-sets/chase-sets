@@ -118,7 +118,7 @@ Use these decisions for critical freshness changes:
 
 ## Migrated Critical Post-Write Signals
 
-The migrated critical post-write handoffs are tracked through the same Grafana dashboards and alerts as the rest of projection freshness (see [Observability](../runbooks/observability.md) and the Alert And Dashboard Requirements below). There is no automated canary-evidence promotion gate comparing these signals against a baseline: that gate modeled a canary deployment that does not exist, and the platform ships via a DigitalOcean App Platform rolling deploy with advisory post-deploy synthetic probes. Promotion safety for these signals comes from their SLO alerts and the freshness probe, not a deployment-time comparison.
+The migrated critical post-write handoffs are tracked through the same Grafana dashboards and alerts as the rest of projection freshness (see [Observability](../runbooks/observability.md) and the Alert And Dashboard Requirements below). Promotion safety for these signals comes from their SLO alerts, the post-deploy freshness probe, and—when enabled—the DOKS Argo Rollouts analysis gate.
 
 The first migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. Until their telemetry is live they are observed (not alert-gating); once instrumented they get the same dashboard panels and alert families as the critical Checkout session route, with the support-safe labels described below.
 

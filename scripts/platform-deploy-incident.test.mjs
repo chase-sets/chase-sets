@@ -167,8 +167,6 @@ describe("platform deploy incident classification", () => {
 describe("deployment root-cause taxonomy", () => {
   it("publishes the complete initial stable taxonomy", () => {
     expect(DEPLOY_ROOT_CAUSE_CODES).toEqual([
-      "app-platform-bootstrap-config",
-      "app-platform-bootstrap-runtime",
       "doks-bootstrap-or-migration",
       "terraform-provider-or-state",
       "staging-dns",
@@ -187,9 +185,7 @@ describe("deployment root-cause taxonomy", () => {
   }
 
   it("renders the same concise root cause into the artifact, summary, and incident body", () => {
-    const fixture = rootCauseFixtures.find(
-      ({ expected }) => expected.rootCauseCode === "app-platform-bootstrap-config",
-    );
+    const fixture = rootCauseFixtures.find(({ expected }) => expected.rootCauseCode === "doks-bootstrap-or-migration");
     const artifact = classifyDeploymentRootCause(fixture.input);
     const summary = renderDeployRootCauseSummary(artifact);
     const body = buildDeployIncidentBody({
@@ -202,12 +198,12 @@ describe("deployment root-cause taxonomy", () => {
 
     expect(artifact).toMatchObject({
       schemaVersion: "platform-deploy-root-cause/v1",
-      rootCauseCode: "app-platform-bootstrap-config",
+      rootCauseCode: "doks-bootstrap-or-migration",
       affectedComponent: "platform-bootstrap",
       blocking: true,
     });
     for (const output of [summary, body]) {
-      expect(output).toContain("app-platform-bootstrap-config");
+      expect(output).toContain("doks-bootstrap-or-migration");
       expect(output).toContain(artifact.rootCauseSummary);
       expect(output).toContain(artifact.remediation);
     }
@@ -329,10 +325,9 @@ describe("deployment root-cause taxonomy", () => {
     });
 
     expect(result).toMatchObject({
-      rootCauseCode: "app-platform-bootstrap-runtime",
-      affectedComponent: "platform-bootstrap",
-      providerReason: "DeployContainerExitNonZero: Bootstrap process exited unsuccessfully",
+      rootCauseCode: "terraform-provider-or-state",
+      affectedComponent: "terraform",
     });
-    expect(result.providerReason).not.toContain("state lock");
+    expect(result.providerReason).toContain("state lock");
   });
 });

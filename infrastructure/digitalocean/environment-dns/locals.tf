@@ -2,7 +2,6 @@ locals {
   is_staging       = var.environment == "staging"
   is_production    = var.environment == "production"
   environment_zone = local.is_production ? var.root_domain : "${var.environment}.${var.root_domain}"
-  app_serving      = local.is_production ? var.production_app_serving : var.staging_app_serving
   nameservers = [
     "ns1.digitalocean.com.",
     "ns2.digitalocean.com.",
@@ -26,13 +25,10 @@ locals {
 
   doks_ingress_target_configured = trimspace(var.doks_ingress_target) != ""
 
-  # Shadow validation hosts let the DOKS ingress controller and cert-manager
-  # issue real certificates and pass end-to-end HTTPS probes while App Platform
-  # keeps serving the live hosts. They are brand-new names App Platform never
-  # manages, so they never collide with or destroy App Platform records. They
-  # appear only once a load balancer target is known, which keeps the default
-  # plan a no-op until an operator wires the DOKS load balancer.
-  doks_shadow_records = local.doks_ingress_target_configured ? merge(
+  # Retain the established doks.* records as diagnostic aliases. Their state
+  # identities and DNS values are intentionally unchanged by #4055; cleanup is
+  # a separate delete-set and approval boundary.
+  doks_diagnostic_records = local.doks_ingress_target_configured ? merge(
     {
       apex  = { name = "doks", fqdn = "doks.${local.environment_zone}" }
       www   = { name = "www.doks", fqdn = "www.doks.${local.environment_zone}" }

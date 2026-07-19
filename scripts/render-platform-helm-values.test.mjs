@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import {
   buildDoksIngressValues,
   buildPlatformHelmProductionValues,
@@ -12,22 +11,13 @@ import {
   doksStagingApiOverrides,
   doksStagingWorkerAutoscaling,
   doksStagingWorkerEnvOverrides,
-  extractDigitalOceanPlatformComponents,
   platformHelmComponentName,
   platformHelmFullname,
   previewWildcardTlsSecretName,
-  readPlatformSources,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
 
 const repoRoot = path.resolve(".");
-const sources = readPlatformSources(repoRoot);
-
-function componentNames(collections) {
-  return [...collections.services, ...collections.workers, ...collections.jobs]
-    .map((component) => component.name)
-    .sort();
-}
 
 function componentEnvKeys(component) {
   return component.env.map((entry) => entry.name).sort();
@@ -35,15 +25,6 @@ function componentEnvKeys(component) {
 
 function componentEnvValue(component, name) {
   return component.env.find((entry) => entry.name === name)?.value;
-}
-
-function expectedHelmEnvKeys(terraformComponent) {
-  const keys = componentEnvKeys(terraformComponent);
-  if (terraformComponent.name === "platform-bootstrap") {
-    return [...keys.filter((key) => key !== "PLATFORM_BOOTSTRAP_OWNER"), "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL"].sort();
-  }
-
-  return keys;
 }
 
 function readChartFiles(relativePaths) {
@@ -97,9 +78,16 @@ describe("render platform Helm values", () => {
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
   });
 
-  it("scaffolds the six current full-platform App Platform components", () => {
+  it("scaffolds the six current DOKS runtime components", () => {
     const values = buildPlatformHelmValues({ repoRoot });
-    const expectedNames = componentNames(runtimeTopologyBaselines.staging.expectedComponents);
+    const expectedNames = [
+      "admin-web",
+      "marketplace",
+      "platform-api",
+      "platform-bootstrap",
+      "platform-worker",
+      "public-web",
+    ];
 
     expect(Object.keys(values.components).sort()).toEqual(expectedNames);
     expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(4);
@@ -130,30 +118,13 @@ describe("render platform Helm values", () => {
     expect(values.global.envOverrides).toEqual({});
   });
 
-  it("derives commands, ports, and source count expressions from the DigitalOcean app spec", () => {
-    const terraformComponents = extractDigitalOceanPlatformComponents(sources);
+  it("pins commands, ports, and source count expressions in the DOKS runtime values", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 
-    for (const terraformComponent of terraformComponents) {
-      const helmComponent = values.components[terraformComponent.name];
-      if (terraformComponent.name === "platform-bootstrap") {
-        expect(helmComponent.command).toBe("pnpm --filter @chase-sets/app-platform-api run bootstrap:production");
-      } else {
-        expect(helmComponent.command).toBe(terraformComponent.command);
-      }
-      // The worker declares no App Platform http_port but gets a DOKS-only
-      // health port injected for its liveness/readiness probes (#4620), so it
-      // is exempt from the App-Platform port-parity check.
-      if (terraformComponent.name !== "platform-worker") {
-        expect(helmComponent.port ?? null).toBe(terraformComponent.port ?? null);
-      }
-      if (terraformComponent.name === "platform-worker") {
-        expect(helmComponent.source.instanceCountExpression).toBe("local.worker_instances");
-      } else {
-        expect(helmComponent.source.instanceCountExpression).toBe(terraformComponent.instanceCountExpression);
-      }
-    }
-
+    expect(values.components["public-web"].command).toBe("pnpm --filter @chase-sets/app-public-web run start");
+    expect(values.components.marketplace.command).toBe("pnpm --filter @chase-sets/app-marketplace-web run start");
+    expect(values.components["platform-api"].port).toBe(8080);
+    expect(values.components["platform-worker"].port).toBe(8080);
     expect(values.components["public-web"].source.instanceCountExpression).toBe("local.public_web_instances");
     expect(values.components.marketplace.source.instanceCountExpression).toBe("local.marketplace_web_instances");
     expect(values.components["platform-api"].source.instanceCountExpression).toBe("local.api_instances");
@@ -419,8 +390,8 @@ describe("render platform Helm values", () => {
     expect(values.components["admin-web"].healthPath).toBe("/health/ready");
   });
 
-  it("gives the staging DOKS worker relay ownership now that the App Platform worker is omitted", () => {
-    // Invariant for issue #4743: #4739 removes the App Platform worker
+  it("gives the staging DOKS worker relay ownership now that the retired worker is omitted", () => {
+    // Invariant for issue #4743: #4739 removes the retired worker
     // component when DOKS owns the estate, and that worker was the only
     // relay-enabled process. The estate's sole remaining worker MUST run the
     // projection wake relay — with the base Helm value left at "false"
@@ -485,11 +456,10 @@ describe("render platform Helm values", () => {
   // scripts/digitalocean-platform-config.test.mjs), so admin Google
   // Workspace SSO looked "not configured" even though the request reached
   // platform-api fine.
-  it("renders DOKS shadow ingress hosts while App Platform serves live staging traffic", () => {
+  it("renders the live DOKS staging ingress hosts", () => {
     const doksIngress = buildDoksIngressValues({
       env: {
         DOKS_INGRESS_TARGET: "203.0.113.10",
-        STAGING_APP_SERVING: "app-platform",
       },
     });
 
@@ -497,16 +467,16 @@ describe("render platform Helm values", () => {
     expect(doksIngress.className).toBe("nginx");
     expect(doksIngress.clusterIssuer).toBe("letsencrypt-production");
     expect(doksIngress.hosts.map((host) => host.host)).toEqual([
-      "doks.staging.chasesets.com",
-      "www.doks.staging.chasesets.com",
-      "marketplace.doks.staging.chasesets.com",
-      "admin.doks.staging.chasesets.com",
+      "staging.chasesets.com",
+      "www.staging.chasesets.com",
+      "marketplace.staging.chasesets.com",
+      "admin.staging.chasesets.com",
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
-      "doks.staging.chasesets.com": { path: "/", service: "marketplace" },
-      "www.doks.staging.chasesets.com": { path: "/", service: "public-web" },
-      "marketplace.doks.staging.chasesets.com": { path: "/", service: "marketplace" },
-      "admin.doks.staging.chasesets.com": { path: "/", service: "admin-web" },
+      "staging.chasesets.com": { path: "/", service: "marketplace" },
+      "www.staging.chasesets.com": { path: "/", service: "public-web" },
+      "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
+      "admin.staging.chasesets.com": { path: "/", service: "admin-web" },
     });
     expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
       "/.well-known",
@@ -526,7 +496,6 @@ describe("render platform Helm values", () => {
     const stagingValues = buildPlatformHelmStagingValues({
       env: {
         DOKS_INGRESS_TARGET: "203.0.113.10",
-        STAGING_APP_SERVING: "doks",
       },
     });
 
@@ -550,21 +519,17 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("renders production shadow and live hosts under one pre-flip DNS-01 certificate", () => {
+  it("renders production live hosts under one DNS-01 certificate", () => {
     const doksIngress = buildDoksIngressValues({
       environment: "production",
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
-        PRODUCTION_APP_SERVING: "app-platform",
       },
     });
 
     expect(doksIngress.enabled).toBe(true);
     expect(doksIngress.clusterIssuer).toBe("");
     expect(doksIngress.hosts.map((host) => host.host)).toEqual([
-      "doks.chasesets.com",
-      "www.doks.chasesets.com",
-      "admin.doks.chasesets.com",
       "chasesets.com",
       "www.chasesets.com",
       "admin.chasesets.com",
@@ -586,14 +551,16 @@ describe("render platform Helm values", () => {
       environment: "production",
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
-        PRODUCTION_APP_SERVING: "doks",
         PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
       },
     });
 
-    expect(doksIngress.hosts.map((host) => host.host)).toEqual(
-      expect.arrayContaining(["marketplace.doks.chasesets.com", "marketplace.chasesets.com"]),
-    );
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual([
+      "chasesets.com",
+      "www.chasesets.com",
+      "marketplace.chasesets.com",
+      "admin.chasesets.com",
+    ]);
   });
 
   it("does not let production inherit the repo-level staging ingress target", () => {
@@ -601,7 +568,6 @@ describe("render platform Helm values", () => {
       environment: "production",
       env: {
         DOKS_INGRESS_TARGET: "159.203.145.65",
-        PRODUCTION_APP_SERVING: "app-platform",
       },
     });
 
@@ -761,15 +727,8 @@ describe("render platform Helm values", () => {
     expect(values.components["platform-bootstrap"].rollout).toBeUndefined();
   });
 
-  it("keeps Helm env keys and counts aligned with DigitalOcean component env", () => {
-    const terraformComponents = extractDigitalOceanPlatformComponents(sources);
+  it("pins the checked-in runtime env counts", () => {
     const values = buildPlatformHelmValues({ repoRoot });
-
-    for (const terraformComponent of terraformComponents) {
-      expect(componentEnvKeys(values.components[terraformComponent.name])).toEqual(
-        expectedHelmEnvKeys(terraformComponent),
-      );
-    }
 
     expect(
       Object.fromEntries(Object.entries(values.components).map(([name, component]) => [name, component.env.length])),

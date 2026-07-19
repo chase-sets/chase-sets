@@ -38,14 +38,14 @@ describe("platform ingress wait", () => {
 
     await expect(
       waitForIngressUrls({
-        urls: ["https://app-platform.chasesets.com/"],
+        urls: ["https://doks.chasesets.com/"],
         attempts: 1,
         expectedStatus: 200,
         fetchImpl,
       }),
     ).rejects.toThrow("302");
 
-    const result = await probeIngressUrl("https://app-platform.chasesets.com/", {
+    const result = await probeIngressUrl("https://doks.chasesets.com/", {
       expectedStatus: 200,
       fetchImpl: async () => ({ status: 200 }),
     });

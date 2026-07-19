@@ -925,7 +925,7 @@ describe("projection wake scheduler", () => {
 
   it("does not starve a checkout hot intent when the hot lane is held by a worker that does not host checkout", async () => {
     // Regression for #4643: two workers share one wake store + control plane
-    // (an App Platform + DOKS estate cutover on one control DB). Worker A hosts
+    // (mixed DOKS revisions on one control DB). Worker A hosts
     // ONLY ordering and grabs the hot lane first; worker B hosts checkout. The
     // single queued checkout hot intent must still be claimed and completed by
     // worker B even while worker A owns a hot-lane lease. Before the cohort-

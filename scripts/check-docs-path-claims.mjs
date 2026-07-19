@@ -127,6 +127,12 @@ export const docsPathClaimsAllowlist = [
     token: "deployables/platform-api/.env.local",
     reason: "Create-this-file instruction: a developer-local, gitignored env file, never committed.",
   },
+  {
+    file: "docs/runbooks/digitalocean-platform-deployment.md",
+    token: ".github/deployment/production-destructive-change-approved.md",
+    reason:
+      "Create-this-file instruction: the approval artifact must remain absent until the owner confirms the exact #4055 fingerprint.",
+  },
 ];
 
 const allowlistByFile = new Map();

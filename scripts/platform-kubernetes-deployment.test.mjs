@@ -629,7 +629,6 @@ describe("platform Kubernetes deployment", () => {
       },
       env: {
         DOKS_INGRESS_TARGET: "203.0.113.10",
-        STAGING_APP_SERVING: "app-platform",
       },
     });
 
@@ -639,13 +638,13 @@ describe("platform Kubernetes deployment", () => {
         "--set-string",
         "doksIngress.clusterIssuer=letsencrypt-production",
         "--set-string",
-        "doksIngress.hosts[0].host=doks.staging.chasesets.com",
+        "doksIngress.hosts[0].host=staging.chasesets.com",
         "--set-string",
-        "doksIngress.hosts[1].host=www.doks.staging.chasesets.com",
+        "doksIngress.hosts[1].host=www.staging.chasesets.com",
         "--set-string",
-        "doksIngress.hosts[2].host=marketplace.doks.staging.chasesets.com",
+        "doksIngress.hosts[2].host=marketplace.staging.chasesets.com",
         "--set-string",
-        "doksIngress.hosts[3].host=admin.doks.staging.chasesets.com",
+        "doksIngress.hosts[3].host=admin.staging.chasesets.com",
       ]),
     );
 
@@ -659,7 +658,6 @@ describe("platform Kubernetes deployment", () => {
       },
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
-        PRODUCTION_APP_SERVING: "app-platform",
       },
     });
 
@@ -674,12 +672,12 @@ describe("platform Kubernetes deployment", () => {
         "--set-string",
         "doksIngress.tls.certificate.clusterIssuer=letsencrypt-production",
         "--set-string",
-        "doksIngress.hosts[0].host=doks.chasesets.com",
+        "doksIngress.hosts[0].host=chasesets.com",
         "--set-string",
-        "doksIngress.hosts[3].host=chasesets.com",
+        "doksIngress.hosts[2].host=admin.chasesets.com",
       ]),
     );
-    expect(productionArgs).not.toContain("marketplace.doks.chasesets.com");
+    expect(productionArgs).not.toContain("marketplace.chasesets.com");
   });
 
   it("enables preview Postgres and PR-specific ingress only for preview deployments", () => {
@@ -1427,7 +1425,7 @@ describe("platform Kubernetes deployment", () => {
     }
   });
 
-  it("builds kubectl diagnostics without requiring App Platform state", () => {
+  it("builds kubectl diagnostics from Kubernetes state", () => {
     const commands = buildDiagnosticsCommands({
       values: sampleValues,
       release: "proof",
@@ -1517,7 +1515,7 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
-  it("builds release-health-friendly rollback targets without App Platform state", () => {
+  it("builds release-health-friendly Kubernetes rollback targets", () => {
     expect(
       buildKubernetesRollbackTarget({
         values: sampleValues,

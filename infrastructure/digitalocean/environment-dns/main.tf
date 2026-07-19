@@ -38,20 +38,6 @@ resource "digitalocean_domain" "environment" {
   }
 }
 
-check "doks_ingress_serving_target" {
-  assert {
-    condition     = local.app_serving != "doks" || local.doks_ingress_target_configured
-    error_message = "doks_ingress_target must be set to the environment's DOKS ingress load balancer IPv4 address before app serving flips to \"doks\"."
-  }
-}
-
-check "production_doks_certificate_preflight" {
-  assert {
-    condition     = !local.is_production || var.production_app_serving != "doks" || var.production_doks_certificate_ready
-    error_message = "production_doks_certificate_ready must be true after the live-and-shadow Certificate is Ready before production_app_serving flips to \"doks\"."
-  }
-}
-
 resource "digitalocean_record" "delegation" {
   for_each = local.is_staging ? toset(local.nameservers) : toset([])
 
@@ -144,11 +130,10 @@ resource "digitalocean_record" "catalog_assets" {
   ttl    = 3600
 }
 
-# Shadow validation hosts: always present once the DOKS load balancer target is
-# known so the ingress + cert-manager pipeline can be proven while App Platform
-# still serves the live hosts.
+# Retained DOKS diagnostic hosts. The resource name remains stable so this
+# decommission neither deletes nor recreates their live DNS records.
 resource "digitalocean_record" "doks_ingress_shadow" {
-  for_each = local.doks_shadow_records
+  for_each = local.doks_diagnostic_records
 
   domain = local.environment_zone
   type   = "A"

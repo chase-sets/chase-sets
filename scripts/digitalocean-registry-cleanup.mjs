@@ -40,30 +40,6 @@ function normalizeTag(tag) {
   };
 }
 
-function collectImageReferencesFromApp(app) {
-  const spec = app.spec ?? app.Spec ?? {};
-  const components = [
-    ...(spec.services ?? spec.Services ?? []),
-    ...(spec.workers ?? spec.Workers ?? []),
-    ...(spec.jobs ?? spec.Jobs ?? []),
-  ];
-
-  const references = components
-    .map((component) => component.image ?? component.Image)
-    .filter(Boolean)
-    .map((image) => ({
-      tag: image.tag ?? image.Tag ?? null,
-      digest: image.digest ?? image.Digest ?? image.manifest_digest ?? image.ManifestDigest ?? null,
-    }));
-
-  return {
-    tags: references.map((reference) => reference.tag).filter((tag) => typeof tag === "string" && tag.length > 0),
-    digests: references
-      .map((reference) => reference.digest)
-      .filter((digest) => typeof digest === "string" && digest.length > 0),
-  };
-}
-
 export function selectTagsForDeletion(tags, options = {}) {
   return selectTagDeletionCandidates(tags, options).map((tag) => tag.name);
 }
@@ -114,46 +90,6 @@ function resolveProtectedDigests(tags, protectedTags, protectedDigests) {
   return [...digests].sort();
 }
 
-export async function fetchProtectedAppTags(appNames, options = {}) {
-  const references = await fetchProtectedAppImageReferences(appNames, options);
-  return references.tags;
-}
-
-export async function fetchProtectedAppImageReferences(appNames, options = {}) {
-  if (appNames.length === 0) {
-    return { tags: [], digests: [] };
-  }
-
-  const apps = await commandJson("doctl", ["apps", "list", "--output", "json"], options);
-  const selectedApps = apps.filter((app) => {
-    const spec = app.spec ?? app.Spec ?? {};
-    const name = spec.name ?? spec.Name ?? app.name ?? app.Name;
-    return appNames.includes(name);
-  });
-
-  const references = { tags: [], digests: [] };
-  for (const app of selectedApps) {
-    const appId = app.id ?? app.ID;
-    if (!appId) {
-      const appReferences = collectImageReferencesFromApp(app);
-      references.tags.push(...appReferences.tags);
-      references.digests.push(...appReferences.digests);
-      continue;
-    }
-
-    const appDetails = await commandJson("doctl", ["apps", "get", appId, "--output", "json"], options);
-    const detail = Array.isArray(appDetails) ? appDetails[0] : appDetails;
-    const appReferences = collectImageReferencesFromApp(detail ?? app);
-    references.tags.push(...appReferences.tags);
-    references.digests.push(...appReferences.digests);
-  }
-
-  return {
-    tags: [...new Set(references.tags)],
-    digests: [...new Set(references.digests)].sort(),
-  };
-}
-
 function readRepeatedOption(argv, name) {
   const prefix = `${name}=`;
   return argv
@@ -185,7 +121,6 @@ export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
       10,
     ),
     dryRun: dryRunInput !== null ? true : parseBoolean(envDryRun ?? "false"),
-    appNames: readRepeatedOption(argv, "--app-name"),
     protectedTags: readRepeatedOption(argv, "--protect-tag"),
     outPath: readOption(argv, "--out", env.DIGITALOCEAN_REGISTRY_CLEANUP_OUT),
     checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
@@ -216,7 +151,6 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
     repository: options.repository,
     retentionDays: options.retentionDays,
     retainRecentShaTreeTags: options.retainRecentShaTreeTags,
-    protectedAppNames: options.appNames ?? [],
     protectedTags: [],
     protectedDigests: [],
     retainedRecentShaTreeTags: [],
@@ -235,13 +169,9 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
     return { record: baseRecord, passesCleanupGate: false };
   }
 
-  const appReferences = await fetchProtectedAppImageReferences(options.appNames ?? [], { commandOutput: output });
-  const protectedTags = [...(options.protectedTags ?? []), ...appReferences.tags];
+  const protectedTags = options.protectedTags ?? [];
   const tags = await json("doctl", ["registry", "repository", "list-tags", options.repository, "--output", "json"]);
-  const protectedDigests = resolveProtectedDigests(tags, protectedTags, [
-    ...(options.protectedDigests ?? []),
-    ...appReferences.digests,
-  ]);
+  const protectedDigests = resolveProtectedDigests(tags, protectedTags, [...(options.protectedDigests ?? [])]);
   const retainedRecentShaTreeTags = selectRetainedRecentShaTreeTags(tags, options.retainRecentShaTreeTags);
   const selectedTags = selectTagDeletionCandidates(tags, {
     retainRecentShaTreeTags: options.retainRecentShaTreeTags,
@@ -375,7 +305,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--app-name=<name>] [--protect-tag=<tag>] [--dry-run] [--out=<path>]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] [--dry-run] [--out=<path>]",
   );
 }
 
