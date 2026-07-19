@@ -97,6 +97,7 @@ const reverseAbraSearchResult: DiscoverySearchItem = {
 const searchResponse: DiscoverySearchResponse = {
   items: [searchResult],
   facets: [],
+  category_counts: categories.map(({ slug, item_count }) => ({ slug, count: item_count })),
   total: 1,
   count: 1,
   nextCursor: null,
@@ -592,19 +593,34 @@ describe("SearchPage", () => {
   });
 
   it("keeps the category facet visible when a category is selected", () => {
-    const props = renderSearchPage({ category: "booster-packs" });
+    const props = renderSearchPage({
+      category: "booster-packs",
+      data: {
+        ...searchResponse,
+        category_counts: [
+          { slug: "booster-packs", count: 2 },
+          { slug: "singles", count: 0 },
+        ],
+      },
+    });
 
     expect(screen.getByText("Browse categories")).toBeTruthy();
     expect(screen.getAllByText("1 results in Booster Packs").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Singles (7)" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Singles (0)" }).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Singles (7)" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Singles (0)" })[0]);
 
     expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
   });
 
   it("keeps focused mobile category switching above recovery and saved-search content", () => {
-    const props = renderSearchPage({ category: "booster-packs" });
+    const props = renderSearchPage({
+      category: "booster-packs",
+      data: {
+        ...searchResponse,
+        category_counts: [{ slug: "singles", count: 0 }],
+      },
+    });
 
     const mobileFilters = screen.getByLabelText("Search filters");
     const savedSearch = screen.getByText("Save this search");
@@ -616,7 +632,7 @@ describe("SearchPage", () => {
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
     expect(within(filterSheet).getByText("Browse categories")).toBeTruthy();
 
-    fireEvent.click(within(filterSheet).getByRole("button", { name: "Singles (7)" }));
+    fireEvent.click(within(filterSheet).getByRole("button", { name: "Singles (0)" }));
 
     expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
   });

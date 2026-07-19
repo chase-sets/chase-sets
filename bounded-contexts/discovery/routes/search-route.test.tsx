@@ -67,6 +67,7 @@ function searchData(search = "", language = "") {
     page: 1,
     data: {
       items: [],
+      category_counts: [{ slug: "cards", count: 2 }],
       total: 0,
       count: 0,
       nextCursor: null,
@@ -115,6 +116,7 @@ function searchDataWithResults(search = "", language = "") {
           updated_at: "2026-05-01T00:00:00.000Z",
         },
       ],
+      category_counts: [{ slug: "cards", count: 2 }],
       total: 1,
       count: 1,
       nextCursor: null,
@@ -945,6 +947,7 @@ function persistedSearchPage(catalogItemId: string, slug: string, title: string)
       },
     ],
     facets: [],
+    category_counts: [{ slug: "cards", count: 1 }],
     total: null,
     count: 1,
     nextCursor: null,

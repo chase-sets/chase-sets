@@ -124,4 +124,20 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXPECTED_ORDER.relevance);
     expect(result.nextCursor).toBeNull();
   });
+
+  it("returns query-scoped category counts, including no row for unmatched categories", async () => {
+    await pool.query(
+      `UPDATE discovery_search_items
+       SET category_slugs = CASE
+         WHEN catalog_item_id IN ('cat_a', 'cat_b') THEN '["singles"]'::jsonb
+         ELSE '["sealed"]'::jsonb
+       END`,
+      [],
+    );
+
+    const result = await searchDiscoveryItems(pool, { search: "charizard", category: "singles" });
+
+    expect(result.category_counts).toEqual([{ slug: "singles", count: 2 }]);
+    expect(result.category_counts.find((category) => category.slug === "sealed")?.count ?? 0).toBe(0);
+  });
 });

@@ -49,9 +49,11 @@ export type DiscoveryFacetValue = Readonly<{
   count: number;
   selected: boolean;
 }>;
+export type DiscoveryCategoryCount = Readonly<{ slug: string; count: number }>;
 export type ListResult<T> = {
   items: T[];
   facets: DiscoveryFacetGroup[];
+  category_counts: DiscoveryCategoryCount[];
   total: number | null;
   nextCursor: string | null;
 };
@@ -660,7 +662,9 @@ export async function searchDiscoveryItems(
           db,
           rows.map((row) => row.catalog_item_id),
         );
-  const facets = options.loadFacets === false || params.cursor ? [] : await loadSearchFacets(db, params);
+  const loadFacets = options.loadFacets !== false && !params.cursor;
+  const facets = loadFacets ? await loadSearchFacets(db, params) : [];
+  const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params) : [];
 
   return {
     items: rows.map(({ lowest_price_amount: _lowestPriceAmount, visible_quantity: _visibleQuantity, ...row }) => ({
@@ -668,6 +672,7 @@ export async function searchDiscoveryItems(
       market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     })),
     facets,
+    category_counts,
     total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,
     nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow) : null,
   };
@@ -721,9 +726,50 @@ export async function searchDiscoveryItemsByNaturalKey(
       market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     })),
     facets: [],
+    category_counts: categoryCountsForItems(listResult.rows),
     total: listResult.rows.length,
     nextCursor: null,
   };
+}
+
+function categoryCountsForItems(
+  items: readonly Pick<DiscoverySearchItemRow, "category_slugs">[],
+): DiscoveryCategoryCount[] {
+  const counts = new Map<string, number>();
+
+  for (const item of items) {
+    if (!Array.isArray(item.category_slugs)) {
+      continue;
+    }
+
+    for (const slug of item.category_slugs) {
+      if (typeof slug === "string" && slug) {
+        counts.set(slug, (counts.get(slug) ?? 0) + 1);
+      }
+    }
+  }
+
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([slug, count]) => ({ slug, count }));
+}
+
+async function loadSearchCategoryCounts(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+): Promise<DiscoveryCategoryCount[]> {
+  const filter = buildSearchFilter(params, { itemAlias: "item" });
+  const result = await db.query<{ slug: string; count: string | number }>(
+    `SELECT category_slug AS slug, COUNT(DISTINCT item.catalog_item_id)::integer AS count
+     FROM discovery_search_items AS item
+     CROSS JOIN LATERAL jsonb_array_elements_text(item.category_slugs) AS category_slug
+     ${filter.where}
+     GROUP BY category_slug
+     ORDER BY category_slug ASC`,
+    filter.values,
+  );
+
+  return result.rows.map((row) => ({ slug: row.slug, count: Number(row.count) }));
 }
 
 export async function searchDiscoverySemanticItems(
