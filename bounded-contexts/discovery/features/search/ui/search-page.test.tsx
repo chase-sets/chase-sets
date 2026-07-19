@@ -164,12 +164,50 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
-  it("renders the desktop rail and mobile filter sheet from one facet configuration", () => {
-    const source = readFileSync(join(__dirname, "search-page.tsx"), "utf8");
+  it("renders identical facet groups, options, and counts in the desktop rail and mobile sheet", () => {
+    renderSearchPage({
+      committedSearch: "abra",
+      data: {
+        ...searchResponse,
+        facets: [
+          {
+            id: "dim_condition",
+            kind: "dimension",
+            label: "Condition",
+            values: [
+              { id: "near-mint", label: "Near Mint", count: 3, selected: false },
+              { id: "lightly-played", label: "Lightly Played", count: 2, selected: false },
+            ],
+          },
+        ],
+      },
+    });
 
-    expect(source.match(/const searchFacetConfigurations:/g)).toHaveLength(1);
-    expect(source.match(/renderFacetConfigurations\("desktop"\)/g)).toHaveLength(1);
-    expect(source.match(/renderFacetConfigurations\("mobile"\)/g)).toHaveLength(1);
+    const desktopRail = document.querySelector("aside");
+    expect(desktopRail).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+    const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    const facetSummary = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll<HTMLElement>("[id^=search-facet-]")).map((group) => ({
+        id: group.id.replace("search-facet-", ""),
+        label: group.querySelector("h2")?.textContent,
+        options: Array.from(group.querySelectorAll("button")).map((option) => {
+          const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
+          const count = / \((\d+)\)$/.exec(label);
+
+          return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
+        }),
+      }));
+
+    expect(facetSummary(desktopRail!)).toEqual(facetSummary(filterSheet));
+    expect(facetSummary(filterSheet)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "language", label: "Language" }),
+        expect.objectContaining({ id: "market-activity", label: "Market activity" }),
+      ]),
+    );
+    expect(filterSheet.querySelectorAll("[id^=search-facet-] button svg")).toHaveLength(0);
   });
 
   it("allows wide desktop search result grids to use a third column", () => {

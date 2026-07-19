@@ -74,7 +74,6 @@ type SearchFacetConfiguration =
       selectedIds?: readonly string[];
       selectionMode?: "multiple";
       onSelect: (value: string) => void;
-      mobileIcons?: Readonly<{ all: "book" | "search"; item: "book" | "search" }>;
       searchable?: boolean;
       searchLabel?: string;
       searchPlaceholder?: string;
@@ -610,7 +609,6 @@ export function SearchPage({
       items: languageOptions.map((item) => ({ id: item.value, label: item.label })),
       selectedId: language,
       onSelect: onLanguageChange,
-      mobileIcons: { all: "book", item: "book" },
     },
     {
       id: "market-activity",
@@ -621,7 +619,6 @@ export function SearchPage({
       items: marketActivityOptions.filter((item) => item.value).map((item) => ({ id: item.value, label: item.label })),
       selectedId: marketActivity,
       onSelect: (value) => onMarketActivityChange(value as MarketActivityFilter),
-      mobileIcons: { all: "search", item: "search" },
     },
     ...dynamicFacets.map((facet) => ({
       id: `${facet.kind}:${facet.id}`,
@@ -663,7 +660,7 @@ export function SearchPage({
       }
 
       const sharedProps = {
-        key: facet.id,
+        id: `search-facet-${facet.id}`,
         headingLevel: 2 as const,
         title: facet.title,
         description: facet.description,
@@ -677,17 +674,14 @@ export function SearchPage({
         searchLabel: facet.searchLabel,
         searchPlaceholder: facet.searchPlaceholder,
         searchEmptyLabel: facet.searchEmptyLabel,
+        showLeadingIcons: false,
         ...progressiveFacetLabels,
       };
 
       return presentation === "desktop" ? (
-        <MarketplaceFacetRail {...sharedProps} />
+        <MarketplaceFacetRail key={facet.id} {...sharedProps} />
       ) : (
-        <MarketplaceFacetChoiceGroup
-          {...sharedProps}
-          allLeadingIcon={facet.mobileIcons?.all}
-          itemLeadingIcon={facet.mobileIcons?.item}
-        />
+        <MarketplaceFacetChoiceGroup key={facet.id} {...sharedProps} />
       );
     });
   }
