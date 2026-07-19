@@ -4,13 +4,30 @@
   "generatedBy": "pnpm run ops design-system:legacy-inventory --write-ledger",
   "description": "Design-system legacy pattern inventory for milestone #12. Entries are file/category level and must map to a milestone issue with no permanent exceptions.",
   "summary": {
-    "fileCount": 0,
+    "fileCount": 1,
     "gatingFileCount": 0,
-    "warningFileCount": 0,
-    "categories": {},
-    "severity": { "error": 0, "warning": 0 },
-    "owners": {},
-    "issues": {}
+    "warningFileCount": 1,
+    "categories": { "rawStructuralElement": 2 },
+    "severity": { "error": 0, "warning": 2 },
+    "owners": { "Discovery": 1 },
+    "issues": { "#1666": 1 }
   },
-  "entries": []
+  "entries": [
+    {
+      "file": "bounded-contexts/discovery/features/search/ui/search-page.tsx",
+      "owner": "Discovery",
+      "categories": { "rawStructuralElement": 2 },
+      "details": [
+        { "category": "rawStructuralElement", "line": 180, "column": 10, "detail": "div" },
+        { "category": "rawStructuralElement", "line": 193, "column": 10, "detail": "div" }
+      ],
+      "phase": "Phase G3",
+      "issueTargets": ["#1666"],
+      "outcome": "migrate-or-promote-to-design-system",
+      "prerequisites": ["#1665"],
+      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
+      "status": "open",
+      "ownerStatus": "unassigned until scheduled by #960"
+    }
+  ]
 }
