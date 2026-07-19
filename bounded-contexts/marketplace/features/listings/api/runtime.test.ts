@@ -394,6 +394,7 @@ describe("marketplace listing runtime", () => {
     expect(metadata).toEqual({
       eventIds: allEvents.map((event) => event.eventId),
       maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+      committedEvents: allEvents,
       sources: [
         {
           sourceContextName: "marketplace",

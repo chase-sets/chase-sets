@@ -109,7 +109,11 @@ import {
   type ReadConsistencyAuditRecord,
   type ReadConsistencyMiddlewareOptions,
 } from "@chase-sets/bounded-context-runtime";
-import { createHonoObservabilityMiddleware, recordProjectionFreshnessAudit } from "@chase-sets/observability";
+import {
+  createHonoObservabilityMiddleware,
+  recordProjectionFreshnessAudit,
+  recordProjectionInlineApplyOutcome,
+} from "@chase-sets/observability";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   createHealthRoutes,
@@ -198,6 +202,7 @@ export type BuildPlatformApiOptions = Readonly<{
     ReadConsistencyMiddlewareOptions,
     "timeoutMs" | "pollIntervalMs" | "exactDependencyMode" | "routeTuning" | "workSignalGateway"
   >;
+  projectionInlineApplyEnabled?: boolean;
 }>;
 
 export function createPlatformApiHost(
@@ -918,7 +923,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     catalogApiPermissionMiddleware,
   );
 
-  attachWriteConsistencyMiddleware(app, apiMounts);
+  attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
+    enabled: options.projectionInlineApplyEnabled ?? false,
+    recordInlineApplyOutcome: recordProjectionInlineApplyOutcome,
+  });
   attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     timeoutMs: options.readConsistency?.timeoutMs,
     pollIntervalMs: options.readConsistency?.pollIntervalMs,

@@ -14,6 +14,7 @@ import {
   projectionFreshnessAuditMetricRecords,
   projectionFreshnessWakeEnqueueMetricRecord,
   projectionInterestIndexLookupMetricRecord,
+  projectionInlineApplyOutcomeMetricRecord,
   projectionWakeIntentEnqueueOutcomeMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
@@ -23,6 +24,7 @@ import {
   recordProjectionFreshnessWakeEnqueue,
   recordProviderWebhookIngestion,
   recordProjectionInterestIndexLookup,
+  recordProjectionInlineApplyOutcome,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
@@ -1056,6 +1058,41 @@ describe("event-store append lock observability", () => {
 });
 
 describe("projection wake pipeline observability", () => {
+  it("records support-safe inline apply outcomes per attempt", () => {
+    expect(
+      projectionInlineApplyOutcomeMetricRecord({
+        outcome: "deferred",
+        reason: "predecessor-gap",
+        sourceContextName: "checkout",
+        targetContextName: "checkout",
+        projectionName: "checkout.session-projection",
+        subscriptionName: "checkout.session-projection",
+        durationMs: 4.6,
+      }),
+    ).toEqual({
+      attributes: {
+        outcome: "deferred",
+        reason: "predecessor-gap",
+        source_context: "checkout",
+        target_context: "checkout",
+        projection: "checkout.session-projection",
+        subscription: "checkout.session-projection",
+      },
+      durationMs: 5,
+    });
+    expect(() =>
+      recordProjectionInlineApplyOutcome({
+        outcome: "failed",
+        reason: "handler-failed",
+        sourceContextName: "checkout",
+        targetContextName: "checkout",
+        projectionName: "checkout.session-projection",
+        subscriptionName: "checkout.session-projection",
+        durationMs: Number.NaN,
+      }),
+    ).not.toThrow();
+  });
+
   it("records wake-before-wait enqueue latency with support-safe labels", () => {
     const record = projectionFreshnessWakeEnqueueMetricRecord({
       outcome: "completed",

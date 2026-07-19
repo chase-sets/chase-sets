@@ -1,4 +1,5 @@
 export * from "./api-mounts";
+export * from "./inline-apply";
 export { createProjectionAwarePool } from "./projection-transactions";
 export {
   bootstrapContextDatabase,

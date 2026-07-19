@@ -94,6 +94,7 @@ export type ContextProjectionGroup = Readonly<{
   sourceContextMount?: BcProjectionGroup["sourceContextMount"];
   optionalSourceContextNames: readonly string[];
   ownedTables: readonly string[];
+  sideEffectOnly?: boolean;
   resetStrategy?: BcProjectionGroupResetStrategy;
   requiredDuringBootstrap: boolean;
   subscriptionRunners: readonly ContextSubscriptionRunner[];
@@ -409,6 +410,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       sourceContextMount: group.sourceContextMount,
       optionalSourceContextNames,
       ownedTables,
+      sideEffectOnly: group.sideEffectOnly ?? false,
       resetStrategy: group.resetStrategy,
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
       subscriptionRunners: [],
@@ -564,6 +566,8 @@ export function resolveModuleProjectionGroups(
       ];
       const actualSources = [...new Set(groupRunners.map((runner) => runner.sourceContextName))];
 
+      validateInlineApplyEligibility(entry.contextName, group, groupRunners);
+
       if (groupRunners.length === 0) {
         throw new Error(
           `Context '${entry.contextName}' projection group '${group.projectionName}' does not have any matching subscriptions.`,
@@ -683,6 +687,45 @@ export function resolveModuleProjectionGroups(
   }
 
   return sortProjectionGroups(groups);
+}
+
+function validateInlineApplyEligibility(
+  targetContextName: string,
+  group: Pick<BcProjectionGroup, "projectionName" | "handlerKind" | "sourceContextNames" | "sideEffectOnly">,
+  runners: readonly ContextSubscriptionRunner[],
+): void {
+  const inlineRunners = runners.filter((runner) => runner.inlineApply === true);
+  if (inlineRunners.length === 0) {
+    return;
+  }
+
+  const errorPrefix = `Context '${targetContextName}' projection group '${group.projectionName}' cannot enable inlineApply`;
+  if ((group.handlerKind ?? "projection") === "reaction") {
+    throw new Error(`${errorPrefix} because reaction handlers are never eligible for write-path projection apply.`);
+  }
+  if (group.sideEffectOnly) {
+    throw new Error(
+      `${errorPrefix} because side-effect-only handlers are never eligible for write-path projection apply.`,
+    );
+  }
+  // Inline Apply only enforces same-stream predecessors. Global-strict order
+  // needs a global predecessor barrier and must remain on the async runner.
+  if (inlineRunners.some((runner) => runner.errorPolicy === "global-strict")) {
+    throw new Error(`${errorPrefix} because global-strict projections require total global order.`);
+  }
+  if (
+    group.sourceContextNames.length !== 1 ||
+    group.sourceContextNames[0] !== targetContextName ||
+    runners.length !== 1 ||
+    inlineRunners[0]?.sourceContextName !== targetContextName
+  ) {
+    throw new Error(`${errorPrefix} unless it is a single-source, same-context projection.`);
+  }
+  if (
+    inlineRunners.some((runner) => runner.checkpointBatchSize === 1 || runner.projectionCascadeChunkSize !== undefined)
+  ) {
+    throw new Error(`${errorPrefix} because cascade-capable projections must remain on the asynchronous runner.`);
+  }
 }
 
 export async function syncProjectionGroup(

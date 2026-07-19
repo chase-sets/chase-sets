@@ -118,6 +118,13 @@ type SubscriptionApplicationRow = Readonly<{
 
 export type SubscriptionApplicationClaimResult = "claimed" | "already-applied";
 
+export type InlineSubscriptionApplicationClaimResult =
+  | "claimed"
+  | "already-applied"
+  | "blocked-stream"
+  | "predecessor-gap"
+  | "in-flight";
+
 export function createCheckpointKey(
   subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
 ): string {
@@ -398,6 +405,110 @@ export async function claimSubscriptionApplication(
   }
 
   return "claimed";
+}
+
+/**
+ * Claims an application only when inline execution cannot overtake the stream or
+ * an existing applier. Unlike the runner claim, this never locks or rewrites an
+ * existing ledger row; contention and every non-applied row defer to the runner.
+ */
+export async function claimInlineSubscriptionApplication(
+  db: PgQueryable,
+  projectionKey: string,
+  event: Readonly<ReturnType<typeof toTransportEvent>>,
+  lockTimeoutMs = 1,
+): Promise<InlineSubscriptionApplicationClaimResult> {
+  const result = await db.query<Readonly<{ outcome: InlineSubscriptionApplicationClaimResult }>>(
+    `WITH lock_budget AS MATERIALIZED (
+       SELECT set_config('lock_timeout', $7, true)
+     ),
+     blocked_stream AS (
+       SELECT 1
+       FROM event_projection_blocked_streams
+       WHERE projection_key = $1
+         AND stream_id = $3
+         AND state IN ('blocked', 'retrying')
+     ),
+     predecessor AS (
+       SELECT event_id, global_position
+       FROM event_store_events
+       WHERE stream_id = $3
+         AND stream_version = $4::bigint - 1
+     ),
+     checkpoint AS (
+       SELECT last_global_position
+       FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+       WHERE checkpoint_key = $1
+     ),
+     predecessor_application AS (
+       SELECT application.status
+       FROM event_subscription_applications AS application
+       JOIN predecessor ON predecessor.event_id = application.event_id
+       WHERE application.projection_key = $1
+     ),
+     eligibility AS (
+       SELECT CASE
+         WHEN EXISTS (SELECT 1 FROM blocked_stream) THEN 'blocked-stream'
+         WHEN $4::bigint > 1
+          AND (
+            NOT EXISTS (SELECT 1 FROM predecessor)
+            OR (
+              COALESCE((SELECT last_global_position FROM checkpoint), 0) <
+                (SELECT global_position FROM predecessor)
+              AND COALESCE((SELECT status FROM predecessor_application), '') <> 'applied'
+            )
+          ) THEN 'predecessor-gap'
+         ELSE 'eligible'
+       END AS outcome
+     ),
+     claimed AS (
+       INSERT INTO event_subscription_applications (
+         projection_key,
+         event_id,
+         stream_id,
+         stream_version,
+         global_position,
+         event_type,
+         status,
+         error_message,
+         lease_owner_id,
+         lease_fencing_token,
+         started_at,
+         updated_at
+       )
+       SELECT $1, $2, $3, $4::bigint, $5::bigint, $6, 'started', NULL, NULL, NULL, now(), now()
+       FROM eligibility, lock_budget
+       WHERE eligibility.outcome = 'eligible'
+       ON CONFLICT (projection_key, event_id)
+       DO NOTHING
+       RETURNING status
+     ),
+     current_application AS (
+       SELECT status
+       FROM event_subscription_applications
+       WHERE projection_key = $1
+         AND event_id = $2
+     )
+     SELECT CASE
+       WHEN eligibility.outcome = 'blocked-stream' THEN 'blocked-stream'
+       WHEN eligibility.outcome = 'predecessor-gap' THEN 'predecessor-gap'
+       WHEN EXISTS (SELECT 1 FROM claimed) THEN 'claimed'
+       WHEN (SELECT status FROM current_application) = 'applied' THEN 'already-applied'
+       ELSE 'in-flight'
+     END AS outcome
+     FROM eligibility`,
+    [
+      projectionKey,
+      String(event.id),
+      event.streamId,
+      event.streamVersion,
+      event.globalPosition,
+      event.type,
+      `${Math.max(1, Math.floor(lockTimeoutMs))}ms`,
+    ],
+  );
+
+  return result.rows[0]?.outcome ?? "in-flight";
 }
 
 export async function recordSubscriptionApplicationCompleted(

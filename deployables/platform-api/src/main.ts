@@ -581,6 +581,7 @@ const app = buildPlatformApiApp(runtime, {
   workSignalStore,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
+  projectionInlineApplyEnabled: config.projectionInlineApplyEnabled,
   readConsistency: {
     ...config.readConsistency,
     workSignalGateway: workSignalStore.readConsistencyGateway,

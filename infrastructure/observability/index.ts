@@ -146,6 +146,10 @@ const projectionFreshnessWakeEnqueueDuration = lazyHistogram(
 const projectionFreshnessWorkSignalErrorCounter = lazyCounter(
   "chase_sets_projection_freshness_work_signal_errors_total",
 );
+const projectionInlineApplyOutcomeCounter = lazyCounter("chase_sets_projection_inline_apply_outcomes_total");
+const projectionInlineApplyDuration = lazyHistogram("chase_sets_projection_inline_apply_duration_ms", {
+  unit: "ms",
+});
 const projectionWakeNotificationCounter = lazyCounter("chase_sets_projection_wake_notifications_total");
 const projectionWakeNotificationPayloadBytes = lazyHistogram("chase_sets_projection_wake_notification_payload_bytes", {
   unit: "By",
@@ -371,6 +375,21 @@ export type ProjectionFreshnessWakeEnqueueMetric = Readonly<{
 
 export type ProjectionFreshnessWorkSignalErrorMetric = Readonly<{
   attributes: Attributes;
+}>;
+
+export type ProjectionInlineApplyOutcomeSignal = Readonly<{
+  outcome: "applied" | "deferred" | "failed";
+  reason: string;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  subscriptionName: string;
+  durationMs: number;
+}>;
+
+export type ProjectionInlineApplyOutcomeMetric = Readonly<{
+  attributes: Attributes;
+  durationMs: number;
 }>;
 
 export type ProjectionWakeNotificationEmittedSignal = Readonly<{
@@ -1232,6 +1251,28 @@ export function recordProjectionFreshnessAudit(event: ProjectionFreshnessAuditSi
   for (const workSignalError of records.workSignalErrors) {
     projectionFreshnessWorkSignalErrorCounter.add(1, workSignalError.attributes);
   }
+}
+
+export function projectionInlineApplyOutcomeMetricRecord(
+  event: ProjectionInlineApplyOutcomeSignal,
+): ProjectionInlineApplyOutcomeMetric {
+  return {
+    attributes: {
+      outcome: boundedMetricLabel(event.outcome),
+      reason: boundedMetricLabel(event.reason),
+      source_context: boundedMetricLabel(event.sourceContextName),
+      target_context: boundedMetricLabel(event.targetContextName),
+      projection: boundedMetricLabel(event.projectionName),
+      subscription: boundedMetricLabel(event.subscriptionName),
+    },
+    durationMs: Number.isFinite(event.durationMs) ? Math.max(0, Math.round(event.durationMs)) : 0,
+  };
+}
+
+export function recordProjectionInlineApplyOutcome(event: ProjectionInlineApplyOutcomeSignal): void {
+  const record = projectionInlineApplyOutcomeMetricRecord(event);
+  projectionInlineApplyOutcomeCounter.add(1, record.attributes);
+  projectionInlineApplyDuration.record(record.durationMs, record.attributes);
 }
 
 export function projectionFreshnessWakeEnqueueMetricRecord(

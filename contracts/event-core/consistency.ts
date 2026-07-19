@@ -5,6 +5,8 @@ export type EventCommitMetadata = Readonly<{
   eventIds: readonly string[];
   maxGlobalPosition?: string;
   sources: readonly EventCommitSourceMetadata[];
+  /** Full committed events retained only inside the current process/request. */
+  committedEvents: readonly StoredEvent[];
 }>;
 
 export type EventCommitSourceMetadata = Readonly<{
@@ -17,12 +19,13 @@ type EventCommitMetadataStore = {
   eventIds: string[];
   maxGlobalPosition?: string;
   sources: Map<string, { eventIds: string[]; maxGlobalPosition?: string }>;
+  committedEvents: StoredEvent[];
 };
 
 const storage = new AsyncLocalStorage<EventCommitMetadataStore>();
 
 export function runWithEventCommitMetadata<T>(action: () => T): T {
-  return storage.run({ eventIds: [], sources: new Map() }, action);
+  return storage.run({ eventIds: [], sources: new Map(), committedEvents: [] }, action);
 }
 
 export function recordCommittedEvents(events: readonly StoredEvent[], sourceContextNameOverride?: string): void {
@@ -32,6 +35,7 @@ export function recordCommittedEvents(events: readonly StoredEvent[], sourceCont
   }
 
   for (const event of events) {
+    store.committedEvents.push(event);
     const eventId = String(event.eventId);
     store.eventIds.push(eventId);
     const globalPosition = String(event.globalPosition);
@@ -52,12 +56,13 @@ export function recordCommittedEvents(events: readonly StoredEvent[], sourceCont
 export function getEventCommitMetadata(): EventCommitMetadata {
   const store = storage.getStore();
   if (!store) {
-    return { eventIds: [], sources: [] };
+    return { eventIds: [], sources: [], committedEvents: [] };
   }
 
   return {
     eventIds: [...store.eventIds],
     maxGlobalPosition: store.maxGlobalPosition,
+    committedEvents: [...store.committedEvents],
     sources: [...store.sources.entries()]
       .flatMap(([sourceContextName, source]) =>
         source.maxGlobalPosition

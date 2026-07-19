@@ -164,6 +164,13 @@ export type ContextSubscriptionRunner = Readonly<{
   targetContextName: string;
   subscriptionVersion: number;
   checkpointKey: string;
+  handlers?: Readonly<Record<string, ProjectorHandler | undefined>>;
+  inlineApply?: boolean;
+  errorPolicy?: NonNullable<BcEventSubscription["errorPolicy"]>;
+  checkpointBatchSize?: number;
+  projectionCascadeChunkSize?: number;
+  projectionTransactionTimeoutMs?: number;
+  projectionStatementTimeoutMs?: number;
   eventTypes?: readonly string[];
   streamPrefixes?: readonly string[];
   order: number;
@@ -603,6 +610,13 @@ export function createSubscriptionRunner(
     targetContextName,
     subscriptionVersion: subscription.subscriptionVersion,
     checkpointKey,
+    handlers: subscription.handlers,
+    inlineApply: subscription.inlineApply === true,
+    errorPolicy,
+    checkpointBatchSize,
+    projectionCascadeChunkSize: subscription.projectionCascadeChunkSize,
+    projectionTransactionTimeoutMs: subscription.projectionTransactionTimeoutMs,
+    projectionStatementTimeoutMs: subscription.projectionStatementTimeoutMs,
     eventTypes: subscriptionEventTypes,
     streamPrefixes: subscription.streamPrefixes,
     order: subscription.order ?? 0,
@@ -1310,9 +1324,16 @@ export function resolveModuleSubscriptions(
       resolveDeclaredProjectionGroups(entry).map((group) => [group.projectionName, group.sourceContextNames]),
     );
     const declaredSubscriptions = entry.module.buildSubscriptions?.(entry.services) ?? [];
+    const inlineProjectionNames = new Set(
+      entry.projectionHandlerSets.filter((set) => set.inlineApply === true).map((set) => set.projectionName),
+    );
     const declaredProjectionNames = new Set(declaredSubscriptions.map((subscription) => subscription.projectionName));
     const subscriptions = [
-      ...declaredSubscriptions,
+      ...declaredSubscriptions.map((subscription) =>
+        subscription.sourceContextName === entry.contextName && inlineProjectionNames.has(subscription.projectionName)
+          ? { ...subscription, inlineApply: true }
+          : subscription,
+      ),
       ...(entry.projectionHandlerSets ?? [])
         .map((set, index) => ({ set, index }))
         .filter(({ set }) => !declaredProjectionNames.has(set.projectionName))
@@ -1375,6 +1396,7 @@ function createLocalProjectionSubscription(
     projectionName: projection.projectionName,
     subscriptionVersion: 1,
     handlers: projection.handlers,
+    inlineApply: projection.inlineApply === true,
     eventTypes: projection.eventTypes,
     streamPrefixes: projection.streamPrefixes ?? [`${contextName}.`],
     errorPolicy: projection.errorPolicy,
