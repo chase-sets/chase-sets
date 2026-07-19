@@ -10,6 +10,12 @@ import {
   type FreshWriteReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
+import {
+  applyCommittedProjectionEventsInline,
+  projectionInlineApplyEnabled,
+  type ProjectionInlineApplyOutcomeSignal,
+} from "./inline-apply";
+import type { ContextProjectionGroup } from "./projection-groups";
 
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
   Readonly<{
@@ -300,6 +306,13 @@ export function attachWriteConsistencyMiddleware(
     use(path: string, middleware: (context: unknown, next: () => Promise<void>) => Promise<void>): unknown;
   }>,
   mounts: readonly Pick<ResolvedApiMount, "mountPath">[],
+  projectionGroups: readonly ContextProjectionGroup[] = [],
+  options: Readonly<{
+    enabled?: boolean;
+    env?: NodeJS.ProcessEnv;
+    budgetMs?: number;
+    recordInlineApplyOutcome?: (signal: ProjectionInlineApplyOutcomeSignal) => void;
+  }> = {},
 ): void {
   for (const mountPath of uniqueMountPaths(mounts.map((mount) => mount.mountPath))) {
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
@@ -316,6 +329,16 @@ export function attachWriteConsistencyMiddleware(
         const metadata = getEventCommitMetadata();
         if (metadata.eventIds.length === 0) {
           return;
+        }
+
+        if (options.enabled ?? projectionInlineApplyEnabled(options.env)) {
+          await applyCommittedProjectionEventsInline({
+            committedEvents: metadata.committedEvents,
+            commitSources: metadata.sources,
+            projectionGroups,
+            budgetMs: options.budgetMs,
+            recordOutcome: options.recordInlineApplyOutcome,
+          });
         }
 
         setResponseHeaders(context, writeConsistencyHeaders(metadata, currentResponseHeaders(context)));

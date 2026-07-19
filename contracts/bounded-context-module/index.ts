@@ -262,6 +262,8 @@ export type BcEventSubscription = Readonly<{
   readonly reactionName?: string;
   readonly subscriptionVersion: number;
   readonly handlers: ProjectorHandlerMap;
+  /** Runtime-derived from the matching local projection handler set. */
+  readonly inlineApply?: boolean;
   readonly idempotencyPolicy?: BcReactionIdempotencyPolicy;
   readonly retryPolicy?: BcReactionRetryPolicy;
   readonly failurePolicy?: BcReactionFailurePolicy;

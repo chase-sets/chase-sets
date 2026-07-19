@@ -194,6 +194,8 @@ export type ProjectionRunContext = Readonly<{
 export type ProjectionHandlerSet = Readonly<{
   projectionName: string;
   handlers: ProjectorHandlerMap;
+  /** Allows the write runtime to apply this same-context projection after commit. */
+  inlineApply?: boolean;
   batchSize?: number;
   checkpointBatchSize?: number;
   eventTypes?: readonly string[];
@@ -212,6 +214,7 @@ export function createProjectionHandlerSet(config: ProjectionHandlerSetConfig): 
   return {
     projectionName: config.projectionName,
     handlers: config.handlers,
+    inlineApply: config.inlineApply ?? false,
     batchSize,
     checkpointBatchSize,
     eventTypes: config.eventTypes ?? Object.keys(config.handlers).sort(),

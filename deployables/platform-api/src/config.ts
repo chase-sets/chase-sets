@@ -129,6 +129,7 @@ export type PlatformApiBaseConfig = Readonly<{
   agentGrantRateLimit?: RateLimitRule;
   agentGrantSpendCap?: AgentGrantSpendCapPolicyOptions;
   readConsistency?: PlatformApiReadConsistencyConfig;
+  projectionInlineApplyEnabled?: boolean;
   deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
@@ -684,6 +685,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", false),
       readinessNotificationsEnabled: getBooleanEnv("READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED", false),
     },
+    projectionInlineApplyEnabled: getBooleanEnv("PROJECTION_INLINE_APPLY_ENABLED", false),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),

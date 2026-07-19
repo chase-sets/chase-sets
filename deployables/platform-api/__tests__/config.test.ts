@@ -217,6 +217,7 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_MAX;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
+  delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
 }
 
 beforeEach(resetConfigEnv);
@@ -251,6 +252,7 @@ describe("platform api config", () => {
       wakeBeforeWaitEnabled: false,
       readinessNotificationsEnabled: false,
     });
+    expect(config.projectionInlineApplyEnabled).toBe(false);
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS);
   });
 
@@ -1096,6 +1098,13 @@ describe("platform api config", () => {
     process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "true";
 
     expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(true);
+  });
+
+  it("enables projection inline apply from its environment kill switch", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PROJECTION_INLINE_APPLY_ENABLED = "true";
+
+    expect(loadConfig().projectionInlineApplyEnabled).toBe(true);
   });
 
   it("enables read consistency readiness notifications from their environment flag", () => {

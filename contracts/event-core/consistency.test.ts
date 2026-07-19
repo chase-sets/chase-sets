@@ -35,6 +35,11 @@ describe("event commit metadata", () => {
           { sourceContextName: "inventory", eventIds: ["evt_2"], maxGlobalPosition: "9" },
           { sourceContextName: "marketplace", eventIds: ["evt_1", "evt_3"], maxGlobalPosition: "7" },
         ],
+        committedEvents: [
+          expect.objectContaining({ eventId: "evt_1", streamId: "marketplace.listing-lst_1" }),
+          expect.objectContaining({ eventId: "evt_2", streamId: "inventory.item-itm_1" }),
+          expect.objectContaining({ eventId: "evt_3", streamId: "marketplace.listing-lst_2" }),
+        ],
       });
     });
   });
@@ -49,6 +54,18 @@ describe("event commit metadata", () => {
       expect(getEventCommitMetadata().sources).toEqual([
         { sourceContextName: "platform-operations", eventIds: ["evt_1"], maxGlobalPosition: "4" },
       ]);
+    });
+  });
+
+  it("returns detached arrays while retaining the committed event values in-process", async () => {
+    await runWithEventCommitMetadata(async () => {
+      const event = storedEvent({ id: "evt_1", streamId: "checkout.session-chk_1", globalPosition: "4" });
+      recordCommittedEvents([event]);
+
+      const first = getEventCommitMetadata();
+      (first.committedEvents as StoredEvent[]).pop();
+
+      expect(getEventCommitMetadata().committedEvents).toEqual([event]);
     });
   });
 });
