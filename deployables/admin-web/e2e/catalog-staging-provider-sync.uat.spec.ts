@@ -1998,10 +1998,14 @@ async function visibleLocatorText(locator: Locator): Promise<string> {
 }
 
 async function selectCatalogSyncParticipationRow(participationRow: Locator, checkbox: Locator): Promise<void> {
+  await checkCheckboxThroughVisibleLabel(participationRow, checkbox);
+}
+
+async function checkCheckboxThroughVisibleLabel(container: Locator, checkbox: Locator): Promise<void> {
   const checkboxId = await checkbox.getAttribute("id");
   const visibleToggle = checkboxId
-    ? participationRow.locator(`label[for="${cssAttrValue(checkboxId)}"]`).first()
-    : participationRow.locator("label").filter({ has: checkbox }).first();
+    ? container.locator(`label[for="${cssAttrValue(checkboxId)}"]`).first()
+    : container.locator("label").filter({ has: checkbox }).first();
   if (await visibleToggle.isVisible({ timeout: 1_000 }).catch(() => false)) {
     await visibleToggle.click({ timeout: controlActionTimeoutMs });
     return;
@@ -2896,7 +2900,7 @@ async function executePromotionFromFreshPreview(
   const confirmation = createItemsStage.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
   await expect(confirmation).toBeEnabled({ timeout: syncTimeoutMs });
   if (!(await confirmation.isChecked().catch(() => false))) {
-    await confirmation.check();
+    await checkCheckboxThroughVisibleLabel(createItemsStage, confirmation);
     await expect(confirmation).toBeChecked({ timeout: syncTimeoutMs });
   }
 
