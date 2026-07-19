@@ -134,7 +134,10 @@ jobs:
             target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and .name == "doks_ingress_shadow") | .instances[]?.attributes.value) // empty' "$state_file")"
             project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
             google_dkim="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and .name == "google_workspace_dkim") | .instances[]?.attributes.value) // empty' "$state_file")"
-            marketplace_enabled="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "doks_ingress_shadow") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+            marketplace_enabled=false
+            if [ "$environment" = production ]; then
+              marketplace_enabled="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "doks_ingress_shadow") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+            fi
 
             TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_google_workspace_dkim_txt_value="$google_dkim"             TF_VAR_production_marketplace_public_enabled="$marketplace_enabled"               terraform -chdir="$root" plan -lock=false -out="${environment}-environment-dns.tfplan"
             terraform -chdir="$root" show -no-color "${environment}-environment-dns.tfplan"               > "$artifact_root/${environment}-environment-dns-plan.txt"
