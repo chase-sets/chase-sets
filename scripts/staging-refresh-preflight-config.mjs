@@ -115,7 +115,7 @@ export const stagingRefreshSetMatrix = Object.freeze([
     unitKeys: tcgplayerPokemonUnits,
     productLineLabels: ["Pokemon"],
     productLineValues: ["3"],
-    setLabels: ["Surging Sparks"],
+    setLabels: ["Surging Sparks", "SV08: Surging Sparks"],
   }),
   tcgdexExpansionCheck({
     id: "pokemon-en-surging-sparks-tcgdex",
@@ -234,7 +234,7 @@ export const stagingRefreshSetMatrix = Object.freeze([
     unitKeys: ["tcgplayer:yugioh:single-card:source-observation-import"],
     productLineLabels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"],
     productLineValues: ["2"],
-    setLabels: ["Legend of Blue Eyes White Dragon"],
+    setLabels: ["Legend of Blue Eyes White Dragon", "The Legend of Blue Eyes White Dragon"],
   }),
   tcgplayerSetCheck({
     id: "yugioh-rarity-collection-tcgplayer",
