@@ -260,6 +260,20 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function stagingResumeInverseGateViolations(source) {
+  const gate = workflowStep(source, "Fail closed unless staging is absent for resume");
+  const requirements = [
+    ["resume-only condition", "if: inputs.mode == 'resume-recreate'"],
+    ["Terraform state app/database absence", "digitalocean_(app\\.platform|database_cluster\\.postgres)"],
+    ["DigitalOcean database absence", 'any(.[]; .name == "chase-sets-staging-postgres")'],
+    ["DigitalOcean app absence", 'any(.[]; .spec.name == "chase-sets-staging-platform")'],
+    ["admin readiness 5xx-only result", '[[ ! "$admin_status" =~ ^5[0-9][0-9]$ ]]'],
+    ["three consecutive admin probes", "for attempt in 1 2 3"],
+  ];
+
+  return requirements.filter(([, fragment]) => !gate.includes(fragment)).map(([description]) => description);
+}
+
 function workflowSteps(source, stepName) {
   const steps = [];
   const stepPattern = new RegExp(`- name: ${stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "gm");
@@ -533,6 +547,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("allow_scrydex_usage_check:");
     expect(platformStagingResetWorkflow).toContain("confirm_no_staging_evidence_overlap:");
     expect(platformStagingResetWorkflow).toContain("actions: read");
+    expect(preflightStep).toContain("if: inputs.mode == 'full-reset'");
     expect(preflightStep).toContain("node ./scripts/staging-refresh-preflight.mjs");
     expect(preflightStep).toContain("--skip-github-metadata");
     expect(preflightStep).toContain("--skip-deployed-secret-check");
@@ -551,6 +566,7 @@ describe("DigitalOcean platform configuration", () => {
       platformStagingResetWorkflow,
       "Re-check staging refresh overlap before destroy",
     );
+    expect(overlapRecheckStep).toContain("if: inputs.mode == 'full-reset'");
     expect(overlapRecheckStep).toContain("node ./scripts/staging-refresh-preflight.mjs --overlap-only");
     const overlapRecheckIndex = platformStagingResetWorkflow.indexOf(
       "- name: Re-check staging refresh overlap before destroy",
@@ -560,6 +576,56 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow.slice(overlapRecheckIndex, destroyIndex).match(/^\s*- name:/gm)).toHaveLength(
       1,
     );
+  });
+
+  it("resumes recreation only after a fail-closed staging absence proof", () => {
+    expect(platformStagingResetWorkflow).toContain("mode:");
+    expect(platformStagingResetWorkflow).toContain("default: full-reset");
+    expect(platformStagingResetWorkflow).toContain("- resume-recreate");
+
+    const inverseGateStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Fail closed unless staging is absent for resume",
+    );
+    expect(inverseGateStep).toContain("if: inputs.mode == 'resume-recreate'");
+    expect(inverseGateStep).toContain("terraform state list");
+    expect(inverseGateStep).toContain("digitalocean_(app\\.platform|database_cluster\\.postgres)");
+    expect(inverseGateStep).toContain("doctl databases list --output json");
+    expect(inverseGateStep).toContain('any(.[]; .name == "chase-sets-staging-postgres")');
+    expect(inverseGateStep).toContain("doctl apps list --output json");
+    expect(inverseGateStep).toContain('any(.[]; .spec.name == "chase-sets-staging-platform")');
+    expect(inverseGateStep).toContain("https://admin.staging.chasesets.com/api/health/ready");
+    expect(inverseGateStep).toContain('[[ ! "$admin_status" =~ ^5[0-9][0-9]$ ]]');
+    expect(inverseGateStep).toContain("for attempt in 1 2 3");
+    expect(stagingResumeInverseGateViolations(platformStagingResetWorkflow)).toEqual([]);
+
+    const preflightStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Gate staging refresh provider and set-matrix preflight",
+    );
+    expect(preflightStep).toContain("if: inputs.mode == 'full-reset'");
+    const preflightUploadStep = workflowStep(platformStagingResetWorkflow, "Upload staging refresh preflight evidence");
+    expect(preflightUploadStep).toContain("inputs.mode == 'full-reset'");
+    expect(platformStagingResetWorkflow.indexOf("Fail closed unless staging is absent for resume")).toBeLessThan(
+      platformStagingResetWorkflow.indexOf("Terraform destroy staging platform"),
+    );
+
+    const sharedResetBackHalf = platformStagingResetWorkflow.slice(
+      platformStagingResetWorkflow.indexOf("- name: Terraform destroy staging platform"),
+    );
+    expect(sharedResetBackHalf).not.toContain("inputs.mode");
+    expect(sharedResetBackHalf).toContain("- name: Terraform plan staging recreate");
+    expect(sharedResetBackHalf).toContain("- name: Terraform apply staging recreate");
+    expect(sharedResetBackHalf).toContain("- name: Queue DOKS redeploy after database recreation");
+  });
+
+  it("negative control: rejects a resume gate that would accept healthy admin readiness", () => {
+    const weakenedWorkflow = platformStagingResetWorkflow.replace(
+      '[[ ! "$admin_status" =~ ^5[0-9][0-9]$ ]]',
+      '[[ ! "$admin_status" =~ ^[25][0-9][0-9]$ ]]',
+    );
+    expect(weakenedWorkflow).not.toBe(platformStagingResetWorkflow);
+    expect(stagingResumeInverseGateViolations(weakenedWorkflow)).toContain("admin readiness 5xx-only result");
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {

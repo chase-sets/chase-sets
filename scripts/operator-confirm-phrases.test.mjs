@@ -31,15 +31,20 @@ describe("operator confirm phrases", () => {
     expect(workflow).toContain(`inputs.confirm != '${CHECKOUT_ORDER_READINESS_TRACE_CONFIRM}'`);
   });
 
-  it("keeps staging reset workflow prompt and guard on the same confirm phrase", () => {
+  it("keeps both staging reset modes aligned with their exact confirm phrases", () => {
     const workflow = readRepoFile(".github/workflows/platform-staging-reset.yml");
-    const descriptionMatch = workflow.match(/description: Type "([^"]+)" to destroy and recreate staging/);
+    const modeConfirmPhrases = new Map([
+      ["full-reset", "reset staging"],
+      ["resume-recreate", "resume staging recreate"],
+    ]);
 
-    expect(descriptionMatch, "workflow dispatch description must name the reset confirm phrase").not.toBeNull();
-    const confirmPhrase = descriptionMatch?.[1] ?? "";
-
-    expect(workflow).toContain(`if [ "\${{ inputs.confirm }}" != "${confirmPhrase}" ]; then`);
-    expect(workflow).toContain(`Confirmation input must exactly equal '${confirmPhrase}'.`);
-    expect(countOccurrences(workflow, confirmPhrase)).toBe(3);
+    expect(workflow).toContain("RESET_MODE: ${{ inputs.mode }}");
+    expect(workflow).toContain("RESET_CONFIRM: ${{ inputs.confirm }}");
+    for (const [mode, confirmPhrase] of modeConfirmPhrases) {
+      expect(workflow).toContain(`${mode})`);
+      expect(workflow).toContain(`if [ "$RESET_CONFIRM" != "${confirmPhrase}" ]; then`);
+      expect(workflow).toContain(`Confirmation input must exactly equal '${confirmPhrase}'.`);
+      expect(countOccurrences(workflow, confirmPhrase)).toBe(3);
+    }
   });
 });

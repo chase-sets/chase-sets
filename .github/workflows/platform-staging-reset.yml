@@ -8,8 +8,16 @@ on:
         required: false
         default: main
         type: string
+      mode:
+        description: Use full-reset for a healthy staging environment or resume-recreate only after partial destruction.
+        required: true
+        default: full-reset
+        type: choice
+        options:
+          - full-reset
+          - resume-recreate
       confirm:
-        description: Type "reset staging" to destroy and recreate staging managed Postgres.
+        description: Type "reset staging" for full-reset or "resume staging recreate" for resume-recreate.
         required: true
         type: string
       allow_scrydex_usage_check:
@@ -93,12 +101,29 @@ jobs:
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - name: Confirm destructive reset
+        env:
+          RESET_MODE: ${{ inputs.mode }}
+          RESET_CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirm }}" != "reset staging" ]; then
-            echo "Confirmation input must exactly equal 'reset staging'." >&2
-            exit 1
-          fi
+          case "$RESET_MODE" in
+            full-reset)
+              if [ "$RESET_CONFIRM" != "reset staging" ]; then
+                echo "Confirmation input must exactly equal 'reset staging'." >&2
+                exit 1
+              fi
+              ;;
+            resume-recreate)
+              if [ "$RESET_CONFIRM" != "resume staging recreate" ]; then
+                echo "Confirmation input must exactly equal 'resume staging recreate'." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unsupported staging reset mode '${RESET_MODE}'." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -220,6 +245,7 @@ jobs:
           fi
 
       - name: Gate staging refresh provider and set-matrix preflight
+        if: inputs.mode == 'full-reset'
         env:
           GH_TOKEN: ${{ github.token }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
@@ -242,7 +268,7 @@ jobs:
             --out artifacts/staging-refresh-preflight.json
 
       - name: Upload staging refresh preflight evidence
-        if: always()
+        if: ${{ always() && inputs.mode == 'full-reset' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-refresh-preflight-${{ github.run_id }}
@@ -344,7 +370,56 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform fmt -check -recursive
 
+      - name: Fail closed unless staging is absent for resume
+        if: inputs.mode == 'resume-recreate'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          state_resources="$(terraform state list)"
+          state_platform_resources="$(printf '%s\n' "$state_resources" | grep -E '(^|\.)digitalocean_(app\.platform|database_cluster\.postgres)(\[|$)' || true)"
+          if [ -n "$state_platform_resources" ]; then
+            echo "Resume-recreate requires the staging app and database to be absent from Terraform state; found:" >&2
+            printf '%s\n' "$state_platform_resources" >&2
+            exit 1
+          fi
+
+          databases_json="$(doctl databases list --output json)"
+          if printf '%s' "$databases_json" | jq -e \
+            'any(.[]; .name == "chase-sets-staging-postgres")' >/dev/null; then
+            echo "Resume-recreate refused: DigitalOcean still reports chase-sets-staging-postgres." >&2
+            exit 1
+          fi
+
+          apps_json="$(doctl apps list --output json)"
+          if printf '%s' "$apps_json" | jq -e \
+            'any(.[]; .spec.name == "chase-sets-staging-platform")' >/dev/null; then
+            echo "Resume-recreate refused: DigitalOcean still reports chase-sets-staging-platform." >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            admin_status="$(curl --silent --show-error --location --max-time 15 \
+              --output /dev/null --write-out '%{http_code}' \
+              https://admin.staging.chasesets.com/api/health/ready || true)"
+            echo "Admin readiness returned ${admin_status:-none} on absence probe ${attempt}."
+            if [[ ! "$admin_status" =~ ^5[0-9][0-9]$ ]]; then
+              echo "Resume-recreate requires three consecutive admin readiness 5xx responses; refusing status ${admin_status:-none}." >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 5
+            fi
+          done
+
+          echo "Staging absence proven; resume-recreate may converge remaining reset resources."
+
       - name: Re-check staging refresh overlap before destroy
+        if: inputs.mode == 'full-reset'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

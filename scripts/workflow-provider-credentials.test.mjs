@@ -24,7 +24,7 @@ describe("platform staging reset provider credential contract", () => {
 
     expect(result.violations).toEqual([]);
     expect(result.passed).toBe(true);
-    expect(result.checkedSteps).toHaveLength(16);
+    expect(result.checkedSteps).toHaveLength(17);
   });
 
   it("negative control: catches the credentials-not-threaded class when a provider step loses one key", () => {
