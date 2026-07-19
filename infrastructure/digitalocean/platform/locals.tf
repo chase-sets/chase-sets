@@ -288,8 +288,16 @@ locals {
     public-presence = 2
   }
 
+  # The marketplace pool already serves the DOKS topology and remains durable
+  # while production uses the landing profile. App Platform decommissioning
+  # must not delete shared database infrastructure as a side effect.
+  production_retained_connection_pool_context_names = ["marketplace"]
+  production_connection_pool_context_names = distinct(concat(
+    local.context_names,
+    local.production_retained_connection_pool_context_names,
+  ))
   production_context_database_connection_pool_sizes = {
-    for context_name in local.context_names :
+    for context_name in local.production_connection_pool_context_names :
     context_name => lookup(local.production_context_database_connection_pool_size_overrides, context_name, 1)
   }
 
@@ -302,8 +310,9 @@ locals {
   )
 
   # Every environment now provisions managed transaction pools for its active
-  # runtime contexts (#4655 added production). The pool set matches the sized
-  # contexts exactly so a pool always has a budgeted size.
+  # runtime contexts (#4655 added production); production also retains the
+  # existing DOKS marketplace pool while the landing profile hides its routes.
+  # The pool set matches the sized contexts exactly so every pool is budgeted.
   connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))
 
   preview_postgres_host = "chase-sets-preview-postgres"

@@ -407,10 +407,12 @@ resource "digitalocean_uptime_check" "platform" {
 resource "digitalocean_uptime_alert" "platform_down" {
   for_each = var.uptime_checks_enabled && length(var.alert_emails) > 0 ? digitalocean_uptime_check.platform : {}
 
-  name     = "${local.name_prefix}-${each.key}-down"
-  check_id = each.value.id
-  type     = "down_global"
-  period   = "2m"
+  name       = "${local.name_prefix}-${each.key}-down"
+  check_id   = each.value.id
+  type       = "down_global"
+  period     = "2m"
+  comparison = "less_than"
+  threshold  = 1
 
   notifications {
     email = var.alert_emails

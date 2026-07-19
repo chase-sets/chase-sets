@@ -400,6 +400,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('resource "digitalocean_record" "app_serving"');
     expect(platformMain).toContain('resource "digitalocean_record" "doks_apex"');
     expect(platformMain).toContain("value  = var.doks_ingress_target");
+    expect(platformLocals).toContain('production_retained_connection_pool_context_names = ["marketplace"]');
+    expect(platformMain).toContain('comparison = "less_than"');
+    expect(platformMain).toContain("threshold  = 1");
     expect(environmentDnsVariables).not.toMatch(/app_serving/);
     expect(environmentDnsMain).not.toMatch(/staging_app_alias/);
   });
@@ -409,7 +412,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(decommissionJob).toContain("landing/staging.tfstate");
     expect(decommissionJob).toContain("landing/production.tfstate");
     expect(decommissionJob).toContain("digitalocean_app.platform");
-    expect(decommissionJob).toContain("sha256:6eefaf301867bc08a35bbca0e5b9a68874eaabd2c0970239f2b30e15212cdf29");
+    expect(decommissionJob).toContain("terraform_data.production_app_platform_parking_preparation[0]");
+    expect(decommissionJob).toContain("terraform_data.production_serving_dns_ttl_preparation[0]");
+    expect(decommissionJob).toContain("sha256:8848c62acc0cb40a9dedb931db3c569c7ed66b100eb854a838f797de102658ad");
     expect(decommissionJob).not.toMatch(/terraform\s+apply/);
     expect(existsSync(resolve(".github/deployment/production-destructive-change-approved.md"))).toBe(false);
   });
