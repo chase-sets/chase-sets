@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useLayoutEffect,
+  useId,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -129,6 +130,8 @@ export function Accordion({
   anchorActiveItemToScrollEnd = false,
   ...rest
 }: AccordionProps) {
+  const generatedId = useId();
+  const accordionId = rest.id ?? generatedId;
   const activeItemRef = useRef<HTMLDivElement | null>(null);
   const motionSettings = useChaseMotion();
   const defaultOpenValues = Array.isArray(defaultValue) ? defaultValue : defaultValue ? [defaultValue] : [];
@@ -226,6 +229,7 @@ export function Accordion({
     >
       {items.map((item, index) => {
         const isOpen = openValues.includes(item.value);
+        const panelId = `${accordionId}-panel-${item.value}`;
 
         return (
           <AccordionPrimitive.Item
@@ -251,6 +255,7 @@ export function Accordion({
             <AccordionPrimitive.Header>
               <AccordionPrimitive.Trigger
                 {...item.triggerProps}
+                aria-controls={item.triggerProps?.["aria-controls"] ?? panelId}
                 disabled={item.disabled}
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
@@ -270,6 +275,7 @@ export function Accordion({
               </AccordionPrimitive.Trigger>
             </AccordionPrimitive.Header>
             <AccordionPrimitive.Panel
+              id={panelId}
               keepMounted
               render={(props, state) => (
                 <AnimatedAccordionContent

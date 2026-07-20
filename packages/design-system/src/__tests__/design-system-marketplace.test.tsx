@@ -46,6 +46,7 @@ import {
   SearchFilterPanel,
   SearchInput,
   MarketplaceFacetChoiceGroup,
+  MarketplaceFacetGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
@@ -1715,6 +1716,35 @@ describe("design system marketplace patterns", () => {
 
     expect(screen.queryByRole("button", { name: "Condition 7 (3)" })).toBeNull();
     expect(screen.getByRole("button", { name: "Condition 9 (1)" })).toBeTruthy();
+  });
+
+  it("renders marketplace facet groups as keyboard-operable disclosures", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MarketplaceFacetGroup title="Condition" selectionSummary="Near Mint" defaultExpanded={false}>
+        <button type="button">Near Mint</button>
+      </MarketplaceFacetGroup>,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Condition.*Near Mint/ });
+    const panelId = trigger.getAttribute("aria-controls");
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)).toBeTruthy();
+
+    trigger.focus();
+    await user.keyboard("{Enter}");
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.getByRole("button", { name: "Near Mint" })).toBeTruthy();
+
+    await user.keyboard(" ");
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("filters searchable marketplace facet rails", async () => {

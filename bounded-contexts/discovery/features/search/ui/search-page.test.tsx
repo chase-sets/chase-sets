@@ -189,16 +189,18 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
     const facetSummary = (container: HTMLElement) =>
-      Array.from(container.querySelectorAll<HTMLElement>("[id^=search-facet-]")).map((group) => ({
-        id: group.id.replace("search-facet-", ""),
-        label: group.querySelector("h2")?.textContent,
-        options: Array.from(group.querySelectorAll("button")).map((option) => {
-          const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
-          const count = / \((\d+)\)$/.exec(label);
+      Array.from(container.querySelectorAll<HTMLElement>("[id^=search-facet-]"))
+        .filter((group) => !group.id.includes("-panel-"))
+        .map((group) => ({
+          id: group.id.replace("search-facet-", ""),
+          label: group.querySelector("h3")?.textContent,
+          options: Array.from(group.querySelectorAll("button")).map((option) => {
+            const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
+            const count = / \((\d+)\)$/.exec(label);
 
-          return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
-        }),
-      }));
+            return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
+          }),
+        }));
 
     expect(facetSummary(desktopRail!)).toEqual(facetSummary(filterSheet));
     expect(facetSummary(filterSheet)).toEqual(
@@ -207,7 +209,7 @@ describe("SearchPage", () => {
         expect.objectContaining({ id: "market-activity", label: "Market activity" }),
       ]),
     );
-    expect(filterSheet.querySelectorAll("[id^=search-facet-] button svg")).toHaveLength(0);
+    expect(filterSheet.querySelectorAll("[id^=search-facet-] button[aria-pressed] svg")).toHaveLength(0);
   });
 
   it("allows wide desktop search result grids to use a third column", () => {
@@ -231,8 +233,8 @@ describe("SearchPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Search results for abra" })).toBeTruthy();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     for (const name of ["Browse categories", "Price and availability", "Language", "Market activity"]) {
-      expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
-      expect(screen.queryByRole("heading", { level: 3, name })).toBeNull();
+      expect(screen.getByRole("heading", { level: 3, name })).toBeTruthy();
+      expect(screen.queryByRole("heading", { level: 2, name })).toBeNull();
     }
   });
 
@@ -629,6 +631,11 @@ describe("SearchPage", () => {
   it("renders language as a top-level desktop filter", () => {
     const props = renderSearchPage({ language: "ja" });
 
+    fireEvent.click(
+      within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole("button", {
+        name: /Language.*Japanese/,
+      }),
+    );
     expect(screen.getByText("Limit results to a catalog language.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "English" }));
@@ -640,6 +647,7 @@ describe("SearchPage", () => {
     const props = renderSearchPage({ marketActivity: "listings" });
 
     expect(screen.getByText("Market activity")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Market activity.*Listings/ }));
     expect(screen.getByText("Show only items with matching listings or offer demand.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Listings" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Remove Market: Listings" })).toBeTruthy();
@@ -776,6 +784,9 @@ describe("SearchPage", () => {
 
     expect(screen.getByText("2 active")).toBeTruthy();
     expect(screen.getByText("Condition")).toBeTruthy();
+    const conditionTrigger = screen.getByRole("button", { name: /Condition.*Near Mint.*Lightly Played/ });
+    expect(conditionTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(conditionTrigger);
     expect(screen.getByRole("button", { name: "Excellent (1)" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
@@ -799,6 +810,11 @@ describe("SearchPage", () => {
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
     expect(within(filterSheet).queryByText("Advanced filters")).toBeNull();
     expect(within(filterSheet).getByText("Condition")).toBeTruthy();
+    const mobileConditionTrigger = within(filterSheet).getByRole("button", {
+      name: /Condition.*Near Mint.*Lightly Played/,
+    });
+    expect(mobileConditionTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(mobileConditionTrigger);
     expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Any Condition" })).toBeTruthy();
@@ -843,6 +859,12 @@ describe("SearchPage", () => {
     });
 
     expect(screen.getByText("Series")).toBeTruthy();
+    const seriesTrigger = within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole(
+      "button",
+      { name: /Series.*Mega Evolution/ },
+    );
+    expect(seriesTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(seriesTrigger);
     expect(screen.getByText("Narrow by rich catalog references on matching items.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Scarlet & Violet (3)" })).toBeTruthy();
 
@@ -882,6 +904,7 @@ describe("SearchPage", () => {
       },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: /Condition.*Condition 1/ }));
     expect(screen.getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByRole("button", { name: "Condition 9 (2)" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -900,6 +923,7 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
     const drawer = screen.getByRole("dialog", { name: "Filters" });
+    fireEvent.click(within(drawer).getByRole("button", { name: /Condition.*Condition 1/ }));
     fireEvent.change(within(drawer).getByRole("searchbox", { name: "Search Condition options" }), {
       target: { value: "missing" },
     });
