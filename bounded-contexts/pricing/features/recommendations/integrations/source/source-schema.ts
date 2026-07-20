@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const pricingRecommendationSourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
@@ -77,7 +79,8 @@ ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
 
 ALTER TABLE pricing_market_listing_inputs
-  ADD COLUMN IF NOT EXISTS grading text NULL;
+  ADD COLUMN IF NOT EXISTS grading text NULL
+  CHECK (grading IS NULL OR grading IN ('graded', 'raw'));
 
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS created_at timestamptz NULL;
@@ -92,10 +95,6 @@ ALTER TABLE pricing_market_listing_inputs
 -- always version >= 1, supersedes).
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS last_stream_version integer NOT NULL DEFAULT 0;
-
-CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_inventory_idx
-  ON pricing_market_listing_inputs (seller_account_id, inventory_item_id, status)
-  WHERE inventory_item_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   offer_id text PRIMARY KEY,
@@ -156,3 +155,40 @@ CREATE TABLE IF NOT EXISTS pricing_fulfillment_signal_lines (
 CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
   ON pricing_fulfillment_signal_lines (catalog_catalog_item_id, product_id, status);
 `;
+
+export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_pricing_market_listing_inputs_grading",
+    description: "Add grading to projected listing inputs for repricing rule evaluation.",
+    statements: [
+      `ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS grading text NULL
+  CHECK (grading IS NULL OR grading IN ('graded', 'raw'))`,
+    ],
+  },
+  {
+    migrationId: "20260720_pricing_market_listing_inputs_created_at",
+    description: "Add listing creation time to projected listing inputs for repricing rule evaluation.",
+    statements: [
+      `ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NULL`,
+    ],
+  },
+  {
+    migrationId: "20260720_pricing_market_listing_inputs_pause_reason",
+    description: "Add listing pause reason to projected listing inputs for repricing rule evaluation.",
+    statements: [
+      `ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS pause_reason text NULL`,
+    ],
+  },
+  {
+    migrationId: "20260720_pricing_market_listing_inputs_inventory_index",
+    description: "Index projected listing inputs by seller inventory item and status.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_market_listing_inputs_inventory_idx
+  ON pricing_market_listing_inputs (seller_account_id, inventory_item_id, status)
+  WHERE inventory_item_id IS NOT NULL`,
+    ],
+  },
+];

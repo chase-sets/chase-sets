@@ -3,7 +3,10 @@ import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
 import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
-import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
+import {
+  pricingRecommendationSourceSchemaMigrations,
+  pricingRecommendationSourceSchemaSql,
+} from "../../features/recommendations/integrations/source/source-schema";
 import {
   pricingMarketTradesSchemaMigrations,
   pricingMarketTradesSchemaSql,
@@ -22,6 +25,7 @@ import {
 
 export const pricingFeatureSchemaMigrations = [
   ...pricingMarketTradesSchemaMigrations,
+  ...pricingRecommendationSourceSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
 ];
