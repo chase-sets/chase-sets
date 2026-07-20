@@ -8360,9 +8360,14 @@ function terminalPromotionOutcomeFromEvents(
   jobId: string,
   events: readonly SourceObservationJobEvent<SourceObservationBulkJob>[],
 ): SourceObservationPromotionOutcomeRecord | null {
-  const terminalEvent = events.findLast(
-    (event) => event.job.action === "promote" && (event.job.status === "completed" || event.job.status === "failed"),
-  );
+  let terminalEvent: SourceObservationJobEvent<SourceObservationBulkJob> | undefined;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.job.action === "promote" && (event.job.status === "completed" || event.job.status === "failed")) {
+      terminalEvent = event;
+      break;
+    }
+  }
   if (!terminalEvent) {
     return null;
   }
