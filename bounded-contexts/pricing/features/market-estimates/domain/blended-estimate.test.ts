@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  capParticipantWeights,
   calculateBlendedMarketValueEstimate,
   type BlendedEstimateParams,
   type ComparableSale,
@@ -17,18 +18,29 @@ const params: BlendedEstimateParams = {
   minimumComparableSales: 3,
   minimumEffectiveSampleSize: 2,
   outlierPriceRatio: 10,
+  maximumParticipantWeightShare: 0.3,
   confidenceSampleSizes: { medium: 8, high: 20 },
 };
+
+let nextParticipant = 0;
 
 function daysAgo(days: number): string {
   return new Date(Date.parse(NOW) - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function trade(priceAmount: number, ageDays: number, verified = false): ComparableSale {
+function trade(
+  priceAmount: number,
+  ageDays: number,
+  verified = false,
+  participant?: Readonly<{ buyerAccountId: string; sellerAccountId: string }>,
+): ComparableSale {
+  nextParticipant += 1;
   return {
     priceAmount,
     observedAt: daysAgo(ageDays),
     source: verified ? "platform-verified-trade" : "platform-trade",
+    buyerAccountId: participant?.buyerAccountId ?? `buyer_${nextParticipant}`,
+    sellerAccountId: participant?.sellerAccountId ?? `seller_${nextParticipant}`,
   };
 }
 
@@ -122,7 +134,7 @@ describe("calculateBlendedMarketValueEstimate", () => {
     expect(Number(result.bandLowAmount)).toBeLessThan(Number(result.bandHighAmount));
   });
 
-  it("grades confidence by total input count", () => {
+  it("grades confidence by independent evidence count", () => {
     const low = calculateBlendedMarketValueEstimate([trade(10, 1), trade(11, 1), trade(12, 1)], params);
     const medium = calculateBlendedMarketValueEstimate(
       Array.from({ length: 8 }, (_, index) => trade(10 + index, 1)),
@@ -136,6 +148,109 @@ describe("calculateBlendedMarketValueEstimate", () => {
     expect(low.status === "estimated" && low.confidence).toBe("low");
     expect(medium.status === "estimated" && medium.confidence).toBe("medium");
     expect(high.status === "estimated" && high.confidence).toBe("high");
+  });
+
+  describe("participant hygiene", () => {
+    it("collapses repeat buyer-to-seller prints to the latest Comparable Sale", () => {
+      const repeatPair = { buyerAccountId: "buyer_repeat", sellerAccountId: "seller_repeat" };
+      const otherOne = { buyerAccountId: "buyer_2", sellerAccountId: "seller_2" };
+      const otherTwo = { buyerAccountId: "buyer_3", sellerAccountId: "seller_3" };
+      const repeated = calculateBlendedMarketValueEstimate(
+        [
+          trade(100, 4, false, repeatPair),
+          trade(90, 3, false, repeatPair),
+          trade(30, 1, false, repeatPair),
+          trade(10, 1, false, otherOne),
+          trade(20, 1, false, otherTwo),
+        ],
+        params,
+      );
+      const oneLatestPrint = calculateBlendedMarketValueEstimate(
+        [trade(30, 1, false, repeatPair), trade(10, 1, false, otherOne), trade(20, 1, false, otherTwo)],
+        params,
+      );
+
+      expect(repeated).toEqual(oneLatestPrint);
+      expect(repeated.status === "estimated" && repeated.inputCounts.platformTradeCount).toBe(3);
+    });
+
+    it("requires distinct Market Participants rather than three prints from one buyer", () => {
+      const oneParticipant = calculateBlendedMarketValueEstimate(
+        [
+          trade(10, 3, false, { buyerAccountId: "buyer_1", sellerAccountId: "seller_1" }),
+          trade(11, 2, false, { buyerAccountId: "buyer_1", sellerAccountId: "seller_2" }),
+          trade(12, 1, false, { buyerAccountId: "buyer_1", sellerAccountId: "seller_3" }),
+        ],
+        params,
+      );
+      const threeParticipants = calculateBlendedMarketValueEstimate([trade(10, 3), trade(11, 2), trade(12, 1)], params);
+
+      expect(oneParticipant).toEqual({
+        status: "no-estimate",
+        reason: "below-minimum-inputs",
+        inputCounts: { platformVerifiedTradeCount: 0, platformTradeCount: 3, externalCompCount: 0 },
+      });
+      expect(threeParticipants.status).toBe("estimated");
+    });
+
+    it.each([4, 10, 100])(
+      "holds one wash buyer across %i sellers to 30%% of the post-cap blend without capturing the estimate",
+      (sellerCount) => {
+        const rawWeights = [
+          ...Array.from({ length: sellerCount }, () => ({ participantId: "buyer_wash", weight: 0.7 })),
+          { participantId: "buyer_honest_1", weight: 0.7 },
+          { participantId: "buyer_honest_2", weight: 0.7 },
+        ];
+        const cappedWeights = capParticipantWeights(rawWeights, params.maximumParticipantWeightShare);
+        const totalWeight = cappedWeights.reduce((sum, sale) => sum + sale.weight, 0);
+        const attackerWeight = cappedWeights
+          .filter((sale) => sale.participantId === "buyer_wash")
+          .reduce((sum, sale) => sum + sale.weight, 0);
+
+        const washTrades = Array.from({ length: sellerCount }, (_, index) =>
+          trade(100, 0, false, {
+            buyerAccountId: "buyer_wash",
+            sellerAccountId: `seller_wash_${index}`,
+          }),
+        );
+        const sales = [
+          ...washTrades,
+          trade(10, 0, false, { buyerAccountId: "buyer_honest_1", sellerAccountId: "seller_honest_1" }),
+          trade(10, 0, false, { buyerAccountId: "buyer_honest_2", sellerAccountId: "seller_honest_2" }),
+        ];
+        const capped = calculateBlendedMarketValueEstimate(sales, params);
+        const uncapped = calculateBlendedMarketValueEstimate(sales, {
+          ...params,
+          maximumParticipantWeightShare: 1,
+        });
+
+        expect(attackerWeight / totalWeight).toBeCloseTo(0.3, 12);
+        expect(capped.status === "estimated" && capped.amount).toBe("10.00");
+        expect(uncapped.status === "estimated" && Number(uncapped.amount)).toBeGreaterThan(50);
+      },
+    );
+
+    it("grades confidence by distinct Market Participants, not a buyer's print count", () => {
+      const repeatedBuyer = Array.from({ length: 20 }, (_, index) =>
+        trade(10 + (index % 5), 1, false, {
+          buyerAccountId: "buyer_repeat",
+          sellerAccountId: `seller_repeat_${index}`,
+        }),
+      );
+      const low = calculateBlendedMarketValueEstimate([...repeatedBuyer, trade(10, 1), trade(11, 1)], params);
+      const medium = calculateBlendedMarketValueEstimate(
+        Array.from({ length: 8 }, (_, index) => trade(10 + index, 1)),
+        params,
+      );
+      const high = calculateBlendedMarketValueEstimate(
+        Array.from({ length: 20 }, (_, index) => trade(10 + (index % 5), 1)),
+        params,
+      );
+
+      expect(low.status === "estimated" && low.confidence).toBe("low");
+      expect(medium.status === "estimated" && medium.confidence).toBe("medium");
+      expect(high.status === "estimated" && high.confidence).toBe("high");
+    });
   });
 
   it("never publishes a garbage number: a fresh extreme comp next to aged consistent trades fails the effective-sample-size gate (review probe)", () => {

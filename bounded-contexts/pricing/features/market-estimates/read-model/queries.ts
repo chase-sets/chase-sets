@@ -183,8 +183,15 @@ export async function loadComparableSales(
   window: Readonly<{ since: string; now: string }>,
 ): Promise<readonly ComparableSale[]> {
   const [trades, externalComps] = await Promise.all([
-    db.query<{ unit_price_amount: string; sold_at: Date; verified: boolean }>(
-      `SELECT unit_price_amount::text AS unit_price_amount, sold_at, verified
+    db.query<{
+      unit_price_amount: string;
+      sold_at: Date;
+      verified: boolean;
+      buyer_account_id: string;
+      seller_account_id: string;
+    }>(
+      `SELECT unit_price_amount::text AS unit_price_amount, sold_at, verified,
+              buyer_account_id, seller_account_id
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1 AND product_id = $2
          AND excluded = false AND sold_at IS NOT NULL AND sold_at >= $3`,
@@ -210,6 +217,8 @@ export async function loadComparableSales(
         priceAmount: Number(row.unit_price_amount),
         observedAt: new Date(row.sold_at).toISOString(),
         source: row.verified ? "platform-verified-trade" : "platform-trade",
+        buyerAccountId: row.buyer_account_id,
+        sellerAccountId: row.seller_account_id,
       }),
     ),
     ...externalComps.rows.map(
