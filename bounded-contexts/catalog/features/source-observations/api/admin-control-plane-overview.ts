@@ -58,6 +58,17 @@ export type CatalogIntegrationRecentJobResultSummary = Readonly<{
   failed: number;
   outcomeCount: number;
   redactedFailureReasons: readonly string[];
+  usage: CatalogIntegrationRecentJobUsageSummary | null;
+}>;
+
+// Counts are deliberately the only execution data retained in the support
+// summary. Provider credit values, account identifiers, and raw responses stay
+// in the provider boundary and never cross into the control-plane surface.
+export type CatalogIntegrationRecentJobUsageSummary = Readonly<{
+  actualRequestCount: number | null;
+  pageCount: number | null;
+  cacheHitCount: number | null;
+  cacheMissCount: number | null;
 }>;
 
 export type CatalogIntegrationProviderReadinessSummary = Readonly<{
@@ -431,7 +442,37 @@ function jobResultSummary(
     failed: result.failed,
     outcomeCount: result.outcomes.length,
     redactedFailureReasons: redactedJobFailureReasons(result),
+    usage: jobUsageSummary(result),
   };
+}
+
+function jobUsageSummary(
+  result: SourceObservationIntegrationJobResult,
+): CatalogIntegrationRecentJobUsageSummary | null {
+  const evidence = result.outcomes
+    .map((outcome) => outcome.providerUsageEvidence)
+    .filter((value): value is NonNullable<typeof value> => Boolean(value));
+  if (evidence.length === 0) {
+    return null;
+  }
+
+  return {
+    actualRequestCount: summedUsageCount(evidence, (value) => value.actualRequestCount),
+    pageCount: summedUsageCount(evidence, (value) => value.pageCount),
+    cacheHitCount: summedUsageCount(evidence, (value) => value.cacheHitCount),
+    cacheMissCount: summedUsageCount(evidence, (value) => value.cacheMissCount),
+  };
+}
+
+function summedUsageCount(
+  evidence: readonly NonNullable<SourceObservationIntegrationJobResult["outcomes"][number]["providerUsageEvidence"]>[],
+  select: (
+    value: NonNullable<SourceObservationIntegrationJobResult["outcomes"][number]["providerUsageEvidence"]>,
+  ) => number | null,
+): number | null {
+  return evidence.every((value) => select(value) !== null)
+    ? evidence.reduce((total, value) => total + (select(value) ?? 0), 0)
+    : null;
 }
 
 function redactedJobFailureReasons(result: SourceObservationIntegrationJobResult): readonly string[] {

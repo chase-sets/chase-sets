@@ -34,6 +34,24 @@ describe("Catalog integration control-plane overview", () => {
                 reapplied: 0,
                 reason:
                   "Scrydex request failed at https://api.scrydex.com/onepiece/v1/expansions/OP16/sealed?page=1&api_key=secret with X-Api-Key=secret-token; provider response body is redacted.",
+                providerUsageEvidence: {
+                  unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+                  requestStrategy: "bulk-first",
+                  estimateState: "estimated",
+                  estimatedRequestCount: 1,
+                  estimateReason: null,
+                  actualRequestCount: 2,
+                  pageCount: 2,
+                  cacheHitCount: 1,
+                  cacheMissCount: 1,
+                  usageCheckState: "checked",
+                  creditDiagnostic: "credit status is available",
+                  degradedDiagnostic: null,
+                  bulkFirstConfirmed: true,
+                  perRecordFallbackReason: null,
+                  selectedFields: [],
+                  pageSize: 100,
+                },
               },
             ],
           },
@@ -48,6 +66,8 @@ describe("Catalog integration control-plane overview", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain("secret-token");
     expect(JSON.stringify(result)).not.toContain("api_key=secret");
+    expect(result?.usage).toEqual({ actualRequestCount: 2, pageCount: 2, cacheHitCount: 1, cacheMissCount: 1 });
+    expect(JSON.stringify(result)).not.toContain("credit status is available");
   });
 });
 

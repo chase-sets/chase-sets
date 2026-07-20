@@ -304,6 +304,14 @@ export interface CatalogIntegrationRecentJobResultSummary {
   failed: number;
   outcomeCount: number;
   redactedFailureReasons?: string[];
+  usage: CatalogIntegrationRecentJobUsageSummary | null;
+}
+
+export interface CatalogIntegrationRecentJobUsageSummary {
+  actualRequestCount: number | null;
+  pageCount: number | null;
+  cacheHitCount: number | null;
+  cacheMissCount: number | null;
 }
 
 export interface CatalogIntegrationProviderReadiness {

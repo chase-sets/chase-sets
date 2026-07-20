@@ -1499,6 +1499,12 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
       skippedCount: number;
       failedCount: number;
       redactedFailureReasons: readonly string[];
+      usage: Readonly<{
+        actualRequestCount: number | null;
+        pageCount: number | null;
+        cacheHitCount: number | null;
+        cacheMissCount: number | null;
+      }> | null;
       replayOrReapplyState:
         | "not-applicable"
         | "reapply-current-active-profile"
@@ -2983,6 +2989,12 @@ function assertPrimaryWorkbenchImportJobs(value: CatalogPrimaryWorkbenchReadMode
     }
     if (!Array.isArray(job.result.redactedFailureReasons)) {
       throw new Error("Primary workbench import job results must expose redacted failure reasons.");
+    }
+    if (job.result.usage) {
+      const counts = Object.values(job.result.usage);
+      if (counts.some((count) => count !== null && (!Number.isSafeInteger(count) || count < 0))) {
+        throw new Error("Primary workbench import job usage counts must be non-negative integers.");
+      }
     }
     for (const reason of job.result.redactedFailureReasons) {
       if (

@@ -198,6 +198,12 @@ export function CatalogIntegrationImportJobsModule({
           ),
       },
       {
+        key: "usage",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage"),
+        cell: (job) => <ImportJobUsage usage={job.result?.usage ?? null} />,
+      },
+      {
         key: "actions",
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
@@ -399,6 +405,37 @@ export function CatalogIntegrationImportJobsModule({
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")}
       />
     </WorkflowModule>
+  );
+}
+
+function ImportJobUsage({
+  usage,
+}: Readonly<{
+  usage: NonNullable<ImportJobRow["result"]>["usage"];
+}>) {
+  if (!usage) {
+    return <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>;
+  }
+
+  return (
+    <WorkbenchStack gap="sm">
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests", {
+          count: usage.actualRequestCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+        })}
+      </WorkbenchText>
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages", {
+          count: usage.pageCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+        })}
+      </WorkbenchText>
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache", {
+          hits: usage.cacheHitCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          misses: usage.cacheMissCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+        })}
+      </WorkbenchText>
+    </WorkbenchStack>
   );
 }
 

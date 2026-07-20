@@ -341,6 +341,11 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job": "Durable job",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile": "Profile: {profile}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress": "Progress",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage": "Provider usage",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache":
+    "Cache: {hits} hits, {misses} misses",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages": "Pages: {count}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests": "Requests: {count}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.apply": "Select source scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.profileVersion": "Profile version",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.provider": "Provider",
