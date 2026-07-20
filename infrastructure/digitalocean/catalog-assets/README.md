@@ -33,3 +33,12 @@ terraform apply -var=environment=<environment>
 `DIGITALOCEAN_ACCESS_TOKEN`, `SPACES_ACCESS_ID`, and `SPACES_SECRET_KEY` must be supplied through `TF_VAR_*` variables. The Spaces key needs permission to create the three Catalog asset buckets and to read/write the Terraform state bucket.
 
 Prefer the `Platform Catalog Assets Apply` GitHub workflow for staging and production plan/apply evidence. It initializes this root with `catalog-assets/<environment>.tfstate`, uploads a redacted plan artifact, verifies bucket-root `AccessDenied` after apply, and can verify a support-safe known CDN object path without printing object keys.
+
+## CDN State Repair
+
+Use `Platform Catalog Assets State Repair` only after comparing the DigitalOcean CDN API with Terraform state:
+
+- `import-live` imports an API-confirmed CDN for the environment custom domain when state is empty or stale.
+- `recreate-missing` is the inverse repair: it requires no live CDN for the custom domain and a state-tracked CDN that the API confirms is missing. The workflow backs up state, removes only `digitalocean_cdn.catalog_assets`, rejects any plan beyond one CDN create, applies that plan, and waits up to 45 minutes for the endpoint to remain API-visible and serve the protected root as HTTPS 403.
+
+Both actions are confirmation-gated. Do not use `recreate-missing` for certificate provisioning lag or when any live CDN already owns the custom domain.

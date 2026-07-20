@@ -10,9 +10,17 @@ on:
         options:
           - staging
           - production
-      live_cdn_id:
-        description: API-confirmed live DigitalOcean CDN UUID for the environment custom domain.
+      repair_action:
+        description: Import an API-confirmed live CDN, or recreate a CDN that disappeared while Terraform still tracks it.
         required: true
+        type: choice
+        options:
+          - import-live
+          - recreate-missing
+      live_cdn_id:
+        description: API-confirmed live DigitalOcean CDN UUID. Required only for import-live.
+        required: false
+        default: ""
         type: string
       release_ref:
         description: Ref to check out. Defaults to main.
@@ -20,7 +28,7 @@ on:
         default: main
         type: string
       confirm:
-        description: Type "repair catalog-assets cdn state <environment> <live_cdn_id>".
+        description: Type "repair catalog-assets cdn state <environment> <repair_action>".
         required: true
         type: string
 
@@ -36,7 +44,7 @@ jobs:
   repair-cdn-state:
     name: Repair Catalog Assets CDN State (${{ inputs.environment }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment: ${{ inputs.environment }}
     env:
       TF_IN_AUTOMATION: "true"
@@ -52,16 +60,30 @@ jobs:
       - name: Confirm catalog-assets CDN state repair
         run: |
           set -euo pipefail
-          expected="repair catalog-assets cdn state ${{ inputs.environment }} ${{ inputs.live_cdn_id }}"
+          expected="repair catalog-assets cdn state ${{ inputs.environment }} ${{ inputs.repair_action }}"
           if [ "${{ inputs.confirm }}" != "$expected" ]; then
             echo "Confirmation text did not match exactly; expected '${expected}'." >&2
             exit 1
           fi
 
-          if ! printf '%s' "${{ inputs.live_cdn_id }}" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
-            echo "live_cdn_id must be a DigitalOcean CDN UUID." >&2
-            exit 1
-          fi
+          case "${{ inputs.repair_action }}" in
+            import-live)
+              if ! printf '%s' "${{ inputs.live_cdn_id }}" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+                echo "live_cdn_id must be a DigitalOcean CDN UUID for import-live." >&2
+                exit 1
+              fi
+              ;;
+            recreate-missing)
+              if [ -n "${{ inputs.live_cdn_id }}" ]; then
+                echo "live_cdn_id must stay empty for recreate-missing." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unsupported catalog-assets CDN repair action." >&2
+              exit 1
+              ;;
+          esac
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -113,15 +135,9 @@ jobs:
               ;;
           esac
 
-          live_cdn_id="${{ inputs.live_cdn_id }}"
-          matched_live_id="$(doctl compute cdn list --output json | jq -r \
-            --arg live_cdn_id "$live_cdn_id" \
-            --arg custom_domain "$custom_domain" \
-            'first(.[] | select(.id == $live_cdn_id and .custom_domain == $custom_domain) | .id) // empty')"
-          if [ "$matched_live_id" != "$live_cdn_id" ]; then
-            echo "The supplied live_cdn_id does not match the expected catalog asset custom domain." >&2
-            exit 1
-          fi
+          requested_action="${{ inputs.repair_action }}"
+          supplied_live_cdn_id="${{ inputs.live_cdn_id }}"
+          live_cdns="$(doctl compute cdn list --output json)"
 
           state_backup="${RUNNER_TEMP}/catalog-assets-${{ inputs.environment }}-state-before.json"
           repair_started="false"
@@ -143,48 +159,136 @@ jobs:
               | .attributes.id // empty
             ) // empty
           ' "$state_backup")"
-          repair_action="noop"
+          repair_result="noop"
+          resulting_live_cdn_id="$supplied_live_cdn_id"
 
-          if [ "$current_cdn_id" = "$live_cdn_id" ]; then
-            echo "Terraform state already tracks the live catalog-assets CDN."
-          else
-            if [ -n "$current_cdn_id" ] && doctl compute cdn get "$current_cdn_id" >/dev/null 2>&1; then
-              echo "Terraform state points at an existing CDN that differs from the supplied live CDN; refusing automatic repair." >&2
-              exit 1
-            fi
+          case "$requested_action" in
+            import-live)
+              matched_live_id="$(printf '%s' "$live_cdns" | jq -r \
+                --arg live_cdn_id "$supplied_live_cdn_id" \
+                --arg custom_domain "$custom_domain" \
+                'first(.[] | select(.id == $live_cdn_id and .custom_domain == $custom_domain) | .id) // empty')"
+              if [ "$matched_live_id" != "$supplied_live_cdn_id" ]; then
+                echo "The supplied live_cdn_id does not match the expected catalog asset custom domain." >&2
+                exit 1
+              fi
 
-            if [ -n "$current_cdn_id" ]; then
-              echo "Removing stale catalog-assets CDN state object."
+              if [ "$current_cdn_id" = "$supplied_live_cdn_id" ]; then
+                echo "Terraform state already tracks the live catalog-assets CDN."
+              else
+                if [ -n "$current_cdn_id" ] && doctl compute cdn get "$current_cdn_id" >/dev/null 2>&1; then
+                  echo "Terraform state points at an existing CDN that differs from the supplied live CDN; refusing automatic repair." >&2
+                  exit 1
+                fi
+
+                repair_started="true"
+                if [ -n "$current_cdn_id" ]; then
+                  echo "Removing stale catalog-assets CDN state object."
+                  terraform state rm digitalocean_cdn.catalog_assets
+                  repair_result="state-rm-import"
+                else
+                  repair_result="import"
+                fi
+
+                echo "Importing live catalog-assets CDN state object."
+                terraform import digitalocean_cdn.catalog_assets "$supplied_live_cdn_id"
+              fi
+              terraform plan -out=tfplan
+              ;;
+            recreate-missing)
+              matched_custom_domain_id="$(printf '%s' "$live_cdns" | jq -r \
+                --arg custom_domain "$custom_domain" \
+                'first(.[] | select(.custom_domain == $custom_domain) | .id) // empty')"
+              if [ -n "$matched_custom_domain_id" ]; then
+                echo "A live CDN already owns ${custom_domain}; use import-live with ${matched_custom_domain_id}." >&2
+                exit 1
+              fi
+              if [ -z "$current_cdn_id" ]; then
+                echo "Terraform state does not track a catalog-assets CDN; refusing recreate-missing." >&2
+                exit 1
+              fi
+              if doctl compute cdn get "$current_cdn_id" >/dev/null 2>&1; then
+                echo "Terraform state points at a live CDN; refusing recreate-missing." >&2
+                exit 1
+              fi
+
+              echo "Removing the API-confirmed missing catalog-assets CDN from Terraform state."
               repair_started="true"
               terraform state rm digitalocean_cdn.catalog_assets
-              repair_action="state-rm-import"
-            else
-              repair_started="true"
-              repair_action="import"
-            fi
+              terraform plan -out=tfplan
+              terraform show -json tfplan > "${RUNNER_TEMP}/catalog-assets-recreate-plan.json"
+              if ! jq -e '
+                  [.resource_changes[]? | select(.change.actions != ["no-op"])] as $changes
+                  | ($changes | length) == 1
+                    and $changes[0].address == "digitalocean_cdn.catalog_assets"
+                    and $changes[0].change.actions == ["create"]
+                ' "${RUNNER_TEMP}/catalog-assets-recreate-plan.json" >/dev/null; then
+                echo "Recreate plan must contain only creation of digitalocean_cdn.catalog_assets." >&2
+                restore_state_on_error
+                exit 1
+              fi
 
-            echo "Importing live catalog-assets CDN state object."
-            terraform import digitalocean_cdn.catalog_assets "$live_cdn_id"
-          fi
+              repair_started="false"
+              trap - ERR
+              terraform apply -auto-approve tfplan
+              resulting_live_cdn_id="$(terraform state pull | jq -r '
+                first(
+                  .resources[]
+                  | select(.mode == "managed" and .type == "digitalocean_cdn" and .name == "catalog_assets")
+                  | .instances[]
+                  | .attributes.id // empty
+                ) // empty
+              ')"
+              if [ -z "$resulting_live_cdn_id" ]; then
+                echo "Terraform apply completed without a catalog-assets CDN state id." >&2
+                exit 1
+              fi
+              repair_result="state-rm-recreate"
+              ;;
+          esac
 
-          terraform plan -out=tfplan
           terraform show -no-color tfplan > "../../../artifacts/catalog-assets/${{ inputs.environment }}-catalog-assets-post-repair-plan.txt"
           repair_started="false"
           trap - ERR
+
+          if [ "$requested_action" = "recreate-missing" ]; then
+            cdn_endpoint="$(terraform output -raw cdn_endpoint)"
+            deadline=$((SECONDS + 2700))
+            while true; do
+              api_match="$(doctl compute cdn list --output json | jq -r \
+                --arg live_cdn_id "$resulting_live_cdn_id" \
+                --arg custom_domain "$custom_domain" \
+                --arg cdn_endpoint "$cdn_endpoint" \
+                'first(.[] | select(.id == $live_cdn_id and .custom_domain == $custom_domain and .endpoint == $cdn_endpoint) | .id) // empty')"
+              root_status="$(curl --silent --show-error --location --head --output /dev/null --write-out '%{http_code}' \
+                "https://${custom_domain}/" || true)"
+              echo "Catalog asset CDN API id ${api_match:-missing}; root status ${root_status:-none}."
+              if [ "$api_match" = "$resulting_live_cdn_id" ] && [ "$root_status" = "403" ]; then
+                break
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "Catalog asset CDN did not converge to an API-visible endpoint and protected HTTPS 403 within 45 minutes." >&2
+                exit 1
+              fi
+              sleep 10
+            done
+          fi
 
           jq -n \
             --arg environment "${{ inputs.environment }}" \
             --arg custom_domain "$custom_domain" \
             --arg previous_cdn_id "${current_cdn_id:-}" \
-            --arg live_cdn_id "$live_cdn_id" \
-            --arg repair_action "$repair_action" \
+            --arg requested_action "$requested_action" \
+            --arg live_cdn_id "$resulting_live_cdn_id" \
+            --arg repair_result "$repair_result" \
             --arg plan_artifact "${{ inputs.environment }}-catalog-assets-post-repair-plan.txt" \
             '{
               environment: $environment,
               customDomain: $custom_domain,
               previousCdnId: $previous_cdn_id,
+              requestedAction: $requested_action,
               liveCdnId: $live_cdn_id,
-              repairAction: $repair_action,
+              repairResult: $repair_result,
               planArtifact: $plan_artifact
             }' > "../../../artifacts/catalog-assets/${{ inputs.environment }}-catalog-assets-state-repair-summary.json"
 
@@ -203,7 +307,10 @@ jobs:
             echo "## Catalog Assets CDN State Repair"
             echo ""
             echo "- Environment: ${{ inputs.environment }}"
+            echo "- Requested action: ${{ inputs.repair_action }}"
             echo "- Release ref: ${{ inputs.release_ref }}"
-            echo "- Supplied live CDN id: ${{ inputs.live_cdn_id }}"
+            if [ -n "${{ inputs.live_cdn_id }}" ]; then
+              echo "- Supplied live CDN id: ${{ inputs.live_cdn_id }}"
+            fi
             echo "- Artifact: catalog-assets-${{ inputs.environment }}-state-repair-${{ github.run_id }}-${{ github.run_attempt }}"
           } >> "$GITHUB_STEP_SUMMARY"
