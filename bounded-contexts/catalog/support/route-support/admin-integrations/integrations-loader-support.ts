@@ -66,6 +66,8 @@ import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 
 const SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS = 2_500;
 const SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS = 20_000;
+const SOURCE_OPTION_CONTINUATION_PAGE_LIMIT = 200;
+const MAX_SOURCE_OPTION_CONTINUATION_PAGES = 100;
 const AUTH_RESOLUTION_RETRY_DELAYS_MS = [250, 1_000, 2_500] as const;
 
 // Provider profiles + the control plane overview are the shared baseline every
@@ -911,16 +913,111 @@ async function selectedProviderSourceOptionPages(
 
       try {
         const query = new URL(href, request.url).searchParams.toString();
-        const response = await withSourceOptionPageTimeout(
+        const firstResponse = await withSourceOptionPageTimeout(
           api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
           forceRefresh ? SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS : SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
         );
+        const response = await completeSourceOptionResponse(api, request, sourceOptionRequest, href, firstResponse);
         return { request: sourceOptionRequest, response };
       } catch (error) {
         return { request: sourceOptionRequest, error: sourceOptionPageError(error) };
       }
     }),
   );
+}
+
+// Guided selectors need the complete provider-neutral option list, while the
+// option API intentionally exposes bounded cursor pages. Resolve the first page
+// using the requested cache/live semantics, then exhaust continuation cursors
+// from that same cache snapshot. In particular, a force refresh happens once;
+// continuation requests never repeat provider I/O or mutate refresh timestamps.
+async function completeSourceOptionResponse(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  request: Request,
+  sourceOptionRequest: CatalogPrimaryWorkbenchSourceOptionPageSnapshot["request"],
+  firstHref: string,
+  firstResponse: SourceObservationIntegrationOptionResponse,
+): Promise<SourceObservationIntegrationOptionResponse> {
+  if (!firstResponse.page?.hasMore) {
+    return firstResponse;
+  }
+
+  const items = [...firstResponse.items];
+  const seenCursors = new Set<string>();
+  let continuationPageCount = 0;
+  let response = firstResponse;
+
+  while (response.page?.hasMore) {
+    if (continuationPageCount >= MAX_SOURCE_OPTION_CONTINUATION_PAGES) {
+      throw new CatalogSourceOptionPaginationError(
+        sourceOptionRequest.queryKind,
+        `the response exceeded ${MAX_SOURCE_OPTION_CONTINUATION_PAGES} continuation pages`,
+      );
+    }
+    const cursor = response.page.nextCursor?.trim();
+    if (!cursor || seenCursors.has(cursor)) {
+      throw new CatalogSourceOptionPaginationError(sourceOptionRequest.queryKind, "the cursor did not advance");
+    }
+    seenCursors.add(cursor);
+
+    const query = sourceOptionContinuationQuery(firstHref, request.url, cursor);
+    const continuationResponse = await withSourceOptionPageTimeout(
+      api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
+      SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
+    );
+    continuationPageCount += 1;
+    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, sourceOptionRequest.queryKind);
+    response = continuationResponse;
+    items.push(...response.items);
+  }
+
+  return {
+    ...firstResponse,
+    items,
+    total: Math.max(firstResponse.total, response.total, items.length),
+    count: items.length,
+    page: {
+      cursor: firstResponse.page.cursor,
+      nextCursor: null,
+      limit: Math.max(firstResponse.page.limit, items.length),
+      hasMore: false,
+    },
+  };
+}
+
+function sourceOptionContinuationQuery(href: string, requestUrl: string, cursor: string): string {
+  const continuation = new URL(href, requestUrl);
+  continuation.searchParams.set("cursor", cursor);
+  continuation.searchParams.set("limit", String(SOURCE_OPTION_CONTINUATION_PAGE_LIMIT));
+  continuation.searchParams.set("cacheOnly", "true");
+  continuation.searchParams.delete("forceRefresh");
+  return continuation.searchParams.toString();
+}
+
+function assertSourceOptionContinuation(
+  firstResponse: SourceObservationIntegrationOptionResponse,
+  response: SourceObservationIntegrationOptionResponse,
+  expectedCursor: string,
+  queryKind: string,
+): void {
+  if (!response.page || response.page.cursor !== expectedCursor) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "the continuation page did not match its cursor");
+  }
+  if (response.total !== firstResponse.total) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "the cached option count changed between pages");
+  }
+  if (firstResponse.cache?.cacheKey && response.cache?.cacheKey !== firstResponse.cache.cacheKey) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "the option cache changed between pages");
+  }
+}
+
+class CatalogSourceOptionPaginationError extends Error {
+  readonly code = "catalog_provider_option_pagination_invalid";
+
+  constructor(queryKind: string, reason: string) {
+    super(`Provider source option query '${queryKind}' could not load every option because ${reason}.`);
+    this.name = "CatalogSourceOptionPaginationError";
+  }
 }
 
 class CatalogSourceOptionPageTimeoutError extends Error {
@@ -972,6 +1069,14 @@ function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOpt
     };
   }
   if (error instanceof CatalogSourceOptionPageTimeoutError) {
+    return {
+      status: null,
+      code: error.code,
+      message: error.message,
+      rolloutBlocked: false,
+    };
+  }
+  if (error instanceof CatalogSourceOptionPaginationError) {
     return {
       status: null,
       code: error.code,
