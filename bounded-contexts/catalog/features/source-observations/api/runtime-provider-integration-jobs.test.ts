@@ -1166,6 +1166,85 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.appendedSourceEvents).toHaveLength(2);
   });
 
+  it("settles a mixed TCGplayer set after detail assigns generic candidates to another unit", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const client = {
+      ...tcgplayerHarness.client,
+      listAllProducts: async (input: Parameters<typeof tcgplayerHarness.client.listAllProducts>[0]) =>
+        (await tcgplayerHarness.client.listAllProducts(input)).map((product) =>
+          product.productId === 987660 ? { ...product, productTypeName: "Products", sealed: false } : product,
+        ),
+    };
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "one-piece-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        productLineId: "68",
+        setName: "Romance Dawn",
+      },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
+      status: "completed",
+      operatorStatus: "completed",
+      result: { requested: 1, imported: 1, observed: 1, failed: 0 },
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+  });
+
+  it("keeps genuine TCGplayer detail failures visibly partial", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness({ failProductIds: new Set([610002]) });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions(),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({
+      requested: 1,
+      imported: 0,
+      observed: 1,
+      failed: 1,
+      outcomes: [
+        expect.objectContaining({
+          status: "failed",
+          observed: 1,
+          reason: expect.stringContaining("Product 610002 unavailable."),
+        }),
+      ],
+    });
+    await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
+      status: "completed",
+      operatorStatus: "partial",
+      result: { observed: 1, failed: 1 },
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+  });
+
   it("imports TCGplayer set scopes as provider-product source observations", async () => {
     const tcgplayerHarness = createTcgplayerImportHarness();
     const harness = createIntegrationJobClaimHandoffHarness({

@@ -260,13 +260,11 @@ export function createTcgplayerProviderAdapter(
               total: scopedProducts.length,
               currentLabel: detail.productName,
             });
-            yield rejectedProductEnvelope(
-              plan,
-              detail.productId,
-              detail.productName,
-              fetchedAt,
-              productMismatchReason(profileVersion, detail),
-            );
+            // Set-search summaries are only candidates: TCGplayer can describe
+            // sealed products with the same generic summary shape as cards.
+            // The detail response is authoritative, so a candidate owned by a
+            // different ingestion unit is an expected exclusion, not a failed
+            // detail fetch. Explicit product imports still reject mismatches.
             continue;
           }
           completed += 1;
