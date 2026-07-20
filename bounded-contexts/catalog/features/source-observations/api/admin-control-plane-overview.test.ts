@@ -34,6 +34,24 @@ describe("Catalog integration control-plane overview", () => {
                 reapplied: 0,
                 reason:
                   "Scrydex request failed at https://api.scrydex.com/onepiece/v1/expansions/OP16/sealed?page=1&api_key=secret with X-Api-Key=secret-token; provider response body is redacted.",
+                providerUsageEvidence: {
+                  unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+                  requestStrategy: "bulk-first",
+                  estimateState: "estimated",
+                  estimatedRequestCount: 1,
+                  estimateReason: null,
+                  actualRequestCount: 2,
+                  pageCount: 2,
+                  cacheHitCount: null,
+                  cacheMissCount: null,
+                  usageCheckState: "checked",
+                  creditDiagnostic: "credit status is available",
+                  degradedDiagnostic: null,
+                  bulkFirstConfirmed: true,
+                  perRecordFallbackReason: null,
+                  selectedFields: [],
+                  pageSize: 100,
+                },
               },
             ],
           },
@@ -48,6 +66,73 @@ describe("Catalog integration control-plane overview", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain("secret-token");
     expect(JSON.stringify(result)).not.toContain("api_key=secret");
+    expect(result?.usage).toEqual({ actualRequestCount: 2, pageCount: 2, cacheHitCount: null, cacheMissCount: null });
+    expect(JSON.stringify(result)).not.toContain("credit status is available");
+  });
+
+  it("does not report partial usage totals when an outcome has no evidence", () => {
+    const overview = buildCatalogIntegrationControlPlaneOverview({
+      generatedAt,
+      readiness: readinessFixture(),
+      profiles: [],
+      activeJobs: [
+        integrationJobFixture({
+          result: {
+            requested: 2,
+            imported: 1,
+            observed: 1,
+            reapplied: 0,
+            skipped: 0,
+            failed: 1,
+            outcomes: [
+              {
+                providerKey: "scrydex",
+                languageCode: "en",
+                expansionId: "OP16",
+                status: "imported",
+                observed: 1,
+                reapplied: 0,
+                reason: null,
+                providerUsageEvidence: {
+                  unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+                  requestStrategy: "bulk-first",
+                  estimateState: "estimated",
+                  estimatedRequestCount: 1,
+                  estimateReason: null,
+                  actualRequestCount: 2,
+                  pageCount: 2,
+                  cacheHitCount: null,
+                  cacheMissCount: null,
+                  usageCheckState: "checked",
+                  creditDiagnostic: null,
+                  degradedDiagnostic: null,
+                  bulkFirstConfirmed: true,
+                  perRecordFallbackReason: null,
+                  selectedFields: [],
+                  pageSize: 100,
+                },
+              },
+              {
+                providerKey: "scrydex",
+                languageCode: "en",
+                expansionId: "OP17",
+                status: "failed",
+                observed: 0,
+                reapplied: 0,
+                reason: "Provider usage evidence was unavailable.",
+              },
+            ],
+          },
+        }),
+      ],
+    });
+
+    expect(overview.unitActivity.units[0]?.recentJobs[0]?.result?.usage).toEqual({
+      actualRequestCount: null,
+      pageCount: null,
+      cacheHitCount: null,
+      cacheMissCount: null,
+    });
   });
 });
 

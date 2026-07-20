@@ -104,6 +104,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
                     skipped: 1,
                     failed: 1,
                     outcomeCount: 3,
+                    usage: null,
                     redactedFailureReasons: [
                       "Catalog provider 'scrydex' source observation normalization failed at normalized.imageUrls.",
                     ],
@@ -131,6 +132,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
       reappliedCount: 0,
       skippedCount: 1,
       failedCount: 1,
+      usage: null,
       redactedFailureReasons: [
         "Catalog provider 'scrydex' source observation normalization failed at normalized.imageUrls.",
       ],

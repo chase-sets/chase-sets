@@ -198,6 +198,12 @@ export function CatalogIntegrationImportJobsModule({
           ),
       },
       {
+        key: "usage",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage"),
+        cell: (job) => <ImportJobUsage usage={job.result?.usage ?? null} />,
+      },
+      {
         key: "actions",
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
@@ -399,6 +405,42 @@ export function CatalogIntegrationImportJobsModule({
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")}
       />
     </WorkflowModule>
+  );
+}
+
+function ImportJobUsage({
+  usage,
+}: Readonly<{
+  usage: NonNullable<ImportJobRow["result"]>["usage"];
+}>) {
+  if (!usage) {
+    return <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>;
+  }
+
+  const unavailable = t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.unavailable");
+  const hasCacheCounts = usage.cacheHitCount !== null && usage.cacheMissCount !== null;
+
+  return (
+    <WorkbenchStack gap="sm">
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests", {
+          count: usage.actualRequestCount ?? unavailable,
+        })}
+      </WorkbenchText>
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages", {
+          count: usage.pageCount ?? unavailable,
+        })}
+      </WorkbenchText>
+      {hasCacheCounts ? (
+        <WorkbenchText size="xs">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache", {
+            hits: usage.cacheHitCount,
+            misses: usage.cacheMissCount,
+          })}
+        </WorkbenchText>
+      ) : null}
+    </WorkbenchStack>
   );
 }
 

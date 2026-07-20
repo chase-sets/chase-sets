@@ -213,6 +213,7 @@ function jobResultFor(
     skippedCount: job.result.skipped,
     failedCount: job.result.failed,
     redactedFailureReasons: job.result.redactedFailureReasons ?? [],
+    usage: job.result.usage ?? null,
     replayOrReapplyState: replayOrReapplyStateFor(job),
   };
 }
