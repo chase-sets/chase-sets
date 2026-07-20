@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
   CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION,
+  INTERNAL_ONLY_PAYMENT_EVENTS,
+  STRIPE_DELIVERED_EVENTS,
   STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS,
   createCanonicalStripePaymentsWebhookEndpoint,
   parseStripePaymentsWebhookEndpointArgs,
@@ -220,8 +222,8 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
     stripeApiKey: "sk_live_fixture",
   };
 
-  it("pins the created event set to every event consumed by the Payments Stripe adapter", () => {
-    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS).toEqual([
+  it("pins the created event set to the Stripe-delivered adapter events", () => {
+    expect(STRIPE_DELIVERED_EVENTS).toEqual([
       "checkout.session.completed",
       "checkout.session.async_payment_succeeded",
       "checkout.session.async_payment_failed",
@@ -243,9 +245,9 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
       "radar.early_fraud_warning.created",
       "review.opened",
       "review.closed",
-      "shared_payment.granted_token.used",
-      "shared_payment.granted_token.deactivated",
     ]);
+    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS).toBe(STRIPE_DELIVERED_EVENTS);
+    expect(INTERNAL_ONLY_PAYMENT_EVENTS).toHaveLength(2);
   });
 
   it("parses the exact confirmation and fails closed before any Stripe call when it is absent or wrong", async () => {

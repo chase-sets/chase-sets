@@ -3,6 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
+import {
+  INTERNAL_ONLY_PAYMENT_EVENTS,
+  STRIPE_DELIVERED_EVENTS,
+  STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS,
+} from "./stripe-webhook-endpoint.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -15,7 +20,7 @@ function eventLiterals(value, pattern) {
 }
 
 describe("Stripe webhook event registry", () => {
-  it("ratchets the shared payment registry against the payment adapter handler", () => {
+  it("partitions payment adapter events into Stripe-delivered and internal-only sets", () => {
     const paymentSource = source("infrastructure/stripe-payments/index.ts");
     const handlerSource = paymentSource.slice(
       paymentSource.indexOf("function mapWebhookEvent"),
@@ -26,7 +31,19 @@ describe("Stripe webhook event registry", () => {
       ...eventLiterals(handlerSource, /case "([^"]+)":/g),
     ]);
 
-    expect([...mappedEvents].sort()).toEqual([...webhookEventRegistry.payment].sort());
+    expect([...mappedEvents].sort()).toEqual([...STRIPE_DELIVERED_EVENTS, ...INTERNAL_ONLY_PAYMENT_EVENTS].sort());
+    expect(STRIPE_DELIVERED_EVENTS).toEqual(webhookEventRegistry.payment);
+    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS).toEqual(STRIPE_DELIVERED_EVENTS);
+  });
+
+  it("never sends internal shared-payment facts in Stripe endpoint create requests", () => {
+    expect(INTERNAL_ONLY_PAYMENT_EVENTS).toEqual([
+      "shared_payment.granted_token.used",
+      "shared_payment.granted_token.deactivated",
+    ]);
+    expect(STRIPE_DELIVERED_EVENTS).not.toContain("shared_payment.granted_token.used");
+    expect(STRIPE_DELIVERED_EVENTS).not.toContain("shared_payment.granted_token.deactivated");
+    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS.every((event) => !event.startsWith("shared_payment."))).toBe(true);
   });
 
   it("ratchets the shared Connect registry against readiness and payout handlers", () => {

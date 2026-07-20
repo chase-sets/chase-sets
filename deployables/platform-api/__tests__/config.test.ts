@@ -786,8 +786,8 @@ describe("platform api config", () => {
     });
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("checkout.session.completed");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payment_intent.succeeded");
-    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("shared_payment.granted_token.used");
-    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("shared_payment.granted_token.deactivated");
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).not.toContain("shared_payment.granted_token.used");
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).not.toContain("shared_payment.granted_token.deactivated");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("v2.core.account[requirements].updated");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
   });
