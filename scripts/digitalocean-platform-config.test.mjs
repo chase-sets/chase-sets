@@ -649,6 +649,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform state rm digitalocean_cdn.catalog_assets");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("Terraform state points at an existing CDN");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("recreate-missing");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain(
+      "Recreate plan must contain only creation of digitalocean_cdn.catalog_assets.",
+    );
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform apply -auto-approve tfplan");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("timeout-minutes: 60");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("deadline=$((SECONDS + 2700))");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("protected HTTPS 403 within 45 minutes");
     expect(platformProductionWorkflow).toContain("catalog_asset_public_base_url");
     expect(platformProductionWorkflow).toContain("Catalog asset CDN root returned expected protected status 403.");
     expect(platformProductionWorkflow).not.toContain('"${catalog_asset_public_base_url}/" >/dev/null');
