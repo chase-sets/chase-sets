@@ -1071,7 +1071,7 @@ describe("Catalog integrations route", () => {
     expect(providersOverview).toHaveBeenCalledWith("full");
   });
 
-  it("keeps the staging Japanese SV8 deep-link payload trimmed", async () => {
+  it("keeps the staging Japanese SV8 deep-link metadata trimmed while loading every option", async () => {
     const sv8Scope = sourceObservationScope({
       language_code: "ja",
       product_line_id: "",
@@ -1126,37 +1126,43 @@ describe("Catalog integrations route", () => {
           value: selectedValue,
           label: selectedLabel,
         });
+        const items = [
+          {
+            providerKey: "tcgdex",
+            queryKind,
+            value: selectedValue,
+            label: selectedLabel,
+            description: null,
+            parentValue: params.get("parentValue"),
+            imageUrl: null,
+            metadata: { providerPayload: "SENTINEL_ROUTE_OPTION_METADATA_LEAK" },
+          },
+          ...Array.from({ length: 99 }, (_, index) => ({
+            providerKey: "tcgdex",
+            queryKind,
+            value: `${selectedValue}-${index}`,
+            label: `${selectedLabel} ${index}`,
+            description: null,
+            parentValue: params.get("parentValue"),
+            imageUrl: null,
+            metadata: { providerPayload: `SENTINEL_ROUTE_OPTION_METADATA_LEAK_${index}` },
+          })),
+        ];
+        const cursor = params.get("cursor");
+        const offset = cursor ? Number(cursor.replace("offset:", "")) : 0;
+        const limit = Number(params.get("limit") ?? "25");
+        const pageItems = items.slice(offset, offset + limit);
+        const nextOffset = offset + pageItems.length;
         return {
           ...response,
-          items: [
-            {
-              providerKey: "tcgdex",
-              queryKind,
-              value: selectedValue,
-              label: selectedLabel,
-              description: null,
-              parentValue: params.get("parentValue"),
-              imageUrl: null,
-              metadata: { providerPayload: "SENTINEL_ROUTE_OPTION_METADATA_LEAK" },
-            },
-            ...Array.from({ length: 99 }, (_, index) => ({
-              providerKey: "tcgdex",
-              queryKind,
-              value: `${selectedValue}-${index}`,
-              label: `${selectedLabel} ${index}`,
-              description: null,
-              parentValue: params.get("parentValue"),
-              imageUrl: null,
-              metadata: { providerPayload: `SENTINEL_ROUTE_OPTION_METADATA_LEAK_${index}` },
-            })),
-          ],
+          items: pageItems,
           total: 100,
-          count: 100,
+          count: pageItems.length,
           page: {
-            cursor: null,
-            nextCursor: "offset:25",
-            limit: 25,
-            hasMore: true,
+            cursor,
+            nextCursor: nextOffset < items.length ? `offset:${nextOffset}` : null,
+            limit,
+            hasMore: nextOffset < items.length,
           },
         };
       }),
@@ -1187,11 +1193,11 @@ describe("Catalog integrations route", () => {
     const deferredSourceOptions = await routeData.deferredSourceOptions;
     expect(deferredSourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
       state: "stale",
-      page: expect.objectContaining({ total: 100, count: 25, limit: 25, hasMore: true }),
+      page: expect.objectContaining({ total: 100, count: 100, limit: 100, hasMore: false }),
       items: expect.arrayContaining([expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })]),
     });
-    // The leak guard and payload bound now apply to the streamed slice — the part
-    // that carries the provider option items — plus the synchronous route data.
+    // The leak guard and payload bound apply to the complete streamed selector
+    // slice — the part that carries provider option items — plus synchronous data.
     const serialized = JSON.stringify(routeData) + JSON.stringify(deferredSourceOptions);
     expect(serialized).not.toContain("SENTINEL_ROUTE_OPTION_METADATA_LEAK");
     expect(serialized.length).toBeLessThan(180_000);

@@ -192,6 +192,103 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("loads every cursor page into guided selectors without repeating a provider refresh", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const pokemonProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-single-card-product-sku",
+      profileVersion: "2026.06.05",
+      ingestionUnitKey: pokemonUnit,
+      displayName: "TCGplayer Pokemon Single Cards",
+      lifecycle: "active",
+      active: true,
+      status: "active",
+      supportedScopes: ["pokemon/single-card"],
+      sourceOptionKinds: [
+        {
+          queryKind: "sets",
+          queryKeySynonyms: ["setName"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          parentRequired: false,
+          parentValueKind: null,
+          parentDiagnosticText: null,
+        },
+      ],
+    });
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      const cursor = params.get("cursor");
+      const optionValues =
+        cursor === "page-2"
+          ? [{ value: "surging-sparks", label: "Surging Sparks" }]
+          : Array.from({ length: 25 }, (_, index) => ({
+              value: `first-page-${index + 1}`,
+              label: `First page set ${index + 1}`,
+            }));
+      const baseResponse = sourceOptionResponse("sets", {
+        status: "fresh",
+        source: cursor ? "cache" : "live",
+        parentValue: null,
+        degraded: false,
+        value: optionValues[0]?.value,
+        label: optionValues[0]?.label,
+      });
+
+      return {
+        ...baseResponse,
+        items: optionValues.map((option) => ({
+          ...baseResponse.items[0]!,
+          providerKey: "tcgplayer",
+          value: option.value,
+          label: option.label,
+        })),
+        total: 26,
+        count: optionValues.length,
+        page: {
+          cursor,
+          nextCursor: cursor ? null : "page-2",
+          limit: 25,
+          hasMore: cursor === null,
+        },
+      };
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [pokemonProfile], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=${encodeURIComponent(pokemonUnit)}&profileVersion=2026.06.05&sourceOptionAction=force-refresh-all`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    const optionQueries = listSourceObservationIntegrationOptions.mock.calls.map(
+      ([query]) => new URLSearchParams(query),
+    );
+    expect(optionQueries).toHaveLength(2);
+    expect(optionQueries[0]?.get("forceRefresh")).toBe("true");
+    expect(optionQueries[0]?.get("cursor")).toBeNull();
+    expect(optionQueries[1]?.get("forceRefresh")).toBeNull();
+    expect(optionQueries[1]?.get("cacheOnly")).toBe("true");
+    expect(optionQueries[1]?.get("cursor")).toBe("page-2");
+    expect(optionQueries[1]?.get("limit")).toBe("200");
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "sets")).toMatchObject({
+      state: "live",
+      page: { count: 26, total: 26, hasMore: false, nextCursor: null },
+      items: expect.arrayContaining([expect.objectContaining({ value: "surging-sparks", label: "Surging Sparks" })]),
+    });
+  });
+
   it("previews a Scrydex One Piece set-name selection from the shared importer route", async () => {
     const unitKey = "scrydex:one-piece:single-card:source-observation-import";
     const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
