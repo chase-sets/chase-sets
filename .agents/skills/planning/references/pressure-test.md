@@ -27,6 +27,12 @@ repairs to drafts, not new scope.
    plausibly do) or filler?
 8. **Chain integrity.** Blocked-by links form a DAG (no cycles), gates are
    checkable, and nothing parked is silently load-bearing.
+9. **Day-after steady state.** Any slice introducing or altering a state
+   machine or lifecycle: the plan must enumerate the states and name the
+   steady one. Ask what routine operation does the day after each transition —
+   a machine with only transition states is a finding. (This class escaped two
+   full-path code reviews; plan time is the cheapest place to catch an
+   omission that is invisible in a diff.)
 
 Report findings ranked by rework-risk: a missed decision or false parallel
 claim outranks a fuzzy AC.
