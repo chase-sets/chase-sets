@@ -1,0 +1,6 @@
+[
+  {
+    "id": "bounded-contexts/catalog/features/attention-queue/read-model/dismissal-projection.ts:41:DELETE:catalog_attention_dismissals",
+    "reason": "Event replay removes the exact aggregate-projected dismissal without a row-state decision."
+  }
+]

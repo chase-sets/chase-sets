@@ -288,7 +288,7 @@ async function markDisplayIdentityWorkRunning(db: PgQueryable, itemId: string): 
   await db.query(
     `UPDATE catalog_item_display_identity_recompute_work
      SET status = 'running', attempts = attempts + 1, updated_at = now()
-     WHERE catalog_item_id = $1`,
+     WHERE catalog_item_id = $1 AND status = 'pending'`,
     [itemId],
   );
 }
@@ -297,7 +297,7 @@ async function markDisplayIdentityWorkCompleted(db: PgQueryable, itemId: string)
   await db.query(
     `UPDATE catalog_item_display_identity_recompute_work
      SET status = 'completed', updated_at = now(), completed_at = now()
-     WHERE catalog_item_id = $1`,
+     WHERE catalog_item_id = $1 AND status = 'running'`,
     [itemId],
   );
 }
@@ -310,7 +310,7 @@ async function markDisplayIdentityWorkFailed(db: PgQueryable, itemId: string, er
        last_error = $2,
        available_at = now() + interval '1 minute',
        updated_at = now()
-     WHERE catalog_item_id = $1`,
+     WHERE catalog_item_id = $1 AND status = 'running'`,
     [itemId, message],
   );
 }

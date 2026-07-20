@@ -184,6 +184,16 @@ describe("display identity recomputation work", () => {
     expect(calls[0]?.sql).not.toContain("status IN");
     expect(calls[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
   });
+
+  it("uses the claimed work state as a concurrency predicate for every terminal transition", async () => {
+    const queries: string[] = [];
+    const db = recomputeDb({ existingHash: null, queries });
+
+    await processCatalogItemDisplayIdentityRecomputeBatch(db, commandHandler(), {} as never);
+
+    expect(queries.find((sql) => sql.includes("SET status = 'running'"))).toContain("AND status = 'pending'");
+    expect(queries.find((sql) => sql.includes("SET status = 'completed'"))).toContain("AND status = 'running'");
+  });
 });
 
 function commandHandler() {
@@ -326,6 +336,7 @@ function recomputeDb(options: {
   persistedWrites?: unknown[][];
   publicationMarks?: unknown[][];
   statusUpdates?: string[];
+  queries?: string[];
 }) {
   const persistedWrites = options.persistedWrites ?? [];
   const publicationMarks = options.publicationMarks ?? [];
@@ -334,6 +345,7 @@ function recomputeDb(options: {
   return {
     persistedWrites,
     async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
+      options.queries?.push(sql);
       if (sql.includes("FROM catalog_item_display_identity_recompute_work")) {
         return { rows: [{ catalog_item_id: "cat_1" }] as T[] };
       }
