@@ -534,6 +534,7 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
         heldDirections: [],
         holdStartedAt: null,
       }),
+      globalPosition: "3",
       streamVersion: 3,
     } as never;
     const stalePlaced = {
@@ -547,6 +548,7 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
         heldDirections: ["buyer-to-seller"],
         holdStartedAt: "2026-04-04T00:00:00.000Z",
       }),
+      globalPosition: "2",
       streamVersion: 2,
     } as never;
 
@@ -556,11 +558,11 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     expect(await getAccountReview(pool, "rev_stale_hold", "acc_seller")).toMatchObject({ held: false, rating: 5 });
     expect(
       (
-        await pool.query<{ last_stream_version: number }>(
+        await pool.query<{ last_stream_version: string }>(
           `SELECT last_stream_version FROM marketplace_review_hold_pages WHERE order_id = 'ord_stale_hold'`,
         )
       ).rows,
-    ).toEqual([{ last_stream_version: 3 }]);
+    ).toEqual([{ last_stream_version: "3" }]);
   });
 
   it("redacts rating and feedback for the subject before reveal, but never for the author", async () => {
