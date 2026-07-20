@@ -52,7 +52,11 @@ import {
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
 } from "@chase-sets/fulfillment/server";
-import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
+import {
+  createPaymentsUcpHandoff,
+  type PaymentsServices,
+  type UcpAp2MandateVerifier,
+} from "@chase-sets/payments/server";
 import {
   getLockedFeeListingCohortSummary,
   marketplaceListingGatePolicy,
@@ -722,18 +726,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createDiscoveryUcpHandlers(discoveryServices.items)
     : undefined;
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
-  const paymentsServices = runtime.services.payments as
-    | {
-        publicConfig?: Parameters<typeof createPaymentsUcpHandoff>[0];
-        payments?: {
-          revokeSavedCheckoutInstrumentsForAgentGrant?: (params: {
-            accountId: string;
-            agentGrantId: string;
-            revokedAt: string;
-          }) => Promise<unknown>;
-        };
-      }
-    | undefined;
+  const paymentsServices = runtime.services.payments as PaymentsServices | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
     ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
         ap2Verifier: options.ucpAp2MandateVerifier,

@@ -1149,6 +1149,7 @@ function isAllowedServerSurfaceConsumer(relativeFile) {
     relativeFile.includes("/routes/") ||
     relativeFile.includes("/request-support/") ||
     relativeFile.includes("/support/request-support/") ||
+    relativeFile.includes("/support/ucp-support/") ||
     relativeFile.includes("/route-support/") ||
     relativeFile.includes("/support/route-support/") ||
     relativeFile.endsWith("/api.ts")

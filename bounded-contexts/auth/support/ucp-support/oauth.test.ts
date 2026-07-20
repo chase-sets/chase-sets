@@ -505,7 +505,11 @@ describe("UCP OAuth routes", () => {
   });
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
-    const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => undefined);
+    const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => ({
+      detached: 1,
+      alreadyRemoved: 0,
+      instrumentIds: ["sci_1"],
+    }));
     const options = createOAuthOptions({ revokeStoredPaymentMethodsForAgentGrant });
     const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
     await options.linkedPlatformAuthorizations.grant({
@@ -535,11 +539,20 @@ describe("UCP OAuth routes", () => {
 
     const revoke = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
     await expect(revoke.json()).resolves.toEqual({ revoked: true });
-    expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledWith({
-      accountId: "account_1",
-      agentGrantId: "lpa_1",
-      revokedAt: expect.any(String),
-    });
+    expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledWith(
+      {
+        accountId: "account_1",
+        agentGrantId: "lpa_1",
+        revokedAt: expect.any(String),
+      },
+      {
+        tenantId: "tnt_identity",
+        audit: {
+          performedByUserId: "usr_identity_system",
+          forAccountId: "account_1",
+        },
+      },
+    );
 
     const replay = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
     await expect(replay.json()).resolves.toEqual({ revoked: false });
