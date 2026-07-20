@@ -123,6 +123,9 @@ describe("Stripe shared Payments webhook endpoint", () => {
   });
 
   it("enforces environment key modes and complete endpoint discovery", async () => {
+    await expect(verifyStripePaymentsWebhookEndpoint({ environment: "production" })).rejects.toThrow(
+      "Expected a Stripe live-mode secret key; received unknown.",
+    );
     await expect(
       verifyStripePaymentsWebhookEndpoint({ environment: "production", stripeApiKey: "sk_test_fixture" }),
     ).rejects.toThrow("Expected a Stripe live-mode secret key");
@@ -132,5 +135,29 @@ describe("Stripe shared Payments webhook endpoint", () => {
         { fetch: async () => response({ data: [], has_more: true }) },
       ),
     ).rejects.toThrow("more than 100 webhook endpoints");
+  });
+
+  it("omits API credentials and webhook signing secrets from verification output", async () => {
+    const result = await verifyStripePaymentsWebhookEndpoint(
+      { environment: "production", stripeApiKey: "sk_live_sensitive_fixture" },
+      {
+        fetch: async () =>
+          response({
+            data: [
+              endpoint({
+                id: "we_production",
+                url: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
+                livemode: true,
+                secret: "whsec_sensitive_fixture",
+              }),
+            ],
+            has_more: false,
+          }),
+      },
+    );
+
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("sk_live_sensitive_fixture");
+    expect(output).not.toContain("whsec_sensitive_fixture");
   });
 });
