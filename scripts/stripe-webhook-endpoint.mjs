@@ -1,10 +1,13 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const STRIPE_WEBHOOK_ENDPOINT_PROBE_VERSION = "stripe-webhook-endpoint/v1";
+export const CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION = "create production payments webhook endpoint";
+export const STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS = Object.freeze([...webhookEventRegistry.payment]);
 
 export const STRIPE_PAYMENTS_WEBHOOK_ENVIRONMENTS = Object.freeze({
   staging: Object.freeze({
@@ -54,8 +57,12 @@ async function requestJson(url, init, fetchImpl) {
   const response = await fetchImpl(url, init);
   const text = await response.text();
   if (!response.ok) {
+    const supportSafeDetail = text
+      .slice(0, 300)
+      .replace(/\bsk_(?:live|test)_[A-Za-z0-9_-]+/gu, "[redacted-stripe-api-key]")
+      .replace(/\bwhsec_[A-Za-z0-9_-]+/gu, "[redacted-webhook-signing-secret]");
     throw new Error(
-      `${init.method ?? "GET"} ${new URL(url).pathname} returned ${response.status}: ${text.slice(0, 300)}`,
+      `${init.method ?? "GET"} ${new URL(url).pathname} returned ${response.status}: ${supportSafeDetail}`,
     );
   }
   return text ? JSON.parse(text) : {};
@@ -81,7 +88,7 @@ function summarizeEndpoint(endpoint) {
     status: endpoint.status,
     livemode: endpoint.livemode,
     enabledEventCount: enabledEvents.length,
-    missingRequiredEvents: webhookEventRegistry.payment.filter((event) => !enabledEvents.includes(event)),
+    missingRequiredEvents: STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS.filter((event) => !enabledEvents.includes(event)),
   };
 }
 
@@ -106,6 +113,10 @@ function evaluateEndpoints(environment, config, endpoints) {
   const expectedLivemode = config.keyMode === "live";
   if (canonical.some((endpoint) => endpoint.livemode !== expectedLivemode)) {
     errors.push(`The canonical Payments endpoint does not match ${config.keyMode} mode.`);
+  }
+  const missingRequiredEvents = canonical.flatMap((endpoint) => summarizeEndpoint(endpoint).missingRequiredEvents);
+  if (missingRequiredEvents.length > 0) {
+    errors.push(`The canonical Payments endpoint is missing required events: ${missingRequiredEvents.join(", ")}.`);
   }
 
   return {
@@ -177,6 +188,105 @@ export async function repointStagingStripePaymentsWebhookEndpoint(input, depende
   };
 }
 
+function assertCreateConfirmation(input) {
+  if (
+    input.environment === "production" &&
+    input.confirmation !== CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION
+  ) {
+    throw new Error(
+      `Production creation requires --confirm "${CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION}".`,
+    );
+  }
+}
+
+function createWebhookEndpointBody(environment, canonicalUrl) {
+  const body = new URLSearchParams({
+    url: canonicalUrl,
+    api_version: webhookEventRegistry.apiVersion,
+    description: `Chase Sets ${environment} Payments webhook endpoint`,
+  });
+  for (const event of STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS) {
+    body.append("enabled_events[]", event);
+  }
+  return body;
+}
+
+async function deleteWebhookEndpoint(input, endpointId, fetchImpl) {
+  await requestJson(
+    `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/webhook_endpoints/${endpointId}`,
+    { method: "DELETE", headers: stripeHeaders(input.stripeApiKey) },
+    fetchImpl,
+  );
+}
+
+export async function createCanonicalStripePaymentsWebhookEndpoint(input, dependencies = {}) {
+  const config = assertEnvironment(input.environment);
+  assertCreateConfirmation(input);
+  assertKeyMode(input.stripeApiKey, config.keyMode);
+  const fetchImpl = dependencies.fetch ?? fetch;
+  const endpoints = await listWebhookEndpoints(input, fetchImpl);
+  const canonicalUrl = endpointUrl(config.canonicalBaseUrl);
+  const canonical = endpoints.filter((endpoint) => endpoint.url === canonicalUrl);
+
+  if (canonical.length > 0) {
+    return {
+      changed: false,
+      verification: evaluateEndpoints(input.environment, config, endpoints),
+    };
+  }
+  if (dependencies.signingSecretDestinationReady === false) {
+    throw new Error("GH_TOKEN is required to write the environment webhook signing secret.");
+  }
+
+  const created = await requestJson(
+    `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/webhook_endpoints`,
+    {
+      method: "POST",
+      headers: stripeHeaders(input.stripeApiKey),
+      body: createWebhookEndpointBody(input.environment, canonicalUrl),
+    },
+    fetchImpl,
+  );
+  if (!created.id) {
+    throw new Error("Stripe created a webhook endpoint without returning its id and signing secret.");
+  }
+  if (!created.secret) {
+    await deleteWebhookEndpoint(input, created.id, fetchImpl);
+    throw new Error(
+      "Stripe created a webhook endpoint without returning its signing secret; the endpoint was rolled back.",
+    );
+  }
+
+  try {
+    const writeSigningSecret = dependencies.writeSigningSecret;
+    if (!writeSigningSecret) {
+      throw new Error("A write-only signing secret destination is required for endpoint creation.");
+    }
+    await writeSigningSecret(created.secret, input.environment);
+  } catch (error) {
+    try {
+      await deleteWebhookEndpoint(input, created.id, fetchImpl);
+    } catch (rollbackError) {
+      throw new Error(
+        `Writing the webhook signing secret failed and endpoint rollback also failed: ${
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+        }`,
+        { cause: error },
+      );
+    }
+    throw new Error("Writing the webhook signing secret failed; the newly created endpoint was rolled back.", {
+      cause: error,
+    });
+  }
+
+  const updatedEndpoints = await listWebhookEndpoints(input, fetchImpl);
+  return {
+    changed: true,
+    endpointId: created.id,
+    verification: evaluateEndpoints(input.environment, config, updatedEndpoints),
+  };
+}
+
 function option(argv, name, fallback) {
   const inline = argv.find((value) => value.startsWith(`${name}=`));
   if (inline) return inline.slice(name.length + 1);
@@ -184,25 +294,67 @@ function option(argv, name, fallback) {
   return index >= 0 ? argv[index + 1] : fallback;
 }
 
-async function main(argv) {
+export function parseStripePaymentsWebhookEndpointArgs(argv, env = process.env) {
   const command = argv[0];
   const environment = option(argv, "--environment");
-  const input = {
-    environment,
-    stripeApiKey: process.env.STRIPE_SECRET_KEY,
-    stripeApiBase: process.env.STRIPE_API_BASE_URL || undefined,
+  return {
+    command,
+    input: {
+      environment,
+      confirmation: option(argv, "--confirm"),
+      stripeApiKey: env.STRIPE_SECRET_KEY,
+      stripeApiBase: env.STRIPE_API_BASE_URL || undefined,
+    },
   };
+}
+
+function writeGithubEnvironmentSecret(signingSecret, environment, dependencies = {}) {
+  const spawnImpl = dependencies.spawn ?? spawn;
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl("gh", ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", environment], {
+      stdio: ["pipe", "inherit", "inherit"],
+    });
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (signal || code !== 0) {
+        reject(new Error("gh secret set STRIPE_WEBHOOK_SECRET failed."));
+        return;
+      }
+      resolve();
+    });
+    child.stdin.on("error", reject);
+    child.stdin.end(signingSecret);
+  });
+}
+
+export async function runStripePaymentsWebhookEndpointCommand(argv, env = process.env, dependencies = {}) {
+  const { command, input } = parseStripePaymentsWebhookEndpointArgs(argv, env);
   if (command === "verify") {
-    const result = await verifyStripePaymentsWebhookEndpoint(input);
-    console.log(JSON.stringify(result, null, 2));
-    if (!result.ok) process.exitCode = 1;
-    return;
+    return verifyStripePaymentsWebhookEndpoint(input, dependencies);
   }
   if (command === "repoint-staging") {
-    console.log(JSON.stringify(await repointStagingStripePaymentsWebhookEndpoint(input), null, 2));
-    return;
+    return repointStagingStripePaymentsWebhookEndpoint(input, dependencies);
   }
-  throw new Error("Usage: stripe-webhook-endpoint.mjs <verify|repoint-staging> --environment <staging|production>");
+  if (command === "create-canonical") {
+    return createCanonicalStripePaymentsWebhookEndpoint(input, {
+      ...dependencies,
+      signingSecretDestinationReady:
+        dependencies.signingSecretDestinationReady ?? Boolean(dependencies.writeSigningSecret || env.GH_TOKEN),
+      writeSigningSecret:
+        dependencies.writeSigningSecret ??
+        ((signingSecret, environment) => writeGithubEnvironmentSecret(signingSecret, environment, dependencies)),
+    });
+  }
+  throw new Error(
+    "Usage: stripe-webhook-endpoint.mjs <verify|repoint-staging|create-canonical> --environment <staging|production> [--confirm <text>]",
+  );
+}
+
+async function main(argv) {
+  const result = await runStripePaymentsWebhookEndpointCommand(argv);
+  console.log(JSON.stringify(result, null, 2));
+  const verification = "verification" in result ? result.verification : result;
+  if (!verification.ok) process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
