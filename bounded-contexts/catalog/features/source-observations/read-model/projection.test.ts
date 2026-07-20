@@ -21,11 +21,55 @@ type ScopeSummaryRow = Readonly<{
 class SourceObservationProjectionDb implements PgQueryable {
   public readonly observations = new Map<string, ObservationRow>();
   public readonly summaries = new Map<string, ScopeSummaryRow>();
+  public readonly payloadAssemblies = new Map<
+    string,
+    { sourceRecordHash: string; eventType: string; recordData: unknown; expectedChunkCount: number; chunks: string[] }
+  >();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO catalog_source_observation_payload_assemblies")) {
+      this.payloadAssemblies.set(String(values[0]), {
+        sourceRecordHash: String(values[1]),
+        eventType: String(values[2]),
+        recordData: JSON.parse(String(values[3])),
+        expectedChunkCount: Number(values[4]),
+        chunks: [],
+      });
+      return emptyResult();
+    }
+
+    if (sql.includes("UPDATE catalog_source_observation_payload_assemblies")) {
+      const observationId = String(values[0]);
+      const assembly = this.payloadAssemblies.get(observationId);
+      if (
+        !assembly ||
+        assembly.sourceRecordHash !== String(values[1]) ||
+        assembly.chunks.length !== Number(values[2]) ||
+        assembly.expectedChunkCount !== Number(values[3])
+      ) {
+        return emptyResult();
+      }
+      assembly.chunks.push(String(values[4]));
+      return {
+        rows: [
+          {
+            record_event_type: assembly.eventType,
+            record_data: assembly.recordData,
+            encoded_chunks: assembly.chunks,
+          },
+        ] as Row[],
+        rowCount: 1,
+      };
+    }
+
+    if (sql.includes("DELETE FROM catalog_source_observation_payload_assemblies")) {
+      this.payloadAssemblies.delete(String(values[0]));
+      return emptyResult();
+    }
+
     if (sql.includes("SELECT provider_key") && sql.includes("WHERE observation_id = $1")) {
       const row = this.observations.get(String(values[0]));
       const scope = row ? scopeFor(row) : null;
@@ -150,6 +194,46 @@ class SourceObservationProjectionDb implements PgQueryable {
 }
 
 describe("Source Observation projections", () => {
+  it("materializes chunked provider evidence only after the complete ordered payload replays", async () => {
+    const db = new SourceObservationProjectionDb();
+    const handlers = buildSourceObservationProjectionHandlers(db);
+    const payload = { cards: Array.from({ length: 2_000 }, (_, index) => ({ index, name: `Card ${index} λ` })) };
+    const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+    const chunks = [encoded.slice(0, 30_000), encoded.slice(30_000)];
+    const { sourcePayload: _sourcePayload, ...baseData } = observationData();
+    const header = {
+      ...baseData,
+      sourcePayloadEncoding: "json-utf8-base64-v1",
+      sourcePayloadChunkCount: chunks.length,
+    };
+
+    await handlers["catalog.source-observation.recorded"]?.(
+      observationEvent("catalog.source-observation.recorded", header as never),
+    );
+    expect(db.observations.size).toBe(0);
+
+    for (const [chunkIndex, encodedPayload] of chunks.entries()) {
+      await handlers["catalog.source-observation.source-payload-chunk-recorded"]?.({
+        streamId: "catalog.source-observation-tcgdex_en_base1_043",
+        data: {
+          observationId: "tcgdex_en_base1_043",
+          sourceRecordHash: "hash",
+          chunkIndex,
+          chunkCount: chunks.length,
+          encodedPayload,
+        },
+        timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+      } as never);
+    }
+
+    expect(db.observations.get("tcgdex_en_base1_043")).toMatchObject({ source_payload: payload });
+    expect(db.payloadAssemblies.size).toBe(0);
+    expect(db.summaries.get("tcgdex\u0000en\u0000pokemon\u0000base\u0000base1")).toMatchObject({
+      total_observations: 1,
+      observed_observations: 1,
+    });
+  });
+
   it("repairs missing rows from refreshed unchanged observations", async () => {
     const db = new SourceObservationProjectionDb();
     const handlers = buildSourceObservationProjectionHandlers(db);

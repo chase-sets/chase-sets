@@ -3,6 +3,10 @@ import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized, SourceObservationStatus } from "../domain/domain";
+import {
+  decodeSourceObservationPayloadChunks,
+  SOURCE_OBSERVATION_PAYLOAD_ENCODING,
+} from "../domain/source-observation-payload-chunks";
 import { buildCatalogMergeCandidateProjectionHandlers } from "./catalog-merge-candidate-projection";
 import {
   readSourceObservationIntegrationScopeKey,
@@ -31,62 +35,53 @@ type ObservationProjectionData = {
   promotionPlanFingerprint?: string | null;
 };
 
+type ObservationRecordEventType =
+  | "catalog.source-observation.recorded"
+  | "catalog.source-observation.changed"
+  | "catalog.source-observation.refreshed";
+
+type ChunkedObservationProjectionData = Omit<ObservationProjectionData, "sourcePayload"> & {
+  sourcePayloadEncoding: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+  sourcePayloadChunkCount: number;
+};
+
+type SourcePayloadChunkProjectionData = {
+  observationId: string;
+  sourceRecordHash: string;
+  chunkIndex: number;
+  chunkCount: number;
+  encodedPayload: string;
+};
+
 export function buildSourceObservationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     ...buildCatalogMergeCandidateProjectionHandlers(db),
     "catalog.source-observation.recorded": async (event) => {
-      const data = event.data as ObservationProjectionData;
-
-      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
-        upsertObservation(db, {
-          data,
-          status: "observed",
-          statusReason: null,
-          promotedCatalogItemId: null,
-          promotedReferenceRecordId: null,
-          promotedAt: null,
-          updatedAt: event.timing.recordedAt,
-          writePromotionState: true,
-        }),
+      await projectObservationRecordEvent(
+        db,
+        "catalog.source-observation.recorded",
+        event.data as ObservationProjectionData | ChunkedObservationProjectionData,
+        event.timing.recordedAt,
       );
     },
     "catalog.source-observation.changed": async (event) => {
-      const data = event.data as ObservationProjectionData;
-
-      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
-        upsertObservation(db, {
-          data,
-          status: "changed",
-          statusReason: null,
-          promotedCatalogItemId: null,
-          promotedReferenceRecordId: null,
-          promotedAt: null,
-          updatedAt: event.timing.recordedAt,
-          writePromotionState: false,
-        }),
+      await projectObservationRecordEvent(
+        db,
+        "catalog.source-observation.changed",
+        event.data as ObservationProjectionData | ChunkedObservationProjectionData,
+        event.timing.recordedAt,
       );
     },
     "catalog.source-observation.refreshed": async (event) => {
-      const data = event.data as ObservationProjectionData & {
-        status: SourceObservationStatus;
-        statusReason: string | null;
-        promotedCatalogItemId: string | null;
-        promotedReferenceRecordId: string | null;
-        promotedAt: string | null;
-      };
-
-      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
-        upsertObservation(db, {
-          data,
-          status: data.status,
-          statusReason: data.statusReason,
-          promotedCatalogItemId: data.promotedCatalogItemId,
-          promotedReferenceRecordId: data.promotedReferenceRecordId ?? null,
-          promotedAt: data.promotedAt,
-          updatedAt: event.timing.recordedAt,
-          writePromotionState: true,
-        }),
+      await projectObservationRecordEvent(
+        db,
+        "catalog.source-observation.refreshed",
+        event.data as ObservationProjectionData | ChunkedObservationProjectionData,
+        event.timing.recordedAt,
       );
+    },
+    "catalog.source-observation.source-payload-chunk-recorded": async (event) => {
+      await projectSourcePayloadChunk(db, event.data as SourcePayloadChunkProjectionData, event.timing.recordedAt);
     },
     "catalog.source-observation.promoted": async (event) => {
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
@@ -245,6 +240,172 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       );
     },
   };
+}
+
+type RefreshedObservationProjectionData = ObservationProjectionData & {
+  status: SourceObservationStatus;
+  statusReason: string | null;
+  promotedCatalogItemId: string | null;
+  promotedReferenceRecordId: string | null;
+  promotedAt: string | null;
+};
+
+type PayloadAssemblyRow = {
+  record_event_type: string;
+  record_data: unknown;
+  encoded_chunks: unknown;
+};
+
+async function projectObservationRecordEvent(
+  db: PgQueryable,
+  eventType: ObservationRecordEventType,
+  data: ObservationProjectionData | ChunkedObservationProjectionData,
+  recordedAt: string,
+): Promise<void> {
+  if ("sourcePayload" in data) {
+    await projectMaterializedObservation(db, eventType, data, recordedAt);
+    return;
+  }
+
+  if (
+    data.sourcePayloadEncoding !== SOURCE_OBSERVATION_PAYLOAD_ENCODING ||
+    !Number.isInteger(data.sourcePayloadChunkCount) ||
+    data.sourcePayloadChunkCount < 1
+  ) {
+    throw new Error("Source Observation payload header has an unsupported encoding or chunk count.");
+  }
+
+  await db.query(
+    `INSERT INTO catalog_source_observation_payload_assemblies (
+       observation_id,
+       source_record_hash,
+       record_event_type,
+       record_data,
+       expected_chunk_count,
+       encoded_chunks,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6)
+     ON CONFLICT (observation_id) DO UPDATE SET
+       source_record_hash = EXCLUDED.source_record_hash,
+       record_event_type = EXCLUDED.record_event_type,
+       record_data = EXCLUDED.record_data,
+       expected_chunk_count = EXCLUDED.expected_chunk_count,
+       encoded_chunks = '[]'::jsonb,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      data.observationId,
+      data.sourceRecordHash,
+      eventType,
+      JSON.stringify(data),
+      data.sourcePayloadChunkCount,
+      recordedAt,
+    ],
+  );
+}
+
+async function projectSourcePayloadChunk(
+  db: PgQueryable,
+  data: SourcePayloadChunkProjectionData,
+  recordedAt: string,
+): Promise<void> {
+  if (!Number.isInteger(data.chunkIndex) || data.chunkIndex < 0 || !Number.isInteger(data.chunkCount)) {
+    throw new Error("Source Observation payload chunk has an invalid position.");
+  }
+
+  const result = await db.query<PayloadAssemblyRow>(
+    `UPDATE catalog_source_observation_payload_assemblies
+       SET encoded_chunks = encoded_chunks || jsonb_build_array($5::text),
+           updated_at = $6
+     WHERE observation_id = $1
+       AND source_record_hash = $2
+       AND jsonb_array_length(encoded_chunks) = $3
+       AND expected_chunk_count = $4
+     RETURNING record_event_type, record_data, encoded_chunks`,
+    [data.observationId, data.sourceRecordHash, data.chunkIndex, data.chunkCount, data.encodedPayload, recordedAt],
+  );
+  const assembly = result.rows[0];
+  if (!assembly) {
+    throw new Error("Source Observation payload chunk is missing its header or is out of order.");
+  }
+  if (data.chunkIndex + 1 < data.chunkCount) {
+    return;
+  }
+
+  const eventType = requireObservationRecordEventType(assembly.record_event_type);
+  const recordData = requireChunkedObservationProjectionData(assembly.record_data);
+  const encodedChunks = requireEncodedChunks(assembly.encoded_chunks, data.chunkCount);
+  const { sourcePayloadEncoding: _encoding, sourcePayloadChunkCount: _count, ...header } = recordData;
+  const materialized = {
+    ...header,
+    sourcePayload: decodeSourceObservationPayloadChunks(encodedChunks),
+  } as ObservationProjectionData;
+
+  await projectMaterializedObservation(db, eventType, materialized, recordedAt);
+  await db.query("DELETE FROM catalog_source_observation_payload_assemblies WHERE observation_id = $1", [
+    data.observationId,
+  ]);
+}
+
+async function projectMaterializedObservation(
+  db: PgQueryable,
+  eventType: ObservationRecordEventType,
+  data: ObservationProjectionData,
+  recordedAt: string,
+): Promise<void> {
+  const input =
+    eventType === "catalog.source-observation.refreshed"
+      ? (() => {
+          const refreshed = data as RefreshedObservationProjectionData;
+          return {
+            status: refreshed.status,
+            statusReason: refreshed.statusReason,
+            promotedCatalogItemId: refreshed.promotedCatalogItemId,
+            promotedReferenceRecordId: refreshed.promotedReferenceRecordId ?? null,
+            promotedAt: refreshed.promotedAt,
+            writePromotionState: true,
+          };
+        })()
+      : {
+          status: eventType === "catalog.source-observation.recorded" ? ("observed" as const) : ("changed" as const),
+          statusReason: null,
+          promotedCatalogItemId: null,
+          promotedReferenceRecordId: null,
+          promotedAt: null,
+          writePromotionState: eventType === "catalog.source-observation.recorded",
+        };
+
+  await projectObservationScopeChange(db, data.observationId, recordedAt, () =>
+    upsertObservation(db, {
+      data,
+      ...input,
+      updatedAt: recordedAt,
+    }),
+  );
+}
+
+function requireObservationRecordEventType(value: string): ObservationRecordEventType {
+  if (
+    value === "catalog.source-observation.recorded" ||
+    value === "catalog.source-observation.changed" ||
+    value === "catalog.source-observation.refreshed"
+  ) {
+    return value;
+  }
+  throw new Error(`Unsupported Source Observation record event type '${value}'.`);
+}
+
+function requireChunkedObservationProjectionData(value: unknown): ChunkedObservationProjectionData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Source Observation payload assembly is missing record data.");
+  }
+  return value as ChunkedObservationProjectionData;
+}
+
+function requireEncodedChunks(value: unknown, expectedCount: number): readonly string[] {
+  if (!Array.isArray(value) || value.length !== expectedCount || !value.every((chunk) => typeof chunk === "string")) {
+    throw new Error("Source Observation payload assembly is incomplete.");
+  }
+  return value;
 }
 
 async function upsertObservation(

@@ -14,6 +14,7 @@ export function withCatalogAdminRealtimeInvalidation(
   input: Readonly<{
     projectionName: string;
     surface: CatalogAdminRealtimeSurface;
+    shouldInvalidate?: (eventType: string, event: Parameters<ProjectorHandlerMap[string]>[0]) => boolean;
   }>,
 ): ProjectorHandlerMap {
   return Object.fromEntries(
@@ -22,6 +23,9 @@ export function withCatalogAdminRealtimeInvalidation(
       async (...args: Parameters<ProjectorHandlerMap[string]>) => {
         const [event, context] = args;
         await handler(event, context);
+        if (input.shouldInvalidate && !input.shouldInvalidate(eventType, event)) {
+          return;
+        }
 
         const id = event.streamId || eventType;
         const topics = [catalogRealtimeTopics.adminSurface(input.surface)];

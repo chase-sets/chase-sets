@@ -1270,6 +1270,7 @@ export function createSourceObservationRuntime(
       handlers: withCatalogAdminRealtimeInvalidation(buildSourceObservationProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-source-observation-projection",
         surface: "source-observations",
+        shouldInvalidate: shouldInvalidateSourceObservationEvent,
       }),
     }),
   ];
@@ -4875,6 +4876,32 @@ export function createSourceObservationRuntime(
     },
     projectors,
   };
+}
+
+function shouldInvalidateSourceObservationEvent(eventType: string, event: { data: unknown }): boolean {
+  if (
+    (eventType === "catalog.source-observation.recorded" ||
+      eventType === "catalog.source-observation.changed" ||
+      eventType === "catalog.source-observation.refreshed") &&
+    hasSourcePayloadChunkCount(event.data)
+  ) {
+    return false;
+  }
+
+  if (eventType !== "catalog.source-observation.source-payload-chunk-recorded") {
+    return true;
+  }
+
+  const data = event.data as { chunkIndex?: unknown; chunkCount?: unknown };
+  return (
+    typeof data.chunkIndex === "number" &&
+    typeof data.chunkCount === "number" &&
+    data.chunkIndex + 1 === data.chunkCount
+  );
+}
+
+function hasSourcePayloadChunkCount(value: unknown): boolean {
+  return !!value && typeof value === "object" && "sourcePayloadChunkCount" in value;
 }
 
 function recordIntegrationJobTelemetry(

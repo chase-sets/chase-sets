@@ -1,5 +1,6 @@
 import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
+import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -62,6 +63,62 @@ describe("source observation domain", () => {
       status: "promoted",
       promotedCatalogItemId: "cat_1",
     });
+  });
+
+  it("splits oversized provider evidence into replay-deterministic bounded events", () => {
+    const sourcePayload = {
+      code: "5DN",
+      cards: Array.from({ length: 8_000 }, (_, index) => ({
+        uuid: `fifth-dawn-card-${index}`,
+        name: `Fifth Dawn Card ${index} λ`,
+        text: "Deterministic provider evidence ".repeat(4),
+      })),
+    };
+    expect(Buffer.byteLength(JSON.stringify(sourcePayload), "utf8")).toBeGreaterThan(1_000_000);
+
+    const events = decideSourceObservation(initialSourceObservationState, {
+      ...recordCommand,
+      observationId: "mtgjson_set_en_5DN",
+      providerKey: "mtgjson",
+      externalKey: "set:5DN",
+      sourceUrl: "https://mtgjson.com/api/v5/5DN.json",
+      sourceRecordHash: "fifth-dawn-hash",
+      sourceProfileKey: "mtg-set-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      normalized: {
+        kind: "magic-set-reference",
+        tcg: "magic",
+        languageCode: "en",
+        name: "Fifth Dawn",
+        cardNumber: null,
+        setCode: "5DN",
+        setName: "Fifth Dawn",
+        expansionName: "Fifth Dawn",
+        setId: "00000000-0000-0000-0000-0000000005dn",
+        releaseDate: "2004-06-04",
+        releaseYear: 2004,
+        cardCount: 165,
+        productLineName: "Magic: The Gathering",
+        imageUrls: [],
+      },
+      sourcePayload,
+    });
+
+    expect(events[0]).toMatchObject({
+      type: "catalog.source-observation.recorded",
+      data: { sourcePayloadEncoding: "json-utf8-base64-v1" },
+    });
+    expect(
+      events.slice(1).every((event) => event.type === "catalog.source-observation.source-payload-chunk-recorded"),
+    ).toBe(true);
+    expect(
+      events.every((event) => Buffer.byteLength(JSON.stringify(event.data), "utf8") <= EVENT_STORE_MAX_PAYLOAD_BYTES),
+    ).toBe(true);
+
+    const replayed = events.reduce(evolveSourceObservation, initialSourceObservationState);
+    expect(replayed.sourcePayload).toEqual(sourcePayload);
+    expect(replayed.pendingSourcePayloadChunks).toBeNull();
+    expect(replayed.pendingSourcePayloadChunkCount).toBeNull();
   });
 
   it("records Magic normalized observation kinds as first-class source evidence", () => {
