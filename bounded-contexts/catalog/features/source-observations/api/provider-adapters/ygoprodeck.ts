@@ -159,7 +159,7 @@ export function createYgoprodeckProviderAdapter(
       const cardName = stringValue(scope.values.cardName ?? scope.values.name);
       const printCode = stringValue(scope.values.printCode ?? scope.values.setCode);
 
-      if (setIdentity && !cardId && !cardName && !printCode) {
+      if (setIdentity && !cardId && !cardName) {
         return {
           unitKey: scope.unitKey,
           planKey: `ygoprodeck:cards:set:${normalizePlanSegment(setIdentity)}`,

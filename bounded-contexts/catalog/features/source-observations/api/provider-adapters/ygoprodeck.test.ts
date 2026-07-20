@@ -99,6 +99,25 @@ describe("YGOPRODeck provider adapter", () => {
     expect(progress).toEqual([{ phase: "fetching", completed: 1, total: 1, currentLabel: "Dark Magician" }]);
   });
 
+  it("plans a guided set-code selection as a set-scoped card import", async () => {
+    const adapter = createYgoprodeckValidationProviderAdapter();
+    const plan = await adapter.planImport({
+      unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set",
+      values: { setCode: "RA01" },
+    });
+
+    expect(plan).toMatchObject({
+      unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      planKey: "ygoprodeck:cards:set:ra01",
+      scope: {
+        scopeKey: "set",
+        values: { setCode: "RA01", setIdentity: "RA01" },
+      },
+      transportSteps: ["Fetch YGOPRODeck cards by card set", "Select card print payloads", "Attach card provenance"],
+    });
+  });
+
   it("plans and fetches set reference envelopes from the shared set list endpoint", async () => {
     const adapter = createYgoprodeckValidationProviderAdapter();
     const plan = await adapter.planImport({
