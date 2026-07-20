@@ -417,24 +417,29 @@ function ImportJobUsage({
     return <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>;
   }
 
+  const unavailable = t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.unavailable");
+  const hasCacheCounts = usage.cacheHitCount !== null && usage.cacheMissCount !== null;
+
   return (
     <WorkbenchStack gap="sm">
       <WorkbenchText size="xs">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests", {
-          count: usage.actualRequestCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          count: usage.actualRequestCount ?? unavailable,
         })}
       </WorkbenchText>
       <WorkbenchText size="xs">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages", {
-          count: usage.pageCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          count: usage.pageCount ?? unavailable,
         })}
       </WorkbenchText>
-      <WorkbenchText size="xs">
-        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache", {
-          hits: usage.cacheHitCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-          misses: usage.cacheMissCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-        })}
-      </WorkbenchText>
+      {hasCacheCounts ? (
+        <WorkbenchText size="xs">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache", {
+            hits: usage.cacheHitCount,
+            misses: usage.cacheMissCount,
+          })}
+        </WorkbenchText>
+      ) : null}
     </WorkbenchStack>
   );
 }

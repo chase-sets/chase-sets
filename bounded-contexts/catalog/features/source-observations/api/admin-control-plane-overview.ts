@@ -449,10 +449,8 @@ function jobResultSummary(
 function jobUsageSummary(
   result: SourceObservationIntegrationJobResult,
 ): CatalogIntegrationRecentJobUsageSummary | null {
-  const evidence = result.outcomes
-    .map((outcome) => outcome.providerUsageEvidence)
-    .filter((value): value is NonNullable<typeof value> => Boolean(value));
-  if (evidence.length === 0) {
+  const evidence = result.outcomes.map((outcome) => outcome.providerUsageEvidence ?? null);
+  if (evidence.every((value) => value === null)) {
     return null;
   }
 
@@ -465,14 +463,15 @@ function jobUsageSummary(
 }
 
 function summedUsageCount(
-  evidence: readonly NonNullable<SourceObservationIntegrationJobResult["outcomes"][number]["providerUsageEvidence"]>[],
+  evidence: readonly (NonNullable<
+    SourceObservationIntegrationJobResult["outcomes"][number]["providerUsageEvidence"]
+  > | null)[],
   select: (
     value: NonNullable<SourceObservationIntegrationJobResult["outcomes"][number]["providerUsageEvidence"]>,
   ) => number | null,
 ): number | null {
-  return evidence.every((value) => select(value) !== null)
-    ? evidence.reduce((total, value) => total + (select(value) ?? 0), 0)
-    : null;
+  const counts = evidence.map((value) => (value === null ? null : select(value)));
+  return counts.every((value) => value !== null) ? counts.reduce((total, value) => total + (value ?? 0), 0) : null;
 }
 
 function redactedJobFailureReasons(result: SourceObservationIntegrationJobResult): readonly string[] {

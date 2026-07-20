@@ -346,6 +346,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Cache: {hits} hits, {misses} misses",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages": "Pages: {count}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests": "Requests: {count}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.unavailable": "Unavailable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.apply": "Select source scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.profileVersion": "Profile version",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.provider": "Provider",

@@ -517,8 +517,15 @@ export type SourceObservationProviderUsageEvidence = Readonly<{
   estimatedRequestCount: number | null;
   estimateReason: string | null;
   actualRequestCount: number | null;
+  /**
+   * For bulk-first imports, the number of distinct response-page source URLs.
+   * Each observed page URL is also one provider request, so this intentionally
+   * aliases actualRequestCount instead of claiming an independent measurement.
+   */
   pageCount: number | null;
+  /** Unavailable until the import fetch path emits an observed cache outcome. */
   cacheHitCount: number | null;
+  /** Unavailable until the import fetch path emits an observed cache outcome. */
   cacheMissCount: number | null;
   usageCheckState: ProviderUsageEstimate["usageCheckState"];
   creditDiagnostic: string | null;
@@ -8774,6 +8781,9 @@ function providerUsageEvidenceFromImportPlan(
   }
 
   const actualRequestCount = requestKeys.size > 0 ? requestKeys.size : null;
+  // Bulk-first adapters attach the fetched response page URL to every payload.
+  // Distinct provenance URLs therefore measure both requests and fetched pages.
+  const pageCount = estimate.requestStrategy === "bulk-first" ? actualRequestCount : null;
   return {
     unitKey: plan.unitKey,
     requestStrategy: estimate.requestStrategy,
@@ -8781,9 +8791,9 @@ function providerUsageEvidenceFromImportPlan(
     estimatedRequestCount: estimate.estimatedRequestCount,
     estimateReason: estimate.estimateReason,
     actualRequestCount,
-    pageCount: actualRequestCount,
-    cacheHitCount: actualRequestCount === null ? null : 0,
-    cacheMissCount: actualRequestCount,
+    pageCount,
+    cacheHitCount: null,
+    cacheMissCount: null,
     usageCheckState: estimate.usageCheckState,
     creditDiagnostic: estimate.creditDiagnostic,
     degradedDiagnostic: estimate.degradedDiagnostic,

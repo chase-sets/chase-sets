@@ -41,7 +41,7 @@ describe("CatalogIntegrationImportJobsModule", () => {
     }
   });
 
-  it("shows completed provider request, page, and cache counts without provider account data", () => {
+  it("shows observed usage counts, labels unavailable counts honestly, and omits unavailable cache counts", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
@@ -70,7 +70,27 @@ describe("CatalogIntegrationImportJobsModule", () => {
                     failed: 0,
                     outcomeCount: 1,
                     redactedFailureReasons: [],
-                    usage: { actualRequestCount: 2, pageCount: 2, cacheHitCount: 1, cacheMissCount: 1 },
+                    usage: { actualRequestCount: 2, pageCount: 2, cacheHitCount: null, cacheMissCount: null },
+                  },
+                }),
+                integrationJobSummary({
+                  jobId: "job_usage_unavailable",
+                  providerKey: "scrydex",
+                  result: {
+                    requested: 1,
+                    imported: 0,
+                    observed: 0,
+                    reapplied: 0,
+                    skipped: 0,
+                    failed: 1,
+                    outcomeCount: 1,
+                    redactedFailureReasons: [],
+                    usage: {
+                      actualRequestCount: null,
+                      pageCount: null,
+                      cacheHitCount: null,
+                      cacheMissCount: null,
+                    },
                   },
                 }),
               ],
@@ -85,6 +105,9 @@ describe("CatalogIntegrationImportJobsModule", () => {
 
     expect(screen.getAllByText("Requests: 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Pages: 2").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Cache: 1 hits, 1 misses").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Requests: Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Pages: Unavailable").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Cache:/)).toBeNull();
+    expect(screen.queryByText(/not selected/)).toBeNull();
   });
 });

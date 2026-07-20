@@ -309,8 +309,11 @@ export interface CatalogIntegrationRecentJobResultSummary {
 
 export interface CatalogIntegrationRecentJobUsageSummary {
   actualRequestCount: number | null;
+  /** Bulk-first fetched response pages; intentionally aliases distinct request provenance URLs. */
   pageCount: number | null;
+  /** Null when the import fetch path did not observe cache behavior. */
   cacheHitCount: number | null;
+  /** Null when the import fetch path did not observe cache behavior. */
   cacheMissCount: number | null;
 }
 
@@ -984,8 +987,11 @@ export interface SourceObservationProviderUsageEstimate {
 export interface SourceObservationProviderUsageEvidence extends SourceObservationProviderUsageEstimate {
   unitKey: string;
   actualRequestCount: number | null;
+  /** Bulk-first fetched response pages; intentionally aliases distinct request provenance URLs. */
   pageCount: number | null;
+  /** Null when the import fetch path did not observe cache behavior. */
   cacheHitCount: number | null;
+  /** Null when the import fetch path did not observe cache behavior. */
   cacheMissCount: number | null;
   bulkFirstConfirmed: boolean | null;
 }
