@@ -503,6 +503,66 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     expect((await listPublicAccountReviews(pool, { accountId: "acc_seller" })).items).toHaveLength(1);
   });
 
+  it("ignores a stale review-hold event before it can overwrite the current contribution state", async () => {
+    const pool = pools.marketplace;
+    const reviewHandlers = buildReviewProjectionHandlers(pool);
+    const holdHandlers = buildReviewHoldProjectionHandlers(pool);
+    const submitted = submittedEvent({
+      reviewId: "rev_stale_hold",
+      orderId: "ord_stale_hold",
+      authorAccountId: "acc_buyer",
+      subjectAccountId: "acc_seller",
+      authorRole: "buyer",
+      rating: 5,
+      feedback: "The newer release must win.",
+      submittedAt: "2026-04-02T00:00:00.000Z",
+      reviewWindowExpiresAt: "2026-06-01T00:00:00.000Z",
+    });
+    await reviewHandlers["marketplace.review.submitted"]!(submitted);
+    await reviewHandlers["marketplace.review.revealed"]!(
+      revealedEvent("rev_stale_hold", "2026-04-03T00:00:00.000Z", "counterpart-submitted"),
+    );
+
+    const released = {
+      ...event("marketplace.review-hold.released", {
+        orderId: "ord_stale_hold",
+        supportRequestId: "sup_stale_hold",
+        requestStatus: "resolved",
+        requestDirections: ["buyer-to-seller"],
+        lifecycleAt: "2026-04-05T00:00:00.000Z",
+        activeSupportRequestIds: [],
+        heldDirections: [],
+        holdStartedAt: null,
+      }),
+      streamVersion: 3,
+    } as never;
+    const stalePlaced = {
+      ...event("marketplace.review-hold.placed", {
+        orderId: "ord_stale_hold",
+        supportRequestId: "sup_stale_hold",
+        requestStatus: "open",
+        requestDirections: ["buyer-to-seller"],
+        lifecycleAt: "2026-04-04T00:00:00.000Z",
+        activeSupportRequestIds: ["sup_stale_hold"],
+        heldDirections: ["buyer-to-seller"],
+        holdStartedAt: "2026-04-04T00:00:00.000Z",
+      }),
+      streamVersion: 2,
+    } as never;
+
+    await holdHandlers["marketplace.review-hold.released"]!(released);
+    await holdHandlers["marketplace.review-hold.placed"]!(stalePlaced);
+
+    expect(await getAccountReview(pool, "rev_stale_hold", "acc_seller")).toMatchObject({ held: false, rating: 5 });
+    expect(
+      (
+        await pool.query<{ last_stream_version: number }>(
+          `SELECT last_stream_version FROM marketplace_review_hold_pages WHERE order_id = 'ord_stale_hold'`,
+        )
+      ).rows,
+    ).toEqual([{ last_stream_version: 3 }]);
+  });
+
   it("redacts rating and feedback for the subject before reveal, but never for the author", async () => {
     const pool = pools.marketplace;
     const handlers = buildReviewProjectionHandlers(pool);

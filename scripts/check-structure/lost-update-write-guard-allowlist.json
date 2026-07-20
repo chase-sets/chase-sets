@@ -445,7 +445,7 @@
   },
   {
     "id": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:256:UPDATE:checkout_seller_account_reviews",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:256 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
     "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:138:UPDATE:checkout_cart_line_pages",
@@ -893,7 +893,7 @@
   },
   {
     "id": "bounded-contexts/discovery/support/market-support/projection.ts:1710:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1710 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
     "id": "bounded-contexts/fulfillment/features/return-shipments/integrations/support/support-source-projection.ts:53:UPDATE:fulfillment_support_return_sources",
@@ -1480,10 +1480,6 @@
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:312 directly synchronizes marketplace_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/marketplace/features/reviews/read-model/hold-projection.ts:49:UPDATE:marketplace_review_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/hold-projection.ts:49 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts:209:UPDATE:marketplace_review_pages",
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:209 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -1512,16 +1508,16 @@
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/queries.ts:736 directly synchronizes marketplace_review_eligibility_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:214:UPDATE:marketplace_review_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/schema.ts:214 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:215:UPDATE:marketplace_review_pages",
+    "reason": "Migration initializes contribution status from persisted review state before the projection stream resumes."
   },
   {
-    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:217:UPDATE:marketplace_review_summary_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/schema.ts:217 directly synchronizes marketplace_review_summary_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:218:UPDATE:marketplace_review_summary_pages",
+    "reason": "Migration initializes the derived summary counters once from their current persisted review-page data."
   },
   {
-    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:236:UPDATE:marketplace_review_eligibility_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/schema.ts:236 directly synchronizes marketplace_review_eligibility_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:237:UPDATE:marketplace_review_eligibility_pages",
+    "reason": "Migration backfills missing clock fields only; the WHERE clause limits the operation to incomplete rows."
   },
   {
     "id": "bounded-contexts/marketplace/features/reviews/read-model/scoring-projection.ts:53:UPDATE:marketplace_review_pages",
@@ -1948,44 +1944,52 @@
     "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:487 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts:144:DELETE:pricing_market_estimate_closer_cursors",
-    "reason": "owned by in-flight #5826 repair"
+    "id": "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts:185:DELETE:pricing_market_estimate_closer_cursors",
+    "reason": "The closer resets its own singleton cursor by key; no prior row value decides the DELETE."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:56:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:56 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:47:UPDATE:pricing_market_trades",
+    "reason": "SET uses only the incoming fraud flag and timestamp; excluded state is a WHERE eligibility predicate."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:84:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:84 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:91:UPDATE:pricing_market_trades",
+    "reason": "SET uses only the incoming fraud flag and timestamp; excluded state is a WHERE eligibility predicate."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:130:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:130 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:141:UPDATE:pricing_market_trades",
+    "reason": "SET uses only linkage-event literals and timestamp; the old linkage membership is tested only in WHERE."
+  },
+  {
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:206:UPDATE:pricing_market_trades",
+    "reason": "SET uses only linkage-event literals and timestamp; the old linkage membership is tested only in WHERE."
+  },
+  {
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts:277:UPDATE:pricing_market_trades",
+    "reason": "SET uses only the incoming authenticity fact and timestamp; no stored column is read by its assignment."
   },
   {
     "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:59:DELETE:pricing_market_trades",
     "reason": "DELETE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:59 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:114:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:114 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:126:UPDATE:pricing_market_trades",
+    "reason": "SET uses ready-for-fulfillment payload values only; sold_at is a WHERE eligibility predicate."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:129:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:129 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:157:UPDATE:pricing_market_trades",
+    "reason": "SET uses cancellation payload values only; excluded state is a WHERE eligibility predicate."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:148:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:148 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:192:UPDATE:pricing_market_trades",
+    "reason": "SET uses shipment payload values only; no stored column is read by its assignment."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:164:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:164 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:208:UPDATE:pricing_market_trades",
+    "reason": "SET uses delivery payload values only; settled_at is a WHERE eligibility predicate."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:179:UPDATE:pricing_market_trades",
-    "reason": "UPDATE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:179 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:223:UPDATE:pricing_market_trades",
+    "reason": "SET uses return payload values only; excluded state is a WHERE eligibility predicate."
   },
   {
     "id": "bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.ts:96:DELETE:pricing_external_product_reference_inputs",
@@ -2181,7 +2185,7 @@
   },
   {
     "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:800:UPDATE:settlement_account_review_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:800 directly synchronizes settlement_account_review_sources from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
     "id": "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:55:UPDATE:settlement_order_fulfillment_sources",

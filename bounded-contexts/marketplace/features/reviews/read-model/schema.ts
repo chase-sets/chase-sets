@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS marketplace_review_hold_pages (
   held_directions text[] NOT NULL DEFAULT '{}',
   held_at timestamptz NULL,
   released_at timestamptz NULL,
+  last_stream_version bigint NOT NULL,
   updated_at timestamptz NOT NULL
 );
 
@@ -262,6 +263,7 @@ ALTER TABLE marketplace_review_eligibility_pages
   held_directions text[] NOT NULL DEFAULT '{}',
   held_at timestamptz NULL,
   released_at timestamptz NULL,
+  last_stream_version bigint NOT NULL,
   updated_at timestamptz NOT NULL
 )`,
     ],
@@ -314,6 +316,15 @@ ALTER TABLE marketplace_review_eligibility_pages
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_review_eligibility_pages_reminder_idx
   ON marketplace_review_eligibility_pages (eligible_at ASC, order_id ASC)
   WHERE reminder_notified_at IS NULL`,
+    ],
+  },
+  {
+    migrationId: "20260720_marketplace_review_hold_stream_version",
+    description: "Reject stale review-hold projections before they recompute review contribution state.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_review_hold_pages
+  ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0`,
     ],
   },
 ];
