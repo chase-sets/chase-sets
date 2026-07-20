@@ -17,6 +17,7 @@ import { createSupportHoldLifecycleRuntime } from "../../features/wallets/integr
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import { createLiabilityReconciliationRuntime } from "../../features/liability-reconciliation/api/runtime";
+import { createAccountLinkageRuntime } from "../../features/wallets/api/account-linkage-runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
@@ -40,6 +41,7 @@ export type SettlementServices = Readonly<{
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   liabilityReconciliation: ReturnType<typeof createLiabilityReconciliationRuntime>;
+  accountLinkage: ReturnType<typeof createAccountLinkageRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
   policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
@@ -120,6 +122,7 @@ export function createSettlementServices(
     webhookTelemetry: ports.webhookTelemetry,
   });
   const liabilityReconciliation = createLiabilityReconciliationRuntime({ db, moneyMovementGateway });
+  const accountLinkage = createAccountLinkageRuntime({ eventStore, db, policies });
 
   return {
     wallets,
@@ -129,6 +132,7 @@ export function createSettlementServices(
     payouts,
     payoutReadiness,
     liabilityReconciliation,
+    accountLinkage,
     policies,
     projectors: [
       ...wallets.projectors,

@@ -1296,6 +1296,7 @@ function createScheduledJobRunners(
     | "payoutReconciliationIntervalMs"
     | "liabilityReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
+    | "settlementAccountLinkageCloserIntervalMs"
     | "gmvReconciliationIntervalMs"
     | "catalogProviderScopeRefreshIntervalMs"
     | "googleMerchant"
@@ -1642,6 +1643,25 @@ function createScheduledJobRunners(
           return (
             result.rollupDaysRecomputed + result.marketStateSnapshotsRecomputed + result.productAggregatesRecomputed
           );
+        },
+      ),
+    );
+  }
+
+  const runAccountLinkageCloser = settlement?.accountLinkage?.runAccountLinkageCloser;
+  if (runAccountLinkageCloser && input.settlementAccountLinkageCloserIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "settlement.account-linkage-closer",
+        input.settlementAccountLinkageCloserIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await runAccountLinkageCloser({ limit: 500 });
+          logger.info("Settlement account-linkage closer completed.", {
+            type: "settlement.account-linkage-closer",
+            result,
+          });
+          return result.flagsPublished;
         },
       ),
     );

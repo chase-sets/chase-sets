@@ -92,6 +92,7 @@ export type PlatformWorkerConfig = Readonly<{
   payoutReconciliationIntervalMs: number | null;
   liabilityReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
+  settlementAccountLinkageCloserIntervalMs: number | null;
   gmvReconciliationIntervalMs: number | null;
   catalogProviderScopeRefreshIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
@@ -504,6 +505,13 @@ export function loadConfig(): PlatformWorkerConfig {
     // recently-closed days pick up a late refund/cancel exclusion within minutes, cheap
     // enough (bounded per-pass tuple limit) to run that often.
     marketRollupsCloserIntervalMs: getOptionalPositiveNumberEnv("MARKET_ROLLUPS_CLOSER_INTERVAL_MS", 300_000),
+    // Settlement's linkage closer drives an idempotent aggregate from already-
+    // projected risk clusters. A five-minute cadence matches the async risk
+    // signal posture without adding work to payment or address transactions.
+    settlementAccountLinkageCloserIntervalMs: getOptionalPositiveNumberEnv(
+      "SETTLEMENT_ACCOUNT_LINKAGE_CLOSER_INTERVAL_MS",
+      300_000,
+    ),
     // Tape-vs-ledger GMV reconciliation drift alarm: a coarse sanity check
     // over a monthly aggregate, not a hot path -- once a day is plenty
     // often enough for an operator to notice drift without accumulating an

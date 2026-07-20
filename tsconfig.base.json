@@ -369,6 +369,9 @@
       "@chase-sets/event-core-postgres/*": [
         "./infrastructure/event-core-postgres/*.ts"
       ],
+      "@chase-sets/event-core/account-linkage-facts": [
+        "./contracts/event-core/account-linkage-facts.ts"
+      ],
       "@chase-sets/event-core/aggregate-command-handler": [
         "./contracts/event-core/aggregate-command-handler.ts"
       ],

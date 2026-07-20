@@ -11,6 +11,7 @@ import type {
   SupportRequestRemedyCompletedV1Payload,
 } from "./platform-coverage-facts";
 import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "./review-scoring-facts";
+import type { AccountLinkageClearedPayload, AccountLinkageFlaggedPayload } from "./account-linkage-facts";
 
 export type EmptyEventPayload = Readonly<Record<string, never>>;
 
@@ -813,6 +814,8 @@ export type SettlementSupportHoldConsumedPayload = SettlementSupportHoldFactEnve
   }>;
 
 export type SettlementEventPayloads = Readonly<{
+  "settlement.account-linkage.flagged": AccountLinkageFlaggedPayload;
+  "settlement.account-linkage.cleared": AccountLinkageClearedPayload;
   "settlement.payout-readiness.recorded": PayoutReadinessRecordedPayload;
   "settlement.wallet.negative-balance-entered": SettlementNegativeBalanceEnteredPayload;
   "settlement.wallet.negative-balance-collections-opened": SettlementNegativeBalanceCollectionsOpenedPayload;

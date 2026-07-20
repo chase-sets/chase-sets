@@ -127,6 +127,16 @@ CREATE TABLE IF NOT EXISTS settlement_account_address_risk_sources (
   PRIMARY KEY (account_id, shipping_address_id)
 );
 
+-- Durable keyset cursor for the scheduled aggregate-driving closer. It is
+-- operational progress only; the Account Linkage event streams remain the
+-- publication source of truth.
+CREATE TABLE IF NOT EXISTS settlement_account_linkage_closer_cursors (
+  closer_name text PRIMARY KEY,
+  after_signal_kind text NOT NULL,
+  after_cluster_key text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (
   source_kind text NOT NULL,
   source_id text NOT NULL,
@@ -148,6 +158,18 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_settlement_account_linkage_closer_cursor",
+    description: "Persist bounded Account Linkage closer progress across scheduled passes.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS settlement_account_linkage_closer_cursors (
+  closer_name text PRIMARY KEY,
+  after_signal_kind text NOT NULL,
+  after_cluster_key text NOT NULL,
+  updated_at timestamptz NOT NULL
+)`,
+    ],
+  },
   {
     migrationId: "20260715_settlement_review_scoring_disposition",
     description: "Persist canonical scoring disposition for seller reputation risk inputs.",
