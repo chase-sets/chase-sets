@@ -21,9 +21,7 @@
     "charge.dispute.closed",
     "radar.early_fraud_warning.created",
     "review.opened",
-    "review.closed",
-    "shared_payment.granted_token.used",
-    "shared_payment.granted_token.deactivated"
+    "review.closed"
   ],
   "connectAccounts": {
     "v1": ["account.updated"],

@@ -7,7 +7,14 @@ import { PAYMENTS_PROVIDER_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const STRIPE_WEBHOOK_ENDPOINT_PROBE_VERSION = "stripe-webhook-endpoint/v1";
 export const CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION = "create production payments webhook endpoint";
-export const STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS = Object.freeze([...webhookEventRegistry.payment]);
+export const STRIPE_DELIVERED_EVENTS = Object.freeze([...webhookEventRegistry.payment]);
+export const INTERNAL_ONLY_PAYMENT_EVENTS = Object.freeze([
+  // Chase Sets routes this granted-token usage fact internally; Stripe never delivers it to this Dashboard endpoint.
+  "shared_payment.granted_token.used",
+  // Chase Sets routes this granted-token lifecycle fact internally; Stripe never delivers it to this Dashboard endpoint.
+  "shared_payment.granted_token.deactivated",
+]);
+export const STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS = STRIPE_DELIVERED_EVENTS;
 
 export const STRIPE_PAYMENTS_WEBHOOK_ENVIRONMENTS = Object.freeze({
   staging: Object.freeze({
