@@ -55,7 +55,7 @@ Use this section as the lookup table when `pnpm run check:structure` fails. Each
 | R45 client consumer proof | A context must not export `./client` without at least one external production consumer. | Avoids speculative public client APIs. | Remove `./client` from `publicExports` and `package.json`, or add the real external consumer. |
 | R46 same-context public surface imports | Same-context code may not import its own `./client`, `./server`, or retired `./integration` public surface except `host-config.ts`. | Internal code should use local modules instead of round-tripping through public API. | Replace the package/self-surface import with a relative slice/support import. |
 | R47 bounded context to deployable imports | Bounded contexts must not import deployables. | Deployables compose contexts; contexts cannot depend upward on hosts. | Move shared behavior into the context, contracts, or infrastructure and inject host details through declared ports. |
-| R48 cross-context imports | Non-test, non-seed context code cannot import another bounded context unless it uses an allowed explicit surface and the manifest declares the dependency. | Cross-context coupling must be intentional and visible. | Add `allowedContextDependencies` only for approved `./server`/route/web use, or subscribe to events and project local data. |
+| R48 cross-context imports | Non-test, non-seed context code cannot import another bounded context unless it uses an allowed explicit surface and the manifest declares the dependency. | Cross-context coupling must be intentional and visible. | Add `allowedContextDependencies` only for approved `./server` use from API, request, route, or UCP support, approved route/web use, or subscribe to events and project local data. |
 | R49 catalog runtime dependency | Non-Catalog bounded contexts must not depend on or import `@chase-sets/catalog` outside tests; catalog seed fixtures live in `@chase-sets/catalog-seed`. | Catalog is high-churn and should not expand runtime blast radius. | Use seed fixtures for tests or own the small local mapping/version-key logic. |
 | R50 retired integration imports | API deployables and bounded-context code must not import retired bounded-context `./integration` surfaces; feature modules cannot directly import another context integration surface. | Integration barrels were the old cross-context escape hatch. | Use provider `./server` surfaces in route/request support or model downstream reads from published events. |
 | R51 contracts purity | `contracts/` must not import bounded contexts, deployables, infrastructure, packages, React, React Router, Hono, or read `process.env`. | Contracts must stay runtime-neutral shared language. | Move runtime adapters out of contracts and pass environment/config through callers. |
@@ -197,7 +197,7 @@ Surface meanings:
 - `.` is the deployable plug-in contract only
 - `./context` is the context manifest contract used by structure checks and composition tooling
 - `./client` is browser-safe transport clients, DTOs, and API errors
-- `./server` is the provider-owned request and SSR surface for same-context use and approved cross-context request composition
+- `./server` is the provider-owned request and SSR surface for same-context use and approved cross-context API, request, route, or UCP composition
 - `./web` is deployable-facing shell, layout, provider, and browser-entry code only
 - `./routes/*` is the feature-route surface consumed by manifest-driven deployable composition
 - `./seed-support/*` is seed, bootstrap, and test-only support

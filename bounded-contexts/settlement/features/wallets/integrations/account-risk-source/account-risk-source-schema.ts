@@ -127,6 +127,29 @@ CREATE TABLE IF NOT EXISTS settlement_account_address_risk_sources (
   PRIMARY KEY (account_id, shipping_address_id)
 );
 
+-- Settlement-owned opaque cluster identifiers and durable publication state.
+-- Private source keys never cross the context boundary; consumers receive only
+-- the random cluster_hash assigned here.
+CREATE TABLE IF NOT EXISTS settlement_account_linkage_clusters (
+  signal_kind text NOT NULL,
+  cluster_key text NOT NULL,
+  cluster_hash text NOT NULL UNIQUE CHECK (cluster_hash ~ '^[a-f0-9]{64}$'),
+  flagged boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (signal_kind, cluster_key)
+);
+
+-- Durable keyset cursor for the scheduled aggregate-driving closer. It is
+-- operational progress only; the Account Linkage event streams remain the
+-- publication source of truth.
+CREATE TABLE IF NOT EXISTS settlement_account_linkage_closer_cursors (
+  closer_name text PRIMARY KEY,
+  after_signal_kind text NOT NULL,
+  after_cluster_key text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (
   source_kind text NOT NULL,
   source_id text NOT NULL,
@@ -148,6 +171,33 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_settlement_account_linkage_clusters",
+    description: "Map private risk clusters to opaque identifiers and track their publication lifecycle.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS settlement_account_linkage_clusters (
+  signal_kind text NOT NULL,
+  cluster_key text NOT NULL,
+  cluster_hash text NOT NULL UNIQUE CHECK (cluster_hash ~ '^[a-f0-9]{64}$'),
+  flagged boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (signal_kind, cluster_key)
+)`,
+    ],
+  },
+  {
+    migrationId: "20260720_settlement_account_linkage_closer_cursor",
+    description: "Persist bounded Account Linkage closer progress across scheduled passes.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS settlement_account_linkage_closer_cursors (
+  closer_name text PRIMARY KEY,
+  after_signal_kind text NOT NULL,
+  after_cluster_key text NOT NULL,
+  updated_at timestamptz NOT NULL
+)`,
+    ],
+  },
   {
     migrationId: "20260715_settlement_review_scoring_disposition",
     description: "Persist canonical scoring disposition for seller reputation risk inputs.",

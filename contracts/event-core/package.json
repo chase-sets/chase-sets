@@ -11,6 +11,7 @@
     ".": "./index.ts",
     "./aggregate-command-handler": "./aggregate-command-handler.ts",
     "./aggregate-repository": "./aggregate-repository.ts",
+    "./account-linkage-facts": "./account-linkage-facts.ts",
     "./aggregate-snapshot-store": "./aggregate-snapshot-store.ts",
     "./codec": "./codec.ts",
     "./command-handler": "./command-handler.ts",

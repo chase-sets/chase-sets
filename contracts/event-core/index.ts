@@ -1,6 +1,7 @@
 export * from "./aggregate-repository";
 export * from "./aggregate-command-handler";
 export * from "./aggregate-snapshot-store";
+export * from "./account-linkage-facts";
 export * from "./codec";
 export * from "./command-handler";
 export * from "./consistency";

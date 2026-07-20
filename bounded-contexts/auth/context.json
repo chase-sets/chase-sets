@@ -17,7 +17,7 @@
     "ui-support"
   ],
   "publicExports": [".", "./context", "./host-config", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity", "@chase-sets/payments"],
   "seedRequirements": ["identity"],
   "eventSubscriptions": [
     {

@@ -15,15 +15,18 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as paymentsModule } from "@chase-sets/payments";
 import {
   getApiHostContextNames,
   getApiHostSeedOrder,
   productionLikeDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
-import { createPlatformApiHost } from "../src/app";
+import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import type { PlatformApiContextName } from "../src/config";
@@ -272,6 +275,99 @@ describe("platform api bootstrap", () => {
     expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 300_000);
+
+  it("revokes agent-owned saved instruments through the composed OAuth route with a valid audit context", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const requiredContexts = runtime.mountedContexts.filter(
+      (context) => context.contextName === "identity" || context.contextName === "payments",
+    );
+    expect(requiredContexts.map((context) => context.contextName).sort()).toEqual(["identity", "payments"]);
+    await Promise.all(requiredContexts.map((context) => bootstrapContextDatabase(context.module, context.pool)));
+
+    const accountId = "acc_oauth_revoke";
+    const agentGrantId = "lpa_oauth_revoke";
+    const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+    const paymentsServices = runtime.services.payments as ReturnType<typeof paymentsModule.createServices>;
+    await identityServices.linkedPlatformAuthorizations.grant({
+      authorizationId: agentGrantId,
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId: "oauth-revoke-client",
+      userId: "usr_oauth_revoke",
+      accountId,
+      scopes: ["checkout:write"],
+      accessTokenHash: "hash:oauth-revoke-access",
+      refreshTokenHash: "hash:oauth-revoke-refresh",
+      accessTokenExpiresAt: "2026-07-20T22:00:00.000Z",
+      refreshTokenExpiresAt: "2026-08-20T22:00:00.000Z",
+      grantedAt: "2026-07-20T21:00:00.000Z",
+    });
+    await paymentsServices.pool.query(
+      `INSERT INTO payments_saved_checkout_instruments (
+         instrument_id,
+         account_id,
+         agent_grant_id,
+         payment_method_category,
+         provider,
+         provider_customer_reference,
+         provider_reference,
+         display_label,
+         confirmation_experience,
+         readiness,
+         is_default
+       ) VALUES ($1, $2, $3, 'card', 'stripe', $4, $5, 'Visa ending in 4242', 'off-session-token', 'ready', true)`,
+      ["sci_oauth_revoke", accountId, agentGrantId, "cus_oauth_revoke", "pm_oauth_revoke"],
+    );
+
+    const revokingActor: ResolvedActor = {
+      sessionId: "sess_oauth_revoke",
+      tenantId: "tnt_customer",
+      userId: "usr_oauth_revoke",
+      accountId,
+      membershipId: "mem_oauth_revoke",
+      roleKey: "owner",
+      permissions: ["security.manage"],
+    };
+    const app = buildPlatformApiApp(runtime, {
+      resolveActor: async () => revokingActor,
+    });
+    const response = await app.request(`/ucp/oauth/authorizations/${agentGrantId}/revoke`, { method: "POST" });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ revoked: true });
+    const events = await paymentsServices.pool.query<
+      Readonly<{
+        tenant_id: string;
+        performed_by_user_id: string;
+        for_account_id: string;
+        payload: { savedCheckoutInstruments: readonly { instrumentId: string; readiness: string }[] };
+      }>
+    >(
+      `SELECT tenant_id, performed_by_user_id, for_account_id, payload
+       FROM event_store_events
+       WHERE stream_id = $1
+         AND event_type = 'payments.checkout-affordances-published'`,
+      [`payments.checkout-affordances-${accountId}`],
+    );
+    expect(events.rows).toEqual([
+      {
+        tenant_id: "tnt_identity",
+        performed_by_user_id: "usr_identity_system",
+        for_account_id: accountId,
+        payload: expect.objectContaining({
+          savedCheckoutInstruments: [
+            expect.objectContaining({ instrumentId: "sci_oauth_revoke", readiness: "removed" }),
+          ],
+        }),
+      },
+    ]);
+  }, 60_000);
 
   it("records context schema migrations once during concurrent bootstrap", async () => {
     const catalogContext = requireCatalogContext();

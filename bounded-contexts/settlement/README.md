@@ -36,6 +36,7 @@ Seller Desk Money navigation and Wallet/Payout placement are documented in [Acco
 - Payout
 - Payout Batch
 - ProtectionCoverage (protection-reserve pool; one event-sourced stream per currency)
+- Account Linkage (one event-sourced stream per opaque risk-cluster reference)
 
 ## Incoming Dependencies
 
@@ -54,6 +55,8 @@ Seller Desk Money navigation and Wallet/Payout placement are documented in [Acco
 - `PayoutCompleted`
 - `StatementPublished`
 - `settlement.protection-coverage.recovery-posted.v1`
+- `settlement.account-linkage.flagged`
+- `settlement.account-linkage.cleared`
 
 ## Invariants
 

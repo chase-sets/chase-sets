@@ -58,6 +58,16 @@ A **Protection Recovery** is Settlement's immutable attribution of Inventory-rep
 
 A **Balance** is the current computed financial position of an account derived from ledger entries.
 
+## Counterparty Linkage Flag
+
+A **Counterparty Linkage Flag** is Settlement's event-sourced internal fact that two or more accounts share an enabled risk-cluster signal. A scheduled closer reads active shared-instrument and shared-address membership from Settlement's projected risk sources, then commands one Account Linkage aggregate per opaque cluster reference to publish `settlement.account-linkage.flagged`; an authorized clear commands the same aggregate to publish `settlement.account-linkage.cleared`.
+
+Notes:
+
+- The fact carries only the linked account identifiers, the signal kind, and a random 256-bit cluster identifier assigned by Settlement's private durable mapping. The identifier cannot be reproduced by enumerating address or payment-instrument candidates, and raw source material never leaves Settlement.
+- A Counterparty Linkage Flag informs stats-scoped downstream integrity handling. It does not block orders, offers, payouts, or account access.
+- Repeated closer passes with the same members publish nothing; a changed member set republishes the flag, and a still-shared cluster is re-raised after a clear.
+
 ## Payout
 
 A **Payout** is the transfer of eligible marketplace funds to an account.

@@ -2094,7 +2094,7 @@ describe("payment runtime", () => {
   });
 
   it("detaches active saved checkout instruments owned by a revoked agent grant idempotently", async () => {
-    const { eventStore } = createInMemoryEventStore();
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const db = createOrderInputDb({
       savedCheckoutInstrumentRows: [
@@ -2147,21 +2147,38 @@ describe("payment runtime", () => {
       processorGateway,
     });
 
-    const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-      revokedAt: "2026-07-09T01:00:00.000Z",
-    });
-    const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-      revokedAt: "2026-07-09T01:00:00.000Z",
-    });
+    const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+      {
+        accountId: "acc_buyer" as never,
+        agentGrantId: "lpa_1",
+        revokedAt: "2026-07-09T01:00:00.000Z",
+      },
+      context,
+    );
+    const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+      {
+        accountId: "acc_buyer" as never,
+        agentGrantId: "lpa_1",
+        revokedAt: "2026-07-09T01:00:00.000Z",
+      },
+      context,
+    );
 
     expect(result).toEqual({ detached: 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
     expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
     expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(1);
     expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
+    expect(readAllEvents()).toEqual([
+      expect.objectContaining({
+        eventType: "payments.checkout-affordances-published",
+        payload: expect.objectContaining({
+          accountId: "acc_buyer",
+          savedCheckoutInstruments: expect.arrayContaining([
+            expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
+          ]),
+        }),
+      }),
+    ]);
     expect(db.readSavedCheckoutInstruments()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2209,11 +2226,14 @@ describe("payment runtime", () => {
       accountId: "acc_buyer" as never,
       agentGrantId: "lpa_1",
     });
-    await services.revokeSavedCheckoutInstrumentsForAgentGrant({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-      revokedAt: "2026-07-09T01:00:00.000Z",
-    });
+    await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+      {
+        accountId: "acc_buyer" as never,
+        agentGrantId: "lpa_1",
+        revokedAt: "2026-07-09T01:00:00.000Z",
+      },
+      context,
+    );
     const instrument = await services.reconcileSavedCheckoutSetupSession(
       { accountId: "acc_buyer" as never, setupReference: setup.setup_reference_id },
       context,

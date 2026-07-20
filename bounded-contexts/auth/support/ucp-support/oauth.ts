@@ -8,6 +8,8 @@ import {
   resolveAgentOAuthScopedPermissions,
   type AgentOAuthScope,
 } from "@chase-sets/auth-context";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PaymentServices } from "@chase-sets/payments/server";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   isAgentGrantRail,
@@ -16,7 +18,7 @@ import {
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/mcp-audit-log";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import type { AuthServices } from "../runtime-support/services";
 import type { AgentWebhookOutbox } from "./agent-webhooks/agent-webhook-outbox";
@@ -142,9 +144,7 @@ export type UcpOAuthRoutesOptions = Readonly<{
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
   // connected-agents listing, and configured through the mandate endpoint.
   agentGrantConsent?: AgentGrantConsentDirectory;
-  revokeStoredPaymentMethodsForAgentGrant?: (
-    params: Readonly<{ accountId: string; agentGrantId: string; revokedAt: string }>,
-  ) => Promise<unknown>;
+  revokeStoredPaymentMethodsForAgentGrant?: PaymentServices["revokeSavedCheckoutInstrumentsForAgentGrant"];
   // Read model over the MCP audit sink (infrastructure/platform-runtime/mcp-audit-log.ts),
   // filtered to one grant. Powers the connected-agents activity view.
   agentGrantActivity?: AgentGrantActivityDirectory;
@@ -155,6 +155,17 @@ export type UcpOAuthRoutesOptions = Readonly<{
 const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
+
+function createAgentGrantRevocationContext(accountId: AccountId): EventStoreContext {
+  return {
+    tenantId: "tnt_identity" as EventStoreContext["tenantId"],
+    audit: {
+      performedByUserId: "usr_identity_system" as EventStoreContext["audit"]["performedByUserId"],
+      forAccountId: accountId,
+    },
+  };
+}
+
 const UCP_OAUTH_DEFAULT_SCOPES = [
   "catalog:read",
   "checkout:read",
@@ -720,18 +731,22 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     const revokedAt = new Date().toISOString();
     const agentGrantId = c.req.param("id");
+    const revokingAccountId = actor.accountId as AccountId;
     const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
       authorizationId: agentGrantId,
-      accountId: actor.accountId,
+      accountId: revokingAccountId,
       revokedAt,
       reason: "account_consent_revoked",
     });
     if (revoked) {
-      await options.revokeStoredPaymentMethodsForAgentGrant?.({
-        accountId: actor.accountId,
-        agentGrantId,
-        revokedAt,
-      });
+      await options.revokeStoredPaymentMethodsForAgentGrant?.(
+        {
+          accountId: revokingAccountId,
+          agentGrantId,
+          revokedAt,
+        },
+        createAgentGrantRevocationContext(revokingAccountId),
+      );
     }
     return c.json({ revoked });
   });
