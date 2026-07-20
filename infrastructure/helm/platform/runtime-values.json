@@ -710,6 +710,10 @@
           "value": "8080"
         },
         {
+          "name": "PROJECTION_INLINE_APPLY_ENABLED",
+          "value": "false"
+        },
+        {
           "name": "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED",
           "value": "false"
         },

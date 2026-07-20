@@ -277,6 +277,7 @@ describe("render platform Helm values", () => {
     expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
     expect(stagingValues.components["platform-api"]).toMatchObject({
       replicas: 2,
+      envOverrides: { PROJECTION_INLINE_APPLY_ENABLED: "true" },
       resources: {
         requests: { cpu: "250m", memory: "512Mi" },
         limits: { cpu: "1", memory: "1Gi" },
@@ -289,6 +290,7 @@ describe("render platform Helm values", () => {
 
     // Base (production and preview render this without any overlay).
     const baselineApi = baselineValues.components["platform-api"];
+    expect(componentEnvValue(baselineApi, "PROJECTION_INLINE_APPLY_ENABLED")).toBe("false");
     expect(baselineApi.replicas).toBe(1);
     expect(baselineApi.resources).toEqual({});
     // Readiness stays strict and DB-aware; traffic gating is unchanged (#4765).
@@ -735,7 +737,7 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 13,
-      "platform-api": 98,
+      "platform-api": 99,
       "platform-bootstrap": 56,
       "platform-worker": 119,
       "public-web": 13,

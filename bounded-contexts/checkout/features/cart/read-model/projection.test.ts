@@ -1,8 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildCheckoutCartProjectionHandlers } from "./projection";
+
+describe("checkout cart projection database", () => {
+  it("uses the transaction-scoped projection database when the runner provides one", async () => {
+    const baseDb = {
+      query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })),
+    };
+    const transactionDb = {
+      query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })),
+    };
+    const handlers = buildCheckoutCartProjectionHandlers(baseDb);
+
+    await handlers["checkout.cart.line-quantity-set"]?.(
+      event("checkout.cart.line-quantity-set", "acc_buyer", { lineId: "cli_1", quantity: 2 }),
+      { db: transactionDb },
+    );
+
+    expect(transactionDb.query).toHaveBeenCalledTimes(1);
+    expect(String(transactionDb.query.mock.calls[0]?.[0])).toContain("UPDATE checkout_cart_line_pages");
+    expect(baseDb.query).not.toHaveBeenCalled();
+  });
+});
 
 type CartLineRow = {
   buyer_account_id: string;
