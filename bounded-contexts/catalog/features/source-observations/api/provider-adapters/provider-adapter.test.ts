@@ -66,7 +66,10 @@ import {
   getCatalogProviderIntegrationProfileVersion,
 } from "../provider-integration-profiles";
 import { tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract } from "../tcgplayer-executable-mapping-contract";
-import type { TcgplayerAutomationCatalogClient } from "../tcgplayer-automation-catalog-client";
+import type {
+  TcgplayerAutomationCatalogClient,
+  TcgplayerAutomationProductDetail,
+} from "../tcgplayer-automation-catalog-client";
 import { tcgplayerAutomationResponseFixtures } from "../tcgplayer-automation-response-fixtures.test-data";
 
 type ReferenceCardPayload = Readonly<{
@@ -623,6 +626,88 @@ describe("ProviderAdapterRegistry", () => {
       expect.objectContaining({
         filters: { term: { setName: ["Base Set"] } },
       }),
+    ]);
+  });
+
+  it("settles TCGplayer set imports when authoritative details exclude generic search candidates", async () => {
+    const progress: unknown[] = [];
+    const cardSummary = {
+      ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
+      productId: 610101,
+      productName: "Charizard",
+      productLineId: 3,
+      productLineName: "Pokemon",
+      productTypeName: "Products",
+      setId: 604,
+      setName: "Base Set",
+      sealed: false,
+    };
+    const sealedSummary = {
+      ...cardSummary,
+      productId: 610102,
+      productName: "Base Set Theme Deck",
+    };
+    const details = new Map<number, TcgplayerAutomationProductDetail>([
+      [
+        cardSummary.productId,
+        {
+          ...tcgplayerAutomationResponseFixtures.productDetail,
+          ...cardSummary,
+          productTypeName: "Cards",
+          setCode: "BS",
+          listings: 42,
+        },
+      ],
+      [
+        sealedSummary.productId,
+        {
+          ...tcgplayerAutomationResponseFixtures.productDetail,
+          ...sealedSummary,
+          productTypeName: "Sealed Products",
+          sealed: true,
+          setCode: "BS",
+          listings: 7,
+        },
+      ],
+    ]);
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
+      client: {
+        ...tcgplayerClient(),
+        listAllProducts: async () => [cardSummary, sealedSummary],
+        getProductDetail: async ({ productId }) => {
+          const detail = details.get(productId);
+          if (!detail) {
+            throw new Error(`Unexpected product detail fetch for ${productId}.`);
+          }
+          return detail;
+        },
+      },
+    });
+
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
+    });
+    const payloads = await collectPayloads(
+      adapter.fetchPayloads(plan, {
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        externalKey: "product:610101",
+        payload: expect.objectContaining({ kind: "product-detail" }),
+      }),
+    ]);
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 2, currentLabel: "Base Set" },
+      { phase: "fetching", completed: 1, total: 2, currentLabel: "Charizard" },
+      { phase: "fetching", completed: 2, total: 2, currentLabel: "Base Set Theme Deck" },
     ]);
   });
 

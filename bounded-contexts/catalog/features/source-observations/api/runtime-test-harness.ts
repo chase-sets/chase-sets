@@ -1300,6 +1300,17 @@ export function createIntegrationJobClaimHandoffHarness(
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
         if (
+          sql.includes("SELECT") &&
+          sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("WHERE job_id = $1")
+        ) {
+          return {
+            rowCount: values[0] === job.job_id ? 1 : 0,
+            rows: (values[0] === job.job_id ? [job] : []) as T[],
+          };
+        }
+
+        if (
           sql.includes("UPDATE catalog_source_observation_integration_durable_jobs AS job") &&
           sql.includes("SET status = 'running'")
         ) {
