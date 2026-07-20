@@ -11,14 +11,15 @@ import { getProductMarketStatsSnapshot } from "./queries";
  * Daily rollup maintenance: a scheduled worker job, not a checkpointed
  * event-sourced projection.
  *
- * Daily product rollups are pure, deterministic aggregations over the
+ * Daily product rollups are pure, deterministic policy-shaped aggregations over the
  * already-correct, replay-backfilled Trades Tape (`pricing_market_trades`)
  * -- re-running `recomputeDailyProductRollup` for the same day always
  * produces the same row, from any worker, on any schedule, with no
  * projection checkpoint required. That is what makes the slice
  * "recompute-safe (replay converges)" per this slice's acceptance criteria:
  * a full tape rebuild followed by one closer pass reproduces identical
- * rollups, because the rollup IS the tape, aggregated.
+ * rollups, because the rollup IS the tape, aggregated with the same resolved
+ * policy value.
  *
  * Market-state snapshots are different in kind: `pricing_market_listing_inputs`
  * / `pricing_buyer_offer_inputs` are CURRENT-state projections (latest
@@ -65,8 +66,8 @@ const DEFAULT_CLOSER_LIMIT = 500;
 
 /**
  * Every stat-hygiene dial this closer pass depends on -- the trailing
- * re-derive window and the 30/90-day convenience lookback windows fed to
- * `recomputeProductMarketAggregate` -- is resolved ONCE per pass by the
+ * re-derive window, percentile trim, and 30/90-day convenience lookback
+ * windows -- is resolved ONCE per pass by the
  * caller (`../api/runtime.ts`) and threaded through as `policy`, rather than
  * re-resolved per (product, day) tuple: a scheduled pass over hundreds of
  * tuples should see one consistent policy snapshot, not a value that could
@@ -85,7 +86,7 @@ export async function runDailyRollupCloser(
 
   const rollupTuples = await listRecentTradeDayTuples(db, { since: windowStart, limit });
   for (const tuple of rollupTuples) {
-    await recomputeDailyProductRollup(db, tuple);
+    await recomputeDailyProductRollup(db, tuple, policy);
   }
 
   // Realtime scope: only products with actual trade activity in this pass's
@@ -207,11 +208,16 @@ async function listActiveOrTradedProductTuples(
  * upserts it -- deterministic and idempotent: calling this twice for the
  * same day with unchanged tape data produces the same row.
  *
- * `median_price_amount` is stored UNCONDITIONALLY (never suppressed here);
- * see the schema header and queries.ts for where minimum-sample gating is
- * enforced.
+ * `median_price_amount` stores the policy-trimmed median UNCONDITIONALLY
+ * (never minimum-sample-suppressed here); see the schema header and
+ * queries.ts for where display gating is enforced. Every other column is a
+ * raw included-trade fact.
  */
-export async function recomputeDailyProductRollup(db: PgQueryable, params: ProductDayTuple): Promise<void> {
+export async function recomputeDailyProductRollup(
+  db: PgQueryable,
+  params: ProductDayTuple,
+  policy: MarketStatHygienePolicyValue = MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
+): Promise<void> {
   const aggregate = await db.query<{
     first_price_amount: string | null;
     last_price_amount: string | null;
@@ -222,24 +228,43 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
     trade_count: number;
     verified_trade_count: number;
   }>(
-    `SELECT
-       (array_agg(unit_price_amount ORDER BY sold_at ASC, line_id ASC) FILTER (WHERE excluded = false))[1]
+    `WITH included_trades AS (
+       SELECT unit_price_amount, quantity, verified, sold_at, line_id
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1
+         AND product_id = $2
+         AND sold_at >= ($3::date)::timestamp AT TIME ZONE 'UTC'
+         AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
+         AND excluded = false
+     ), trim_bounds AS (
+       SELECT
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS lower_price_amount,
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont(1 - ($4::double precision / 100)) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS upper_price_amount
+       FROM included_trades
+     )
+     SELECT
+       (array_agg(unit_price_amount ORDER BY sold_at ASC, line_id ASC))[1]
          AS first_price_amount,
-       (array_agg(unit_price_amount ORDER BY sold_at DESC, line_id DESC) FILTER (WHERE excluded = false))[1]
+       (array_agg(unit_price_amount ORDER BY sold_at DESC, line_id DESC))[1]
          AS last_price_amount,
-       MIN(unit_price_amount) FILTER (WHERE excluded = false) AS min_price_amount,
-       MAX(unit_price_amount) FILTER (WHERE excluded = false) AS max_price_amount,
-       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount) FILTER (WHERE excluded = false))::numeric, 2)
-         AS median_price_amount,
-       COALESCE(SUM(quantity) FILTER (WHERE excluded = false), 0)::integer AS unit_volume,
-       COUNT(*) FILTER (WHERE excluded = false)::integer AS trade_count,
-       COUNT(*) FILTER (WHERE excluded = false AND verified = true)::integer AS verified_trade_count
-     FROM pricing_market_trades
-     WHERE catalog_catalog_item_id = $1
-       AND product_id = $2
-       AND sold_at >= ($3::date)::timestamp AT TIME ZONE 'UTC'
-       AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'`,
-    [params.catalogItemId, params.productId, params.day],
+       MIN(unit_price_amount) AS min_price_amount,
+       MAX(unit_price_amount) AS max_price_amount,
+       (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
+        FROM included_trades
+        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
+           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
+                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+       COALESCE(SUM(quantity), 0)::integer AS unit_volume,
+       COUNT(*)::integer AS trade_count,
+       COUNT(*) FILTER (WHERE verified = true)::integer AS verified_trade_count
+     FROM included_trades`,
+    [params.catalogItemId, params.productId, params.day, policy.outlierTrimPercentile],
   );
   const row = aggregate.rows[0];
   const updatedAt = new Date().toISOString();
@@ -351,16 +376,38 @@ async function queryTradeWindowStats(
   params: ProductTuple,
   since: string,
   minimumTradeSample: number,
+  outlierTrimPercentile: number,
 ): Promise<TradeWindowStats> {
   const result = await db.query<{ median_price_amount: string | null; unit_volume: number; trade_count: number }>(
-    `SELECT
-       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount) FILTER (WHERE excluded = false))::numeric, 2)
-         AS median_price_amount,
-       COALESCE(SUM(quantity) FILTER (WHERE excluded = false), 0)::integer AS unit_volume,
-       COUNT(*) FILTER (WHERE excluded = false)::integer AS trade_count
-     FROM pricing_market_trades
-     WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND sold_at >= $3`,
-    [params.catalogItemId, params.productId, since],
+    `WITH included_trades AS (
+       SELECT unit_price_amount, quantity
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1
+         AND product_id = $2
+         AND sold_at >= $3
+         AND excluded = false
+     ), trim_bounds AS (
+       SELECT
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS lower_price_amount,
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont(1 - ($4::double precision / 100)) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS upper_price_amount
+       FROM included_trades
+     )
+     SELECT
+       (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
+        FROM included_trades
+        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
+           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
+                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+       COALESCE(SUM(quantity), 0)::integer AS unit_volume,
+       COUNT(*)::integer AS trade_count
+     FROM included_trades`,
+    [params.catalogItemId, params.productId, since, outlierTrimPercentile],
   );
   const row = result.rows[0]!;
   return {
@@ -401,8 +448,8 @@ export async function recomputeProductMarketAggregate(
        LIMIT 1`,
       [params.catalogItemId, params.productId],
     ),
-    queryTradeWindowStats(db, params, since30, policy.minimumTradeSample),
-    queryTradeWindowStats(db, params, since90, policy.minimumTradeSample),
+    queryTradeWindowStats(db, params, since30, policy.minimumTradeSample, policy.outlierTrimPercentile),
+    queryTradeWindowStats(db, params, since90, policy.minimumTradeSample, policy.outlierTrimPercentile),
     db.query<{ active_listing_quantity: number }>(
       `SELECT COALESCE(SUM(quantity_cap), 0)::integer AS active_listing_quantity
        FROM pricing_market_listing_inputs

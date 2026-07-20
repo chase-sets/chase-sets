@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -11,6 +12,8 @@ import {
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketTradesProjectionHandlers } from "../../market-trades/integrations/source/source-projection";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
+import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
+import { createMarketRollupsRuntime } from "../api/runtime";
 import {
   recomputeDailyProductRollup,
   recomputeMarketStateSnapshot,
@@ -177,6 +180,50 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     );
   }
 
+  async function seedIncludedTrades(
+    pool: PgTransactionalPool,
+    params: Readonly<{
+      catalogItemId: string;
+      productId: string;
+      day: string;
+      prices: readonly string[];
+      idPrefix: string;
+    }>,
+  ) {
+    const handlers = tradeHandlers(pool);
+    const dayStart = new Date(`${params.day}T00:00:00.000Z`).getTime();
+
+    for (const [index, unitPriceAmount] of params.prices.entries()) {
+      const orderId = `${params.idPrefix}_${index}`;
+      const createdAt = new Date(dayStart + index * 5 * 60 * 1000).toISOString();
+      const soldAt = new Date(dayStart + (index * 5 + 1) * 60 * 1000).toISOString();
+      await handlers["ordering.order.created"]!(
+        event(
+          "ordering.order.created",
+          {
+            orderId,
+            sourceType: "buy-now",
+            buyerAccountId: `buyer_${orderId}`,
+            sellerAccountId: "seller_trim_fixture",
+            lines: [
+              {
+                lineId: "line_1",
+                catalogItemId: params.catalogItemId,
+                productId: params.productId,
+                unitPriceAmount,
+                quantity: 1,
+              },
+            ],
+          },
+          createdAt,
+        ),
+      );
+      await handlers["ordering.order.ready-for-fulfillment-recorded"]!(
+        event("ordering.order.ready-for-fulfillment-recorded", { orderId, readyForFulfillmentAt: soldAt }, soldAt),
+      );
+    }
+  }
+
   it("computes the daily rollup from included trades only: min/max/median/first/last/volume/count", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool);
@@ -209,6 +256,85 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       trade_count: 3,
       verified_trade_count: 0,
     });
+  });
+
+  it("trims only daily and 30/90-day median inputs while raw facts, counts, and visibility stay unchanged", async () => {
+    const pool = pools.pricing;
+    const prices = ["0.00", "0.00", ...Array.from({ length: 17 }, (_, index) => `${index + 1}.00`), "100.00"];
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_trim",
+      productId: "prod_trim",
+      day: "2026-07-01",
+      prices,
+      idPrefix: "ord_trim",
+    });
+
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_trim",
+      productId: "prod_trim",
+      day: "2026-07-01",
+    });
+    await recomputeProductMarketAggregate(
+      pool,
+      { catalogItemId: "cat_trim", productId: "prod_trim" },
+      new Date("2026-07-02T00:00:00.000Z"),
+    );
+
+    const daily = await pool.query(
+      `SELECT first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
+              unit_volume, trade_count
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = 'cat_trim' AND product_id = 'prod_trim' AND day = '2026-07-01'`,
+    );
+    expect(daily.rows[0]).toEqual({
+      first_price_amount: "0.00",
+      last_price_amount: "100.00",
+      min_price_amount: "0.00",
+      max_price_amount: "100.00",
+      median_price_amount: "8.00",
+      unit_volume: 20,
+      trade_count: 20,
+    });
+
+    const aggregate = await getProductMarketStatsSnapshot(pool, {
+      catalogItemId: "cat_trim",
+      productId: "prod_trim",
+    });
+    expect(aggregate.aggregate).toMatchObject({
+      lastSoldPriceAmount: "100.00",
+      medianPrice30d: "8.00",
+      volume30d: 20,
+      tradeCount30d: 20,
+      medianPrice90d: "8.00",
+      volume90d: 20,
+      tradeCount90d: 20,
+    });
+  });
+
+  it("honors the trim floor for a thin daily window", async () => {
+    const pool = pools.pricing;
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_trim_floor",
+      productId: "prod_trim_floor",
+      day: "2026-07-03",
+      prices: ["0.00", "100.00"],
+      idPrefix: "ord_trim_floor",
+    });
+
+    await recomputeDailyProductRollup(
+      pool,
+      { catalogItemId: "cat_trim_floor", productId: "prod_trim_floor", day: "2026-07-03" },
+      { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 },
+    );
+
+    const row = await pool.query<{ median_price_amount: string; trade_count: number }>(
+      `SELECT median_price_amount, trade_count
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = 'cat_trim_floor'
+         AND product_id = 'prod_trim_floor'
+         AND day = '2026-07-03'`,
+    );
+    expect(row.rows[0]).toEqual({ median_price_amount: "50.00", trade_count: 2 });
   });
 
   it("carries the trade count on a below-threshold day but suppresses the median only in the query layer", async () => {
@@ -266,28 +392,54 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
   it("reconciles exactly after a full tape rebuild (replay convergence)", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool);
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_trim_replay",
+      productId: "prod_trim_replay",
+      day: "2026-07-01",
+      prices: ["0.00", "0.00", ...Array.from({ length: 17 }, (_, index) => `${index + 1}.00`), "100.00"],
+      idPrefix: "ord_trim_replay",
+    });
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_1", productId: "prod_1", day: "2026-07-01" });
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_trim_replay",
+      productId: "prod_trim_replay",
+      day: "2026-07-01",
+    });
 
     const before = await pool.query(
       `SELECT first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
               unit_volume, trade_count, verified_trade_count
        FROM pricing_daily_product_rollups
-       WHERE catalog_catalog_item_id = 'cat_1' AND product_id = 'prod_1' AND day = '2026-07-01'`,
+       WHERE day = '2026-07-01'
+       ORDER BY catalog_catalog_item_id, product_id`,
     );
-    expect(before.rowCount).toBe(1);
+    expect(before.rowCount).toBe(2);
 
     // Wipe the tape and the rollup, then replay the identical event sequence
     // from scratch through fresh projection handlers.
     await pool.query(`DELETE FROM pricing_market_trades`);
     await pool.query(`DELETE FROM pricing_daily_product_rollups`);
     await seedJuly1Trades(pool);
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_trim_replay",
+      productId: "prod_trim_replay",
+      day: "2026-07-01",
+      prices: ["0.00", "0.00", ...Array.from({ length: 17 }, (_, index) => `${index + 1}.00`), "100.00"],
+      idPrefix: "ord_trim_replay",
+    });
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_1", productId: "prod_1", day: "2026-07-01" });
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_trim_replay",
+      productId: "prod_trim_replay",
+      day: "2026-07-01",
+    });
 
     const after = await pool.query(
       `SELECT first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
               unit_volume, trade_count, verified_trade_count
        FROM pricing_daily_product_rollups
-       WHERE catalog_catalog_item_id = 'cat_1' AND product_id = 'prod_1' AND day = '2026-07-01'`,
+       WHERE day = '2026-07-01'
+       ORDER BY catalog_catalog_item_id, product_id`,
     );
     expect(after.rows).toEqual(before.rows);
   });
@@ -542,6 +694,94 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     );
 
     expect(rollupsAfterSecond.rows).toEqual(rollupsAfterFirst.rows);
+  });
+
+  it("applies a stored trim-policy revision on the next recompute without rewriting an immutable published snapshot", async () => {
+    const pool = pools.pricing;
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-01",
+      prices: ["0.00", "0.00", "0.00", "10.00", "20.00", "20.00", "20.00", "100.00"],
+      idPrefix: "ord_runtime_trim",
+    });
+    await pool.query(
+      `INSERT INTO pricing_recommendation_pages (
+         recommendation_id, catalog_catalog_item_id, seller_account_id, status,
+         market_price_amount, market_currency, market_observed_at,
+         recommended_list_amount, recommendation_published_at, updated_at
+       ) VALUES (
+         'rec_immutable_snapshot', 'cat_runtime_trim', 'seller_snapshot', 'published',
+         77.00, 'USD', '2026-06-30T00:00:00.000Z',
+         79.00, '2026-06-30T01:00:00.000Z', '2026-06-30T01:00:00.000Z'
+       )`,
+    );
+
+    const resolver = createPolicyResolver({
+      db: pool,
+      now: () => new Date("2026-07-01T20:00:00.000Z"),
+    });
+    const runtime = createMarketRollupsRuntime({
+      db: pool,
+      policies: { resolvePolicy: resolver.resolvePolicy },
+    });
+
+    await runtime.runDailyRollupCloser({ now: "2026-07-01T20:00:00.000Z", limit: 500 });
+    const beforeRevision = await pool.query<{ median_price_amount: string }>(
+      `SELECT median_price_amount
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = 'cat_runtime_trim'
+         AND product_id = 'prod_runtime_trim'
+         AND day = '2026-07-01'`,
+    );
+    expect(beforeRevision.rows[0]?.median_price_amount).toBe("15.00");
+
+    const revisedPolicy = { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 };
+    await pool.query(
+      `INSERT INTO platform_policy_documents (
+         document_id, policy_key, context_name, schema_summary, status, value,
+         effective_from, effective_until, created_at, updated_at
+       ) VALUES (
+         'pol_runtime_trim', 'pricing.market-stat-hygiene', 'pricing', 'test fixture', 'active', $1::jsonb,
+         '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+       )`,
+      [JSON.stringify(revisedPolicy)],
+    );
+    resolver.cache.invalidate("pricing.market-stat-hygiene");
+
+    await runtime.runDailyRollupCloser({ now: "2026-07-01T20:00:00.000Z", limit: 500 });
+
+    const afterRevision = await pool.query<{ median_price_amount: string }>(
+      `SELECT median_price_amount
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = 'cat_runtime_trim'
+         AND product_id = 'prod_runtime_trim'
+         AND day = '2026-07-01'`,
+    );
+    expect(afterRevision.rows[0]?.median_price_amount).toBe("10.00");
+    const aggregate = await getProductMarketStatsSnapshot(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+    });
+    expect(aggregate.aggregate).toMatchObject({
+      lastSoldPriceAmount: "100.00",
+      medianPrice30d: "10.00",
+      tradeCount30d: 8,
+      medianPrice90d: "10.00",
+      tradeCount90d: 8,
+    });
+
+    const publishedSnapshot = await pool.query(
+      `SELECT market_price_amount, market_observed_at, recommended_list_amount, recommendation_published_at
+       FROM pricing_recommendation_pages
+       WHERE recommendation_id = 'rec_immutable_snapshot'`,
+    );
+    expect(publishedSnapshot.rows[0]).toEqual({
+      market_price_amount: "77.00",
+      market_observed_at: new Date("2026-06-30T00:00:00.000Z"),
+      recommended_list_amount: "79.00",
+      recommendation_published_at: new Date("2026-06-30T01:00:00.000Z"),
+    });
   });
 
   /**
