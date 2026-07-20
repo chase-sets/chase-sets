@@ -84,6 +84,7 @@ function getProgressiveMarketplaceFacetItems({
 }
 
 export interface MarketplaceFacetRailProps {
+  id?: string;
   title?: ReactNode;
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
@@ -100,9 +101,11 @@ export interface MarketplaceFacetRailProps {
   showMoreLabel?: ReactNode;
   showLessLabel?: ReactNode;
   visibleOptionCount?: number;
+  showLeadingIcons?: boolean;
 }
 
 export function MarketplaceFacetRail({
+  id,
   title = "Browse Categories",
   headingLevel = 2,
   description = "Narrow the marketplace by category and current catalog depth.",
@@ -119,6 +122,7 @@ export function MarketplaceFacetRail({
   showMoreLabel = "Show more",
   showLessLabel = "Show less",
   visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
+  showLeadingIcons = true,
 }: MarketplaceFacetRailProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -135,7 +139,7 @@ export function MarketplaceFacetRail({
   });
 
   return (
-    <section className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
+    <section id={id} className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
       <div className="space-y-1 px-1">
         {(() => {
           const Heading = `h${headingLevel}` as const;
@@ -158,7 +162,7 @@ export function MarketplaceFacetRail({
           tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
           size="sm"
           onClick={() => onSelect("")}
-          leadingIcon="grid"
+          leadingIcon={showLeadingIcons ? "grid" : undefined}
           aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
           block
         >
@@ -175,7 +179,7 @@ export function MarketplaceFacetRail({
               tone={selected ? "primary" : "ghost"}
               size="sm"
               onClick={() => onSelect(item.id)}
-              leadingIcon={multiple && selected ? "check" : "tag"}
+              leadingIcon={showLeadingIcons ? (multiple && selected ? "check" : "tag") : undefined}
               aria-pressed={selected}
               block
             >
@@ -270,6 +274,7 @@ export function MarketplaceFacetStrip({
 }
 
 export interface MarketplaceFacetChoiceGroupProps {
+  id?: string;
   title: ReactNode;
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
@@ -288,9 +293,11 @@ export interface MarketplaceFacetChoiceGroupProps {
   showMoreLabel?: ReactNode;
   showLessLabel?: ReactNode;
   visibleOptionCount?: number;
+  showLeadingIcons?: boolean;
 }
 
 export function MarketplaceFacetChoiceGroup({
+  id,
   title,
   headingLevel = 3,
   description,
@@ -309,6 +316,7 @@ export function MarketplaceFacetChoiceGroup({
   showMoreLabel = "Show more",
   showLessLabel = "Show less",
   visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
+  showLeadingIcons = true,
 }: MarketplaceFacetChoiceGroupProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -353,9 +361,9 @@ export function MarketplaceFacetChoiceGroup({
           >
             {selected ? <Icon name="check" size="sm" tone="inverse" /> : null}
           </span>
-        ) : (
+        ) : showLeadingIcons ? (
           <Icon name={icon} size="sm" tone={selected ? "inverse" : "accent"} />
-        )}
+        ) : null}
         <span className="min-w-0 truncate">{label}</span>
       </span>
       {count == null ? null : (
@@ -372,7 +380,7 @@ export function MarketplaceFacetChoiceGroup({
   );
 
   return (
-    <section className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
+    <section id={id} className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
       <div className="space-y-1">
         {(() => {
           const Heading = `h${headingLevel}` as const;
