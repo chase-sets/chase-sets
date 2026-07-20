@@ -89,7 +89,6 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
             buildHandlers: () => buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers(services.db),
           },
         },
-
       }),
       ...buildEventReactionsFromManifest({
         contextName: "pricing",
