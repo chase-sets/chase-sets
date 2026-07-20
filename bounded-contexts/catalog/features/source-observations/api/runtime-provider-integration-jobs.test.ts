@@ -1806,6 +1806,45 @@ describe("source observation runtime: provider integration jobs", () => {
     }
   });
 
+  it("carries a guided YGOPRODeck set selection into card import planning", async () => {
+    const harness = createIntegrationJobClaimHandoffHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const preview = await services.previewIntegrationImport({
+      scope: {
+        provider: "ygoprodeck",
+        ingestionUnitKey: "ygoprodeck:yugioh:single-card:reference-data",
+        language: "en",
+        setId: "25th Anniversary Rarity Collection",
+      },
+      context,
+    });
+
+    expect(preview).toMatchObject({
+      action: "import",
+      providerKey: "ygoprodeck",
+      targetCount: 1,
+      targets: [
+        expect.objectContaining({
+          targetId: "set:25th Anniversary Rarity Collection",
+          name: "25th Anniversary Rarity Collection",
+          languageCode: "en",
+          scopeKey: "set",
+          planKey: "ygoprodeck:cards:set:25th-anniversary-rarity-collection",
+          transportSteps: [
+            "Fetch YGOPRODeck cards by card set",
+            "Select card print payloads",
+            "Attach card provenance",
+          ],
+        }),
+      ],
+    });
+  });
+
   it("processes queued Scrydex One Piece set imports through the durable integration worker", async () => {
     const originalFetch = globalThis.fetch;
     const originalApiKey = process.env.SCRYDEX_API_KEY;
