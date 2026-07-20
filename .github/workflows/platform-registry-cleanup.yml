@@ -35,6 +35,7 @@ jobs:
       issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}
+      DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -54,7 +55,6 @@ jobs:
         id: deploy_lane
         env:
           GH_TOKEN: ${{ github.token }}
-          CLEANUP_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -108,7 +108,9 @@ jobs:
           const record = {
             schemaVersion: "digitalocean-registry-cleanup/v1",
             checkedAt: new Date().toISOString(),
-            mode: process.env.CLEANUP_DRY_RUN === "true" ? "dry-run" : "apply",
+            mode: process.env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN === "true" ? "dry-run" : "apply",
+            requestedMode:
+              process.env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN === "true" ? "dry-run" : "apply",
             repository: process.env.PLATFORM_IMAGE_REPOSITORY,
             retentionDays: 7,
             retainRecentShaTreeTags: 25,
@@ -140,18 +142,13 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release-health
 
-          dry_run="${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}"
-          dry_run_arg=""
-          if [ "$dry_run" = "true" ]; then
-            dry_run_arg="--dry-run"
-          fi
-          echo "Registry cleanup dry_run=${dry_run}."
+          echo "Registry cleanup requested dry_run=${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}."
 
           node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
             --repository="${PLATFORM_IMAGE_REPOSITORY}" \
             --retain-recent-sha-tree-tags=25 \
-            --out artifacts/release-health/digitalocean-registry-cleanup.json \
-            ${dry_run_arg}
+            --dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}" \
+            --out artifacts/release-health/digitalocean-registry-cleanup.json
 
       - name: Summarize registry cleanup
         if: ${{ always() }}
