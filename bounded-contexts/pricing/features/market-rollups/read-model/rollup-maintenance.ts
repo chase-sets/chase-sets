@@ -5,6 +5,10 @@ import {
   MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
   type MarketStatHygienePolicyValue,
 } from "../../market-trades/domain/stat-hygiene-policy";
+import {
+  loadMarketStatHygienePolicyRevision,
+  resolveMarketStatHygienePolicyRevisionForPeriod,
+} from "./stat-hygiene-policy-revision";
 import { getProductMarketStatsSnapshot } from "./queries";
 
 /**
@@ -15,11 +19,13 @@ import { getProductMarketStatsSnapshot } from "./queries";
  * already-correct, replay-backfilled Trades Tape (`pricing_market_trades`)
  * -- re-running `recomputeDailyProductRollup` for the same day always
  * produces the same row, from any worker, on any schedule, with no
- * projection checkpoint required. That is what makes the slice
+ * projection checkpoint required. Each period persists the immutable policy
+ * revision that shaped its median, so re-derivation never consults a newer
+ * live revision. That is what makes the slice
  * "recompute-safe (replay converges)" per this slice's acceptance criteria:
  * a full tape rebuild followed by one closer pass reproduces identical
- * rollups, because the rollup IS the tape, aggregated with the same resolved
- * policy value.
+ * rollups, because the rollup IS the tape, aggregated with the same bound
+ * policy revision.
  *
  * Market-state snapshots are different in kind: `pricing_market_listing_inputs`
  * / `pricing_buyer_offer_inputs` are CURRENT-state projections (latest
@@ -65,13 +71,14 @@ export type DailyRollupCloserResult = Readonly<{
 const DEFAULT_CLOSER_LIMIT = 500;
 
 /**
- * Every stat-hygiene dial this closer pass depends on -- the trailing
- * re-derive window, percentile trim, and 30/90-day convenience lookback
- * windows -- is resolved ONCE per pass by the
+ * The live stat-hygiene dials this closer pass depends on -- the trailing
+ * re-derive window and 30/90-day convenience lookback/trim configuration --
+ * are resolved ONCE per pass by the
  * caller (`../api/runtime.ts`) and threaded through as `policy`, rather than
  * re-resolved per (product, day) tuple: a scheduled pass over hundreds of
  * tuples should see one consistent policy snapshot, not a value that could
- * change mid-pass if a revision lands while it runs.
+ * change mid-pass if a revision lands while it runs. Daily medians are the
+ * exception: each UTC period loads its own persisted policy revision below.
  */
 export async function runDailyRollupCloser(
   db: PgQueryable,
@@ -86,7 +93,7 @@ export async function runDailyRollupCloser(
 
   const rollupTuples = await listRecentTradeDayTuples(db, { since: windowStart, limit });
   for (const tuple of rollupTuples) {
-    await recomputeDailyProductRollup(db, tuple, policy);
+    await recomputeDailyProductRollup(db, tuple);
   }
 
   // Realtime scope: only products with actual trade activity in this pass's
@@ -211,13 +218,23 @@ async function listActiveOrTradedProductTuples(
  * `median_price_amount` stores the policy-trimmed median UNCONDITIONALLY
  * (never minimum-sample-suppressed here); see the schema header and
  * queries.ts for where display gating is enforced. Every other column is a
- * raw included-trade fact.
+ * raw included-trade fact. Existing rows load their bound revision; a row
+ * created during replay resolves the revision effective at its period close.
  */
-export async function recomputeDailyProductRollup(
-  db: PgQueryable,
-  params: ProductDayTuple,
-  policy: MarketStatHygienePolicyValue = MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
-): Promise<void> {
+export async function recomputeDailyProductRollup(db: PgQueryable, params: ProductDayTuple): Promise<void> {
+  const existingBinding = await db.query<{ stat_hygiene_policy_revision_id: string }>(
+    `SELECT stat_hygiene_policy_revision_id
+     FROM pricing_daily_product_rollups
+     WHERE catalog_catalog_item_id = $1
+       AND product_id = $2
+       AND day = $3`,
+    [params.catalogItemId, params.productId, params.day],
+  );
+  const policyRevision = existingBinding.rows[0]
+    ? await loadMarketStatHygienePolicyRevision(db, existingBinding.rows[0].stat_hygiene_policy_revision_id)
+    : await resolveMarketStatHygienePolicyRevisionForPeriod(db, params.day);
+  const policy = policyRevision.value;
+
   const aggregate = await db.query<{
     first_price_amount: string | null;
     last_price_amount: string | null;
@@ -273,14 +290,16 @@ export async function recomputeDailyProductRollup(
     `INSERT INTO pricing_daily_product_rollups (
        catalog_catalog_item_id, product_id, day,
        first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
+       stat_hygiene_policy_revision_id,
        unit_volume, trade_count, verified_trade_count, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
      SET first_price_amount = EXCLUDED.first_price_amount,
          last_price_amount = EXCLUDED.last_price_amount,
          min_price_amount = EXCLUDED.min_price_amount,
          max_price_amount = EXCLUDED.max_price_amount,
          median_price_amount = EXCLUDED.median_price_amount,
+         stat_hygiene_policy_revision_id = EXCLUDED.stat_hygiene_policy_revision_id,
          unit_volume = EXCLUDED.unit_volume,
          trade_count = EXCLUDED.trade_count,
          verified_trade_count = EXCLUDED.verified_trade_count,
@@ -294,6 +313,7 @@ export async function recomputeDailyProductRollup(
       row?.min_price_amount ?? null,
       row?.max_price_amount ?? null,
       row?.median_price_amount ?? null,
+      policyRevision.revisionId,
       row?.unit_volume ?? 0,
       row?.trade_count ?? 0,
       row?.verified_trade_count ?? 0,

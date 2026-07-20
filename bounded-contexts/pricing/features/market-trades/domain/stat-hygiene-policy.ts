@@ -21,7 +21,8 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * Product Rollups and 30/90-day Product Market Aggregates. First/last/min/max,
  * volume, and counts remain raw recorded facts. A window is trimmed only when
  * `tradeCount * outlierTrimPercentile / 100 >= 1`; thinner windows retain every
- * included trade.
+ * included trade. The formula enables continuous-percentile boundary trimming;
+ * it is not a floor-count of rows removed from each tail.
  */
 
 export type MarketStatHygienePolicyValue = Readonly<{
@@ -30,9 +31,10 @@ export type MarketStatHygienePolicyValue = Readonly<{
   /** Convenience lookback windows offered on market-stat surfaces, in days. */
   lookbackDays: Readonly<{ short: number; long: number }>;
   /**
-   * Percentile trimmed from EACH tail before computing a window median (e.g.
-   * 5 trims values below p5 and above p95). 0 disables trimming; the trim is
-   * also disabled when the window cannot address at least one trade per tail.
+   * Continuous percentile trimmed from EACH tail before computing a window
+   * median (e.g. 5 excludes values below p5 and above p95). 0 disables
+   * trimming; the trim is also disabled when the window cannot address at
+   * least one trade per tail.
    */
   outlierTrimPercentile: number;
   /**

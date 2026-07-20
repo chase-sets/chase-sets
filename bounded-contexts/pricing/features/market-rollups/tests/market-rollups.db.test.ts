@@ -224,6 +224,58 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     }
   }
 
+  async function activateStatHygienePolicyRevision(
+    pool: PgTransactionalPool,
+    params: Readonly<{
+      documentId: string;
+      revisionEventId: string;
+      value: typeof MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE;
+      effectiveFrom: string;
+      effectiveUntil?: string | null;
+      recordedAt: string;
+    }>,
+  ) {
+    await pool.query(
+      `INSERT INTO platform_policy_documents (
+         document_id, policy_key, context_name, schema_summary, status, value,
+         effective_from, effective_until, created_at, updated_at
+       ) VALUES (
+         $1, 'pricing.market-stat-hygiene', 'pricing', 'test fixture', 'active', $2::jsonb,
+         $3, $4, $5, $5
+       )
+       ON CONFLICT (document_id) DO UPDATE
+       SET status = EXCLUDED.status,
+           value = EXCLUDED.value,
+           effective_from = EXCLUDED.effective_from,
+           effective_until = EXCLUDED.effective_until,
+           updated_at = EXCLUDED.updated_at`,
+      [
+        params.documentId,
+        JSON.stringify(params.value),
+        params.effectiveFrom,
+        params.effectiveUntil ?? null,
+        params.recordedAt,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO platform_policy_document_history (
+         event_id, document_id, policy_key, event_type, actor_user_id, status, value,
+         effective_from, effective_until, recorded_at
+       ) VALUES (
+         $1, $2, 'pricing.market-stat-hygiene', 'revised', 'user_test', 'active', $3::jsonb,
+         $4, $5, $6
+       )`,
+      [
+        params.revisionEventId,
+        params.documentId,
+        JSON.stringify(params.value),
+        params.effectiveFrom,
+        params.effectiveUntil ?? null,
+        params.recordedAt,
+      ],
+    );
+  }
+
   it("computes the daily rollup from included trades only: min/max/median/first/last/volume/count", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool);
@@ -313,6 +365,13 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
 
   it("honors the trim floor for a thin daily window", async () => {
     const pool = pools.pricing;
+    await activateStatHygienePolicyRevision(pool, {
+      documentId: "pol_trim_floor",
+      revisionEventId: "evt_trim_floor",
+      value: { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 },
+      effectiveFrom: "2026-07-03T00:00:00.000Z",
+      recordedAt: "2026-07-03T00:00:00.000Z",
+    });
     await seedIncludedTrades(pool, {
       catalogItemId: "cat_trim_floor",
       productId: "prod_trim_floor",
@@ -321,11 +380,11 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       idPrefix: "ord_trim_floor",
     });
 
-    await recomputeDailyProductRollup(
-      pool,
-      { catalogItemId: "cat_trim_floor", productId: "prod_trim_floor", day: "2026-07-03" },
-      { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 },
-    );
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_trim_floor",
+      productId: "prod_trim_floor",
+      day: "2026-07-03",
+    });
 
     const row = await pool.query<{ median_price_amount: string; trade_count: number }>(
       `SELECT median_price_amount, trade_count
@@ -696,69 +755,93 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(rollupsAfterSecond.rows).toEqual(rollupsAfterFirst.rows);
   });
 
-  it("applies a stored trim-policy revision on the next recompute without rewriting an immutable published snapshot", async () => {
+  it("binds daily medians to period policy revisions and replays deterministically across the revision boundary", async () => {
     const pool = pools.pricing;
+    const oldPolicy = { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 5 };
+    const newPolicy = { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 };
+    const prices = ["0.00", "0.00", "0.00", "10.00", "20.00", "20.00", "20.00", "100.00"];
+
+    await activateStatHygienePolicyRevision(pool, {
+      documentId: "pol_runtime_trim",
+      revisionEventId: "evt_runtime_trim_v1",
+      value: oldPolicy,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      recordedAt: "2026-01-01T00:00:00.000Z",
+    });
     await seedIncludedTrades(pool, {
       catalogItemId: "cat_runtime_trim",
       productId: "prod_runtime_trim",
       day: "2026-07-01",
-      prices: ["0.00", "0.00", "0.00", "10.00", "20.00", "20.00", "20.00", "100.00"],
-      idPrefix: "ord_runtime_trim",
+      prices,
+      idPrefix: "ord_runtime_trim_old",
     });
-    await pool.query(
-      `INSERT INTO pricing_recommendation_pages (
-         recommendation_id, catalog_catalog_item_id, seller_account_id, status,
-         market_price_amount, market_currency, market_observed_at,
-         recommended_list_amount, recommendation_published_at, updated_at
-       ) VALUES (
-         'rec_immutable_snapshot', 'cat_runtime_trim', 'seller_snapshot', 'published',
-         77.00, 'USD', '2026-06-30T00:00:00.000Z',
-         79.00, '2026-06-30T01:00:00.000Z', '2026-06-30T01:00:00.000Z'
-       )`,
-    );
+    await seedIncludedTrades(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-10",
+      prices,
+      idPrefix: "ord_runtime_trim_in_window",
+    });
+
+    // The old period closes under v1 and records that exact immutable event id.
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-01",
+    });
+
+    await activateStatHygienePolicyRevision(pool, {
+      documentId: "pol_runtime_trim",
+      revisionEventId: "evt_runtime_trim_v2",
+      value: newPolicy,
+      effectiveFrom: "2026-07-10T00:00:00.000Z",
+      recordedAt: "2026-07-10T00:00:00.000Z",
+    });
 
     const resolver = createPolicyResolver({
       db: pool,
-      now: () => new Date("2026-07-01T20:00:00.000Z"),
+      now: () => new Date("2026-07-11T20:00:00.000Z"),
     });
     const runtime = createMarketRollupsRuntime({
       db: pool,
       policies: { resolvePolicy: resolver.resolvePolicy },
     });
 
-    await runtime.runDailyRollupCloser({ now: "2026-07-01T20:00:00.000Z", limit: 500 });
-    const beforeRevision = await pool.query<{ median_price_amount: string }>(
-      `SELECT median_price_amount
+    const closer = await runtime.runDailyRollupCloser({ now: "2026-07-11T20:00:00.000Z", limit: 500 });
+    expect(closer.rollupDaysRecomputed).toBe(1);
+
+    // An explicit late re-derivation must load v1 from the row, never the live v2 document.
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-01",
+    });
+
+    const boundRollups = await pool.query<{
+      day: string;
+      median_price_amount: string;
+      stat_hygiene_policy_revision_id: string;
+    }>(
+      `SELECT day::text, median_price_amount, stat_hygiene_policy_revision_id
        FROM pricing_daily_product_rollups
        WHERE catalog_catalog_item_id = 'cat_runtime_trim'
          AND product_id = 'prod_runtime_trim'
-         AND day = '2026-07-01'`,
+       ORDER BY day`,
     );
-    expect(beforeRevision.rows[0]?.median_price_amount).toBe("15.00");
+    expect(boundRollups.rows).toEqual([
+      {
+        day: "2026-07-01",
+        median_price_amount: "15.00",
+        stat_hygiene_policy_revision_id: "evt_runtime_trim_v1",
+      },
+      {
+        day: "2026-07-10",
+        median_price_amount: "10.00",
+        stat_hygiene_policy_revision_id: "evt_runtime_trim_v2",
+      },
+    ]);
 
-    const revisedPolicy = { ...MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE, outlierTrimPercentile: 25 };
-    await pool.query(
-      `INSERT INTO platform_policy_documents (
-         document_id, policy_key, context_name, schema_summary, status, value,
-         effective_from, effective_until, created_at, updated_at
-       ) VALUES (
-         'pol_runtime_trim', 'pricing.market-stat-hygiene', 'pricing', 'test fixture', 'active', $1::jsonb,
-         '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
-       )`,
-      [JSON.stringify(revisedPolicy)],
-    );
-    resolver.cache.invalidate("pricing.market-stat-hygiene");
-
-    await runtime.runDailyRollupCloser({ now: "2026-07-01T20:00:00.000Z", limit: 500 });
-
-    const afterRevision = await pool.query<{ median_price_amount: string }>(
-      `SELECT median_price_amount
-       FROM pricing_daily_product_rollups
-       WHERE catalog_catalog_item_id = 'cat_runtime_trim'
-         AND product_id = 'prod_runtime_trim'
-         AND day = '2026-07-01'`,
-    );
-    expect(afterRevision.rows[0]?.median_price_amount).toBe("10.00");
+    // The convenience windows are current aggregates, so they intentionally use live v2.
     const aggregate = await getProductMarketStatsSnapshot(pool, {
       catalogItemId: "cat_runtime_trim",
       productId: "prod_runtime_trim",
@@ -766,22 +849,48 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(aggregate.aggregate).toMatchObject({
       lastSoldPriceAmount: "100.00",
       medianPrice30d: "10.00",
-      tradeCount30d: 8,
+      tradeCount30d: 16,
       medianPrice90d: "10.00",
-      tradeCount90d: 8,
+      tradeCount90d: 16,
     });
 
-    const publishedSnapshot = await pool.query(
-      `SELECT market_price_amount, market_observed_at, recommended_list_amount, recommendation_published_at
-       FROM pricing_recommendation_pages
-       WHERE recommendation_id = 'rec_immutable_snapshot'`,
-    );
-    expect(publishedSnapshot.rows[0]).toEqual({
-      market_price_amount: "77.00",
-      market_observed_at: new Date("2026-06-30T00:00:00.000Z"),
-      recommended_list_amount: "79.00",
-      recommendation_published_at: new Date("2026-06-30T01:00:00.000Z"),
+    // A projection rebuild has no rollup bindings to consult. Replay the policy
+    // history too, then resolve each period close and reproduce both sides.
+    await pool.query(`DELETE FROM pricing_daily_product_rollups`);
+    await pool.query(`DELETE FROM platform_policy_document_history WHERE policy_key = 'pricing.market-stat-hygiene'`);
+    await pool.query(`DELETE FROM platform_policy_documents WHERE policy_key = 'pricing.market-stat-hygiene'`);
+    await activateStatHygienePolicyRevision(pool, {
+      documentId: "pol_runtime_trim",
+      revisionEventId: "evt_runtime_trim_v1",
+      value: oldPolicy,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      recordedAt: "2026-01-01T00:00:00.000Z",
     });
+    await activateStatHygienePolicyRevision(pool, {
+      documentId: "pol_runtime_trim",
+      revisionEventId: "evt_runtime_trim_v2",
+      value: newPolicy,
+      effectiveFrom: "2026-07-10T00:00:00.000Z",
+      recordedAt: "2026-07-10T00:00:00.000Z",
+    });
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-01",
+    });
+    await recomputeDailyProductRollup(pool, {
+      catalogItemId: "cat_runtime_trim",
+      productId: "prod_runtime_trim",
+      day: "2026-07-10",
+    });
+    const replayedRollups = await pool.query(
+      `SELECT day::text, median_price_amount, stat_hygiene_policy_revision_id
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = 'cat_runtime_trim'
+         AND product_id = 'prod_runtime_trim'
+       ORDER BY day`,
+    );
+    expect(replayedRollups.rows).toEqual(boundRollups.rows);
   });
 
   /**
