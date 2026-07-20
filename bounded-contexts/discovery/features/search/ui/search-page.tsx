@@ -670,7 +670,6 @@ export function SearchPage({
           <MarketplaceFacetGroup
             key={facet.id}
             id={`search-facet-${facet.id}`}
-            headingLevel={2}
             title={facet.title}
             description={facet.description}
             selectionSummary={facet.selectionSummary}
