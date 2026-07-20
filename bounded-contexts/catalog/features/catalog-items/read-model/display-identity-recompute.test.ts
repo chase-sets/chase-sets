@@ -185,14 +185,21 @@ describe("display identity recomputation work", () => {
     expect(calls[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
   });
 
-  it("uses the claimed work state as a concurrency predicate for every terminal transition", async () => {
-    const queries: string[] = [];
-    const db = recomputeDb({ existingHash: null, queries });
+  it("skips processing when a concurrent worker wins the pending-to-running transition", async () => {
+    const published = commandHandler();
+    const db = recomputeDb({ existingHash: null, claimRowCount: 0 });
 
-    await processCatalogItemDisplayIdentityRecomputeBatch(db, commandHandler(), {} as never);
+    await expect(processCatalogItemDisplayIdentityRecomputeBatch(db, published, {} as never)).resolves.toMatchObject({
+      selected: 1,
+      processed: 0,
+      changed: 0,
+      unchanged: 0,
+      missing: 0,
+      failed: 0,
+    });
 
-    expect(queries.find((sql) => sql.includes("SET status = 'running'"))).toContain("AND status = 'pending'");
-    expect(queries.find((sql) => sql.includes("SET status = 'completed'"))).toContain("AND status = 'running'");
+    expect(db.persistedWrites).toHaveLength(0);
+    expect(published).not.toHaveBeenCalled();
   });
 });
 
@@ -337,6 +344,7 @@ function recomputeDb(options: {
   publicationMarks?: unknown[][];
   statusUpdates?: string[];
   queries?: string[];
+  claimRowCount?: number;
 }) {
   const persistedWrites = options.persistedWrites ?? [];
   const publicationMarks = options.publicationMarks ?? [];
@@ -344,25 +352,25 @@ function recomputeDb(options: {
 
   return {
     persistedWrites,
-    async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
+    async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }> {
       options.queries?.push(sql);
       if (sql.includes("FROM catalog_item_display_identity_recompute_work")) {
-        return { rows: [{ catalog_item_id: "cat_1" }] as T[] };
+        return { rows: [{ catalog_item_id: "cat_1" }] as T[], rowCount: 1 };
       }
 
       if (sql.includes("SET status = 'running'")) {
         statusUpdates.push("running");
-        return { rows: [] };
+        return { rows: [], rowCount: options.claimRowCount ?? 1 };
       }
 
       if (sql.includes("SET status = 'completed'")) {
         statusUpdates.push("completed");
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes("SET status = 'pending'")) {
         statusUpdates.push("failed");
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes("SELECT * FROM catalog_items WHERE catalog_item_id = $1")) {
@@ -382,6 +390,7 @@ function recomputeDb(options: {
               ],
             },
           ] as T[],
+          rowCount: 1,
         };
       }
 
@@ -394,18 +403,19 @@ function recomputeDb(options: {
                   last_published_display_identity_hash: options.lastPublishedHash ?? null,
                 },
               ] as T[],
+              rowCount: 1,
             }
-          : { rows: [] };
+          : { rows: [], rowCount: 0 };
       }
 
       if (sql.includes("INSERT INTO catalog_item_display_identities")) {
         persistedWrites.push([...(params ?? [])]);
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes("last_published_display_identity_hash")) {
         publicationMarks.push([...(params ?? [])]);
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes("FROM catalog_fields")) {
@@ -415,6 +425,7 @@ function recomputeDb(options: {
             { field_id: "fld_number", key: "card-number" },
             { field_id: "fld_expansion", key: "expansion" },
           ] as T[],
+          rowCount: 3,
         };
       }
 
@@ -431,6 +442,7 @@ function recomputeDb(options: {
               required_field_keys: ["card-name", "card-number", "expansion"],
             },
           ] as T[],
+          rowCount: 1,
         };
       }
 
@@ -447,10 +459,11 @@ function recomputeDb(options: {
               status: "active",
             },
           ] as T[],
+          rowCount: 1,
         };
       }
 
-      return { rows: [] };
+      return { rows: [], rowCount: 0 };
     },
   };
 }

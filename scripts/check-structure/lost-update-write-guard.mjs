@@ -14,7 +14,7 @@ export async function validateLostUpdateWriteGuard({
   const rows = [];
   for (const file of await sourceFiles(path.join(repoRoot, "bounded-contexts"))) {
     const relativeFile = path.relative(repoRoot, file).replaceAll("\\", "/");
-    if (!isReadModelOrProjectionFile(relativeFile) || !isReadDecideWritePath(relativeFile)) continue;
+    if (!isReadModelOrProjectionFile(relativeFile)) continue;
     const source = await readFile(file, "utf8");
     for (const statement of sqlWrites(source)) {
       const where = statement.sql.match(/\bWHERE\s+([\s\S]*?)(?:\bRETURNING\b|;|$)/i)?.[1] ?? "";
@@ -48,12 +48,6 @@ export async function validateLostUpdateWriteGuard({
 
 function isReadModelOrProjectionFile(file) {
   return /\/(?:read-model)\//.test(file) || /(?:projection|queue)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(file);
-}
-
-function isReadDecideWritePath(file) {
-  return /(?:^|[._/-])(?:ack|complete|expire|sweep|maintenance|rederive|requeue|recompute|queue|claim|lease|retention|prune|cleanup)(?:$|[._/-])/i.test(
-    file,
-  );
 }
 
 async function sourceFiles(directory) {

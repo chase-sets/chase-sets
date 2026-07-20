@@ -8,14 +8,27 @@ const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("lost update write guard", () => {
-  it("fails the pre-fix expiry-sweep shape (negative control)", async () => {
-    const root = await fixture(`UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`);
+  it("fails the historical market-estimates queries.ts shape (negative control)", async () => {
+    const root = await fixture(
+      "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts",
+      `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`,
+    );
+    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toMatchObject({
+      violations: [expect.stringContaining("key-only UPDATE")],
+    });
+  });
+  it("fails a key-only write at a second keyword-free read-model path", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
+      `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`,
+    );
     await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toMatchObject({
       violations: [expect.stringContaining("key-only UPDATE")],
     });
   });
   it("accepts a predicate proving the read state is still current", async () => {
     const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
       `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1 AND fresh_until = $3`,
     );
     await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toEqual(
@@ -24,10 +37,10 @@ describe("lost update write guard", () => {
   });
 });
 
-async function fixture(sql) {
+async function fixture(relativePath, sql) {
   const root = await mkdtemp(path.join(os.tmpdir(), "lost-update-guard-"));
   roots.push(root);
-  const target = path.join(root, "bounded-contexts/example/features/estimates/read-model/sweep.ts");
+  const target = path.join(root, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   await mkdir(path.join(root, "scripts/check-structure"), { recursive: true });
   await writeFile(target, `const sql = \`${sql}\`;`, "utf8");

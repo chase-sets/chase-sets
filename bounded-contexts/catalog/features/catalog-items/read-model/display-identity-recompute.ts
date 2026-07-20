@@ -139,7 +139,10 @@ export async function processCatalogItemDisplayIdentityRecomputeBatch(
 
   for (const row of work.rows) {
     try {
-      await markDisplayIdentityWorkRunning(db, row.catalog_item_id);
+      const claimed = await markDisplayIdentityWorkRunning(db, row.catalog_item_id);
+      if (!claimed) {
+        continue;
+      }
       const item = await loadDisplayIdentityItem(db, row.catalog_item_id);
 
       if (!item) {
@@ -284,13 +287,14 @@ async function markDisplayIdentityPublished(db: PgQueryable, result: PersistedDi
   );
 }
 
-async function markDisplayIdentityWorkRunning(db: PgQueryable, itemId: string): Promise<void> {
-  await db.query(
+async function markDisplayIdentityWorkRunning(db: PgQueryable, itemId: string): Promise<boolean> {
+  const result = await db.query(
     `UPDATE catalog_item_display_identity_recompute_work
      SET status = 'running', attempts = attempts + 1, updated_at = now()
      WHERE catalog_item_id = $1 AND status = 'pending'`,
     [itemId],
   );
+  return (result.rowCount ?? 0) === 1;
 }
 
 async function markDisplayIdentityWorkCompleted(db: PgQueryable, itemId: string): Promise<void> {
