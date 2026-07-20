@@ -53,7 +53,7 @@ describe("production Stripe webhook endpoint creation workflow", () => {
 
   it("keeps credentials step-scoped and pipes the signing secret only to the production GitHub secret", () => {
     expect(createWorkflow).toContain("STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}");
-    expect(createWorkflow).toContain("GH_TOKEN: ${{ secrets.GITHUB_ENVIRONMENT_SECRETS_TOKEN }}");
+    expect(createWorkflow).toContain("GH_TOKEN: ${{ secrets.ENVIRONMENT_SECRETS_TOKEN }}");
     expect(createWorkflow).not.toContain("GH_TOKEN: ${{ github.token }}");
     expect(createWorkflow).toContain("pnpm run ops stripe:webhook-endpoint -- create-canonical");
   });
