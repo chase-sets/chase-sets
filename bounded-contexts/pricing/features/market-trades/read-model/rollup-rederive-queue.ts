@@ -5,6 +5,7 @@ export type QueuedTradeRollupRederive = Readonly<{
   productId: string;
   day: string;
   queuedAt: string;
+  generation: string;
 }>;
 
 /**
@@ -21,8 +22,9 @@ export async function listQueuedTradeRollupRederives(
     product_id: string;
     day: string;
     queued_at: string;
+    generation: string;
   }>(
-    `SELECT catalog_catalog_item_id, product_id, day::text, queued_at::text
+    `SELECT catalog_catalog_item_id, product_id, day::text, queued_at::text, generation::text
      FROM pricing_market_trade_rollup_rederive_queue
      ORDER BY queued_at, catalog_catalog_item_id, product_id, day
      LIMIT $1`,
@@ -34,13 +36,15 @@ export async function listQueuedTradeRollupRederives(
     productId: row.product_id,
     day: row.day,
     queuedAt: row.queued_at,
+    generation: row.generation,
   }));
 }
 
 /**
- * Acknowledges only the exact queue version that was recomputed. A concurrent
- * exclusion/re-inclusion refreshes queued_at, so this conditional delete
- * cannot erase work that arrived while the closer was running.
+ * Acknowledges only the exact queue generation that was recomputed. Every
+ * enqueue increments the generation, regardless of its event timestamp, so
+ * this conditional delete cannot erase work that arrived while the closer
+ * was running.
  */
 export async function acknowledgeTradeRollupRederive(db: PgQueryable, tuple: QueuedTradeRollupRederive): Promise<void> {
   await db.query(
@@ -48,7 +52,7 @@ export async function acknowledgeTradeRollupRederive(db: PgQueryable, tuple: Que
      WHERE catalog_catalog_item_id = $1
        AND product_id = $2
        AND day = $3
-       AND queued_at = $4`,
-    [tuple.catalogItemId, tuple.productId, tuple.day, tuple.queuedAt],
+       AND generation = $4`,
+    [tuple.catalogItemId, tuple.productId, tuple.day, tuple.generation],
   );
 }

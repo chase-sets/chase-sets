@@ -17,10 +17,15 @@ import {
 } from "../../market-trades/integrations/integrity/integrity-projection";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
 import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
+import {
+  acknowledgeTradeRollupRederive,
+  listQueuedTradeRollupRederives,
+} from "../../market-trades/read-model/rollup-rederive-queue";
 import { createMarketRollupsRuntime } from "../api/runtime";
 import {
   recomputeDailyProductRollup,
   recomputeMarketStateSnapshot,
+  recomputePlatformDailyRollup,
   recomputeProductMarketAggregate,
   runDailyRollupCloser,
 } from "../read-model/rollup-maintenance";
@@ -872,6 +877,71 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        ORDER BY queued_at`,
     );
     expect(remaining.rows).toEqual([{ catalog_catalog_item_id: "cat_queue_b" }]);
+  });
+
+  it("preserves a same-timestamp enqueue that races a queued-day acknowledgment", async () => {
+    const pool = pools.pricing;
+    const catalogItemId = "cat_queue_generation";
+    const productId = "prod_queue_generation";
+    const day = "2026-06-01";
+    const queuedAt = "2026-07-20T00:00:00.000Z";
+    await seedIncludedTrades(pool, {
+      catalogItemId,
+      productId,
+      day,
+      prices: ["10.00"],
+      idPrefix: "ord_queue_generation",
+    });
+    await pool.query(
+      `INSERT INTO pricing_market_trade_rollup_rederive_queue (
+         catalog_catalog_item_id, product_id, day, queued_at
+       ) VALUES ($1, $2, $3, $4)`,
+      [catalogItemId, productId, day, queuedAt],
+    );
+
+    const [readTuple] = await listQueuedTradeRollupRederives(pool, 1);
+    expect(readTuple?.generation).toBe("1");
+    await recomputeDailyProductRollup(pool, readTuple!);
+    await recomputePlatformDailyRollup(pool, day);
+
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash: "d".repeat(64),
+          signalKind: "shared-instrument",
+          accountIds: ["buyer_ord_queue_generation_0", "seller_trim_fixture"],
+        },
+        queuedAt,
+      ),
+    );
+    await acknowledgeTradeRollupRederive(pool, readTuple!);
+
+    const stillPending = await pool.query<{ generation: string }>(
+      `SELECT generation::text
+       FROM pricing_market_trade_rollup_rederive_queue
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
+      [catalogItemId, productId, day],
+    );
+    expect(stillPending.rows).toEqual([{ generation: "2" }]);
+
+    await runDailyRollupCloser(pool, {
+      now: "2026-07-20T00:05:00.000Z",
+      trailingWindowDays: 3,
+      limit: 500,
+    });
+    const rederived = await pool.query<{ trade_count: number }>(
+      `SELECT trade_count
+       FROM pricing_daily_product_rollups
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
+      [catalogItemId, productId, day],
+    );
+    expect(rederived.rows).toEqual([{ trade_count: 0 }]);
+    const queueCount = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`,
+    );
+    expect(queueCount.rows).toEqual([{ count: 0 }]);
   });
 
   it("binds daily medians to period policy revisions and replays deterministically across the revision boundary", async () => {

@@ -132,17 +132,18 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
            RETURNING catalog_catalog_item_id, product_id, sold_at, exclusion_reason
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
          WHERE exclusion_reason = 'self-dealing'
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderId, data.readyForFulfillmentAt],
       );
     },
@@ -163,17 +164,18 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
            RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderId, data.cancelledAt],
       );
     },
@@ -228,17 +230,18 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
            RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.shipmentId, data.returnedAt],
       );
     },

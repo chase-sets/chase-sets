@@ -54,17 +54,18 @@ export function buildPricingMarketTradesIdentityIntegrityProjectionHandlers(db: 
            RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [accountId, event.timing.recordedAt],
       );
     },
@@ -97,17 +98,18 @@ export function buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(db: 
            RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderIds, data.receivedAt],
       );
     },
@@ -172,17 +174,18 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
            SELECT * FROM stale_reincluded
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $4
+                (sold_at AT TIME ZONE 'UTC')::date, $4, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.clusterHash, data.signalKind, data.accountIds, event.timing.recordedAt],
       );
     },
@@ -219,17 +222,18 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
            RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at
+           catalog_catalog_item_id, product_id, day, queued_at, generation
          )
          SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $4
+                (sold_at AT TIME ZONE 'UTC')::date, $4, 1
          FROM affected
          WHERE sold_at IS NOT NULL
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
-           pricing_market_trade_rollup_rederive_queue.queued_at,
-           EXCLUDED.queued_at
-         )`,
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.clusterHash, data.signalKind, data.accountIds, event.timing.recordedAt],
       );
     },

@@ -82,9 +82,11 @@ export async function getMarketPriceEstimate(
 
 /**
  * Products the estimate closer pass considers: anything with non-excluded
- * Trades Tape activity or a CURRENT external price signal (see
+ * Trades Tape activity, a CURRENT external price signal (see
  * `loadComparableSales` for the signal-lifecycle rule) inside the
- * comparable-sale lookback window.
+ * comparable-sale lookback window, or a currently-published estimate. That
+ * last set keeps a product in the closer when an integrity reaction removes
+ * its final usable input, so the below-gate path can expire the old answer.
  *
  * Full coverage, not a fixed window: candidates are deterministically
  * keyset-ordered by (catalog item, product) and each pass resumes AFTER the
@@ -111,6 +113,10 @@ export async function listMarketEstimateCandidateTuples(
        FROM pricing_tcgplayer_price_signals
        WHERE market_price_amount IS NOT NULL AND observed_at >= $1
          AND status = 'current' AND stale_after > $2
+       UNION
+       SELECT catalog_catalog_item_id, product_id
+       FROM pricing_market_price_estimates
+       WHERE fresh_until >= $2
      ) AS estimate_candidates
      WHERE ($3::text IS NULL OR (catalog_catalog_item_id, product_id) > ($3::text, $4::text))
      ORDER BY catalog_catalog_item_id, product_id
@@ -118,6 +124,23 @@ export async function listMarketEstimateCandidateTuples(
     [params.since, params.now, params.after?.catalogItemId ?? null, params.after?.productId ?? null, params.limit],
   );
   return result.rows.map((row) => ({ catalogItemId: row.catalog_catalog_item_id, productId: row.product_id }));
+}
+
+/** Expires a published estimate when its inputs no longer clear the gate. */
+export async function expireMarketPriceEstimate(
+  db: PgQueryable,
+  params: MarketEstimateProductTuple,
+  expiredAt: string,
+): Promise<void> {
+  await db.query(
+    `UPDATE pricing_market_price_estimates
+     SET fresh_until = LEAST(fresh_until, $3::timestamptz),
+         updated_at = GREATEST(updated_at, $3::timestamptz)
+     WHERE catalog_catalog_item_id = $1
+       AND product_id = $2
+       AND fresh_until > $3`,
+    [params.catalogItemId, params.productId, expiredAt],
+  );
 }
 
 const MARKET_ESTIMATE_CLOSER_NAME = "market-price-estimate-closer";

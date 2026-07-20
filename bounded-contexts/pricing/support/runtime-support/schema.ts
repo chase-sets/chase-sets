@@ -4,7 +4,10 @@ import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
 import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
 import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
-import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
+import {
+  pricingMarketTradesSchemaMigrations,
+  pricingMarketTradesSchemaSql,
+} from "../../features/market-trades/read-model/schema";
 import {
   pricingMarketRollupsSchemaMigrations,
   pricingMarketRollupsSchemaSql,
@@ -17,6 +20,7 @@ import {
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
+  ...pricingMarketTradesSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
 ];

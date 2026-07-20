@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 /**
  * The Trades Tape: one normalized row per order line that reaches a sale,
  * backfilled entirely by projection replay over Ordering and Fulfillment
@@ -96,9 +98,21 @@ CREATE TABLE IF NOT EXISTS pricing_market_trade_rollup_rederive_queue (
   product_id text NOT NULL,
   day date NOT NULL,
   queued_at timestamptz NOT NULL,
+  generation bigint NOT NULL DEFAULT 1,
   PRIMARY KEY (catalog_catalog_item_id, product_id, day)
 );
 
 CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
   ON pricing_market_trade_rollup_rederive_queue (queued_at, catalog_catalog_item_id, product_id, day);
 `;
+
+export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_pricing_rollup_rederive_queue_generation",
+    description: "Version every rollup re-derive enqueue so concurrent acknowledgments cannot lose work.",
+    statements: [
+      `ALTER TABLE pricing_market_trade_rollup_rederive_queue
+  ADD COLUMN IF NOT EXISTS generation bigint NOT NULL DEFAULT 1`,
+    ],
+  },
+];

@@ -262,6 +262,59 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(stored).toHaveLength(0);
   });
 
+  it("expires a current estimate on the next pass when linkage removes its final usable inputs", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_expire_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_expire_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_expire_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    expect(await runtime.runMarketPriceEstimateCloser({ now: NOW })).toMatchObject({
+      candidatesConsidered: 1,
+      estimatesPublished: 1,
+    });
+
+    const publishedEvents = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const published = publishedEvents[0]!;
+    await buildPricingMarketEstimateProjectionHandlers(pool)[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, published.payload, published.recordedAt, published.streamId),
+    );
+
+    const nextPassAt = "2026-07-16T14:00:00.000Z";
+    const beforeExclusion = await runtime.getMarketPriceEstimate({
+      catalogItemId: CATALOG_ITEM_ID,
+      productId: PRODUCT_ID,
+    });
+    expect(Date.parse(beforeExclusion!.freshUntil)).toBeGreaterThan(Date.parse(nextPassAt));
+
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash: "a".repeat(64),
+          signalKind: "shared-instrument",
+          accountIds: ["buyer_ord_expire_1", "buyer_ord_expire_2", "buyer_ord_expire_3", "seller_1"],
+        },
+        "2026-07-16T13:00:00.000Z",
+      ),
+    );
+    const excludedTrades = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND excluded = true`,
+      [CATALOG_ITEM_ID, PRODUCT_ID],
+    );
+    expect(excludedTrades.rows).toEqual([{ count: 3 }]);
+
+    const excludedPass = await runtime.runMarketPriceEstimateCloser({ now: nextPassAt });
+    expect(excludedPass).toMatchObject({ candidatesConsidered: 1, estimatesPublished: 0, belowGate: 1 });
+
+    const expired = await runtime.getMarketPriceEstimate({ catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID });
+    expect(Date.parse(expired!.freshUntil)).toBeLessThan(Date.parse(nextPassAt));
+    expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(1);
+  });
+
   it("loads participant identity from the Trades Tape and rejects three prints from one buyer", async () => {
     const pool = pools.pricing;
     await seedTrade(pool, {
