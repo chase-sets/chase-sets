@@ -35,7 +35,7 @@ import {
 type MarketRollupsRuntimeDeps = Readonly<{
   db: PgQueryable;
   /** Pricing's mounted platform-policy runtime -- resolves the stat-hygiene and display policies. */
-  policies: PolicyRuntime;
+  policies: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 /**

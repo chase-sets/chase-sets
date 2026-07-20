@@ -5,20 +5,27 @@ import {
   MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
   type MarketStatHygienePolicyValue,
 } from "../../market-trades/domain/stat-hygiene-policy";
+import {
+  loadMarketStatHygienePolicyRevision,
+  resolveMarketStatHygienePolicyRevisionForPeriod,
+} from "./stat-hygiene-policy-revision";
 import { getProductMarketStatsSnapshot } from "./queries";
 
 /**
  * Daily rollup maintenance: a scheduled worker job, not a checkpointed
  * event-sourced projection.
  *
- * Daily product rollups are pure, deterministic aggregations over the
+ * Daily product rollups are pure, deterministic policy-shaped aggregations over the
  * already-correct, replay-backfilled Trades Tape (`pricing_market_trades`)
  * -- re-running `recomputeDailyProductRollup` for the same day always
  * produces the same row, from any worker, on any schedule, with no
- * projection checkpoint required. That is what makes the slice
+ * projection checkpoint required. Each period persists the immutable policy
+ * revision that shaped its median, so re-derivation never consults a newer
+ * live revision. That is what makes the slice
  * "recompute-safe (replay converges)" per this slice's acceptance criteria:
  * a full tape rebuild followed by one closer pass reproduces identical
- * rollups, because the rollup IS the tape, aggregated.
+ * rollups, because the rollup IS the tape, aggregated with the same bound
+ * policy revision.
  *
  * Market-state snapshots are different in kind: `pricing_market_listing_inputs`
  * / `pricing_buyer_offer_inputs` are CURRENT-state projections (latest
@@ -64,13 +71,14 @@ export type DailyRollupCloserResult = Readonly<{
 const DEFAULT_CLOSER_LIMIT = 500;
 
 /**
- * Every stat-hygiene dial this closer pass depends on -- the trailing
- * re-derive window and the 30/90-day convenience lookback windows fed to
- * `recomputeProductMarketAggregate` -- is resolved ONCE per pass by the
+ * The live stat-hygiene dials this closer pass depends on -- the trailing
+ * re-derive window and 30/90-day convenience lookback/trim configuration --
+ * are resolved ONCE per pass by the
  * caller (`../api/runtime.ts`) and threaded through as `policy`, rather than
  * re-resolved per (product, day) tuple: a scheduled pass over hundreds of
  * tuples should see one consistent policy snapshot, not a value that could
- * change mid-pass if a revision lands while it runs.
+ * change mid-pass if a revision lands while it runs. Daily medians are the
+ * exception: each UTC period loads its own persisted policy revision below.
  */
 export async function runDailyRollupCloser(
   db: PgQueryable,
@@ -207,11 +215,26 @@ async function listActiveOrTradedProductTuples(
  * upserts it -- deterministic and idempotent: calling this twice for the
  * same day with unchanged tape data produces the same row.
  *
- * `median_price_amount` is stored UNCONDITIONALLY (never suppressed here);
- * see the schema header and queries.ts for where minimum-sample gating is
- * enforced.
+ * `median_price_amount` stores the policy-trimmed median UNCONDITIONALLY
+ * (never minimum-sample-suppressed here); see the schema header and
+ * queries.ts for where display gating is enforced. Every other column is a
+ * raw included-trade fact. Existing rows load their bound revision; a row
+ * created during replay resolves the revision effective at its period close.
  */
 export async function recomputeDailyProductRollup(db: PgQueryable, params: ProductDayTuple): Promise<void> {
+  const existingBinding = await db.query<{ stat_hygiene_policy_revision_id: string }>(
+    `SELECT stat_hygiene_policy_revision_id
+     FROM pricing_daily_product_rollups
+     WHERE catalog_catalog_item_id = $1
+       AND product_id = $2
+       AND day = $3`,
+    [params.catalogItemId, params.productId, params.day],
+  );
+  const policyRevision = existingBinding.rows[0]
+    ? await loadMarketStatHygienePolicyRevision(db, existingBinding.rows[0].stat_hygiene_policy_revision_id)
+    : await resolveMarketStatHygienePolicyRevisionForPeriod(db, params.day);
+  const policy = policyRevision.value;
+
   const aggregate = await db.query<{
     first_price_amount: string | null;
     last_price_amount: string | null;
@@ -222,24 +245,43 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
     trade_count: number;
     verified_trade_count: number;
   }>(
-    `SELECT
-       (array_agg(unit_price_amount ORDER BY sold_at ASC, line_id ASC) FILTER (WHERE excluded = false))[1]
+    `WITH included_trades AS (
+       SELECT unit_price_amount, quantity, verified, sold_at, line_id
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1
+         AND product_id = $2
+         AND sold_at >= ($3::date)::timestamp AT TIME ZONE 'UTC'
+         AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
+         AND excluded = false
+     ), trim_bounds AS (
+       SELECT
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS lower_price_amount,
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont(1 - ($4::double precision / 100)) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS upper_price_amount
+       FROM included_trades
+     )
+     SELECT
+       (array_agg(unit_price_amount ORDER BY sold_at ASC, line_id ASC))[1]
          AS first_price_amount,
-       (array_agg(unit_price_amount ORDER BY sold_at DESC, line_id DESC) FILTER (WHERE excluded = false))[1]
+       (array_agg(unit_price_amount ORDER BY sold_at DESC, line_id DESC))[1]
          AS last_price_amount,
-       MIN(unit_price_amount) FILTER (WHERE excluded = false) AS min_price_amount,
-       MAX(unit_price_amount) FILTER (WHERE excluded = false) AS max_price_amount,
-       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount) FILTER (WHERE excluded = false))::numeric, 2)
-         AS median_price_amount,
-       COALESCE(SUM(quantity) FILTER (WHERE excluded = false), 0)::integer AS unit_volume,
-       COUNT(*) FILTER (WHERE excluded = false)::integer AS trade_count,
-       COUNT(*) FILTER (WHERE excluded = false AND verified = true)::integer AS verified_trade_count
-     FROM pricing_market_trades
-     WHERE catalog_catalog_item_id = $1
-       AND product_id = $2
-       AND sold_at >= ($3::date)::timestamp AT TIME ZONE 'UTC'
-       AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'`,
-    [params.catalogItemId, params.productId, params.day],
+       MIN(unit_price_amount) AS min_price_amount,
+       MAX(unit_price_amount) AS max_price_amount,
+       (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
+        FROM included_trades
+        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
+           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
+                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+       COALESCE(SUM(quantity), 0)::integer AS unit_volume,
+       COUNT(*)::integer AS trade_count,
+       COUNT(*) FILTER (WHERE verified = true)::integer AS verified_trade_count
+     FROM included_trades`,
+    [params.catalogItemId, params.productId, params.day, policy.outlierTrimPercentile],
   );
   const row = aggregate.rows[0];
   const updatedAt = new Date().toISOString();
@@ -248,14 +290,16 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
     `INSERT INTO pricing_daily_product_rollups (
        catalog_catalog_item_id, product_id, day,
        first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
+       stat_hygiene_policy_revision_id,
        unit_volume, trade_count, verified_trade_count, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
      SET first_price_amount = EXCLUDED.first_price_amount,
          last_price_amount = EXCLUDED.last_price_amount,
          min_price_amount = EXCLUDED.min_price_amount,
          max_price_amount = EXCLUDED.max_price_amount,
          median_price_amount = EXCLUDED.median_price_amount,
+         stat_hygiene_policy_revision_id = EXCLUDED.stat_hygiene_policy_revision_id,
          unit_volume = EXCLUDED.unit_volume,
          trade_count = EXCLUDED.trade_count,
          verified_trade_count = EXCLUDED.verified_trade_count,
@@ -269,6 +313,7 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
       row?.min_price_amount ?? null,
       row?.max_price_amount ?? null,
       row?.median_price_amount ?? null,
+      policyRevision.revisionId,
       row?.unit_volume ?? 0,
       row?.trade_count ?? 0,
       row?.verified_trade_count ?? 0,
@@ -351,16 +396,38 @@ async function queryTradeWindowStats(
   params: ProductTuple,
   since: string,
   minimumTradeSample: number,
+  outlierTrimPercentile: number,
 ): Promise<TradeWindowStats> {
   const result = await db.query<{ median_price_amount: string | null; unit_volume: number; trade_count: number }>(
-    `SELECT
-       ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount) FILTER (WHERE excluded = false))::numeric, 2)
-         AS median_price_amount,
-       COALESCE(SUM(quantity) FILTER (WHERE excluded = false), 0)::integer AS unit_volume,
-       COUNT(*) FILTER (WHERE excluded = false)::integer AS trade_count
-     FROM pricing_market_trades
-     WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND sold_at >= $3`,
-    [params.catalogItemId, params.productId, since],
+    `WITH included_trades AS (
+       SELECT unit_price_amount, quantity
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1
+         AND product_id = $2
+         AND sold_at >= $3
+         AND excluded = false
+     ), trim_bounds AS (
+       SELECT
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS lower_price_amount,
+         CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
+           THEN percentile_cont(1 - ($4::double precision / 100)) WITHIN GROUP (ORDER BY unit_price_amount)
+           ELSE NULL
+         END AS upper_price_amount
+       FROM included_trades
+     )
+     SELECT
+       (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
+        FROM included_trades
+        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
+           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
+                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+       COALESCE(SUM(quantity), 0)::integer AS unit_volume,
+       COUNT(*)::integer AS trade_count
+     FROM included_trades`,
+    [params.catalogItemId, params.productId, since, outlierTrimPercentile],
   );
   const row = result.rows[0]!;
   return {
@@ -401,8 +468,8 @@ export async function recomputeProductMarketAggregate(
        LIMIT 1`,
       [params.catalogItemId, params.productId],
     ),
-    queryTradeWindowStats(db, params, since30, policy.minimumTradeSample),
-    queryTradeWindowStats(db, params, since90, policy.minimumTradeSample),
+    queryTradeWindowStats(db, params, since30, policy.minimumTradeSample, policy.outlierTrimPercentile),
+    queryTradeWindowStats(db, params, since90, policy.minimumTradeSample, policy.outlierTrimPercentile),
     db.query<{ active_listing_quantity: number }>(
       `SELECT COALESCE(SUM(quantity_cap), 0)::integer AS active_listing_quantity
        FROM pricing_market_listing_inputs

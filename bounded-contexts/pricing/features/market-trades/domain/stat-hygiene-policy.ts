@@ -17,11 +17,12 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * themselves stay policy-machinery-free and pure. This is the single source
  * for these dials; no compiled constant duplicates them elsewhere.
  *
- * STILL DEFERRED: `outlierTrimPercentile` has no call site -- there is no
- * flagged-outlier input to trim yet (that lands with a future tape-integrity
- * refinement). Declared and bounds-validated here so a revision is ready the
- * day a call site exists, per the m110 convention of declaring a dial before
- * its consumption when the two would otherwise block each other.
+ * `outlierTrimPercentile` applies only to median inputs in recomputable Daily
+ * Product Rollups and 30/90-day Product Market Aggregates. First/last/min/max,
+ * volume, and counts remain raw recorded facts. A window is trimmed only when
+ * `tradeCount * outlierTrimPercentile / 100 >= 1`; thinner windows retain every
+ * included trade. The formula enables continuous-percentile boundary trimming;
+ * it is not a floor-count of rows removed from each tail.
  */
 
 export type MarketStatHygienePolicyValue = Readonly<{
@@ -30,8 +31,10 @@ export type MarketStatHygienePolicyValue = Readonly<{
   /** Convenience lookback windows offered on market-stat surfaces, in days. */
   lookbackDays: Readonly<{ short: number; long: number }>;
   /**
-   * Percentile trimmed from EACH tail before computing aggregate stats over a
-   * window (e.g. 5 trims below p5 and above p95). 0 disables trimming.
+   * Continuous percentile trimmed from EACH tail before computing a window
+   * median (e.g. 5 excludes values below p5 and above p95). 0 disables
+   * trimming; the trim is also disabled when the window cannot address at
+   * least one trade per tail.
    */
   outlierTrimPercentile: number;
   /**

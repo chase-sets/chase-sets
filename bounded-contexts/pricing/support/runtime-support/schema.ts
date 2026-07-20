@@ -5,7 +5,10 @@ import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-m
 import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
 import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
 import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
-import { pricingMarketRollupsSchemaSql } from "../../features/market-rollups/read-model/schema";
+import {
+  pricingMarketRollupsSchemaMigrations,
+  pricingMarketRollupsSchemaSql,
+} from "../../features/market-rollups/read-model/schema";
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
 import {
@@ -13,7 +16,10 @@ import {
   pricingBulkRepriceIngestionSchemaSql,
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
 
-export const pricingFeatureSchemaMigrations = [...pricingBulkRepriceIngestionSchemaMigrations];
+export const pricingFeatureSchemaMigrations = [
+  ...pricingMarketRollupsSchemaMigrations,
+  ...pricingBulkRepriceIngestionSchemaMigrations,
+];
 
 export const pricingSchemaSql = [
   eventCorePostgresSchemaSql,

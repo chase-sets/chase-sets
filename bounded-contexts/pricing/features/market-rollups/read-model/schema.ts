@@ -31,7 +31,16 @@
  * `median_price_90d` on the denormalized aggregate ARE pre-gated at write
  * time instead -- that table exists specifically for cheap, no-further-logic
  * reads (its own "denormalized for cheap surface reads" purpose).
+ * `stat_hygiene_policy_revision_id` binds the daily median to an immutable
+ * policy-history event; re-derivation must load that revision rather than a
+ * live policy document.
  */
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import {
+  MARKET_STAT_HYGIENE_COMPILED_REVISION_ID,
+  MARKET_STAT_HYGIENE_LEGACY_UNTRIMMED_REVISION_ID,
+} from "./stat-hygiene-policy-revision";
+
 export const pricingMarketRollupsSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_daily_product_rollups (
   catalog_catalog_item_id text NOT NULL,
@@ -42,6 +51,7 @@ CREATE TABLE IF NOT EXISTS pricing_daily_product_rollups (
   min_price_amount numeric(12, 2) NULL,
   max_price_amount numeric(12, 2) NULL,
   median_price_amount numeric(12, 2) NULL,
+  stat_hygiene_policy_revision_id text NOT NULL DEFAULT '${MARKET_STAT_HYGIENE_COMPILED_REVISION_ID}',
   unit_volume integer NOT NULL DEFAULT 0,
   trade_count integer NOT NULL DEFAULT 0,
   verified_trade_count integer NOT NULL DEFAULT 0,
@@ -111,3 +121,18 @@ CREATE TABLE IF NOT EXISTS pricing_platform_daily_rollups (
   updated_at timestamptz NOT NULL
 );
 `;
+
+export const pricingMarketRollupsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_pricing_daily_rollup_policy_revision_binding",
+    description: "Bind every daily rollup period to the immutable stat-hygiene policy revision that shaped it.",
+    statements: [
+      `ALTER TABLE pricing_daily_product_rollups
+  ADD COLUMN IF NOT EXISTS stat_hygiene_policy_revision_id text NOT NULL
+  DEFAULT '${MARKET_STAT_HYGIENE_LEGACY_UNTRIMMED_REVISION_ID}'`,
+      `ALTER TABLE pricing_daily_product_rollups
+  ALTER COLUMN stat_hygiene_policy_revision_id
+  SET DEFAULT '${MARKET_STAT_HYGIENE_COMPILED_REVISION_ID}'`,
+    ],
+  },
+];
