@@ -22,11 +22,23 @@ A **Market Price Snapshot** is the recorded fair-value output for a resolved pro
 
 ## Market-Value Estimate
 
-A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Below the policy's minimum-input gate -- raw Comparable Sale count AND effective sample size after decay and source weighting -- there is NO estimate: never a number derived from too little evidence, and never one where almost all weight sits in a single comparable. Every input price is winsorized around the platform-trade core's weighted median (the policy's outlier price ratio), so one extreme comparable can never drag the estimate or its Confidence Band off the core. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`).
+A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from participant-hygienic Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Repeat platform trades for one buyer→seller pair collapse to the latest print, and a Market Participant's aggregate weight is capped before the blend. Below the policy's minimum-input gate -- distinct Market Participants plus unique external comps AND effective sample size after decay, source weighting, and the participant cap -- there is NO estimate. Every input price is winsorized around the platform-trade core's weighted median (the policy's outlier price ratio), so one extreme comparable can never drag the estimate or its Confidence Band off the core. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`).
 
 ## Comparable Sale
 
-A **Comparable Sale** is one completed-transaction or provider comp input selected as relevant to a product's Market-Value Estimate: a non-excluded Trades Tape trade (verified or unverified) inside the lookback window, or the latest external price signal per provider SKU reference when that latest signal is current per the signal store's own lifecycle (status and stale-after horizon). Excluded trades never comp, and a stale or superseded signal counts toward nothing -- neither the blend nor the minimum-input gate.
+A **Comparable Sale** is one completed-transaction or provider comp input selected as relevant to a product's Market-Value Estimate: the latest non-excluded Trades Tape trade (verified or unverified) per buyer→seller pair inside the lookback window, or the latest external price signal per provider SKU reference when that latest signal is current per the signal store's own lifecycle (status and stale-after horizon). Earlier same-pair prints, excluded trades, and stale or superseded signals count toward nothing -- neither the blend nor the minimum-input gate.
+
+## Market Participant
+
+A **Market Participant** is the buyer account behind a platform Comparable Sale. Pair deduplication keys on the buyer→seller account pair; the Participant Weight Cap and distinct-participant gates key on the buyer alone. Account linkage is deliberately not inferred here: linkage-cluster identity belongs to the follow-on manipulation-resistance chain.
+
+## Participant Weight Cap
+
+The **Participant Weight Cap** limits one Market Participant's aggregate time-decayed, source-weighted contribution to the Market-Value Estimate. The launch cap is 30% of the pre-cap blend weight, so a participant's legitimate trades with different sellers remain inputs but cannot compound without limit. External comps have no Market Participant and are exempt.
+
+## Distinct-Participant Gate
+
+The **Distinct-Participant Gate** makes the Market-Value Estimate's minimum-input and Confidence Band ladder count distinct Market Participants rather than platform prints. Each already-deduplicated external comp remains one independent evidence input. Three prints from one buyer therefore do not publish an estimate; three buyers can.
 
 ## Confidence Band
 
@@ -34,7 +46,7 @@ A **Confidence Band** is the published uncertainty range around a Market-Value E
 
 ## Market-Estimate Policy
 
-The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of every blended Market-Value Estimate algorithm parameter: decay half-life, comparable-sale lookback window, estimate and band percentiles, source weights (platform verified >= platform unverified >= external comps), the minimum-input gate, the effective-sample-size gate, the winsorizing outlier price ratio, confidence sample sizes, and the published estimate's freshness horizon. Declared with a compiled fallback (`features/market-estimates/domain/estimate-policy.ts`); a revision changes estimation behavior without a deploy -- and takes effect on the next closer pass, same day (a freshness or lookback revision republishes immediately).
+The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of every blended Market-Value Estimate algorithm parameter: decay half-life, comparable-sale lookback window, estimate and band percentiles, source weights (platform verified >= platform unverified >= external comps), the distinct-participant minimum-input gate, the Participant Weight Cap, the effective-sample-size gate, the winsorizing outlier price ratio, confidence participant counts, and the published estimate's freshness horizon. Declared with a compiled fallback (`features/market-estimates/domain/estimate-policy.ts`); a revision changes estimation behavior without a deploy -- and takes effect on the next closer pass, same day (a freshness or lookback revision republishes immediately).
 
 ## Liquidity Estimate
 

@@ -83,7 +83,14 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
   /** Seeds one platform trade (order created + payment captured) for the shared test product. */
   async function seedTrade(
     pool: PgTransactionalPool,
-    input: Readonly<{ orderId: string; priceAmount: string; soldAt: string; productId?: string }>,
+    input: Readonly<{
+      orderId: string;
+      priceAmount: string;
+      soldAt: string;
+      productId?: string;
+      buyerAccountId?: string;
+      sellerAccountId?: string;
+    }>,
   ) {
     const handlers = buildPricingMarketTradesProjectionHandlers(pool);
     await handlers["ordering.order.created"]!(
@@ -92,8 +99,8 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
         {
           orderId: input.orderId,
           sourceType: "cart-checkout",
-          buyerAccountId: "buyer_1",
-          sellerAccountId: "seller_1",
+          buyerAccountId: input.buyerAccountId ?? `buyer_${input.orderId}`,
+          sellerAccountId: input.sellerAccountId ?? "seller_1",
           lines: [
             {
               lineId: "line_1",
@@ -254,6 +261,38 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(stored).toHaveLength(0);
   });
 
+  it("loads participant identity from the Trades Tape and rejects three prints from one buyer", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, {
+      orderId: "ord_participant_1",
+      priceAmount: "10.00",
+      soldAt: daysBefore(NOW, 3),
+      buyerAccountId: "buyer_repeat",
+      sellerAccountId: "seller_1",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_participant_2",
+      priceAmount: "11.00",
+      soldAt: daysBefore(NOW, 2),
+      buyerAccountId: "buyer_repeat",
+      sellerAccountId: "seller_2",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_participant_3",
+      priceAmount: "12.00",
+      soldAt: daysBefore(NOW, 1),
+      buyerAccountId: "buyer_repeat",
+      sellerAccountId: "seller_3",
+    });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.belowGate).toBe(1);
+    expect(result.estimatesPublished).toBe(0);
+    expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(0);
+  });
+
   it("stale signals count toward NOTHING: three stale signals never clear the gate or publish", async () => {
     const pool = pools.pricing;
     // Two status-'stale' signals (recorded without a calculation time) plus
@@ -314,7 +353,7 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
          sale_channel, sold_at, updated_at
        )
        SELECT
-         'ord_cov_' || item.i || '_' || line.j, 'line_1', 'seller_1', 'buyer_1',
+         'ord_cov_' || item.i || '_' || line.j, 'line_1', 'seller_1', 'buyer_' || line.j,
          'cat_cov_' || lpad(item.i::text, 4, '0'),
          'cat_cov_' || lpad(item.i::text, 4, '0') || '::',
          10.00 + line.j, 1, 'listing',

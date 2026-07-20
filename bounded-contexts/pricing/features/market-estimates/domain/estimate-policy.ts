@@ -34,7 +34,7 @@ export type MarketEstimatePolicyValue = Readonly<{
    * highest, platform unverified trades next, external comps least.
    */
   sourceWeights: MarketEstimateSourceWeights;
-  /** The minimum-input gate: below this many Comparable Sales, NO estimate is produced. */
+  /** Minimum distinct Market Participants plus unique external comps required to publish. */
   minimumComparableSales: number;
   /**
    * The effective-sample-size gate: after time decay and source weighting,
@@ -52,7 +52,9 @@ export type MarketEstimatePolicyValue = Readonly<{
    * estimate or its Confidence Band orders of magnitude off the core.
    */
   outlierPriceRatio: number;
-  /** Total-input thresholds that raise the published confidence from low. */
+  /** Maximum aggregate buyer weight as a share of the pre-cap blend weight. */
+  maximumParticipantWeightShare: number;
+  /** Distinct-participant (+ unique external comp) thresholds that raise confidence from low. */
   confidenceSampleSizes: Readonly<{ medium: number; high: number }>;
   /** How long a published estimate stays fresh (`freshUntil = estimatedAt + freshForHours`). */
   freshForHours: number;
@@ -72,6 +74,7 @@ export const MARKET_ESTIMATE_LAUNCH_POLICY_VALUE: MarketEstimatePolicyValue = {
   minimumComparableSales: 3,
   minimumEffectiveSampleSize: 2,
   outlierPriceRatio: 10,
+  maximumParticipantWeightShare: 0.3,
   confidenceSampleSizes: { medium: 8, high: 20 },
   freshForHours: 48,
 };
@@ -155,6 +158,10 @@ export function decodeMarketEstimatePolicyValue(raw: JsonValue): MarketEstimateP
           MIN_OUTLIER_PRICE_RATIO,
           MAX_OUTLIER_PRICE_RATIO,
         );
+  const maximumParticipantWeightShare =
+    record.maximumParticipantWeightShare === undefined
+      ? MARKET_ESTIMATE_LAUNCH_POLICY_VALUE.maximumParticipantWeightShare
+      : boundedWeight(record.maximumParticipantWeightShare, "Maximum participant weight share");
 
   if (
     typeof record.confidenceSampleSizes !== "object" ||
@@ -187,6 +194,7 @@ export function decodeMarketEstimatePolicyValue(raw: JsonValue): MarketEstimateP
     minimumComparableSales,
     minimumEffectiveSampleSize,
     outlierPriceRatio,
+    maximumParticipantWeightShare,
     confidenceSampleSizes: { medium, high },
     freshForHours,
   };
@@ -225,6 +233,7 @@ export const marketEstimatePolicy: PolicyDefinition<MarketEstimatePolicyValue> =
     "sourceWeights: { platformVerifiedTrade: 0-1, platformTrade: 0-1, externalComp: 0-1 (descending) }, " +
     "minimumComparableSales: integer 1-50, minimumEffectiveSampleSize: number 1-50 (effective-sample-size gate; optional, default 2), " +
     "outlierPriceRatio: number 2-1000 (winsorizing outlier guard; optional, default 10), " +
+    "maximumParticipantWeightShare: number >0-1 (buyer cap against pre-cap blend weight; optional, default 0.3), " +
     "confidenceSampleSizes: { medium: integer 1-500, high: integer 1-500 (>= medium) }, " +
     "freshForHours: integer 1-336 }",
   defaultValue: MARKET_ESTIMATE_LAUNCH_POLICY_VALUE,

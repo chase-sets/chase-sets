@@ -128,6 +128,7 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
         minimumComparableSales: policy.minimumComparableSales,
         minimumEffectiveSampleSize: policy.minimumEffectiveSampleSize,
         outlierPriceRatio: policy.outlierPriceRatio,
+        maximumParticipantWeightShare: policy.maximumParticipantWeightShare,
         confidenceSampleSizes: policy.confidenceSampleSizes,
       });
 

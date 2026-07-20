@@ -11,11 +11,13 @@
  * Sets products are already condition-resolved, so cross-condition
  * normalization has no input here).
  *
- * The minimum-input gate is a domain rule owned HERE: below the policy's
- * minimum Comparable Sale count the calculation refuses to produce a number
- * at all (`status: "no-estimate"`), never a garbage estimate. Callers cannot
- * publish what was never computed, and the aggregate decider
- * (./domain.ts) publishes nothing for a `no-estimate` recompute.
+ * Participant hygiene is a domain rule owned HERE. Repeat platform trades
+ * between the same buyer -> seller pair collapse to the latest print; the
+ * minimum-input and confidence gates count distinct buyer accounts (plus
+ * already-deduplicated external comps), not platform prints; and one buyer's
+ * aggregate weight is capped at the policy share of the pre-cap blend
+ * weight. Callers cannot bypass these rules because the aggregate decider
+ * (./domain.ts) only receives this calculation's outcome.
  *
  * Two guards keep the blend honest against degenerate input mixes (the
  * "never a garbage number" acceptance criterion):
@@ -46,11 +48,23 @@
 export type ComparableSaleSource = "platform-verified-trade" | "platform-trade" | "external-comp";
 
 /** One Comparable Sale (GLOSSARY.md): a completed-transaction or provider comp input selected as relevant to a product's estimate. */
-export type ComparableSale = Readonly<{
+type ComparableSaleValue = Readonly<{
   priceAmount: number;
   observedAt: string;
-  source: ComparableSaleSource;
 }>;
+
+export type PlatformComparableSale = ComparableSaleValue &
+  Readonly<{
+    source: "platform-verified-trade" | "platform-trade";
+    /** The Market Participant whose demand this platform print represents. */
+    buyerAccountId: string;
+    /** Required with the buyer so repeat prints collapse per buyer -> seller pair. */
+    sellerAccountId: string;
+  }>;
+
+export type ExternalComparableSale = ComparableSaleValue & Readonly<{ source: "external-comp" }>;
+
+export type ComparableSale = PlatformComparableSale | ExternalComparableSale;
 
 export type MarketEstimateSourceWeights = Readonly<{
   platformVerifiedTrade: number;
@@ -71,6 +85,8 @@ export type BlendedEstimateParams = Readonly<{
   minimumEffectiveSampleSize: number;
   /** The outlier guard: prices are winsorized into [core / ratio, core * ratio] around the trade-core weighted median. */
   outlierPriceRatio: number;
+  /** Maximum aggregate buyer weight as a share of the pre-cap blend weight. External comps are exempt. */
+  maximumParticipantWeightShare: number;
   confidenceSampleSizes: Readonly<{ medium: number; high: number }>;
 }>;
 
@@ -101,22 +117,23 @@ export function calculateBlendedMarketValueEstimate(
   comparableSales: readonly ComparableSale[],
   params: BlendedEstimateParams,
 ): BlendedMarketValueEstimate {
-  const usable = comparableSales.filter((sale) => Number.isFinite(sale.priceAmount) && sale.priceAmount > 0);
+  const usable = applyPairDeduplication(
+    comparableSales.filter((sale) => Number.isFinite(sale.priceAmount) && sale.priceAmount > 0),
+  );
   const inputCounts = countBySource(usable);
-  const totalInputs =
-    inputCounts.platformVerifiedTradeCount + inputCounts.platformTradeCount + inputCounts.externalCompCount;
+  const evidenceCount = countDistinctParticipants(usable) + inputCounts.externalCompCount;
 
-  if (totalInputs === 0) {
+  if (usable.length === 0) {
     return { status: "no-estimate", reason: "no-usable-inputs", inputCounts };
   }
-  // The minimum-input gate: below the threshold there is NO estimate --
-  // never a garbage number derived from too little evidence.
-  if (totalInputs < params.minimumComparableSales) {
+  // Platform volume only adds evidence when it adds a distinct buyer. Each
+  // external reference remains one independently deduplicated input.
+  if (evidenceCount < params.minimumComparableSales) {
     return { status: "no-estimate", reason: "below-minimum-inputs", inputCounts };
   }
 
   const nowMs = timestampMs(params.now, "Estimate recompute time");
-  const weighted = usable
+  const baseWeighted = usable
     .map((sale) => {
       // Age MAY be negative under writer clock skew -- deliberately NOT
       // clamped at zero (faithful to the source algorithm): clamping one
@@ -133,11 +150,14 @@ export function calculateBlendedMarketValueEstimate(
         price: sale.priceAmount,
         weight: timeWeight * sourceWeight(sale.source, params.sourceWeights),
         source: sale.source,
+        participantId: sale.source === "external-comp" ? null : sale.buyerAccountId,
       };
     })
     // A garbage far-future timestamp would produce an unusably-infinite
     // weight; treat it as no input at all rather than letting it dominate.
     .filter((sale) => sale.weight > 0 && Number.isFinite(sale.weight));
+
+  const weighted = capParticipantWeights(baseWeighted, params.maximumParticipantWeightShare);
 
   const totalWeight = weighted.reduce((sum, sale) => sum + sale.weight, 0);
   if (weighted.length === 0 || totalWeight <= 0 || !Number.isFinite(totalWeight)) {
@@ -183,9 +203,84 @@ export function calculateBlendedMarketValueEstimate(
     // monotone in the percentile, and money() rounding preserves order.
     bandLowAmount: money(Math.min(bandLow, amount)),
     bandHighAmount: money(Math.max(bandHigh, amount)),
-    confidence: confidenceForSampleSize(totalInputs, params.confidenceSampleSizes),
+    confidence: confidenceForSampleSize(evidenceCount, params.confidenceSampleSizes),
     inputCounts,
   };
+}
+
+/** Repeat prints from one buyer -> seller pair contribute only their latest platform trade. */
+function applyPairDeduplication(sales: readonly ComparableSale[]): readonly ComparableSale[] {
+  const externalComps: ExternalComparableSale[] = [];
+  const latestByPair = new Map<string, PlatformComparableSale>();
+
+  for (const sale of sales) {
+    if (sale.source === "external-comp") {
+      externalComps.push(sale);
+      continue;
+    }
+
+    const buyerAccountId = requiredParticipantId(sale.buyerAccountId, "Buyer account id");
+    const sellerAccountId = requiredParticipantId(sale.sellerAccountId, "Seller account id");
+    const normalized = { ...sale, buyerAccountId, sellerAccountId };
+    const pairKey = JSON.stringify([buyerAccountId, sellerAccountId]);
+    const current = latestByPair.get(pairKey);
+    if (!current || comparePlatformSales(normalized, current) > 0) {
+      latestByPair.set(pairKey, normalized);
+    }
+  }
+
+  return [...latestByPair.values(), ...externalComps];
+}
+
+/**
+ * Caps each buyer's aggregate base weight without reallocating the removed
+ * weight. The cap is deliberately measured against the pre-cap total: with
+ * the launch 30% cap, measuring against the post-cap total would make the
+ * approved three-participant platform-only publication gate impossible.
+ */
+function capParticipantWeights<T extends Readonly<{ participantId: string | null; weight: number }>>(
+  sales: readonly T[],
+  maximumShare: number,
+): readonly T[] {
+  const totalWeight = sales.reduce((sum, sale) => sum + sale.weight, 0);
+  const maximumParticipantWeight = totalWeight * maximumShare;
+  const weightByParticipant = new Map<string, number>();
+  for (const sale of sales) {
+    if (sale.participantId !== null) {
+      weightByParticipant.set(sale.participantId, (weightByParticipant.get(sale.participantId) ?? 0) + sale.weight);
+    }
+  }
+
+  return sales.map((sale) => {
+    if (sale.participantId === null) return sale;
+    const participantWeight = weightByParticipant.get(sale.participantId)!;
+    if (participantWeight <= maximumParticipantWeight) return sale;
+    return { ...sale, weight: sale.weight * (maximumParticipantWeight / participantWeight) };
+  });
+}
+
+function countDistinctParticipants(sales: readonly ComparableSale[]): number {
+  return new Set(sales.flatMap((sale) => (sale.source === "external-comp" ? [] : [sale.buyerAccountId]))).size;
+}
+
+function comparePlatformSales(left: PlatformComparableSale, right: PlatformComparableSale): number {
+  const observedAtDifference =
+    timestampMs(left.observedAt, "Comparable sale observation time") -
+    timestampMs(right.observedAt, "Comparable sale observation time");
+  if (observedAtDifference !== 0) return observedAtDifference;
+
+  // Equal timestamps have no chronological winner. Keep the selection
+  // deterministic across input order so replay/recompute stays stable.
+  const sourceDifference = left.source.localeCompare(right.source);
+  return sourceDifference !== 0 ? sourceDifference : left.priceAmount - right.priceAmount;
+}
+
+function requiredParticipantId(value: string, fieldName: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${fieldName} is required for a platform Comparable Sale.`);
+  }
+  return normalized;
 }
 
 /**
