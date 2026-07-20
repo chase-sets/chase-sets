@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  capParticipantWeights,
   calculateBlendedMarketValueEstimate,
   type BlendedEstimateParams,
   type ComparableSale,
@@ -192,23 +193,42 @@ describe("calculateBlendedMarketValueEstimate", () => {
       expect(threeParticipants.status).toBe("estimated");
     });
 
-    it("caps one buyer's aggregate weight while preserving legitimate trades with different sellers", () => {
-      const dominantBuyerTrades = Array.from({ length: 4 }, (_, index) =>
-        trade(100, 0, false, {
-          buyerAccountId: "buyer_dominant",
-          sellerAccountId: `seller_dominant_${index}`,
-        }),
-      );
-      const sales = [...dominantBuyerTrades, trade(10, 0), trade(10, 0)];
-      const capped = calculateBlendedMarketValueEstimate(sales, params);
-      const uncapped = calculateBlendedMarketValueEstimate(sales, {
-        ...params,
-        maximumParticipantWeightShare: 1,
-      });
+    it.each([4, 10, 100])(
+      "holds one wash buyer across %i sellers to 30%% of the post-cap blend without capturing the estimate",
+      (sellerCount) => {
+        const rawWeights = [
+          ...Array.from({ length: sellerCount }, () => ({ participantId: "buyer_wash", weight: 0.7 })),
+          { participantId: "buyer_honest_1", weight: 0.7 },
+          { participantId: "buyer_honest_2", weight: 0.7 },
+        ];
+        const cappedWeights = capParticipantWeights(rawWeights, params.maximumParticipantWeightShare);
+        const totalWeight = cappedWeights.reduce((sum, sale) => sum + sale.weight, 0);
+        const attackerWeight = cappedWeights
+          .filter((sale) => sale.participantId === "buyer_wash")
+          .reduce((sum, sale) => sum + sale.weight, 0);
 
-      expect(capped.status === "estimated" && capped.amount).toBe("10.00");
-      expect(uncapped.status === "estimated" && Number(uncapped.amount)).toBeGreaterThan(50);
-    });
+        const washTrades = Array.from({ length: sellerCount }, (_, index) =>
+          trade(100, 0, false, {
+            buyerAccountId: "buyer_wash",
+            sellerAccountId: `seller_wash_${index}`,
+          }),
+        );
+        const sales = [
+          ...washTrades,
+          trade(10, 0, false, { buyerAccountId: "buyer_honest_1", sellerAccountId: "seller_honest_1" }),
+          trade(10, 0, false, { buyerAccountId: "buyer_honest_2", sellerAccountId: "seller_honest_2" }),
+        ];
+        const capped = calculateBlendedMarketValueEstimate(sales, params);
+        const uncapped = calculateBlendedMarketValueEstimate(sales, {
+          ...params,
+          maximumParticipantWeightShare: 1,
+        });
+
+        expect(attackerWeight / totalWeight).toBeCloseTo(0.3, 12);
+        expect(capped.status === "estimated" && capped.amount).toBe("10.00");
+        expect(uncapped.status === "estimated" && Number(uncapped.amount)).toBeGreaterThan(50);
+      },
+    );
 
     it("grades confidence by distinct Market Participants, not a buyer's print count", () => {
       const repeatedBuyer = Array.from({ length: 20 }, (_, index) =>

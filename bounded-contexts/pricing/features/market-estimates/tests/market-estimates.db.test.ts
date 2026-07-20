@@ -293,6 +293,80 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(0);
   });
 
+  it("deduplicates a buyer-to-seller pair to its latest print before publication", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, {
+      orderId: "ord_pair_old",
+      priceAmount: "100.00",
+      soldAt: daysBefore(NOW, 2),
+      buyerAccountId: "buyer_pair",
+      sellerAccountId: "seller_pair",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_pair_latest",
+      priceAmount: "10.00",
+      soldAt: daysBefore(NOW, 1),
+      buyerAccountId: "buyer_pair",
+      sellerAccountId: "seller_pair",
+    });
+    await seedTrade(pool, { orderId: "ord_pair_honest_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 1) });
+    await seedTrade(pool, { orderId: "ord_pair_honest_2", priceAmount: "10.00", soldAt: daysBefore(NOW, 1) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.estimatesPublished).toBe(1);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const payload = stored[0]!.payload as Record<string, unknown>;
+    expect(payload.amount).toBe("10.00");
+    expect(payload.inputs).toEqual({
+      platformVerifiedTradeCount: 0,
+      platformTradeCount: 3,
+      externalCompCount: 0,
+    });
+  });
+
+  it("caps a wash buyer across distinct sellers against the post-cap blend total", async () => {
+    const pool = pools.pricing;
+    for (let seller = 1; seller <= 10; seller += 1) {
+      await seedTrade(pool, {
+        orderId: `ord_wash_${seller}`,
+        priceAmount: "100.00",
+        soldAt: NOW,
+        buyerAccountId: "buyer_wash",
+        sellerAccountId: `seller_wash_${seller}`,
+      });
+    }
+    await seedTrade(pool, {
+      orderId: "ord_wash_honest_1",
+      priceAmount: "10.00",
+      soldAt: NOW,
+      buyerAccountId: "buyer_honest_1",
+      sellerAccountId: "seller_honest_1",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_wash_honest_2",
+      priceAmount: "10.00",
+      soldAt: NOW,
+      buyerAccountId: "buyer_honest_2",
+      sellerAccountId: "seller_honest_2",
+    });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.estimatesPublished).toBe(1);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const payload = stored[0]!.payload as Record<string, unknown>;
+    expect(payload.amount).toBe("10.00");
+    expect(payload.amount).not.toBe("100.00");
+    expect(payload.inputs).toEqual({
+      platformVerifiedTradeCount: 0,
+      platformTradeCount: 12,
+      externalCompCount: 0,
+    });
+  });
+
   it("stale signals count toward NOTHING: three stale signals never clear the gate or publish", async () => {
     const pool = pools.pricing;
     // Two status-'stale' signals (recorded without a calculation time) plus

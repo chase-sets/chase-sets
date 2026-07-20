@@ -52,7 +52,7 @@ export type MarketEstimatePolicyValue = Readonly<{
    * estimate or its Confidence Band orders of magnitude off the core.
    */
   outlierPriceRatio: number;
-  /** Maximum aggregate buyer weight as a share of the pre-cap blend weight. */
+  /** Maximum aggregate buyer weight as a share of the post-cap blend total. */
   maximumParticipantWeightShare: number;
   /** Distinct-participant (+ unique external comp) thresholds that raise confidence from low. */
   confidenceSampleSizes: Readonly<{ medium: number; high: number }>;
@@ -233,7 +233,7 @@ export const marketEstimatePolicy: PolicyDefinition<MarketEstimatePolicyValue> =
     "sourceWeights: { platformVerifiedTrade: 0-1, platformTrade: 0-1, externalComp: 0-1 (descending) }, " +
     "minimumComparableSales: integer 1-50, minimumEffectiveSampleSize: number 1-50 (effective-sample-size gate; optional, default 2), " +
     "outlierPriceRatio: number 2-1000 (winsorizing outlier guard; optional, default 10), " +
-    "maximumParticipantWeightShare: number >0-1 (buyer cap against pre-cap blend weight; optional, default 0.3), " +
+    "maximumParticipantWeightShare: number >0-1 (buyer cap against post-cap blend total; optional, default 0.3), " +
     "confidenceSampleSizes: { medium: integer 1-500, high: integer 1-500 (>= medium) }, " +
     "freshForHours: integer 1-336 }",
   defaultValue: MARKET_ESTIMATE_LAUNCH_POLICY_VALUE,

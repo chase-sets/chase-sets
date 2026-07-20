@@ -15,8 +15,8 @@
  * between the same buyer -> seller pair collapse to the latest print; the
  * minimum-input and confidence gates count distinct buyer accounts (plus
  * already-deduplicated external comps), not platform prints; and one buyer's
- * aggregate weight is capped at the policy share of the pre-cap blend
- * weight. Callers cannot bypass these rules because the aggregate decider
+ * aggregate weight is capped at the policy share of the post-cap blend
+ * total. Callers cannot bypass these rules because the aggregate decider
  * (./domain.ts) only receives this calculation's outcome.
  *
  * Two guards keep the blend honest against degenerate input mixes (the
@@ -85,7 +85,7 @@ export type BlendedEstimateParams = Readonly<{
   minimumEffectiveSampleSize: number;
   /** The outlier guard: prices are winsorized into [core / ratio, core * ratio] around the trade-core weighted median. */
   outlierPriceRatio: number;
-  /** Maximum aggregate buyer weight as a share of the pre-cap blend weight. External comps are exempt. */
+  /** Maximum aggregate buyer weight as a share of the post-cap blend total. External comps are exempt. */
   maximumParticipantWeightShare: number;
   confidenceSampleSizes: Readonly<{ medium: number; high: number }>;
 }>;
@@ -234,16 +234,16 @@ function applyPairDeduplication(sales: readonly ComparableSale[]): readonly Comp
 
 /**
  * Caps each buyer's aggregate base weight without reallocating the removed
- * weight. The cap is deliberately measured against the pre-cap total: with
- * the launch 30% cap, measuring against the post-cap total would make the
- * approved three-participant platform-only publication gate impossible.
+ * weight. For cap share q and all other blend weight W_others, the retained
+ * participant weight satisfies w <= q * (w + W_others), equivalently
+ * w <= (q / (1 - q)) * W_others. External comps remain in W_others and are
+ * never themselves capped.
  */
-function capParticipantWeights<T extends Readonly<{ participantId: string | null; weight: number }>>(
+export function capParticipantWeights<T extends Readonly<{ participantId: string | null; weight: number }>>(
   sales: readonly T[],
   maximumShare: number,
 ): readonly T[] {
   const totalWeight = sales.reduce((sum, sale) => sum + sale.weight, 0);
-  const maximumParticipantWeight = totalWeight * maximumShare;
   const weightByParticipant = new Map<string, number>();
   for (const sale of sales) {
     if (sale.participantId !== null) {
@@ -254,6 +254,9 @@ function capParticipantWeights<T extends Readonly<{ participantId: string | null
   return sales.map((sale) => {
     if (sale.participantId === null) return sale;
     const participantWeight = weightByParticipant.get(sale.participantId)!;
+    const otherWeight = totalWeight - participantWeight;
+    const maximumParticipantWeight =
+      maximumShare === 1 ? Number.POSITIVE_INFINITY : (maximumShare / (1 - maximumShare)) * otherWeight;
     if (participantWeight <= maximumParticipantWeight) return sale;
     return { ...sale, weight: sale.weight * (maximumParticipantWeight / participantWeight) };
   });

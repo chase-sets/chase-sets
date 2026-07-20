@@ -34,7 +34,7 @@ A **Market Participant** is the buyer account behind a platform Comparable Sale.
 
 ## Participant Weight Cap
 
-The **Participant Weight Cap** limits one Market Participant's aggregate time-decayed, source-weighted contribution to the Market-Value Estimate. The launch cap is 30% of the pre-cap blend weight, so a participant's legitimate trades with different sellers remain inputs but cannot compound without limit. External comps have no Market Participant and are exempt.
+The **Participant Weight Cap** limits one Market Participant's aggregate time-decayed, source-weighted contribution to the Market-Value Estimate. The launch cap is 30% of the post-cap blend total: for retained participant weight `w` and all other blend weight `W_others`, `w <= 0.3 * (w + W_others)`, implemented as `w = min(w_raw, (0.3 / 0.7) * W_others)`. A participant's legitimate trades with different sellers remain inputs but cannot compound without limit. External comps have no Market Participant and are exempt from capping while remaining part of `W_others`.
 
 ## Distinct-Participant Gate
 
