@@ -19,7 +19,6 @@ const DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS = 6;
 export interface MarketplaceFacetGroupProps {
   id?: string;
   title: ReactNode;
-  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
   selectionSummary?: ReactNode;
   defaultExpanded?: boolean;
@@ -271,7 +270,6 @@ export function MarketplaceFacetRail({
       <MarketplaceFacetGroup
         id={id}
         title={title}
-        headingLevel={headingLevel}
         description={description}
         selectionSummary={selectionSummary}
         defaultExpanded={defaultExpanded}
@@ -522,7 +520,6 @@ export function MarketplaceFacetChoiceGroup({
       <MarketplaceFacetGroup
         id={id}
         title={title}
-        headingLevel={headingLevel}
         description={description}
         selectionSummary={selectionSummary}
         defaultExpanded={defaultExpanded}

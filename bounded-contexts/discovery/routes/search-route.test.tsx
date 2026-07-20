@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
@@ -402,6 +402,11 @@ describe("marketplace search route", () => {
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), setSearchParams]);
 
     render(<SearchRoute />);
+    fireEvent.click(
+      within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole("button", {
+        name: "Language",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
 
     const [updater, options] = setSearchParams.mock.calls[0];
