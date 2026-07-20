@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -1517,6 +1518,50 @@ describe("source observation runtime: provider integration jobs", () => {
     },
   );
 
+  it("imports an MTGJSON set document larger than 64 KiB as bounded Source Observation events", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mtgjsonFetch({ oversizedSet: true }) as typeof globalThis.fetch;
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "mtgjson",
+        profileKey: "mtg-set-reference-data",
+        ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+        setId: "TSP",
+      },
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "mtgjson_set_en_TSP",
+        sourcePayloadEncoding: "json-utf8-base64-v1",
+      }),
+    });
+    expect(
+      harness.appendedSourceEvents
+        .slice(1)
+        .every((event) => event.eventType === "catalog.source-observation.source-payload-chunk-recorded"),
+    ).toBe(true);
+    expect(harness.appendedSourceEvents.length).toBeGreaterThan(2);
+    expect(
+      harness.appendedSourceEvents.every(
+        (event) => Buffer.byteLength(JSON.stringify(event.payload), "utf8") <= EVENT_STORE_MAX_PAYLOAD_BYTES,
+      ),
+    ).toBe(true);
+  });
+
   it.each([
     {
       profileKey: "lorcana-card-reference-data",
@@ -2236,7 +2281,18 @@ describe("source observation runtime: provider integration jobs", () => {
   });
 });
 
-function mtgjsonFetch(): typeof globalThis.fetch {
+function mtgjsonFetch(options: Readonly<{ oversizedSet?: boolean }> = {}): typeof globalThis.fetch {
+  const card = {
+    uuid: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+    name: "Fury Sliver",
+    number: "157",
+    rarity: "uncommon",
+    layout: "normal",
+    identifiers: {
+      scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+      scryfallOracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+    },
+  };
   const responses: Record<string, unknown> = {
     "https://mtgjson.com/api/v5/SetList.json": {
       meta: { date: "2026-06-05", version: "5.3.0+20260605" },
@@ -2258,19 +2314,15 @@ function mtgjsonFetch(): typeof globalThis.fetch {
         releaseDate: "2006-10-06",
         totalSetSize: 301,
         type: "expansion",
-        cards: [
-          {
-            uuid: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
-            name: "Fury Sliver",
-            number: "157",
-            rarity: "uncommon",
-            layout: "normal",
-            identifiers: {
-              scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-              scryfallOracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
-            },
-          },
-        ],
+        cards: options.oversizedSet
+          ? Array.from({ length: 1_500 }, (_, index) => ({
+              ...card,
+              uuid: `oversized-set-card-${index}`,
+              name: `Oversized Set Card ${index}`,
+              number: String(index + 1),
+              flavorText: "Retained normalized provenance for the oversized provider document. ".repeat(2),
+            }))
+          : [card],
       },
     },
   };

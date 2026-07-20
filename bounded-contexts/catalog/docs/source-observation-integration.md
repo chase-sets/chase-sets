@@ -58,6 +58,8 @@ Discovery consumes promoted Catalog facts through projections. Pricing may later
 
 Stored TCGdex source payloads are sanitized before persistence; provider pricing fields are stripped from the observation payload and from the source-record hash.
 
+Source Observation recording keeps the complete sanitized provider evidence in event history. When one record event would exceed Catalog's bounded event target, the aggregate emits a metadata header followed by ordered base64 payload-chunk events in the same atomic stream append. Aggregate replay reassembles the original JSON value, and the Source Observation projector materializes the public read-model row only after the final chunk; small observations retain the inline event shape for historical compatibility.
+
 TCGdex marketplace identifiers are mapping evidence, not pricing truth. When TCGdex exposes unambiguous TCGplayer or Cardmarket Product IDs for a card variant, promotion links them as Catalog Item-level external references such as `tcgplayer:product:490001` or `cardmarket:product:880001`. TCGplayer SKUs remain separate Product-level references because they identify sellable provider SKUs with selected options; TCGdex Product IDs must not be used as SKU mappings.
 
 The profile marks these extracted marketplace IDs as Catalog Item-level references. Product-level SKU references are linked separately through Catalog Item Product references, where the selected Product options are known. This distinction lets Inventory imports resolve a TCGplayer Product ID to the card print and a TCGplayer SKU to the exact sellable Product without requiring sellers to pick products row by row.

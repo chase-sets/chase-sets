@@ -107,4 +107,28 @@ describe("catalog admin realtime invalidation", () => {
       ]),
     );
   });
+
+  it("can suppress invalidation for an intermediate projection event", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const db = { query } satisfies PgQueryable;
+    const handler = vi.fn(async () => undefined);
+    const handlers = withCatalogAdminRealtimeInvalidation({ "catalog.source.chunk": handler }, db, {
+      projectionName: "catalog-source-observation-projection",
+      surface: "source-observations",
+      shouldInvalidate: (_eventType, event) => (event.data as { final: boolean }).final,
+    });
+
+    await handlers["catalog.source.chunk"]?.({
+      type: "catalog.source.chunk",
+      streamId: "catalog.source-observation-obs_1",
+      globalPosition: "9",
+      streamPosition: "2",
+      data: { final: false },
+      metadata: {},
+      timing: { recordedAt: "2026-05-20T12:00:00.000Z" },
+    } as never);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(query).not.toHaveBeenCalled();
+  });
 });

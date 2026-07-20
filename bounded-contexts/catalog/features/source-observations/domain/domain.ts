@@ -2,6 +2,13 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import { assert, assertNever, normalizeLocaleCode } from "../../../support/runtime-support/common";
+import {
+  decodeSourceObservationPayloadChunks,
+  encodeSourceObservationPayloadChunks,
+  jsonByteLength,
+  SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES,
+  SOURCE_OBSERVATION_PAYLOAD_ENCODING,
+} from "./source-observation-payload-chunks";
 
 /**
  * The Catalog source-observation natural-key contract. Keep this value in the
@@ -548,6 +555,8 @@ export type SourceObservationState = Readonly<{
   sourceMappingFingerprint: string;
   normalized: SourceObservationNormalized | null;
   sourcePayload: JsonValue;
+  pendingSourcePayloadChunks: readonly string[] | null;
+  pendingSourcePayloadChunkCount: number | null;
   status: SourceObservationStatus;
   statusReason: string | null;
   promotedCatalogItemId: string | null;
@@ -573,6 +582,8 @@ export const initialSourceObservationState: SourceObservationState = {
   sourceMappingFingerprint: "",
   normalized: null,
   sourcePayload: null,
+  pendingSourcePayloadChunks: null,
+  pendingSourcePayloadChunkCount: null,
   status: "observed",
   statusReason: null,
   promotedCatalogItemId: null,
@@ -655,9 +666,21 @@ export type SourceObservationCommand =
   | RejectSourceObservationCommand
   | DeferSourceObservationCommand;
 
-type SourceObservationRecordEventData = JsonObject &
-  Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
+type SourceObservationRecordEventFields = Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
   Readonly<{ sourceUpdatedAt: string | null }>;
+
+type InlineSourceObservationRecordEventData = JsonObject & SourceObservationRecordEventFields;
+
+type ChunkedSourceObservationRecordEventData = JsonObject &
+  Omit<SourceObservationRecordEventFields, "sourcePayload"> &
+  Readonly<{
+    sourcePayloadEncoding: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+    sourcePayloadChunkCount: number;
+  }>;
+
+type SourceObservationRecordEventData =
+  | InlineSourceObservationRecordEventData
+  | ChunkedSourceObservationRecordEventData;
 
 export type SourceObservationRecordedEvent = DomainEvent<
   "catalog.source-observation.recorded",
@@ -682,6 +705,17 @@ export type SourceObservationRefreshedEvent = DomainEvent<
       promotionProfileVersion: string | null;
       promotionPlanFingerprint: string | null;
     }>
+>;
+
+export type SourceObservationPayloadChunkRecordedEvent = DomainEvent<
+  "catalog.source-observation.source-payload-chunk-recorded",
+  Readonly<{
+    observationId: string;
+    sourceRecordHash: string;
+    chunkIndex: number;
+    chunkCount: number;
+    encodedPayload: string;
+  }>
 >;
 
 export type SourceObservationPromotedEvent = DomainEvent<
@@ -746,6 +780,7 @@ export type SourceObservationEvent =
   | SourceObservationRecordedEvent
   | SourceObservationChangedEvent
   | SourceObservationRefreshedEvent
+  | SourceObservationPayloadChunkRecordedEvent
   | SourceObservationPromotedEvent
   | SourceObservationReferencePromotedEvent
   | SourceObservationPromotionPlanRecordedEvent
@@ -783,22 +818,17 @@ export const decideSourceObservation: AggregateDecider<
           state.sourceProfileVersion === command.sourceProfileVersion.trim() &&
           state.sourceMappingFingerprint === command.sourceMappingFingerprint.trim()
         ) {
-          return [
-            {
-              type: "catalog.source-observation.refreshed",
-              data: {
-                ...recordEventData(command),
-                status: state.status,
-                statusReason: state.statusReason,
-                promotedCatalogItemId: state.promotedCatalogItemId,
-                promotedReferenceRecordId: state.promotedReferenceRecordId,
-                promotedAt: state.promotedAt,
-                promotionProfileKey: state.promotionProfileKey,
-                promotionProfileVersion: state.promotionProfileVersion,
-                promotionPlanFingerprint: state.promotionPlanFingerprint,
-              },
-            },
-          ];
+          return recordSourceObservationEvents("catalog.source-observation.refreshed", {
+            ...recordEventData(command),
+            status: state.status,
+            statusReason: state.statusReason,
+            promotedCatalogItemId: state.promotedCatalogItemId,
+            promotedReferenceRecordId: state.promotedReferenceRecordId,
+            promotedAt: state.promotedAt,
+            promotionProfileKey: state.promotionProfileKey,
+            promotionProfileVersion: state.promotionProfileVersion,
+            promotionPlanFingerprint: state.promotionPlanFingerprint,
+          });
         }
 
         assert(
@@ -807,21 +837,11 @@ export const decideSourceObservation: AggregateDecider<
         );
 
         if (state.status === "changed" || state.status === "promoted") {
-          return [
-            {
-              type: "catalog.source-observation.changed",
-              data: recordEventData(command),
-            },
-          ];
+          return recordSourceObservationEvents("catalog.source-observation.changed", recordEventData(command));
         }
       }
 
-      return [
-        {
-          type: "catalog.source-observation.recorded",
-          data: recordEventData(command),
-        },
-      ];
+      return recordSourceObservationEvents("catalog.source-observation.recorded", recordEventData(command));
     case "PromoteSourceObservation":
       requirePromotable(state);
       assert(command.catalogItemId.trim().length > 0, "Promotion requires a catalog item.");
@@ -945,64 +965,12 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
 ) => {
   switch (event.type) {
     case "catalog.source-observation.recorded":
-      return {
-        ...state,
-        id: event.data.observationId,
-        syncRunId: event.data.syncRunId ?? null,
-        providerKey: event.data.providerKey,
-        externalKey: event.data.externalKey,
-        sourceUrl: event.data.sourceUrl,
-        languageCode: event.data.languageCode,
-        sourceRecordHash: event.data.sourceRecordHash,
-        sourceUpdatedAt: event.data.sourceUpdatedAt,
-        observedAt: event.data.observedAt,
-        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
-        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
-        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
-        normalized: event.data.normalized,
-        sourcePayload: event.data.sourcePayload,
-        status: "observed",
-        statusReason: null,
-      };
+      return evolveSourceObservationRecord(state, event.data, "observed", null);
     case "catalog.source-observation.changed":
-      return {
-        ...state,
-        id: event.data.observationId,
-        syncRunId: event.data.syncRunId ?? null,
-        providerKey: event.data.providerKey,
-        externalKey: event.data.externalKey,
-        sourceUrl: event.data.sourceUrl,
-        languageCode: event.data.languageCode,
-        sourceRecordHash: event.data.sourceRecordHash,
-        sourceUpdatedAt: event.data.sourceUpdatedAt,
-        observedAt: event.data.observedAt,
-        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
-        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
-        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
-        normalized: event.data.normalized,
-        sourcePayload: event.data.sourcePayload,
-        status: "changed",
-        statusReason: null,
-      };
+      return evolveSourceObservationRecord(state, event.data, "changed", null);
     case "catalog.source-observation.refreshed":
       return {
-        ...state,
-        id: event.data.observationId,
-        syncRunId: event.data.syncRunId ?? null,
-        providerKey: event.data.providerKey,
-        externalKey: event.data.externalKey,
-        sourceUrl: event.data.sourceUrl,
-        languageCode: event.data.languageCode,
-        sourceRecordHash: event.data.sourceRecordHash,
-        sourceUpdatedAt: event.data.sourceUpdatedAt,
-        observedAt: event.data.observedAt,
-        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
-        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
-        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
-        normalized: event.data.normalized,
-        sourcePayload: event.data.sourcePayload,
-        status: event.data.status,
-        statusReason: event.data.statusReason,
+        ...evolveSourceObservationRecord(state, event.data, event.data.status, event.data.statusReason),
         promotedCatalogItemId: event.data.promotedCatalogItemId,
         promotedReferenceRecordId: event.data.promotedReferenceRecordId ?? null,
         promotedAt: event.data.promotedAt,
@@ -1010,6 +978,37 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         promotionProfileVersion: event.data.promotionProfileVersion,
         promotionPlanFingerprint: event.data.promotionPlanFingerprint,
       };
+    case "catalog.source-observation.source-payload-chunk-recorded": {
+      assert(state.id === event.data.observationId, "Source Observation payload chunk targets the active observation.");
+      assert(
+        state.sourceRecordHash === event.data.sourceRecordHash,
+        "Source Observation payload chunk targets the active source revision.",
+      );
+      assert(
+        state.pendingSourcePayloadChunks !== null && state.pendingSourcePayloadChunkCount !== null,
+        "Source Observation payload chunk requires an active assembly.",
+      );
+      assert(
+        event.data.chunkCount === state.pendingSourcePayloadChunkCount,
+        "Source Observation payload chunk count must match its header.",
+      );
+      assert(
+        event.data.chunkIndex === state.pendingSourcePayloadChunks.length,
+        "Source Observation payload chunks must replay in order.",
+      );
+
+      const chunks = [...state.pendingSourcePayloadChunks, event.data.encodedPayload];
+      if (chunks.length < event.data.chunkCount) {
+        return { ...state, pendingSourcePayloadChunks: chunks };
+      }
+
+      return {
+        ...state,
+        sourcePayload: decodeSourceObservationPayloadChunks(chunks),
+        pendingSourcePayloadChunks: null,
+        pendingSourcePayloadChunkCount: null,
+      };
+    }
     case "catalog.source-observation.promoted":
       return {
         ...state,
@@ -1090,7 +1089,7 @@ function requireReviewable(state: SourceObservationState): asserts state is Sour
   );
 }
 
-function recordEventData(command: RecordSourceObservationCommand): SourceObservationRecordEventData {
+function recordEventData(command: RecordSourceObservationCommand): InlineSourceObservationRecordEventData {
   return {
     observationId: command.observationId,
     syncRunId: normalizeOptionalKey(command.syncRunId),
@@ -1106,6 +1105,82 @@ function recordEventData(command: RecordSourceObservationCommand): SourceObserva
     sourceMappingFingerprint: command.sourceMappingFingerprint.trim(),
     normalized: normalizeSourceObservationNaturalKeys(command.normalized),
     sourcePayload: command.sourcePayload,
+  };
+}
+
+type SourceObservationRecordEventType =
+  | SourceObservationRecordedEvent["type"]
+  | SourceObservationChangedEvent["type"]
+  | SourceObservationRefreshedEvent["type"];
+
+function recordSourceObservationEvents(
+  type: SourceObservationRecordEventType,
+  data: InlineSourceObservationRecordEventData & JsonObject,
+): readonly SourceObservationEvent[] {
+  if (jsonByteLength(data) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES) {
+    return [{ type, data } as SourceObservationEvent];
+  }
+
+  const { sourcePayload, ...recordHeader } = data;
+  const encodedChunks = encodeSourceObservationPayloadChunks(sourcePayload);
+  const header = {
+    ...recordHeader,
+    sourcePayloadEncoding: SOURCE_OBSERVATION_PAYLOAD_ENCODING,
+    sourcePayloadChunkCount: encodedChunks.length,
+  } as ChunkedSourceObservationRecordEventData;
+
+  assert(
+    jsonByteLength(header) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES,
+    "Source Observation normalized facts exceed the bounded event target.",
+  );
+
+  const chunkEvents = encodedChunks.map(
+    (encodedPayload, chunkIndex): SourceObservationPayloadChunkRecordedEvent => ({
+      type: "catalog.source-observation.source-payload-chunk-recorded",
+      data: {
+        observationId: data.observationId,
+        sourceRecordHash: data.sourceRecordHash,
+        chunkIndex,
+        chunkCount: encodedChunks.length,
+        encodedPayload,
+      },
+    }),
+  );
+  assert(
+    chunkEvents.every((event) => jsonByteLength(event.data) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES),
+    "Source Observation identifiers exceed the bounded payload-chunk event target.",
+  );
+
+  return [{ type, data: header } as SourceObservationEvent, ...chunkEvents];
+}
+
+function evolveSourceObservationRecord(
+  state: SourceObservationState,
+  data: SourceObservationRecordEventData,
+  status: SourceObservationStatus,
+  statusReason: string | null,
+): SourceObservationState {
+  const isInline = "sourcePayload" in data;
+  return {
+    ...state,
+    id: data.observationId,
+    syncRunId: data.syncRunId ?? null,
+    providerKey: data.providerKey,
+    externalKey: data.externalKey,
+    sourceUrl: data.sourceUrl,
+    languageCode: data.languageCode,
+    sourceRecordHash: data.sourceRecordHash,
+    sourceUpdatedAt: data.sourceUpdatedAt,
+    observedAt: data.observedAt,
+    sourceProfileKey: sourceProfileKeyFromEvent(data),
+    sourceProfileVersion: sourceProfileVersionFromEvent(data),
+    sourceMappingFingerprint: sourceMappingFingerprintFromEvent(data),
+    normalized: data.normalized,
+    sourcePayload: isInline ? data.sourcePayload : null,
+    pendingSourcePayloadChunks: isInline ? null : [],
+    pendingSourcePayloadChunkCount: isInline ? null : data.sourcePayloadChunkCount,
+    status,
+    statusReason,
   };
 }
 

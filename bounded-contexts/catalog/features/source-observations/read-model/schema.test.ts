@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { catalogSourceObservationSchemaMigrations, catalogSourceObservationSchemaSql } from "./schema";
 
 describe("catalogSourceObservationSchemaSql", () => {
+  it("creates replay-only payload assembly storage without boot-time data reshapes", () => {
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_payload_assemblies",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain("encoded_chunks jsonb NOT NULL DEFAULT '[]'::jsonb");
+  });
+
   it("creates source-observation integration scope summary storage without boot-time backfill/index rebuilds", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE TABLE IF NOT EXISTS catalog_source_observation_integration_scope_summaries",
