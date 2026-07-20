@@ -17,6 +17,7 @@ import {
   buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
   buildPricingMarketTradesIdentityIntegrityProjectionHandlers,
   buildPricingMarketTradesPaymentsIntegrityProjectionHandlers,
+  buildPricingMarketTradesSettlementIntegrityProjectionHandlers,
 } from "./features/market-trades/integrations/integrity/integrity-projection";
 import { pricingFeatureSchemaMigrations, pricingSchemaSql } from "./support/runtime-support/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -65,6 +66,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
         "payments.pricing-market-trades-projection": {
           filterToEventTypes: true,
           buildHandlers: () => buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+        },
+        "settlement.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildPricingMarketTradesSettlementIntegrityProjectionHandlers(services.db),
         },
         "authenticity.pricing-market-trades-projection": {
           filterToEventTypes: true,

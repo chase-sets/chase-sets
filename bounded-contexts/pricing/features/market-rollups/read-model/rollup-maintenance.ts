@@ -6,6 +6,10 @@ import {
   type MarketStatHygienePolicyValue,
 } from "../../market-trades/domain/stat-hygiene-policy";
 import {
+  acknowledgeTradeRollupRederive,
+  listQueuedTradeRollupRederives,
+} from "../../market-trades/read-model/rollup-rederive-queue";
+import {
   loadMarketStatHygienePolicyRevision,
   resolveMarketStatHygienePolicyRevisionForPeriod,
 } from "./stat-hygiene-policy-revision";
@@ -59,6 +63,8 @@ export type DailyRollupCloserParams = Readonly<{
   trailingWindowDays?: number;
   /** Bounds how many (item, product, day) / (item, product) tuples one pass recomputes. */
   limit?: number;
+  /** Bounds retroactive sold-day repairs independently of the live trailing window. */
+  rederiveQueueLimit?: number;
 }>;
 
 export type DailyRollupCloserResult = Readonly<{
@@ -69,6 +75,7 @@ export type DailyRollupCloserResult = Readonly<{
 }>;
 
 const DEFAULT_CLOSER_LIMIT = 500;
+export const DEFAULT_REDERIVE_QUEUE_LIMIT = 100;
 
 /**
  * The live stat-hygiene dials this closer pass depends on -- the trailing
@@ -88,10 +95,15 @@ export async function runDailyRollupCloser(
   const now = params.now ? new Date(params.now) : new Date();
   const trailingWindowDays = params.trailingWindowDays ?? policy.rollupCloserTrailingWindowDays;
   const limit = params.limit ?? DEFAULT_CLOSER_LIMIT;
+  const rederiveQueueLimit = params.rederiveQueueLimit ?? DEFAULT_REDERIVE_QUEUE_LIMIT;
   const windowStart = new Date(now.getTime() - trailingWindowDays * 24 * 60 * 60 * 1000).toISOString();
   const today = utcDateString(now);
 
-  const rollupTuples = await listRecentTradeDayTuples(db, { since: windowStart, limit });
+  const [recentRollupTuples, queuedRollupTuples] = await Promise.all([
+    listRecentTradeDayTuples(db, { since: windowStart, limit }),
+    listQueuedTradeRollupRederives(db, rederiveQueueLimit),
+  ]);
+  const rollupTuples = dedupeProductDayTuples([...queuedRollupTuples, ...recentRollupTuples]);
   for (const tuple of rollupTuples) {
     await recomputeDailyProductRollup(db, tuple);
   }
@@ -107,7 +119,10 @@ export async function runDailyRollupCloser(
   // last-sold/chart-relevant aggregate advances.
   const advancedTuples = new Set(rollupTuples.map((tuple) => tupleKey(tuple)));
 
-  const productTuples = await listActiveOrTradedProductTuples(db, { limit });
+  const productTuples = dedupeProductTuples([
+    ...queuedRollupTuples,
+    ...(await listActiveOrTradedProductTuples(db, { limit })),
+  ]);
   for (const tuple of productTuples) {
     await recomputeMarketStateSnapshot(db, { ...tuple, day: today });
     await recomputeProductMarketAggregate(db, tuple, now, policy);
@@ -126,6 +141,13 @@ export async function runDailyRollupCloser(
     await recomputePlatformDailyRollup(db, day);
   }
 
+  // Acknowledge only after both the product and platform daily rows have
+  // recomputed successfully. Conditional deletion preserves a newer enqueue
+  // of the same tuple that races this pass.
+  for (const tuple of queuedRollupTuples) {
+    await acknowledgeTradeRollupRederive(db, tuple);
+  }
+
   return {
     rollupDaysRecomputed: rollupTuples.length,
     marketStateSnapshotsRecomputed: productTuples.length,
@@ -136,6 +158,18 @@ export async function runDailyRollupCloser(
 
 function tupleKey(tuple: ProductTuple): string {
   return `${tuple.catalogItemId}:${tuple.productId}`;
+}
+
+function productDayTupleKey(tuple: ProductDayTuple): string {
+  return `${tupleKey(tuple)}:${tuple.day}`;
+}
+
+function dedupeProductDayTuples(tuples: readonly ProductDayTuple[]): readonly ProductDayTuple[] {
+  return [...new Map(tuples.map((tuple) => [productDayTupleKey(tuple), tuple])).values()];
+}
+
+function dedupeProductTuples(tuples: readonly ProductTuple[]): readonly ProductTuple[] {
+  return [...new Map(tuples.map((tuple) => [tupleKey(tuple), tuple])).values()];
 }
 
 /**
@@ -202,7 +236,7 @@ async function listActiveOrTradedProductTuples(
        UNION
        SELECT catalog_catalog_item_id, product_id FROM pricing_buyer_offer_inputs WHERE status = 'submitted'
        UNION
-       SELECT catalog_catalog_item_id, product_id FROM pricing_market_trades WHERE excluded = false
+       SELECT catalog_catalog_item_id, product_id FROM pricing_market_trades
      ) AS active_or_traded_products
      LIMIT $1`,
     [params.limit],

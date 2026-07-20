@@ -38,6 +38,7 @@
     "ordering",
     "fulfillment",
     "payments",
+    "settlement",
     "authenticity"
   ],
   "eventSubscriptions": [
@@ -156,6 +157,14 @@
       "eventTypes": ["authenticity.case.opened", "authenticity.case.verdict-recorded"],
       "order": 100,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
+      "order": 110,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }
   ],
   "projectionGroups": [
@@ -196,9 +205,14 @@
     },
     {
       "projectionName": "pricing-market-trades-projection",
-      "sourceContextNames": ["ordering", "fulfillment", "identity", "payments", "authenticity"],
+      "sourceContextNames": ["ordering", "fulfillment", "identity", "payments", "authenticity", "settlement"],
       "optionalSourceContextNames": ["authenticity"],
-      "ownedTables": ["pricing_market_trades", "pricing_market_trade_authenticity_cases"],
+      "ownedTables": [
+        "pricing_market_trades",
+        "pricing_market_trade_authenticity_cases",
+        "pricing_market_trade_linkage_clusters",
+        "pricing_market_trade_rollup_rederive_queue"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -379,7 +393,7 @@
     },
     "market-trades": {
       "classification": "slice",
-      "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events, plus its tape-integrity reactions (fraud exclusions from Identity/Payments risk flags, verified markers from Authenticity verdicts) and stat-hygiene policy.",
+      "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events, plus its tape-integrity reactions (fraud exclusions from Identity/Payments risk flags, pair-scoped self-dealing exclusions from Settlement linkage facts, verified markers from Authenticity verdicts) and stat-hygiene policy.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "market-rollups": {

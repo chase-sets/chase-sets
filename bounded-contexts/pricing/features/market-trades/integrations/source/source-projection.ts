@@ -60,7 +60,15 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
 
       for (const line of data.lines) {
         await db.query(
-          `INSERT INTO pricing_market_trades (
+          `WITH linkage AS (
+             SELECT EXISTS (
+               SELECT 1
+               FROM pricing_market_trade_linkage_clusters AS cluster
+               WHERE cluster.flagged = true
+                 AND cluster.account_ids @> ARRAY[$3, $4]::text[]
+             ) AS self_dealing
+           )
+           INSERT INTO pricing_market_trades (
              order_id,
              line_id,
              seller_account_id,
@@ -77,9 +85,13 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              excluded,
              exclusion_reason,
              updated_at
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, NULL, false, false, NULL, $10
            )
+           SELECT
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, NULL, false,
+             linkage.self_dealing,
+             CASE WHEN linkage.self_dealing THEN 'self-dealing' ELSE NULL END,
+             $10
+           FROM linkage
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET seller_account_id = EXCLUDED.seller_account_id,
                buyer_account_id = EXCLUDED.buyer_account_id,
@@ -111,11 +123,27 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
       };
 
       await db.query(
-        `UPDATE pricing_market_trades
-         SET sold_at = $2,
-             updated_at = $2
-         WHERE order_id = $1
-           AND sold_at IS NULL`,
+        `WITH affected AS (
+           UPDATE pricing_market_trades
+           SET sold_at = $2,
+               updated_at = $2
+           WHERE order_id = $1
+             AND sold_at IS NULL
+           RETURNING catalog_catalog_item_id, product_id, sold_at, exclusion_reason
+         )
+         INSERT INTO pricing_market_trade_rollup_rederive_queue (
+           catalog_catalog_item_id, product_id, day, queued_at, generation
+         )
+         SELECT DISTINCT catalog_catalog_item_id, product_id,
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
+         FROM affected
+         WHERE exclusion_reason = 'self-dealing'
+         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+         SET queued_at = GREATEST(
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderId, data.readyForFulfillmentAt],
       );
     },
@@ -126,12 +154,28 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
       };
 
       await db.query(
-        `UPDATE pricing_market_trades
-         SET excluded = true,
-             exclusion_reason = 'cancelled',
-             updated_at = $2
-         WHERE order_id = $1
-           AND excluded = false`,
+        `WITH affected AS (
+           UPDATE pricing_market_trades
+           SET excluded = true,
+               exclusion_reason = 'cancelled',
+               updated_at = $2
+           WHERE order_id = $1
+             AND (excluded = false OR exclusion_reason = 'self-dealing')
+           RETURNING catalog_catalog_item_id, product_id, sold_at
+         )
+         INSERT INTO pricing_market_trade_rollup_rederive_queue (
+           catalog_catalog_item_id, product_id, day, queued_at, generation
+         )
+         SELECT DISTINCT catalog_catalog_item_id, product_id,
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
+         FROM affected
+         WHERE sold_at IS NOT NULL
+         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+         SET queued_at = GREATEST(
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderId, data.cancelledAt],
       );
     },
@@ -176,12 +220,28 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
       };
 
       await db.query(
-        `UPDATE pricing_market_trades
-         SET excluded = true,
-             exclusion_reason = 'refunded',
-             updated_at = $2
-         WHERE shipment_id = $1
-           AND excluded = false`,
+        `WITH affected AS (
+           UPDATE pricing_market_trades
+           SET excluded = true,
+               exclusion_reason = 'refunded',
+               updated_at = $2
+           WHERE shipment_id = $1
+             AND (excluded = false OR exclusion_reason = 'self-dealing')
+           RETURNING catalog_catalog_item_id, product_id, sold_at
+         )
+         INSERT INTO pricing_market_trade_rollup_rederive_queue (
+           catalog_catalog_item_id, product_id, day, queued_at, generation
+         )
+         SELECT DISTINCT catalog_catalog_item_id, product_id,
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
+         FROM affected
+         WHERE sold_at IS NOT NULL
+         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+         SET queued_at = GREATEST(
+               pricing_market_trade_rollup_rederive_queue.queued_at,
+               EXCLUDED.queued_at
+             ),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.shipmentId, data.returnedAt],
       );
     },

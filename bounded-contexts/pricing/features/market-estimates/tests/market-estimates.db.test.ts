@@ -10,10 +10,12 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketTradesProjectionHandlers } from "../../market-trades/integrations/source/source-projection";
+import { buildPricingMarketTradesSettlementIntegrityProjectionHandlers } from "../../market-trades/integrations/integrity/integrity-projection";
 import { buildPricingPriceSignalCatalogProjectionHandlers } from "../../price-signals/integrations/catalog/projection";
 import { createPriceSignalRuntime } from "../../price-signals/api/runtime";
 import { createMarketEstimatesRuntime, marketPriceEstimateStreamId } from "../api/runtime";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
+import { expireMarketPriceEstimate, getMarketPriceEstimateUpdatedAt } from "../read-model/queries";
 import { marketPriceEstimatedEventType } from "../domain/domain";
 import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 
@@ -261,6 +263,97 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(stored).toHaveLength(0);
   });
 
+  it("expires a current estimate on the next pass when linkage removes its final usable inputs", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_expire_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_expire_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_expire_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    expect(await runtime.runMarketPriceEstimateCloser({ now: NOW })).toMatchObject({
+      candidatesConsidered: 1,
+      estimatesPublished: 1,
+    });
+
+    const publishedEvents = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const published = publishedEvents[0]!;
+    await buildPricingMarketEstimateProjectionHandlers(pool)[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, published.payload, published.recordedAt, published.streamId),
+    );
+
+    const nextPassAt = "2026-07-16T14:00:00.000Z";
+    const beforeExclusion = await runtime.getMarketPriceEstimate({
+      catalogItemId: CATALOG_ITEM_ID,
+      productId: PRODUCT_ID,
+    });
+    expect(Date.parse(beforeExclusion!.freshUntil)).toBeGreaterThan(Date.parse(nextPassAt));
+
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash: "a".repeat(64),
+          signalKind: "shared-instrument",
+          accountIds: ["buyer_ord_expire_1", "buyer_ord_expire_2", "buyer_ord_expire_3", "seller_1"],
+        },
+        "2026-07-16T13:00:00.000Z",
+      ),
+    );
+    const excludedTrades = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count
+       FROM pricing_market_trades
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND excluded = true`,
+      [CATALOG_ITEM_ID, PRODUCT_ID],
+    );
+    expect(excludedTrades.rows).toEqual([{ count: 3 }]);
+
+    const excludedPass = await runtime.runMarketPriceEstimateCloser({ now: nextPassAt });
+    expect(excludedPass).toMatchObject({ candidatesConsidered: 1, estimatesPublished: 0, belowGate: 1 });
+
+    const expired = await runtime.getMarketPriceEstimate({ catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID });
+    expect(Date.parse(expired!.freshUntil)).toBeLessThan(Date.parse(nextPassAt));
+    expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(1);
+  });
+
+  it("does not expire a newer projection when the closer read the previous revision", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_race_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_race_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_race_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    await runtime.runMarketPriceEstimateCloser({ now: NOW });
+    const projectionHandlers = buildPricingMarketEstimateProjectionHandlers(pool);
+    const [first] = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    await projectionHandlers[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, first!.payload, first!.recordedAt, first!.streamId),
+    );
+    const readUpdatedAt = await getMarketPriceEstimateUpdatedAt(pool, {
+      catalogItemId: CATALOG_ITEM_ID,
+      productId: PRODUCT_ID,
+    });
+    expect(readUpdatedAt).not.toBeNull();
+
+    await runtime.runMarketPriceEstimateCloser({ now: "2026-07-17T14:01:00.000Z" });
+    const [, newer] = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    await projectionHandlers[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, newer!.payload, newer!.recordedAt, newer!.streamId),
+    );
+    const newerFreshUntil = (newer!.payload as { freshUntil: string }).freshUntil;
+
+    const expiredRows = await expireMarketPriceEstimate(
+      pool,
+      { catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID },
+      "2026-07-17T13:59:59.999Z",
+      readUpdatedAt!,
+    );
+
+    expect(expiredRows).toBe(0);
+    const current = await runtime.getMarketPriceEstimate({ catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID });
+    expect(current!.freshUntil).toBe(newerFreshUntil);
+  });
+
   it("loads participant identity from the Trades Tape and rejects three prints from one buyer", async () => {
     const pool = pools.pricing;
     await seedTrade(pool, {
@@ -291,6 +384,47 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(result.belowGate).toBe(1);
     expect(result.estimatesPublished).toBe(0);
     expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(0);
+  });
+
+  it("removes linked counterparties before pair deduplication, participant counting, and weight capping", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, {
+      orderId: "ord_linked_participant",
+      priceAmount: "999.00",
+      soldAt: daysBefore(NOW, 1),
+      buyerAccountId: "acc_linked_buyer",
+      sellerAccountId: "acc_linked_seller",
+    });
+    await seedTrade(pool, { orderId: "ord_honest_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_honest_2", priceAmount: "11.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_honest_3", priceAmount: "12.00", soldAt: daysBefore(NOW, 1) });
+
+    const clusterHash = "f".repeat(64);
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash,
+          signalKind: "shared-instrument",
+          accountIds: ["acc_linked_buyer", "acc_linked_seller"],
+        },
+        daysBefore(NOW, 0.5),
+      ),
+    );
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.estimatesPublished).toBe(1);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const payload = stored[0]!.payload as Record<string, unknown>;
+    expect(payload.amount).toBe("10.45");
+    expect(payload.inputs).toEqual({
+      platformVerifiedTradeCount: 0,
+      platformTradeCount: 3,
+      externalCompCount: 0,
+    });
   });
 
   it("deduplicates a buyer-to-seller pair to its latest print before publication", async () => {

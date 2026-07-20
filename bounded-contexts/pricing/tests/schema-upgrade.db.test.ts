@@ -32,12 +32,16 @@ describeDb("pricing schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
-  it("binds deployed rollups to legacy semantics and is idempotent across two boots", async () => {
+  it("upgrades deployed pricing schema idempotently across two boots", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
     await pool.query("ALTER TABLE pricing_daily_product_rollups DROP COLUMN stat_hygiene_policy_revision_id");
     await pool.query(
       "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260720_pricing_daily_rollup_policy_revision_binding'",
+    );
+    await pool.query("ALTER TABLE pricing_market_trade_rollup_rederive_queue DROP COLUMN generation");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260720_pricing_rollup_rederive_queue_generation'",
     );
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
@@ -48,6 +52,27 @@ describeDb("pricing schema upgrades", () => {
 
     await bootstrapContextDatabase(pricingModule, pool);
     await bootstrapContextDatabase(pricingModule, pool);
+
+    const linkageTables = await pool.query<{ linkage_state: string; rederive_queue: string }>(
+      `SELECT
+         to_regclass('pricing_market_trade_linkage_clusters')::text AS linkage_state,
+         to_regclass('pricing_market_trade_rollup_rederive_queue')::text AS rederive_queue`,
+    );
+    expect(linkageTables.rows).toEqual([
+      {
+        linkage_state: "pricing_market_trade_linkage_clusters",
+        rederive_queue: "pricing_market_trade_rollup_rederive_queue",
+      },
+    ]);
+
+    const queueGeneration = await pool.query<{ generation_default: string; nullable: string }>(
+      `SELECT column_default AS generation_default, is_nullable AS nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'pricing_market_trade_rollup_rederive_queue'
+         AND column_name = 'generation'`,
+    );
+    expect(queueGeneration.rows).toEqual([{ generation_default: "1", nullable: "NO" }]);
 
     const deployed = await pool.query<{ stat_hygiene_policy_revision_id: string }>(
       `SELECT stat_hygiene_policy_revision_id
@@ -77,5 +102,12 @@ describeDb("pricing schema upgrades", () => {
        WHERE migration_id = '20260720_pricing_daily_rollup_policy_revision_binding'`,
     );
     expect(migration.rows).toEqual([{ applied_count: 1 }]);
+
+    const generationMigration = await pool.query<{ applied_count: number }>(
+      `SELECT COUNT(*)::integer AS applied_count
+       FROM bounded_context_schema_migrations
+       WHERE migration_id = '20260720_pricing_rollup_rederive_queue_generation'`,
+    );
+    expect(generationMigration.rows).toEqual([{ applied_count: 1 }]);
   });
 });

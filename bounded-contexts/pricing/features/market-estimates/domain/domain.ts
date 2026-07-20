@@ -33,8 +33,8 @@ import type { BlendedMarketValueEstimate, MarketEstimateInputCounts } from "./bl
  *
  * A recompute on a LATER day always publishes (even with identical values)
  * so `freshUntil` advances while the inputs still clear the minimum-input
- * gate. A below-gate recompute never publishes anything: the estimate simply
- * ages past its `freshUntil` and consumers classify it stale.
+ * gate. A below-gate recompute never publishes a replacement number; the
+ * closer expires any current projected answer so consumers classify it stale.
  */
 
 export const marketPriceEstimatedEventType = "pricing.market-price.estimated" as const;

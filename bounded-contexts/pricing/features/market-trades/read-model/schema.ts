@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 /**
  * The Trades Tape: one normalized row per order line that reaches a sale,
  * backfilled entirely by projection replay over Ordering and Fulfillment
@@ -33,10 +35,9 @@ CREATE TABLE IF NOT EXISTS pricing_market_trades (
   verified boolean NOT NULL DEFAULT false,
   -- 'fraud-flagged' is wired by m107 risk-flag events (identity
   -- manual-payout-review badge assignment, Stripe early-fraud-warning
-  -- receipt) retroactively excluding a flagged account's/order's historical
-  -- trades. 'self-dealing' stays declared but has no writer -- an m107 hard
-  -- block rejects same-account orders at creation, so a self-dealing trade
-  -- never reaches the tape to begin with.
+  -- receipt). 'self-dealing' is pair-scoped proxy self-dealing: Pricing
+  -- writes it only when Settlement has flagged a linkage cluster containing
+  -- BOTH counterparties. Same-account orders remain hard-blocked upstream.
   excluded boolean NOT NULL DEFAULT false,
   exclusion_reason text NULL CHECK (exclusion_reason IN ('refunded', 'cancelled', 'fraud-flagged', 'self-dealing')),
   updated_at timestamptz NOT NULL,
@@ -73,4 +74,45 @@ CREATE TABLE IF NOT EXISTS pricing_market_trade_authenticity_cases (
 
 CREATE INDEX IF NOT EXISTS pricing_market_trade_authenticity_cases_order_idx
   ON pricing_market_trade_authenticity_cases (order_id);
+
+-- Pricing's local, replayable view of Settlement-owned linkage facts. Cleared
+-- rows are retained so the flagged -> cleared lifecycle is inspectable and a
+-- replay converges without consulting Settlement's private risk read model.
+CREATE TABLE IF NOT EXISTS pricing_market_trade_linkage_clusters (
+  cluster_hash text PRIMARY KEY,
+  signal_kind text NOT NULL CHECK (signal_kind IN ('shared-instrument', 'shared-address')),
+  account_ids text[] NOT NULL CHECK (cardinality(account_ids) >= 2),
+  flagged boolean NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS pricing_market_trade_linkage_clusters_accounts_idx
+  ON pricing_market_trade_linkage_clusters USING gin (account_ids)
+  WHERE flagged = true;
+
+-- Retroactive tape corrections can target days older than the closer's live
+-- trailing window. Integrity reactions enqueue the distinct affected day
+-- tuples here; the scheduled rollup closer drains them with a bounded batch.
+CREATE TABLE IF NOT EXISTS pricing_market_trade_rollup_rederive_queue (
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  day date NOT NULL,
+  queued_at timestamptz NOT NULL,
+  generation bigint NOT NULL DEFAULT 1,
+  PRIMARY KEY (catalog_catalog_item_id, product_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
+  ON pricing_market_trade_rollup_rederive_queue (queued_at, catalog_catalog_item_id, product_id, day);
 `;
+
+export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260720_pricing_rollup_rederive_queue_generation",
+    description: "Version every rollup re-derive enqueue so concurrent acknowledgments cannot lose work.",
+    statements: [
+      `ALTER TABLE pricing_market_trade_rollup_rederive_queue
+  ADD COLUMN IF NOT EXISTS generation bigint NOT NULL DEFAULT 1`,
+    ],
+  },
+];

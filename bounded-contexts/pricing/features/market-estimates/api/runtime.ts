@@ -18,8 +18,10 @@ import {
 import { marketEstimatePolicy, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
 import {
+  expireMarketPriceEstimate,
   getMarketEstimateCloserCursor,
   getMarketPriceEstimate,
+  getMarketPriceEstimateUpdatedAt,
   listMarketEstimateCandidateTuples,
   loadComparableSales,
   saveMarketEstimateCloserCursor,
@@ -133,6 +135,14 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
       });
 
       if (estimate.status !== "estimated") {
+        // The current-estimate candidate union ensures a product whose last
+        // usable input was removed still reaches this path. Expire the read
+        // model immediately; the aggregate correctly emits no garbage-number
+        // replacement event for a below-gate calculation.
+        const readUpdatedAt = await getMarketPriceEstimateUpdatedAt(deps.db, tuple);
+        if (readUpdatedAt !== null) {
+          await expireMarketPriceEstimate(deps.db, tuple, new Date(now.getTime() - 1).toISOString(), readUpdatedAt);
+        }
         belowGate += 1;
         continue;
       }

@@ -13,6 +13,7 @@ import {
   buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
   buildPricingMarketTradesIdentityIntegrityProjectionHandlers,
   buildPricingMarketTradesPaymentsIntegrityProjectionHandlers,
+  buildPricingMarketTradesSettlementIntegrityProjectionHandlers,
 } from "../integrations/integrity/integrity-projection";
 import { listExcludedMarketTrades } from "../read-model/queries";
 
@@ -81,6 +82,13 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
         },
         "2026-07-01T00:00:00.000Z",
       ),
+    );
+  }
+
+  async function markTradeSold(pool: PgTransactionalPool, orderId: string, soldAt = "2026-07-02T00:00:00.000Z") {
+    const tradeHandlers = buildPricingMarketTradesProjectionHandlers(pool);
+    await tradeHandlers["ordering.order.ready-for-fulfillment-recorded"]!(
+      event("ordering.order.ready-for-fulfillment-recorded", { orderId, readyForFulfillmentAt: soldAt }, soldAt),
     );
   }
 
@@ -317,5 +325,217 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     const fraudOnly = await listExcludedMarketTrades(pool, { exclusionReason: "fraud-flagged" });
     expect(fraudOnly).toHaveLength(1);
     expect(fraudOnly[0]?.orderId).toBe("ord_2");
+  });
+
+  it("projects linkage flags as pair-scoped retroactive exclusions and excludes new prints while the flag stands", async () => {
+    const pool = pools.pricing;
+    const clusterHash = "a".repeat(64);
+    await seedTrade(pool, {
+      orderId: "ord_linked",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_b",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_one_sided",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_unrelated",
+    });
+    await markTradeSold(pool, "ord_linked");
+    await markTradeSold(pool, "ord_one_sided");
+
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash, signalKind: "shared-instrument", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-06T00:00:00.000Z",
+      ),
+    );
+
+    await seedTrade(pool, {
+      orderId: "ord_new_linked",
+      lineId: "line_1",
+      buyerAccountId: "acc_b",
+      sellerAccountId: "acc_a",
+    });
+
+    const rows = await pool.query<{ order_id: string; excluded: boolean; exclusion_reason: string | null }>(
+      `SELECT order_id, excluded, exclusion_reason
+       FROM pricing_market_trades
+       ORDER BY order_id`,
+    );
+    expect(rows.rows).toEqual([
+      { order_id: "ord_linked", excluded: true, exclusion_reason: "self-dealing" },
+      { order_id: "ord_new_linked", excluded: true, exclusion_reason: "self-dealing" },
+      { order_id: "ord_one_sided", excluded: false, exclusion_reason: null },
+    ]);
+
+    const queued = await pool.query<{ day: string }>(
+      `SELECT day::text FROM pricing_market_trade_rollup_rederive_queue ORDER BY day`,
+    );
+    expect(queued.rows).toEqual([{ day: "2026-07-02" }]);
+
+    const auditRows = await listExcludedMarketTrades(pool, { exclusionReason: "self-dealing" });
+    expect(auditRows.map((row) => row.orderId).sort()).toEqual(["ord_linked", "ord_new_linked"]);
+  });
+
+  it("replaces revised linkage sets and clears only after every overlapping active flag is gone", async () => {
+    const pool = pools.pricing;
+    const firstClusterHash = "b".repeat(64);
+    const overlappingClusterHash = "c".repeat(64);
+    await seedTrade(pool, {
+      orderId: "ord_ab",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_b",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_ac",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_c",
+    });
+
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash: firstClusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-06T00:00:00.000Z",
+      ),
+    );
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash: overlappingClusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-06T01:00:00.000Z",
+      ),
+    );
+
+    // Re-flagging replaces the first cluster's set. The overlapping cluster
+    // keeps A/B excluded while the replacement newly excludes A/C.
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash: firstClusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_c"] },
+        "2026-07-07T00:00:00.000Z",
+      ),
+    );
+    await linkageHandlers["settlement.account-linkage.cleared"]!(
+      event(
+        "settlement.account-linkage.cleared",
+        { clusterHash: overlappingClusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-08T00:00:00.000Z",
+      ),
+    );
+
+    let rows = await pool.query<{ order_id: string; excluded: boolean }>(
+      `SELECT order_id, excluded FROM pricing_market_trades ORDER BY order_id`,
+    );
+    expect(rows.rows).toEqual([
+      { order_id: "ord_ab", excluded: false },
+      { order_id: "ord_ac", excluded: true },
+    ]);
+
+    await linkageHandlers["settlement.account-linkage.cleared"]!(
+      event(
+        "settlement.account-linkage.cleared",
+        { clusterHash: firstClusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_c"] },
+        "2026-07-09T00:00:00.000Z",
+      ),
+    );
+    rows = await pool.query<{ order_id: string; excluded: boolean }>(
+      `SELECT order_id, excluded FROM pricing_market_trades ORDER BY order_id`,
+    );
+    expect(rows.rows).toEqual([
+      { order_id: "ord_ab", excluded: false },
+      { order_id: "ord_ac", excluded: false },
+    ]);
+  });
+
+  it("lets terminal reasons replace self-dealing and never resurrects them on clear", async () => {
+    const pool = pools.pricing;
+    const clusterHash = "d".repeat(64);
+    const tradeHandlers = buildPricingMarketTradesProjectionHandlers(pool);
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash, signalKind: "shared-instrument", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-06T00:00:00.000Z",
+      ),
+    );
+    await seedTrade(pool, {
+      orderId: "ord_cancelled",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_b",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_refunded",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_b",
+    });
+    await seedTrade(pool, {
+      orderId: "ord_fraud",
+      lineId: "line_1",
+      buyerAccountId: "acc_a",
+      sellerAccountId: "acc_b",
+    });
+
+    await tradeHandlers["ordering.order.cancelled"]!(
+      event(
+        "ordering.order.cancelled",
+        { orderId: "ord_cancelled", cancelledAt: "2026-07-07T00:00:00.000Z" },
+        "2026-07-07T00:00:00.000Z",
+      ),
+    );
+    await tradeHandlers["fulfillment.shipment.created"]!(
+      event(
+        "fulfillment.shipment.created",
+        {
+          shipmentId: "ship_refund",
+          orderId: "ord_refunded",
+          lines: [{ orderLineId: "line_1" }],
+          createdAt: "2026-07-07T00:00:00.000Z",
+        },
+        "2026-07-07T00:00:00.000Z",
+      ),
+    );
+    await tradeHandlers["fulfillment.shipment.returned"]!(
+      event(
+        "fulfillment.shipment.returned",
+        { shipmentId: "ship_refund", returnedAt: "2026-07-08T00:00:00.000Z" },
+        "2026-07-08T00:00:00.000Z",
+      ),
+    );
+    const paymentsHandlers = buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(pool);
+    await paymentsHandlers["payments.payment-fraud-warning-received"]!(
+      event(
+        "payments.payment-fraud-warning-received",
+        { orderIds: ["ord_fraud"], receivedAt: "2026-07-08T00:00:00.000Z" },
+        "2026-07-08T00:00:00.000Z",
+      ),
+    );
+
+    await linkageHandlers["settlement.account-linkage.cleared"]!(
+      event(
+        "settlement.account-linkage.cleared",
+        { clusterHash, signalKind: "shared-instrument", accountIds: ["acc_a", "acc_b"] },
+        "2026-07-09T00:00:00.000Z",
+      ),
+    );
+
+    const rows = await pool.query<{ order_id: string; excluded: boolean; exclusion_reason: string }>(
+      `SELECT order_id, excluded, exclusion_reason FROM pricing_market_trades ORDER BY order_id`,
+    );
+    expect(rows.rows).toEqual([
+      { order_id: "ord_cancelled", excluded: true, exclusion_reason: "cancelled" },
+      { order_id: "ord_fraud", excluded: true, exclusion_reason: "fraud-flagged" },
+      { order_id: "ord_refunded", excluded: true, exclusion_reason: "refunded" },
+    ]);
   });
 });
