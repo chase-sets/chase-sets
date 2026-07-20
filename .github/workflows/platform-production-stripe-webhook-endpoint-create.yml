@@ -34,7 +34,7 @@ jobs:
       - name: Create and verify production Stripe webhook endpoint
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
-          GH_TOKEN: ${{ secrets.GITHUB_ENVIRONMENT_SECRETS_TOKEN }}
+          GH_TOKEN: ${{ secrets.ENVIRONMENT_SECRETS_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
         run: >-
           pnpm run ops stripe:webhook-endpoint -- create-canonical
