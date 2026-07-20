@@ -1,6 +1,6 @@
 ---
 name: delivery
-description: Implement and deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes with process proportional to blast radius. Fast path for low-risk changes (docs, copy, config, tooling, single-context work); full planning for money movement, cross-context contracts/events, schema migrations, and destructive data changes. Use when implementing or delivering a change with repo evidence — including when dispatched a lane assignment by the milestone orchestrator.
+description: Implement and deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes with process proportional to blast radius. Fast path for low-risk changes (docs, copy, config, tooling, single-context work); full planning for money movement, cross-context contracts/events, external provider contracts, schema migrations, and destructive data changes. Use when implementing or delivering a change with repo evidence — including when dispatched a lane assignment by the milestone orchestrator.
 ---
 
 # Delivery
@@ -17,7 +17,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 ## Change Tiers
 
-**Fast path (default).** Docs, copy, UI tweaks, config, tooling, tests, and single-context changes with no money movement, no cross-context contract/event changes, and no schema migration:
+**Fast path (default).** Docs, copy, UI tweaks, config, tooling, tests, and single-context changes with no money movement, no cross-context contract/event changes, no external provider contract changes, and no schema migration:
 
 1. Get on a branch from fresh `origin/main` (see Worktrees).
 2. Read the owning context's `README.md`/`GLOSSARY.md` if the area is unfamiliar.
@@ -26,7 +26,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 No plan file, no sandbox bootstrap unless the tests touched need the database, no per-PR deployment verification.
 
-**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and a bounded self-review pass before PR readiness; in solo mode, also deploy-awareness after merge (see Deployment).
+**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and a bounded self-review pass before PR readiness; in solo mode, also deploy-awareness after merge (see Deployment).
 
 When in doubt, start on the fast path and escalate the moment scope grows into a full-path trigger.
 
@@ -49,6 +49,7 @@ git -C <worktree> switch -c <branch> --track origin/main
 ## Planning (full path only)
 
 - Read the owning context docs: `bounded-contexts/<context>/README.md`, `GLOSSARY.md`, `context.json`, and `docs/architecture/bounded-context-structure.md` when structure matters.
+- Check the orchestrator's defect-class ledger (`~/.claude/skills/milestone-orchestrator/references/defect-classes.md`) for classes whose territory overlaps your footprint. Lane dispatches get overlapping constraints pasted into the prompt; solo sessions must read the ledger themselves — every entry is a defect that has already burned a review round or escaped to production at least once.
 - Search code and tests for relevant terms, events, routes, IDs, projections, and integrations before asking anything.
 - Blocking decisions split by blast radius and mode:
   - **Reversible, low-blast-radius ambiguity:** proceed on your recommended answer and flag the assumption in the PR description.
@@ -61,11 +62,15 @@ git -C <worktree> switch -c <branch> --track origin/main
 - Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. Reserve full `verify` for plausible cross-workspace impact — scope-gated CI carries the full gate.
 - Rebase onto latest `origin/main` before every push, and regenerate derived artifacts as part of the rebase (localization fingerprints, design-system ledgers/`COMPONENT_INDEX`).
 - Run `pnpm run verify:static` before every push.
+- External provider contracts (event sets, webhook payloads, API schemas) are verified against the provider's **test-mode surface** (e.g. a Stripe test-mode create), not internal consistency — internal-only validation has passed every internal gate and still been rejected live. Include the test-mode output in Verification.
 - Your verification evidence is input to external validation — you do not self-certify done. Report exactly what you ran and observed.
 
 ## Review
 
 - One bounded self-review pass per PR before marking it ready: correctness, security of touched surfaces, simplicity, and test adequacy. Fix what you find; do not loop until perfection.
+- Two probes are mandatory in that pass when they apply, because both defect classes have shipped through green CI:
+  - **Changed a service function's signature?** Grep every caller — including composition roots and support/wiring layers — and replace hand-written decoupled function types and `as {...}` casts with the imported interface, so future drift is a typecheck error. A unit test in a fake harness does not prove the production caller compiles.
+  - **Added validation to a command handler?** Enumerate every seeding path (seed, bootstrap, import, reconciliation) and run each against the new rules. PR-lane CI does **not** run the DB-profile suite — the merge group is its first executor — so stand up a disposable Postgres locally rather than pushing unverified attempts.
 - Comprehensive tech-debt review happens on a weekly repo-wide cadence, not per PR.
 - Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there. The cadence is monitored by the weekly Review Cadence Digest workflow (advisory, never blocking).
 - Milestone and launch evidence lives in the closing GitHub issue/PR, git history, and gitignored `artifacts/` outputs from the retained ops verifiers; do not add evidence ledgers or signoff checklists to committed docs. Evidence recorded against a main commit stays valid for its descendants unless the covered surface changed, so do not request or perform broad "current-main revalidation" passes.
@@ -80,6 +85,12 @@ Keep PR bodies to roughly 10–20 lines:
 
 ## Resolved Decisions
 <only decisions worth recording; link an ADR for hard-to-reverse ones; note any assumptions made in lieu of blocking questions>
+
+## Design Evidence
+<full path, only when a footprint below applies — these defect shapes are invisible in a diff, so produce the artifact that makes the omission visible:
+state machine/lifecycle → every state, every transition, the steady state, and day-after routine behavior ·
+validation on a shared handler → the caller inventory (seed/bootstrap/import/reconciliation) and which you ran ·
+external provider contract → the provider's test-mode validation output>
 
 ## Verification
 <what you ran and observed>

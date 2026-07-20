@@ -40,7 +40,13 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
    never reimplementation. Check glossary conformance of every term the plan
-   introduces. Heavy discovery fans out to research workers; the planner synthesizes.
+   introduces. Sweep the orchestrator's **defect-class ledger**
+   (`~/.claude/skills/milestone-orchestrator/references/defect-classes.md`):
+   any class whose territory overlaps the planned footprint gets its constraint
+   written into the issue text itself — dispatch-time pasting alone has not
+   stopped re-bites (the top class re-bit 7× in one 14-day window), and issues
+   delivered solo never see the dispatch prompt at all. Heavy discovery fans
+   out to research workers; the planner synthesizes.
 3. **Decomposition.** Vertical slices, one behavior owner each. **Footprint
    analysis drives topology:** slices sharing files form declared serial chains;
    disjoint slices form parallel waves. Declare the chain DAG explicitly — this
