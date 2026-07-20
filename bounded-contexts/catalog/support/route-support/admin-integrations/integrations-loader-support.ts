@@ -67,6 +67,7 @@ import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 const SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS = 2_500;
 const SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS = 20_000;
 const SOURCE_OPTION_CONTINUATION_PAGE_LIMIT = 200;
+const MAX_SOURCE_OPTION_CONTINUATION_PAGES = 100;
 const AUTH_RESOLUTION_RETRY_DELAYS_MS = [250, 1_000, 2_500] as const;
 
 // Provider profiles + the control plane overview are the shared baseline every
@@ -943,9 +944,16 @@ async function completeSourceOptionResponse(
 
   const items = [...firstResponse.items];
   const seenCursors = new Set<string>();
+  let continuationPageCount = 0;
   let response = firstResponse;
 
   while (response.page?.hasMore) {
+    if (continuationPageCount >= MAX_SOURCE_OPTION_CONTINUATION_PAGES) {
+      throw new CatalogSourceOptionPaginationError(
+        sourceOptionRequest.queryKind,
+        `the response exceeded ${MAX_SOURCE_OPTION_CONTINUATION_PAGES} continuation pages`,
+      );
+    }
     const cursor = response.page.nextCursor?.trim();
     if (!cursor || seenCursors.has(cursor)) {
       throw new CatalogSourceOptionPaginationError(sourceOptionRequest.queryKind, "the cursor did not advance");
@@ -957,6 +965,7 @@ async function completeSourceOptionResponse(
       api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
       SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
     );
+    continuationPageCount += 1;
     assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, sourceOptionRequest.queryKind);
     response = continuationResponse;
     items.push(...response.items);

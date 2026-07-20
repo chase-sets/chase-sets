@@ -289,6 +289,73 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("fails closed when a guided-selector cursor repeats", async () => {
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const cursor = new URLSearchParams(query).get("cursor");
+      return paginatedSourceOptionResponse({
+        cursor,
+        nextCursor: "page-2",
+        hasMore: true,
+      });
+    });
+
+    const deferredSourceOptions = await loadPaginatedGuidedSelectorOptions(listSourceObservationIntegrationOptions);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(2);
+    expectGuidedSelectorPaginationFailure(deferredSourceOptions);
+  });
+
+  it("fails closed when a guided-selector total changes between pages", async () => {
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const cursor = new URLSearchParams(query).get("cursor");
+      return paginatedSourceOptionResponse({
+        cursor,
+        nextCursor: cursor ? null : "page-2",
+        hasMore: cursor === null,
+        total: cursor ? 3 : 2,
+      });
+    });
+
+    const deferredSourceOptions = await loadPaginatedGuidedSelectorOptions(listSourceObservationIntegrationOptions);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(2);
+    expectGuidedSelectorPaginationFailure(deferredSourceOptions);
+  });
+
+  it("fails closed when a guided-selector cache key changes between pages", async () => {
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const cursor = new URLSearchParams(query).get("cursor");
+      return paginatedSourceOptionResponse({
+        cursor,
+        nextCursor: cursor ? null : "page-2",
+        hasMore: cursor === null,
+        cacheKey: cursor ? "sha256:changed" : "sha256:stable",
+      });
+    });
+
+    const deferredSourceOptions = await loadPaginatedGuidedSelectorOptions(listSourceObservationIntegrationOptions);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(2);
+    expectGuidedSelectorPaginationFailure(deferredSourceOptions);
+  });
+
+  it("fails closed when guided-selector continuation pages exceed the hard cap", async () => {
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const cursor = new URLSearchParams(query).get("cursor");
+      const pageNumber = cursor ? Number(cursor.slice("page-".length)) : 0;
+      return paginatedSourceOptionResponse({
+        cursor,
+        nextCursor: `page-${pageNumber + 1}`,
+        hasMore: true,
+      });
+    });
+
+    const deferredSourceOptions = await loadPaginatedGuidedSelectorOptions(listSourceObservationIntegrationOptions);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(101);
+    expectGuidedSelectorPaginationFailure(deferredSourceOptions);
+  });
+
   it("previews a Scrydex One Piece set-name selection from the shared importer route", async () => {
     const unitKey = "scrydex:one-piece:single-card:source-observation-import";
     const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
@@ -1247,3 +1314,94 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.refresh.refreshAllHref).toBeNull();
   });
 });
+
+function paginatedSourceOptionResponse(
+  input: Readonly<{
+    cursor: string | null;
+    nextCursor: string | null;
+    hasMore: boolean;
+    total?: number;
+    cacheKey?: string;
+  }>,
+) {
+  const response = sourceOptionResponse("sets", {
+    status: "fresh",
+    source: input.cursor ? "cache" : "live",
+    parentValue: null,
+    degraded: false,
+    value: input.cursor ? `option-${input.cursor}` : "first-option",
+    label: input.cursor ? `Option ${input.cursor}` : "First option",
+  });
+  return {
+    ...response,
+    total: input.total ?? 2,
+    page: {
+      cursor: input.cursor,
+      nextCursor: input.nextCursor,
+      limit: 25,
+      hasMore: input.hasMore,
+    },
+    cache: {
+      ...response.cache,
+      cacheKey: input.cacheKey ?? "sha256:stable",
+    },
+  };
+}
+
+async function loadPaginatedGuidedSelectorOptions(listSourceObservationIntegrationOptions: ReturnType<typeof vi.fn>) {
+  const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+  const pokemonProfile = profileReview({
+    providerKey: "tcgplayer",
+    profileKey: "pokemon-single-card-product-sku",
+    profileVersion: "2026.06.05",
+    ingestionUnitKey: pokemonUnit,
+    displayName: "TCGplayer Pokemon Single Cards",
+    lifecycle: "active",
+    active: true,
+    status: "active",
+    supportedScopes: ["pokemon/single-card"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["setName"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
+  });
+  mockCreateCatalogRequestApiClient.mockReturnValue({
+    listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+    listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [pokemonProfile], total: 1, count: 1 }),
+    getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+    listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+    listSourceObservationIntegrationOptions,
+    recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+  });
+
+  const routeData = await loader({
+    request: new Request(
+      `https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=${encodeURIComponent(pokemonUnit)}&profileVersion=2026.06.05&sourceOptionAction=force-refresh-all`,
+    ),
+    params: {},
+    context: {},
+  } as Parameters<typeof loader>[0]);
+
+  return routeData.deferredSourceOptions;
+}
+
+function expectGuidedSelectorPaginationFailure(
+  deferredSourceOptions: Awaited<ReturnType<typeof loadPaginatedGuidedSelectorOptions>>,
+) {
+  expect(deferredSourceOptions.pages.find((page) => page.queryKind === "sets")).toMatchObject({
+    state: "unavailable",
+    page: { count: 0, total: 0, hasMore: false, nextCursor: null },
+    items: [],
+    cache: {
+      diagnostics: [expect.objectContaining({ code: "catalog_provider_option_pagination_invalid" })],
+    },
+  });
+}
