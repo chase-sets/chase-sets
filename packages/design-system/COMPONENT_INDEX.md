@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
+- Runtime exports indexed: 363
 - Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -174,6 +174,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MarketplaceDashboardPanel` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Dashboard Panel. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `MarketplaceEmptyState` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Empty State. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `MarketplaceFacetChoiceGroup` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Choice Group. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
+| `MarketplaceFacetGroup` | `packages/design-system/src/patterns/app-shells/facets.tsx` | A marketplace refinement group with an accessible, independently controlled disclosure. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `MarketplaceFacetRail` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Rail. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `MarketplaceFacetStrip` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Strip. | `No production consumer yet.` |
 | `MarketplaceFilterBottomSheet` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Filter Bottom Sheet. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |

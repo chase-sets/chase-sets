@@ -26,6 +26,7 @@ import {
   PlatformCredibilityCue,
   PromoStrip,
   MarketplaceFacetChoiceGroup,
+  MarketplaceFacetGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceLandingHero,
@@ -78,11 +79,19 @@ type SearchFacetConfiguration =
       searchLabel?: string;
       searchPlaceholder?: string;
       searchEmptyLabel?: string;
+      defaultExpanded: boolean;
+      selectionSummary?: string;
     }>
-  | Readonly<{ id: "price-and-stock"; kind: "price-and-stock" }>;
+  | Readonly<{
+      id: "price-and-stock";
+      kind: "price-and-stock";
+      title: string;
+      description: string;
+      defaultExpanded: boolean;
+      selectionSummary?: string;
+    }>;
 
 type PriceAndStockFiltersProps = Readonly<{
-  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   priceMin: string;
   priceMax: string;
   inStock: boolean;
@@ -152,7 +161,6 @@ function facetOptionSearchProps(facet: DiscoveryFacetGroup) {
 }
 
 function PriceAndStockFilters({
-  headingLevel = 2,
   priceMin,
   priceMax,
   inStock,
@@ -189,14 +197,6 @@ function PriceAndStockFilters({
 
   return (
     <Stack gap={3}>
-      <Stack gap={1}>
-        <Heading level={headingLevel} visualSize={6}>
-          {t("discovery.features.search.ui.searchPage.price.and.availability")}
-        </Heading>
-        <Text size="sm" tone="secondary">
-          {t("discovery.features.search.ui.searchPage.price.and.availability.description")}
-        </Text>
-      </Stack>
       <Grid columns={{ base: 1, md: 2 }} gap={2}>
         <Box onPointerDownCapture={(event) => markPriceStepper("min", event)}>
           <CurrencyInput
@@ -484,6 +484,11 @@ export function SearchPage({
     showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
     showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
   };
+  const priceAndStockSelectionSummary = [
+    ...(priceMin ? [`${t("discovery.features.search.ui.searchPage.minimum.price")}: ${formatMoney(priceMin)}`] : []),
+    ...(priceMax ? [`${t("discovery.features.search.ui.searchPage.maximum.price")}: ${formatMoney(priceMax)}`] : []),
+    ...(inStock ? [t("discovery.features.search.ui.searchPage.in.stock")] : []),
+  ].join(", ");
   const appliedFilters = [
     ...(committedSearch.trim()
       ? [
@@ -598,8 +603,17 @@ export function SearchPage({
       })),
       selectedId: category,
       onSelect: onCategoryChange,
+      defaultExpanded: true,
+      selectionSummary: category ? activeCategoryLabel : undefined,
     },
-    { id: "price-and-stock", kind: "price-and-stock" },
+    {
+      id: "price-and-stock",
+      kind: "price-and-stock",
+      title: t("discovery.features.search.ui.searchPage.price.and.availability"),
+      description: t("discovery.features.search.ui.searchPage.price.and.availability.description"),
+      defaultExpanded: true,
+      selectionSummary: priceAndStockSelectionSummary || undefined,
+    },
     {
       id: "language",
       kind: "choice",
@@ -609,6 +623,8 @@ export function SearchPage({
       items: languageOptions.map((item) => ({ id: item.value, label: item.label })),
       selectedId: language,
       onSelect: onLanguageChange,
+      defaultExpanded: false,
+      selectionSummary: language ? activeLanguageLabel : undefined,
     },
     {
       id: "market-activity",
@@ -619,6 +635,8 @@ export function SearchPage({
       items: marketActivityOptions.filter((item) => item.value).map((item) => ({ id: item.value, label: item.label })),
       selectedId: marketActivity,
       onSelect: (value) => onMarketActivityChange(value as MarketActivityFilter),
+      defaultExpanded: false,
+      selectionSummary: marketActivity ? activeMarketActivityLabel : undefined,
     },
     ...dynamicFacets.map((facet) => ({
       id: `${facet.kind}:${facet.id}`,
@@ -637,6 +655,11 @@ export function SearchPage({
         }
       },
       ...facetOptionSearchProps(facet),
+      defaultExpanded: false,
+      selectionSummary:
+        selectedFacetValues(facet)
+          .map((value) => value.label)
+          .join(", ") || undefined,
     })),
   ];
 
@@ -644,18 +667,25 @@ export function SearchPage({
     return searchFacetConfigurations.map((facet) => {
       if (facet.kind === "price-and-stock") {
         return (
-          <PriceAndStockFilters
+          <MarketplaceFacetGroup
             key={facet.id}
-            headingLevel={2}
-            priceMin={priceMin}
-            priceMax={priceMax}
-            inStock={inStock}
-            onPriceMinChange={onPriceMinChange}
-            onPriceMaxChange={onPriceMaxChange}
-            onPriceMinStep={onPriceMinStep}
-            onPriceMaxStep={onPriceMaxStep}
-            onInStockChange={onInStockChange}
-          />
+            id={`search-facet-${facet.id}`}
+            title={facet.title}
+            description={facet.description}
+            selectionSummary={facet.selectionSummary}
+            defaultExpanded={facet.defaultExpanded}
+          >
+            <PriceAndStockFilters
+              priceMin={priceMin}
+              priceMax={priceMax}
+              inStock={inStock}
+              onPriceMinChange={onPriceMinChange}
+              onPriceMaxChange={onPriceMaxChange}
+              onPriceMinStep={onPriceMinStep}
+              onPriceMaxStep={onPriceMaxStep}
+              onInStockChange={onInStockChange}
+            />
+          </MarketplaceFacetGroup>
         );
       }
 
@@ -675,6 +705,9 @@ export function SearchPage({
         searchPlaceholder: facet.searchPlaceholder,
         searchEmptyLabel: facet.searchEmptyLabel,
         showLeadingIcons: false,
+        collapsible: true,
+        defaultExpanded: facet.defaultExpanded,
+        selectionSummary: facet.selectionSummary,
         ...progressiveFacetLabels,
       };
 

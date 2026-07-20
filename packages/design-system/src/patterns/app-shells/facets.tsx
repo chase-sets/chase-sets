@@ -3,7 +3,7 @@ import { Button } from "../../components/actions";
 import { SearchInput } from "../../components/forms";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../../components/control-sizing";
 import { cx } from "../../utils/cx";
-import { Badge, BottomSheet, type BottomSheetProps } from "../../components/feedback";
+import { Accordion, Badge, BottomSheet, type BottomSheetProps } from "../../components/feedback";
 import { Icon, type IconName } from "../../icons";
 
 export interface MarketplaceFacetItem {
@@ -15,6 +15,55 @@ export interface MarketplaceFacetItem {
 export type MarketplaceFacetSelectionMode = "single" | "multiple";
 
 const DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS = 6;
+
+export interface MarketplaceFacetGroupProps {
+  id?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  selectionSummary?: ReactNode;
+  defaultExpanded?: boolean;
+  children: ReactNode;
+}
+
+/**
+ * A marketplace refinement group with an accessible, independently controlled
+ * disclosure. Use this for every group in a facet stack so a dense rail and
+ * its mobile sheet retain the same progressive-disclosure behavior.
+ */
+export function MarketplaceFacetGroup({
+  id,
+  title,
+  description,
+  selectionSummary,
+  defaultExpanded = false,
+  children,
+}: MarketplaceFacetGroupProps) {
+  return (
+    <Accordion
+      id={id}
+      items={[
+        {
+          value: "facet-content",
+          trigger: (
+            <span className="grid min-w-0 gap-1">
+              <span className="font-heading text-sm font-semibold text-foreground">{title}</span>
+              {selectionSummary ? <span className="text-xs font-normal text-secondary">{selectionSummary}</span> : null}
+            </span>
+          ),
+          content: (
+            <div className="grid gap-3">
+              {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
+              {children}
+            </div>
+          ),
+        },
+      ]}
+      type="multiple"
+      variant="sectionList"
+      defaultValue={defaultExpanded ? ["facet-content"] : []}
+    />
+  );
+}
 
 function isMarketplaceFacetItemSelected(
   item: MarketplaceFacetItem,
@@ -102,6 +151,9 @@ export interface MarketplaceFacetRailProps {
   showLessLabel?: ReactNode;
   visibleOptionCount?: number;
   showLeadingIcons?: boolean;
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
+  selectionSummary?: ReactNode;
 }
 
 export function MarketplaceFacetRail({
@@ -123,6 +175,9 @@ export function MarketplaceFacetRail({
   showLessLabel = "Show less",
   visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
   showLeadingIcons = true,
+  collapsible = false,
+  defaultExpanded = false,
+  selectionSummary,
 }: MarketplaceFacetRailProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -138,16 +193,18 @@ export function MarketplaceFacetRail({
     visibleOptionCount,
   });
 
-  return (
-    <section id={id} className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
-      <div className="space-y-1 px-1">
-        {(() => {
-          const Heading = `h${headingLevel}` as const;
+  const content = (
+    <div className="min-w-0 space-y-3">
+      {!collapsible ? (
+        <div className="space-y-1 px-1">
+          {(() => {
+            const Heading = `h${headingLevel}` as const;
 
-          return <Heading className="font-heading text-base font-semibold text-foreground">{title}</Heading>;
-        })()}
-        {description ? <div className="text-sm text-secondary">{description}</div> : null}
-      </div>
+            return <Heading className="font-heading text-base font-semibold text-foreground">{title}</Heading>;
+          })()}
+          {description ? <div className="text-sm text-secondary">{description}</div> : null}
+        </div>
+      ) : null}
       {searchable ? (
         <SearchInput
           label={searchLabel}
@@ -205,6 +262,26 @@ export function MarketplaceFacetRail({
           </Button>
         ) : null}
       </div>
+    </div>
+  );
+
+  if (collapsible) {
+    return (
+      <MarketplaceFacetGroup
+        id={id}
+        title={title}
+        description={description}
+        selectionSummary={selectionSummary}
+        defaultExpanded={defaultExpanded}
+      >
+        {content}
+      </MarketplaceFacetGroup>
+    );
+  }
+
+  return (
+    <section id={id} className="min-w-0 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
+      {content}
     </section>
   );
 }
@@ -294,6 +371,9 @@ export interface MarketplaceFacetChoiceGroupProps {
   showLessLabel?: ReactNode;
   visibleOptionCount?: number;
   showLeadingIcons?: boolean;
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
+  selectionSummary?: ReactNode;
 }
 
 export function MarketplaceFacetChoiceGroup({
@@ -317,6 +397,9 @@ export function MarketplaceFacetChoiceGroup({
   showLessLabel = "Show less",
   visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
   showLeadingIcons = true,
+  collapsible = false,
+  defaultExpanded = false,
+  selectionSummary,
 }: MarketplaceFacetChoiceGroupProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -379,16 +462,18 @@ export function MarketplaceFacetChoiceGroup({
     </button>
   );
 
-  return (
-    <section id={id} className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
-      <div className="space-y-1">
-        {(() => {
-          const Heading = `h${headingLevel}` as const;
+  const content = (
+    <div className="grid gap-3">
+      {!collapsible ? (
+        <div className="space-y-1">
+          {(() => {
+            const Heading = `h${headingLevel}` as const;
 
-          return <Heading className="m-0 font-heading text-sm font-semibold text-foreground">{title}</Heading>;
-        })()}
-        {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
-      </div>
+            return <Heading className="m-0 font-heading text-sm font-semibold text-foreground">{title}</Heading>;
+          })()}
+          {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
+        </div>
+      ) : null}
       {searchable ? (
         <SearchInput
           label={searchLabel}
@@ -427,6 +512,26 @@ export function MarketplaceFacetChoiceGroup({
           </Button>
         ) : null}
       </div>
+    </div>
+  );
+
+  if (collapsible) {
+    return (
+      <MarketplaceFacetGroup
+        id={id}
+        title={title}
+        description={description}
+        selectionSummary={selectionSummary}
+        defaultExpanded={defaultExpanded}
+      >
+        {content}
+      </MarketplaceFacetGroup>
+    );
+  }
+
+  return (
+    <section id={id} className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
+      {content}
     </section>
   );
 }
