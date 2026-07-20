@@ -131,16 +131,34 @@ export async function expireMarketPriceEstimate(
   db: PgQueryable,
   params: MarketEstimateProductTuple,
   expiredAt: string,
-): Promise<void> {
-  await db.query(
+  readUpdatedAt: string,
+): Promise<number> {
+  const result = await db.query(
     `UPDATE pricing_market_price_estimates
      SET fresh_until = LEAST(fresh_until, $3::timestamptz),
          updated_at = GREATEST(updated_at, $3::timestamptz)
      WHERE catalog_catalog_item_id = $1
        AND product_id = $2
-       AND fresh_until > $3`,
-    [params.catalogItemId, params.productId, expiredAt],
+       AND fresh_until > $3
+       AND updated_at = $4::timestamptz`,
+    [params.catalogItemId, params.productId, expiredAt, readUpdatedAt],
   );
+  return result.rowCount ?? 0;
+}
+
+/** The projection revision observed by an estimate closer before it mutates freshness. */
+export async function getMarketPriceEstimateUpdatedAt(
+  db: PgQueryable,
+  params: MarketEstimateProductTuple,
+): Promise<string | null> {
+  const result = await db.query<{ updated_at: Date }>(
+    `SELECT updated_at
+     FROM pricing_market_price_estimates
+     WHERE catalog_catalog_item_id = $1 AND product_id = $2`,
+    [params.catalogItemId, params.productId],
+  );
+  const row = result.rows[0];
+  return row ? new Date(row.updated_at).toISOString() : null;
 }
 
 const MARKET_ESTIMATE_CLOSER_NAME = "market-price-estimate-closer";

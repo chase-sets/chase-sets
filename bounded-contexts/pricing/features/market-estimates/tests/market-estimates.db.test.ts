@@ -15,6 +15,7 @@ import { buildPricingPriceSignalCatalogProjectionHandlers } from "../../price-si
 import { createPriceSignalRuntime } from "../../price-signals/api/runtime";
 import { createMarketEstimatesRuntime, marketPriceEstimateStreamId } from "../api/runtime";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
+import { expireMarketPriceEstimate, getMarketPriceEstimateUpdatedAt } from "../read-model/queries";
 import { marketPriceEstimatedEventType } from "../domain/domain";
 import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 
@@ -313,6 +314,44 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     const expired = await runtime.getMarketPriceEstimate({ catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID });
     expect(Date.parse(expired!.freshUntil)).toBeLessThan(Date.parse(nextPassAt));
     expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(1);
+  });
+
+  it("does not expire a newer projection when the closer read the previous revision", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, { orderId: "ord_race_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_race_2", priceAmount: "12.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_race_3", priceAmount: "14.00", soldAt: daysBefore(NOW, 1) });
+
+    const { eventStore, runtime } = createRuntime(pool);
+    await runtime.runMarketPriceEstimateCloser({ now: NOW });
+    const projectionHandlers = buildPricingMarketEstimateProjectionHandlers(pool);
+    const [first] = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    await projectionHandlers[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, first!.payload, first!.recordedAt, first!.streamId),
+    );
+    const readUpdatedAt = await getMarketPriceEstimateUpdatedAt(pool, {
+      catalogItemId: CATALOG_ITEM_ID,
+      productId: PRODUCT_ID,
+    });
+    expect(readUpdatedAt).not.toBeNull();
+
+    await runtime.runMarketPriceEstimateCloser({ now: "2026-07-17T14:01:00.000Z" });
+    const [, newer] = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    await projectionHandlers[marketPriceEstimatedEventType]!(
+      event(marketPriceEstimatedEventType, newer!.payload, newer!.recordedAt, newer!.streamId),
+    );
+    const newerFreshUntil = (newer!.payload as { freshUntil: string }).freshUntil;
+
+    const expiredRows = await expireMarketPriceEstimate(
+      pool,
+      { catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID },
+      "2026-07-17T13:59:59.999Z",
+      readUpdatedAt!,
+    );
+
+    expect(expiredRows).toBe(0);
+    const current = await runtime.getMarketPriceEstimate({ catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID });
+    expect(current!.freshUntil).toBe(newerFreshUntil);
   });
 
   it("loads participant identity from the Trades Tape and rejects three prints from one buyer", async () => {
