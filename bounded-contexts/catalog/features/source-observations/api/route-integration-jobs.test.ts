@@ -935,6 +935,37 @@ describe("source observation routes: integration and bulk review jobs", () => {
     expect(listBulkReviewJobEvents).toHaveBeenCalledWith("job_1", 0);
   });
 
+  it("returns the appended terminal promotion outcome for workbench recovery", async () => {
+    const job = bulkJobFixture({ jobId: "job_outcome", action: "promote" });
+    const outcome = {
+      outcomeId: "job_outcome:4",
+      jobId: "job_outcome",
+      eventSequence: 4,
+      terminalState: "completed",
+      requested: 2,
+      promoted: 2,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+      errorMessage: null,
+      recordedAt: "2026-07-19T20:00:00.000Z",
+    } as const;
+    const getBulkReviewJob = vi.fn(async () => job);
+    const getBulkReviewPromotionOutcome = vi.fn(async () => outcome);
+    const services = {
+      getBulkReviewJob,
+      getBulkReviewPromotionOutcome,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-jobs/job_outcome/outcome");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ outcome });
+    expect(getBulkReviewJob).toHaveBeenCalledWith("job_outcome", context);
+    expect(getBulkReviewPromotionOutcome).toHaveBeenCalledWith("job_outcome");
+  });
+
   it("requires a reason for bulk rejection", async () => {
     const services = {
       rejectObservations: vi.fn(),

@@ -420,6 +420,20 @@ export type SourceObservationJobEvent<TJob> = Readonly<{
   createdAt: string;
 }>;
 
+export type SourceObservationPromotionOutcomeRecord = Readonly<{
+  outcomeId: string;
+  jobId: string;
+  eventSequence: number;
+  terminalState: "completed" | "partial" | "failed";
+  requested: number;
+  promoted: number;
+  skipped: number;
+  failed: number;
+  outcomes: readonly BulkSourceObservationPromotionOutcome[];
+  errorMessage: string | null;
+  recordedAt: string;
+}>;
+
 export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
 
 export type SourceObservationJobRunContext = Readonly<{
@@ -986,6 +1000,7 @@ export type BulkReviewJobServices = Readonly<{
     jobId: string,
     afterSequence?: number,
   ) => Promise<readonly SourceObservationJobEvent<SourceObservationBulkJob>[]>;
+  getBulkReviewPromotionOutcome: (jobId: string) => Promise<SourceObservationPromotionOutcomeRecord | null>;
   waitForBulkReviewJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
   listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
   processNextBulkReviewJob: (
@@ -4802,6 +4817,11 @@ export function createSourceObservationRuntime(
     },
     listBulkReviewJobEvents: async (jobId, afterSequence = 0) =>
       (await bulkReviewJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
+    getBulkReviewPromotionOutcome: async (jobId) =>
+      terminalPromotionOutcomeFromEvents(
+        jobId,
+        (await bulkReviewJobStore.listEvents(jobId)).map(toSourceObservationJobEvent),
+      ),
     waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
     listActiveBulkReviewJobs: async ({ context }) =>
       (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] }))
@@ -8333,6 +8353,49 @@ function toSourceObservationJobEvent<TJob>(
     eventName: event.eventName,
     job: event.job,
     createdAt: event.createdAt,
+  };
+}
+
+function terminalPromotionOutcomeFromEvents(
+  jobId: string,
+  events: readonly SourceObservationJobEvent<SourceObservationBulkJob>[],
+): SourceObservationPromotionOutcomeRecord | null {
+  const terminalEvent = events.findLast(
+    (event) => event.job.action === "promote" && (event.job.status === "completed" || event.job.status === "failed"),
+  );
+  if (!terminalEvent) {
+    return null;
+  }
+
+  const result = terminalEvent.job.result;
+  const promotionResult = result && "promoted" in result ? result : null;
+  const requested = promotionResult?.requested ?? terminalEvent.job.progress.total;
+  const promoted = promotionResult?.promoted ?? 0;
+  const skipped = promotionResult?.skipped ?? 0;
+  const recordedFailed = promotionResult?.failed ?? 0;
+  const failed =
+    terminalEvent.job.status === "failed" || !promotionResult
+      ? Math.max(recordedFailed, requested - promoted - skipped)
+      : recordedFailed;
+  const terminalState =
+    terminalEvent.job.status === "failed" || (failed > 0 && promoted === 0)
+      ? "failed"
+      : failed > 0
+        ? "partial"
+        : "completed";
+
+  return {
+    outcomeId: `${jobId}:${terminalEvent.sequence}`,
+    jobId,
+    eventSequence: terminalEvent.sequence,
+    terminalState,
+    requested,
+    promoted,
+    skipped,
+    failed,
+    outcomes: promotionResult?.outcomes ?? [],
+    errorMessage: terminalEvent.job.errorMessage,
+    recordedAt: terminalEvent.createdAt,
   };
 }
 

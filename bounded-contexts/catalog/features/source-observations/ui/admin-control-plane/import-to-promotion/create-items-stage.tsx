@@ -38,6 +38,8 @@ export function CatalogIntegrationCreateItemsStage({
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.description")}
       </WorkbenchText>
 
+      {readModel.promotionResult ? <CatalogIntegrationPromotionOutcome result={readModel.promotionResult} /> : null}
+
       <WorkbenchDetailPanel>
         <WorkbenchActionRow align="between">
           <WorkbenchStack gap="sm">
@@ -171,6 +173,77 @@ export function CatalogIntegrationCreateItemsStage({
         <CatalogIntegrationCommandPlanDetail readModel={readModel} />
       </ProgressiveDisclosure>
     </WorkbenchStack>
+  );
+}
+
+function CatalogIntegrationPromotionOutcome({
+  result,
+}: Readonly<{ result: NonNullable<CatalogPrimaryWorkbenchReadModel["promotionResult"]> }>) {
+  const tone = result.status === "completed" ? "success" : result.status === "partial" ? "warning" : "danger";
+
+  return (
+    <WorkbenchDetailPanel>
+      <WorkbenchActionRow align="between">
+        <WorkbenchStack gap="sm">
+          <WorkbenchText tone="foreground" weight="semibold">
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.title")}
+          </WorkbenchText>
+          <WorkbenchText size="xs" tone="secondary">
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.description", {
+              resultId: result.resultId,
+            })}
+          </WorkbenchText>
+        </WorkbenchStack>
+        <BadgeCluster
+          items={[
+            {
+              key: "outcome",
+              label: stateLabel(result.status),
+              tone,
+            },
+          ]}
+        />
+      </WorkbenchActionRow>
+      <WorkbenchGrid columns="detail">
+        <KeyValueList
+          items={[
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.matched"),
+              value: result.requestedCount,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.promoted"),
+              value: result.promotedCount,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
+              value: result.skippedCount,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed"),
+              value: result.failedCount,
+            },
+          ]}
+        />
+        <KeyValueList
+          items={[
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.job"),
+              value: result.jobId,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.recordedAt"),
+              value: result.completedAt,
+            },
+          ]}
+        />
+      </WorkbenchGrid>
+      {result.redactedFailureReasons.map((reason) => (
+        <WorkbenchText key={reason} size="xs" tone="secondary">
+          {reason}
+        </WorkbenchText>
+      ))}
+    </WorkbenchDetailPanel>
   );
 }
 

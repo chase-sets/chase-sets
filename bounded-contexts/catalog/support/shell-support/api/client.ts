@@ -1793,6 +1793,16 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getSourceObservationPromotionOutcome<T>(jobId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(jobId)}/outcome`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async watchSourceObservationBulkJob<T>(jobId: string, options: CatalogBulkActionProgressOptions = {}): Promise<T> {
       return streamBulkJob<T>({
         baseUrl,

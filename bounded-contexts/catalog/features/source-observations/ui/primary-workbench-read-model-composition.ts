@@ -57,6 +57,7 @@ import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-s
 import { sourceScopeWorksetFor } from "./primary-workbench-source-scope-workset";
 import { catalogSyncFor } from "./primary-workbench-catalog-sync";
 import { mergeCandidateReviewFor } from "./primary-workbench-merge-candidate-review";
+import { redactedCatalogJobFailureReason } from "../api/admin-control-plane-overview";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -578,6 +579,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
 
   return assembleReadModel({
     core,
+    promotionResult: promotionResultFromOutcome(input.promotionOutcome ?? null),
     actions,
     profileAuthoring,
     validationReadiness,
@@ -641,6 +643,7 @@ function emptyProviderSliceDerived(derived: CatalogPrimaryWorkbenchDerived): Cat
 function assembleReadModel(
   parts: Readonly<{
     core: CatalogPrimaryWorkbenchCore;
+    promotionResult: CatalogPrimaryWorkbenchReadModel["promotionResult"];
     actions: readonly CatalogPrimaryWorkbenchActionReadModel[];
     profileAuthoring: CatalogPrimaryWorkbenchReadModel["profileAuthoring"];
     validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
@@ -671,7 +674,7 @@ function assembleReadModel(
     mergeCandidateReview: core.mergeCandidateReview,
     conflictResolution: parts.conflictResolution,
     promotionPreview: core.promotionPreview,
-    promotionResult: null,
+    promotionResult: parts.promotionResult,
     actions: parts.actions,
     sourceOptions: core.sourceOptions,
     deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
@@ -685,6 +688,49 @@ function assembleReadModel(
   validateCatalogPrimaryWorkbenchReadModelContract(readModel);
 
   return readModel;
+}
+
+function promotionResultFromOutcome(
+  outcome: CatalogPrimaryWorkbenchInput["promotionOutcome"],
+): CatalogPrimaryWorkbenchReadModel["promotionResult"] {
+  if (!outcome) {
+    return null;
+  }
+
+  return {
+    resultId: outcome.outcomeId,
+    jobId: outcome.jobId,
+    status: outcome.terminalState,
+    requestedCount: outcome.requested,
+    promotedCount: outcome.promoted,
+    skippedCount: outcome.skipped,
+    failedCount: outcome.failed,
+    promotedCatalogItemIds: uniqueStrings(
+      outcome.outcomes.flatMap((item) => (item.catalogItemId ? [item.catalogItemId] : [])),
+    ),
+    promotedReferenceIds: uniqueStrings(
+      outcome.outcomes.flatMap((item) => (item.referenceRecordId ? [item.referenceRecordId] : [])),
+    ),
+    skippedObservationIds: outcome.outcomes
+      .filter((item) => item.status === "skipped")
+      .map((item) => item.observationId),
+    failedObservationIds: outcome.outcomes.filter((item) => item.status === "failed").map((item) => item.observationId),
+    redactedFailureReasons: uniqueStrings(
+      outcome.outcomes.flatMap((item) => {
+        if (item.status !== "failed") {
+          return [];
+        }
+        const reason = redactedCatalogJobFailureReason(item.reason);
+        return reason ? [reason] : [];
+      }),
+    ).slice(0, 3),
+    completedAt: outcome.recordedAt,
+    auditEvidenceIds: [outcome.outcomeId],
+  };
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function buildSurfaceActions(

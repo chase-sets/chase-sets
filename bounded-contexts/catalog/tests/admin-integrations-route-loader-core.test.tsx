@@ -532,6 +532,71 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("hydrates the durable terminal promotion outcome selected by the command job id", async () => {
+    const getSourceObservationPromotionOutcome = vi.fn().mockResolvedValue({
+      outcome: {
+        outcomeId: "job_5801:5",
+        jobId: "job_5801",
+        eventSequence: 5,
+        terminalState: "completed",
+        requested: 2,
+        promoted: 2,
+        skipped: 0,
+        failed: 0,
+        outcomes: [
+          {
+            observationId: "obs_001",
+            status: "promoted",
+            catalogItemId: "cat_001",
+            referenceRecordId: null,
+            reason: null,
+          },
+          {
+            observationId: "obs_002",
+            status: "promoted",
+            catalogItemId: "cat_002",
+            referenceRecordId: null,
+            reason: null,
+          },
+        ],
+        errorMessage: null,
+        recordedAt: "2026-07-19T20:00:00.000Z",
+      },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [sourceObservationScope()], total: 1, count: 1 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(controlPlaneOverview()),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listCatalogMergeCandidates: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getSourceObservationPromotionOutcome,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&jobId=job_5801",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(getSourceObservationPromotionOutcome).toHaveBeenCalledWith("job_5801");
+    expect(routeData.readModel.promotionResult).toMatchObject({
+      resultId: "job_5801:5",
+      jobId: "job_5801",
+      status: "completed",
+      requestedCount: 2,
+      promotedCount: 2,
+      promotedCatalogItemIds: ["cat_001", "cat_002"],
+      auditEvidenceIds: ["job_5801:5"],
+    });
+  });
+
   it("keeps structured TCGplayer set routes alive when deferred option rendering fails", async () => {
     const scopes = {
       items: [

@@ -1421,9 +1421,18 @@ describe("Catalog primary workbench admin contracts", () => {
       },
       promotionResult: {
         resultId: "promotion_001",
+        jobId: "job_001",
+        status: "completed",
+        requestedCount: 1,
+        promotedCount: 1,
+        skippedCount: 0,
+        failedCount: 0,
         promotedCatalogItemIds: ["cat_001"],
         promotedReferenceIds: ["ref_001"],
         skippedObservationIds: [],
+        failedObservationIds: [],
+        redactedFailureReasons: [],
+        completedAt: "2026-06-09T01:05:00.000Z",
         auditEvidenceIds: ["aud_001"],
       },
       actions: [

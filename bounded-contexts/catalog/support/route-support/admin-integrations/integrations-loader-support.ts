@@ -25,6 +25,7 @@ import type {
   SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOptionResponse,
 } from "../../../features/source-observations/ui/contracts";
+import type { SourceObservationPromotionOutcomeRecord } from "../../../features/source-observations/api/runtime";
 import {
   loaderTelemetryEvents,
   recordCatalogControlPlaneEvents,
@@ -176,6 +177,7 @@ async function finalizeSurfaceLoad(input: {
   > | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
+  promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
@@ -192,6 +194,7 @@ async function finalizeSurfaceLoad(input: {
     readModelFailures: input.readModelFailures ?? input.baseline.readModelFailures,
     reviewObservations: input.reviewObservations ?? null,
     mergeCandidates: input.mergeCandidates ?? null,
+    promotionOutcome: input.promotionOutcome ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -240,17 +243,18 @@ export async function loadDailySurfaceForRequest(request: Request) {
   const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
   const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
-  const reviewObservationResult = reviewQuery
-    ? await catalogApiResult(
-        () => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery),
-        null,
-      )
-    : ({ value: null, failed: false } as const);
+  const reviewObservationPromise = reviewQuery
+    ? catalogApiResult(() => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
+    : Promise.resolve({ value: null, failed: false } as const);
   const mergeCandidateQuery = buildDailyMergeCandidateQuery(normalizedRouteContext);
-  const mergeCandidateResult = await catalogApiResult(
-    () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
-    null,
-  );
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome] = await Promise.all([
+    reviewObservationPromise,
+    catalogApiResult(
+      () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
+      null,
+    ),
+    selectedPromotionOutcome(api, normalizedRouteContext),
+  ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
     readModelFailures.push("source-observation-review");
@@ -266,6 +270,7 @@ export async function loadDailySurfaceForRequest(request: Request) {
     baseline,
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
+    promotionOutcome,
     reviewPagination,
     readModelFailures,
   });
@@ -510,6 +515,24 @@ async function selectedCatalogSyncRun(
   }
 }
 
+async function selectedPromotionOutcome(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<SourceObservationPromotionOutcomeRecord | null> {
+  if (!context.jobId || typeof api.getSourceObservationPromotionOutcome !== "function") {
+    return null;
+  }
+
+  try {
+    const response = await api.getSourceObservationPromotionOutcome<{
+      outcome: SourceObservationPromotionOutcomeRecord | null;
+    }>(context.jobId);
+    return response.outcome;
+  } catch {
+    return null;
+  }
+}
+
 // The durable per-scope sync state (survives across runs), keyed off the same
 // scope the "Sync scope" action itself submits — so the scope page's state
 // panel and the "Sync scope" fan-out always agree on which scope they mean.
@@ -557,6 +580,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   reviewObservations: ListResponse<SourceObservationListItem> | null;
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
+  promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -606,6 +630,7 @@ function surfaceReadModelInput(
     readModelFailures,
     reviewObservations: failures.has("source-observation-review") ? null : input.reviewObservations,
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
+    promotionOutcome: input.promotionOutcome,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,
