@@ -58,7 +58,8 @@ export const SUBCOMMANDS = {
   },
   "stripe:webhook-endpoint": {
     script: "stripe-webhook-endpoint.mjs",
-    description: "Verify shared Stripe Payments webhook endpoints or repoint the exact legacy staging endpoint.",
+    description:
+      "Verify or create canonical Stripe Payments webhook endpoints, or repoint the exact legacy staging endpoint.",
   },
   "catalog:production-completion-report": {
     script: "run-catalog-production-completion-report.mjs",

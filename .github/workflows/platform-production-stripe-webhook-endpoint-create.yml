@@ -1,0 +1,42 @@
+name: Platform Production Stripe Webhook Endpoint Create
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type "create production payments webhook endpoint" to create the live endpoint
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-production-stripe-webhook-endpoint-create
+  cancel-in-progress: false
+
+jobs:
+  create:
+    name: Create Production Stripe Webhook Endpoint
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      inputs.confirmation == 'create production payments webhook endpoint'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: refs/heads/main
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Create and verify production Stripe webhook endpoint
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          GH_TOKEN: ${{ secrets.GITHUB_ENVIRONMENT_SECRETS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: >-
+          pnpm run ops stripe:webhook-endpoint -- create-canonical
+          --environment production
+          --confirm "$CONFIRMATION"
