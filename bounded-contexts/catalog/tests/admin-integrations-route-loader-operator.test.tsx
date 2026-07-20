@@ -318,7 +318,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservations,
       bulkPromoteSourceObservationsByScope,
     });
-    const promoteResult = await runDailyAction(
+    const promoteResponse = await runDailyActionRedirect(
       {
         _intent: "observation.promote",
         providerKey: "tcgdex",
@@ -333,9 +333,10 @@ describe("Catalog integrations route", () => {
     );
 
     expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(selectedScopePromotionFilter);
-    expect(promoteResult.context.jobId).toBe("job_promote_ja_sv8");
-    expect(promoteResult.context.promotionPreviewId).toBeNull();
-    expect(promoteResult.feedback.result).toBe("job-queued");
+    const promoteLocation = redirectLocation(promoteResponse);
+    expect(promoteLocation.searchParams.get("jobId")).toBe("job_promote_ja_sv8");
+    expect(promoteLocation.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(promoteLocation.searchParams.get("commandResult")).toBe("job-queued");
   });
 
   it("force-refreshes every option group when the workbench refresh-all intent is present", async () => {

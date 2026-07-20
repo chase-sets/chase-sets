@@ -323,16 +323,6 @@ export function useActiveSourceObservationBulkJobs() {
   );
 }
 
-export function watchSourceObservationBulkJob(
-  jobId: string,
-  options: {
-    onProgress?: (progress: CatalogBulkActionProgress) => void;
-    signal?: AbortSignal;
-  } = {},
-) {
-  return api.watchSourceObservationBulkJob<BulkSourceObservationPromotionResult>(jobId, options);
-}
-
 export function enqueueSourceObservationIntegrationJob(
   action: "import" | "reapply",
   scope: SourceObservationIntegrationJobScope,

@@ -1803,17 +1803,6 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
-    async watchSourceObservationBulkJob<T>(jobId: string, options: CatalogBulkActionProgressOptions = {}): Promise<T> {
-      return streamBulkJob<T>({
-        baseUrl,
-        fetch: configuredFetch,
-        headers,
-        jobId,
-        onProgress: options.onProgress ?? (() => {}),
-        signal: options.signal,
-        errorMessage: "Bulk Source Observation job failed.",
-      });
-    },
     async enqueueSourceObservationIntegrationJob<T>(
       action: "import" | "reapply",
       scope: unknown,

@@ -60,6 +60,10 @@ export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCom
       result.feedback.result === "preview-ready" &&
       Boolean(result.context.promotionPreviewId)) ||
     (result.feedback.status === "success" &&
+      result.feedback.intent === "observation.promote" &&
+      result.feedback.result === "job-queued" &&
+      Boolean(result.context.jobId)) ||
+    (result.feedback.status === "success" &&
       result.feedback.intent === "scope.sync" &&
       result.feedback.result === "job-queued" &&
       Boolean(result.context.jobId))

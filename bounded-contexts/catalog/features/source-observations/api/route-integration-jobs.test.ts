@@ -966,6 +966,40 @@ describe("source observation routes: integration and bulk review jobs", () => {
     expect(getBulkReviewPromotionOutcome).toHaveBeenCalledWith("job_outcome");
   });
 
+  it("returns 202 while a promotion job has no terminal outcome", async () => {
+    const job = bulkJobFixture({ jobId: "job_in_flight", action: "promote", status: "running" });
+    const getBulkReviewJob = vi.fn(async () => job);
+    const getBulkReviewPromotionOutcome = vi.fn(async () => null);
+    const services = {
+      getBulkReviewJob,
+      getBulkReviewPromotionOutcome,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-jobs/job_in_flight/outcome");
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ outcome: null });
+    expect(getBulkReviewPromotionOutcome).toHaveBeenCalledWith("job_in_flight");
+  });
+
+  it("returns 404 when the selected job is not a promotion job", async () => {
+    const job = bulkJobFixture({ jobId: "job_reject", action: "reject" });
+    const getBulkReviewJob = vi.fn(async () => job);
+    const getBulkReviewPromotionOutcome = vi.fn();
+    const services = {
+      getBulkReviewJob,
+      getBulkReviewPromotionOutcome,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-jobs/job_reject/outcome");
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "not_found" } });
+    expect(getBulkReviewPromotionOutcome).not.toHaveBeenCalled();
+  });
+
   it("requires a reason for bulk rejection", async () => {
     const services = {
       rejectObservations: vi.fn(),
