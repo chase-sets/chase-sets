@@ -10,9 +10,9 @@ export const accountLinkageSignalKinds = ["shared-instrument", "shared-address"]
 export type AccountLinkageSignalKind = (typeof accountLinkageSignalKinds)[number];
 
 /**
- * Privacy-minimal linkage fact. `clusterHash` is a lowercase SHA-256 digest of
- * the Settlement-owned signal kind and raw cluster key; raw payment-instrument
- * or address material never crosses the context boundary.
+ * Privacy-minimal linkage fact. `clusterHash` is a random 256-bit identifier
+ * assigned by Settlement's private cluster mapping; it cannot be reproduced
+ * from address or payment-instrument candidates outside Settlement.
  */
 export type AccountLinkageFlaggedPayload = Readonly<{
   clusterHash: string;
@@ -25,7 +25,7 @@ export type AccountLinkageClearedPayload = AccountLinkageFlaggedPayload;
 
 export function normalizeAccountLinkageClusterHash(value: unknown): string {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
-    throw new Error("Account-linkage fact requires a lowercase SHA-256 clusterHash.");
+    throw new Error("Account-linkage fact requires a lowercase 64-character clusterHash.");
   }
   return value;
 }

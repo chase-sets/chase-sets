@@ -935,6 +935,7 @@ export type PaymentServices = Readonly<{
   ) => Promise<SavedCheckoutInstrumentRow | null>;
   revokeSavedCheckoutInstrumentsForAgentGrant: (
     params: Readonly<{ accountId: AccountId; agentGrantId: string; revokedAt?: string }>,
+    context: EventStoreContext,
   ) => Promise<Readonly<{ detached: number; alreadyRemoved: number; instrumentIds: readonly string[] }>>;
   reconcileSavedCheckoutInstruments: (
     params: Readonly<{ accountId: AccountId }>,
@@ -1582,7 +1583,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       await publishCheckoutAffordances(accountId, context);
       return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
     },
-    async revokeSavedCheckoutInstrumentsForAgentGrant(params) {
+    async revokeSavedCheckoutInstrumentsForAgentGrant(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const agentGrantId = normalizeRequiredText(params.agentGrantId, "Agent grant is required.");
       const revokedAt = params.revokedAt ?? new Date().toISOString();
@@ -1610,6 +1611,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           performedByAccountId: accountId,
           createdAt: revokedAt,
         });
+      }
+
+      if (instruments.length > 0) {
+        await publishCheckoutAffordances(accountId, context);
       }
 
       return {

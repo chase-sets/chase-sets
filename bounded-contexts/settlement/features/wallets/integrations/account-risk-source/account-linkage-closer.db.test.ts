@@ -11,7 +11,6 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { module as settlementModule } from "../../../../index";
 import { createSettlementServices } from "../../../../support/runtime-support/services";
-import { accountLinkageClusterHash } from "../../api/account-linkage-runtime";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for DB-backed tests in CI.");
@@ -86,7 +85,7 @@ describeDb("settlement Account Linkage closer", () => {
       payload: { accountIds: ["acc_a", "acc_b", "acc_c"] },
     });
 
-    const clusterHash = accountLinkageClusterHash("shared-instrument", rawClusterKey);
+    const clusterHash = String(events[1]!.payload.clusterHash);
     await expect(services.accountLinkage.clearAccountLinkage(clusterHash, operatorContext)).resolves.toBe("cleared");
     await services.accountLinkage.runAccountLinkageCloser();
     events = await linkageEvents();
@@ -95,6 +94,43 @@ describeDb("settlement Account Linkage closer", () => {
       "settlement.account-linkage.flagged",
       "settlement.account-linkage.cleared",
       "settlement.account-linkage.flagged",
+    ]);
+  });
+
+  it("clears a previously flagged cluster when membership shrinks 3 to 2 to 1", async () => {
+    const rawClusterKey = "shrinking-private-instrument-cluster";
+    await pool.query(
+      `INSERT INTO settlement_account_instrument_risk_sources
+         (account_id, instrument_id, instrument_cluster_key, active, updated_at)
+       VALUES
+         ('acc_a', 'pi_a', $1, TRUE, now()),
+         ('acc_b', 'pi_b', $1, TRUE, now()),
+         ('acc_c', 'pi_c', $1, TRUE, now())`,
+      [rawClusterKey],
+    );
+    const services = createSettlementServices(pool);
+
+    await services.accountLinkage.runAccountLinkageCloser();
+    await pool.query(
+      `UPDATE settlement_account_instrument_risk_sources
+       SET active = FALSE, updated_at = now()
+       WHERE account_id = 'acc_c' AND instrument_cluster_key = $1`,
+      [rawClusterKey],
+    );
+    await services.accountLinkage.runAccountLinkageCloser();
+    await pool.query(
+      `UPDATE settlement_account_instrument_risk_sources
+       SET active = FALSE, updated_at = now()
+       WHERE account_id = 'acc_b' AND instrument_cluster_key = $1`,
+      [rawClusterKey],
+    );
+    await services.accountLinkage.runAccountLinkageCloser();
+
+    const events = await linkageEvents();
+    expect(events.map((event) => ({ eventType: event.event_type, accountIds: event.payload.accountIds }))).toEqual([
+      { eventType: "settlement.account-linkage.flagged", accountIds: ["acc_a", "acc_b", "acc_c"] },
+      { eventType: "settlement.account-linkage.flagged", accountIds: ["acc_a", "acc_b"] },
+      { eventType: "settlement.account-linkage.cleared", accountIds: ["acc_a", "acc_b"] },
     ]);
   });
 

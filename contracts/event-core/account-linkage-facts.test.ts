@@ -33,7 +33,7 @@ describe("account-linkage facts", () => {
   it("rejects malformed hashes, signal kinds, and singleton clusters", () => {
     expect(() =>
       normalizeAccountLinkageFlaggedPayload({ clusterHash: "raw-key", signalKind: "shared-address", accountIds: [] }),
-    ).toThrow("SHA-256");
+    ).toThrow("64-character");
     expect(() =>
       normalizeAccountLinkageFlaggedPayload({ clusterHash, signalKind: "device", accountIds: ["acc_a", "acc_b"] }),
     ).toThrow("signalKind");

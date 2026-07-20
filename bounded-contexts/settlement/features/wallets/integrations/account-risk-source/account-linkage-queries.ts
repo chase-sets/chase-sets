@@ -5,7 +5,8 @@ import type { AccountLinkageFlagPolicyValue } from "../../domain/account-linkage
 export type AccountLinkageClusterCandidate = Readonly<{
   signalKind: AccountLinkageSignalKind;
   clusterKey: string;
-  accountIds: readonly string[];
+  clusterHash: string | null;
+  accountIds: readonly string[] | null;
 }>;
 
 export type AccountLinkageCloserCursor = Readonly<{
@@ -71,20 +72,53 @@ export async function listAccountLinkageClusterCandidates(
     FROM settlement_account_address_risk_sources
     WHERE active = TRUE AND address_cluster_key IS NOT NULL
     GROUP BY address_cluster_key
-    HAVING COUNT(DISTINCT account_id) >= $1`);
+      HAVING COUNT(DISTINCT account_id) >= $1`);
   }
-  if (branches.length === 0) return [];
+  const eligibleSql =
+    branches.length > 0
+      ? branches.join("\nUNION ALL\n")
+      : `SELECT
+      NULL::text AS signal_kind,
+      NULL::text AS cluster_key,
+      ARRAY[]::text[] AS account_ids
+    WHERE FALSE AND $1::integer IS NULL`;
 
   const result = await db.query<{
     signal_kind: AccountLinkageSignalKind;
     cluster_key: string;
-    account_ids: string[];
+    cluster_hash: string | null;
+    account_ids: string[] | null;
   }>(
     `WITH eligible AS (
-      ${branches.join("\nUNION ALL\n")}
+      ${eligibleSql}
+    ), reconciled AS (
+      SELECT
+        eligible.signal_kind,
+        eligible.cluster_key,
+        clusters.cluster_hash,
+        eligible.account_ids
+      FROM eligible
+      LEFT JOIN settlement_account_linkage_clusters clusters
+        USING (signal_kind, cluster_key)
+
+      UNION ALL
+
+      SELECT
+        clusters.signal_kind,
+        clusters.cluster_key,
+        clusters.cluster_hash,
+        NULL::text[] AS account_ids
+      FROM settlement_account_linkage_clusters clusters
+      WHERE clusters.flagged = TRUE
+        AND NOT EXISTS (
+          SELECT 1
+          FROM eligible
+          WHERE eligible.signal_kind = clusters.signal_kind
+            AND eligible.cluster_key = clusters.cluster_key
+        )
     )
-    SELECT signal_kind, cluster_key, account_ids
-    FROM eligible
+    SELECT signal_kind, cluster_key, cluster_hash, account_ids
+    FROM reconciled
     WHERE $2::text IS NULL OR (signal_kind, cluster_key) > ($2::text, $3::text)
     ORDER BY signal_kind, cluster_key
     LIMIT $4`,
@@ -93,6 +127,47 @@ export async function listAccountLinkageClusterCandidates(
   return result.rows.map((row) => ({
     signalKind: row.signal_kind,
     clusterKey: row.cluster_key,
+    clusterHash: row.cluster_hash,
     accountIds: row.account_ids,
   }));
+}
+
+export async function getOrCreateAccountLinkageClusterHash(
+  db: PgQueryable,
+  params: Readonly<{
+    signalKind: AccountLinkageSignalKind;
+    clusterKey: string;
+    proposedClusterHash: string;
+    updatedAt: string;
+  }>,
+): Promise<string> {
+  const result = await db.query<{ cluster_hash: string }>(
+    `INSERT INTO settlement_account_linkage_clusters (
+       signal_kind, cluster_key, cluster_hash, flagged, created_at, updated_at
+     ) VALUES ($1, $2, $3, FALSE, $4, $4)
+     ON CONFLICT (signal_kind, cluster_key) DO UPDATE SET
+       cluster_key = EXCLUDED.cluster_key
+     RETURNING cluster_hash`,
+    [params.signalKind, params.clusterKey, params.proposedClusterHash, params.updatedAt],
+  );
+  const clusterHash = result.rows[0]?.cluster_hash;
+  if (!clusterHash) throw new Error("Account-linkage cluster mapping did not return an opaque identifier.");
+  return clusterHash;
+}
+
+export async function setAccountLinkageClusterFlagged(
+  db: PgQueryable,
+  params: Readonly<{
+    signalKind: AccountLinkageSignalKind;
+    clusterKey: string;
+    flagged: boolean;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  await db.query(
+    `UPDATE settlement_account_linkage_clusters
+     SET flagged = $3, updated_at = $4
+     WHERE signal_kind = $1 AND cluster_key = $2`,
+    [params.signalKind, params.clusterKey, params.flagged, params.updatedAt],
+  );
 }

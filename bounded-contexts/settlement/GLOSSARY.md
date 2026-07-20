@@ -64,7 +64,7 @@ A **Counterparty Linkage Flag** is Settlement's event-sourced internal fact that
 
 Notes:
 
-- The fact carries only the linked account identifiers, the signal kind, and an opaque cluster hash. Raw payment-instrument and shipping-address material never leaves Settlement.
+- The fact carries only the linked account identifiers, the signal kind, and a random 256-bit cluster identifier assigned by Settlement's private durable mapping. The identifier cannot be reproduced by enumerating address or payment-instrument candidates, and raw source material never leaves Settlement.
 - A Counterparty Linkage Flag informs stats-scoped downstream integrity handling. It does not block orders, offers, payouts, or account access.
 - Repeated closer passes with the same members publish nothing; a changed member set republishes the flag, and a still-shared cluster is re-raised after a clear.
 

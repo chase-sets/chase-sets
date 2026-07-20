@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -19,8 +19,10 @@ import {
 } from "../domain/account-linkage-policy";
 import {
   getAccountLinkageCloserCursor,
+  getOrCreateAccountLinkageClusterHash,
   listAccountLinkageClusterCandidates,
   saveAccountLinkageCloserCursor,
+  setAccountLinkageClusterFlagged,
 } from "../integrations/account-risk-source/account-linkage-queries";
 
 const ACCOUNT_LINKAGE_SYSTEM_CONTEXT: EventStoreContext = {
@@ -51,8 +53,8 @@ type AccountLinkageRuntimeDeps = Readonly<{
   }>;
 }>;
 
-export function accountLinkageClusterHash(signalKind: string, clusterKey: string): string {
-  return createHash("sha256").update(signalKind, "utf8").update("\0").update(clusterKey, "utf8").digest("hex");
+export function generateAccountLinkageClusterHash(): string {
+  return randomBytes(32).toString("hex");
 }
 
 export function createAccountLinkageRuntime(deps: AccountLinkageRuntimeDeps): AccountLinkageServices {
@@ -97,19 +99,54 @@ export function createAccountLinkageRuntime(deps: AccountLinkageRuntimeDeps): Ac
       let unchanged = 0;
 
       for (const candidate of candidates) {
-        const clusterHash = accountLinkageClusterHash(candidate.signalKind, candidate.clusterKey);
-        const events = await runCommand(
-          clusterHash,
-          {
-            type: "FlagAccountLinkage",
-            clusterHash,
+        if (candidate.accountIds) {
+          const updatedAt = new Date().toISOString();
+          const clusterHash =
+            candidate.clusterHash ??
+            (await getOrCreateAccountLinkageClusterHash(deps.db, {
+              signalKind: candidate.signalKind,
+              clusterKey: candidate.clusterKey,
+              proposedClusterHash: generateAccountLinkageClusterHash(),
+              updatedAt,
+            }));
+          // Persist intent before publishing. A failed command remains visible
+          // to the next reconciliation pass instead of becoming an orphaned flag.
+          await setAccountLinkageClusterFlagged(deps.db, {
             signalKind: candidate.signalKind,
-            accountIds: candidate.accountIds,
-          },
+            clusterKey: candidate.clusterKey,
+            flagged: true,
+            updatedAt,
+          });
+          const events = await runCommand(
+            clusterHash,
+            {
+              type: "FlagAccountLinkage",
+              clusterHash,
+              signalKind: candidate.signalKind,
+              accountIds: candidate.accountIds,
+            },
+            ACCOUNT_LINKAGE_SYSTEM_CONTEXT,
+          );
+          if (events.length > 0) flagsPublished += 1;
+          else unchanged += 1;
+          continue;
+        }
+
+        if (!candidate.clusterHash) {
+          throw new Error("A tracked Account Linkage cluster requires an opaque identifier.");
+        }
+        const events = await runCommand(
+          candidate.clusterHash,
+          { type: "ClearAccountLinkage", clusterHash: candidate.clusterHash },
           ACCOUNT_LINKAGE_SYSTEM_CONTEXT,
         );
-        if (events.length > 0) flagsPublished += 1;
-        else unchanged += 1;
+        await setAccountLinkageClusterFlagged(deps.db, {
+          signalKind: candidate.signalKind,
+          clusterKey: candidate.clusterKey,
+          flagged: false,
+          updatedAt: new Date().toISOString(),
+        });
+        if (events.length === 0) unchanged += 1;
       }
 
       const last = candidates[candidates.length - 1];
