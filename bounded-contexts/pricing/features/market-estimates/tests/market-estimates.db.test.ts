@@ -10,6 +10,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketTradesProjectionHandlers } from "../../market-trades/integrations/source/source-projection";
+import { buildPricingMarketTradesSettlementIntegrityProjectionHandlers } from "../../market-trades/integrations/integrity/integrity-projection";
 import { buildPricingPriceSignalCatalogProjectionHandlers } from "../../price-signals/integrations/catalog/projection";
 import { createPriceSignalRuntime } from "../../price-signals/api/runtime";
 import { createMarketEstimatesRuntime, marketPriceEstimateStreamId } from "../api/runtime";
@@ -291,6 +292,47 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(result.belowGate).toBe(1);
     expect(result.estimatesPublished).toBe(0);
     expect(await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) })).toHaveLength(0);
+  });
+
+  it("removes linked counterparties before pair deduplication, participant counting, and weight capping", async () => {
+    const pool = pools.pricing;
+    await seedTrade(pool, {
+      orderId: "ord_linked_participant",
+      priceAmount: "999.00",
+      soldAt: daysBefore(NOW, 1),
+      buyerAccountId: "acc_linked_buyer",
+      sellerAccountId: "acc_linked_seller",
+    });
+    await seedTrade(pool, { orderId: "ord_honest_1", priceAmount: "10.00", soldAt: daysBefore(NOW, 3) });
+    await seedTrade(pool, { orderId: "ord_honest_2", priceAmount: "11.00", soldAt: daysBefore(NOW, 2) });
+    await seedTrade(pool, { orderId: "ord_honest_3", priceAmount: "12.00", soldAt: daysBefore(NOW, 1) });
+
+    const clusterHash = "f".repeat(64);
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash,
+          signalKind: "shared-instrument",
+          accountIds: ["acc_linked_buyer", "acc_linked_seller"],
+        },
+        daysBefore(NOW, 0.5),
+      ),
+    );
+
+    const { eventStore, runtime } = createRuntime(pool);
+    const result = await runtime.runMarketPriceEstimateCloser({ now: NOW });
+
+    expect(result.estimatesPublished).toBe(1);
+    const stored = await eventStore.readStream({ streamId: marketPriceEstimateStreamId(PRODUCT_ID) });
+    const payload = stored[0]!.payload as Record<string, unknown>;
+    expect(payload.amount).toBe("10.45");
+    expect(payload.inputs).toEqual({
+      platformVerifiedTradeCount: 0,
+      platformTradeCount: 3,
+      externalCompCount: 0,
+    });
   });
 
   it("deduplicates a buyer-to-seller pair to its latest print before publication", async () => {

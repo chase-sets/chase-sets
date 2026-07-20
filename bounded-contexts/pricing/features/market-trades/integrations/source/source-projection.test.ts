@@ -45,6 +45,8 @@ describe("pricing market-trades source projection", () => {
 
     expect(calls[0]?.sql).toContain("DELETE FROM pricing_market_trades");
     expect(calls[1]?.sql).toContain("INSERT INTO pricing_market_trades");
+    expect(calls[1]?.sql).toContain("FROM pricing_market_trade_linkage_clusters");
+    expect(calls[1]?.sql).toContain("CASE WHEN linkage.self_dealing THEN 'self-dealing'");
     expect(calls[1]?.params).toEqual([
       "ord_1",
       "line_1",
@@ -121,7 +123,8 @@ describe("pricing market-trades source projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("exclusion_reason = 'cancelled'");
-    expect(calls[0]?.sql).toContain("AND excluded = false");
+    expect(calls[0]?.sql).toContain("excluded = false OR exclusion_reason = 'self-dealing'");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_rollup_rederive_queue");
     expect(calls[0]?.params).toEqual(["ord_1", "2026-07-02T00:00:00.000Z"]);
   });
 
@@ -176,7 +179,8 @@ describe("pricing market-trades source projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("exclusion_reason = 'refunded'");
-    expect(calls[0]?.sql).toContain("AND excluded = false");
+    expect(calls[0]?.sql).toContain("excluded = false OR exclusion_reason = 'self-dealing'");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_rollup_rederive_queue");
     expect(calls[0]?.params).toEqual(["ship_1", "2026-07-05T00:00:00.000Z"]);
   });
 });

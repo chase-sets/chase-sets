@@ -49,6 +49,18 @@ describeDb("pricing schema upgrades", () => {
     await bootstrapContextDatabase(pricingModule, pool);
     await bootstrapContextDatabase(pricingModule, pool);
 
+    const linkageTables = await pool.query<{ linkage_state: string; rederive_queue: string }>(
+      `SELECT
+         to_regclass('pricing_market_trade_linkage_clusters')::text AS linkage_state,
+         to_regclass('pricing_market_trade_rollup_rederive_queue')::text AS rederive_queue`,
+    );
+    expect(linkageTables.rows).toEqual([
+      {
+        linkage_state: "pricing_market_trade_linkage_clusters",
+        rederive_queue: "pricing_market_trade_rollup_rederive_queue",
+      },
+    ]);
+
     const deployed = await pool.query<{ stat_hygiene_policy_revision_id: string }>(
       `SELECT stat_hygiene_policy_revision_id
        FROM pricing_daily_product_rollups
