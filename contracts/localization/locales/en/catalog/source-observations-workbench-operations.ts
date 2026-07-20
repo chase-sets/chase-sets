@@ -630,6 +630,12 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.impact":
     "{eligible} eligible, {blocked} blocked, {destructive} destructive write(s).",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.label": "Create / update items",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.description":
+    "Durable terminal fact {resultId}; refreshes replay this same outcome.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.job": "Promotion job",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.promoted": "Promoted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.recordedAt": "Outcome recorded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.title": "Latest promotion outcome",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.fresh": "Previewed impact is current",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh":
     "Refresh the previewed impact before committing.",

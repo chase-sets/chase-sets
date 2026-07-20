@@ -1938,9 +1938,18 @@ export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
 
 export type CatalogPrimaryWorkbenchPromotionResultReadModel = Readonly<{
   resultId: string;
+  jobId: string;
+  status: "completed" | "partial" | "failed";
+  requestedCount: number;
+  promotedCount: number;
+  skippedCount: number;
+  failedCount: number;
   promotedCatalogItemIds: readonly string[];
   promotedReferenceIds: readonly string[];
   skippedObservationIds: readonly string[];
+  failedObservationIds: readonly string[];
+  redactedFailureReasons: readonly string[];
+  completedAt: string;
   auditEvidenceIds: readonly string[];
 }>;
 
@@ -2865,9 +2874,46 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
   assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
+  assertPrimaryWorkbenchPromotionResult(value.promotionResult);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
   assertPrimaryWorkbenchLifecycleRecovery(value.lifecycleRecovery);
+}
+
+function assertPrimaryWorkbenchPromotionResult(
+  value: CatalogPrimaryWorkbenchReadModel["promotionResult"] | undefined,
+): void {
+  if (value == null) {
+    return;
+  }
+  if (!value.resultId || !value.jobId || !value.completedAt) {
+    throw new Error("Primary workbench promotion results require durable outcome identity and timing.");
+  }
+  if (!["completed", "partial", "failed"].includes(value.status)) {
+    throw new Error("Primary workbench promotion results require an explicit terminal status.");
+  }
+  const counts = [value.requestedCount, value.promotedCount, value.skippedCount, value.failedCount];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+    throw new Error("Primary workbench promotion result counts must be non-negative integers.");
+  }
+  if (value.promotedCount + value.skippedCount + value.failedCount !== value.requestedCount) {
+    throw new Error("Primary workbench promotion result counts must reconcile to the requested count.");
+  }
+  if (!Array.isArray(value.redactedFailureReasons)) {
+    throw new Error("Primary workbench promotion results must expose redacted failure reasons.");
+  }
+  for (const reason of value.redactedFailureReasons) {
+    if (
+      typeof reason !== "string" ||
+      !reason.trim() ||
+      reason.includes("\n") ||
+      /\b(api[-_ ]?key|x-api-key|x-team-id|authorization|bearer|token|secret|password)\s*[=:]\s*(?!\[redacted\])/i.test(
+        reason,
+      )
+    ) {
+      throw new Error("Primary workbench promotion failure reasons must stay redaction-safe.");
+    }
+  }
 }
 
 function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRouteContext): void {

@@ -440,7 +440,7 @@ function redactedJobFailureReasons(result: SourceObservationIntegrationJobResult
     if (outcome.status !== "failed") {
       continue;
     }
-    const reason = redactedJobFailureReason(outcome.reason);
+    const reason = redactedCatalogJobFailureReason(outcome.reason);
     if (reason) {
       reasons.add(reason);
     }
@@ -451,7 +451,7 @@ function redactedJobFailureReasons(result: SourceObservationIntegrationJobResult
   return [...reasons];
 }
 
-function redactedJobFailureReason(reason: string | null): string | null {
+export function redactedCatalogJobFailureReason(reason: string | null): string | null {
   const normalized = reason?.trim().replace(/\s+/g, " ") ?? "";
   if (!normalized) {
     return null;

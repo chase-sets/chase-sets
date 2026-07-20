@@ -213,6 +213,81 @@ describe("Catalog integrations route", () => {
     expect(target.searchParams.get("commandResult")).toBe("preview-ready");
   });
 
+  it("round-trips a submitted promotion through its routable job id to the rendered durable outcome", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const promotionOutcome = {
+      outcome: {
+        outcomeId: "job_promote_round_trip:5",
+        jobId: "job_promote_round_trip",
+        eventSequence: 5,
+        terminalState: "completed",
+        requested: 1,
+        promoted: 1,
+        skipped: 0,
+        failed: 0,
+        outcomes: [
+          {
+            observationId: "obs_001",
+            status: "promoted",
+            catalogItemId: "cat_001",
+            referenceRecordId: null,
+            reason: null,
+          },
+        ],
+        errorMessage: null,
+        recordedAt: "2026-07-19T20:00:00.000Z",
+      },
+    } as const;
+    const getSourceObservationPromotionOutcome = vi.fn().mockResolvedValue(promotionOutcome);
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue({
+        matched: 1,
+        eligible: 1,
+        terminal: 0,
+        scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+      }),
+      bulkPromoteSourceObservations: vi.fn().mockResolvedValue({ jobId: "job_promote_round_trip" }),
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(controlPlaneOverview()),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listCatalogMergeCandidates: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getSourceObservationPromotionOutcome,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const actionResponse = await runDailyActionRedirect({
+      _intent: "observation.promote",
+      promotionPhase: "execute",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId:
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint",
+    });
+    const routedHref = actionResponse.headers.get("Location") ?? "";
+    expect(new URL(routedHref, "https://admin.example").searchParams.get("jobId")).toBe("job_promote_round_trip");
+
+    const routeData = await loader({
+      request: new Request(new URL(routedHref, "https://admin.example")),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    mockUseLoaderData.mockReturnValue(routeData);
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(getSourceObservationPromotionOutcome).toHaveBeenCalledWith("job_promote_round_trip");
+    expect(screen.getByText("Latest promotion outcome")).toBeTruthy();
+    expect(screen.getAllByText("job_promote_round_trip").length).toBeGreaterThan(0);
+  });
+
   it("scopes durable import jobs to the selected provider unit while keeping overlap conflicts visible", () => {
     const scopes = {
       items: [

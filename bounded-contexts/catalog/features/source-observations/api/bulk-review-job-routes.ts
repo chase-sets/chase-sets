@@ -262,6 +262,30 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     return c.json(job);
   });
 
+  app.get("/bulk-jobs/:jobId/outcome", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const jobId = c.req.param("jobId");
+    const job = await services.getBulkReviewJob(jobId, c.get("context"));
+    if (!job || job.action !== "promote") {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    const outcome = await services.getBulkReviewPromotionOutcome(jobId);
+    return c.json({ outcome }, outcome ? 200 : 202);
+  });
+
   app.get("/bulk-jobs/:jobId/events", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
     if (permissionError) {

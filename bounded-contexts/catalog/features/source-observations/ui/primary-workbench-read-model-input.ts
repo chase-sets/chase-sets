@@ -11,6 +11,7 @@ import type {
 } from "./contracts";
 import type { CatalogSyncProviderParticipationPreview } from "../api/catalog-sync-scope-planner";
 import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-workbench-source-options";
+import type { SourceObservationPromotionOutcomeRecord } from "../api/runtime";
 
 export type CatalogPrimaryWorkbenchReadModelFailure =
   | "control-plane-overview"
@@ -33,6 +34,7 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
+  promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;

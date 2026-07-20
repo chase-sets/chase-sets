@@ -192,6 +192,63 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     }
   });
 
+  it("surfaces the appended terminal promotion outcome on the daily workbench", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...fullSurfaceInput("promotion-result"),
+      promotionOutcome: {
+        outcomeId: "job_5801:3",
+        jobId: "job_5801",
+        eventSequence: 3,
+        terminalState: "partial",
+        requested: 3,
+        promoted: 2,
+        skipped: 0,
+        failed: 1,
+        outcomes: [
+          {
+            observationId: "obs_001",
+            status: "promoted",
+            catalogItemId: "cat_001",
+            referenceRecordId: null,
+            reason: null,
+          },
+          {
+            observationId: "obs_002",
+            status: "promoted",
+            catalogItemId: null,
+            referenceRecordId: "ref_002",
+            reason: null,
+          },
+          {
+            observationId: "obs_003",
+            status: "failed",
+            catalogItemId: null,
+            reason: "Conflict requires operator review.",
+          },
+        ],
+        errorMessage: null,
+        recordedAt: "2026-07-19T20:00:00.000Z",
+      },
+    });
+
+    expect(readModel.promotionResult).toEqual({
+      resultId: "job_5801:3",
+      jobId: "job_5801",
+      status: "partial",
+      requestedCount: 3,
+      promotedCount: 2,
+      skippedCount: 0,
+      failedCount: 1,
+      promotedCatalogItemIds: ["cat_001"],
+      promotedReferenceIds: ["ref_002"],
+      skippedObservationIds: [],
+      failedObservationIds: ["obs_003"],
+      redactedFailureReasons: ["Conflict requires operator review."],
+      completedAt: "2026-07-19T20:00:00.000Z",
+      auditEvidenceIds: ["job_5801:3"],
+    });
+  });
+
   it("computes the governance surface's profile/validation slices identically to the full read model (#3832: the retired providers surface's slices, now the v2 Provider detail page's loader input)", () => {
     const input = fullSurfaceInput("profile-work");
     // The health surface renders every supporting slice, so it computes the

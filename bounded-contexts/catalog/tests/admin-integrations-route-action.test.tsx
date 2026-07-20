@@ -1049,7 +1049,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservationIds,
     });
 
-    const result = await runDailyAction({
+    const response = await runDailyActionRedirect({
       _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -1062,11 +1062,11 @@ describe("Catalog integrations route", () => {
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
-    // The create-update (promote) path stays on the daily surface with a banner.
-    expect(result.section).toBe("import-to-promotion");
-    expect(result.context.jobId).toBe("job_promote_123");
-    expect(result.context.promotionPreviewId).toBeNull();
-    expect(result.feedback.result).toBe("job-queued");
+    const location = redirectLocation(response);
+    expect(location.pathname).toBe("/catalog/integrations");
+    expect(location.searchParams.get("jobId")).toBe("job_promote_123");
+    expect(location.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
 
   it("rejects promotion execution when the stored preview belongs to a different profile context", async () => {
@@ -1151,7 +1151,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservationIds,
     });
 
-    const result = await runDailyAction({
+    const response = await runDailyActionRedirect({
       _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -1163,10 +1163,11 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
-    expect(result.context.jobId).toBe("job_promote_fresh");
-    expect(result.feedback.status).toBe("success");
-    expect(result.feedback.result).toBe("job-queued");
-    expect(result.context.promotionPreviewId).toBeNull();
+    const location = redirectLocation(response);
+    expect(location.searchParams.get("jobId")).toBe("job_promote_fresh");
+    expect(location.searchParams.get("commandStatus")).toBe("success");
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
+    expect(location.searchParams.get("promotionPreviewId")).toBeNull();
   });
 
   it("executes matching-filter promotion with the same explicit broad scope used for preview", async () => {
@@ -1182,7 +1183,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservations,
     });
 
-    const result = await runDailyAction({
+    const response = await runDailyActionRedirect({
       _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -1208,8 +1209,9 @@ describe("Catalog integrations route", () => {
       expansionId: "base1",
       setId: "base1",
     });
-    expect(result.context.jobId).toBe("job_promote_scope");
-    expect(result.feedback.result).toBe("job-queued");
+    const location = redirectLocation(response);
+    expect(location.searchParams.get("jobId")).toBe("job_promote_scope");
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
 
   it("fails closed when scoped promotion execution has no concrete scope", async () => {
