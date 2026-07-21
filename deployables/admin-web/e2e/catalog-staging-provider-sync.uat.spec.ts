@@ -1587,7 +1587,9 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     { from: "ja", to: "en" },
   ]) {
     test(`selects shared SV from the slow-resolving refreshed ${from}-to-${to} child slice`, async ({ page }) => {
-      await page.setContent('<div data-catalog-source-options-status="available">old slice</div>');
+      await page.setContent(
+        '<div data-catalog-source-options-status="available" data-source-options-request-id="1">old slice</div>',
+      );
       const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
       await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
 
@@ -1606,7 +1608,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       await expect(page.locator('[data-catalog-deferred-panel="loading"]')).toBeVisible();
       await page.evaluate((to) => {
         document.body.innerHTML = `
-          <div data-catalog-source-options-status="available">${to} slice</div>
+          <div data-catalog-source-options-status="available" data-source-options-request-id="2">${to} slice</div>
           <fieldset aria-label="Source scope" data-slice-parent="${to}">
             <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = this.closest('fieldset').dataset.sliceParent"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
           </fieldset>
@@ -1623,14 +1625,16 @@ test.describe("catalog staging provider sync UAT helpers", () => {
   }
 
   test("accepts a refreshed child slice that settles before the first loading poll", async ({ page }) => {
-    await page.setContent('<div data-catalog-source-options-status="available">Japanese slice</div>');
+    await page.setContent(
+      '<div data-catalog-source-options-status="available" data-source-options-request-id="1">Japanese slice</div>',
+    );
     const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
     await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
 
     await page.evaluate(() => {
       document.documentElement.dataset.committedParent = "en";
       document.body.innerHTML = `
-        <div data-catalog-source-options-status="available">English slice</div>
+        <div data-catalog-source-options-status="available" data-source-options-request-id="2">English slice</div>
         <fieldset aria-label="Source scope" data-slice-parent="en">
           <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = 'en'"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
         </fieldset>
@@ -1643,10 +1647,29 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     await expect(page.locator("html")).toHaveAttribute("data-selected-slice-parent", "en");
   });
 
+  test("accepts a warm refreshed slice that updates the settled panel in place", async ({ page }) => {
+    await page.setContent(
+      '<div data-catalog-source-options-status="available" data-source-options-request-id="1">Japanese slice</div>',
+    );
+    const previousPanel = await page.locator("[data-catalog-source-options-status]").first().elementHandle();
+    const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
+
+    await page.evaluate(() => {
+      const panel = document.querySelector("[data-catalog-source-options-status]");
+      panel?.setAttribute("data-source-options-request-id", "2");
+      panel!.textContent = "English slice";
+    });
+
+    await refreshedSlice;
+    expect(await previousPanel?.evaluate((panel) => panel.isConnected)).toBe(true);
+  });
+
   test("does not select a repeated scalar from a delayed stale child slice after the parent route commits", async ({
     page,
   }) => {
-    await page.setContent('<div data-catalog-source-options-status="available">Japanese slice</div>');
+    await page.setContent(
+      '<div data-catalog-source-options-status="available" data-source-options-request-id="1">Japanese slice</div>',
+    );
     const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
     await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
 
@@ -1662,7 +1685,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     await expect(page.locator('[data-catalog-deferred-panel="loading"]')).toBeVisible();
     await page.evaluate(() => {
       document.body.innerHTML = `
-        <div data-catalog-source-options-status="available">English slice</div>
+        <div data-catalog-source-options-status="available" data-source-options-request-id="2">English slice</div>
         <fieldset aria-label="Source scope" data-slice-parent="en">
           <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = 'en'"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
         </fieldset>
@@ -2179,37 +2202,20 @@ async function clearUnverifiedGuidedScopeDescendants(
 }
 
 async function sourceOptionSliceAfterParentCommit(page: Page): Promise<void> {
-  // submitSourceScopeFilter stamps every parent change with force-refresh-all.
-  // The deferred status panel is therefore a refresh-generation marker. A slow
-  // response exposes its loading fallback; a warm response can settle before
-  // Playwright observes that transient frame. A warm response instead replaces
-  // the captured settled-panel node with a new settled node for the committed
-  // route. The prior parent's panel is that captured node, so it cannot satisfy
-  // the fast path even when both slices contain the same value.
-  const previousPanel = await page.locator("[data-catalog-source-options-status]").first().elementHandle();
-  if (!previousPanel) {
-    throw new Error("Expected the prior source-options status panel before committing a parent scope.");
+  // Each loader revalidation carries a new deferred promise identity. The
+  // settled panel publishes its matching request id, which works whether React
+  // shows a fallback, hides it during a transition, or updates the same node.
+  const panel = page.locator("[data-catalog-source-options-status]").first();
+  const previousRequestId = await panel.getAttribute("data-source-options-request-id");
+  if (!previousRequestId) {
+    throw new Error("Expected the prior source-options request id before committing a parent scope.");
   }
-  const loadingSlice = page.locator('[data-catalog-deferred-panel="loading"]').filter({
-    hasText: "Loading source options",
-  });
-  let loadingObserved = false;
+
   await expect
     .poll(
-      async () => {
-        loadingObserved ||= await loadingSlice.isVisible().catch(() => false);
-        if (loadingObserved && !(await loadingSlice.isVisible().catch(() => false))) {
-          return true;
-        }
-
-        return previousPanel.evaluate((priorPanel) => {
-          if (priorPanel.isConnected) {
-            return false;
-          }
-
-          return document.querySelector("[data-catalog-source-options-status]") !== null;
-        });
-      },
+      async () =>
+        (await panel.getAttribute("data-source-options-request-id")) !== previousRequestId &&
+        (await panel.isVisible().catch(() => false)),
       { timeout: sourceOptionTimeoutMs },
     )
     .toBe(true);

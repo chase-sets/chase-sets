@@ -1,4 +1,13 @@
-import { Fragment, Suspense, useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Await, useSubmit, type SubmitFunction } from "react-router";
 import {
   Badge,
@@ -592,12 +601,19 @@ function DeferredSourceOptionsStatusPanel({
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }) {
+  const sourceOptionsRequestId = useSourceOptionsRequestId(deferredSourceOptions);
   // No option groups for this provider → no panel at all (and nothing to stream).
   if (readModel.sourceOptions.optionKinds.length === 0) {
     return null;
   }
   if (!deferredSourceOptions) {
-    return <SourceOptionsStatusPanel sourceOptions={readModel.sourceOptions} routeContext={readModel.routeContext} />;
+    return (
+      <SourceOptionsStatusPanel
+        sourceOptions={readModel.sourceOptions}
+        routeContext={readModel.routeContext}
+        sourceOptionsRequestId={sourceOptionsRequestId}
+      />
+    );
   }
 
   return (
@@ -612,15 +628,36 @@ function DeferredSourceOptionsStatusPanel({
       <Await
         resolve={deferredSourceOptions}
         errorElement={
-          <SourceOptionsStatusPanel sourceOptions={readModel.sourceOptions} routeContext={readModel.routeContext} />
+          <SourceOptionsStatusPanel
+            sourceOptions={readModel.sourceOptions}
+            routeContext={readModel.routeContext}
+            sourceOptionsRequestId={sourceOptionsRequestId}
+          />
         }
       >
         {(sourceOptions) => (
-          <SourceOptionsStatusPanel sourceOptions={sourceOptions} routeContext={readModel.routeContext} />
+          <SourceOptionsStatusPanel
+            sourceOptions={sourceOptions}
+            routeContext={readModel.routeContext}
+            sourceOptionsRequestId={sourceOptionsRequestId}
+          />
         )}
       </Await>
     </Suspense>
   );
+}
+
+// React Router replaces this loader-owned promise for every revalidation. Keep a
+// local, monotonically increasing identifier for that identity and expose it on
+// the settled panel so automation can distinguish an in-place React update from
+// the previous response even when React preserves the same DOM node.
+function useSourceOptionsRequestId(deferredSourceOptions: Promise<unknown> | null): string {
+  const current = useRef({ promise: deferredSourceOptions, requestId: 1 });
+  if (current.current.promise !== deferredSourceOptions) {
+    current.current = { promise: deferredSourceOptions, requestId: current.current.requestId + 1 };
+  }
+
+  return String(current.current.requestId);
 }
 
 // Refresh a source-option group in place. The intent (reload / force-refresh /
@@ -676,9 +713,11 @@ function submitSourceOptionRefresh(href: string, submit: SubmitFunction): void {
 function SourceOptionsStatusPanel({
   sourceOptions,
   routeContext,
+  sourceOptionsRequestId,
 }: {
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
   routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"];
+  sourceOptionsRequestId: string;
 }) {
   if (sourceOptions.optionKinds.length === 0) {
     return null;
@@ -688,7 +727,10 @@ function SourceOptionsStatusPanel({
     refresh.refreshAllHref !== null && (refresh.state === "available" || refresh.state === "degraded");
 
   return (
-    <WorkbenchDetailPanel data-catalog-source-options-status={sourceOptions.status}>
+    <WorkbenchDetailPanel
+      data-catalog-source-options-status={sourceOptions.status}
+      data-source-options-request-id={sourceOptionsRequestId}
+    >
       <WorkbenchStack gap="sm">
         <WorkbenchActionRow align="between" stackOnMobile>
           <WorkbenchStack gap="sm">

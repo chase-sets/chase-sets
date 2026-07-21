@@ -1265,6 +1265,38 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     expect(refreshAllParams.has("forceRefresh")).toBe(false);
   });
 
+  it("marks a warm deferred revalidation even when React preserves the settled panel node", async () => {
+    const readModel = dailyReadModelWithSourceOptions();
+    const initialSourceOptions = Promise.resolve(readModel.sourceOptions);
+    const { container, rerender } = render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={readModel}
+        deferredSourceOptions={initialSourceOptions}
+      />,
+    );
+    expandImportContextBar();
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-catalog-source-options-status]")).not.toBeNull();
+    });
+    const panel = container.querySelector("[data-catalog-source-options-status]");
+    const initialRequestId = panel?.getAttribute("data-source-options-request-id");
+
+    rerender(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={readModel}
+        deferredSourceOptions={Promise.resolve(readModel.sourceOptions)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(panel?.getAttribute("data-source-options-request-id")).not.toBe(initialRequestId);
+    });
+    expect(container.querySelector("[data-catalog-source-options-status]")).toBe(panel);
+  });
+
   it("submits streamed TCGplayer Yu-Gi-Oh parent refreshes without stale Pokemon scope", async () => {
     const { shellReadModel, streamedSourceOptions } = dailyTcgplayerYugiohModelsAfterStalePokemonScope();
     const { container } = render(
