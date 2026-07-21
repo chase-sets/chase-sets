@@ -6,26 +6,25 @@ name: Platform Merge Gate Verification
 # disposable in-cluster Postgres, loads representative commerce state, runs
 # platform and Stripe test-mode smoke, persists the durable qualification
 # record, and guarantees foreground teardown on success, failure, timeout, and
-# cancellation. The scheduled gate sweep in platform-preview-cleanup.yml is
-# the independent stale-resource backstop (labels + bounded naming + cleanup
-# deadline). Reusable via workflow_call for the advisory merge-group
+# cancellation. The event-driven Platform Merge Qualification Observer owns
+# force-cancel cleanup; the scheduled gate sweep in platform-preview-cleanup.yml
+# remains only the runner-loss backstop. Reusable via workflow_call for the advisory merge-group
 # qualification chain; never a required check from this issue.
 #
 # Terminal-path deleters (every path has one):
 #   success      -> "Delete gate provider webhooks" + "Delete gate Kubernetes namespace" (always())
 #   failure      -> same always() finalizers (drill: induced-failure proves it)
-#   cancellation -> job-level always() keeps the finalizers reachable (#5830 pattern)
+#   cancellation -> in-job finalizers normally run; the trusted workflow_run observer verifies and deletes exact leftovers
 #   timeout      -> job timeout cancels the job; same always() finalizers run
-#   runner loss  -> nothing on the runner can run; scheduled gate sweep deletes at the cleanup deadline
+#   runner loss  -> observer retries first; scheduled gate sweep deletes at the cleanup deadline if Actions cannot run
 #   skip         -> preflight fails before ANY provider mutation; nothing exists to delete
 
 on:
   workflow_call:
     inputs:
       image_digest:
-        description: Immutable sha256 image digest to qualify. Empty resolves the candidate tree tag.
-        required: false
-        default: ""
+        description: Exact immutable sha256 digest emitted by the candidate image push.
+        required: true
         type: string
       candidate_ref:
         description: Candidate commit or ref to qualify. Empty uses the triggering SHA.
@@ -53,9 +52,8 @@ on:
   workflow_dispatch:
     inputs:
       image_digest:
-        description: Immutable sha256 image digest to qualify. Empty resolves the candidate tree tag from the registry.
-        required: false
-        default: ""
+        description: Exact immutable sha256 digest to qualify.
+        required: true
         type: string
       candidate_ref:
         description: Candidate commit or ref to qualify. Defaults to main.
@@ -75,6 +73,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Dedicated merge-gate concurrency, separate from the preview, staging, and
 # production groups. Duplicate qualifications of the same digest serialize;
@@ -192,6 +191,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve fixture workflow identity
+        id: fixture-owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          echo "workflow_id=$(printf '%s' "$run_json" | jq -r '.workflow_id')" >> "$GITHUB_OUTPUT"
+          echo "workflow_path=$(printf '%s' "$run_json" | jq -r '.path')" >> "$GITHUB_OUTPUT"
+
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
@@ -217,6 +226,8 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}99" \
             --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.fixture-owner.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.fixture-owner.outputs.workflow_path }}" \
             --candidate-sha "$(git rev-parse HEAD)" \
             --candidate-tree-sha "$(git rev-parse 'HEAD^{tree}')" \
             --image-digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" \
@@ -262,6 +273,24 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.candidate_ref || github.sha }}
 
+      - name: Resolve owning workflow identity
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          if [ "$(printf '%s' "$run_json" | jq -r '.repository.full_name')" != "${{ github.repository }}" ] || \
+             [ "$(printf '%s' "$run_json" | jq -r '.id')" != "${{ github.run_id }}" ] || \
+             [ "$(printf '%s' "$run_json" | jq -r '.run_attempt')" != "${{ github.run_attempt }}" ]; then
+            echo "Owning workflow repository/run/attempt binding failed." >&2
+            exit 1
+          fi
+          {
+            echo "workflow_id=$(printf '%s' "$run_json" | jq -r '.workflow_id')"
+            echo "workflow_path=$(printf '%s' "$run_json" | jq -r '.path')"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Resolve gate candidate
         id: candidate
         run: |
@@ -286,10 +315,8 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      # The gate deploys ONLY an immutable digest. A requested digest is
-      # verified to exist; an empty request resolves the candidate's
-      # boot-smoked merge-group tree tag and pins its digest before any
-      # cluster mutation.
+      # The gate deploys ONLY the immutable digest captured from the actual
+      # candidate push. Mutable tree tags are never read at this boundary.
       - name: Resolve exact gate image digest
         id: image
         env:
@@ -305,15 +332,11 @@ jobs:
           fi
           doctl registry login --expiry-seconds 3600
           repository="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}"
-          if [ -n "$REQUESTED_DIGEST" ]; then
-            if ! printf '%s' "$REQUESTED_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
-              echo "image_digest must be an immutable sha256 digest (got '${REQUESTED_DIGEST}')." >&2
-              exit 1
-            fi
-            reference="${repository}@${REQUESTED_DIGEST}"
-          else
-            reference="${repository}:tree-${CANDIDATE_TREE}"
+          if ! printf '%s' "$REQUESTED_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "image_digest must be the exact immutable sha256 digest emitted by the candidate push (got '${REQUESTED_DIGEST}')." >&2
+            exit 1
           fi
+          reference="${repository}@${REQUESTED_DIGEST}"
           if ! docker buildx imagetools inspect "$reference" >/dev/null 2>&1; then
             echo "Gate image ${reference} does not exist; qualify a candidate whose merge-group build pushed an image." >&2
             exit 1
@@ -323,7 +346,7 @@ jobs:
             echo "Gate image ${reference} did not resolve to an immutable sha256 digest (got '${digest}')." >&2
             exit 1
           fi
-          if [ -n "$REQUESTED_DIGEST" ] && [ "$digest" != "$REQUESTED_DIGEST" ]; then
+          if [ "$digest" != "$REQUESTED_DIGEST" ]; then
             echo "Registry resolved ${digest} but ${REQUESTED_DIGEST} was requested; refusing to deploy a different digest." >&2
             exit 1
           fi
@@ -362,6 +385,8 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.owner.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.owner.outputs.workflow_path }}" \
             --candidate-sha "$CANDIDATE_SHA" \
             --candidate-tree-sha "$CANDIDATE_TREE" \
             --image-digest "$IMAGE_DIGEST" | kubectl create -f -

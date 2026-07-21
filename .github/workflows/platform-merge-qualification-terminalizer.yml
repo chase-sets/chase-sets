@@ -1,33 +1,12 @@
-name: Platform Merge Qualification Terminalizer
+name: Platform Merge Qualification Observer
 
-# Independent idempotent terminalizer for the advisory merge-group
-# qualification chain (issue #5839). The in-run publisher uses `if: always()`,
-# but GitHub only re-evaluates cancellation conditions for jobs that are
-# already queued or running, and force cancellation bypasses `always()`
-# entirely — so a merge-group run can end with NO terminal advisory result.
-# This observer fires on every completed Platform PR run (any conclusion,
-# including cancellation and force cancellation), re-evaluates the checked-in
-# enablement policy fail-closed, and emits the missing terminal event exactly
-# once:
-#
-#   - disabled policy               -> no-op (no records while disabled)
-#   - publisher skipped (disabled)  -> no-op (the run asserted nothing by design)
-#   - event artifact already exists -> no-op (idempotent)
-#   - run cancelled                 -> cancelled_evicted with a stage-distinct
-#                                      reason (plan/image/gate/publisher/force)
-#   - run finished, event missing   -> infrastructure_error (never silent)
-#
-# The emitted event is built from run-derived data only (original run id,
-# attempt, timestamps, URL), so re-delivery or a re-run of this observer
-# rebuilds a byte-identical event that the canonical delivery-health reader
-# deduplicates instead of double counting. Provider posture: provider-inert —
-# this workflow threads only the repo-scoped github.token and never touches a
-# provider credential; gate namespace cleanup stays owned by the gate's
-# always() finalizers and the scheduled gate sweep.
-
+# Trusted observer for the separately triggered advisory workflow. It binds
+# the exact repository/workflow/run/attempt, terminalizes missing evidence
+# deterministically, and performs event-driven cleanup after every terminal
+# advisory run. The scheduled sweep remains only the runner-loss backstop.
 on:
   workflow_run:
-    workflows: ["Platform PR"]
+    workflows: ["Platform Merge Qualification Advisory"]
     types: [completed]
 
 permissions:
@@ -35,61 +14,92 @@ permissions:
   actions: read
 
 concurrency:
-  group: merge-qualification-terminalizer-${{ github.event.workflow_run.id }}
+  group: merge-qualification-observer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
   cancel-in-progress: false
 
 jobs:
   terminalize:
     name: Terminalize Merge Qualification
+    if: startsWith(github.event.workflow_run.display_title, 'Merge Qualification merge_group ')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.workflow_run.event == 'merge_group'
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      gate_started: ${{ steps.inspect.outputs.gate_started }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Inspect completed merge-group run
+      - name: Inspect complete advisory run evidence
+        id: inspect
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification
           gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" > artifacts/merge-qualification/run.json
-          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > artifacts/merge-qualification/jobs.json
-          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" > artifacts/merge-qualification/run-artifacts.json
+          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=all&per_page=100" \
+            | jq '{total_count: .[0].total_count, jobs: [.[].jobs[]]}' > artifacts/merge-qualification/jobs.json
+          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' > artifacts/merge-qualification/run-artifacts.json
+          for file in jobs run-artifacts; do
+            total="$(jq -r '.total_count' "artifacts/merge-qualification/${file}.json")"
+            field="jobs"
+            if [ "$file" = "run-artifacts" ]; then field="artifacts"; fi
+            observed="$(jq -r --arg field "$field" '.[$field] | length' "artifacts/merge-qualification/${file}.json")"
+            if [ "$total" != "$observed" ]; then
+              echo "${field} pagination returned ${observed}/${total}." >&2
+              exit 1
+            fi
+          done
+          decision_name="merge-qualification-decision-${RUN_ID}-${RUN_ATTEMPT}"
+          if jq -e --arg name "$decision_name" '.artifacts[] | select(.name == $name and .expired == false)' \
+            artifacts/merge-qualification/run-artifacts.json >/dev/null; then
+            gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification/decision
+            echo "decision=artifacts/merge-qualification/decision/decision.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "decision=" >> "$GITHUB_OUTPUT"
+          fi
+          gate_started="$(jq -r '[.jobs[] | select((.name == "Merge Qualification Gate" or (.name | startswith("Merge Qualification Gate /"))) and .conclusion != "skipped")] | length > 0' artifacts/merge-qualification/jobs.json)"
+          echo "gate_started=${gate_started}" >> "$GITHUB_OUTPUT"
 
-      # The candidate tree SHA is part of the event identity; resolve it from
-      # the commit object rather than trusting any run-supplied value. A
-      # failed resolution deliberately leaves this empty so terminalization
-      # fails loudly below and the candidate stays visible as an orphan.
-      - name: Resolve candidate tree SHA
+      - name: Resolve candidate tree without suppression
         id: tree
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          tree_sha="$(gh api "repos/${{ github.repository }}/git/commits/${HEAD_SHA}" --jq .tree.sha || true)"
+          tree_sha="$(gh api "repos/${{ github.repository }}/git/commits/${HEAD_SHA}" --jq '.tree.sha')"
+          if ! printf '%s' "$tree_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "Candidate tree lookup did not return an exact git SHA." >&2
+            exit 1
+          fi
           echo "candidate_tree=${tree_sha}" >> "$GITHUB_OUTPUT"
 
-      - name: Emit missing terminal advisory result
+      - name: Emit exact missing terminal result
         id: terminalize
         env:
-          CANDIDATE_TREE: ${{ steps.tree.outputs.candidate_tree }}
+          DECISION_PATH: ${{ steps.inspect.outputs.decision }}
         run: |
           set -euo pipefail
+          decision_args=()
+          if [ -n "$DECISION_PATH" ]; then decision_args=(--decision "$DECISION_PATH"); fi
           node ./scripts/merge-qualification-advisory.mjs terminalize \
-            --policy scripts/merge-qualification-policy.json \
             --run artifacts/merge-qualification/run.json \
             --jobs artifacts/merge-qualification/jobs.json \
             --run-artifacts artifacts/merge-qualification/run-artifacts.json \
+            "${decision_args[@]}" \
             --repository "${{ github.repository }}" \
-            --candidate-tree "$CANDIDATE_TREE" \
+            --candidate-tree "${{ steps.tree.outputs.candidate_tree }}" \
             --out artifacts/merge-qualification/event.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload terminal advisory event
+      - name: Upload deterministic terminal event
         if: steps.terminalize.outputs.event_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -97,3 +107,141 @@ jobs:
           path: artifacts/merge-qualification/event.json
           if-no-files-found: error
           retention-days: 30
+
+  cleanup:
+    name: Cleanup Merge Qualification Resources
+    needs: terminalize
+    if: always() && needs.terminalize.outputs.gate_started == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: merge-gate
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Validate observer cleanup credentials
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          RELEASE_EVIDENCE_SPACES_ACCESS_ID: ${{ secrets.RELEASE_EVIDENCE_SPACES_ACCESS_ID }}
+          RELEASE_EVIDENCE_SPACES_SECRET_KEY: ${{ secrets.RELEASE_EVIDENCE_SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs credentials \
+            --require "DIGITALOCEAN_ACCESS_TOKEN,STRIPE_SECRET_KEY,EASYPOST_API_KEY,RELEASE_EVIDENCE_SPACES_ACCESS_ID,RELEASE_EVIDENCE_SPACES_SECRET_KEY" \
+            --stripe-test-mode-var STRIPE_SECRET_KEY
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Inspect complete cancelled-run identity
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification-cleanup
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" > artifacts/merge-qualification-cleanup/run.json
+          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=all&per_page=100" \
+            | jq '{total_count: .[0].total_count, jobs: [.[].jobs[]]}' > artifacts/merge-qualification-cleanup/jobs.json
+          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' > artifacts/merge-qualification-cleanup/artifacts.json
+          if [ "$(jq '.jobs | length' artifacts/merge-qualification-cleanup/jobs.json)" != "$(jq '.total_count' artifacts/merge-qualification-cleanup/jobs.json)" ] || \
+             [ "$(jq '.artifacts | length' artifacts/merge-qualification-cleanup/artifacts.json)" != "$(jq '.total_count' artifacts/merge-qualification-cleanup/artifacts.json)" ]; then
+            echo "Observer cleanup refused truncated jobs/artifacts." >&2
+            exit 1
+          fi
+          decision_name="merge-qualification-decision-${RUN_ID}-${RUN_ATTEMPT}"
+          if jq -e --arg name "$decision_name" '.artifacts[] | select(.name == $name and .expired == false)' \
+            artifacts/merge-qualification-cleanup/artifacts.json >/dev/null; then
+            gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification-cleanup/decision
+          fi
+          image_resolved="$(jq -r '[.jobs[].steps[]? | select(.name == "Resolve exact gate image digest" and .conclusion == "success")] | length > 0' artifacts/merge-qualification-cleanup/jobs.json)"
+          echo "image_resolved=${image_resolved}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure observer Kubernetes context
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/merge-qualification-observer.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$MERGE_GATE_DOKS_CLUSTER" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Verify exact cleanup target identity
+        id: target
+        run: |
+          set -euo pipefail
+          namespace="chase-sets-gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}"
+          if kubectl get namespace "$namespace" -o json > artifacts/merge-qualification-cleanup/namespace.json 2>/dev/null; then
+            namespace_args=(--namespace artifacts/merge-qualification-cleanup/namespace.json)
+          else
+            namespace_args=()
+          fi
+          node ./scripts/merge-gate-verification.mjs cleanup-target \
+            "${namespace_args[@]}" \
+            --repository "${{ github.repository }}" \
+            --workflow-id "${{ github.event.workflow_run.workflow_id }}" \
+            --workflow-path ".github/workflows/platform-merge-qualification.yml" \
+            --run-id "${{ github.event.workflow_run.id }}" \
+            --run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Delete exact gate provider webhooks
+        if: always() && steps.target.outputs.cleanup_allowed == 'true'
+        env:
+          PLATFORM_API_BASE_URL: https://gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: |
+          set -euo pipefail
+          node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
+
+      - name: Persist cancelled post-identity attempt
+        if: always() && github.event.workflow_run.conclusion == 'cancelled' && steps.inspect.outputs.image_resolved == 'true'
+        env:
+          RELEASE_EVIDENCE_SPACES_ACCESS_ID: ${{ secrets.RELEASE_EVIDENCE_SPACES_ACCESS_ID }}
+          RELEASE_EVIDENCE_SPACES_SECRET_KEY: ${{ secrets.RELEASE_EVIDENCE_SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          decision="artifacts/merge-qualification-cleanup/decision/decision.json"
+          if [ ! -f "$decision" ]; then
+            echo "Immutable resolution was observed but exact decision evidence is missing." >&2
+            exit 1
+          fi
+          jq -n \
+            --slurpfile decision "$decision" \
+            --slurpfile run artifacts/merge-qualification-cleanup/run.json \
+            '{schemaVersion:"release-qualification/v1",repository:$decision[0].repository,candidateSha:$decision[0].candidateSha,candidateTreeSha:$decision[0].candidateTreeSha,imageRepository:"registry.digitalocean.com/chase-sets/chase-sets-platform",imageDigest:$decision[0].builtImageDigest,qualificationLane:"merge-gate",classifierPolicyVersion:"release-qualification-scope/v1",runId:$decision[0].runId,runAttempt:$decision[0].runAttempt,startedAt:$decision[0].observedAt,completedAt:$run[0].updated_at,result:"fail",evidenceLinks:[$run[0].html_url]}' \
+            > artifacts/merge-qualification-cleanup/cancelled-qualification.json
+          node ./scripts/release-qualification-record.mjs write \
+            --record artifacts/merge-qualification-cleanup/cancelled-qualification.json \
+            --out artifacts/merge-qualification-cleanup/cancelled-qualification-write.json
+
+      - name: Delete exact gate Kubernetes namespace
+        if: always() && steps.target.outputs.cleanup_allowed == 'true'
+        run: |
+          set -euo pipefail
+          kubectl delete namespace "${{ steps.target.outputs.namespace }}" --wait=true --timeout=10m
+          if kubectl get namespace "${{ steps.target.outputs.namespace }}" >/dev/null 2>&1; then
+            echo "Exact gate namespace still exists after deletion." >&2
+            exit 1
+          fi
+
+      - name: Report cleanup no-op
+        if: always() && steps.target.outputs.cleanup_status == 'absent'
+        run: echo "No exact gate namespace exists; success/failure cleanup or early cancellation already left no resource."

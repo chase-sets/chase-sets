@@ -9,6 +9,7 @@ import {
   MERGE_QUALIFICATION_POLICY_PATH,
   MERGE_QUALIFICATION_TERMINAL_STATES,
   buildMergeQualificationEvent,
+  buildMergeQualificationDecision,
   dedupeMergeQualificationEvents,
   evaluateMergeQualificationPolicy,
   joinMergeQualificationToStaging,
@@ -16,6 +17,7 @@ import {
   resolveRunTerminalization,
   summarizeMergeQualification,
   validateMergeQualificationEvent,
+  validateMergeQualificationSummary,
 } from "./merge-qualification-advisory.mjs";
 import {
   classifyReleaseQualificationScope,
@@ -51,6 +53,20 @@ describe("enablement policy fail-closed validation (merge-qualification-policy/v
     ["absent file", null, "policy_absent"],
     ["disabled policy", { schemaVersion: "merge-qualification-policy/v1", enabled: false }, "policy_disabled"],
     [
+      "disabled policy with an open nested ceiling",
+      {
+        schemaVersion: "merge-qualification-policy/v1",
+        enabled: false,
+        ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20, extra: true },
+      },
+      "policy_malformed",
+    ],
+    [
+      "disabled policy with object notes",
+      { schemaVersion: "merge-qualification-policy/v1", enabled: false, notes: { text: "disabled" } },
+      "policy_malformed",
+    ],
+    [
       "unsupported future schema",
       { ...enabledPolicy, schemaVersion: "merge-qualification-policy/v2" },
       "policy_schema_unsupported",
@@ -78,6 +94,17 @@ describe("enablement policy fail-closed validation (merge-qualification-policy/v
     ["date-only enabledAt", { ...enabledPolicy, enabledAt: "2026-07-20" }, "policy_malformed"],
     ["date-only expiresAt", { ...enabledPolicy, expiresAt: "2026-08-10" }, "policy_malformed"],
     ["zone-less enabledAt", { ...enabledPolicy, enabledAt: "2026-07-20T00:00:00" }, "policy_malformed"],
+    ["impossible leap date", { ...enabledPolicy, enabledAt: "2025-02-29T00:00:00Z" }, "policy_malformed"],
+    [
+      "extreme dollar ceiling",
+      { ...enabledPolicy, ceiling: { ...enabledPolicy.ceiling, dollarCeilingUsd: 1e100 } },
+      "policy_malformed",
+    ],
+    [
+      "extreme qualification rate",
+      { ...enabledPolicy, ceiling: { ...enabledPolicy.ceiling, maxQualificationsPerDay: 1e12 } },
+      "policy_malformed",
+    ],
     ["future enabledAt", { ...enabledPolicy, enabledAt: "2026-07-22T00:00:00.000Z" }, "policy_malformed"],
     // Explicit bounds: enabledAt < expiresAt is asserted directly, so equal
     // and reversed timestamps are malformed rather than accidentally expired.
@@ -159,6 +186,10 @@ describe("terminal advisory state machine (exactly one of six per enabled candid
     gateResult: "success",
     gateImageDigest: DIGEST,
     builtImageDigest: DIGEST,
+    candidateSha: "a".repeat(40),
+    gateCandidateSha: "a".repeat(40),
+    candidateTreeSha: "b".repeat(40),
+    gateCandidateTreeSha: "b".repeat(40),
   };
 
   it("asserts nothing and requires no record when the policy is disabled", () => {
@@ -208,12 +239,7 @@ describe("terminal advisory state machine (exactly one of six per enabled candid
       ["migration_schema", "terraform_infrastructure"],
     ],
     ["isolated gate pass on the exact built digest", gatePass, "passed", ["gate_passed"]],
-    [
-      "isolated gate failure",
-      { ...enabledBase, classifierClass: "isolated", gateResult: "failure" },
-      "failed",
-      ["gate_failed"],
-    ],
+    ["isolated gate failure", { ...gatePass, gateResult: "failure" }, "failed", ["gate_failed"]],
     [
       "queue cancellation/eviction reported separately from failure",
       { ...enabledBase, classifierClass: "isolated", gateResult: "cancelled" },
@@ -370,6 +396,10 @@ function builtEvent(overrides = {}) {
   return buildMergeQualificationEvent({ ...validEvent, ...overrides }).event;
 }
 
+function candidateFor(event) {
+  return { candidateSha: event.candidateSha, runId: event.runId, runAttempt: event.runAttempt };
+}
+
 describe("merge-qualification-event/v1 fixtures", () => {
   it("accepts a complete terminal event", () => {
     const { event, errors } = buildMergeQualificationEvent(validEvent);
@@ -398,6 +428,20 @@ describe("merge-qualification-event/v1 fixtures", () => {
     ["completedAt before startedAt", { completedAt: "2026-07-21T10:00:00.000Z" }],
     ["a malformed providerHeadroom shape", { providerHeadroom: { headroomRuns: 3, extra: true } }],
     ["a negative providerHeadroom", { providerHeadroom: { headroomRuns: -1 } }],
+    ["fractional providerHeadroom", { providerHeadroom: { headroomRuns: 1.5 } }],
+    ["duplicate reason codes", { reasonCodes: ["gate_passed", "gate_passed"] }],
+    [
+      "duplicate evidence links",
+      {
+        evidenceLinks: [
+          "https://github.com/chase-sets/chase-sets/actions/runs/12345/attempts/1",
+          "https://github.com/chase-sets/chase-sets/actions/runs/12345/attempts/1",
+        ],
+      },
+    ],
+    ["unsafe run ID", { runId: "9007199254740992" }],
+    ["object classifier", { classifierClass: { class: "isolated" } }],
+    ["impossible completed date", { completedAt: "2026-02-30T12:00:00Z" }],
   ])("rejects %s", (_name, overrides) => {
     const { errors } = buildMergeQualificationEvent({ ...validEvent, ...overrides });
     expect(errors.length).toBeGreaterThan(0);
@@ -411,6 +455,11 @@ describe("merge-qualification-event/v1 fixtures", () => {
     expect(validateMergeQualificationEvent({ ...event, schemaVersion: "merge-qualification-event/v2" })).toHaveLength(
       1,
     );
+  });
+
+  it("rejects string booleans at the reader boundary", () => {
+    const { event } = buildMergeQualificationEvent(validEvent);
+    expect(validateMergeQualificationEvent({ ...event, provisioned: "false" })).not.toEqual([]);
   });
 
   it("accepts digest-less records for states that never touched the image", () => {
@@ -427,110 +476,116 @@ describe("merge-qualification-event/v1 fixtures", () => {
 });
 
 describe("independent idempotent run terminalization (cancellation/eviction backstop)", () => {
-  const enabledBase = { policyEnabled: true, runEvent: "merge_group" };
-  const jobs = (overrides = {}) => [
-    { name: "Merge Qualification Plan", conclusion: overrides.plan ?? "success" },
-    { name: "Docker Image Build", conclusion: overrides.image ?? "success" },
-    { name: "Merge Qualification Gate / Merge Gate Preflight", conclusion: overrides.gate ?? "success" },
-    { name: "Merge Qualification Gate / Verify Merge Candidate", conclusion: overrides.gate ?? "success" },
-    { name: "Merge Qualification (advisory)", conclusion: overrides.publisher ?? "success" },
-  ];
+  const decision = buildMergeQualificationDecision({
+    repository: "chase-sets/chase-sets",
+    workflowId: "77",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
+    runId: "4242",
+    runAttempt: "2",
+    parentWorkflowId: "11",
+    parentWorkflowPath: ".github/workflows/platform-pr.yml",
+    parentRunId: "4000",
+    parentRunAttempt: "1",
+    candidateSha: "a".repeat(40),
+    candidateTreeSha: "b".repeat(40),
+    builtImageDigest: DIGEST,
+    policyEnabled: true,
+    classifierClass: "isolated",
+    classifierReasonCodes: ["isolated_runtime"],
+    observedAt: "2026-07-21T10:00:00.000Z",
+  }).decision;
+  const base = {
+    runEvent: "workflow_run",
+    runConclusion: "success",
+    runId: "4242",
+    runAttempt: "2",
+    jobs: [],
+    artifactNames: [],
+    decision,
+  };
 
-  it("skips non-merge-group runs and disabled policies (no records while disabled)", () => {
-    expect(resolveRunTerminalization({ policyEnabled: true, runEvent: "pull_request" })).toEqual({
-      action: "skip",
-      reason: "not_merge_group",
-    });
+  it("evaluates cancellation before a skipped publisher or disabled decision", () => {
+    const disabled = { ...decision, policyEnabled: false, policyReasonCode: "policy_disabled", classifierClass: null };
     expect(
-      resolveRunTerminalization({ policyEnabled: false, policyReasonCode: "policy_disabled", runEvent: "merge_group" }),
-    ).toEqual({ action: "skip", reason: "policy_disabled" });
+      resolveRunTerminalization({
+        ...base,
+        runConclusion: "cancelled",
+        decision: disabled,
+        jobs: [{ name: "Merge Qualification (advisory)", conclusion: "skipped" }],
+      }),
+    ).toMatchObject({ action: "terminalize", terminalState: "cancelled_evicted" });
   });
 
-  it("recognizes a definitively-disabled run from its skipped publisher and asserts nothing", () => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "success",
-      jobs: jobs({ publisher: "skipped" }),
-      artifactNames: [],
-    });
-    expect(resolution).toEqual({ action: "skip", reason: "publisher_skipped_disabled" });
-  });
-
-  it("is idempotent: a run that already carries a terminal event artifact is never terminalized again", () => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "cancelled",
-      jobs: jobs({ publisher: "cancelled" }),
-      artifactNames: ["merge-qualification-events-99-1"],
-    });
-    expect(resolution).toEqual({ action: "skip", reason: "already_terminalized" });
-  });
-
-  // Review probe: cancellation before every stage must land cancelled_evicted
-  // with a stage-distinct reason, even though the publisher never emitted.
-  // The earliest cancelled stage wins; later cancelled jobs are collateral.
-  it.each([
-    [
-      "plan",
-      jobs({ plan: "cancelled", image: "cancelled", gate: "skipped", publisher: "cancelled" }),
-      "plan_cancelled",
-    ],
-    ["docker image", jobs({ image: "cancelled", gate: "skipped", publisher: "cancelled" }), "image_cancelled"],
-    ["gate", jobs({ gate: "cancelled", publisher: "cancelled" }), "gate_cancelled"],
-    ["publisher", jobs({ publisher: "cancelled" }), "publisher_cancelled"],
-  ])("terminalizes cancellation at the %s stage", (_stage, cancelledJobs, reason) => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "cancelled",
-      jobs: cancelledJobs,
-      artifactNames: [],
-    });
-    expect(resolution.action).toBe("terminalize");
-    expect(resolution.terminalState).toBe("cancelled_evicted");
-    expect(resolution.reasonCodes).toEqual([reason]);
-  });
-
-  it("terminalizes a force-cancelled run with no per-job cancellation evidence", () => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "cancelled",
-      jobs: [],
-      artifactNames: [],
-    });
-    expect(resolution).toMatchObject({
-      action: "terminalize",
-      terminalState: "cancelled_evicted",
-      reasonCodes: ["run_force_cancelled"],
-      provisioned: false,
-    });
-  });
-
-  it("marks provisioning possible when the gate had started before cancellation", () => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "cancelled",
-      jobs: jobs({ gate: "cancelled", publisher: "cancelled" }),
-      artifactNames: [],
-    });
-    expect(resolution).toMatchObject({ terminalState: "cancelled_evicted", provisioned: true });
-  });
-
-  it("terminalizes an enabled completed run with no terminal event as infrastructure_error, never silent", () => {
-    const resolution = resolveRunTerminalization({
-      ...enabledBase,
-      runConclusion: "failure",
-      jobs: jobs(),
-      artifactNames: ["some-other-artifact"],
-    });
-    expect(resolution).toMatchObject({
+  it("requires run-attempt-scoped decision proof before classifying disabled", () => {
+    expect(resolveRunTerminalization({ ...base, decision: null })).toMatchObject({
       action: "terminalize",
       terminalState: "infrastructure_error",
-      reasonCodes: ["advisory_result_missing"],
-      provisioned: false,
+      reasonCodes: ["policy_decision_evidence_missing"],
+    });
+    const disabled = { ...decision, policyEnabled: false, policyReasonCode: "policy_disabled", classifierClass: null };
+    expect(resolveRunTerminalization({ ...base, decision: disabled })).toEqual({
+      action: "skip",
+      reason: "policy_disabled",
     });
   });
-});
 
+  it("never terminalizes advisory runs triggered by a pull-request Platform PR run", () => {
+    expect(
+      resolveRunTerminalization({
+        ...base,
+        runDisplayTitle: "Merge Qualification pull_request 111-1",
+        decision: null,
+      }),
+    ).toEqual({ action: "skip", reason: "not_merge_group_advisory" });
+  });
+
+  it("matches idempotency only to the exact run and attempt artifact", () => {
+    expect(resolveRunTerminalization({ ...base, artifactNames: ["merge-qualification-events-4242-2"] })).toEqual({
+      action: "skip",
+      reason: "already_terminalized",
+    });
+    expect(resolveRunTerminalization({ ...base, artifactNames: ["merge-qualification-events-4242-1"] }).action).toBe(
+      "terminalize",
+    );
+  });
+
+  it.each([
+    ["plan", [{ name: "Merge Qualification Plan", conclusion: "cancelled" }], "plan_cancelled"],
+    [
+      "gate",
+      [{ name: "Merge Qualification Gate / Verify Merge Candidate", conclusion: "cancelled" }],
+      "gate_cancelled",
+    ],
+    ["publisher", [{ name: "Merge Qualification (advisory)", conclusion: "cancelled" }], "publisher_cancelled"],
+    ["force", [], "run_force_cancelled"],
+  ])("terminalizes %s cancellation", (_name, jobs, reason) => {
+    expect(resolveRunTerminalization({ ...base, runConclusion: "cancelled", jobs })).toMatchObject({
+      terminalState: "cancelled_evicted",
+      reasonCodes: [reason],
+    });
+  });
+
+  it("binds cancellation provisioning to the exact namespace-create step", () => {
+    const beforeProvisioning = resolveRunTerminalization({
+      ...base,
+      runConclusion: "cancelled",
+      jobs: [{ name: "Merge Qualification Gate / Verify Merge Candidate", conclusion: "cancelled", steps: [] }],
+    });
+    const afterProvisioning = resolveRunTerminalization({
+      ...base,
+      runConclusion: "cancelled",
+      jobs: [
+        {
+          name: "Merge Qualification Gate / Verify Merge Candidate",
+          conclusion: "cancelled",
+          steps: [{ name: "Create gate namespace", conclusion: "success" }],
+        },
+      ],
+    });
+    expect(beforeProvisioning.provisioned).toBe(false);
+    expect(afterProvisioning.provisioned).toBe(true);
+  });
+});
 describe("terminalize CLI determinism (byte-identical events across observer re-runs)", () => {
   const workDir = mkdtempSync(path.join(tmpdir(), "merge-qualification-terminalize-"));
   afterAll(() => rmSync(workDir, { recursive: true, force: true }));
@@ -538,12 +593,39 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
   it("rebuilds a byte-identical valid event from run-derived data alone", () => {
     writeFileSync(path.join(workDir, "policy.json"), JSON.stringify(enabledPolicy));
     writeFileSync(
+      path.join(workDir, "decision.json"),
+      JSON.stringify(
+        buildMergeQualificationDecision({
+          repository: "chase-sets/chase-sets",
+          workflowId: "77",
+          workflowPath: ".github/workflows/platform-merge-qualification.yml",
+          runId: "4242",
+          runAttempt: "2",
+          parentWorkflowId: "11",
+          parentWorkflowPath: ".github/workflows/platform-pr.yml",
+          parentRunId: "4000",
+          parentRunAttempt: "1",
+          candidateSha: "0123456789abcdef0123456789abcdef01234567",
+          candidateTreeSha: "89abcdef0123456789abcdef0123456789abcdef",
+          builtImageDigest: DIGEST,
+          policyEnabled: true,
+          classifierClass: "isolated",
+          classifierReasonCodes: ["isolated_runtime"],
+          observedAt: "2026-07-21T10:00:00.000Z",
+        }).decision,
+      ),
+    );
+    writeFileSync(
       path.join(workDir, "run.json"),
       JSON.stringify({
         id: 4242,
         run_attempt: 2,
-        event: "merge_group",
+        event: "workflow_run",
+        display_title: "Merge Qualification merge_group 4000-1",
         conclusion: "cancelled",
+        workflow_id: 77,
+        path: ".github/workflows/platform-merge-qualification.yml",
+        repository: { full_name: "chase-sets/chase-sets" },
         head_sha: "0123456789abcdef0123456789abcdef01234567",
         run_started_at: "2026-07-21T10:00:00Z",
         updated_at: "2026-07-21T10:12:34Z",
@@ -551,17 +633,17 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
     );
     writeFileSync(
       path.join(workDir, "jobs.json"),
-      JSON.stringify({ jobs: [{ name: "Merge Qualification Plan", conclusion: "cancelled" }] }),
+      JSON.stringify({ total_count: 1, jobs: [{ name: "Merge Qualification Plan", conclusion: "cancelled" }] }),
     );
-    writeFileSync(path.join(workDir, "artifacts.json"), JSON.stringify({ artifacts: [] }));
+    writeFileSync(path.join(workDir, "artifacts.json"), JSON.stringify({ total_count: 0, artifacts: [] }));
     const invoke = (outName) =>
       execFileSync(
         process.execPath,
         [
           "scripts/merge-qualification-advisory.mjs",
           "terminalize",
-          "--policy",
-          path.join(workDir, "policy.json"),
+          "--decision",
+          path.join(workDir, "decision.json"),
           "--run",
           path.join(workDir, "run.json"),
           "--jobs",
@@ -604,16 +686,20 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
   const tree = (n) => `${String(n).repeat(4).padEnd(40, "e")}`.slice(0, 40).replaceAll(/[^0-9a-f]/g, "e");
   const sha = (prefix, n) => `${prefix}${n}`.padEnd(40, "0").slice(0, 40);
   const digestFor = (n) => `sha256:${String(n).repeat(64).slice(0, 64)}`;
-  const isolatedEvent = (n, terminalState, overrides = {}) => ({
-    candidateSha: sha("aaa", n),
-    candidateTreeSha: tree(n),
-    imageDigest: digestFor(n),
-    classifierClass: "isolated",
-    terminalState,
-    completedAt: "2026-07-21T10:00:00.000Z",
-    ...overrides,
-  });
+  const isolatedEvent = (n, terminalState, overrides = {}) =>
+    builtEvent({
+      candidateSha: sha("aaa", n),
+      candidateTreeSha: tree(n),
+      imageDigest: digestFor(n),
+      classifierClass: "isolated",
+      terminalState,
+      reasonCodes: [terminalState === "passed" ? "gate_passed" : "gate_failed"],
+      startedAt: "2026-07-21T09:00:00.000Z",
+      completedAt: "2026-07-21T10:00:00.000Z",
+      ...overrides,
+    });
   const release = (n, stagingResult, rootCauseCode = null, overrides = {}) => ({
+    candidateSha: sha("aaa", n),
     mainSha: sha("bbb", n),
     treeSha: tree(n),
     imageDigest: digestFor(n),
@@ -639,7 +725,10 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
 
   it("maps a same-commit release (direct main candidate) distinctly", () => {
     const event = isolatedEvent(2, "passed", { candidateSha: sha("bbb", 2) });
-    const [entry] = joinMergeQualificationToStaging({ events: [event], releases: [release(2, "success")] });
+    const [entry] = joinMergeQualificationToStaging({
+      events: [event],
+      releases: [release(2, "success", null, { candidateSha: event.candidateSha })],
+    });
     expect(entry.mapping).toBe("same-commit");
   });
 
@@ -678,7 +767,7 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
       events: [isolatedEvent(7, "passed")],
       releases: [release(7, "failure", "never-seen-before-code")],
     });
-    expect(entry.caught).toBe(true);
+    expect(entry.caught).toBe(false);
   });
 
   it("only compares eligible isolated outcomes (passed/failed), never records or disabled notes", () => {
@@ -743,47 +832,60 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
     });
   });
 
-  it("joins across a digest-less release with digestMatched null (identity unproven, not mismatched)", () => {
+  it("rejects missing candidate lineage and candidate-lineage disagreement", () => {
+    const event = isolatedEvent(2, "passed");
+    expect(
+      joinMergeQualificationToStaging({
+        events: [event],
+        releases: [release(2, "success", null, { candidateSha: null })],
+      })[0].joinStatus,
+    ).toBe("identity_unavailable");
+    expect(
+      joinMergeQualificationToStaging({
+        events: [event],
+        releases: [release(2, "success", null, { candidateSha: "f".repeat(40) })],
+      })[0].joinStatus,
+    ).toBe("identity_mismatch");
+  });
+
+  it("excludes equal-time and calendar-invalid releases", () => {
+    const event = isolatedEvent(2, "passed");
+    expect(
+      joinMergeQualificationToStaging({
+        events: [event],
+        releases: [release(2, "success", null, { completedAt: event.completedAt })],
+      })[0].joinStatus,
+    ).toBe("no_subsequent_release");
+    expect(
+      joinMergeQualificationToStaging({
+        events: [event],
+        releases: [release(2, "success", null, { completedAt: "2026-02-30T12:00:00Z" })],
+      })[0].joinStatus,
+    ).toBe("identity_unavailable");
+  });
+
+  it("rejects a digest-less release as identity_unavailable, never a catch", () => {
     const [entry] = joinMergeQualificationToStaging({
       events: [isolatedEvent(1, "passed")],
       releases: [release(1, "success", null, { imageDigest: null })],
     });
-    expect(entry).toMatchObject({ joinStatus: "joined", digestMatched: null });
+    expect(entry).toMatchObject({ joinStatus: "identity_unavailable", digestMatched: null, caught: false });
   });
 
   it("selects deterministically among multiple qualifying releases regardless of input order", () => {
     const event = isolatedEvent(3, "passed", { completedAt: "2026-07-21T10:00:00.000Z" });
-    const digestless = release(3, "success", null, {
-      mainSha: sha("bb1", 3),
-      imageDigest: null,
-      completedAt: "2026-07-21T11:00:00.000Z",
-    });
     const exactLater = release(3, "success", null, {
       mainSha: sha("bb2", 3),
       completedAt: "2026-07-21T12:00:00.000Z",
     });
-    const forward = joinMergeQualificationToStaging({ events: [event], releases: [digestless, exactLater] });
-    const reversed = joinMergeQualificationToStaging({ events: [event], releases: [exactLater, digestless] });
-    // Exact digest agreement outranks an earlier digest-less release, and the
-    // choice is stable under permutation.
-    expect(forward[0].mainSha).toBe(exactLater.mainSha);
-    expect(reversed[0].mainSha).toBe(exactLater.mainSha);
-    const twoDigestless = [
-      release(3, "success", null, {
-        mainSha: sha("bb4", 3),
-        imageDigest: null,
-        completedAt: "2026-07-21T12:00:00.000Z",
-      }),
-      release(3, "success", null, {
-        mainSha: sha("bb3", 3),
-        imageDigest: null,
-        completedAt: "2026-07-21T11:00:00.000Z",
-      }),
-    ];
-    const eventNoDigest = isolatedEvent(3, "passed", { imageDigest: null });
-    expect(joinMergeQualificationToStaging({ events: [eventNoDigest], releases: twoDigestless })[0].mainSha).toBe(
-      sha("bb3", 3),
-    );
+    const exactEarlier = release(3, "success", null, {
+      mainSha: sha("bb1", 3),
+      completedAt: "2026-07-21T11:00:00.000Z",
+    });
+    const forward = joinMergeQualificationToStaging({ events: [event], releases: [exactEarlier, exactLater] });
+    const reversed = joinMergeQualificationToStaging({ events: [event], releases: [exactLater, exactEarlier] });
+    expect(forward[0].mainSha).toBe(exactEarlier.mainSha);
+    expect(reversed[0].mainSha).toBe(exactEarlier.mainSha);
   });
 
   it("excludes releases without a full identity instead of joining on partial data", () => {
@@ -791,7 +893,7 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
       events: [isolatedEvent(1, "passed")],
       releases: [release(1, "success", null, { mainSha: "not-a-sha" })],
     });
-    expect(entry.joinStatus).toBe("superseded");
+    expect(entry.joinStatus).toBe("identity_unavailable");
   });
 });
 
@@ -819,7 +921,7 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
     const summary = summarizeMergeQualification({
       events: [passedFirst, failedSecond],
       comparisons: [],
-      candidates: [candidate],
+      candidates: [candidateFor(failedSecond)],
     });
     expect(summary.sampleCount).toBe(1);
     expect(summary.counts).toMatchObject({ success: 0, applicationFailure: 1 });
@@ -835,13 +937,35 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
     expect(dedupe.supersededAttemptCount).toBe(1);
   });
 
+  it("is input-order independent for adjacent unsafe run IDs by rejecting both", () => {
+    const left = builtEvent({ runId: "9007199254740992" });
+    const right = builtEvent({ runId: "9007199254740993", terminalState: "failed", reasonCodes: ["gate_failed"] });
+    const forward = dedupeMergeQualificationEvents([left, right]);
+    const reverse = dedupeMergeQualificationEvents([right, left]);
+    expect(forward.authoritative).toEqual([]);
+    expect(reverse.authoritative).toEqual([]);
+    expect(forward.invalidEvents).toHaveLength(2);
+    expect(reverse.invalidEvents).toHaveLength(2);
+  });
+
+  it("marks old evidence with a missing latest attempt partial and unobserved", () => {
+    const old = builtEvent({ runAttempt: "1" });
+    const summary = summarizeMergeQualification({
+      events: [old],
+      comparisons: [],
+      candidates: [{ candidateSha: old.candidateSha, runId: old.runId, runAttempt: "2" }],
+    });
+    expect(summary).toMatchObject({ sampleCount: 0, orphanCount: 1 });
+    expect(summary.evidence).toMatchObject({ missingTerminalCount: 1, orphanEventCount: 1, complete: false });
+  });
+
   it("exposes same-attempt contradictions as conflicts and removes the candidate from every denominator", () => {
     const passed = builtEvent({});
     const contradiction = builtEvent({ terminalState: "failed", reasonCodes: ["gate_failed"] });
     const summary = summarizeMergeQualification({
       events: [passed, contradiction],
       comparisons: [],
-      candidates: [candidate],
+      candidates: [candidateFor(passed)],
     });
     expect(summary.sampleCount).toBe(0);
     expect(summary.counts).toMatchObject({ success: 0, applicationFailure: 0 });
@@ -860,7 +984,11 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
       builtEvent({ imageDigest: "tree-89abcdef" }),
       { schemaVersion: "merge-qualification-event/v2" },
     ];
-    const summary = summarizeMergeQualification({ events: malformed, comparisons: [], candidates: [candidate] });
+    const summary = summarizeMergeQualification({
+      events: malformed,
+      comparisons: [],
+      candidates: [candidateFor(builtEvent({}))],
+    });
     expect(summary.sampleCount).toBe(0);
     expect(summary.evidence).toMatchObject({ invalidEventCount: 3, complete: false });
     // The candidate never reached a valid terminal state: still an orphan.
@@ -875,6 +1003,69 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
     });
     expect(summary.stagingCatchCount).toBe(0);
     expect(summary.evidence).toMatchObject({ invalidComparisonCount: 1, complete: false });
+  });
+
+  it("negative control: unknown nested comparison data cannot count as a catch", () => {
+    const event = builtEvent({});
+    const [valid] = joinMergeQualificationToStaging({
+      events: [event],
+      releases: [
+        {
+          candidateSha: event.candidateSha,
+          mainSha: "c".repeat(40),
+          treeSha: event.candidateTreeSha,
+          imageDigest: event.imageDigest,
+          completedAt: "2026-07-21T12:00:00.000Z",
+          staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
+        },
+      ],
+    });
+    const summary = summarizeMergeQualification({
+      events: [event],
+      comparisons: [{ ...valid, unexpected: { caught: true } }],
+      candidates: [candidateFor(event)],
+    });
+    expect(summary.stagingCatchCount).toBe(0);
+    expect(summary.evidence).toMatchObject({ invalidComparisonCount: 1, complete: false });
+  });
+
+  it("negative control: a valid-shaped comparison without authoritative event lineage cannot count", () => {
+    const event = builtEvent({});
+    const [comparison] = joinMergeQualificationToStaging({
+      events: [event],
+      releases: [
+        {
+          candidateSha: event.candidateSha,
+          mainSha: "c".repeat(40),
+          treeSha: event.candidateTreeSha,
+          imageDigest: event.imageDigest,
+          completedAt: "2026-07-21T12:00:00.000Z",
+          staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
+        },
+      ],
+    });
+    const summary = summarizeMergeQualification({ events: [], comparisons: [comparison], candidates: null });
+    expect(summary.stagingCatchCount).toBe(0);
+    expect(summary.evidence).toMatchObject({ invalidComparisonCount: 1, complete: false });
+  });
+
+  it("rejects internally contradictory closed summary objects", () => {
+    const event = builtEvent({});
+    const summary = summarizeMergeQualification({
+      events: [event],
+      comparisons: [],
+      candidates: [candidateFor(event)],
+    });
+    expect(validateMergeQualificationSummary({ ...summary, sampleCount: 2 })).not.toEqual([]);
+    expect(validateMergeQualificationSummary({ ...summary, counts: { ...summary.counts, success: 999 } })).not.toEqual(
+      [],
+    );
+    expect(
+      validateMergeQualificationSummary({
+        ...summary,
+        evidence: { ...summary.evidence, complete: false },
+      }),
+    ).not.toEqual([]);
   });
 });
 
@@ -921,23 +1112,38 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
     event(16, "persistent_required", 1, null),
     event(17, "persistent_required", 1, null),
   ];
-  const comparison = (joinStatus, overrides = {}) => ({
-    schemaVersion: MERGE_QUALIFICATION_COMPARISON_SCHEMA_VERSION,
-    joinStatus,
-    caught: false,
-    classifierRoutingEvidence: false,
+  const stagingRelease = (index, rootCauseCode, overrides = {}) => ({
+    candidateSha: events[index].candidateSha,
+    mainSha: `${String(index + 5).repeat(40)}`.slice(0, 40),
+    treeSha: events[index].candidateTreeSha,
+    imageDigest: events[index].imageDigest,
+    completedAt: "2026-07-21T12:00:00.000Z",
+    staging: { result: "failure", rootCauseCode },
     ...overrides,
   });
   const comparisons = [
-    comparison("joined", { caught: true }),
-    comparison("joined", { classifierRoutingEvidence: true }),
-    comparison("superseded"),
-    comparison("identity_mismatch"),
-    comparison("no_subsequent_release"),
+    ...joinMergeQualificationToStaging({
+      events: [events[0]],
+      releases: [stagingRelease(0, "blocking-staging-verification")],
+    }),
+    ...joinMergeQualificationToStaging({ events: [events[1]], releases: [stagingRelease(1, "staging-dns")] }),
+    ...joinMergeQualificationToStaging({ events: [events[2]], releases: [] }),
+    ...joinMergeQualificationToStaging({
+      events: [events[3]],
+      releases: [stagingRelease(3, null, { imageDigest: `sha256:${"f".repeat(64)}` })],
+    }),
+    ...joinMergeQualificationToStaging({
+      events: [events[4]],
+      releases: [stagingRelease(4, null, { completedAt: "2026-07-21T09:00:00.000Z" })],
+    }),
   ];
 
   it("reports terminal counts, p50/p90/p95 durations, catches, orphans, and provider headroom", () => {
-    const summary = summarizeMergeQualification({ events, comparisons, candidates: shas });
+    const summary = summarizeMergeQualification({
+      events,
+      comparisons,
+      candidates: shas.map((candidateSha, index) => ({ candidateSha, runId: String(9000 + index), runAttempt: "1" })),
+    });
     expect(events.every((entry) => validateMergeQualificationEvent(entry).length === 0)).toBe(true);
     expect(summary.sampleCount).toBe(18);
     expect(summary.candidateCount).toBe(20);
@@ -965,14 +1171,20 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
     expect(summary.orphanCount).toBe(2);
     // The latest sample by completedAt is the 60-minute run (index 9).
     expect(summary.providerHeadroom).toEqual({ sampleCount: 13, minHeadroomRuns: 2, latestHeadroomRuns: 2 });
-    expect(summary.evidence).toMatchObject({ eventCount: 18, invalidEventCount: 0, conflictCount: 0, complete: true });
+    expect(summary.evidence).toMatchObject({
+      eventCount: 18,
+      invalidEventCount: 0,
+      conflictCount: 0,
+      missingTerminalCount: 2,
+      complete: false,
+    });
   });
 
   it("keeps an event without a valid terminal state out of the denominators and visible as evidence", () => {
     const summary = summarizeMergeQualification({
       events: [...events, { ...events[0], candidateSha: shas[18], terminalState: "in-progress" }],
       comparisons: [],
-      candidates: shas,
+      candidates: shas.map((candidateSha, index) => ({ candidateSha, runId: String(9000 + index), runAttempt: "1" })),
     });
     expect(summary.sampleCount).toBe(18);
     // Candidate 18's only evidence is invalid (still unresolved → orphan),

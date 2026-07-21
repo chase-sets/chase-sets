@@ -1,0 +1,239 @@
+name: Platform Merge Qualification Advisory
+run-name: Merge Qualification ${{ github.event.workflow_run.event }} ${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+
+# Separately triggered advisory evaluation. Qualification outcomes can make
+# this advisory run red, but can never change the completed Platform PR run or
+# its required rollup. The checked-in policy remains default-off; #5881 owns
+# any later operator activation.
+on:
+  workflow_run:
+    workflows: ["Platform PR"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: platform-merge-qualification-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Merge Qualification Plan
+    if: github.event.workflow_run.event == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      enabled: ${{ steps.decision.outputs.enabled }}
+      route: ${{ steps.decision.outputs.route }}
+      candidate_sha: ${{ steps.decision.outputs.candidate_sha }}
+      candidate_tree: ${{ steps.decision.outputs.candidate_tree }}
+      built_image_digest: ${{ steps.decision.outputs.built_image_digest }}
+      classifier_class: ${{ steps.decision.outputs.classifier_class }}
+      classifier_reason_codes: ${{ steps.decision.outputs.classifier_reason_codes }}
+      started_at: ${{ steps.decision.outputs.started_at }}
+      workflow_id: ${{ steps.decision.outputs.workflow_id }}
+      workflow_path: ${{ steps.decision.outputs.workflow_path }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Inspect exact parent run and candidate artifact
+        id: parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          PARENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification
+          parent_json="$(gh api "repos/${{ github.repository }}/actions/runs/${PARENT_RUN_ID}")"
+          if [ "$(printf '%s' "$parent_json" | jq -r '.repository.full_name')" != "${{ github.repository }}" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.path')" != ".github/workflows/platform-pr.yml" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.id')" != "$PARENT_RUN_ID" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.run_attempt')" != "$PARENT_RUN_ATTEMPT" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.head_sha')" != "$CANDIDATE_SHA" ]; then
+            echo "Parent workflow repository/path/run/attempt/candidate binding failed." >&2
+            exit 1
+          fi
+          printf '%s\n' "$parent_json" > artifacts/merge-qualification/parent-run.json
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/actions/runs/${PARENT_RUN_ID}/artifacts?per_page=100" \
+            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' \
+            > artifacts/merge-qualification/parent-artifacts.json
+          total="$(jq -r '.total_count' artifacts/merge-qualification/parent-artifacts.json)"
+          observed="$(jq -r '.artifacts | length' artifacts/merge-qualification/parent-artifacts.json)"
+          if [ "$total" != "$observed" ]; then
+            echo "Parent artifact pagination returned ${observed}/${total} artifacts." >&2
+            exit 1
+          fi
+          artifact_name="merge-qualification-candidate-${PARENT_RUN_ID}-${PARENT_RUN_ATTEMPT}"
+          if jq -e --arg name "$artifact_name" '.artifacts[] | select(.name == $name and .expired == false)' \
+            artifacts/merge-qualification/parent-artifacts.json >/dev/null; then
+            gh run download "$PARENT_RUN_ID" --name "$artifact_name" --dir artifacts/merge-qualification/candidate
+            echo "candidate_record=artifacts/merge-qualification/candidate/candidate.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "candidate_record=" >> "$GITHUB_OUTPUT"
+          fi
+          tree_sha="$(gh api "repos/${{ github.repository }}/git/commits/${CANDIDATE_SHA}" --jq '.tree.sha')"
+          if ! printf '%s' "$tree_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "Candidate tree lookup did not return an exact git SHA." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git cat-file -e "${CANDIDATE_SHA}^{commit}"
+          own_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          if [ "$(printf '%s' "$own_json" | jq -r '.repository.full_name')" != "${{ github.repository }}" ] || \
+             [ "$(printf '%s' "$own_json" | jq -r '.path')" != ".github/workflows/platform-merge-qualification.yml" ]; then
+            echo "Advisory workflow repository/path binding failed." >&2
+            exit 1
+          fi
+          {
+            echo "candidate_tree=${tree_sha}"
+            echo "parent_workflow_id=$(printf '%s' "$parent_json" | jq -r '.workflow_id')"
+            echo "parent_workflow_path=$(printf '%s' "$parent_json" | jq -r '.path')"
+            echo "workflow_id=$(printf '%s' "$own_json" | jq -r '.workflow_id')"
+            echo "workflow_path=$(printf '%s' "$own_json" | jq -r '.path')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate original run-attempt policy decision
+        id: policy
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs policy \
+            --policy scripts/merge-qualification-policy.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Classify enabled candidate
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          node ./scripts/release-qualification-scope.mjs classify \
+            --candidate "${{ github.event.workflow_run.head_sha }}" \
+            --out artifacts/merge-qualification/scope.json
+
+      - name: Resolve enabled route
+        id: route
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs route \
+            --classifier-record artifacts/merge-qualification/scope.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Persist original run-attempt decision
+        id: decision
+        env:
+          CANDIDATE_RECORD: ${{ steps.parent.outputs.candidate_record }}
+        run: |
+          set -euo pipefail
+          candidate_args=()
+          if [ -n "$CANDIDATE_RECORD" ]; then
+            candidate_args=(--candidate-record "$CANDIDATE_RECORD")
+          fi
+          node ./scripts/merge-qualification-advisory.mjs decision \
+            --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.parent.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.parent.outputs.workflow_path }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --parent-workflow-id "${{ steps.parent.outputs.parent_workflow_id }}" \
+            --parent-workflow-path "${{ steps.parent.outputs.parent_workflow_path }}" \
+            --parent-run-id "${{ github.event.workflow_run.id }}" \
+            --parent-run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --candidate-sha "${{ github.event.workflow_run.head_sha }}" \
+            --candidate-tree "${{ steps.parent.outputs.candidate_tree }}" \
+            --policy-enabled "${{ steps.policy.outputs.enabled }}" \
+            --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
+            --classifier-class "${{ steps.route.outputs.classifier_class }}" \
+            --classifier-reason-codes "${{ steps.route.outputs.classifier_reason_codes }}" \
+            "${candidate_args[@]}" \
+            --out artifacts/merge-qualification/decision.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload original run-attempt decision
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/decision.json
+          if-no-files-found: error
+          retention-days: 30
+
+  gate:
+    name: Merge Qualification Gate
+    needs: plan
+    if: >
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.enabled == 'true' &&
+      needs.plan.outputs.route == 'isolated' &&
+      needs.plan.outputs.built_image_digest != ''
+    uses: ./.github/workflows/platform-merge-gate-verification.yml
+    with:
+      candidate_ref: ${{ needs.plan.outputs.candidate_sha }}
+      image_digest: ${{ needs.plan.outputs.built_image_digest }}
+
+  publish:
+    name: Merge Qualification (advisory)
+    if: always() && needs.plan.outputs.enabled == 'true'
+    needs: [plan, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download original run-attempt decision
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification
+
+      - name: Publish terminal advisory result
+        id: publish
+        env:
+          GATE_RESULT: ${{ needs.gate.result }}
+          GATE_IMAGE_DIGEST: ${{ needs.gate.outputs.image_digest }}
+          GATE_CANDIDATE_SHA: ${{ needs.gate.outputs.candidate_sha }}
+          GATE_CANDIDATE_TREE: ${{ needs.gate.outputs.candidate_tree_sha }}
+          GATE_HEADROOM_RUNS: ${{ needs.gate.outputs.headroom_runs }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs publish \
+            --decision artifacts/merge-qualification/decision.json \
+            --plan-result "${{ needs.plan.result }}" \
+            --classifier-class "${{ needs.plan.outputs.classifier_class }}" \
+            --classifier-reason-codes "${{ needs.plan.outputs.classifier_reason_codes }}" \
+            --gate-result "$GATE_RESULT" \
+            --image-result "${{ needs.plan.outputs.built_image_digest != '' && 'success' || 'failure' }}" \
+            --image-available "${{ needs.plan.outputs.built_image_digest != '' }}" \
+            --candidate-sha "${{ needs.plan.outputs.candidate_sha }}" \
+            --candidate-tree "${{ needs.plan.outputs.candidate_tree }}" \
+            --built-image-digest "${{ needs.plan.outputs.built_image_digest }}" \
+            --gate-image-digest "$GATE_IMAGE_DIGEST" \
+            --gate-candidate-sha "$GATE_CANDIDATE_SHA" \
+            --gate-candidate-tree "$GATE_CANDIDATE_TREE" \
+            --provider-headroom-runs "$GATE_HEADROOM_RUNS" \
+            --started-at "${{ needs.plan.outputs.started_at }}" \
+            --workflow-id "${{ needs.plan.outputs.workflow_id }}" \
+            --workflow-path "${{ needs.plan.outputs.workflow_path }}" \
+            --out artifacts/merge-qualification/event.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merge qualification advisory event
+        if: steps.publish.outputs.record_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-events-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/event.json
+          if-no-files-found: error
+          retention-days: 30

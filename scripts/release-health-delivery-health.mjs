@@ -6,11 +6,12 @@ import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { isCommitSha, normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import {
-  MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION,
   dedupeMergeQualificationEvents,
   isUsableStagingRelease,
   joinMergeQualificationToStaging,
   summarizeMergeQualification,
+  validateMergeQualificationDecision,
+  validateMergeQualificationEvent,
 } from "./merge-qualification-advisory.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 
@@ -107,54 +108,65 @@ export async function collectSourceData({ options, policy, client, queryStart })
       return [];
     }
   };
-  const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues, terminalizerRuns] =
-    await Promise.all([
-      safely("pull-requests", () =>
-        fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
+  const [
+    pulls,
+    platformPrRuns,
+    dispatchRuns,
+    deployRuns,
+    ephemeralRuns,
+    circuitIssues,
+    qualificationRuns,
+    terminalizerRuns,
+  ] = await Promise.all([
+    safely("pull-requests", () =>
+      fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
+    ),
+    safely("platform-pr-runs", () =>
+      fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
+    ),
+    safely("release-dispatch-runs", () =>
+      fetchWorkflowRuns(
+        client,
+        workflows.releaseDispatch,
+        queryStart,
+        policy.collection.maxPages,
+        policy.windows.lastN,
       ),
-      safely("platform-pr-runs", () =>
-        fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
+    ),
+    safely("platform-deploy-runs", () =>
+      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
+    ),
+    safely("ephemeral-verification-runs", () =>
+      fetchWorkflowRuns(
+        client,
+        workflows.ephemeralVerification,
+        queryStart,
+        policy.collection.maxPages,
+        policy.windows.lastN,
       ),
-      safely("release-dispatch-runs", () =>
-        fetchWorkflowRuns(
-          client,
-          workflows.releaseDispatch,
-          queryStart,
-          policy.collection.maxPages,
-          policy.windows.lastN,
-        ),
+    ),
+    safely("delivery-failure-signatures", () =>
+      fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
+    ),
+    safely("merge-qualification-advisory-runs", () =>
+      fetchWorkflowRuns(
+        client,
+        workflows.mergeQualificationAdvisory,
+        queryStart,
+        policy.collection.maxPages,
+        policy.windows.lastN,
       ),
-      safely("platform-deploy-runs", () =>
-        fetchWorkflowRuns(
-          client,
-          workflows.platformDeploy,
-          queryStart,
-          policy.collection.maxPages,
-          policy.windows.lastN,
-        ),
+    ),
+    safely("merge-qualification-terminalizer-runs", () =>
+      fetchWorkflowRuns(
+        client,
+        workflows.mergeQualificationTerminalizer,
+        queryStart,
+        policy.collection.maxPages,
+        policy.windows.lastN,
       ),
-      safely("ephemeral-verification-runs", () =>
-        fetchWorkflowRuns(
-          client,
-          workflows.ephemeralVerification,
-          queryStart,
-          policy.collection.maxPages,
-          policy.windows.lastN,
-        ),
-      ),
-      safely("delivery-failure-signatures", () =>
-        fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
-      ),
-      safely("merge-qualification-terminalizer-runs", () =>
-        fetchWorkflowRuns(
-          client,
-          workflows.mergeQualificationTerminalizer,
-          queryStart,
-          policy.collection.maxPages,
-          policy.windows.lastN,
-        ),
-      ),
-    ]);
+    ),
+  ]);
 
   await mapConcurrent(
     pulls.filter((pull) => pull.filesTruncated || pull.reviewsTruncated),
@@ -203,16 +215,67 @@ export async function collectSourceData({ options, policy, client, queryStart })
   });
 
   // Advisory merge-group qualification evidence: terminal events are
-  // uploaded by the Platform PR publisher (merge-qualification-events-*) and
+  // uploaded by the separate advisory publisher (merge-qualification-events-*) and
   // by the independent terminalizer observer (merge-qualification-terminal-*).
   // Every collection failure is recorded and degrades completeness — a
   // candidate must never silently vanish from the denominators.
-  const mergeGroupRuns = platformPrRuns.filter((run) => run.event === "merge_group");
+  const mergeGroupRuns = qualificationRuns.filter(
+    (run) =>
+      run.event === "workflow_run" &&
+      /^Merge Qualification merge_group /.test(run.display_title ?? "") &&
+      ["success", "failure", "cancelled", "timed_out"].includes(run.conclusion),
+  );
   const qualificationEvents = [];
   const qualificationFailures = [];
-  await mapConcurrent([...mergeGroupRuns, ...terminalizerRuns], policy.collection.concurrency, async (run) => {
+  const qualificationCandidates = [];
+  await mapConcurrent(mergeGroupRuns, policy.collection.concurrency, async (run) => {
     try {
-      qualificationEvents.push(...(await fetchMergeQualificationEvents(client, run.id)));
+      const evidence = await fetchMergeQualificationEvidence(
+        client,
+        run.id,
+        run.run_attempt,
+        policy.collection.maxPages,
+        { eventRunId: String(run.id) },
+      );
+      if (evidence.decision) validateCollectedQualificationDecision(evidence.decision, run, options.repository);
+      for (const event of evidence.events) {
+        validateCollectedQualificationEvent(event, run, options.repository, { requireLatestAttempt: false });
+      }
+      qualificationEvents.push(...evidence.events);
+      if (evidence.decision?.policyEnabled !== false) {
+        qualificationCandidates.push({
+          candidateSha: String(run.head_sha ?? "").toLowerCase(),
+          runId: String(run.id ?? ""),
+          runAttempt: String(run.run_attempt ?? ""),
+        });
+      }
+    } catch (error) {
+      qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
+      qualificationCandidates.push({
+        candidateSha: String(run.head_sha ?? "").toLowerCase(),
+        runId: String(run.id ?? ""),
+        runAttempt: String(run.run_attempt ?? ""),
+      });
+    }
+  });
+  const completedTerminalizerRuns = terminalizerRuns.filter(
+    (run) => run.event === "workflow_run" && ["success", "failure", "cancelled", "timed_out"].includes(run.conclusion),
+  );
+  const qualificationRunsByAttempt = new Map(qualificationRuns.map((run) => [`${run.id}|${run.run_attempt}`, run]));
+  await mapConcurrent(completedTerminalizerRuns, policy.collection.concurrency, async (run) => {
+    try {
+      const events = (
+        await fetchMergeQualificationEvidence(client, run.id, run.run_attempt, policy.collection.maxPages, {
+          terminalArtifacts: true,
+        })
+      ).events;
+      for (const event of events) {
+        const sourceRun = qualificationRunsByAttempt.get(`${event.runId}|${event.runAttempt}`);
+        if (!sourceRun)
+          throw new Error(`Terminal event has no observed source run ${event.runId}/${event.runAttempt}.`);
+        validateCollectedQualificationEvent(event, sourceRun, options.repository);
+      }
+      qualificationEvents.push(...events);
     } catch (error) {
       qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
     }
@@ -221,10 +284,6 @@ export async function collectSourceData({ options, policy, client, queryStart })
   // Candidate inventory: every merge-group run head SHA in the window. A
   // candidate with no terminal event (run-level eviction before publisher
   // AND terminalizer evidence) surfaces as an orphan in the summary.
-  const qualificationCandidates = [
-    ...new Set(mergeGroupRuns.map((run) => String(run.head_sha ?? "").toLowerCase()).filter((sha) => isCommitSha(sha))),
-  ];
-
   // Persistent-staging releases for the comparison join, built from the same
   // release-health artifacts the release metrics consume. The release tree
   // SHA is resolved from the commit object itself (the join is tree-keyed);
@@ -248,6 +307,7 @@ export async function collectSourceData({ options, policy, client, queryStart })
       continue;
     }
     const release = {
+      candidateSha: health.queue?.mergeSha?.toLowerCase() ?? null,
       mainSha: health.releaseCommit.toLowerCase(),
       treeSha: typeof treeSha === "string" ? treeSha.toLowerCase() : null,
       imageDigest:
@@ -291,30 +351,112 @@ export async function collectSourceData({ options, policy, client, queryStart })
 // Downloads and parses every merge-qualification event artifact a run
 // uploaded. Only entries named event.json with the exact event schema count;
 // anything else in a matching artifact is a validation failure.
-async function fetchMergeQualificationEvents(client, runId) {
+async function fetchMergeQualificationEvidence(client, runId, runAttempt, maxPages, options = {}) {
+  if (
+    !options.terminalArtifacts &&
+    (!/^[1-9][0-9]{0,15}$/.test(options.eventRunId ?? "") ||
+      BigInt(options.eventRunId) > BigInt(Number.MAX_SAFE_INTEGER))
+  ) {
+    throw new Error("Merge-qualification event run ID is not a bounded safe integer.");
+  }
   const artifacts = await client.paginate(
     `/actions/runs/${runId}/artifacts?per_page=100`,
     (payload) => payload?.artifacts,
-    { source: `merge-qualification-artifacts:${runId}`, maxPages: 2 },
+    { source: `merge-qualification-artifacts:${runId}`, maxPages },
   );
   const selected = artifacts.filter((artifact) =>
-    /^merge-qualification-(?:events|terminal)-/.test(artifact.name ?? ""),
+    options.terminalArtifacts
+      ? /^merge-qualification-terminal-[1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(artifact.name ?? "")
+      : new RegExp(`^merge-qualification-events-${options.eventRunId}-[1-9][0-9]{0,15}$`).test(artifact.name ?? ""),
   );
   const events = [];
   for (const artifact of selected) {
     const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length > 10 * 1024 * 1024) throw new Error(`Merge-qualification artifact ${artifact.id} exceeds 10 MiB.`);
-    for (const [name, contents] of unzipJsonEntries(bytes)) {
-      if (basename(name) !== "event.json") continue;
+    const eventEntries = [...unzipJsonEntries(bytes)].filter(([name]) => basename(name) === "event.json");
+    if (eventEntries.length !== 1) {
+      throw new Error(`Merge-qualification artifact ${artifact.id} must contain exactly one event.json.`);
+    }
+    for (const [, contents] of eventEntries) {
       const parsed = JSON.parse(contents.toString("utf8"));
-      if (parsed?.schemaVersion !== MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION) {
-        throw new Error(`Merge-qualification artifact ${artifact.id} carries an unsupported event schema.`);
+      const errors = validateMergeQualificationEvent(parsed);
+      if (errors.length > 0)
+        throw new Error(`Merge-qualification artifact ${artifact.id} is invalid: ${errors.join(" ")}`);
+      const attemptPattern = options.terminalArtifacts
+        ? /^merge-qualification-terminal-([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/
+        : /^merge-qualification-events-([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/;
+      const match = artifact.name.match(attemptPattern);
+      if (!match || parsed.runId !== match[1] || parsed.runAttempt !== match[2]) {
+        throw new Error(`Merge-qualification artifact ${artifact.id} does not bind its exact source attempt.`);
       }
       events.push(parsed);
     }
   }
-  return events;
+  const decisionName = `merge-qualification-decision-${runId}-${runAttempt}`;
+  const decisionArtifacts = artifacts.filter((artifact) => artifact.name === decisionName && artifact.expired !== true);
+  if (decisionArtifacts.length > 1)
+    throw new Error(`Run ${runId} attempt ${runAttempt} has duplicate decision artifacts.`);
+  let decision = null;
+  if (decisionArtifacts.length === 1) {
+    const artifact = decisionArtifacts[0];
+    const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 10 * 1024 * 1024) throw new Error(`Merge-qualification decision ${artifact.id} exceeds 10 MiB.`);
+    const entries = [...unzipJsonEntries(bytes)].filter(([name]) => basename(name) === "decision.json");
+    if (entries.length !== 1)
+      throw new Error(`Merge-qualification decision ${artifact.id} must contain one decision.json.`);
+    decision = JSON.parse(entries[0][1].toString("utf8"));
+    const errors = validateMergeQualificationDecision(decision);
+    if (errors.length > 0)
+      throw new Error(`Merge-qualification decision ${artifact.id} is invalid: ${errors.join(" ")}`);
+    if (decision.runId !== String(runId) || decision.runAttempt !== String(runAttempt)) {
+      throw new Error(`Merge-qualification decision ${artifact.id} does not bind the exact run attempt.`);
+    }
+  }
+  return { events, decision };
+}
+
+function validateCollectedQualificationEvent(event, run, repository, { requireLatestAttempt = true } = {}) {
+  const expected = {
+    repository,
+    workflowId: String(run.workflow_id ?? ""),
+    workflowPath: run.path,
+    runId: String(run.id ?? ""),
+    candidateSha: String(run.head_sha ?? "").toLowerCase(),
+  };
+  if (requireLatestAttempt) expected.runAttempt = String(run.run_attempt ?? "");
+  for (const [field, value] of Object.entries(expected)) {
+    if (event[field] !== value) {
+      throw new Error(`Merge-qualification event ${field} does not bind the exact observed source run.`);
+    }
+  }
+  if (!requireLatestAttempt && BigInt(event.runAttempt) > BigInt(String(run.run_attempt ?? "0"))) {
+    throw new Error("Merge-qualification event attempt is newer than the observed source run attempt.");
+  }
+  if (!/^Merge Qualification merge_group [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(run.display_title ?? "")) {
+    throw new Error("Merge-qualification event source is not a merge-group advisory run.");
+  }
+}
+
+function validateCollectedQualificationDecision(decision, run, repository) {
+  const title = String(run.display_title ?? "");
+  const parent = title.match(/^Merge Qualification merge_group ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/);
+  const expected = {
+    repository,
+    workflowId: String(run.workflow_id ?? ""),
+    workflowPath: run.path,
+    runId: String(run.id ?? ""),
+    runAttempt: String(run.run_attempt ?? ""),
+    candidateSha: String(run.head_sha ?? "").toLowerCase(),
+    parentRunId: parent?.[1] ?? "",
+    parentRunAttempt: parent?.[2] ?? "",
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    if (decision[field] !== value) {
+      throw new Error(`Merge-qualification decision ${field} does not bind the exact observed source run.`);
+    }
+  }
 }
 
 export function buildDeliveryHealth(input) {
@@ -820,6 +962,15 @@ function buildCompleteness(source, apiStatus = {}, mergeQualification = null) {
     ...(mergeQualificationEvidence && mergeQualificationEvidence.invalidComparisonCount > 0
       ? [`merge-qualification:invalid-comparisons:${mergeQualificationEvidence.invalidComparisonCount}`]
       : []),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.invalidCandidateCount > 0
+      ? [`merge-qualification:invalid-candidates:${mergeQualificationEvidence.invalidCandidateCount}`]
+      : []),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.missingTerminalCount > 0
+      ? [`merge-qualification:missing-terminal:${mergeQualificationEvidence.missingTerminalCount}`]
+      : []),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.orphanEventCount > 0
+      ? [`merge-qualification:orphan-events:${mergeQualificationEvidence.orphanEventCount}`]
+      : []),
   ];
   return {
     status: reasons.length === 0 ? "complete" : "partial",
@@ -870,7 +1021,12 @@ export function renderDeliveryHealthMarkdown(record) {
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
   );
   const mergeQualification = record.mergeQualification;
-  if (mergeQualification && (mergeQualification.sampleCount > 0 || mergeQualification.evidence.eventCount > 0)) {
+  if (
+    mergeQualification &&
+    (mergeQualification.candidateCount > 0 ||
+      mergeQualification.sampleCount > 0 ||
+      mergeQualification.evidence.eventCount > 0)
+  ) {
     lines.push(
       "",
       "### Merge qualification (advisory)",
@@ -882,7 +1038,7 @@ export function renderDeliveryHealthMarkdown(record) {
     );
     if (!mergeQualification.evidence.complete) {
       lines.push(
-        `- Evidence hygiene: ${mergeQualification.evidence.invalidEventCount} invalid events; ${mergeQualification.evidence.conflictCount} conflicting candidates; ${mergeQualification.evidence.invalidComparisonCount} invalid comparisons (excluded from every denominator above).`,
+        `- Evidence hygiene: ${mergeQualification.evidence.invalidCandidateCount ?? 0} invalid candidates; ${mergeQualification.evidence.invalidEventCount ?? 0} invalid events; ${mergeQualification.evidence.conflictCount ?? 0} conflicting candidates; ${mergeQualification.evidence.missingTerminalCount ?? 0} missing latest terminal events; ${mergeQualification.evidence.orphanEventCount ?? 0} orphan events; ${mergeQualification.evidence.invalidComparisonCount ?? 0} invalid comparisons (excluded from every denominator above).`,
       );
     }
   }

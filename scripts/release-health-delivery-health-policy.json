@@ -15,6 +15,7 @@
       "releaseDispatch": "platform-release-candidate.yml",
       "platformDeploy": "platform-production.yml",
       "ephemeralVerification": "platform-ephemeral-verification.yml",
+      "mergeQualificationAdvisory": "platform-merge-qualification.yml",
       "mergeQualificationTerminalizer": "platform-merge-qualification-terminalizer.yml"
     }
   },

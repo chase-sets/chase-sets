@@ -11,6 +11,7 @@ import {
   parseCpuMillicores,
   parseMemoryMib,
   validateMergeGateConfig,
+  verifyMergeGateCleanupTarget,
 } from "./merge-gate-verification.mjs";
 
 const NOW = new Date("2026-07-21T12:00:00.000Z");
@@ -189,6 +190,8 @@ describe("atomic gate namespace manifest", () => {
     runId: "123456",
     runAttempt: "2",
     repository: "chase-sets/chase-sets",
+    workflowId: "778899",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
     candidateSha: "0123456789abcdef0123456789abcdef01234567",
     candidateTreeSha: "89abcdef0123456789abcdef0123456789abcdef",
     imageDigest: `sha256:${"a".repeat(64)}`,
@@ -210,6 +213,8 @@ describe("atomic gate namespace manifest", () => {
         },
         annotations: {
           "chasesets.com/repository": "chase-sets/chase-sets",
+          "chasesets.com/workflow-id": "778899",
+          "chasesets.com/workflow-path": ".github/workflows/platform-merge-qualification.yml",
           "chasesets.com/workflow-run": "123456",
           "chasesets.com/workflow-run-attempt": "2",
           "chasesets.com/candidate-sha": input.candidateSha,
@@ -223,13 +228,50 @@ describe("atomic gate namespace manifest", () => {
   });
 
   it("fails closed on malformed identity, candidate, or digest inputs", () => {
-    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "gate" })).toThrow("positive integers");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "gate" })).toThrow("safe integers");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "9007199254740992" })).toThrow("safe integers");
     expect(() => buildMergeGateNamespaceManifest({ ...input, repository: "not a repo" })).toThrow("repository");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, workflowId: "9007199254740992" })).toThrow("safe integer");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, workflowPath: "other.yml" })).toThrow("workflowPath");
     expect(() => buildMergeGateNamespaceManifest({ ...input, candidateSha: "short" })).toThrow("40-character");
     expect(() => buildMergeGateNamespaceManifest({ ...input, imageDigest: "latest" })).toThrow("sha256");
     expect(() => buildMergeGateNamespaceManifest({ ...input, cleanupDeadlineHours: "soon" })).toThrow(
       "cleanupDeadlineHours",
     );
+  });
+
+  it("allows only the exact observed workflow-run target and is idempotent when absent", () => {
+    const namespace = buildMergeGateNamespaceManifest(input);
+    expect(verifyMergeGateCleanupTarget(namespace, input)).toMatchObject({
+      allowed: true,
+      status: "verified",
+      identity: { name: "chase-sets-gate-123456-2", imageDigest: input.imageDigest },
+    });
+    expect(verifyMergeGateCleanupTarget(null, input)).toEqual({
+      allowed: false,
+      status: "absent",
+      identity: null,
+      errors: [],
+    });
+  });
+
+  it.each([
+    ["wrong run label", (value) => (value.metadata.labels["chasesets.com/run-id"] = "999")],
+    ["wrong repository", (value) => (value.metadata.annotations["chasesets.com/repository"] = "other/repo")],
+    ["wrong workflow", (value) => (value.metadata.annotations["chasesets.com/workflow-id"] = "42")],
+    ["wrong digest", (value) => (value.metadata.annotations["chasesets.com/image-digest"] = "latest")],
+  ])("refuses cleanup for %s", (_name, mutate) => {
+    const namespace = structuredClone(buildMergeGateNamespaceManifest(input));
+    mutate(namespace);
+    expect(verifyMergeGateCleanupTarget(namespace, input)).toMatchObject({ allowed: false, status: "refused" });
+  });
+
+  it("refuses malformed or unsafe observer identity before examining a namespace", () => {
+    const namespace = buildMergeGateNamespaceManifest(input);
+    expect(verifyMergeGateCleanupTarget(namespace, { ...input, runId: "9007199254740992" })).toMatchObject({
+      allowed: false,
+      status: "refused",
+    });
   });
 });
 

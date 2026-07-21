@@ -309,12 +309,20 @@ export function evaluateMergeGateCapacity({ config, nodes, pods, nodePools }) {
 export function buildMergeGateNamespaceManifest(input) {
   const runId = String(input.runId ?? "").trim();
   const runAttempt = String(input.runAttempt ?? "").trim();
-  if (!/^\d+$/.test(runId) || !/^\d+$/.test(runAttempt)) {
-    throw new Error("runId and runAttempt must be positive integers.");
+  if (!isBoundedPositiveSafeIntegerString(runId) || !isBoundedPositiveSafeIntegerString(runAttempt)) {
+    throw new Error("runId and runAttempt must be bounded positive safe integers.");
   }
   const repository = String(input.repository ?? "").trim();
   if (!REPOSITORY_PATTERN.test(repository)) {
     throw new Error("repository must be an owner/name GitHub repository slug.");
+  }
+  const workflowId = String(input.workflowId ?? "").trim();
+  const workflowPath = String(input.workflowPath ?? "").trim();
+  if (!isBoundedPositiveSafeIntegerString(workflowId)) {
+    throw new Error("workflowId must be a bounded positive safe integer.");
+  }
+  if (!/^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/.test(workflowPath)) {
+    throw new Error("workflowPath must be an exact .github/workflows YAML path.");
   }
   const candidateSha = String(input.candidateSha ?? "")
     .trim()
@@ -353,6 +361,8 @@ export function buildMergeGateNamespaceManifest(input) {
       },
       annotations: {
         "chasesets.com/repository": repository,
+        "chasesets.com/workflow-id": workflowId,
+        "chasesets.com/workflow-path": workflowPath,
         "chasesets.com/workflow-run": runId,
         "chasesets.com/workflow-run-attempt": runAttempt,
         "chasesets.com/candidate-sha": candidateSha,
@@ -363,6 +373,80 @@ export function buildMergeGateNamespaceManifest(input) {
       },
     },
   };
+}
+
+export function verifyMergeGateCleanupTarget(namespace, expected) {
+  if (namespace === null || namespace === undefined)
+    return { allowed: false, status: "absent", identity: null, errors: [] };
+  const runId = String(expected.runId ?? "").trim();
+  const runAttempt = String(expected.runAttempt ?? "").trim();
+  const repository = String(expected.repository ?? "").trim();
+  const workflowId = String(expected.workflowId ?? "").trim();
+  const workflowPath = String(expected.workflowPath ?? "").trim();
+  if (
+    !isBoundedPositiveSafeIntegerString(runId) ||
+    !isBoundedPositiveSafeIntegerString(runAttempt) ||
+    !isBoundedPositiveSafeIntegerString(workflowId) ||
+    !REPOSITORY_PATTERN.test(repository) ||
+    !/^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/.test(workflowPath)
+  ) {
+    return {
+      allowed: false,
+      status: "refused",
+      identity: null,
+      errors: ["expected cleanup identity is malformed or outside bounded safe integers."],
+    };
+  }
+  const name = `chase-sets-gate-${runId}-${runAttempt}`;
+  const labels = namespace?.metadata?.labels ?? {};
+  const annotations = namespace?.metadata?.annotations ?? {};
+  const mismatches = [
+    ["metadata.name", namespace?.metadata?.name, name],
+    ["purpose label", labels["chasesets.com/purpose"], "merge-gate-verification"],
+    ["run-id label", labels["chasesets.com/run-id"], runId],
+    ["run-attempt label", labels["chasesets.com/run-attempt"], runAttempt],
+    ["repository annotation", annotations["chasesets.com/repository"], repository],
+    ["workflow-id annotation", annotations["chasesets.com/workflow-id"], workflowId],
+    ["workflow-path annotation", annotations["chasesets.com/workflow-path"], workflowPath],
+    ["workflow-run annotation", annotations["chasesets.com/workflow-run"], runId],
+    ["workflow-run-attempt annotation", annotations["chasesets.com/workflow-run-attempt"], runAttempt],
+  ].filter(([, actual, wanted]) => actual !== wanted);
+  const candidateSha = String(annotations["chasesets.com/candidate-sha"] ?? "").toLowerCase();
+  const candidateTreeSha = String(annotations["chasesets.com/candidate-tree-sha"] ?? "").toLowerCase();
+  const imageDigest = String(annotations["chasesets.com/image-digest"] ?? "").toLowerCase();
+  if (!isCommitSha(candidateSha)) mismatches.push(["candidate SHA annotation", candidateSha, "40-character SHA"]);
+  if (!isCommitSha(candidateTreeSha))
+    mismatches.push(["candidate tree annotation", candidateTreeSha, "40-character SHA"]);
+  if (!IMAGE_DIGEST_PATTERN.test(imageDigest))
+    mismatches.push(["image digest annotation", imageDigest, "sha256 digest"]);
+  if (mismatches.length > 0) {
+    return {
+      allowed: false,
+      status: "refused",
+      identity: null,
+      errors: mismatches.map(([field]) => `${field} does not match the observed workflow run.`),
+    };
+  }
+  return {
+    allowed: true,
+    status: "verified",
+    identity: {
+      name,
+      repository,
+      workflowId,
+      workflowPath,
+      runId,
+      runAttempt,
+      candidateSha,
+      candidateTreeSha,
+      imageDigest,
+    },
+    errors: [],
+  };
+}
+
+function isBoundedPositiveSafeIntegerString(value) {
+  return /^[1-9][0-9]{0,15}$/.test(value) && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER);
 }
 
 // ---------------------------------------------------------------------------
@@ -648,6 +732,8 @@ async function main(argv) {
       runId: readOption(argv, "--run-id"),
       runAttempt: readOption(argv, "--run-attempt"),
       repository: readOption(argv, "--repository"),
+      workflowId: readOption(argv, "--workflow-id"),
+      workflowPath: readOption(argv, "--workflow-path"),
       candidateSha: readOption(argv, "--candidate-sha"),
       candidateTreeSha: readOption(argv, "--candidate-tree-sha"),
       imageDigest: readOption(argv, "--image-digest"),
@@ -655,6 +741,32 @@ async function main(argv) {
       now,
     });
     console.log(JSON.stringify(manifest, null, 2));
+    return;
+  }
+
+  if (command === "cleanup-target") {
+    const namespacePath = readOption(argv, "--namespace");
+    const namespace =
+      namespacePath && existsSync(namespacePath) ? JSON.parse(readFileSync(namespacePath, "utf8")) : null;
+    const result = verifyMergeGateCleanupTarget(namespace, {
+      repository: readOption(argv, "--repository"),
+      workflowId: readOption(argv, "--workflow-id"),
+      workflowPath: readOption(argv, "--workflow-path"),
+      runId: readOption(argv, "--run-id"),
+      runAttempt: readOption(argv, "--run-attempt"),
+    });
+    const githubOutputPath = readOption(argv, "--github-output");
+    if (githubOutputPath) {
+      appendFileSync(
+        githubOutputPath,
+        `cleanup_allowed=${result.allowed ? "true" : "false"}\ncleanup_status=${result.status}\n` +
+          `candidate_sha=${result.identity?.candidateSha ?? ""}\ncandidate_tree=${result.identity?.candidateTreeSha ?? ""}\n` +
+          `image_digest=${result.identity?.imageDigest ?? ""}\nnamespace=${result.identity?.name ?? ""}\n`,
+        "utf8",
+      );
+    }
+    console.log(JSON.stringify(result, null, 2));
+    if (result.status === "refused") process.exitCode = 1;
     return;
   }
 
