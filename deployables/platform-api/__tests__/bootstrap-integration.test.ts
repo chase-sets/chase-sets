@@ -474,7 +474,146 @@ describe("platform api bootstrap", () => {
     }
   }, 120_000);
 
-  it("serializes two concurrent API host bootstraps with a database advisory lock", async () => {
+  it("reconciles a queued landing bootstrap after its predecessor fails with legacy source events", async () => {
+    const queuedPools = createPlatformApiPools({
+      runtimeProfile: "landing",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6185,
+    });
+    const predecessorRuntime = createPlatformApiHost({
+      runtimeProfile: "landing",
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const queuedRuntime = createPlatformApiHost({
+      runtimeProfile: "landing",
+      pools: queuedPools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const commercialTermsContext = predecessorRuntime.mountedContexts.find(
+      (context) => context.contextName === "commercial-terms",
+    );
+    if (!commercialTermsContext?.module.seed) {
+      throw new Error("Expected a seeded Commercial Terms source context in the landing runtime.");
+    }
+
+    await bootstrapContextDatabase(commercialTermsContext.module, commercialTermsContext.pool);
+    await commercialTermsContext.module.seed(commercialTermsContext.pool, commercialTermsContext.services, {
+      enabledDataProfiles: ["scenario-seed"],
+      environmentName: "test",
+    });
+
+    const legacyEventsBeforeBootstrap = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE stream_id LIKE 'commercial-terms.%'`,
+    );
+    const criticalPoliciesBeforeBootstrap = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM platform_policy_documents
+       WHERE policy_key = ANY($1::text[])
+         AND status = 'active'`,
+      [["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]],
+    );
+    expect(Number(legacyEventsBeforeBootstrap.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(criticalPoliciesBeforeBootstrap.rows[0]?.count ?? 0)).toBe(0);
+
+    let signalPredecessorSeedReached: () => void = () => undefined;
+    const predecessorSeedReached = new Promise<void>((resolve) => {
+      signalPredecessorSeedReached = resolve;
+    });
+    let failPredecessorSeed: () => void = () => undefined;
+    const predecessorMayFail = new Promise<void>((resolve) => {
+      failPredecessorSeed = resolve;
+    });
+    const failingPredecessorRuntime = {
+      ...predecessorRuntime,
+      mountedContexts: predecessorRuntime.mountedContexts.map((context) => {
+        if (context.contextName !== "commercial-terms") return context;
+        return {
+          ...context,
+          module: {
+            ...context.module,
+            seed: async () => {
+              signalPredecessorSeedReached();
+              await predecessorMayFail;
+              throw new Error("test-only predecessor failed before critical policy convergence");
+            },
+          },
+        };
+      }),
+    } satisfies typeof predecessorRuntime;
+    const bootstrapOptions = {
+      enabledDataProfiles: ["critical-bootstrap"],
+      environmentName: "production",
+      runtimeProfile: "landing",
+      schemaBootstrap: {
+        lockAcquisitionTimeoutMs: 120_000,
+        lockTimeoutMs: 50,
+        lockTimeoutRetryBudgetMs: 1_000,
+        lockTimeoutRetryBaseDelayMs: 25,
+        lockTimeoutRetryMaxDelayMs: 50,
+        lockTimeoutRetryJitterMs: 0,
+      },
+    } as const;
+    const predecessorBootstrap = seedApiHostIfEmpty(
+      apiContextRegistry,
+      "platform-api",
+      failingPredecessorRuntime,
+      bootstrapOptions,
+    );
+    await predecessorSeedReached;
+    const queuedBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", queuedRuntime, bootstrapOptions);
+
+    try {
+      await expect(hasSettledWithin(queuedBootstrap, 100)).resolves.toBe(false);
+      failPredecessorSeed();
+      await expect(predecessorBootstrap).rejects.toThrow(
+        "test-only predecessor failed before critical policy convergence",
+      );
+      await expect(queuedBootstrap).resolves.toBeUndefined();
+
+      for (const [contextName, policyKeys] of [
+        [
+          "commercial-terms",
+          ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+        ],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+      ] as const) {
+        const result = await queuedPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
+          `SELECT policy_key, COUNT(*) AS count
+           FROM platform_policy_documents
+           WHERE policy_key = ANY($1::text[])
+             AND status = 'active'
+           GROUP BY policy_key
+           ORDER BY policy_key`,
+          [policyKeys],
+        );
+        expect(result.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual(
+          [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
+        );
+      }
+
+      const app = buildPlatformApiApp(queuedRuntime, { runtimeProfile: "landing" });
+      const response = await app.request("/api/public-presence/policy-values");
+      const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
+      expect(response.status).toBe(200);
+      expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+    } finally {
+      failPredecessorSeed();
+      await Promise.allSettled([predecessorBootstrap, queuedBootstrap]);
+      await closePlatformApiPools(queuedPools);
+    }
+  }, 240_000);
+
+  it("serializes two concurrent full production-like API host bootstraps with a database advisory lock", async () => {
     const secondPools = createPlatformApiPools({
       runtimeProfile: "public",
       sharedDatabaseUrl: null,

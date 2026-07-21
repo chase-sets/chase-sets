@@ -13,10 +13,12 @@ afterEach(() => {
 
 describe("press route policy values", () => {
   it.each([
-    ["non-OK", () => vi.fn(async () => new Response("unavailable", { status: 503 }))],
-    ["network", () => vi.fn(async () => Promise.reject(new Error("network unavailable")))],
+    ["non-OK", "non-ok", 503, () => vi.fn(async () => new Response("unavailable", { status: 503 }))],
+    ["network", "transport", undefined, () => vi.fn(async () => Promise.reject(new Error("network unavailable")))],
     [
       "missing-key",
+      "missing",
+      undefined,
       () =>
         vi.fn(
           async () =>
@@ -31,26 +33,28 @@ describe("press route policy values", () => {
             ),
         ),
     ],
-  ])("keeps the page available with explicit markers on a %s failure", async (_failure, createFetch) => {
-    vi.stubGlobal("fetch", createFetch());
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const data = await loader({ request: new Request("https://chasesets.test/press") } as never);
-    const router = createMemoryRouter([{ path: "/press", loader: () => data, Component: PressRoute }], {
-      initialEntries: ["/press"],
-    });
+  ])(
+    "keeps the page available with explicit markers on a %s failure",
+    async (_failure, classification, status, createFetch) => {
+      vi.stubGlobal("fetch", createFetch());
+      const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const data = await loader({ request: new Request("https://chasesets.test/press") } as never);
+      const router = createMemoryRouter([{ path: "/press", loader: () => data, Component: PressRoute }], {
+        initialEntries: ["/press"],
+      });
 
-    render(<RouterProvider router={router} />);
+      render(<RouterProvider router={router} />);
 
-    expect((await screen.findAllByText("Temporarily unavailable")).length).toBeGreaterThan(0);
-    expect(document.body.textContent).not.toContain("5% of the item price");
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(error).toHaveBeenCalledWith(
-      "[public-presence] Public policy values are unavailable.",
-      expect.objectContaining({
+      expect((await screen.findAllByText("Temporarily unavailable")).length).toBeGreaterThan(0);
+      expect(document.body.textContent).not.toContain("5% of the item price");
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith("[public-presence] Public policy values are unavailable.", {
         event: "public-policy-values.unavailable",
         route: "/press",
-        unresolvedKeys: expect.arrayContaining(data.article.policyValueKeys),
-      }),
-    );
-  });
+        unresolvedKeys: [...data.article.policyValueKeys].sort(),
+        classification,
+        ...(status === undefined ? {} : { status }),
+      });
+    },
+  );
 });

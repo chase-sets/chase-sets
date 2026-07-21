@@ -12,6 +12,7 @@ import {
   syncContextProjectionGroups,
   withSchemaBootstrapLock,
   type MountedContextRuntimeEntry,
+  type SchemaBootstrapLockAcquisition,
   type SchemaBootstrapOptions,
 } from "../bounded-context-runtime/index";
 import type {
@@ -399,9 +400,7 @@ export async function seedApiHostIfEmpty(
   }
 
   await withSchemaBootstrapLock(bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
-    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, {
-      skipExistingSeedReconciliation: lockAcquisition.waited,
-    }),
+    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
   );
 }
 
@@ -410,7 +409,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
   options: ApiHostSeedOptions,
-  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+  lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runFullDrain = shouldRunFullBootstrapDrain(options);
@@ -435,18 +434,18 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     const runContextSeed = shouldRunContextSeed(context, options);
     if (!runContextSeed) {
       await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
       continue;
     }
 
     if (context.mountRole === "source-only") {
       await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
-        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
       });
       continue;
@@ -460,13 +459,13 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       );
     }
     await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-      seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+      seedApiModuleForHostBootstrap(context, options, lockAcquisition),
     );
     if (runFullDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
-        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
@@ -485,7 +484,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         continue;
       }
       await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
-        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
@@ -505,15 +504,20 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
 async function seedApiModuleForHostBootstrap(
   context: MountedContextRuntimeEntry,
   options: BcSeedOptions,
-  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+  lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
-  // A queued twin deploy should not reconcile seeds against projections the predecessor has not drained yet.
+  // A queued twin must not re-enter an active context's seed against events whose
+  // projections the predecessor has not drained yet. Source-only contexts own the
+  // local reconciliation needed by their host ports, so they must still converge.
   if (
-    bootstrapLock.skipExistingSeedReconciliation &&
+    lockAcquisition.waited &&
+    context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&
     (await countEventsWithPrefix(context.pool, context.module.streamPrefix)) > 0
   ) {
-    console.log(`${context.contextName} events already exist after queued bootstrap. Skipping seed reconciliation.`);
+    console.log(
+      `${context.contextName} events already exist after queued bootstrap. Skipping active seed reconciliation.`,
+    );
     return;
   }
 
