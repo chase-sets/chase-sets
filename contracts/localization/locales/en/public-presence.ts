@@ -285,10 +285,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.buyerHero.highlight.setCompletion.value": "Find the cards that finish your sets",
   "publicPresence.home.heroImageAlt":
     "Trading cards being sorted, priced, and prepared for shipment on an account workspace.",
-  "publicPresence.home.howItWorks.badge": "Workflow preview",
-  "publicPresence.home.howItWorks.description":
-    "The product model is built around repeat card work: sourcing, listing, pricing, shipping, and buying without rebuilding the same decision every time.",
-  "publicPresence.home.howItWorks.title": "Built around real card workflows",
   "publicPresence.home.launchTimeline.action": "Get in line for a beta wave",
   "publicPresence.home.launchTimeline.description":
     "Chase Sets opens to everyone on {publicLaunchDate}. Numbered beta invite waves begin {betaWavesWindow}, and invites go to the waitlist first.",
@@ -334,10 +330,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.openOffers.before.point.risk":
     "If it goes wrong, the group can only remove the post after the fact.",
   "publicPresence.home.openOffers.before.title": "Social card groups",
-  "publicPresence.home.openOffers.demo.badge": "Coming soon",
-  "publicPresence.home.openOffers.demo.description":
-    "A short recording of the full offer flow is in production. This spot is reserved for it.",
-  "publicPresence.home.openOffers.demo.title": "Watch a 30-second offer get posted and accepted",
   "publicPresence.home.openOffers.description":
     "Buyers already post “looking for” requests in card groups and hope a stranger notices. Chase Sets turns that into a real, catalog-backed offer any matching seller can accept.",
   "publicPresence.home.openOffers.step.accept": "Any seller with a matching card can accept it, at your price.",
@@ -348,50 +340,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.openOffers.title": "The ISO post, grown up",
   "publicPresence.home.stickyCta.action": "Request early access",
   "publicPresence.home.stickyCta.label": "Early access list",
-  "publicPresence.home.model.economics.description":
-    "Sellers see fee terms and offer rebates before inventory goes live. Checkout shows item price, shipping, credits, checkout fee, and marketplace costs before payment.",
-  "publicPresence.home.model.economics.title": "Show costs before commitment",
-  "publicPresence.home.model.supply.description":
-    "Product data and listing tools make raw, graded, chase, bulk, and everyday cards practical to manage.",
-  "publicPresence.home.model.supply.title": "Make more inventory listable",
-  "publicPresence.home.model.trust.description":
-    "Checkout totals, public policies, order protection, shipping status, and support contact stay close to the decision.",
-  "publicPresence.home.model.trust.title": "Keep trust details close",
-  "publicPresence.home.paths.buy.action": "I plan to buy cards",
-  "publicPresence.home.paths.buy.badge": "For collectors",
-  "publicPresence.home.paths.buy.description":
-    "Finish sets and decks with shipping credit, account trust, order processing, and protection visible before payment.",
-  "publicPresence.home.paths.buy.point.offers":
-    "Post an open offer for the card you want — any matching seller can accept it.",
-  "publicPresence.home.paths.buy.point.shipping": "Shipping credit and items from the same seller stay visible.",
-  "publicPresence.home.paths.buy.point.total": "Delivered total is easier to compare before checkout.",
-  "publicPresence.home.paths.buy.point.trust":
-    "Seller profile, returns, and support context stay close to the listing.",
-  "publicPresence.home.paths.buy.title": "I want to buy cards",
-  "publicPresence.home.paths.description":
-    "Choose the first job you want Chase Sets to solve. These buttons prefill the waitlist form and help shape invite waves.",
-  "publicPresence.home.paths.sell.action": "I plan to sell cards",
-  "publicPresence.home.paths.sell.badge": "For founding sellers",
-  "publicPresence.home.paths.sell.description":
-    "Bring early supply with 0% fees on beta listings, no separate seller processing line, and workflows built for repeat card work.",
-  "publicPresence.home.paths.sell.point.bulk": "Bulk listing and pricing context reduce one-card-at-a-time work.",
-  "publicPresence.home.paths.sell.point.feeLock": "Beta-created listings keep 100% of the sale.",
-  "publicPresence.home.paths.sell.point.offers":
-    "Browse open buyer offers for a card before you list it and see real demand first.",
-  "publicPresence.home.paths.sell.title": "I want to sell cards",
-  "publicPresence.home.paths.title": "Pick the workflow you want prioritized",
-  "publicPresence.home.sellerEconomics.badge": "Locked at listing",
-  "publicPresence.home.sellerEconomics.balance.badge": "The balance flywheel",
-  "publicPresence.home.sellerEconomics.balance.description":
-    "Sell a card, get Chase Sets balance. Spend balance, skip card processing entirely. Buying and selling on one platform should actually pay off.",
-  "publicPresence.home.sellerEconomics.balance.next": "Next step",
-  "publicPresence.home.sellerEconomics.balance.node.balance.description": "Turn sale proceeds into balance to spend.",
-  "publicPresence.home.sellerEconomics.balance.node.balance.title": "Get balance",
-  "publicPresence.home.sellerEconomics.balance.node.buy.description": "Use balance when you buy.",
-  "publicPresence.home.sellerEconomics.balance.node.buy.title": "Buy with balance",
-  "publicPresence.home.sellerEconomics.balance.node.sell.description": "Turn a sold card into balance.",
-  "publicPresence.home.sellerEconomics.balance.node.sell.title": "Sell a card",
-  "publicPresence.home.sellerEconomics.balance.title": "Sell. Get balance. Buy.",
   "publicPresence.home.sellerEconomics.comparison.caption":
     "Marketplace fee, per-order and payment fee, and dollars kept on a $10 card: Chase Sets versus TCGplayer and eBay.",
   "publicPresence.home.sellerEconomics.comparison.column.chaseSets": "Chase Sets",
@@ -415,25 +363,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.comparison.sourceNote":
     "TCGplayer and eBay figures use each marketplace's own published seller-fee schedule, applied to a $10.00 item price before shipping or tax, as of July 2026, with cents rounded down in each marketplace's favor. Chase Sets figures reflect the 0% beta seller fee lock with no separate seller payment-processing fee.",
   "publicPresence.home.sellerEconomics.comparison.title": "The same $10 card, three marketplaces",
-  "publicPresence.home.sellerEconomics.description":
-    "The fee lock is a platform primitive: your fee is set when you list and never goes up on that listing. Founders get the best-possible rate inside that permanent mechanic.",
-  "publicPresence.home.sellerEconomics.founders.badge": "Founders window",
-  "publicPresence.home.sellerEconomics.founders.description":
-    "List during the founders window and those listings lock 0% seller fees until they sell.",
-  "publicPresence.home.sellerEconomics.founders.point.keep":
-    "You keep 100% of the sale price, before shipping and protection allowance.",
-  "publicPresence.home.sellerEconomics.founders.point.lock":
-    "0% seller fees are locked at listing time for founders-window listings.",
-  "publicPresence.home.sellerEconomics.founders.title": "Founders: lock 0%",
-  "publicPresence.home.sellerEconomics.lock.description":
-    "Every listing locks its fee the moment you create it. Market changes and policy changes cannot raise the fee on that listing.",
-  "publicPresence.home.sellerEconomics.lock.point.change":
-    "Fine print: editing price keeps your lock. Relisting or adding quantity uses the current rate. Full rules stay on /sales-fees.",
-  "publicPresence.home.sellerEconomics.lock.point.primitive":
-    "That is how Chase Sets works for everyone, forever: the listing keeps the rate captured at creation.",
-  "publicPresence.home.sellerEconomics.lock.point.processing":
-    "Payment processing stays buyer-side; sellers do not pay a separate processing line.",
-  "publicPresence.home.sellerEconomics.lock.title": "Your fee is set when you list.",
   "publicPresence.home.sellerEconomics.math.description": "Founder example before shipping and protection allowance.",
   "publicPresence.home.sellerEconomics.math.item": "Buyer item price",
   "publicPresence.home.sellerEconomics.math.item.value": "$10.00",
@@ -459,7 +388,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.graded.title": "$100 graded-card founder math",
   "publicPresence.home.sellerEconomics.math.graded.total": "Seller net before shipping",
   "publicPresence.home.sellerEconomics.math.graded.total.value": "$100.00",
-  "publicPresence.home.sellerEconomics.title": "Fees that work differently",
   "publicPresence.home.sellerTools.cta.action": "Request early access",
   "publicPresence.home.sellerTools.cta.description":
     "Join the seller wave and help shape how these tools work with real inventories.",
@@ -500,14 +428,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.trust.payment.title": "Payment clarity",
   "publicPresence.home.trust.policies.description":
     "Prelaunch terms, privacy, refund, return, order protection, and marketplace sales fee pages are public.",
-  "publicPresence.home.trust.policies.title": "Plain policies",
-  "publicPresence.home.trust.support.description":
-    "Reach Chase Sets at support@chasesets.com for public, review, or prelaunch questions.",
-  "publicPresence.home.trust.support.title": "Visible support",
   "publicPresence.home.trust.title": "Trust and status before early access",
-  "publicPresence.home.workflowImage.description":
-    "Inventory, pricing, and fulfillment cues stay together so accounts can move cards without stitching the workflow together by hand.",
-  "publicPresence.home.workflowImage.title": "Cards, pricing, and shipping in one operating view",
   "publicPresence.help.article.meta.title": "{title} | Chase Sets Help",
   "publicPresence.help.articleCount": "Articles: {count}",
   "publicPresence.help.audience.buyer.description":
@@ -580,8 +501,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.developers.notFound": "Developer article not found",
   "publicPresence.developers.readArticle": "Read guide",
   "publicPresence.developers.title": "Build with Chase Sets",
-  "publicPresence.home.workflowImageAlt":
-    "Three marketplace workflow panels showing organized card inventory, pricing review, and shipping preparation.",
   "publicPresence.info.contact.description":
     "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
@@ -821,17 +740,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.marketingConsent": "Also send me product updates and beta news",
   "publicPresence.waitlist.marketingConsent.description":
     "Beyond early access emails, this covers new features, launch milestones, and founder updates. Ask support@chasesets.com to remove you anytime.",
-  "publicPresence.waitlist.afterSignup.join": "Sign up with your email, marketplace intent, and first priority.",
-  "publicPresence.waitlist.afterSignup.signal":
-    "Tell us whether seller economics, bulk listing, buying, pricing, or shipping matters first.",
-  "publicPresence.waitlist.afterSignup.title": "What you get after signup",
-  "publicPresence.waitlist.afterSignup.updates": "Get launch updates and early access consideration as invites open.",
-  "publicPresence.waitlist.description":
-    "Answer three quick questions so early access reaches the accounts most likely to use the seller beta.",
   "publicPresence.waitlist.email": "Email",
   "publicPresence.waitlist.email.placeholder": "you@example.com",
   "publicPresence.waitlist.error.title": "Waitlist signup failed",
-  "publicPresence.waitlist.expectations.title": "After you request access",
   "publicPresence.waitlist.formDescription":
     "Tell us your marketplace intent and first priority so invites reach the right accounts first.",
   "publicPresence.waitlist.formTitle": "Request early access",
@@ -885,13 +796,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.success.description":
     "You are on the Chase Sets early access list. We will use your priorities to shape beta invites and founders circle product feedback. Once you have access, your first listing or offer claims your founder number.",
   "publicPresence.waitlist.success.title": "You are on the list",
-  "publicPresence.waitlist.trust.noTransactions": "No live marketplace transactions are available during prelaunch.",
-  "publicPresence.waitlist.trust.policies":
-    "Public policies explain marketplace availability, checkout, fees, refunds, returns, and order protection while checkout is gated.",
-  "publicPresence.waitlist.trust.review":
-    "Checkout, fee-lock, order processing, return, and payout terms are visible before live payments.",
-  "publicPresence.waitlist.trust.support": "Support contact is visible for prelaunch questions.",
-  "publicPresence.waitlist.trust.title": "Before launch",
   "publicPresence.welcome.backHome": "Back to Chase Sets",
   "publicPresence.welcome.eyebrow": "You're in",
   "publicPresence.welcome.referral.copiedAction": "Copied",

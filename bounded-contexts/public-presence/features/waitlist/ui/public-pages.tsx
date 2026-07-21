@@ -21,7 +21,6 @@ import {
   ListingCard,
   List,
   MarketingImageHero,
-  MarketingVisualCard,
   MobileStickyBar,
   MobileStickyInset,
   NativeSelect,
@@ -46,9 +45,6 @@ import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
 import prelaunchHero800wUrl from "./assets/chase-sets-prelaunch-hero-800w.webp?url";
 import prelaunchHero1200wUrl from "./assets/chase-sets-prelaunch-hero-1200w.webp?url";
 import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
-import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
-import waitlistCardPanels600wUrl from "./assets/chase-sets-waitlist-card-panels-600w.webp?url";
-import waitlistCardPanels1080wUrl from "./assets/chase-sets-waitlist-card-panels-1080w.webp?url";
 import { trackWaitlistEvent } from "./analytics";
 import {
   checkoutFeeTranslationValues,
@@ -546,30 +542,6 @@ export function PublicPresenceHomePage({
     }
   }, [actionData, intent, landingExperimentVariant, source.pagePath]);
 
-  function selectIntent(nextIntent: WaitlistIntent, section: string) {
-    setIntent(nextIntent);
-    trackWaitlistEvent("cta_clicked", {
-      section,
-      cta_label:
-        nextIntent.role === "sell"
-          ? t("publicPresence.home.paths.sell.action")
-          : t("publicPresence.home.paths.buy.action"),
-      role: nextIntent.role,
-      interest: nextIntent.interest,
-      variant: landingExperimentVariantForIntent(heroIntentValue(nextIntent)),
-    });
-
-    const prefersReducedMotion =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    document.getElementById("waitlist-form-final")?.scrollIntoView?.({
-      behavior: prefersReducedMotion ? "auto" : "smooth",
-      block: "start",
-    });
-  }
-
   useLandingSectionViewTracking(landingExperimentVariant);
 
   return (
@@ -661,8 +633,6 @@ export function PublicPresenceHomePage({
 
         <OpenOffersSection />
 
-        <SellerEconomicsSection />
-
         <SellerToolsSection />
 
         <FeeComparisonSection />
@@ -673,13 +643,7 @@ export function PublicPresenceHomePage({
 
         <LaunchTimelineSection />
 
-        <AudiencePathSection onIntentSelect={selectIntent} />
-
         <ProductSignalPreview checkoutFeePreview={checkoutFeePreview} />
-
-        <MarketplaceModelSection />
-
-        <SignupExpectationSection />
 
         <FounderStorySection discordInviteUrl={discordInviteUrl} />
 
@@ -797,267 +761,6 @@ function OpenOffersSection() {
             </Stack>
           </Surface>
         ))}
-      </Grid>
-      <Surface tone="subtle">
-        <Stack gap={2}>
-          <BadgeRow>
-            <Badge tone="info">{t("publicPresence.home.openOffers.demo.badge")}</Badge>
-          </BadgeRow>
-          <Inline gap={3} align="center">
-            <ToneIcon name="play" tone="info" size="lg" label={t("publicPresence.home.openOffers.demo.title")} />
-            <Stack gap={1}>
-              <Text weight="semibold">{t("publicPresence.home.openOffers.demo.title")}</Text>
-              <Text size="sm" tone="secondary">
-                {t("publicPresence.home.openOffers.demo.description")}
-              </Text>
-            </Stack>
-          </Inline>
-        </Stack>
-      </Surface>
-    </PageSection>
-  );
-}
-
-function AudiencePathSection({
-  onIntentSelect,
-}: {
-  onIntentSelect: (intent: WaitlistIntent, section: string) => void;
-}) {
-  return (
-    <PageSection
-      data-public-presence-section="audience_paths"
-      title={t("publicPresence.home.paths.title")}
-      description={t("publicPresence.home.paths.description")}
-    >
-      <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        <Surface tone="subtle" elevated>
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="warning">{t("publicPresence.home.paths.sell.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.paths.sell.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.paths.sell.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.paths.sell.point.feeLock"),
-                t("publicPresence.home.paths.sell.point.bulk"),
-                t("publicPresence.home.paths.sell.point.offers"),
-              ]}
-            />
-            <Inline>
-              <Button tone="secondary" size="sm" onClick={() => onIntentSelect(sellerIntent, "audience_path_seller")}>
-                {t("publicPresence.home.paths.sell.action")}
-              </Button>
-            </Inline>
-          </Stack>
-        </Surface>
-        <Surface tone="subtle" elevated>
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.paths.buy.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.paths.buy.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.paths.buy.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.paths.buy.point.offers"),
-                t("publicPresence.home.paths.buy.point.total"),
-                t("publicPresence.home.paths.buy.point.shipping"),
-                t("publicPresence.home.paths.buy.point.trust"),
-              ]}
-            />
-            <Inline>
-              <Button tone="secondary" size="sm" onClick={() => onIntentSelect(buyerIntent, "audience_path_buyer")}>
-                {t("publicPresence.home.paths.buy.action")}
-              </Button>
-            </Inline>
-          </Stack>
-        </Surface>
-      </Grid>
-    </PageSection>
-  );
-}
-
-function SignupExpectationSection() {
-  return (
-    <PageSection
-      data-public-presence-section="signup_expectations"
-      title={t("publicPresence.waitlist.expectations.title")}
-      description={t("publicPresence.waitlist.description")}
-    >
-      <Grid columns={{ base: 1, md: 3 }} gap={4}>
-        <Surface tone="subtle">
-          <Stack gap={3}>
-            <Heading level={3}>{t("publicPresence.waitlist.trust.title")}</Heading>
-            <List
-              items={[t("publicPresence.waitlist.trust.noTransactions"), t("publicPresence.waitlist.trust.review")]}
-            />
-          </Stack>
-        </Surface>
-        <Surface tone="subtle">
-          <Stack gap={3}>
-            <Heading level={3}>{t("publicPresence.waitlist.afterSignup.title")}</Heading>
-            <List
-              items={[
-                t("publicPresence.waitlist.afterSignup.join"),
-                t("publicPresence.waitlist.afterSignup.signal"),
-                t("publicPresence.waitlist.afterSignup.updates"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Surface tone="subtle">
-          <Stack gap={3}>
-            <Heading level={3}>{t("publicPresence.home.trust.support.title")}</Heading>
-            <List
-              items={[
-                t("publicPresence.waitlist.trust.policies"),
-                t("publicPresence.waitlist.trust.support"),
-                t("publicPresence.home.trust.support.description"),
-              ]}
-            />
-            <Inline>
-              <LinkButton href="/terms" tone="secondary" size="sm">
-                {t("publicPresence.home.trust.policies.title")}
-              </LinkButton>
-            </Inline>
-          </Stack>
-        </Surface>
-      </Grid>
-    </PageSection>
-  );
-}
-
-function SellerEconomicsSection() {
-  return (
-    <PageSection
-      id="seller-economics"
-      data-public-presence-section="seller_economics"
-      title={t("publicPresence.home.sellerEconomics.title")}
-      description={t("publicPresence.home.sellerEconomics.description")}
-    >
-      <Grid columns={{ base: 1, lg: 3 }} gap={4}>
-        <Surface tone="subtle" elevated>
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.sellerEconomics.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.sellerEconomics.lock.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.lock.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.sellerEconomics.lock.point.primitive"),
-                t("publicPresence.home.sellerEconomics.lock.point.processing"),
-                t("publicPresence.home.sellerEconomics.lock.point.change"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Surface tone="subtle" elevated>
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="trust">{t("publicPresence.home.sellerEconomics.founders.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.sellerEconomics.founders.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.founders.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.sellerEconomics.founders.point.lock"),
-                t("publicPresence.home.sellerEconomics.founders.point.keep"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Surface tone="subtle" elevated data-public-presence-section="balance_flywheel">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="info">{t("publicPresence.home.sellerEconomics.balance.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.sellerEconomics.balance.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.balance.description")}</Text>
-            <Grid templateColumns="1fr auto 1fr auto 1fr" stackUntil="md" gap={2} align="center">
-              {[
-                { icon: "tag" as const, key: "sell" },
-                { icon: "wallet" as const, key: "balance" },
-                { icon: "cart" as const, key: "buy" },
-              ].flatMap((step, index) => {
-                const node = (
-                  <Stack key={step.key} gap={1} align="center">
-                    <ToneIcon
-                      name={step.icon}
-                      tone="info"
-                      size="md"
-                      label={t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.title`)}
-                    />
-                    <Text size="sm" weight="semibold">
-                      {t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.title`)}
-                    </Text>
-                    <Text size="sm" tone="secondary">
-                      {t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.description`)}
-                    </Text>
-                  </Stack>
-                );
-
-                return index < 2
-                  ? [
-                      node,
-                      <ToneIcon
-                        key={`${step.key}-arrow`}
-                        name="chevronRight"
-                        tone="neutral"
-                        size="sm"
-                        label={t("publicPresence.home.sellerEconomics.balance.next")}
-                      />,
-                    ]
-                  : [node];
-              })}
-            </Grid>
-          </Stack>
-        </Surface>
-      </Grid>
-      <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        <PriceBreakdown
-          title={t("publicPresence.home.sellerEconomics.math.title")}
-          description={t("publicPresence.home.sellerEconomics.math.description")}
-          lines={[
-            {
-              label: t("publicPresence.home.sellerEconomics.math.item"),
-              value: t("publicPresence.home.sellerEconomics.math.item.value"),
-            },
-            {
-              label: t("publicPresence.home.sellerEconomics.math.sellerFee"),
-              value: t("publicPresence.home.sellerEconomics.math.sellerFee.value"),
-            },
-            {
-              label: t("publicPresence.home.sellerEconomics.math.processingFee"),
-              value: t("publicPresence.home.sellerEconomics.math.processingFee.value"),
-            },
-          ]}
-          totalLabel={t("publicPresence.home.sellerEconomics.math.total")}
-          total={t("publicPresence.home.sellerEconomics.math.total.value")}
-          reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
-        />
-        <PriceBreakdown
-          title={t("publicPresence.home.sellerEconomics.math.graded.title")}
-          description={t("publicPresence.home.sellerEconomics.math.graded.description")}
-          lines={[
-            {
-              label: t("publicPresence.home.sellerEconomics.math.graded.item"),
-              value: t("publicPresence.home.sellerEconomics.math.graded.item.value"),
-            },
-            {
-              label: t("publicPresence.home.sellerEconomics.math.graded.sellerFee"),
-              value: t("publicPresence.home.sellerEconomics.math.graded.sellerFee.value"),
-            },
-            {
-              label: t("publicPresence.home.sellerEconomics.math.graded.processingFee"),
-              value: t("publicPresence.home.sellerEconomics.math.graded.processingFee.value"),
-            },
-          ]}
-          totalLabel={t("publicPresence.home.sellerEconomics.math.graded.total")}
-          total={t("publicPresence.home.sellerEconomics.math.graded.total.value")}
-          reassurance={t("publicPresence.home.sellerEconomics.math.graded.reassurance")}
-        />
       </Grid>
     </PageSection>
   );
@@ -1218,6 +921,50 @@ function FeeComparisonSection() {
         <Text size="sm" tone="tertiary">
           {t("publicPresence.home.sellerEconomics.comparison.sourceNote")}
         </Text>
+        <Grid columns={{ base: 1, md: 2 }} gap={4}>
+          <PriceBreakdown
+            title={t("publicPresence.home.sellerEconomics.math.title")}
+            description={t("publicPresence.home.sellerEconomics.math.description")}
+            lines={[
+              {
+                label: t("publicPresence.home.sellerEconomics.math.item"),
+                value: t("publicPresence.home.sellerEconomics.math.item.value"),
+              },
+              {
+                label: t("publicPresence.home.sellerEconomics.math.sellerFee"),
+                value: t("publicPresence.home.sellerEconomics.math.sellerFee.value"),
+              },
+              {
+                label: t("publicPresence.home.sellerEconomics.math.processingFee"),
+                value: t("publicPresence.home.sellerEconomics.math.processingFee.value"),
+              },
+            ]}
+            totalLabel={t("publicPresence.home.sellerEconomics.math.total")}
+            total={t("publicPresence.home.sellerEconomics.math.total.value")}
+            reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
+          />
+          <PriceBreakdown
+            title={t("publicPresence.home.sellerEconomics.math.graded.title")}
+            description={t("publicPresence.home.sellerEconomics.math.graded.description")}
+            lines={[
+              {
+                label: t("publicPresence.home.sellerEconomics.math.graded.item"),
+                value: t("publicPresence.home.sellerEconomics.math.graded.item.value"),
+              },
+              {
+                label: t("publicPresence.home.sellerEconomics.math.graded.sellerFee"),
+                value: t("publicPresence.home.sellerEconomics.math.graded.sellerFee.value"),
+              },
+              {
+                label: t("publicPresence.home.sellerEconomics.math.graded.processingFee"),
+                value: t("publicPresence.home.sellerEconomics.math.graded.processingFee.value"),
+              },
+            ]}
+            totalLabel={t("publicPresence.home.sellerEconomics.math.graded.total")}
+            total={t("publicPresence.home.sellerEconomics.math.graded.total.value")}
+            reassurance={t("publicPresence.home.sellerEconomics.math.graded.reassurance")}
+          />
+        </Grid>
       </Stack>
     </PageSection>
   );
@@ -1329,51 +1076,6 @@ function LaunchTimelineSection() {
           {t("publicPresence.home.launchTimeline.action")}
         </LinkButton>
       </Inline>
-    </PageSection>
-  );
-}
-
-function MarketplaceModelSection() {
-  const modelItems = [
-    ["publicPresence.home.model.supply.title", "publicPresence.home.model.supply.description"],
-    ["publicPresence.home.model.economics.title", "publicPresence.home.model.economics.description"],
-    ["publicPresence.home.model.trust.title", "publicPresence.home.model.trust.description"],
-  ];
-
-  return (
-    <PageSection
-      data-public-presence-section="marketplace_model"
-      title={t("publicPresence.home.howItWorks.title")}
-      description={t("publicPresence.home.howItWorks.description")}
-    >
-      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-        <MarketingVisualCard
-          imageSrc={waitlistCardPanelsUrl}
-          imageSrcSet={`${waitlistCardPanels600wUrl} 600w, ${waitlistCardPanels1080wUrl} 1080w, ${waitlistCardPanelsUrl} 2172w`}
-          imageSizes="(min-width: 1024px) 50vw, 100vw"
-          imageAlt={t("publicPresence.home.workflowImageAlt")}
-          imagePosition="center"
-          imageLoading="lazy"
-          imageFetchPriority="low"
-          imageDecoding="async"
-          imageWidth={1200}
-          imageHeight={900}
-          badge={t("publicPresence.home.howItWorks.badge")}
-          badgeTone="info"
-          title={t("publicPresence.home.workflowImage.title")}
-          description={t("publicPresence.home.workflowImage.description")}
-        />
-        <Grid columns={{ base: 1, md: 3, lg: 1 }} gap={3}>
-          {modelItems.map(([title, description]) => (
-            <Surface key={title} elevated>
-              <Stack gap={2}>
-                <Heading level={3}>{t(title)}</Heading>
-                <Text tone="secondary">{t(description)}</Text>
-              </Stack>
-            </Surface>
-          ))}
-        </Grid>
-      </Grid>
     </PageSection>
   );
 }

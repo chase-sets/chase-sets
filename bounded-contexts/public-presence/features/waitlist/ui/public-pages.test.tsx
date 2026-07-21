@@ -224,7 +224,7 @@ describe("public waitlist form migration smoke", () => {
     expect(container.querySelectorAll('a[href="https://discord.gg/chase-sets"]').length).toBe(0);
   });
 
-  it("renders the open-offers section ahead of founding seller economics, with a sample offer mock and a reserved demo slot", () => {
+  it("renders the open-offers section ahead of seller tools, with a sample offer mock and no unrecorded demo placeholder", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -236,20 +236,21 @@ describe("public waitlist form migration smoke", () => {
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
     const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
-    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
-    if (!offersSection || !sellerEconomicsSection) {
-      throw new Error("Expected both the open-offers and seller-economics sections to render.");
+    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
+    if (!offersSection || !sellerToolsSection) {
+      throw new Error("Expected both the open-offers and seller-tools sections to render.");
     }
 
-    // DOCUMENT_POSITION_FOLLOWING (4) on sellerEconomicsSection means offersSection comes first.
-    expect(offersSection.compareDocumentPosition(sellerEconomicsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    // DOCUMENT_POSITION_FOLLOWING (4) on sellerToolsSection means offersSection comes first.
+    expect(offersSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(offersSection.textContent).toContain(t("publicPresence.home.openOffers.after.offerCard.title"));
-    expect(offersSection.textContent).toContain(t("publicPresence.home.openOffers.demo.title"));
+    // #5617: the demo/video placeholder is hidden until a recording ships.
+    expect(offersSection.textContent).not.toContain("Watch a 30-second offer get posted and accepted");
   });
 
-  it("leads the buy-path audience card with the open-offers bullet", () => {
+  it("shows the founder-math examples inside the fee-comparison section, with the comparison table as centerpiece, and buyer-side checkout economics", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -260,46 +261,18 @@ describe("public waitlist form migration smoke", () => {
 
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
-    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
-    if (!audienceSection) {
-      throw new Error("Expected the audience-path section to render.");
-    }
-
-    // The sell card renders first in the audience-path grid, so the buy
-    // card's bullet list is the second <ul> in document order.
-    const lists = audienceSection.querySelectorAll("ul");
-    const buyList = lists[1];
-    if (!buyList) {
-      throw new Error("Expected the buy-path card to render its bullet list.");
-    }
-
-    expect(buyList.querySelector("li:first-child")?.textContent).toBe(t("publicPresence.home.paths.buy.point.offers"));
-  });
-
-  it("shows the fee primitive, founder economics, balance flywheel, and buyer-side checkout economics", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
-
-    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
-    const balanceFlywheel = container.querySelector('[data-public-presence-section="balance_flywheel"]');
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
     const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
-    if (!sellerEconomicsSection || !balanceFlywheel || !previewSection) {
-      throw new Error("Expected seller-economics, balance-flywheel, and product-preview sections to render.");
+    if (!feeComparisonSection || !previewSection) {
+      throw new Error("Expected fee-comparison and product-preview sections to render.");
     }
 
-    expect(sellerEconomicsSection.textContent).toContain("Every listing locks its fee the moment you create it.");
-    expect(sellerEconomicsSection.textContent).toContain("Founders: lock 0%");
-    expect(sellerEconomicsSection.textContent).toContain("Sell. Get balance. Buy.");
-    expect(sellerEconomicsSection.textContent).toContain("$100.00");
-    expect(balanceFlywheel.textContent).toContain("Buy with balance");
-    expect(balanceFlywheel.textContent).toContain("skip card processing entirely");
+    // #5617: SellerEconomicsSection was removed; its founder-math cards now
+    // render inside FeeComparisonSection alongside the comparison table.
+    expect(feeComparisonSection.textContent).toContain(t("publicPresence.home.sellerEconomics.comparison.title"));
+    expect(feeComparisonSection.textContent).toContain("$10 card beta seller math");
+    expect(feeComparisonSection.textContent).toContain("$100 graded-card founder math");
+    expect(feeComparisonSection.textContent).toContain("$100.00");
     expect(previewSection.textContent).toContain("Shipping");
     // #3951: the card processing line states the real passthrough terms and
     // the sample order resolves to a concrete total -- no fee on this surface
@@ -315,7 +288,7 @@ describe("public waitlist form migration smoke", () => {
     expect(previewSection.textContent).not.toContain("Order protectionIncluded");
   });
 
-  it("places the truth-gated seller-tools differentiator after seller economics", () => {
+  it("places the truth-gated seller-tools differentiator between open offers and the fee comparison", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -326,14 +299,14 @@ describe("public waitlist form migration smoke", () => {
 
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
-    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
+    const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
     const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
     const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
-    if (!sellerEconomicsSection || !sellerToolsSection || !feeComparisonSection) {
-      throw new Error("Expected seller economics, seller tools, and fee comparison sections to render.");
+    if (!offersSection || !sellerToolsSection || !feeComparisonSection) {
+      throw new Error("Expected open offers, seller tools, and fee comparison sections to render.");
     }
 
-    expect(sellerEconomicsSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    expect(offersSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(sellerToolsSection.compareDocumentPosition(feeComparisonSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
@@ -375,7 +348,7 @@ describe("public waitlist form migration smoke", () => {
     );
   });
 
-  it("concretizes the founders offer with cap, numbered badge, and 60-day window, linked ahead of the audience paths and from the footer", () => {
+  it("concretizes the founders offer with cap, numbered badge, and 60-day window, linked ahead of the launch timeline and from the footer", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -388,18 +361,18 @@ describe("public waitlist form migration smoke", () => {
 
     const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
-    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
-    if (!feeComparisonSection || !foundersSection || !audienceSection) {
-      throw new Error("Expected fee-comparison, founders-offer, and audience-path sections to render.");
+    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
+    if (!feeComparisonSection || !foundersSection || !timelineSection) {
+      throw new Error("Expected fee-comparison, founders-offer, and launch-timeline sections to render.");
     }
 
     // DOCUMENT_POSITION_FOLLOWING (4) means the founders section renders
-    // after fee comparison and ahead of the audience paths, per the
+    // after fee comparison and ahead of the launch timeline, per the
     // "immediately after the fees section" placement in #4081.
     expect(feeComparisonSection.compareDocumentPosition(foundersSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(foundersSection.compareDocumentPosition(audienceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    expect(foundersSection.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
@@ -429,18 +402,17 @@ describe("public waitlist form migration smoke", () => {
 
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
     const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
-    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
     const faqSection = container.querySelector('[data-public-presence-section="faq"]');
-    if (!foundersSection || !timelineSection || !audienceSection || !faqSection) {
-      throw new Error("Expected founders-offer, launch-timeline, audience-path, and FAQ sections to render.");
+    if (!foundersSection || !timelineSection || !faqSection) {
+      throw new Error("Expected founders-offer, launch-timeline, and FAQ sections to render.");
     }
 
     // The timeline reads as the founders offer's "when": founders_offer →
-    // launch_timeline → audience_paths.
+    // launch_timeline → ... → faq.
     expect(foundersSection.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(timelineSection.compareDocumentPosition(audienceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    expect(timelineSection.compareDocumentPosition(faqSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
@@ -653,5 +625,72 @@ describe("public waitlist form migration smoke", () => {
     const formData = new FormData(form);
     expect(formData.getAll("games")).toEqual(["pokemon"]);
     expect(formData.get("hasStoreLink")).toBe("yes");
+  });
+
+  it("#5617: cuts the removed sections and renders exactly the approved surviving section order", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    // The five approved cuts: SignupExpectationSection, MarketplaceModelSection,
+    // AudiencePathSection, and the standalone SellerEconomicsSection are gone.
+    expect(container.querySelector('[data-public-presence-section="signup_expectations"]')).toBeNull();
+    expect(container.querySelector('[data-public-presence-section="marketplace_model"]')).toBeNull();
+    expect(container.querySelector('[data-public-presence-section="audience_paths"]')).toBeNull();
+    expect(container.querySelector('[data-public-presence-section="seller_economics"]')).toBeNull();
+    expect(container.querySelector('[data-public-presence-section="balance_flywheel"]')).toBeNull();
+
+    const sections = Array.from(container.querySelectorAll<HTMLElement>("[data-public-presence-section]")).map(
+      (section) => section.getAttribute("data-public-presence-section"),
+    );
+
+    // feeSchedule defaults to null in this render, which hides
+    // FeeCalculatorSection entirely (it is truth-gated on a live schedule).
+    expect(sections).toEqual([
+      "hero",
+      "game_roster",
+      "open_offers",
+      "seller_tools",
+      "fee_comparison",
+      "founders_offer",
+      "launch_timeline",
+      "product_preview",
+      "founder_story",
+      "final_cta",
+      "faq",
+    ]);
+  });
+
+  it("#5617: preserves the hero and final-CTA form anchors and the game-prefill link mechanism", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} selectedGame="pokemon" />);
+
+    expect(document.getElementById("waitlist-form")).not.toBeNull();
+    expect(document.getElementById("waitlist-form-final")).not.toBeNull();
+    expect(container.querySelector('a[href="/#waitlist-form-final"]')).not.toBeNull();
+
+    const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
+    const pokemonTile = rosterSection?.querySelector<HTMLAnchorElement>('a[href*="game=pokemon"]');
+    if (!pokemonTile) {
+      throw new Error("Expected a Pokemon game-roster tile linking to the prefilled waitlist form.");
+    }
+    expect(pokemonTile.getAttribute("href")).toContain("#waitlist-form");
+    expect(pokemonTile.getAttribute("href")).toMatch(/^\/\?/);
+
+    const heroForm = document.getElementById("waitlist-form")?.querySelector("form");
+    expect(new FormData(heroForm!).getAll("games")).toEqual(["pokemon"]);
   });
 });
