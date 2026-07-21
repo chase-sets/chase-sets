@@ -187,14 +187,8 @@ test.describe.serial("catalog admin integrations", () => {
     await expectVisibleText(page, "Catalog control plane");
     const runSyncStageTrigger = page.getByRole("button", { name: "Run sync" }).first();
     await clickUntilDisclosureExpanded(runSyncStageTrigger, true);
-    // #1970: when the selected provider profile declares source-option groups, the
-    // deferred source-options status panel streams into the Run sync stage after
-    // first paint. Open that owning stage explicitly because a populated review
-    // queue correctly makes Review changes the default stage.
-    const sourceOptionsPanel = page.getByText("Source options").first();
-    await expect(sourceOptionsPanel, "browser-e2e seed contract requires source options").toBeVisible({
-      timeout: 30_000,
-    });
+    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
+    await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
     // The supplementary alias-review workspace streams behind its own boundary.
     await expectAliasReviewWorkspace(page);
     // The daily surface does not render a page-local "Import to promotion
@@ -230,6 +224,12 @@ test.describe.serial("catalog admin integrations", () => {
     const importProviderSelect = importContextBar.getByRole("combobox", { name: "Provider" });
     await expect(contextBarTrigger).toBeVisible();
     await expect(contextBarTrigger).toHaveAttribute("aria-expanded", "true");
+    // #1970: provider source options belong to the import-scope disclosure, not
+    // the Run sync stage. Scope this streamed assertion to its owning Step 0 bar.
+    await expect(
+      importContextBar.getByText("Source options").first(),
+      "browser-e2e seed contract requires source options in Step 0",
+    ).toBeVisible({ timeout: 30_000 });
     await expect(importContextBar.getByRole("button", { name: "Select source scope" })).toBeVisible();
     const urlBeforeToggle = page.url();
     // Collapse to the one-line summary: the form's provider select hides.
@@ -254,7 +254,6 @@ test.describe.serial("catalog admin integrations", () => {
     // only the per-surface return affordance (none on the daily route). Open each
     // owning stage and confirm its single canonical action; the run-sync stage is
     // the default landing when there is nothing to review yet.
-    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
     await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1969: an import-context change is now a fetcher-scoped CLIENT navigation,

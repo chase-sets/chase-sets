@@ -36,7 +36,7 @@ import type { CatalogReferenceIds } from "../../features/reference-data/api/seed
 import { seedPromotedSourceObservationScenario } from "../../features/source-observations/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
-import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
+import type { BlueprintId, CatalogItemId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
 export async function seedCatalogDatabase(
   pool: PgTransactionalPool,
@@ -183,14 +183,37 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_items")) {
-    console.log("Catalog scenario items already exist. Reconciling Product Contents and integration scenarios.");
-    await seedProductContentScenario(services);
-    await seedPromotedSourceObservationScenario(services);
-    return;
+    console.log("Catalog scenario items already exist. Reconciling exact integration prerequisites.");
+    const targetStreamId = `catalog.item-${catalogSeedIds.items.pikachuJungle}`;
+    const targetEvents = await services.db.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC`,
+      [targetStreamId],
+    );
+    if (targetEvents.rows.length === 0) {
+      await seedCatalogItems(
+        services,
+        authoring.blueprints,
+        authoring.fields,
+        authoring.categories,
+        authoring.references,
+        { catalogItemIds: [catalogSeedIds.items.pikachuJungle as CatalogItemId] },
+      );
+    }
+  } else {
+    console.log("Seeding non-production Catalog scenario items...");
+    await seedCatalogItems(
+      services,
+      authoring.blueprints,
+      authoring.fields,
+      authoring.categories,
+      authoring.references,
+    );
   }
 
-  console.log("Seeding non-production Catalog scenario items...");
-  await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
+  // Promotion requires the exact target in both its event stream and read model.
+  // Drain Catalog Item projections after either a full or targeted reconciliation;
+  // a partial/terminal target stream then fails deterministically in the observation seed.
+  await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
   await seedProductContentScenario(services);
   await seedPromotedSourceObservationScenario(services);
 }
