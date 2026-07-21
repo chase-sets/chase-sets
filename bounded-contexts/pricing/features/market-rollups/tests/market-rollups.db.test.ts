@@ -687,6 +687,140 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     });
   });
 
+  it("excludes a linkage-flagged counterparty offer from the snapshot bid statistics", async () => {
+    const pool = pools.pricing;
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs (
+         listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at
+       ) VALUES
+         ('listing_flagged_pair', 'seller_linked', 'cat_linked_pair', 'prod_linked_pair', 50.00, 1, 'active', now()),
+         ('listing_unflagged_pair', 'seller_unlinked', 'cat_linked_pair', 'prod_linked_pair', 60.00, 1, 'active', now())`,
+    );
+    await pool.query(
+      `INSERT INTO pricing_buyer_offer_inputs (
+         offer_id, buyer_account_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount,
+         quantity_requested, status, updated_at
+       ) VALUES
+         ('offer_flagged_pair', 'buyer_linked', 'seller_linked', 'cat_linked_pair', 'prod_linked_pair', 40.00, 1, 'submitted', now()),
+         ('offer_unflagged_pair', 'buyer_unlinked', 'seller_unlinked', 'cat_linked_pair', 'prod_linked_pair', 20.00, 1, 'submitted', now())`,
+    );
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash: "a".repeat(64), signalKind: "shared-instrument", accountIds: ["buyer_linked", "seller_linked"] },
+        "2026-07-05T10:00:00.000Z",
+      ),
+    );
+
+    await recomputeMarketStateSnapshot(pool, {
+      catalogItemId: "cat_linked_pair",
+      productId: "prod_linked_pair",
+      day: "2026-07-05",
+    });
+
+    const snapshot = await pool.query(
+      `SELECT open_offer_count, max_bid_amount, spread_amount
+       FROM pricing_market_state_snapshots
+       WHERE catalog_catalog_item_id = 'cat_linked_pair' AND product_id = 'prod_linked_pair' AND day = '2026-07-05'`,
+    );
+    expect(snapshot.rows).toEqual([{ open_offer_count: 1, max_bid_amount: "20.00", spread_amount: "30.00" }]);
+  });
+
+  it("excludes a product-scoped offer when its buyer is linked to an active listing seller", async () => {
+    const pool = pools.pricing;
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs (
+         listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at
+       ) VALUES
+         ('listing_product_scope_linked', 'seller_linked', 'cat_product_scope', 'prod_product_scope', 50.00, 1, 'active', now()),
+         ('listing_product_scope_unlinked', 'seller_unlinked', 'cat_product_scope', 'prod_product_scope', 60.00, 1, 'active', now())`,
+    );
+    await pool.query(
+      `INSERT INTO pricing_buyer_offer_inputs (
+         offer_id, buyer_account_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount,
+         quantity_requested, status, updated_at
+       ) VALUES
+         ('offer_product_scope_linked', 'buyer_linked', NULL, 'cat_product_scope', 'prod_product_scope', 40.00, 1, 'submitted', now()),
+         ('offer_product_scope_unlinked', 'buyer_unlinked', NULL, 'cat_product_scope', 'prod_product_scope', 20.00, 1, 'submitted', now())`,
+    );
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash: "b".repeat(64), signalKind: "shared-address", accountIds: ["buyer_linked", "seller_linked"] },
+        "2026-07-05T10:00:00.000Z",
+      ),
+    );
+
+    await recomputeMarketStateSnapshot(pool, {
+      catalogItemId: "cat_product_scope",
+      productId: "prod_product_scope",
+      day: "2026-07-05",
+    });
+
+    const snapshot = await pool.query(
+      `SELECT open_offer_count, max_bid_amount, spread_amount
+       FROM pricing_market_state_snapshots
+       WHERE catalog_catalog_item_id = 'cat_product_scope' AND product_id = 'prod_product_scope' AND day = '2026-07-05'`,
+    );
+    expect(snapshot.rows).toEqual([{ open_offer_count: 1, max_bid_amount: "20.00", spread_amount: "30.00" }]);
+  });
+
+  it("counts an offer again on the next snapshot recompute after its linkage clears", async () => {
+    const pool = pools.pricing;
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs (
+         listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at
+       ) VALUES ('listing_clear', 'seller_linked', 'cat_clear', 'prod_clear', 50.00, 1, 'active', now())`,
+    );
+    await pool.query(
+      `INSERT INTO pricing_buyer_offer_inputs (
+         offer_id, buyer_account_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount,
+         quantity_requested, status, updated_at
+       ) VALUES ('offer_clear', 'buyer_linked', 'seller_linked', 'cat_clear', 'prod_clear', 40.00, 1, 'submitted', now())`,
+    );
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    const clusterHash = "c".repeat(64);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        { clusterHash, signalKind: "shared-instrument", accountIds: ["buyer_linked", "seller_linked"] },
+        "2026-07-05T10:00:00.000Z",
+      ),
+    );
+    await recomputeMarketStateSnapshot(pool, {
+      catalogItemId: "cat_clear",
+      productId: "prod_clear",
+      day: "2026-07-05",
+    });
+
+    let snapshot = await pool.query(
+      `SELECT open_offer_count, max_bid_amount, spread_amount FROM pricing_market_state_snapshots
+       WHERE catalog_catalog_item_id = 'cat_clear' AND product_id = 'prod_clear' AND day = '2026-07-05'`,
+    );
+    expect(snapshot.rows).toEqual([{ open_offer_count: 0, max_bid_amount: null, spread_amount: null }]);
+
+    await linkageHandlers["settlement.account-linkage.cleared"]!(
+      event(
+        "settlement.account-linkage.cleared",
+        { clusterHash, signalKind: "shared-instrument", accountIds: ["buyer_linked", "seller_linked"] },
+        "2026-07-05T10:05:00.000Z",
+      ),
+    );
+    await recomputeMarketStateSnapshot(pool, {
+      catalogItemId: "cat_clear",
+      productId: "prod_clear",
+      day: "2026-07-05",
+    });
+
+    snapshot = await pool.query(
+      `SELECT open_offer_count, max_bid_amount, spread_amount FROM pricing_market_state_snapshots
+       WHERE catalog_catalog_item_id = 'cat_clear' AND product_id = 'prod_clear' AND day = '2026-07-05'`,
+    );
+    expect(snapshot.rows).toEqual([{ open_offer_count: 1, max_bid_amount: "40.00", spread_amount: "10.00" }]);
+  });
+
   it("refreshes the denormalized product market aggregate (last sale, 30/90d windows, sell-through rate)", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool);
@@ -741,6 +875,31 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
   it("runs the daily closer idempotently: a second consecutive pass reproduces identical rollups and snapshots", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool);
+    await pool.query(
+      `INSERT INTO pricing_market_listing_inputs (
+         listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at
+       ) VALUES ('listing_idempotent', 'seller_idempotent', 'cat_1', 'prod_1', 50.00, 1, 'active', now())`,
+    );
+    await pool.query(
+      `INSERT INTO pricing_buyer_offer_inputs (
+         offer_id, buyer_account_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount,
+         quantity_requested, status, updated_at
+       ) VALUES
+         ('offer_idempotent_linked', 'buyer_idempotent_linked', NULL, 'cat_1', 'prod_1', 40.00, 1, 'submitted', now()),
+         ('offer_idempotent_unlinked', 'buyer_idempotent_unlinked', NULL, 'cat_1', 'prod_1', 20.00, 1, 'submitted', now())`,
+    );
+    const linkageHandlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+    await linkageHandlers["settlement.account-linkage.flagged"]!(
+      event(
+        "settlement.account-linkage.flagged",
+        {
+          clusterHash: "d".repeat(64),
+          signalKind: "shared-instrument",
+          accountIds: ["buyer_idempotent_linked", "seller_idempotent"],
+        },
+        "2026-07-01T19:00:00.000Z",
+      ),
+    );
 
     const now = "2026-07-01T20:00:00.000Z";
     const first = await runDailyRollupCloser(pool, { now, trailingWindowDays: 7, limit: 500 });
@@ -751,6 +910,11 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
               max_price_amount, median_price_amount, unit_volume, trade_count, verified_trade_count
        FROM pricing_daily_product_rollups ORDER BY catalog_catalog_item_id, product_id, day`,
     );
+    const snapshotsAfterFirst = await pool.query(
+      `SELECT catalog_catalog_item_id, product_id, day, active_listing_count, min_ask_amount,
+              open_offer_count, max_bid_amount, spread_amount
+       FROM pricing_market_state_snapshots ORDER BY catalog_catalog_item_id, product_id, day`,
+    );
 
     const second = await runDailyRollupCloser(pool, { now, trailingWindowDays: 7, limit: 500 });
     expect(second.rollupDaysRecomputed).toBe(first.rollupDaysRecomputed);
@@ -760,8 +924,25 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
               max_price_amount, median_price_amount, unit_volume, trade_count, verified_trade_count
        FROM pricing_daily_product_rollups ORDER BY catalog_catalog_item_id, product_id, day`,
     );
+    const snapshotsAfterSecond = await pool.query(
+      `SELECT catalog_catalog_item_id, product_id, day, active_listing_count, min_ask_amount,
+              open_offer_count, max_bid_amount, spread_amount
+       FROM pricing_market_state_snapshots ORDER BY catalog_catalog_item_id, product_id, day`,
+    );
 
     expect(rollupsAfterSecond.rows).toEqual(rollupsAfterFirst.rows);
+    expect(snapshotsAfterSecond.rows).toEqual(snapshotsAfterFirst.rows);
+    expect(snapshotsAfterSecond.rows).toContainEqual(
+      expect.objectContaining({
+        catalog_catalog_item_id: "cat_1",
+        product_id: "prod_1",
+        active_listing_count: 1,
+        min_ask_amount: "50.00",
+        open_offer_count: 1,
+        max_bid_amount: "20.00",
+        spread_amount: "30.00",
+      }),
+    );
   });
 
   it("drains retroactive linkage and badge exclusions beyond the trailing window into product and platform days", async () => {
