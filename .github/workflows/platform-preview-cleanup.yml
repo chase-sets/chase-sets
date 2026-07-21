@@ -26,8 +26,6 @@ jobs:
       matrix: ${{ steps.targets.outputs.matrix }}
       target_count: ${{ steps.targets.outputs.target_count }}
       result: ${{ steps.targets.outputs.result }}
-      verification_matrix: ${{ steps.verification-targets.outputs.matrix }}
-      verification_target_count: ${{ steps.verification-targets.outputs.target_count }}
     permissions:
       contents: read
       pull-requests: read
@@ -169,22 +167,6 @@ jobs:
           console.log("result=success");
           NODE
 
-      - name: Resolve stale verification namespaces
-        id: verification-targets
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          VERIFICATION_NAMESPACE_MAX_AGE_HOURS: "6"
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" != "schedule" ]; then
-            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-            echo 'target_count=0' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          matrix="$(kubectl get namespaces -o json | node ./scripts/ephemeral-verification-namespace.mjs)"
-          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
-          echo "target_count=$(node -e 'const value=JSON.parse(process.argv[1]); console.log(value.include.length)' "$matrix")" >> "$GITHUB_OUTPUT"
-
       - name: Summarize scheduled preview cleanup sweep
         if: ${{ always() && github.event_name == 'schedule' }}
         run: |
@@ -233,6 +215,80 @@ jobs:
           path: artifacts/release-health/platform-preview-cleanup-sweep.json
           if-no-files-found: ignore
           retention-days: 14
+
+  discover-stale-verification:
+    name: Discover Stale Verification Namespaces
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      target_count: ${{ steps.targets.outputs.target_count }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure verification sweep Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          kubeconfig="${RUNNER_TEMP}/chase-sets-verification-sweep.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS state exposes neither cluster_id nor cluster_name." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Resolve stale verification namespaces
+        id: targets
+        env:
+          VERIFICATION_NAMESPACE_MAX_AGE_HOURS: "24"
+        run: |
+          set -euo pipefail
+          matrix="$(kubectl get namespaces -o json | node ./scripts/ephemeral-verification-namespace.mjs)"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "target_count=$(node -e 'const value=JSON.parse(process.argv[1]); console.log(value.include.length)' "$matrix")" >> "$GITHUB_OUTPUT"
 
   destroy-preview:
     name: Destroy Preview
@@ -415,14 +471,14 @@ jobs:
 
   destroy-stale-verification:
     name: Destroy Stale Verification Namespace
-    needs: discover-preview-cleanup
-    if: needs.discover-preview-cleanup.outputs.verification_target_count != '0'
+    needs: discover-stale-verification
+    if: needs.discover-stale-verification.outputs.target_count != '0'
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.verification_matrix) }}
+      matrix: ${{ fromJSON(needs.discover-stale-verification.outputs.matrix) }}
     concurrency:
       group: platform-${{ matrix.namespace }}
       cancel-in-progress: false

@@ -48,13 +48,13 @@ const defaultTimeout = "10m";
 // their owning workflow ends. Two kinds exist, each with its own strict
 // parser owned by the workflow that creates it:
 //   - PR preview:            chase-sets-pr-<number>          (platform-pr.yml)
-//   - ephemeral verification: chase-sets-verify-<run>-<attempt>
+//   - ephemeral verification: anything under chase-sets-verify-
 //                             (platform-ephemeral-verification.yml; the
 //                              canonical parser lives in
 //                              ephemeral-verification-namespace.mjs)
 // The bare "chase-sets-platform" default above is the staging/production
 // namespace, so teardown must never fall through to it: require an explicit
-// disposable namespace matching exactly one of these kinds and reject
+// disposable namespace matching exactly one of these prefixes and reject
 // everything else (production, staging, system, empty, malformed).
 const previewNamespacePattern = /^chase-sets-pr-\d+$/;
 
@@ -950,7 +950,7 @@ export async function teardownPlatformKubernetesNamespace(options = {}) {
   if (!isDisposableNamespace(namespace)) {
     throw new Error(
       `Refusing to tear down non-disposable namespace "${namespace}"; expected a preview ` +
-        `(chase-sets-pr-<number>) or ephemeral verification (chase-sets-verify-<run>-<attempt>) namespace.`,
+        `(chase-sets-pr-<number>) or ephemeral verification (chase-sets-verify-*) namespace.`,
     );
   }
   const releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));

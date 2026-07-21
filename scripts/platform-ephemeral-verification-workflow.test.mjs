@@ -14,6 +14,16 @@ function step(workflow, name) {
   return workflow.slice(start, end < 0 ? workflow.length : end);
 }
 
+function job(workflow, name) {
+  const marker = `  ${name}:\n`;
+  const start = workflow.indexOf(marker);
+  if (start < 0) throw new Error(`Missing job ${name}`);
+  const remainder = workflow.slice(start + marker.length);
+  const nextJob = remainder.search(/^  [a-z0-9][a-z0-9-]*:\n/mu);
+  const end = nextJob < 0 ? workflow.length : start + marker.length + nextJob;
+  return workflow.slice(start, end < 0 ? workflow.length : end);
+}
+
 describe("platform ephemeral verification workflow", () => {
   it("downloads and validates the exact triggering deploy's promoted release artifact", () => {
     const download = step(verification, "Download promoted release handoff");
@@ -60,18 +70,29 @@ describe("platform ephemeral verification workflow", () => {
   });
 
   it("always removes provider registrations and fails on a surviving namespace", () => {
+    const verifyJob = job(verification, "verify-release");
     const providers = step(verification, "Delete verification provider webhooks");
     const namespace = step(verification, "Delete verification Kubernetes namespace");
+    expect(verifyJob).toContain("always() &&");
     expect(providers).toContain("if: always()");
-    expect(namespace).toContain("if: always()");
+    for (const terminalPath of ["success", "failure", "cancelled", "skipped"]) {
+      expect(namespace, `${terminalPath} must reach namespace cleanup`).toContain("if: always()");
+    }
     expect(namespace).toContain("platform:kubernetes-deployment -- teardown");
     expect(namespace).not.toContain("|| true");
     expect(namespace).not.toContain("continue-on-error");
   });
 
-  it("backstops labeled stale verification namespaces from the scheduled preview sweep", () => {
-    expect(cleanup).toContain("Resolve stale verification namespaces");
-    expect(cleanup).toContain("ephemeral-verification-namespace.mjs");
+  it("backstops 24-hour verification namespaces independently from preview discovery", () => {
+    const discovery = job(cleanup, "discover-stale-verification");
+    const destroy = job(cleanup, "destroy-stale-verification");
+    expect(discovery).toContain('VERIFICATION_NAMESPACE_MAX_AGE_HOURS: "24"');
+    expect(discovery).toContain("ephemeral-verification-namespace.mjs");
+    for (const kubernetesJob of [discovery, destroy]) {
+      expect(kubernetesJob).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(kubernetesJob).toContain("token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    }
+    expect(destroy).toContain("needs: discover-stale-verification");
     const namespace = step(cleanup, "Delete stale verification Kubernetes namespace");
     expect(namespace).toContain("if: always()");
     expect(namespace).toContain("platform:kubernetes-deployment -- teardown");

@@ -50,7 +50,10 @@ jobs:
     # promoted-release handoff passes a manual proof and success soak. Manual
     # workflow_dispatch remains available for the proof; automatic runs require
     # the explicit PLATFORM_EPHEMERAL_VERIFICATION_ENABLED repo variable.
+    # Keep the job alive when a workflow cancellation is requested so the
+    # always() finalizers can remove any namespace this job created.
     if: >
+      always() &&
       needs.select-promoted-release.outputs.eligible == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' &&

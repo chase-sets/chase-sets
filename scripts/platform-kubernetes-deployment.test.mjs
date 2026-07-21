@@ -1354,17 +1354,17 @@ describe("platform Kubernetes deployment", () => {
     ).rejects.toThrow("Namespace chase-sets-pr-44 still exists after kubectl delete namespace completed");
   });
 
-  it("tears down an ephemeral verification namespace by its exact chase-sets-verify-<run>-<attempt> kind", async () => {
+  it("tears down any namespace inside the chase-sets-verify- prefix", async () => {
     const calls = [];
     const result = await teardownPlatformKubernetesNamespace({
-      release: "csv-29420884860-1",
-      namespace: "chase-sets-verify-29420884860-1",
+      release: "csv-manual-proof",
+      namespace: "chase-sets-verify-manual-proof",
       timeout: "5m",
       spawn: completedSpawn(calls, [
-        { code: 0, stdout: '{"name":"csv-29420884860-1"}' }, // helm status
+        { code: 0, stdout: '{"name":"csv-manual-proof"}' }, // helm status
         { code: 0 }, // helm uninstall
         { code: 0 }, // kubectl delete namespace
-        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-verify-29420884860-1" not found' }, // kubectl get namespace
+        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-verify-manual-proof" not found' }, // kubectl get namespace
       ]),
     });
 
@@ -1376,8 +1376,8 @@ describe("platform Kubernetes deployment", () => {
     ]);
     expect(result).toMatchObject({
       action: "teardown",
-      release: "csv-29420884860-1",
-      namespace: "chase-sets-verify-29420884860-1",
+      release: "csv-manual-proof",
+      namespace: "chase-sets-verify-manual-proof",
       result: "success",
       releaseUninstalled: true,
     });
@@ -1408,8 +1408,7 @@ describe("platform Kubernetes deployment", () => {
       "production",
       "kube-system",
       "chase-sets-verify-", // missing run/attempt
-      "chase-sets-verify-abc-1", // non-numeric run
-      "chase-sets-verify-1", // missing attempt
+      "other-chase-sets-verify-abc-1", // prefix appears away from the start
       "chase-sets-pr-", // missing number
       "chase-sets-pr-verify-1-1", // hybrid that matches neither exact kind
       "",
