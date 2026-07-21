@@ -1586,7 +1586,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     { from: "en", to: "ja" },
     { from: "ja", to: "en" },
   ]) {
-    test(`selects shared SV only from the refreshed ${from}-to-${to} child slice`, async ({ page }) => {
+    test(`selects shared SV from the slow-resolving refreshed ${from}-to-${to} child slice`, async ({ page }) => {
       await page.setContent('<div data-catalog-source-options-status="available">old slice</div>');
       const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
       await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
@@ -1621,6 +1621,27 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       await expect(page.locator("html")).toHaveAttribute("data-selected-slice-parent", to);
     });
   }
+
+  test("accepts a refreshed child slice that settles before the first loading poll", async ({ page }) => {
+    await page.setContent('<div data-catalog-source-options-status="available">Japanese slice</div>');
+    const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
+    await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.committedParent = "en";
+      document.body.innerHTML = `
+        <div data-catalog-source-options-status="available">English slice</div>
+        <fieldset aria-label="Source scope" data-slice-parent="en">
+          <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = 'en'"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+        </fieldset>
+      `;
+    });
+
+    await refreshedSlice;
+    await selectOption(page.getByRole("combobox", { name: "Series" }), { values: ["SV"] });
+
+    await expect(page.locator("html")).toHaveAttribute("data-selected-slice-parent", "en");
+  });
 
   test("does not select a repeated scalar from a delayed stale child slice after the parent route commits", async ({
     page,
@@ -2159,18 +2180,39 @@ async function clearUnverifiedGuidedScopeDescendants(
 
 async function sourceOptionSliceAfterParentCommit(page: Page): Promise<void> {
   // submitSourceScopeFilter stamps every parent change with force-refresh-all.
-  // The deferred status panel is therefore the product's refresh-generation
-  // marker: it switches to the loading fallback, then resolves from the exact
-  // GET route that contains the committed parent. Unlike an option value, that
-  // lifecycle cannot be shared by Japanese and English `SV` slices.
+  // The deferred status panel is therefore a refresh-generation marker. A slow
+  // response exposes its loading fallback; a warm response can settle before
+  // Playwright observes that transient frame. A warm response instead replaces
+  // the captured settled-panel node with a new settled node for the committed
+  // route. The prior parent's panel is that captured node, so it cannot satisfy
+  // the fast path even when both slices contain the same value.
+  const previousPanel = await page.locator("[data-catalog-source-options-status]").first().elementHandle();
+  if (!previousPanel) {
+    throw new Error("Expected the prior source-options status panel before committing a parent scope.");
+  }
   const loadingSlice = page.locator('[data-catalog-deferred-panel="loading"]').filter({
     hasText: "Loading source options",
   });
-  await expect(loadingSlice).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(loadingSlice).toBeHidden({ timeout: sourceOptionTimeoutMs });
-  await expect(page.locator("[data-catalog-source-options-status]").first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
+  let loadingObserved = false;
+  await expect
+    .poll(
+      async () => {
+        loadingObserved ||= await loadingSlice.isVisible().catch(() => false);
+        if (loadingObserved && !(await loadingSlice.isVisible().catch(() => false))) {
+          return true;
+        }
+
+        return previousPanel.evaluate((priorPanel) => {
+          if (priorPanel.isConnected) {
+            return false;
+          }
+
+          return document.querySelector("[data-catalog-source-options-status]") !== null;
+        });
+      },
+      { timeout: sourceOptionTimeoutMs },
+    )
+    .toBe(true);
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
