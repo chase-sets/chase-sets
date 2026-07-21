@@ -33,6 +33,7 @@ import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
+import { seedPromotedSourceObservationScenario } from "../../features/source-observations/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
@@ -182,14 +183,16 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_items")) {
-    console.log("Catalog scenario items already exist. Reconciling Product Contents scenario.");
+    console.log("Catalog scenario items already exist. Reconciling Product Contents and integration scenarios.");
     await seedProductContentScenario(services);
+    await seedPromotedSourceObservationScenario(services);
     return;
   }
 
   console.log("Seeding non-production Catalog scenario items...");
   await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
   await seedProductContentScenario(services);
+  await seedPromotedSourceObservationScenario(services);
 }
 
 async function seedRepresentativeProductContentsCatalogItems(
