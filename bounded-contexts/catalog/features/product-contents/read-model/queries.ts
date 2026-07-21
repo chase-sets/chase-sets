@@ -5,6 +5,7 @@ import type {
   ProductContentProvenance,
   ProductContentSelectedOption,
 } from "../api/runtime";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CatalogProductContentTypeRow = Readonly<{
   content_type_id: string;
@@ -77,9 +78,12 @@ type ResolvedProductContentDbRow = Readonly<{
 
 export async function listProductContentTypes(db: PgQueryable): Promise<CatalogProductContentTypeRow[]> {
   const result = await db.query<ProductContentTypeDbRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_product_content_types
      ORDER BY sort_order ASC, key ASC`,
+      "updated_at",
+    ),
   );
 
   return result.rows.map((row) => ({
@@ -93,9 +97,12 @@ export async function listProductContentInclusionPolicies(
   db: PgQueryable,
 ): Promise<CatalogProductContentInclusionPolicyRow[]> {
   const result = await db.query<ProductContentInclusionPolicyDbRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_product_content_inclusion_policies
      ORDER BY sort_order ASC, key ASC`,
+      "updated_at",
+    ),
   );
 
   return result.rows.map((row) => ({
@@ -109,10 +116,14 @@ export async function listProductContentsForContainer(
   containerCatalogItemId: string,
 ): Promise<CatalogResolvedProductContentRow[]> {
   const result = await db.query<ResolvedProductContentDbRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_resolved_product_contents
      WHERE container_catalog_item_id = $1
      ORDER BY content_type_id ASC, line_id ASC`,
+      "resolved_at",
+      "updated_at",
+    ),
     [containerCatalogItemId],
   );
 
@@ -124,10 +135,14 @@ export async function listProductContainersForContained(
   containedCatalogItemId: string,
 ): Promise<CatalogResolvedProductContentRow[]> {
   const result = await db.query<ResolvedProductContentDbRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_resolved_product_contents
      WHERE contained_catalog_item_id = $1
      ORDER BY content_type_id ASC, line_id ASC`,
+      "resolved_at",
+      "updated_at",
+    ),
     [containedCatalogItemId],
   );
 

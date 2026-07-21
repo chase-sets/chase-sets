@@ -69,6 +69,8 @@ describeDb("catalog attention queue PostgreSQL timestamp boundary", () => {
 
   it("returns 200 with string observedAt values from proposed mappings, aliases, and stale scopes", async () => {
     const db = pools!.catalog;
+    // Negative control: `timestamptz::text` would emit a Chicago offset here.
+    await db.query("SET TIME ZONE 'America/Chicago'");
     await db.query(`INSERT INTO catalog_provider_scope_mappings VALUES
       ('mapping-1', 'scope-1', 'tcgplayer', 'pokemon', NULL, NULL, 'sv1', 'Scarlet & Violet', '{}',
        'candidate', 'proposed', '{}', '{}', NULL, NULL, 'v1', '2026-06-01T00:00:00Z', NULL, '2026-06-01T00:00:00Z')`);
@@ -116,5 +118,13 @@ describeDb("catalog attention queue PostgreSQL timestamp boundary", () => {
       "alias-candidate:alias-1",
     ]);
     expect(body.items.every((item) => typeof item.observedAt === "string")).toBe(true);
+    expect(body.items.map((item) => item.observedAt)).toEqual([
+      "2026-06-01T00:00:00.000000Z",
+      "2026-06-03T00:00:00.000000Z",
+      "2026-06-02T00:00:00.000000Z",
+    ]);
+    expect(
+      body.items.every((item) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(String(item.observedAt))),
+    ).toBe(true);
   });
 });

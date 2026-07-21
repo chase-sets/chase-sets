@@ -6,6 +6,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type BlueprintRow = Readonly<{
   blueprint_id: string;
@@ -67,7 +68,13 @@ export async function listBlueprints(
   }
 
   const query = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC", extraConditions);
-  return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<BlueprintRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listBlueprintIds(db: PgQueryable, params: BlueprintListParams = {}): Promise<string[]> {
@@ -83,9 +90,10 @@ export async function listBlueprintBulkRows(
     return [];
   }
 
-  const result = await db.query<BlueprintRow>(`SELECT * FROM catalog_blueprints WHERE blueprint_id = ANY($1::text[])`, [
-    [...blueprintIds],
-  ]);
+  const result = await db.query<BlueprintRow>(
+    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")} FROM catalog_blueprints WHERE blueprint_id = ANY($1::text[])`,
+    [[...blueprintIds]],
+  );
 
   return result.rows.map((row) => ({
     id: row.blueprint_id,
@@ -96,7 +104,7 @@ export async function listBlueprintBulkRows(
 
 export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
   const result = await db.query<BlueprintDetailRow>(
-    `SELECT * FROM catalog_admin_blueprint_detail_pages WHERE blueprint_id = $1`,
+    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")} FROM catalog_admin_blueprint_detail_pages WHERE blueprint_id = $1`,
     [blueprintId],
   );
 

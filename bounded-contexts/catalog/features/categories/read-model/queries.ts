@@ -6,6 +6,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CategoryListRow = Readonly<{
   category_id: string;
@@ -56,7 +57,13 @@ export async function listCategories(
     extraValues,
   );
 
-  return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<CategoryListRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listCategoryIds(db: PgQueryable, params: CategoryListParams = {}): Promise<string[]> {
@@ -73,7 +80,10 @@ export async function listCategoryBulkRows(
   }
 
   const result = await db.query<CategoryListRow>(
-    `SELECT * FROM catalog_admin_category_list_pages WHERE category_id = ANY($1::text[])`,
+    catalogIsoUtcListSql(
+      `SELECT * FROM catalog_admin_category_list_pages WHERE category_id = ANY($1::text[])`,
+      "updated_at",
+    ),
     [[...categoryIds]],
   );
 
@@ -86,7 +96,7 @@ export async function listCategoryBulkRows(
 
 export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
   const result = await db.query<CategoryDetailRow>(
-    `SELECT * FROM catalog_admin_category_detail_pages WHERE category_id = $1`,
+    catalogIsoUtcListSql(`SELECT * FROM catalog_admin_category_detail_pages WHERE category_id = $1`, "updated_at"),
     [categoryId],
   );
 

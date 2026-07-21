@@ -7,6 +7,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type ReferenceTypeRow = Readonly<{
   reference_type_id: string;
@@ -69,7 +70,13 @@ export async function listReferenceTypes(
     extraValues,
   );
 
-  return executeListQuery<ReferenceTypeRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<ReferenceTypeRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listReferenceTypeIds(db: PgQueryable, params: ReferenceTypeListParams = {}): Promise<string[]> {
@@ -86,7 +93,10 @@ export async function listReferenceTypeBulkRows(
   }
 
   const result = await db.query<ReferenceTypeRow>(
-    `SELECT * FROM catalog_reference_types WHERE reference_type_id = ANY($1::text[])`,
+    catalogIsoUtcListSql(
+      `SELECT * FROM catalog_reference_types WHERE reference_type_id = ANY($1::text[])`,
+      "updated_at",
+    ),
     [[...referenceTypeIds]],
   );
 
@@ -99,7 +109,7 @@ export async function listReferenceTypeBulkRows(
 
 export async function getReferenceType(db: PgQueryable, referenceTypeId: string) {
   const result = await db.query<ReferenceTypeRow>(
-    `SELECT * FROM catalog_reference_types WHERE reference_type_id = $1`,
+    catalogIsoUtcListSql(`SELECT * FROM catalog_reference_types WHERE reference_type_id = $1`, "updated_at"),
     [referenceTypeId],
   );
 
@@ -148,7 +158,13 @@ export async function listReferenceRecords(
     extraValues,
   );
 
-  return executeListQuery<ReferenceRecordRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<ReferenceRecordRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listReferenceRecordIds(
@@ -168,7 +184,10 @@ export async function listReferenceRecordBulkRows(
   }
 
   const result = await db.query<ReferenceRecordRow>(
-    `SELECT * FROM catalog_reference_records WHERE reference_record_id = ANY($1::text[])`,
+    catalogIsoUtcListSql(
+      `SELECT * FROM catalog_reference_records WHERE reference_record_id = ANY($1::text[])`,
+      "updated_at",
+    ),
     [[...referenceRecordIds]],
   );
 
@@ -181,7 +200,7 @@ export async function listReferenceRecordBulkRows(
 
 export async function getReferenceRecord(db: PgQueryable, referenceRecordId: string) {
   const result = await db.query<ReferenceRecordRow>(
-    `SELECT * FROM catalog_reference_records WHERE reference_record_id = $1`,
+    catalogIsoUtcListSql(`SELECT * FROM catalog_reference_records WHERE reference_record_id = $1`, "updated_at"),
     [referenceRecordId],
   );
 

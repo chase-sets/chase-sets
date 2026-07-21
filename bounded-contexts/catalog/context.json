@@ -740,9 +740,11 @@
         "display-templates",
         "fields",
         "product-contents",
+        "product-measures",
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-state",
         "source-observations"
       ]
     },
