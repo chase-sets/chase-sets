@@ -26,6 +26,7 @@ import { validateReadAfterWriteRouteInventory } from "./read-after-write-invento
 import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
+import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -1328,6 +1329,10 @@ export async function runStructureCheck(options = {}) {
   warnings.length = 0;
   clientSurfaceConsumers.clear();
   supportFileConsumers.clear();
+
+  for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
+    addPathViolation(violation.testPath, violation.message);
+  }
 
   for (const diagnostic of await findWorkspaceDirectoryManifestViolations({ repoRoot })) {
     addPathViolation(diagnostic.path, diagnostic.message);
