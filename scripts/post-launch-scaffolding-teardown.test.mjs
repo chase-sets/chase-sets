@@ -1,6 +1,16 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,27 +32,51 @@ function extensionOf(file) {
   return match?.[0] ?? "";
 }
 
-function collectTextFiles(root) {
+function vanishedPath(error) {
+  return error?.code === "ENOENT" || error?.code === "ENOTDIR";
+}
+
+function collectTextFiles(root, { readDirectory = readdirSync, stat = statSync } = {}) {
   if (!existsSync(root)) {
     return [];
   }
 
-  return readdirSync(root)
-    .flatMap((entry) => {
-      const absolute = join(root, entry);
-      const stats = statSync(absolute);
+  let entries;
+  try {
+    entries = readDirectory(root);
+  } catch (error) {
+    if (vanishedPath(error)) {
+      return [];
+    }
+    throw error;
+  }
 
-      if (stats.isDirectory()) {
-        if (skippedDirectories.has(entry)) {
-          return [];
-        }
-
-        return collectTextFiles(absolute);
+  const files = [];
+  for (const entry of entries) {
+    const absolute = join(root, entry);
+    let stats;
+    try {
+      stats = stat(absolute);
+    } catch (error) {
+      if (vanishedPath(error)) {
+        continue;
       }
+      throw error;
+    }
 
-      return textExtensions.has(extensionOf(entry)) ? [absolute] : [];
-    })
-    .sort();
+    if (stats.isDirectory()) {
+      if (!skippedDirectories.has(entry)) {
+        files.push(...collectTextFiles(absolute, { readDirectory, stat }));
+      }
+      continue;
+    }
+
+    if (textExtensions.has(extensionOf(entry))) {
+      files.push(absolute);
+    }
+  }
+
+  return files.sort();
 }
 
 function readText(file) {
@@ -66,6 +100,29 @@ function assertNoPatterns(files, patterns) {
 }
 
 describe("post-launch scaffolding teardown", () => {
+  it("skips an entry deleted after its directory is read", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "post-launch-scaffolding-teardown-"));
+    const vanishingDirectory = join(fixtureRoot, "vanishing");
+    mkdirSync(vanishingDirectory);
+    writeFileSync(join(vanishingDirectory, "proof.ts"), "export const proof = true;");
+
+    try {
+      const files = collectTextFiles(fixtureRoot, {
+        readDirectory(directory) {
+          const entries = readdirSync(directory);
+          if (directory === fixtureRoot) {
+            rmSync(vanishingDirectory, { recursive: true, force: true });
+          }
+          return entries;
+        },
+      });
+
+      expect(files).toEqual([]);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps launch-only proof scripts and workflows removed", () => {
     const removedPaths = [
       ".github/workflows/marketplace-launch-readiness-audit.yml",
