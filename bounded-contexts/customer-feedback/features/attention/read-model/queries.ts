@@ -14,10 +14,10 @@ export async function listFeedbackAttention(
 ): Promise<readonly FeedbackAttentionItem[]> {
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
   const values: unknown[] = [filters.now ?? new Date().toISOString()];
-  const ownerClause = filters.ownerId === undefined ? "" : 'AND "ownerId" = $2';
+  const ownerClause = filters.ownerId === undefined ? "" : 'AND attention_queue."ownerId" = $2';
   if (filters.ownerId !== undefined) values.push(filters.ownerId);
   const overdueClause = filters.overdueOnly
-    ? 'AND (("triagedAt" IS NULL AND "triageDueAt" < $1) OR ("dueAt" IS NOT NULL AND "dueAt" < $1))'
+    ? 'AND ((attention_queue."triagedAt" IS NULL AND attention_queue."triageDueAt" < $1) OR (attention_queue."dueAt" IS NOT NULL AND attention_queue."dueAt" < $1))'
     : "";
   values.push(limit);
   const result = await db.query<FeedbackAttentionItem>(
@@ -60,8 +60,8 @@ export async function listFeedbackAttention(
      WHERE attention_queue.state = 'active'
        ${overdueClause}
        ${ownerClause}
-     ORDER BY CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC,
-              COALESCE("dueAt", "triageDueAt"), "attentionId"
+     ORDER BY CASE attention_queue.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC,
+              COALESCE(attention_queue."dueAt", attention_queue."triageDueAt"), attention_queue."attentionId"
      LIMIT $${values.length}`,
     values,
   );
