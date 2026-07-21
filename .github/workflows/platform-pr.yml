@@ -307,6 +307,13 @@ jobs:
     timeout-minutes: 25
     needs: change-scope
     if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.docker_image == 'true'
+    outputs:
+      # Immutable digest of the boot-smoked merge-group image THIS run pushed.
+      # The advisory merge-qualification gate consumes the digest directly so
+      # no later mutation of the tree-<tree> tag can substitute a different
+      # image after this build.
+      image_digest: ${{ steps.push.outputs.image_digest }}
+      image_pushed: ${{ steps.push.outputs.image_pushed }}
     env:
       DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
@@ -386,6 +393,7 @@ jobs:
           boot_smoke public-web "@chase-sets/app-public-web" / 18081
 
       - name: Push boot-smoked merge-group image
+        id: push
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN != ''
         env:
           PLATFORM_IMAGE: chase-sets-platform:pr-validation
@@ -403,6 +411,14 @@ jobs:
           docker tag "$PLATFORM_IMAGE" "$image"
           docker push "$image"
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "Pushed image did not resolve to an immutable sha256 digest (got '${digest}')." >&2
+            exit 1
+          fi
+          {
+            echo "image_digest=${digest}"
+            echo "image_pushed=true"
+          } >> "$GITHUB_OUTPUT"
           echo "Pushed boot-smoked merge-group image ${image}@${digest}"
 
       - name: Report skipped merge-group image push
@@ -1761,12 +1777,20 @@ jobs:
           retention-days: 30
 
   # Isolated candidates reuse the cancellation-safe merge-gate workflow
-  # (issue #5869) against the exact tree image this run's Docker Image Build
-  # job already pushed: the gate independently resolves the candidate tree
-  # tag to an immutable digest and fails before smoke on a missing image or
-  # digest substitution, and its durable release-qualification/v1 record uses
-  # those same resolved inputs. merge-gate environment secrets resolve inside
-  # the called workflow's jobs; this caller inherits nothing.
+  # (issue #5869) against the EXACT immutable digest this run's Docker Image
+  # Build job pushed: the caller threads the built digest straight through,
+  # the gate refuses to deploy any other digest, and the publisher compares
+  # candidate SHA, tree SHA, and digest end to end before a passed record can
+  # exist — a retagged tree-<tree> reference can never substitute a different
+  # image after the build. merge-gate environment secrets resolve inside the
+  # called workflow's jobs; this caller inherits nothing.
+  #
+  # Reusable-call jobs cannot use continue-on-error, so once the policy is
+  # enabled a failing gate marks the merge-group workflow RUN conclusion
+  # failed (red) — while remaining non-required: PR Required has no advisory
+  # dependency and the merge queue enforces only configured required checks.
+  # The #5881 soak observes and rules on that red-run posture before any
+  # required-gate adoption.
   merge-qualification-gate:
     name: Merge Qualification Gate
     needs: [merge-qualification-plan, docker-image]
@@ -1776,28 +1800,44 @@ jobs:
       needs['merge-qualification-plan'].result == 'success' &&
       needs['merge-qualification-plan'].outputs.enabled == 'true' &&
       needs['merge-qualification-plan'].outputs.route == 'isolated' &&
-      needs['docker-image'].result == 'success'
+      needs['docker-image'].result == 'success' &&
+      needs['docker-image'].outputs.image_pushed == 'true'
     uses: ./.github/workflows/platform-merge-gate-verification.yml
     with:
       candidate_ref: ${{ github.event.merge_group.head_sha }}
+      image_digest: ${{ needs['docker-image'].outputs.image_digest }}
 
   # Publishes the single terminal advisory result for this candidate:
   # passed, failed, not_applicable, persistent_required, cancelled_evicted,
-  # or infrastructure_error — exactly one, never silent. Re-evaluates the
-  # checked-in policy itself so a crashed plan job still fails closed. The
-  # emitted merge-qualification-event/v1 record feeds the canonical #5502
+  # or infrastructure_error — exactly one, never silent. The emitted
+  # merge-qualification-event/v1 record feeds the canonical #5502
   # delivery-health readers; no step here threads any provider credential.
+  #
+  # Disabled contract (ratified for #5839): on a DEFINITIVE disabled decision
+  # from the plan job this publisher is skipped entirely, so a disabled
+  # policy asserts no green "Merge Qualification (advisory)" check — the
+  # disabled note lives in the plan job's summary. The publisher still runs
+  # when the plan crashed or was cancelled (outputs unavailable): it
+  # re-evaluates the checked-in policy itself and fails closed. Cancellation
+  # that prevents this job from ever executing (including force cancellation,
+  # which bypasses always()) is terminalized exactly once by the independent
+  # platform-merge-qualification-terminalizer.yml workflow_run observer.
   merge-qualification-advisory:
     name: Merge Qualification (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     continue-on-error: true
     needs: [merge-qualification-plan, merge-qualification-gate, docker-image]
-    if: always() && github.event_name == 'merge_group'
+    if: >
+      always() &&
+      github.event_name == 'merge_group' &&
+      (needs['merge-qualification-plan'].result != 'success' ||
+       needs['merge-qualification-plan'].outputs.enabled == 'true')
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Publish terminal advisory result
+        id: publish
         env:
           PLAN_RESULT: ${{ needs['merge-qualification-plan'].result }}
           CLASSIFIER_CLASS: ${{ needs['merge-qualification-plan'].outputs.classifier_class }}
@@ -1807,7 +1847,12 @@ jobs:
           STARTED_AT: ${{ needs['merge-qualification-plan'].outputs.started_at }}
           GATE_RESULT: ${{ needs['merge-qualification-gate'].result }}
           GATE_IMAGE_DIGEST: ${{ needs['merge-qualification-gate'].outputs.image_digest }}
-          IMAGE_AVAILABLE: ${{ needs['docker-image'].result == 'success' }}
+          GATE_CANDIDATE_SHA: ${{ needs['merge-qualification-gate'].outputs.candidate_sha }}
+          GATE_CANDIDATE_TREE: ${{ needs['merge-qualification-gate'].outputs.candidate_tree_sha }}
+          GATE_HEADROOM_RUNS: ${{ needs['merge-qualification-gate'].outputs.headroom_runs }}
+          IMAGE_RESULT: ${{ needs['docker-image'].result }}
+          IMAGE_AVAILABLE: ${{ needs['docker-image'].outputs.image_pushed == 'true' }}
+          BUILT_IMAGE_DIGEST: ${{ needs['docker-image'].outputs.image_digest }}
         run: |
           set -euo pipefail
           candidate_sha="${CANDIDATE_SHA:-$(git rev-parse HEAD)}"
@@ -1818,20 +1863,25 @@ jobs:
             --classifier-class "$CLASSIFIER_CLASS" \
             --classifier-reason-codes "$CLASSIFIER_REASON_CODES" \
             --gate-result "$GATE_RESULT" \
+            --image-result "$IMAGE_RESULT" \
             --image-available "$IMAGE_AVAILABLE" \
             --candidate-sha "$candidate_sha" \
             --candidate-tree "$candidate_tree" \
-            --image-digest "$GATE_IMAGE_DIGEST" \
+            --built-image-digest "$BUILT_IMAGE_DIGEST" \
+            --gate-image-digest "$GATE_IMAGE_DIGEST" \
+            --gate-candidate-sha "$GATE_CANDIDATE_SHA" \
+            --gate-candidate-tree "$GATE_CANDIDATE_TREE" \
+            --provider-headroom-runs "$GATE_HEADROOM_RUNS" \
             --started-at "$STARTED_AT" \
             --out artifacts/merge-qualification/event.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload merge qualification advisory events
-        if: needs['merge-qualification-plan'].outputs.enabled == 'true'
+        if: steps.publish.outputs.record_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: merge-qualification-events-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/merge-qualification
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30

@@ -4,8 +4,14 @@ import { basename, dirname } from "node:path";
 import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
-import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
-import { summarizeMergeQualification } from "./merge-qualification-advisory.mjs";
+import { isCommitSha, normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import {
+  MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION,
+  dedupeMergeQualificationEvents,
+  isUsableStagingRelease,
+  joinMergeQualificationToStaging,
+  summarizeMergeQualification,
+} from "./merge-qualification-advisory.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 
 export const DELIVERY_HEALTH_VERSION = "delivery-health/v1";
@@ -90,7 +96,7 @@ export async function collectDeliveryHealth(options, dependencies = {}) {
   return result;
 }
 
-async function collectSourceData({ options, policy, client, queryStart }) {
+export async function collectSourceData({ options, policy, client, queryStart }) {
   const workflows = policy.collection.workflowSources;
   const sourceFailures = [];
   const safely = async (source, collect) => {
@@ -101,38 +107,54 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       return [];
     }
   };
-  const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
-    safely("pull-requests", () =>
-      fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
-    ),
-    safely("platform-pr-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
-    ),
-    safely("release-dispatch-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.releaseDispatch,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
+  const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues, terminalizerRuns] =
+    await Promise.all([
+      safely("pull-requests", () =>
+        fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
       ),
-    ),
-    safely("platform-deploy-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
-    ),
-    safely("ephemeral-verification-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.ephemeralVerification,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
+      safely("platform-pr-runs", () =>
+        fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
       ),
-    ),
-    safely("delivery-failure-signatures", () =>
-      fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
-    ),
-  ]);
+      safely("release-dispatch-runs", () =>
+        fetchWorkflowRuns(
+          client,
+          workflows.releaseDispatch,
+          queryStart,
+          policy.collection.maxPages,
+          policy.windows.lastN,
+        ),
+      ),
+      safely("platform-deploy-runs", () =>
+        fetchWorkflowRuns(
+          client,
+          workflows.platformDeploy,
+          queryStart,
+          policy.collection.maxPages,
+          policy.windows.lastN,
+        ),
+      ),
+      safely("ephemeral-verification-runs", () =>
+        fetchWorkflowRuns(
+          client,
+          workflows.ephemeralVerification,
+          queryStart,
+          policy.collection.maxPages,
+          policy.windows.lastN,
+        ),
+      ),
+      safely("delivery-failure-signatures", () =>
+        fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
+      ),
+      safely("merge-qualification-terminalizer-runs", () =>
+        fetchWorkflowRuns(
+          client,
+          workflows.mergeQualificationTerminalizer,
+          queryStart,
+          policy.collection.maxPages,
+          policy.windows.lastN,
+        ),
+      ),
+    ]);
 
   await mapConcurrent(
     pulls.filter((pull) => pull.filesTruncated || pull.reviewsTruncated),
@@ -180,6 +202,69 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     }
   });
 
+  // Advisory merge-group qualification evidence: terminal events are
+  // uploaded by the Platform PR publisher (merge-qualification-events-*) and
+  // by the independent terminalizer observer (merge-qualification-terminal-*).
+  // Every collection failure is recorded and degrades completeness — a
+  // candidate must never silently vanish from the denominators.
+  const mergeGroupRuns = platformPrRuns.filter((run) => run.event === "merge_group");
+  const qualificationEvents = [];
+  const qualificationFailures = [];
+  await mapConcurrent([...mergeGroupRuns, ...terminalizerRuns], policy.collection.concurrency, async (run) => {
+    try {
+      qualificationEvents.push(...(await fetchMergeQualificationEvents(client, run.id)));
+    } catch (error) {
+      qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
+    }
+  });
+
+  // Candidate inventory: every merge-group run head SHA in the window. A
+  // candidate with no terminal event (run-level eviction before publisher
+  // AND terminalizer evidence) surfaces as an orphan in the summary.
+  const qualificationCandidates = [
+    ...new Set(mergeGroupRuns.map((run) => String(run.head_sha ?? "").toLowerCase()).filter((sha) => isCommitSha(sha))),
+  ];
+
+  // Persistent-staging releases for the comparison join, built from the same
+  // release-health artifacts the release metrics consume. The release tree
+  // SHA is resolved from the commit object itself (the join is tree-keyed);
+  // a failed resolution excludes the release and degrades completeness.
+  const stagingReleases = [];
+  for (const run of actualRuns) {
+    const records = releaseRecordsByRun.get(String(run.id)) ?? [];
+    const health = records.find((record) => record.schemaVersion === "release-health/v1");
+    if (!health || !isCommitSha(health.releaseCommit)) continue;
+    if (!health.staging?.result || health.staging.result === "skipped") continue;
+    const rootCause = records.find((record) => record.schemaVersion === "platform-deploy-root-cause/v1");
+    let treeSha = null;
+    try {
+      const commit = await client.json(`/git/commits/${health.releaseCommit}`);
+      treeSha = commit?.tree?.sha ?? null;
+    } catch (error) {
+      qualificationFailures.push({
+        source: `release-tree:${health.releaseCommit}`,
+        error: boundedError(error),
+      });
+      continue;
+    }
+    const release = {
+      mainSha: health.releaseCommit.toLowerCase(),
+      treeSha: typeof treeSha === "string" ? treeSha.toLowerCase() : null,
+      imageDigest:
+        (health.releaseState?.transitions ?? []).map((transition) => transition?.imageDigest).find(Boolean) ?? null,
+      completedAt: health.staging?.completedAt ?? runTimestamp(run),
+      staging: {
+        result: health.staging?.result ?? null,
+        rootCauseCode: rootCause?.rootCauseCode ?? null,
+      },
+    };
+    if (isUsableStagingRelease(release)) {
+      stagingReleases.push(release);
+    } else {
+      qualificationFailures.push({ source: `release-identity:${run.id}`, error: "unusable staging release identity" });
+    }
+  }
+
   return {
     pulls,
     platformPrRuns: platformPrRuns.map((run) => ({ ...run, jobs: jobsByRun.get(String(run.id)) ?? [] })),
@@ -193,8 +278,43 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     circuits: circuitIssues.map((issue) => normalizeCircuitIssue(issue)).filter(Boolean),
     artifactFailures,
     sourceFailures,
+    mergeQualification: {
+      events: qualificationEvents,
+      candidates: qualificationCandidates,
+      releases: stagingReleases,
+      failures: qualificationFailures,
+    },
     apiStatus: client.status(),
   };
+}
+
+// Downloads and parses every merge-qualification event artifact a run
+// uploaded. Only entries named event.json with the exact event schema count;
+// anything else in a matching artifact is a validation failure.
+async function fetchMergeQualificationEvents(client, runId) {
+  const artifacts = await client.paginate(
+    `/actions/runs/${runId}/artifacts?per_page=100`,
+    (payload) => payload?.artifacts,
+    { source: `merge-qualification-artifacts:${runId}`, maxPages: 2 },
+  );
+  const selected = artifacts.filter((artifact) =>
+    /^merge-qualification-(?:events|terminal)-/.test(artifact.name ?? ""),
+  );
+  const events = [];
+  for (const artifact of selected) {
+    const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 10 * 1024 * 1024) throw new Error(`Merge-qualification artifact ${artifact.id} exceeds 10 MiB.`);
+    for (const [name, contents] of unzipJsonEntries(bytes)) {
+      if (basename(name) !== "event.json") continue;
+      const parsed = JSON.parse(contents.toString("utf8"));
+      if (parsed?.schemaVersion !== MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION) {
+        throw new Error(`Merge-qualification artifact ${artifact.id} carries an unsupported event schema.`);
+      }
+      events.push(parsed);
+    }
+  }
+  return events;
 }
 
 export function buildDeliveryHealth(input) {
@@ -205,7 +325,27 @@ export function buildDeliveryHealth(input) {
   const summaries = Object.fromEntries(
     Object.entries(windows).map(([name, window]) => [name, summarizeWindow(normalized, window, input.policy)]),
   );
-  const completeness = buildCompleteness(normalized, input.apiStatus);
+  // Advisory merge-group qualification stage events feed the same canonical
+  // record instead of a parallel dashboard: the collector supplies raw
+  // events, the candidate inventory, and staging release identities; the
+  // tree/digest/time-safe join executes here unless a fixture injected
+  // pre-built comparisons. With the enablement policy disabled the source is
+  // empty and the summary reports zeros.
+  const mergeQualificationSource = normalized.mergeQualification;
+  const mergeQualificationComparisons =
+    mergeQualificationSource.comparisons ??
+    joinMergeQualificationToStaging({
+      // Only the authoritative (validated, deduplicated) event per candidate
+      // may join; superseded attempts and malformed evidence never do.
+      events: dedupeMergeQualificationEvents(mergeQualificationSource.events).authoritative,
+      releases: mergeQualificationSource.releases,
+    });
+  const mergeQualification = summarizeMergeQualification({
+    events: mergeQualificationSource.events,
+    comparisons: mergeQualificationComparisons,
+    candidates: mergeQualificationSource.candidates,
+  });
+  const completeness = buildCompleteness(normalized, input.apiStatus, mergeQualification);
   const record = {
     schemaVersion: DELIVERY_HEALTH_VERSION,
     generatedAt,
@@ -230,10 +370,7 @@ export function buildDeliveryHealth(input) {
   };
   record.baselineComparison = buildBaselineComparison(record, input.policy.baseline);
   record.rolloutComparisons = buildRolloutComparisons(normalized, windows.rolling7d.start, generatedAt, input.policy);
-  // Advisory merge-group qualification stage events feed the same canonical
-  // record instead of a parallel dashboard. With the enablement policy
-  // disabled the source is empty and the summary reports zeros.
-  record.mergeQualification = summarizeMergeQualification(normalized.mergeQualification);
+  record.mergeQualification = mergeQualification;
   record.slis = evaluateSlis(record, input.policy);
   return { record, markdown: renderDeliveryHealthMarkdown(record) };
 }
@@ -305,8 +442,12 @@ function normalizeSource(source = {}) {
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
     mergeQualification: {
       events: Array.isArray(source.mergeQualification?.events) ? source.mergeQualification.events : [],
-      comparisons: Array.isArray(source.mergeQualification?.comparisons) ? source.mergeQualification.comparisons : [],
+      // Comparisons may be injected by fixtures; production collection leaves
+      // them null and the builder executes the staging join itself.
+      comparisons: Array.isArray(source.mergeQualification?.comparisons) ? source.mergeQualification.comparisons : null,
       candidates: Array.isArray(source.mergeQualification?.candidates) ? source.mergeQualification.candidates : null,
+      releases: Array.isArray(source.mergeQualification?.releases) ? source.mergeQualification.releases : [],
+      failures: Array.isArray(source.mergeQualification?.failures) ? source.mergeQualification.failures : [],
     },
   };
 }
@@ -645,7 +786,7 @@ export function evaluateSlis(record, policy) {
   return evaluations;
 }
 
-function buildCompleteness(source, apiStatus = {}) {
+function buildCompleteness(source, apiStatus = {}, mergeQualification = null) {
   const truncated = Array.isArray(apiStatus.truncated) ? apiStatus.truncated : [];
   const errors = Array.isArray(apiStatus.errors) ? apiStatus.errors : [];
   const missingReleaseArtifacts = source.deployRuns
@@ -658,6 +799,7 @@ function buildCompleteness(source, apiStatus = {}) {
     )
     .filter((run) => (run.releaseArtifacts ?? []).every((record) => record.schemaVersion !== "release-health/v1"))
     .map((run) => run.id);
+  const mergeQualificationEvidence = mergeQualification?.evidence;
   const reasons = [
     ...truncated.map((entry) => `truncated:${entry}`),
     ...errors.map((entry) => `api:${boundedError(entry)}`),
@@ -665,6 +807,19 @@ function buildCompleteness(source, apiStatus = {}) {
     ...source.sourceFailures.map((entry) => `source:${entry.source}`),
     ...missingReleaseArtifacts.map((runId) => `missing-release-health:${runId}`),
     ...(source.pulls.some((pull) => pull.nestedDataTruncated) ? ["truncated:pull-request-nested-data"] : []),
+    // Merge-qualification evidence hygiene: collection failures and invalid,
+    // conflicting, or unusable records degrade the whole canonical record so
+    // alerting and soak review never trust a partial advisory picture.
+    ...source.mergeQualification.failures.map((entry) => `merge-qualification:${entry.source}`),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.invalidEventCount > 0
+      ? [`merge-qualification:invalid-events:${mergeQualificationEvidence.invalidEventCount}`]
+      : []),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.conflictCount > 0
+      ? [`merge-qualification:conflicting-candidates:${mergeQualificationEvidence.conflictCount}`]
+      : []),
+    ...(mergeQualificationEvidence && mergeQualificationEvidence.invalidComparisonCount > 0
+      ? [`merge-qualification:invalid-comparisons:${mergeQualificationEvidence.invalidComparisonCount}`]
+      : []),
   ];
   return {
     status: reasons.length === 0 ? "complete" : "partial",
@@ -715,16 +870,21 @@ export function renderDeliveryHealthMarkdown(record) {
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
   );
   const mergeQualification = record.mergeQualification;
-  if (mergeQualification && mergeQualification.sampleCount > 0) {
+  if (mergeQualification && (mergeQualification.sampleCount > 0 || mergeQualification.evidence.eventCount > 0)) {
     lines.push(
       "",
       "### Merge qualification (advisory)",
       "",
       `- Terminal results: ${mergeQualification.counts.success} passed; ${mergeQualification.counts.applicationFailure} failed; ${mergeQualification.counts.cancellation} cancelled/evicted; ${mergeQualification.counts.infrastructure} infrastructure; ${mergeQualification.counts.notApplicable} not applicable; ${mergeQualification.counts.persistentRequired} persistent required.`,
       `- Qualification duration p50/p90/p95: ${formatSeconds(mergeQualification.durationSeconds.p50)} / ${formatSeconds(mergeQualification.durationSeconds.p90)} / ${formatSeconds(mergeQualification.durationSeconds.p95)}.`,
-      `- Staging comparison: ${mergeQualification.stagingCatchCount} staging catches; ${mergeQualification.classifierRoutingCount} classifier-routing signals; ${mergeQualification.supersededCount} superseded; ${mergeQualification.orphanCount} orphans.`,
+      `- Staging comparison: ${mergeQualification.stagingCatchCount} staging catches; ${mergeQualification.classifierRoutingCount} classifier-routing signals; ${mergeQualification.supersededCount} superseded; ${mergeQualification.identityMismatchCount} identity mismatches; ${mergeQualification.temporalOrphanCount} pre-qualification-only releases; ${mergeQualification.orphanCount} orphans.`,
       `- Provider headroom: min ${mergeQualification.providerHeadroom.minHeadroomRuns ?? "n/a"} / latest ${mergeQualification.providerHeadroom.latestHeadroomRuns ?? "n/a"} concurrent gate runs (${mergeQualification.providerHeadroom.sampleCount} samples).`,
     );
+    if (!mergeQualification.evidence.complete) {
+      lines.push(
+        `- Evidence hygiene: ${mergeQualification.evidence.invalidEventCount} invalid events; ${mergeQualification.evidence.conflictCount} conflicting candidates; ${mergeQualification.evidence.invalidComparisonCount} invalid comparisons (excluded from every denominator above).`,
+      );
+    }
   }
   lines.push(
     "",

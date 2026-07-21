@@ -14,7 +14,8 @@
       "platformPr": "platform-pr.yml",
       "releaseDispatch": "platform-release-candidate.yml",
       "platformDeploy": "platform-production.yml",
-      "ephemeralVerification": "platform-ephemeral-verification.yml"
+      "ephemeralVerification": "platform-ephemeral-verification.yml",
+      "mergeQualificationTerminalizer": "platform-merge-qualification-terminalizer.yml"
     }
   },
   "baseline": {

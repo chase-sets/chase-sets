@@ -243,6 +243,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-ephemeral-verification.yml": "release",
     "platform-merge-gate-verification.yml": "release",
     "platform-merge-group-failure-signatures.yml": "ci",
+    "platform-merge-qualification-terminalizer.yml": "release",
     "platform-merge-queue-posture.yml": "ci",
     "platform-observability-state-migration.yml": "release",
     "platform-postgres-growth-evidence.yml": "ci",

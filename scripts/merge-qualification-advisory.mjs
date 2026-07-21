@@ -94,6 +94,20 @@ export const APPLICATION_ROOT_CAUSE_CODES = Object.freeze([
 const REPOSITORY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const REASON_CODE_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+// Recursively closed ceiling schema: exactly these two ratified fields.
+const KNOWN_CEILING_FIELDS = new Set(["dollarCeilingUsd", "maxQualificationsPerDay"]);
+// Timezone-bearing ISO-8601 instants only. Permissive Date.parse accepts
+// date-only values and zone-less local datetimes; both are ambiguous for an
+// enablement window, so the offset (Z or ±hh:mm) is mandatory.
+const TIMEZONE_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function parseTimezoneInstantMs(value) {
+  if (typeof value !== "string" || !TIMEZONE_INSTANT_PATTERN.test(value)) {
+    return null;
+  }
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
 
 // ---------------------------------------------------------------------------
 // Enablement policy — fail-closed validation.
@@ -143,32 +157,46 @@ export function evaluateMergeQualificationPolicy(content, { now = () => new Date
   }
 
   // enabled === true: owner, ceiling, enabledAt, and expiresAt become
-  // mandatory, and the expiry clock is anchored at enablement.
+  // mandatory, and the expiry clock is anchored at enablement. The window
+  // contract is explicit: enabledAt < expiresAt <= enabledAt + 30 days.
   const errors = [];
   if (typeof policy.owner !== "string" || !policy.owner.trim()) {
     errors.push("an enabled policy must name a non-empty owner.");
   }
-  if (
-    typeof policy.ceiling !== "object" ||
-    policy.ceiling === null ||
-    !(Number.isFinite(policy.ceiling.dollarCeilingUsd) && policy.ceiling.dollarCeilingUsd > 0) ||
-    !(Number.isInteger(policy.ceiling.maxQualificationsPerDay) && policy.ceiling.maxQualificationsPerDay > 0)
-  ) {
+  if (typeof policy.ceiling !== "object" || policy.ceiling === null || Array.isArray(policy.ceiling)) {
+    errors.push("an enabled policy must declare a ceiling object.");
+  } else {
+    const unknownCeilingFields = Object.keys(policy.ceiling).filter((field) => !KNOWN_CEILING_FIELDS.has(field));
+    if (unknownCeilingFields.length > 0) {
+      errors.push(
+        `unknown ceiling fields ${unknownCeilingFields.join(", ")} are not part of ${MERGE_QUALIFICATION_POLICY_SCHEMA_VERSION}; failing closed to disabled.`,
+      );
+    }
+    if (!(Number.isFinite(policy.ceiling.dollarCeilingUsd) && policy.ceiling.dollarCeilingUsd > 0)) {
+      errors.push("an enabled policy must declare ceiling.dollarCeilingUsd > 0.");
+    }
+    if (!(Number.isInteger(policy.ceiling.maxQualificationsPerDay) && policy.ceiling.maxQualificationsPerDay > 0)) {
+      errors.push("an enabled policy must declare integer ceiling.maxQualificationsPerDay > 0.");
+    }
+  }
+  const enabledAtMs = parseTimezoneInstantMs(policy.enabledAt);
+  const expiresAtMs = parseTimezoneInstantMs(policy.expiresAt);
+  const nowMs = now().getTime();
+  if (enabledAtMs === null) {
     errors.push(
-      "an enabled policy must declare ceiling.dollarCeilingUsd > 0 and integer ceiling.maxQualificationsPerDay > 0.",
+      "an enabled policy must record enabledAt as an ISO-8601 instant with an explicit timezone offset (date-only or zone-less values fail closed).",
     );
   }
-  const enabledAtMs = Date.parse(policy.enabledAt ?? "");
-  const expiresAtMs = Date.parse(policy.expiresAt ?? "");
-  const nowMs = now().getTime();
-  if (!Number.isFinite(enabledAtMs)) {
-    errors.push("an enabled policy must record enabledAt as an ISO-8601 instant.");
+  if (expiresAtMs === null) {
+    errors.push(
+      "an enabled policy must record expiresAt as an ISO-8601 instant with an explicit timezone offset (date-only or zone-less values fail closed).",
+    );
   }
-  if (!Number.isFinite(expiresAtMs)) {
-    errors.push("an enabled policy must record expiresAt as an ISO-8601 instant.");
-  }
-  if (Number.isFinite(enabledAtMs) && enabledAtMs > nowMs) {
+  if (enabledAtMs !== null && enabledAtMs > nowMs) {
     errors.push("policy enabledAt is in the future; failing closed to disabled.");
+  }
+  if (enabledAtMs !== null && expiresAtMs !== null && !(enabledAtMs < expiresAtMs)) {
+    errors.push("policy expiresAt must be strictly after enabledAt; failing closed to disabled.");
   }
   if (errors.length > 0) {
     return disabledDecision("policy_malformed", errors);
@@ -252,6 +280,11 @@ export function resolveMergeQualificationOutcome(input = {}) {
     summary: null,
   });
 
+  if (input.planResult === "cancelled") {
+    // Whole-run cancellation/eviction reaches the plan job too: report it as
+    // cancellation, never as an infrastructure failure.
+    return terminal("cancelled_evicted", ["plan_cancelled"]);
+  }
   if (input.planResult !== "success") {
     return terminal("infrastructure_error", ["plan_failed"]);
   }
@@ -276,7 +309,7 @@ export function resolveMergeQualificationOutcome(input = {}) {
     return terminal("infrastructure_error", ["classifier_class_unknown"]);
   }
 
-  // isolated: the gate had to run against the already-published tree image.
+  // isolated: the gate had to run against the exact digest this run built.
   const gateResult = input.gateResult ?? "";
   if (gateResult === "cancelled") {
     // Queue cancellation/eviction is reported separately from qualification
@@ -284,10 +317,22 @@ export function resolveMergeQualificationOutcome(input = {}) {
     return terminal("cancelled_evicted", ["gate_cancelled"]);
   }
   if (gateResult === "success") {
+    const identityErrors = gateIdentityErrors(input);
+    if (identityErrors.length > 0) {
+      // A successful gate that qualified a different SHA, tree, or digest —
+      // or one that cannot prove an immutable digest at all — must never
+      // become a passed record.
+      return terminal("infrastructure_error", identityErrors);
+    }
     return terminal("passed", ["gate_passed"]);
   }
   if (gateResult === "failure") {
     return terminal("failed", ["gate_failed"]);
+  }
+  if (input.imageResult === "cancelled") {
+    // The Docker image job was cancelled mid-run, so the gate never started:
+    // this is queue cancellation/eviction, not an infrastructure failure.
+    return terminal("cancelled_evicted", ["image_cancelled"]);
   }
   if (input.imageAvailable !== true) {
     // Platform PR never pushed (or never built) the candidate tree image, so
@@ -295,6 +340,124 @@ export function resolveMergeQualificationOutcome(input = {}) {
     return terminal("infrastructure_error", ["candidate_image_unavailable"]);
   }
   return terminal("infrastructure_error", ["gate_not_invoked"]);
+}
+
+// End-to-end identity comparison for a successful gate. The gate must report
+// a valid immutable digest (a passed result may never rest on a mutable
+// tree-tag resolution), that digest must equal the one this run's Docker job
+// pushed when the caller supplies it, and the gate's resolved candidate SHA
+// and tree must echo the plan's when supplied.
+function gateIdentityErrors(input) {
+  const errors = [];
+  const gateDigest = lowerTrim(input.gateImageDigest);
+  const builtDigest = lowerTrim(input.builtImageDigest);
+  if (!IMAGE_DIGEST_PATTERN.test(gateDigest)) {
+    errors.push("gate_digest_missing");
+  } else if (IMAGE_DIGEST_PATTERN.test(builtDigest) && builtDigest !== gateDigest) {
+    errors.push("image_digest_mismatch");
+  }
+  if (bothPresentAndDiffer(input.candidateSha, input.gateCandidateSha)) {
+    errors.push("candidate_sha_mismatch");
+  }
+  if (bothPresentAndDiffer(input.candidateTreeSha, input.gateCandidateTreeSha)) {
+    errors.push("candidate_tree_mismatch");
+  }
+  return errors;
+}
+
+function lowerTrim(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function bothPresentAndDiffer(left, right) {
+  const normalizedLeft = lowerTrim(left);
+  const normalizedRight = lowerTrim(right);
+  return normalizedLeft !== "" && normalizedRight !== "" && normalizedLeft !== normalizedRight;
+}
+
+// ---------------------------------------------------------------------------
+// Independent idempotent run terminalization (cancellation/eviction backstop).
+//
+// The primary publisher runs `if: always()`, but GitHub only re-evaluates
+// cancellation conditions for jobs that are already queued or running, and
+// force cancellation bypasses `always()` entirely — so a merge-group run can
+// end with NO terminal advisory result. The workflow_run observer
+// (.github/workflows/platform-merge-qualification-terminalizer.yml) calls
+// this resolver after the primary run completes and emits the missing
+// terminal event exactly once:
+//   - idempotent: a run that already carries a merge-qualification-events
+//     artifact is never terminalized again, and the emitted event is built
+//     from run-derived data only, so a re-run observer rebuilds a
+//     byte-identical event that dedupes instead of conflicting.
+//   - stage-aware: cancelled plan, Docker image, gate, and publisher jobs
+//     each carry a distinct reason code; a force-cancelled run with no
+//     per-job cancellation lands as run_force_cancelled.
+//   - fail-closed: a disabled policy never terminalizes (no records while
+//     disabled), and a definitively-disabled run (publisher skipped) is
+//     recognized from the run's own job data.
+// ---------------------------------------------------------------------------
+
+export function resolveRunTerminalization({
+  policyEnabled = false,
+  policyReasonCode = null,
+  runEvent = "",
+  runConclusion = "",
+  jobs = [],
+  artifactNames = [],
+} = {}) {
+  if (runEvent !== "merge_group") {
+    return { action: "skip", reason: "not_merge_group" };
+  }
+  if (policyEnabled !== true) {
+    return { action: "skip", reason: policyReasonCode ?? "policy_disabled" };
+  }
+  const jobNamed = (pattern) => jobs.find((job) => pattern.test(String(job?.name ?? "")));
+  const publisher = jobNamed(/^Merge Qualification \(advisory\)$/);
+  if (publisher?.conclusion === "skipped") {
+    // The publisher only skips on a definitive disabled decision from the
+    // plan job, so the run asserted nothing by design.
+    return { action: "skip", reason: "publisher_skipped_disabled" };
+  }
+  if (artifactNames.some((name) => /^merge-qualification-events-/.test(String(name ?? "")))) {
+    return { action: "skip", reason: "already_terminalized" };
+  }
+  // Called-workflow jobs surface in the caller run as "Merge Qualification
+  // Gate / <job>"; a skipped call surfaces as one "Merge Qualification Gate"
+  // entry.
+  const gateJobs = jobs.filter((job) => /^Merge Qualification Gate/.test(String(job?.name ?? "")));
+  const gateCancelled = gateJobs.some((job) => job?.conclusion === "cancelled");
+  const gateStarted = gateJobs.some((job) => job?.conclusion && job.conclusion !== "skipped");
+  if (runConclusion === "cancelled") {
+    // Attribute the cancellation to the EARLIEST cancelled stage — that is
+    // where the pipeline actually died; later jobs are collateral.
+    const reason =
+      jobNamed(/^Merge Qualification Plan$/)?.conclusion === "cancelled"
+        ? "plan_cancelled"
+        : jobNamed(/^Docker Image Build$/)?.conclusion === "cancelled"
+          ? "image_cancelled"
+          : gateCancelled
+            ? "gate_cancelled"
+            : publisher?.conclusion === "cancelled"
+              ? "publisher_cancelled"
+              : "run_force_cancelled";
+    return {
+      action: "terminalize",
+      terminalState: "cancelled_evicted",
+      reasonCodes: [reason],
+      // The gate may have provisioned before cancellation; its always()
+      // finalizers plus the scheduled gate sweep own the cleanup either way.
+      provisioned: gateStarted,
+    };
+  }
+  // The run completed without cancellation, the policy is enabled, and no
+  // terminal event exists: the publisher never executed (startup failure,
+  // runner loss) or could not write a valid record. Never silent.
+  return {
+    action: "terminalize",
+    terminalState: "infrastructure_error",
+    reasonCodes: ["advisory_result_missing"],
+    provisioned: false,
+  };
 }
 
 function normalizeReasonCodes(value) {
@@ -378,6 +541,22 @@ export function validateMergeQualificationEvent(event) {
   if (!MERGE_QUALIFICATION_TERMINAL_STATES.includes(event.terminalState)) {
     errors.push(`terminalState must be exactly one of ${MERGE_QUALIFICATION_TERMINAL_STATES.join(", ")}.`);
   }
+  if (event.terminalState === "passed" && !IMAGE_DIGEST_PATTERN.test(event.imageDigest ?? "")) {
+    // A passed record without the exact qualified digest proves nothing.
+    errors.push("a passed event must pin the exact immutable sha256 digest the gate qualified.");
+  }
+  if (event.providerHeadroom !== null) {
+    const headroom = event.providerHeadroom;
+    if (
+      typeof headroom !== "object" ||
+      headroom === null ||
+      Array.isArray(headroom) ||
+      Object.keys(headroom).some((field) => field !== "headroomRuns") ||
+      !(Number.isFinite(headroom.headroomRuns) && headroom.headroomRuns >= 0)
+    ) {
+      errors.push("providerHeadroom must be null or { headroomRuns: <non-negative finite number> }.");
+    }
+  }
   if (
     !Array.isArray(event.reasonCodes) ||
     event.reasonCodes.length === 0 ||
@@ -419,44 +598,111 @@ export function validateMergeQualificationEvent(event) {
 
 // Joins eligible isolated advisory outcomes to the subsequent merged main
 // release and its persistent staging result. The join key is the candidate
-// git TREE SHA (plus digest agreement when both sides pin one) — a merge-group
-// candidate and the merged main commit differ in commit SHA but share a tree.
+// git TREE SHA — a merge-group candidate and the merged main commit differ in
+// commit SHA but share a tree — and the join is temporally and identity safe:
+//
+//   - the release must have completed AFTER the candidate's qualification
+//     completed (an older same-tree release, e.g. a revert-reland, can never
+//     absorb this candidate's outcome);
+//   - when both sides pin an image digest they must agree exactly; a
+//     same-tree post-qualification release with a different digest is an
+//     explicit identity_mismatch orphan, never a staging catch;
+//   - multiple qualifying releases select deterministically: exact digest
+//     matches first, then earliest completedAt, then lowest mainSha.
+//
 // Branch names never participate. A candidate whose tree never became a main
-// release is superseded.
+// release is superseded; one whose only same-tree releases predate its
+// qualification is an explicit no_subsequent_release orphan.
 export function joinMergeQualificationToStaging({ events = [], releases = [] } = {}) {
+  const usableReleases = releases.filter((release) => isUsableStagingRelease(release));
   const eligible = events.filter(
     (event) => event.classifierClass === "isolated" && ["passed", "failed"].includes(event.terminalState),
   );
   return eligible.map((event) => {
-    const matching = releases
-      .filter((release) => release.treeSha === event.candidateTreeSha)
-      .sort((left, right) => Date.parse(left.completedAt ?? 0) - Date.parse(right.completedAt ?? 0));
-    const release = matching[0] ?? null;
-    if (!release) {
-      return comparison(event, null, "superseded", null);
+    const qualifiedAtMs = Date.parse(event.completedAt ?? "");
+    if (!Number.isFinite(qualifiedAtMs)) {
+      return comparison(event, null, "invalid_event");
     }
-    const mapping = release.mainSha === event.candidateSha ? "same-commit" : "same-tree-different-commit";
-    return comparison(event, release, mapping, stagingFailureKind(release));
+    const sameTree = usableReleases.filter((release) => release.treeSha === event.candidateTreeSha);
+    if (sameTree.length === 0) {
+      return comparison(event, null, "superseded");
+    }
+    const subsequent = sameTree.filter((release) => Date.parse(release.completedAt) > qualifiedAtMs);
+    if (subsequent.length === 0) {
+      return comparison(event, null, "no_subsequent_release");
+    }
+    const agreeing = subsequent.filter(
+      (release) => !(release.imageDigest && event.imageDigest && release.imageDigest !== event.imageDigest),
+    );
+    if (agreeing.length === 0) {
+      return comparison(event, null, "identity_mismatch");
+    }
+    const release = [...agreeing].sort(deterministicReleaseOrder(event))[0];
+    return comparison(event, release, "joined");
   });
 }
 
-function comparison(event, release, mapping, failureKind) {
-  const stagingFailed = release?.staging?.result === "failure";
+// Releases must carry a full identity before they may join; anything less is
+// excluded here and reported by the collector as a completeness failure.
+export function isUsableStagingRelease(release) {
+  return (
+    typeof release === "object" &&
+    release !== null &&
+    isCommitSha(release.mainSha) &&
+    isCommitSha(release.treeSha) &&
+    Number.isFinite(Date.parse(release.completedAt ?? "")) &&
+    typeof release.staging?.result === "string" &&
+    release.staging.result.length > 0 &&
+    (release.imageDigest === null ||
+      release.imageDigest === undefined ||
+      IMAGE_DIGEST_PATTERN.test(release.imageDigest))
+  );
+}
+
+function deterministicReleaseOrder(event) {
+  const exactDigestRank = (release) => (event.imageDigest && release.imageDigest === event.imageDigest ? 0 : 1);
+  return (left, right) => {
+    const rankDelta = exactDigestRank(left) - exactDigestRank(right);
+    if (rankDelta !== 0) return rankDelta;
+    const timeDelta = Date.parse(left.completedAt) - Date.parse(right.completedAt);
+    if (timeDelta !== 0) return timeDelta;
+    return String(left.mainSha).localeCompare(String(right.mainSha));
+  };
+}
+
+function comparison(event, release, joinStatus) {
+  const joined = joinStatus === "joined" && release !== null;
+  const failureKind = joined ? stagingFailureKind(release) : null;
+  const stagingFailed = joined && release.staging?.result === "failure";
   return {
     schemaVersion: MERGE_QUALIFICATION_COMPARISON_SCHEMA_VERSION,
     candidateSha: event.candidateSha,
     candidateTreeSha: event.candidateTreeSha,
     terminalState: event.terminalState,
-    mainSha: release?.mainSha ?? null,
-    mapping,
-    digestMatched: release?.imageDigest && event.imageDigest ? release.imageDigest === event.imageDigest : null,
-    stagingResult: release?.staging?.result ?? null,
-    stagingRootCauseCode: release?.staging?.rootCauseCode ?? null,
+    qualificationCompletedAt: event.completedAt ?? null,
+    joinStatus,
+    mainSha: joined ? release.mainSha : null,
+    mapping: joined
+      ? release.mainSha === event.candidateSha
+        ? "same-commit"
+        : "same-tree-different-commit"
+      : joinStatus === "superseded"
+        ? "superseded"
+        : null,
+    releaseCompletedAt: joined ? release.completedAt : null,
+    // false ONLY for the explicit identity_mismatch orphan; true when both
+    // sides pinned the same digest; null when either side carries none.
+    digestMatched:
+      joinStatus === "identity_mismatch" ? false : joined && release.imageDigest && event.imageDigest ? true : null,
+    stagingResult: joined ? (release.staging?.result ?? null) : null,
+    stagingRootCauseCode: joined ? (release.staging?.rootCauseCode ?? null) : null,
     stagingFailureKind: stagingFailed ? failureKind : null,
     // Persistent staging "caught something": merge qualification passed but
     // the same candidate's staging lane later failed for an application/
-    // contract condition the isolated lane claimed to cover.
-    caught: event.terminalState === "passed" && stagingFailed && failureKind === "application",
+    // contract condition the isolated lane claimed to cover. Only a joined
+    // release can ever count — identity mismatches and temporal orphans are
+    // surfaced explicitly instead.
+    caught: joined && event.terminalState === "passed" && stagingFailed && failureKind === "application",
     // Terraform/provider-topology (and migration-mechanism) staging failures
     // are classifier-routing evidence, not isolated false negatives.
     classifierRoutingEvidence: stagingFailed && failureKind === "classifier-routing",
@@ -479,31 +725,133 @@ function stagingFailureKind(release) {
 // scripts/release-health-delivery-health.mjs.
 // ---------------------------------------------------------------------------
 
-export function summarizeMergeQualification({ events = [], comparisons = [], candidates = null } = {}) {
-  const terminalStates = Object.fromEntries(MERGE_QUALIFICATION_TERMINAL_STATES.map((state) => [state, 0]));
-  let invalidEvents = 0;
+// Validates and deduplicates raw qualification events into exactly one
+// authoritative event per candidate:
+//
+//   - every event must validate against merge-qualification-event/v1;
+//     malformed events never reach any denominator and degrade completeness;
+//   - attempt identity is (candidateSha, runId, runAttempt): byte-identical
+//     re-uploads of one attempt collapse as duplicates, while two DIFFERENT
+//     payloads for the same attempt are undecidable conflicts — the whole
+//     candidate leaves the denominators and degrades completeness;
+//   - across attempts, the latest attempt (highest runId, then runAttempt —
+//     a re-run or requeue supersedes its predecessor) is authoritative;
+//     superseded attempts are exposed, never counted.
+export function dedupeMergeQualificationEvents(events = []) {
+  const invalidEvents = [];
+  const byAttempt = new Map();
+  let duplicateEventCount = 0;
+  const conflictedCandidates = new Set();
   for (const event of events) {
-    if (MERGE_QUALIFICATION_TERMINAL_STATES.includes(event.terminalState)) {
-      terminalStates[event.terminalState] += 1;
+    const errors = validateMergeQualificationEvent(event);
+    if (errors.length > 0) {
+      invalidEvents.push({ candidateSha: event?.candidateSha ?? null, errors });
+      continue;
+    }
+    const key = `${event.candidateSha}|${event.runId}|${event.runAttempt}`;
+    const existing = byAttempt.get(key);
+    if (!existing) {
+      byAttempt.set(key, event);
+    } else if (canonicalJson(existing) === canonicalJson(event)) {
+      duplicateEventCount += 1;
     } else {
-      invalidEvents += 1;
+      conflictedCandidates.add(event.candidateSha);
     }
   }
-  const observedCandidates = new Set(events.map((event) => event.candidateSha).filter(Boolean));
+  const byCandidate = new Map();
+  let supersededAttemptCount = 0;
+  for (const event of byAttempt.values()) {
+    if (conflictedCandidates.has(event.candidateSha)) continue;
+    const current = byCandidate.get(event.candidateSha);
+    if (!current) {
+      byCandidate.set(event.candidateSha, event);
+      continue;
+    }
+    supersededAttemptCount += 1;
+    if (compareAttemptIdentity(event, current) > 0) {
+      byCandidate.set(event.candidateSha, event);
+    }
+  }
+  return {
+    authoritative: [...byCandidate.values()],
+    invalidEvents,
+    duplicateEventCount,
+    supersededAttemptCount,
+    conflictedCandidates: [...conflictedCandidates].sort(),
+  };
+}
+
+function compareAttemptIdentity(left, right) {
+  const runDelta = Number(left.runId) - Number(right.runId);
+  if (runDelta !== 0) return runDelta;
+  return Number(left.runAttempt) - Number(right.runAttempt);
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+const COMPARISON_JOIN_STATUSES = new Set([
+  "joined",
+  "superseded",
+  "no_subsequent_release",
+  "identity_mismatch",
+  "invalid_event",
+]);
+
+export function summarizeMergeQualification({ events = [], comparisons = [], candidates = null } = {}) {
+  const dedupe = dedupeMergeQualificationEvents(events);
+  const authoritative = dedupe.authoritative;
+  const terminalStates = Object.fromEntries(MERGE_QUALIFICATION_TERMINAL_STATES.map((state) => [state, 0]));
+  for (const event of authoritative) {
+    terminalStates[event.terminalState] += 1;
+  }
+  const conflicted = new Set(dedupe.conflictedCandidates);
+  const observedCandidates = new Set(authoritative.map((event) => event.candidateSha));
+  // Orphans: inventory candidates that never reached a valid terminal
+  // advisory state (run-level eviction before any publisher/terminalizer
+  // event, or only malformed evidence). Conflicted candidates are exposed in
+  // the evidence block instead — they have terminal claims, just undecidable
+  // ones.
   const unresolvedCandidates = Array.isArray(candidates)
-    ? candidates.filter((candidateSha) => !observedCandidates.has(candidateSha)).length
+    ? candidates.filter((candidateSha) => !observedCandidates.has(candidateSha) && !conflicted.has(candidateSha)).length
     : 0;
-  const durations = events
+  const validComparisons = [];
+  let invalidComparisonCount = 0;
+  for (const entry of comparisons) {
+    if (
+      typeof entry === "object" &&
+      entry !== null &&
+      entry.schemaVersion === MERGE_QUALIFICATION_COMPARISON_SCHEMA_VERSION &&
+      COMPARISON_JOIN_STATUSES.has(entry.joinStatus)
+    ) {
+      validComparisons.push(entry);
+    } else {
+      invalidComparisonCount += 1;
+    }
+  }
+  const durations = authoritative
     .filter((event) => ["passed", "failed"].includes(event.terminalState))
     .map((event) => durationSeconds(event.startedAt, event.completedAt))
     .filter((value) => value !== null);
-  const headroomSamples = events
+  const headroomSamples = authoritative
     .map((event) => ({ at: event.completedAt, runs: event.providerHeadroom?.headroomRuns }))
     .filter((sample) => Number.isFinite(sample.runs))
     .sort((left, right) => Date.parse(left.at ?? 0) - Date.parse(right.at ?? 0));
   return {
     schemaVersion: MERGE_QUALIFICATION_SUMMARY_SCHEMA_VERSION,
-    sampleCount: events.length,
+    // Exactly one authoritative terminal result per candidate: retries and
+    // duplicates never inflate the sample.
+    sampleCount: authoritative.length,
     candidateCount: Array.isArray(candidates) ? candidates.length : null,
     terminalStates,
     counts: {
@@ -515,17 +863,30 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
       persistentRequired: terminalStates.persistent_required,
     },
     durationSeconds: percentileSummary3(durations),
-    stagingCatchCount: comparisons.filter((entry) => entry.caught === true).length,
-    classifierRoutingCount: comparisons.filter((entry) => entry.classifierRoutingEvidence === true).length,
-    supersededCount: comparisons.filter((entry) => entry.mapping === "superseded").length,
-    // Orphans: candidates that never reached a terminal advisory state —
-    // either a candidate with no event at all (run-level eviction before the
-    // publisher could report) or an event without a valid terminal state.
-    orphanCount: unresolvedCandidates + invalidEvents,
+    stagingCatchCount: validComparisons.filter((entry) => entry.caught === true).length,
+    classifierRoutingCount: validComparisons.filter((entry) => entry.classifierRoutingEvidence === true).length,
+    supersededCount: validComparisons.filter((entry) => entry.joinStatus === "superseded").length,
+    identityMismatchCount: validComparisons.filter((entry) => entry.joinStatus === "identity_mismatch").length,
+    temporalOrphanCount: validComparisons.filter((entry) => entry.joinStatus === "no_subsequent_release").length,
+    orphanCount: unresolvedCandidates,
     providerHeadroom: {
       sampleCount: headroomSamples.length,
       minHeadroomRuns: headroomSamples.length > 0 ? Math.min(...headroomSamples.map((sample) => sample.runs)) : null,
       latestHeadroomRuns: headroomSamples.at(-1)?.runs ?? null,
+    },
+    // Evidence hygiene: malformed, duplicated, superseded, and conflicting
+    // records are exposed here and NEVER reach the denominators above; any
+    // invalid or conflicting evidence marks the summary incomplete.
+    evidence: {
+      eventCount: events.length,
+      invalidEventCount: dedupe.invalidEvents.length,
+      duplicateEventCount: dedupe.duplicateEventCount,
+      supersededAttemptCount: dedupe.supersededAttemptCount,
+      conflictCount: dedupe.conflictedCandidates.length,
+      conflictingCandidates: dedupe.conflictedCandidates,
+      invalidComparisonCount,
+      complete:
+        dedupe.invalidEvents.length === 0 && dedupe.conflictedCandidates.length === 0 && invalidComparisonCount === 0,
     },
   };
 }
@@ -629,34 +990,50 @@ async function main(argv, env = process.env) {
   if (command === "publish") {
     const policyPath = readOption(argv, "--policy") ?? MERGE_QUALIFICATION_POLICY_PATH;
     const decision = evaluateMergeQualificationPolicy(readMergeQualificationPolicyContent(policyPath), { now });
+    const gateResult = readOption(argv, "--gate-result") ?? "";
+    const gateImageDigest = readOption(argv, "--gate-image-digest") ?? readOption(argv, "--image-digest") ?? "";
     const outcome = resolveMergeQualificationOutcome({
       policyEnabled: decision.enabled,
       policyReasonCode: decision.reasonCode,
       planResult: readOption(argv, "--plan-result") ?? "",
       classifierClass: readOption(argv, "--classifier-class") || null,
       classifierReasonCodes: readOption(argv, "--classifier-reason-codes") ?? "",
-      gateResult: readOption(argv, "--gate-result") ?? "",
+      gateResult,
+      imageResult: readOption(argv, "--image-result") ?? "",
       imageAvailable: readOption(argv, "--image-available") === "true",
+      candidateSha: readOption(argv, "--candidate-sha") ?? "",
+      candidateTreeSha: readOption(argv, "--candidate-tree") ?? "",
+      builtImageDigest: readOption(argv, "--built-image-digest") ?? "",
+      gateImageDigest,
+      gateCandidateSha: readOption(argv, "--gate-candidate-sha") ?? "",
+      gateCandidateTreeSha: readOption(argv, "--gate-candidate-tree") ?? "",
     });
     let event = null;
     const errors = [];
     if (outcome.recordRequired) {
       const completedAt = now().toISOString();
       const runUrl = `${env.GITHUB_SERVER_URL ?? "https://github.com"}/${env.GITHUB_REPOSITORY ?? readOption(argv, "--repository") ?? ""}/actions/runs/${env.GITHUB_RUN_ID ?? readOption(argv, "--run-id") ?? ""}/attempts/${env.GITHUB_RUN_ATTEMPT ?? readOption(argv, "--run-attempt") ?? ""}`;
+      const headroomRuns = Number(readOption(argv, "--provider-headroom-runs") ?? "");
       const built = buildMergeQualificationEvent({
         repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
         candidateSha: readOption(argv, "--candidate-sha"),
         candidateTreeSha: readOption(argv, "--candidate-tree"),
-        imageDigest: readOption(argv, "--image-digest") || null,
+        imageDigest: gateImageDigest || null,
         classifierClass: readOption(argv, "--classifier-class") || null,
         terminalState: outcome.terminalState,
         reasonCodes: outcome.reasonCodes,
-        provisioned: ["passed", "failed", "cancelled_evicted"].includes(outcome.terminalState),
+        // The gate may only have provisioned when it actually ran; a
+        // cancellation before the gate (plan/image) provisioned nothing, and
+        // states whose schema forbids provisioning (an identity-mismatch
+        // infrastructure_error after a successful gate) record false — the
+        // gate's always() finalizers and the scheduled sweep own cleanup.
+        provisioned: outcome.provisionsAllowed && ["success", "failure", "cancelled"].includes(gateResult),
         startedAt: readOption(argv, "--started-at") ?? completedAt,
         completedAt,
         runId: readOption(argv, "--run-id") ?? env.GITHUB_RUN_ID,
         runAttempt: readOption(argv, "--run-attempt") ?? env.GITHUB_RUN_ATTEMPT,
         evidenceLinks: [runUrl],
+        providerHeadroom: Number.isFinite(headroomRuns) && headroomRuns >= 0 ? { headroomRuns } : null,
       });
       event = built.event;
       errors.push(...built.errors);
@@ -680,6 +1057,82 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
+  if (command === "terminalize") {
+    const policyPath = readOption(argv, "--policy") ?? MERGE_QUALIFICATION_POLICY_PATH;
+    const decision = evaluateMergeQualificationPolicy(readMergeQualificationPolicyContent(policyPath), { now });
+    const run = readJsonFileOrNull(readOption(argv, "--run"));
+    const jobsPayload = readJsonFileOrNull(readOption(argv, "--jobs"));
+    const artifactsPayload = readJsonFileOrNull(readOption(argv, "--run-artifacts"));
+    const resolution = resolveRunTerminalization({
+      policyEnabled: decision.enabled,
+      policyReasonCode: decision.reasonCode,
+      runEvent: run?.event ?? "",
+      runConclusion: run?.conclusion ?? "",
+      jobs: jobsPayload?.jobs ?? [],
+      artifactNames: (artifactsPayload?.artifacts ?? []).map((artifact) => artifact?.name),
+    });
+    let event = null;
+    const errors = [];
+    if (resolution.action === "terminalize") {
+      // Deterministic, run-derived timestamps and links: a re-delivered or
+      // re-run observer rebuilds a byte-identical event, so duplicate
+      // terminalization dedupes instead of conflicting.
+      const startedAt = run?.run_started_at ?? run?.created_at ?? "";
+      const completedAt =
+        Date.parse(run?.updated_at ?? "") >= Date.parse(startedAt || "") ? (run?.updated_at ?? "") : startedAt;
+      const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+      const built = buildMergeQualificationEvent({
+        repository,
+        candidateSha: run?.head_sha,
+        candidateTreeSha: readOption(argv, "--candidate-tree"),
+        imageDigest: null,
+        classifierClass: null,
+        terminalState: resolution.terminalState,
+        reasonCodes: resolution.reasonCodes,
+        provisioned: resolution.provisioned === true,
+        startedAt,
+        completedAt,
+        runId: run?.id === undefined || run?.id === null ? "" : String(run.id),
+        runAttempt: run?.run_attempt === undefined || run?.run_attempt === null ? "" : String(run.run_attempt),
+        evidenceLinks: [
+          `${env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository ?? ""}/actions/runs/${run?.id ?? ""}/attempts/${run?.run_attempt ?? ""}`,
+        ],
+        providerHeadroom: null,
+      });
+      event = built.event;
+      errors.push(...built.errors);
+      const outPath = readOption(argv, "--out");
+      if (outPath && errors.length === 0) {
+        await writeJsonRecord(outPath, event);
+      }
+    }
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      [
+        "## Merge Qualification Terminalizer",
+        "",
+        resolution.action === "terminalize"
+          ? `- Emitted missing terminal advisory result \`${resolution.terminalState}\` (${resolution.reasonCodes.join(", ")}) for run ${run?.id ?? "unknown"} attempt ${run?.run_attempt ?? "unknown"}.`
+          : `- No terminalization needed: \`${resolution.reason}\`.`,
+        "",
+      ].join("\n"),
+    );
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["action", resolution.action],
+      ["skip_reason", resolution.action === "skip" ? resolution.reason : ""],
+      ["terminal_state", resolution.action === "terminalize" ? resolution.terminalState : ""],
+      ["event_written", resolution.action === "terminalize" && errors.length === 0 ? "true" : "false"],
+    ]);
+    console.log(JSON.stringify({ decision: decision.state, resolution, event, errors }, null, 2));
+    if (errors.length > 0) {
+      // A terminalization that cannot produce a valid event must fail loudly:
+      // the candidate stays visible as an orphan in delivery health.
+      console.error(errors.join("\n"));
+      return 1;
+    }
+    return 0;
+  }
+
   if (command === "join") {
     const events = JSON.parse(readFileSync(readOption(argv, "--events"), "utf8"));
     const releases = JSON.parse(readFileSync(readOption(argv, "--releases"), "utf8"));
@@ -692,8 +1145,17 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
-  console.error("usage: merge-qualification-advisory.mjs <policy|route|publish|join> [options]");
+  console.error("usage: merge-qualification-advisory.mjs <policy|route|publish|terminalize|join> [options]");
   return 1;
+}
+
+function readJsonFileOrNull(filePath) {
+  if (!filePath) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function normalize(value) {

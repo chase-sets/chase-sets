@@ -47,6 +47,9 @@ on:
       candidate_tree_sha:
         description: Candidate git tree SHA the gate qualified.
         value: ${{ jobs.verify.outputs.candidate_tree_sha }}
+      headroom_runs:
+        description: Whole additional concurrent gate runs the preview pool could absorb at preflight time.
+        value: ${{ jobs.preflight.outputs.headroom_runs }}
   workflow_dispatch:
     inputs:
       image_digest:
@@ -89,6 +92,7 @@ jobs:
     outputs:
       started_at: ${{ steps.timing.outputs.started_at }}
       completed_at: ${{ steps.capacity.outputs.completed_at }}
+      headroom_runs: ${{ steps.capacity.outputs.headroom_runs }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -160,7 +164,8 @@ jobs:
             --nodes "${RUNNER_TEMP}/gate-nodes.json" \
             --pods "${RUNNER_TEMP}/gate-pods.json" \
             --node-pools "${RUNNER_TEMP}/gate-node-pools.json" \
-            --out artifacts/merge-gate/preflight.json
+            --out artifacts/merge-gate/preflight.json \
+            --github-output "$GITHUB_OUTPUT"
           echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
 
       - name: Upload merge-gate preflight evidence

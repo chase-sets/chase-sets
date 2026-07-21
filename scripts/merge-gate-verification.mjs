@@ -283,6 +283,18 @@ export function evaluateMergeGateCapacity({ config, nodes, pods, nodePools }) {
       totalCapacity: { cpuMillicores: totalCapacity.cpuMillicores, memoryMib: Math.round(totalCapacity.memoryMib) },
       available: { cpuMillicores: available.cpuMillicores, memoryMib: Math.round(available.memoryMib) },
       required,
+      // Whole additional gate runs the pool could absorb right now; the
+      // advisory qualification chain records this as provider headroom
+      // evidence in canonical delivery health.
+      headroomRuns: Math.max(
+        0,
+        Math.floor(
+          Math.min(
+            available.cpuMillicores / Number(config.perRunRequests.cpuMillicores),
+            available.memoryMib / Number(config.perRunRequests.memoryMib),
+          ),
+        ),
+      ),
     },
   };
 }
@@ -614,6 +626,14 @@ async function main(argv) {
     };
     const outPath = readOption(argv, "--out");
     if (outPath) await writeJsonRecord(outPath, record);
+    const githubOutputPath = readOption(argv, "--github-output");
+    if (githubOutputPath) {
+      appendFileSync(
+        githubOutputPath,
+        `headroom_runs=${Number.isFinite(capacity.measurement?.headroomRuns) ? capacity.measurement.headroomRuns : ""}\n`,
+        "utf8",
+      );
+    }
     console.log(JSON.stringify(record, null, 2));
     if (!capacity.passed) {
       console.error(capacity.errors.join("\n"));

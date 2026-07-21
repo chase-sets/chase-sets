@@ -1,8 +1,10 @@
 import { deflateRawSync } from "node:zlib";
 import { beforeAll, describe, expect, it } from "vitest";
+import { buildMergeQualificationEvent } from "./merge-qualification-advisory.mjs";
 import {
   DELIVERY_HEALTH_VERSION,
   buildDeliveryHealth,
+  collectSourceData,
   createGitHubClient,
   normalizeDeliveryConclusion,
   parseSliMarker,
@@ -306,39 +308,51 @@ describe("delivery-health/v1", () => {
     expect(result.markdown).not.toContain("Merge qualification (advisory)");
   });
 
-  it("summarizes advisory merge-qualification stage events inside the canonical record", () => {
+  it("summarizes advisory merge-qualification stage events and executes the staging join inside the canonical record", () => {
     const source = representativeSource();
+    const passed = qualificationEvent({
+      candidateSha: "a".repeat(40),
+      candidateTreeSha: "b".repeat(40),
+      terminalState: "passed",
+      completedAt: "2026-07-18T10:20:00.000Z",
+      providerHeadroom: { headroomRuns: 3 },
+      runId: "9001",
+    });
+    const failed = qualificationEvent({
+      candidateSha: "c".repeat(40),
+      candidateTreeSha: "d".repeat(40),
+      terminalState: "failed",
+      reasonCodes: ["gate_failed"],
+      completedAt: "2026-07-18T10:30:00.000Z",
+      providerHeadroom: { headroomRuns: 2 },
+      runId: "9002",
+    });
+    const notApplicable = qualificationEvent({
+      candidateSha: "e".repeat(40),
+      candidateTreeSha: "f".repeat(40),
+      classifierClass: "not_applicable",
+      terminalState: "not_applicable",
+      reasonCodes: ["docs_or_test_only"],
+      imageDigest: null,
+      provisioned: false,
+      completedAt: "2026-07-18T10:00:30.000Z",
+      runId: "9003",
+    });
     source.mergeQualification = {
-      events: [
+      events: [passed, failed, notApplicable],
+      candidates: ["a".repeat(40), "c".repeat(40), "e".repeat(40), "9".repeat(40)],
+      // No injected comparisons: the builder must execute the tree/digest/
+      // time-safe join against these persistent-staging release identities.
+      releases: [
         {
-          candidateSha: "a".repeat(40),
-          candidateTreeSha: "b".repeat(40),
-          classifierClass: "isolated",
-          terminalState: "passed",
-          startedAt: "2026-07-18T10:00:00.000Z",
-          completedAt: "2026-07-18T10:20:00.000Z",
-          providerHeadroom: { headroomRuns: 3 },
-        },
-        {
-          candidateSha: "c".repeat(40),
-          candidateTreeSha: "d".repeat(40),
-          classifierClass: "isolated",
-          terminalState: "failed",
-          startedAt: "2026-07-18T10:00:00.000Z",
-          completedAt: "2026-07-18T10:30:00.000Z",
-          providerHeadroom: { headroomRuns: 2 },
-        },
-        {
-          candidateSha: "e".repeat(40),
-          candidateTreeSha: "f".repeat(40),
-          classifierClass: "not_applicable",
-          terminalState: "not_applicable",
-          startedAt: "2026-07-18T10:00:00.000Z",
-          completedAt: "2026-07-18T10:00:30.000Z",
+          mainSha: "1".repeat(40),
+          treeSha: "b".repeat(40),
+          imageDigest: passed.imageDigest,
+          completedAt: "2026-07-18T11:00:00.000Z",
+          staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
         },
       ],
-      comparisons: [{ mapping: "same-tree-different-commit", caught: true, classifierRoutingEvidence: false }],
-      candidates: ["a".repeat(40), "c".repeat(40), "e".repeat(40), "9".repeat(40)],
+      failures: [],
     };
     const result = buildDeliveryHealth({
       checkedAt: "2026-07-18T12:00:00.000Z",
@@ -354,11 +368,77 @@ describe("delivery-health/v1", () => {
       counts: { success: 1, applicationFailure: 1, notApplicable: 1 },
       durationSeconds: { sampleCount: 2, p50: 1200, p90: 1800, p95: 1800 },
       stagingCatchCount: 1,
+      supersededCount: 1,
       orphanCount: 1,
       providerHeadroom: { sampleCount: 2, minHeadroomRuns: 2, latestHeadroomRuns: 2 },
+      evidence: { invalidEventCount: 0, conflictCount: 0, complete: true },
     });
+    expect(result.record.completeness.status).toBe("complete");
     expect(result.markdown).toContain("### Merge qualification (advisory)");
     expect(result.markdown).toContain("1 staging catches");
+  });
+
+  it("keeps the join temporally safe inside the canonical record: a pre-qualification same-tree release never counts as a catch", () => {
+    const source = representativeSource();
+    const passed = qualificationEvent({
+      candidateSha: "a".repeat(40),
+      candidateTreeSha: "b".repeat(40),
+      terminalState: "passed",
+      completedAt: "2026-07-18T10:20:00.000Z",
+      runId: "9001",
+    });
+    source.mergeQualification = {
+      events: [passed],
+      candidates: [passed.candidateSha],
+      releases: [
+        {
+          mainSha: "1".repeat(40),
+          treeSha: "b".repeat(40),
+          imageDigest: passed.imageDigest,
+          completedAt: "2026-07-18T09:00:00.000Z",
+          staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
+        },
+      ],
+      failures: [],
+    };
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record;
+    expect(record.mergeQualification.stagingCatchCount).toBe(0);
+    expect(record.mergeQualification.temporalOrphanCount).toBe(1);
+  });
+
+  it("degrades completeness on merge-qualification collection failures and invalid or conflicting evidence", () => {
+    const source = representativeSource();
+    const valid = qualificationEvent({ runId: "9001" });
+    const contradiction = { ...valid, terminalState: "failed", reasonCodes: ["gate_failed"] };
+    source.mergeQualification = {
+      events: [valid, contradiction, { schemaVersion: "merge-qualification-event/v2" }],
+      candidates: [valid.candidateSha],
+      releases: [],
+      failures: [{ source: "merge-qualification-artifacts:9001", error: "download failed" }],
+    };
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record;
+    expect(record.completeness.status).toBe("partial");
+    expect(record.completeness.reasons).toContain("merge-qualification:merge-qualification-artifacts:9001");
+    expect(record.completeness.reasons).toContain("merge-qualification:invalid-events:1");
+    expect(record.completeness.reasons).toContain("merge-qualification:conflicting-candidates:1");
+    // Alerts are suppressed while advisory evidence is incomplete.
+    expect(record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+    // Conflicting evidence never reaches the denominators.
+    expect(record.mergeQualification.sampleCount).toBe(0);
   });
 
   it("keeps the artifact support-safe and never copies logs or pull request titles", () => {
@@ -412,6 +492,227 @@ describe("canonical SLI issues", () => {
       schemaVersion: "delivery-health-sli/v1",
       sli: "merge-group-success",
     });
+  });
+});
+
+describe("scheduled merge-qualification collection (production wiring)", () => {
+  const candidateSha = "a".repeat(40);
+  const candidateTree = "b".repeat(40);
+  const mainSha = "1".repeat(40);
+  const passedEvent = qualificationEvent({
+    candidateSha,
+    candidateTreeSha: candidateTree,
+    terminalState: "passed",
+    completedAt: "2026-07-18T10:20:00.000Z",
+    providerHeadroom: { headroomRuns: 3 },
+    runId: "9001",
+  });
+  const stagingHealthRecord = {
+    schemaVersion: "release-health/v1",
+    releaseCommit: mainSha,
+    staging: { result: "failure", applied: true, startedAt: iso(60), completedAt: "2026-07-18T11:00:00.000Z" },
+    production: { result: "skipped" },
+    recovery: { mode: "none" },
+    releaseState: { transitions: [{ type: "promoted", imageDigest: passedEvent.imageDigest }] },
+  };
+  const rootCauseRecord = {
+    schemaVersion: "platform-deploy-root-cause/v1",
+    rootCauseCode: "blocking-staging-verification",
+  };
+
+  function fakeClient(overrides = {}) {
+    const routes = {
+      "https://api.github.com/graphql": () => ({
+        data: { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } },
+      }),
+      "/actions/workflows/platform-pr.yml/runs": () => ({
+        workflow_runs: [
+          {
+            id: 9001,
+            event: "merge_group",
+            conclusion: "success",
+            head_sha: candidateSha,
+            run_attempt: 1,
+            created_at: iso(120),
+            run_started_at: iso(119),
+            updated_at: iso(100),
+          },
+        ],
+      }),
+      "/actions/workflows/platform-release-candidate.yml/runs": () => ({ workflow_runs: [] }),
+      "/actions/workflows/platform-production.yml/runs": () => ({
+        workflow_runs: [
+          {
+            id: 9101,
+            event: "workflow_dispatch",
+            conclusion: "failure",
+            run_attempt: 1,
+            created_at: iso(90),
+            run_started_at: iso(89),
+            updated_at: iso(50),
+          },
+        ],
+      }),
+      "/actions/workflows/platform-ephemeral-verification.yml/runs": () => ({ workflow_runs: [] }),
+      "/actions/workflows/platform-merge-qualification-terminalizer.yml/runs": () => ({
+        workflow_runs: [
+          { id: 9200, event: "workflow_run", conclusion: "success", run_attempt: 1, updated_at: iso(95) },
+        ],
+      }),
+      "/actions/runs/9101/jobs": () => ({
+        jobs: [
+          { name: "Deploy Staging", conclusion: "failure", started_at: iso(80), completed_at: iso(60), steps: [] },
+        ],
+      }),
+      "/actions/runs/9101/artifacts": () => ({
+        artifacts: [
+          { id: 1, name: "staging-release-health-9101", archive_download_url: "https://example.test/release-zip" },
+        ],
+      }),
+      "/actions/runs/9001/artifacts": () => ({
+        artifacts: [
+          { id: 2, name: "merge-qualification-events-9001-1", archive_download_url: "https://example.test/event-zip" },
+        ],
+      }),
+      "/actions/runs/9200/artifacts": () => ({ artifacts: [] }),
+      [`/git/commits/${mainSha}`]: () => ({ tree: { sha: candidateTree } }),
+      "https://api.github.com/search/issues": () => ({ items: [] }),
+      "https://example.test/release-zip": () =>
+        buildZip([
+          ["staging-release.json", JSON.stringify(stagingHealthRecord), 0],
+          ["staging-deploy-root-cause.json", JSON.stringify(rootCauseRecord), 0],
+        ]),
+      "https://example.test/event-zip": () => buildZip([["event.json", JSON.stringify(passedEvent), 0]]),
+      ...overrides,
+    };
+    const resolve = (pathOrUrl) => {
+      const key = Object.keys(routes).find((route) => String(pathOrUrl).startsWith(route));
+      if (!key) throw new Error(`no fixture route for ${pathOrUrl}`);
+      const payload = routes[key]();
+      if (payload instanceof Error) throw payload;
+      return payload;
+    };
+    return {
+      status: () => ({ truncated: [], errors: [], rateLimited: false, retryCount: 0 }),
+      markTruncated: () => {},
+      async json(pathOrUrl) {
+        return resolve(pathOrUrl);
+      },
+      async paginate(path, select) {
+        const chosen = select(resolve(path));
+        return Array.isArray(chosen) ? chosen : [];
+      },
+      async request(url) {
+        const payload = resolve(url);
+        return { arrayBuffer: async () => payload };
+      },
+    };
+  }
+
+  const options = { repository: "chase-sets/chase-sets", checkedAt: "2026-07-18T12:00:00.000Z" };
+
+  it("collects qualification artifacts, the candidate inventory, staging identities, and executes the join end to end", async () => {
+    const source = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient(),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(source.mergeQualification.events).toEqual([passedEvent]);
+    expect(source.mergeQualification.candidates).toEqual([candidateSha]);
+    expect(source.mergeQualification.failures).toEqual([]);
+    expect(source.mergeQualification.releases).toEqual([
+      {
+        mainSha,
+        treeSha: candidateTree,
+        imageDigest: passedEvent.imageDigest,
+        completedAt: "2026-07-18T11:00:00.000Z",
+        staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
+      },
+    ]);
+
+    const record = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(record.mergeQualification).toMatchObject({
+      sampleCount: 1,
+      candidateCount: 1,
+      counts: { success: 1 },
+      stagingCatchCount: 1,
+      orphanCount: 0,
+      providerHeadroom: { sampleCount: 1, latestHeadroomRuns: 3 },
+      evidence: { complete: true },
+    });
+  });
+
+  it("negative control: a failed or malformed qualification artifact degrades completeness and orphans the candidate", async () => {
+    const failing = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient({ "https://example.test/event-zip": () => new Error("artifact download failed") }),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(failing.mergeQualification.events).toEqual([]);
+    expect(failing.mergeQualification.failures).toEqual([
+      expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
+    ]);
+    const record = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source: failing,
+      apiStatus: failing.apiStatus,
+    }).record;
+    expect(record.completeness.status).toBe("partial");
+    expect(record.completeness.reasons).toContain("merge-qualification:merge-qualification-artifacts:9001");
+    expect(record.mergeQualification.orphanCount).toBe(1);
+
+    const foreignSchema = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient({
+        "https://example.test/event-zip": () =>
+          buildZip([["event.json", JSON.stringify({ schemaVersion: "merge-qualification-event/v2" }), 0]]),
+      }),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(foreignSchema.mergeQualification.events).toEqual([]);
+    expect(foreignSchema.mergeQualification.failures).toEqual([
+      expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
+    ]);
+  });
+
+  it("negative control: a failed release-tree resolution excludes the release and degrades completeness", async () => {
+    const source = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient({ [`/git/commits/${mainSha}`]: () => new Error("commit lookup failed") }),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(source.mergeQualification.releases).toEqual([]);
+    expect(source.mergeQualification.failures).toEqual([
+      expect.objectContaining({ source: `release-tree:${mainSha}` }),
+    ]);
+    const record = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(record.completeness.status).toBe("partial");
+    expect(record.completeness.reasons).toContain(`merge-qualification:release-tree:${mainSha}`);
+    // Without a release identity the passed candidate reports superseded,
+    // never a fabricated catch.
+    expect(record.mergeQualification.stagingCatchCount).toBe(0);
+    expect(record.mergeQualification.supersededCount).toBe(1);
   });
 });
 
@@ -533,6 +834,30 @@ function representativeSource() {
     ],
     artifactFailures: [],
   };
+}
+
+// Fully valid merge-qualification-event/v1 fixture: the canonical reader now
+// validates every event, so partial shapes would land in the invalid bucket.
+function qualificationEvent(overrides = {}) {
+  const { event, errors } = buildMergeQualificationEvent({
+    repository: "chase-sets/chase-sets",
+    candidateSha: "a".repeat(40),
+    candidateTreeSha: "b".repeat(40),
+    imageDigest: `sha256:${"3".repeat(64)}`,
+    classifierClass: "isolated",
+    terminalState: "passed",
+    reasonCodes: ["gate_passed"],
+    provisioned: ["passed", "failed", "cancelled_evicted"].includes(overrides.terminalState ?? "passed"),
+    startedAt: "2026-07-18T10:00:00.000Z",
+    completedAt: "2026-07-18T10:20:00.000Z",
+    runId: "9001",
+    runAttempt: "1",
+    evidenceLinks: ["https://github.com/chase-sets/chase-sets/actions/runs/9001/attempts/1"],
+    providerHeadroom: null,
+    ...overrides,
+  });
+  if (errors.length > 0) throw new Error(`invalid qualification event fixture: ${errors.join("; ")}`);
+  return event;
 }
 
 function run(id, event, conclusion, overrides = {}) {

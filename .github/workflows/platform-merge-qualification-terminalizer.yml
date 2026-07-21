@@ -1,0 +1,99 @@
+name: Platform Merge Qualification Terminalizer
+
+# Independent idempotent terminalizer for the advisory merge-group
+# qualification chain (issue #5839). The in-run publisher uses `if: always()`,
+# but GitHub only re-evaluates cancellation conditions for jobs that are
+# already queued or running, and force cancellation bypasses `always()`
+# entirely — so a merge-group run can end with NO terminal advisory result.
+# This observer fires on every completed Platform PR run (any conclusion,
+# including cancellation and force cancellation), re-evaluates the checked-in
+# enablement policy fail-closed, and emits the missing terminal event exactly
+# once:
+#
+#   - disabled policy               -> no-op (no records while disabled)
+#   - publisher skipped (disabled)  -> no-op (the run asserted nothing by design)
+#   - event artifact already exists -> no-op (idempotent)
+#   - run cancelled                 -> cancelled_evicted with a stage-distinct
+#                                      reason (plan/image/gate/publisher/force)
+#   - run finished, event missing   -> infrastructure_error (never silent)
+#
+# The emitted event is built from run-derived data only (original run id,
+# attempt, timestamps, URL), so re-delivery or a re-run of this observer
+# rebuilds a byte-identical event that the canonical delivery-health reader
+# deduplicates instead of double counting. Provider posture: provider-inert —
+# this workflow threads only the repo-scoped github.token and never touches a
+# provider credential; gate namespace cleanup stays owned by the gate's
+# always() finalizers and the scheduled gate sweep.
+
+on:
+  workflow_run:
+    workflows: ["Platform PR"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: merge-qualification-terminalizer-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  terminalize:
+    name: Terminalize Merge Qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.workflow_run.event == 'merge_group'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Inspect completed merge-group run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" > artifacts/merge-qualification/run.json
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > artifacts/merge-qualification/jobs.json
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" > artifacts/merge-qualification/run-artifacts.json
+
+      # The candidate tree SHA is part of the event identity; resolve it from
+      # the commit object rather than trusting any run-supplied value. A
+      # failed resolution deliberately leaves this empty so terminalization
+      # fails loudly below and the candidate stays visible as an orphan.
+      - name: Resolve candidate tree SHA
+        id: tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tree_sha="$(gh api "repos/${{ github.repository }}/git/commits/${HEAD_SHA}" --jq .tree.sha || true)"
+          echo "candidate_tree=${tree_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Emit missing terminal advisory result
+        id: terminalize
+        env:
+          CANDIDATE_TREE: ${{ steps.tree.outputs.candidate_tree }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs terminalize \
+            --policy scripts/merge-qualification-policy.json \
+            --run artifacts/merge-qualification/run.json \
+            --jobs artifacts/merge-qualification/jobs.json \
+            --run-artifacts artifacts/merge-qualification/run-artifacts.json \
+            --repository "${{ github.repository }}" \
+            --candidate-tree "$CANDIDATE_TREE" \
+            --out artifacts/merge-qualification/event.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload terminal advisory event
+        if: steps.terminalize.outputs.event_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: artifacts/merge-qualification/event.json
+          if-no-files-found: error
+          retention-days: 30
