@@ -223,7 +223,7 @@ test.describe.serial("catalog admin integrations", () => {
     const contextBarTrigger = importContextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
     const importProviderSelect = importContextBar.getByRole("combobox", { name: "Provider" });
     await expect(contextBarTrigger).toBeVisible();
-    await expect(contextBarTrigger).toHaveAttribute("aria-expanded", "true");
+    await clickUntilDisclosureExpanded(contextBarTrigger, true);
     // #1970: provider source options belong to the import-scope disclosure, not
     // the Run sync stage. Scope this streamed assertion to its owning Step 0 bar.
     await expect(
