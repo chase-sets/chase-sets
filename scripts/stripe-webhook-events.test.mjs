@@ -3,11 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
-import {
-  INTERNAL_ONLY_PAYMENT_EVENTS,
-  STRIPE_DELIVERED_EVENTS,
-  STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS,
-} from "./stripe-webhook-endpoint.mjs";
+import { INTERNAL_ONLY_PAYMENT_EVENTS } from "./stripe-webhook-endpoint.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -31,9 +28,10 @@ describe("Stripe webhook event registry", () => {
       ...eventLiterals(handlerSource, /case "([^"]+)":/g),
     ]);
 
-    expect([...mappedEvents].sort()).toEqual([...STRIPE_DELIVERED_EVENTS, ...INTERNAL_ONLY_PAYMENT_EVENTS].sort());
-    expect(STRIPE_DELIVERED_EVENTS).toEqual(webhookEventRegistry.payment);
-    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS).toEqual(STRIPE_DELIVERED_EVENTS);
+    expect([...mappedEvents].sort()).toEqual(
+      [...STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, ...INTERNAL_ONLY_PAYMENT_EVENTS].sort(),
+    );
+    expect(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS).toEqual(webhookEventRegistry.payment);
   });
 
   it("never sends internal shared-payment facts in Stripe endpoint create requests", () => {
@@ -41,9 +39,9 @@ describe("Stripe webhook event registry", () => {
       "shared_payment.granted_token.used",
       "shared_payment.granted_token.deactivated",
     ]);
-    expect(STRIPE_DELIVERED_EVENTS).not.toContain("shared_payment.granted_token.used");
-    expect(STRIPE_DELIVERED_EVENTS).not.toContain("shared_payment.granted_token.deactivated");
-    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS.every((event) => !event.startsWith("shared_payment."))).toBe(true);
+    expect(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS).not.toContain("shared_payment.granted_token.used");
+    expect(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS).not.toContain("shared_payment.granted_token.deactivated");
+    expect(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS.every((event) => !event.startsWith("shared_payment."))).toBe(true);
   });
 
   it("ratchets the shared Connect registry against readiness and payout handlers", () => {

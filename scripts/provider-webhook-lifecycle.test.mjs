@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createProviderWebhooks, deleteProviderWebhooks } from "./provider-webhook-lifecycle.mjs";
+import {
+  createProviderWebhooks,
+  deleteProviderWebhooks,
+  proveStripePaymentWebhookContract,
+} from "./provider-webhook-lifecycle.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -42,12 +47,75 @@ describe("provider webhook lifecycle", () => {
       { provider: "stripe", id: "we_connect" },
       { provider: "easypost", id: "hook_easypost" },
     ]);
+    expect(result.ok).toBe(true);
     expect(new URLSearchParams(calls[0].init.body).get("url")).toContain("/api/payments/provider/webhooks");
+    expect(new URLSearchParams(calls[0].init.body).getAll("enabled_events[]")).toEqual(
+      STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+    );
     expect(new URLSearchParams(calls[1].init.body).get("connect")).toBe("true");
     expect(JSON.parse(calls[2].init.body).webhook).toMatchObject({
       url: expect.stringContaining("/api/fulfillment/provider/postage/webhooks"),
       webhook_secret: Buffer.from("easy-secret").toString("hex"),
     });
+  });
+
+  it("proves Stripe test-mode create and update acceptance, then deletes the proof endpoint", async () => {
+    const calls = [];
+    const fetch = async (url, init = {}) => {
+      calls.push({ url, init });
+      if (init.method === "DELETE") return response({ id: "we_proof", deleted: true });
+      return response({
+        id: "we_proof",
+        livemode: false,
+        enabled_events: [...STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS],
+      });
+    };
+
+    const result = await proveStripePaymentWebhookContract(
+      { namespace: "run-123", stripeApiKey: "sk_test_fixture" },
+      { fetch },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      schemaVersion: "provider-webhook-lifecycle/v1",
+      mode: "test",
+      eventCount: 21,
+      create: { id: "we_proof", accepted: true },
+      update: { id: "we_proof", accepted: true },
+      delete: { id: "we_proof", deleted: true },
+    });
+    expect(calls.map((call) => call.init.method)).toEqual(["POST", "POST", "DELETE"]);
+    expect(new URLSearchParams(calls[0].init.body).getAll("enabled_events[]")).toEqual(
+      STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+    );
+    expect(new URLSearchParams(calls[1].init.body).getAll("enabled_events[]")).toEqual(
+      STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+    );
+  });
+
+  it("deletes a test-mode proof endpoint when Stripe rejects its update response", async () => {
+    const methods = [];
+    await expect(
+      proveStripePaymentWebhookContract(
+        { namespace: "run-123", stripeApiKey: "sk_test_fixture" },
+        {
+          fetch: async (_url, init = {}) => {
+            methods.push(init.method);
+            if (init.method === "DELETE") return response({ id: "we_proof", deleted: true });
+            if (methods.length === 1) {
+              return response({
+                id: "we_proof",
+                livemode: false,
+                enabled_events: [...STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS],
+              });
+            }
+            return response({ id: "we_proof", livemode: false, enabled_events: ["payment_intent.succeeded"] });
+          },
+        },
+      ),
+    ).rejects.toThrow("update response did not echo");
+    expect(methods).toEqual(["POST", "POST", "DELETE"]);
   });
 
   it("deletes only endpoints whose exact URL belongs to the verification host", async () => {
