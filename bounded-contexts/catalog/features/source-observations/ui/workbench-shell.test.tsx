@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
@@ -7,6 +8,10 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
+import {
+  CatalogIntegrationsSurfaceRouteView,
+  type CatalogIntegrationsRouteData,
+} from "./integrations-surface-route-view";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogProviderSourceOptionKind, SourceObservationIntegrationOptionResponse } from "./contracts";
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
@@ -37,6 +42,11 @@ afterEach(() => {
   submitSpy.mockClear();
   submittedFormDataSnapshots.length = 0;
 });
+
+function CatalogIntegrationsRouteTestPage() {
+  const routeData = useLoaderData() as CatalogIntegrationsRouteData;
+  return <CatalogIntegrationsSurfaceRouteView surface="daily" routeData={routeData} />;
+}
 
 function surfaceReadModel(surface: CatalogControlPlaneRouteSurfaceKey) {
   return buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
@@ -1263,6 +1273,48 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     // Refresh-all fans across every group, so it carries no single queryKind.
     expect(refreshAllParams.has("sourceOptionQueryKind")).toBe(false);
     expect(refreshAllParams.has("forceRefresh")).toBe(false);
+  });
+
+  it("marks a warm deferred revalidation even when React preserves the settled panel node", async () => {
+    const readModel = dailyReadModelWithSourceOptions();
+    let loaderCalls = 0;
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/catalog/integrations",
+          loader: (): CatalogIntegrationsRouteData => {
+            loaderCalls += 1;
+            return {
+              readModel,
+              requestUrl: guidedRequestUrl,
+              // The router transition path tracks this already-resolved deferred
+              // replacement without the routerless Await prop-swap suspend loop.
+              deferredSourceOptions: Promise.resolve(readModel.sourceOptions),
+            };
+          },
+          Component: CatalogIntegrationsRouteTestPage,
+        },
+      ],
+      { initialEntries: ["/catalog/integrations"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(loaderCalls).toBe(1));
+    expandImportContextBar();
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-catalog-source-options-status]")).not.toBeNull();
+    });
+    const panel = container.querySelector("[data-catalog-source-options-status]");
+    const initialRequestId = panel?.getAttribute("data-source-options-request-id");
+
+    router.revalidate();
+
+    await waitFor(() => {
+      expect(loaderCalls).toBe(2);
+      expect(panel?.getAttribute("data-source-options-request-id")).not.toBe(initialRequestId);
+    });
+    expect(container.querySelector("[data-catalog-source-options-status]")).toBe(panel);
+    router.dispose();
   });
 
   it("submits streamed TCGplayer Yu-Gi-Oh parent refreshes without stale Pokemon scope", async () => {
