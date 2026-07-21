@@ -3730,6 +3730,10 @@ function selectedProviderScopeFieldsFromCommandFormValues(
   return fields.filter((field) => field.value.length > 0);
 }
 
+async function hiddenInputValue(form: Locator, name: string): Promise<string> {
+  return form.locator(`input[name="${name}"]`).first().inputValue();
+}
+
 function selectedProviderScopeMatchesJourneySelection(
   selectedScope: SelectedProviderScope,
   selectedChoices: readonly SelectedScopeChoice[],
