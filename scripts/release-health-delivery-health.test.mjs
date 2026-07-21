@@ -33,8 +33,8 @@ describe("delivery health conclusion normalization", () => {
   });
 
   it("uses nearest-rank percentiles and keeps empty samples explicit", () => {
-    expect(percentileSummary([])).toEqual({ sampleCount: 0, p50: null, p90: null });
-    expect(percentileSummary([10, 50, 20, 40, 30])).toEqual({ sampleCount: 5, p50: 30, p90: 50 });
+    expect(percentileSummary([])).toEqual({ sampleCount: 0, p50: null, p90: null, p95: null });
+    expect(percentileSummary([10, 50, 20, 40, 30])).toEqual({ sampleCount: 5, p50: 30, p90: 50, p95: 50 });
   });
 });
 
@@ -283,6 +283,82 @@ describe("delivery-health/v1", () => {
     expect(record.completeness.reasons).toContain("truncated:workflow:platform-pr.yml");
     expect(record.completeness.reasons).toContain("truncated:pull-request-nested-data");
     expect(record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+  });
+
+  it("reports a zero merge-qualification steady state while the advisory policy is disabled", () => {
+    const result = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source: representativeSource(),
+      apiStatus: {},
+    });
+    expect(result.record.mergeQualification).toMatchObject({
+      schemaVersion: "merge-qualification-summary/v1",
+      sampleCount: 0,
+      counts: { success: 0, applicationFailure: 0, cancellation: 0, infrastructure: 0 },
+      stagingCatchCount: 0,
+      orphanCount: 0,
+    });
+    // Disabled steady state: the canonical record carries the block, the
+    // markdown stays quiet instead of rendering an empty advisory section.
+    expect(result.markdown).not.toContain("Merge qualification (advisory)");
+  });
+
+  it("summarizes advisory merge-qualification stage events inside the canonical record", () => {
+    const source = representativeSource();
+    source.mergeQualification = {
+      events: [
+        {
+          candidateSha: "a".repeat(40),
+          candidateTreeSha: "b".repeat(40),
+          classifierClass: "isolated",
+          terminalState: "passed",
+          startedAt: "2026-07-18T10:00:00.000Z",
+          completedAt: "2026-07-18T10:20:00.000Z",
+          providerHeadroom: { headroomRuns: 3 },
+        },
+        {
+          candidateSha: "c".repeat(40),
+          candidateTreeSha: "d".repeat(40),
+          classifierClass: "isolated",
+          terminalState: "failed",
+          startedAt: "2026-07-18T10:00:00.000Z",
+          completedAt: "2026-07-18T10:30:00.000Z",
+          providerHeadroom: { headroomRuns: 2 },
+        },
+        {
+          candidateSha: "e".repeat(40),
+          candidateTreeSha: "f".repeat(40),
+          classifierClass: "not_applicable",
+          terminalState: "not_applicable",
+          startedAt: "2026-07-18T10:00:00.000Z",
+          completedAt: "2026-07-18T10:00:30.000Z",
+        },
+      ],
+      comparisons: [{ mapping: "same-tree-different-commit", caught: true, classifierRoutingEvidence: false }],
+      candidates: ["a".repeat(40), "c".repeat(40), "e".repeat(40), "9".repeat(40)],
+    };
+    const result = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    });
+    expect(result.record.mergeQualification).toMatchObject({
+      sampleCount: 3,
+      candidateCount: 4,
+      counts: { success: 1, applicationFailure: 1, notApplicable: 1 },
+      durationSeconds: { sampleCount: 2, p50: 1200, p90: 1800, p95: 1800 },
+      stagingCatchCount: 1,
+      orphanCount: 1,
+      providerHeadroom: { sampleCount: 2, minHeadroomRuns: 2, latestHeadroomRuns: 2 },
+    });
+    expect(result.markdown).toContain("### Merge qualification (advisory)");
+    expect(result.markdown).toContain("1 staging catches");
   });
 
   it("keeps the artifact support-safe and never copies logs or pull request titles", () => {

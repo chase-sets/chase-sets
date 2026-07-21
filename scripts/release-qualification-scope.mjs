@@ -201,6 +201,10 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "scripts/catalog-integration-reset.ts",
     "scripts/catalog-production-completion-report.ts",
     "scripts/discovery-search-embedding-backfill.mjs",
+    // The advisory merge-qualification enablement policy gates release
+    // qualification behavior; flipping it is release-machinery surface even
+    // though the file itself is data, not an executable script.
+    "scripts/merge-qualification-policy.json",
     "scripts/production-readiness-gate.mjs",
     "scripts/production-recovery-mode.mjs",
     "scripts/promoted-release.mjs",

@@ -37,6 +37,16 @@ on:
         required: false
         default: none
         type: string
+    outputs:
+      image_digest:
+        description: Immutable sha256 digest the gate resolved and qualified.
+        value: ${{ jobs.verify.outputs.image_digest }}
+      candidate_sha:
+        description: Candidate commit SHA the gate qualified.
+        value: ${{ jobs.verify.outputs.candidate_sha }}
+      candidate_tree_sha:
+        description: Candidate git tree SHA the gate qualified.
+        value: ${{ jobs.verify.outputs.candidate_tree_sha }}
   workflow_dispatch:
     inputs:
       image_digest:
@@ -223,6 +233,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     environment: merge-gate
+    outputs:
+      image_digest: ${{ steps.image.outputs.digest }}
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
+      candidate_tree_sha: ${{ steps.candidate.outputs.candidate_tree }}
     env:
       DEPLOYMENT_ENVIRONMENT: preview
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "merge-qualification-policy/v1",
+  "enabled": false,
+  "owner": null,
+  "ceiling": null,
+  "enabledAt": null,
+  "expiresAt": null,
+  "notes": "Default-off advisory merge-group qualification policy (issue #5839). Enablement is #5881's operator action: it records owner, ceiling (dollarCeilingUsd + maxQualificationsPerDay), enabledAt, and expiresAt (at most 30 days after enabledAt) at enablement time. An absent, disabled, expired, or malformed policy behaves as disabled: a visible advisory summary note, no provider mutation, no qualification records, no advisory check assertion."
+}

@@ -117,4 +117,23 @@ Registration contract — every new semantic owner must register, and unknown re
 
 Fail-closed polarity (deliberate): this classifier treats a missing base, unreadable metadata or file content, unknown categories, classifier errors, and future policy versions as `persistent_required`. The sibling `scripts/release-deployment-scope.mjs` deliberately treats a missing base as deploy-required (fail open-to-deploy). Both fail toward the safer action for their consumer; production reconciliation must preserve both behaviors.
 
+## Advisory merge-group qualification (issue #5839) and its enablement policy
+
+The advisory qualification chain in `.github/workflows/platform-pr.yml` (jobs `merge-qualification-plan`, `merge-qualification-gate`, `merge-qualification-advisory`) ships behind the checked-in default-off policy at `scripts/merge-qualification-policy.json` (`merge-qualification-policy/v1`, validated by `scripts/merge-qualification-advisory.mjs`). The policy validates fail-closed: an absent, disabled, expired, or malformed policy — including an `expiresAt` more than 30 days after `enabledAt` — behaves as disabled with a visible advisory summary note, no provider mutation, no qualification records, and no advisory check assertion. Enablement values (owner, ceiling, `enabledAt`, `expiresAt`) are recorded by #5881 at enablement; the expiry clock starts at enablement, and advisory automation stops automatically at expiry.
+
+Terminal advisory lifecycle (enabled policy; exactly one state per merge-group candidate):
+
+| Terminal state | Reached when | Provisions? | Next routine run |
+| --- | --- | --- | --- |
+| `not_applicable` | classifier class `not_applicable` (deterministic reason codes) | never | classifies the next candidate fresh |
+| `persistent_required` | classifier class `persistent_required` (incl. every fail-closed trigger) | never | classifies the next candidate fresh |
+| `passed` | isolated candidate; reused merge-gate workflow succeeded against the exact published tree digest | gate namespace (torn down by the gate's always() finalizers) | classifies the next candidate fresh |
+| `failed` | isolated candidate; gate failed (missing credentials/image/digest included — never silent) | possibly (same finalizers) | classifies the next candidate fresh |
+| `cancelled_evicted` | queue cancellation/eviction; reported separately from failure | possibly (finalizers + scheduled gate sweep backstop) | classifies the next candidate fresh |
+| `infrastructure_error` | plan crashed, classifier output missing, candidate image unavailable, or gate not invoked | never | classifies the next candidate fresh |
+
+Disabled steady state (this leaf's shipped state, and the day-after path in both directions): every merge-group run posts the disabled note and asserts nothing; re-enabling requires a reviewed policy change (registered release-machinery surface in the classifier registry), and an overnight expiry lands the next run back in the disabled note with `policy_expired`. Run-level eviction before the publisher lands no event; the canonical delivery-health reader counts such candidates as orphans, and stranded gate namespaces remain covered by the scheduled gate sweep.
+
+Stage events (`merge-qualification-event/v1`) feed the canonical #5502 delivery-health record (`scripts/release-health-delivery-health.mjs`, `record.mergeQualification`), and `scripts/merge-qualification-advisory.mjs join` compares eligible isolated outcomes to the merged main release and its persistent staging result by candidate tree SHA — never branch names. Terraform/provider-topology staging failures are classifier-routing evidence; application/contract failures after a passed qualification are staging catches. Persistent staging remains required for every merged deployable candidate regardless of policy state.
+
 Known limits (recorded): the SQL-DDL detector is static — DDL assembled dynamically at runtime (string concatenation, `sql.unsafe(...)` over composed fragments) is a detection ceiling and relies on the registered mechanism roots and review policy instead. Release-workflow script references resolve literal `scripts/` tokens and root `pnpm run` aliases (transitively) from the candidate's `package.json`; invocations composed from environment variables at runtime are outside static reach — register such scripts in `operationalScriptPaths`.

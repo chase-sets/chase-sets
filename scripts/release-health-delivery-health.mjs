@@ -5,6 +5,7 @@ import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { summarizeMergeQualification } from "./merge-qualification-advisory.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 
 export const DELIVERY_HEALTH_VERSION = "delivery-health/v1";
@@ -63,6 +64,7 @@ export function percentileSummary(values) {
     sampleCount: numbers.length,
     p50: nearestRank(numbers, 0.5),
     p90: nearestRank(numbers, 0.9),
+    p95: nearestRank(numbers, 0.95),
   };
 }
 
@@ -228,6 +230,10 @@ export function buildDeliveryHealth(input) {
   };
   record.baselineComparison = buildBaselineComparison(record, input.policy.baseline);
   record.rolloutComparisons = buildRolloutComparisons(normalized, windows.rolling7d.start, generatedAt, input.policy);
+  // Advisory merge-group qualification stage events feed the same canonical
+  // record instead of a parallel dashboard. With the enablement policy
+  // disabled the source is empty and the summary reports zeros.
+  record.mergeQualification = summarizeMergeQualification(normalized.mergeQualification);
   record.slis = evaluateSlis(record, input.policy);
   return { record, markdown: renderDeliveryHealthMarkdown(record) };
 }
@@ -297,6 +303,11 @@ function normalizeSource(source = {}) {
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
+    mergeQualification: {
+      events: Array.isArray(source.mergeQualification?.events) ? source.mergeQualification.events : [],
+      comparisons: Array.isArray(source.mergeQualification?.comparisons) ? source.mergeQualification.comparisons : [],
+      candidates: Array.isArray(source.mergeQualification?.candidates) ? source.mergeQualification.candidates : null,
+    },
   };
 }
 
@@ -702,6 +713,20 @@ export function renderDeliveryHealthMarkdown(record) {
     `- Release: ${current.releases.dispatch.runCount} dispatch candidates; ${current.releases.actual.runCount} actual decisions; ${current.releases.actual.preMutationFailures} pre-mutation failures; ${current.releases.actual.supersededOrCoalesced} superseded/coalesced.`,
     `- Staging: ${formatRate(current.releases.staging)}; duration p50/p90 ${formatSeconds(current.releases.staging.durationSeconds.p50)} / ${formatSeconds(current.releases.staging.durationSeconds.p90)}.`,
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
+  );
+  const mergeQualification = record.mergeQualification;
+  if (mergeQualification && mergeQualification.sampleCount > 0) {
+    lines.push(
+      "",
+      "### Merge qualification (advisory)",
+      "",
+      `- Terminal results: ${mergeQualification.counts.success} passed; ${mergeQualification.counts.applicationFailure} failed; ${mergeQualification.counts.cancellation} cancelled/evicted; ${mergeQualification.counts.infrastructure} infrastructure; ${mergeQualification.counts.notApplicable} not applicable; ${mergeQualification.counts.persistentRequired} persistent required.`,
+      `- Qualification duration p50/p90/p95: ${formatSeconds(mergeQualification.durationSeconds.p50)} / ${formatSeconds(mergeQualification.durationSeconds.p90)} / ${formatSeconds(mergeQualification.durationSeconds.p95)}.`,
+      `- Staging comparison: ${mergeQualification.stagingCatchCount} staging catches; ${mergeQualification.classifierRoutingCount} classifier-routing signals; ${mergeQualification.supersededCount} superseded; ${mergeQualification.orphanCount} orphans.`,
+      `- Provider headroom: min ${mergeQualification.providerHeadroom.minHeadroomRuns ?? "n/a"} / latest ${mergeQualification.providerHeadroom.latestHeadroomRuns ?? "n/a"} concurrent gate runs (${mergeQualification.providerHeadroom.sampleCount} samples).`,
+    );
+  }
+  lines.push(
     "",
     "### SLI posture",
     "",

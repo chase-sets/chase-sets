@@ -1683,3 +1683,155 @@ jobs:
             --job-started-at "${{ steps.clock.outputs.started_at }}" \
             --out artifacts/release-qualification-scope.json \
             --github-summary "$GITHUB_STEP_SUMMARY"
+
+  # Advisory merge-group qualification orchestration (issue #5839) behind the
+  # checked-in default-off policy at scripts/merge-qualification-policy.json.
+  # Fail-closed: an absent, disabled, expired, or malformed policy behaves as
+  # disabled — a visible summary note, no provider mutation, no qualification
+  # records, no advisory assertion. Never a required check: PR Required does
+  # not consume any merge-qualification job, and post-merge persistent staging
+  # is unchanged. Enablement, operator secrets, live drills, and the
+  # 20-candidate soak are issue #5881.
+  #
+  # Planning is provider-inert by design: no step in this job threads any
+  # provider credential; classification reads git history only.
+  merge-qualification-plan:
+    name: Merge Qualification Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    if: github.event_name == 'merge_group'
+    outputs:
+      enabled: ${{ steps.policy.outputs.enabled }}
+      policy_reason: ${{ steps.policy.outputs.reason_code }}
+      route: ${{ steps.route.outputs.route }}
+      classifier_class: ${{ steps.route.outputs.classifier_class }}
+      classifier_reason_codes: ${{ steps.route.outputs.classifier_reason_codes }}
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
+      candidate_tree: ${{ steps.candidate.outputs.candidate_tree }}
+      started_at: ${{ steps.candidate.outputs.started_at }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Evaluate merge-qualification enablement policy
+        id: policy
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs policy \
+            --policy scripts/merge-qualification-policy.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve candidate identity
+        id: candidate
+        run: |
+          set -euo pipefail
+          {
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "candidate_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Classify candidate for advisory qualification
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          node ./scripts/release-qualification-scope.mjs classify \
+            --candidate "${{ github.event.merge_group.head_sha }}" \
+            --out artifacts/merge-qualification/scope.json
+
+      - name: Resolve advisory qualification route
+        id: route
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification-advisory.mjs route \
+            --classifier-record artifacts/merge-qualification/scope.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload merge qualification plan evidence
+        if: steps.policy.outputs.enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Isolated candidates reuse the cancellation-safe merge-gate workflow
+  # (issue #5869) against the exact tree image this run's Docker Image Build
+  # job already pushed: the gate independently resolves the candidate tree
+  # tag to an immutable digest and fails before smoke on a missing image or
+  # digest substitution, and its durable release-qualification/v1 record uses
+  # those same resolved inputs. merge-gate environment secrets resolve inside
+  # the called workflow's jobs; this caller inherits nothing.
+  merge-qualification-gate:
+    name: Merge Qualification Gate
+    needs: [merge-qualification-plan, docker-image]
+    if: >
+      always() &&
+      github.event_name == 'merge_group' &&
+      needs['merge-qualification-plan'].result == 'success' &&
+      needs['merge-qualification-plan'].outputs.enabled == 'true' &&
+      needs['merge-qualification-plan'].outputs.route == 'isolated' &&
+      needs['docker-image'].result == 'success'
+    uses: ./.github/workflows/platform-merge-gate-verification.yml
+    with:
+      candidate_ref: ${{ github.event.merge_group.head_sha }}
+
+  # Publishes the single terminal advisory result for this candidate:
+  # passed, failed, not_applicable, persistent_required, cancelled_evicted,
+  # or infrastructure_error — exactly one, never silent. Re-evaluates the
+  # checked-in policy itself so a crashed plan job still fails closed. The
+  # emitted merge-qualification-event/v1 record feeds the canonical #5502
+  # delivery-health readers; no step here threads any provider credential.
+  merge-qualification-advisory:
+    name: Merge Qualification (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    needs: [merge-qualification-plan, merge-qualification-gate, docker-image]
+    if: always() && github.event_name == 'merge_group'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Publish terminal advisory result
+        env:
+          PLAN_RESULT: ${{ needs['merge-qualification-plan'].result }}
+          CLASSIFIER_CLASS: ${{ needs['merge-qualification-plan'].outputs.classifier_class }}
+          CLASSIFIER_REASON_CODES: ${{ needs['merge-qualification-plan'].outputs.classifier_reason_codes }}
+          CANDIDATE_SHA: ${{ needs['merge-qualification-plan'].outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ needs['merge-qualification-plan'].outputs.candidate_tree }}
+          STARTED_AT: ${{ needs['merge-qualification-plan'].outputs.started_at }}
+          GATE_RESULT: ${{ needs['merge-qualification-gate'].result }}
+          GATE_IMAGE_DIGEST: ${{ needs['merge-qualification-gate'].outputs.image_digest }}
+          IMAGE_AVAILABLE: ${{ needs['docker-image'].result == 'success' }}
+        run: |
+          set -euo pipefail
+          candidate_sha="${CANDIDATE_SHA:-$(git rev-parse HEAD)}"
+          candidate_tree="${CANDIDATE_TREE:-$(git rev-parse 'HEAD^{tree}')}"
+          node ./scripts/merge-qualification-advisory.mjs publish \
+            --policy scripts/merge-qualification-policy.json \
+            --plan-result "$PLAN_RESULT" \
+            --classifier-class "$CLASSIFIER_CLASS" \
+            --classifier-reason-codes "$CLASSIFIER_REASON_CODES" \
+            --gate-result "$GATE_RESULT" \
+            --image-available "$IMAGE_AVAILABLE" \
+            --candidate-sha "$candidate_sha" \
+            --candidate-tree "$candidate_tree" \
+            --image-digest "$GATE_IMAGE_DIGEST" \
+            --started-at "$STARTED_AT" \
+            --out artifacts/merge-qualification/event.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merge qualification advisory events
+        if: needs['merge-qualification-plan'].outputs.enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-events-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification
+          if-no-files-found: ignore
+          retention-days: 30
