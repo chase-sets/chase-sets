@@ -369,7 +369,32 @@ export async function recomputeMarketStateSnapshot(db: PgQueryable, params: Prod
     open_offer_count: number;
     max_bid_amount: string | null;
   }>(
-    `SELECT
+    `WITH eligible_offers AS (
+       SELECT offer.price_amount
+       FROM pricing_buyer_offer_inputs AS offer
+       WHERE offer.catalog_catalog_item_id = $1
+         AND offer.product_id = $2
+         AND offer.status = 'submitted'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM pricing_market_trade_linkage_clusters AS cluster
+           WHERE cluster.flagged = true
+             AND (
+               (offer.seller_account_id IS NOT NULL
+                AND cluster.account_ids @> ARRAY[offer.buyer_account_id, offer.seller_account_id]::text[])
+               OR (offer.seller_account_id IS NULL
+                   AND EXISTS (
+                     SELECT 1
+                     FROM pricing_market_listing_inputs AS listing
+                     WHERE listing.catalog_catalog_item_id = offer.catalog_catalog_item_id
+                       AND listing.product_id = offer.product_id
+                       AND listing.status = 'active'
+                       AND cluster.account_ids @> ARRAY[offer.buyer_account_id, listing.seller_account_id]::text[]
+                   ))
+             )
+         )
+     )
+     SELECT
        COALESCE(
          (SELECT COUNT(*)::integer FROM pricing_market_listing_inputs
           WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND status = 'active'),
@@ -378,12 +403,10 @@ export async function recomputeMarketStateSnapshot(db: PgQueryable, params: Prod
        (SELECT MIN(price_amount) FROM pricing_market_listing_inputs
         WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND status = 'active') AS min_ask_amount,
        COALESCE(
-         (SELECT COUNT(*)::integer FROM pricing_buyer_offer_inputs
-          WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND status = 'submitted'),
+         (SELECT COUNT(*)::integer FROM eligible_offers),
          0
        ) AS open_offer_count,
-       (SELECT MAX(price_amount) FROM pricing_buyer_offer_inputs
-        WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND status = 'submitted') AS max_bid_amount`,
+       (SELECT MAX(price_amount) FROM eligible_offers) AS max_bid_amount`,
     [params.catalogItemId, params.productId],
   );
   const row = aggregate.rows[0]!;
