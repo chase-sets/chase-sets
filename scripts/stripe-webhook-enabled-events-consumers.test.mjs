@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -54,20 +54,15 @@ describe("Stripe enabled_events consumers", () => {
   });
 
   it("rejects an inline literal enabled_events list as a negative control", () => {
-    const fixtureDirectory = mkdtempSync(path.join(rootDir, "contracts", "stripe-webhook-enabled-events-"));
-    const fixturePath = path.join(fixtureDirectory, "payment-processing-webhook.mjs");
-    const fixtureRelativePath = path.relative(rootDir, fixturePath).replaceAll("\\", "/");
-    writeFileSync(
-      fixturePath,
-      'for (const event of ["payment_intent.succeeded"]) body.append("enabled_events[]", event);',
-    );
+    // In-memory fixture: writing it under the real contracts/ tree raced the
+    // teardown test's concurrent directory walk (ENOENT flakes in test:scripts).
+    const fixture = {
+      path: "contracts/stripe-webhook-enabled-events-fixture/payment-processing-webhook.mjs",
+      source: 'for (const event of ["payment_intent.succeeded"]) body.append("enabled_events[]", event);',
+    };
 
-    try {
-      expect(enabledEventConsumerViolations(repositorySources())).toContain(
-        `${fixtureRelativePath} writes enabled_events[] outside ${canonicalWriter}`,
-      );
-    } finally {
-      rmSync(fixtureDirectory, { recursive: true, force: true });
-    }
+    expect(enabledEventConsumerViolations([fixture])).toContain(
+      `${fixture.path} writes enabled_events[] outside ${canonicalWriter}`,
+    );
   });
 });
