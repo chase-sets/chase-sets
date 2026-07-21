@@ -29,6 +29,13 @@ export function buildReleaseHealthGithubMetadata(input) {
   const removedEvent = firstTimelineEvent(timeline, "removed_from_merge_queue");
   const queueMergedAt = normalizeIso(pull?.merged_at) ?? normalizeIso(mergedEvent?.created_at) ?? null;
   const queueDequeuedAt = removedEvent && !queueMergedAt ? normalizeIso(removedEvent.created_at) : null;
+  const mergeCandidate = selectMergeCandidate({
+    pullNumber: pull?.number,
+    queueQueuedAt,
+    queueMergedAt,
+    mergeGroupRuns,
+    releaseTreeSha: input.releaseTreeSha,
+  });
 
   return {
     pullRequestNumber: pull?.number ?? null,
@@ -36,12 +43,17 @@ export function buildReleaseHealthGithubMetadata(input) {
     prReadyForReviewAt: readyForReviewAt(pull, timeline),
     prApprovedAt: latestApprovedAt(reviews),
     queueQueuedAt,
-    queueMergeGroupStartedAt: firstMergeGroupStartedAt(mergeGroupRuns),
+    queueMergeGroupStartedAt: normalizeIso(mergeCandidate?.created_at) ?? null,
     queueMergedAt,
     queueDequeuedAt,
     queueFailureReason: queueDequeuedAt ? queueFailureReason(timeline) : null,
     queueBatchSize: mergeQueueBatchSize(branchRules),
+    candidateSha: mergeCandidate?.head_sha ?? null,
+    candidateTreeSha: mergeCandidate?.candidateTreeSha ?? null,
+    mergeGroupRunId: mergeCandidate ? String(mergeCandidate.id) : null,
+    mergeGroupRunAttempt: mergeCandidate ? String(mergeCandidate.run_attempt) : null,
     mergeSha: normalizeCommitSha(mergedEvent?.commit_id) ?? normalizeCommitSha(pull?.merge_commit_sha) ?? releaseCommit,
+    mergeTreeSha: normalizeCommitSha(input.releaseTreeSha),
   };
 }
 
@@ -61,13 +73,36 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
 
   const pulls = await request(`/commits/${options.releaseCommit}/pulls`);
   const pull = Array.isArray(pulls) ? pulls[0] : null;
-  const [pullDetails, reviews, timeline, runs, branchRules] = await Promise.all([
+  const [pullDetails, reviews, timeline, branchRules, releaseCommit] = await Promise.all([
     pull?.number ? request(`/pulls/${pull.number}`) : null,
     pull?.number ? request(`/pulls/${pull.number}/reviews?per_page=100`) : [],
     pull?.number ? request(`/issues/${pull.number}/timeline?per_page=100`) : [],
-    request(`/actions/runs?head_sha=${encodeURIComponent(options.releaseCommit)}&event=merge_group&per_page=10`),
     request(`/rules/branches/main?per_page=100`).catch(() => []),
+    request(`/git/commits/${options.releaseCommit}`),
   ]);
+  const queueQueuedAt =
+    firstTimelineTimestamp(Array.isArray(timeline) ? timeline : [], "added_to_merge_queue") ??
+    normalizeIso(options.sourceWorkflowCreatedAt);
+  const runs = await collectMergeGroupRuns(request, { queueQueuedAt, maxPages: 20 });
+  const candidateRuns = [];
+  const pullBranch = pull?.number ? new RegExp(`(?:^|/)pr-${pull.number}-`) : null;
+  for (const run of runs) {
+    if (
+      run?.event !== "merge_group" ||
+      run?.path !== ".github/workflows/platform-pr.yml" ||
+      (pullBranch && !pullBranch.test(String(run?.head_branch ?? "")))
+    ) {
+      continue;
+    }
+    const candidateSha = normalizeCommitSha(run?.head_sha);
+    if (!candidateSha) continue;
+    try {
+      const commit = await request(`/git/commits/${candidateSha}`);
+      candidateRuns.push({ ...run, candidateTreeSha: normalizeCommitSha(commit?.tree?.sha) });
+    } catch {
+      candidateRuns.push({ ...run, candidateTreeSha: null });
+    }
+  }
 
   return buildReleaseHealthGithubMetadata({
     releaseCommit: options.releaseCommit,
@@ -75,9 +110,56 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     pull: pullDetails ?? pull,
     reviews,
     timeline,
-    mergeGroupRuns: runs?.workflow_runs ?? [],
+    mergeGroupRuns: candidateRuns,
+    releaseTreeSha: releaseCommit?.tree?.sha,
     branchRules,
   });
+}
+
+async function collectMergeGroupRuns(request, { queueQueuedAt, maxPages }) {
+  const byAttempt = new Map();
+  let declaredTotal = null;
+  const queuedMs = Date.parse(queueQueuedAt ?? "");
+  for (let page = 1; page <= maxPages; page += 1) {
+    const payload = await request(
+      `/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=${page}`,
+    );
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      Array.isArray(payload) ||
+      !Number.isSafeInteger(payload.total_count) ||
+      payload.total_count < 0 ||
+      !Array.isArray(payload.workflow_runs)
+    ) {
+      throw new Error(`Merge-group run collection page ${page} did not match the GitHub response contract.`);
+    }
+    if (declaredTotal === null) declaredTotal = payload.total_count;
+    else if (declaredTotal !== payload.total_count)
+      throw new Error("Merge-group run collection changed total_count between pages.");
+    for (const run of payload.workflow_runs) {
+      const key = `${run?.id ?? ""}:${run?.run_attempt ?? ""}`;
+      const encoded = JSON.stringify(run);
+      const previous = byAttempt.get(key);
+      if (previous && previous.encoded !== encoded) {
+        throw new Error(`Merge-group run collection returned conflicting duplicate attempt ${key}.`);
+      }
+      if (!previous) byAttempt.set(key, { encoded, run });
+    }
+    if (byAttempt.size >= declaredTotal) return [...byAttempt.values()].map(({ run }) => run);
+    const crossedCausalWindow =
+      Number.isFinite(queuedMs) &&
+      payload.workflow_runs.some(
+        (run) => Number.isFinite(Date.parse(run?.created_at ?? "")) && Date.parse(run.created_at) < queuedMs,
+      );
+    if (crossedCausalWindow) return [...byAttempt.values()].map(({ run }) => run);
+    if (payload.workflow_runs.length === 0) {
+      throw new Error(
+        `Merge-group run collection stopped at ${byAttempt.size}/${declaredTotal} without crossing the causal window.`,
+      );
+    }
+  }
+  throw new Error(`Merge-group run collection exceeded the bounded ${maxPages} pages.`);
 }
 
 export function formatGithubOutput(metadata) {
@@ -92,7 +174,12 @@ export function formatGithubOutput(metadata) {
     queue_dequeued_at: metadata.queueDequeuedAt,
     queue_failure_reason: metadata.queueFailureReason,
     queue_batch_size: metadata.queueBatchSize,
+    candidate_sha: metadata.candidateSha,
+    candidate_tree_sha: metadata.candidateTreeSha,
+    merge_group_run_id: metadata.mergeGroupRunId,
+    merge_group_run_attempt: metadata.mergeGroupRunAttempt,
     merge_sha: metadata.mergeSha,
+    merge_tree_sha: metadata.mergeTreeSha,
   };
 
   return `${Object.entries(entries)
@@ -164,6 +251,39 @@ function firstMergeGroupStartedAt(runs) {
       .filter(Boolean)
       .sort()
       .at(0) ?? null
+  );
+}
+
+function selectMergeCandidate({ pullNumber, queueQueuedAt, queueMergedAt, mergeGroupRuns, releaseTreeSha }) {
+  if (!Number.isSafeInteger(pullNumber) || !normalizeCommitSha(releaseTreeSha)) return null;
+  const queuedMs = Date.parse(queueQueuedAt ?? "");
+  const mergedMs = Date.parse(queueMergedAt ?? "");
+  const branchPattern = new RegExp(`(?:^|/)pr-${pullNumber}-`);
+  const eligible = mergeGroupRuns.filter((run) => {
+    const createdMs = Date.parse(run?.created_at ?? "");
+    return (
+      run?.event === "merge_group" &&
+      run?.path === ".github/workflows/platform-pr.yml" &&
+      run?.status === "completed" &&
+      run?.conclusion === "success" &&
+      branchPattern.test(String(run?.head_branch ?? "")) &&
+      normalizeCommitSha(run?.head_sha) !== null &&
+      normalizeCommitSha(run?.candidateTreeSha) === normalizeCommitSha(releaseTreeSha) &&
+      Number.isSafeInteger(run?.id) &&
+      Number.isSafeInteger(run?.run_attempt) &&
+      run.run_attempt > 0 &&
+      Number.isFinite(createdMs) &&
+      (!Number.isFinite(queuedMs) || createdMs >= queuedMs) &&
+      (!Number.isFinite(mergedMs) || createdMs <= mergedMs)
+    );
+  });
+  return (
+    [...eligible].sort((left, right) => {
+      const time = Date.parse(right.updated_at ?? right.created_at) - Date.parse(left.updated_at ?? left.created_at);
+      if (time !== 0) return time;
+      if (left.id !== right.id) return right.id - left.id;
+      return right.run_attempt - left.run_attempt;
+    })[0] ?? null
   );
 }
 

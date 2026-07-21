@@ -18,6 +18,7 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     dispatchAttempt: readOption(argv, "--dispatch-attempt") ?? readEnv("DISPATCH_ATTEMPT", env) ?? null,
     dispatchReason: readOption(argv, "--dispatch-reason") ?? readEnv("DISPATCH_REASON", env) ?? null,
     releaseMode: readOption(argv, "--release-mode") ?? readEnv("RELEASE_MODE", env) ?? "normal",
+    prNumber: normalizeOptionalInteger(readOption(argv, "--pr-number") ?? readEnv("PR_NUMBER", env), "PR_NUMBER"),
     prOpenedAt: readOption(argv, "--pr-opened-at") ?? readEnv("PR_OPENED_AT", env) ?? null,
     prReadyForReviewAt: readOption(argv, "--pr-ready-for-review-at") ?? readEnv("PR_READY_FOR_REVIEW_AT", env) ?? null,
     prApprovedAt: readOption(argv, "--pr-approved-at") ?? readEnv("PR_APPROVED_AT", env) ?? null,
@@ -31,7 +32,13 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     queueMergedAt: readOption(argv, "--queue-merged-at") ?? readEnv("QUEUE_MERGED_AT", env) ?? null,
     queueDequeuedAt: readOption(argv, "--queue-dequeued-at") ?? readEnv("QUEUE_DEQUEUED_AT", env) ?? null,
     queueFailureReason: readOption(argv, "--queue-failure-reason") ?? readEnv("QUEUE_FAILURE_REASON", env) ?? null,
+    candidateSha: readOption(argv, "--candidate-sha") ?? readEnv("CANDIDATE_SHA", env) ?? null,
+    candidateTreeSha: readOption(argv, "--candidate-tree-sha") ?? readEnv("CANDIDATE_TREE_SHA", env) ?? null,
+    mergeGroupRunId: readOption(argv, "--merge-group-run-id") ?? readEnv("MERGE_GROUP_RUN_ID", env) ?? null,
+    mergeGroupRunAttempt:
+      readOption(argv, "--merge-group-run-attempt") ?? readEnv("MERGE_GROUP_RUN_ATTEMPT", env) ?? null,
     mergeSha: readOption(argv, "--merge-sha") ?? readEnv("MERGE_SHA", env) ?? null,
+    mergeTreeSha: readOption(argv, "--merge-tree-sha") ?? readEnv("MERGE_TREE_SHA", env) ?? null,
     releaseCommitCommittedAt:
       readOption(argv, "--release-commit-committed-at") ?? readEnv("RELEASE_COMMIT_COMMITTED_AT", env) ?? null,
     releaseCategory: readOption(argv, "--release-category") ?? readEnv("RELEASE_CATEGORY", env) ?? "ordinary-deploy",
@@ -213,6 +220,9 @@ export function buildReleaseHealthRecord(input) {
   if (!["automatic", "manual", "recovery", "emergency"].includes(dispatchSource)) {
     errors.push("dispatchSource must be automatic, manual, recovery, or emergency.");
   }
+  if (input.prNumber != null && (!Number.isSafeInteger(input.prNumber) || input.prNumber <= 0)) {
+    errors.push("prNumber must be a positive safe integer when provided.");
+  }
   validateOptionalIsoInstant("prOpenedAt", input.prOpenedAt, errors);
   validateOptionalIsoInstant("prReadyForReviewAt", input.prReadyForReviewAt, errors);
   validateOptionalIsoInstant("prApprovedAt", input.prApprovedAt, errors);
@@ -232,6 +242,39 @@ export function buildReleaseHealthRecord(input) {
   validateOptionalIsoInstant("productionRestorePointCreatedAt", input.productionRestorePointCreatedAt, errors);
   if (isNonEmptyString(input.mergeSha) && !isCommitSha(input.mergeSha)) {
     errors.push("mergeSha must be a 40-character Git commit SHA when provided.");
+  }
+  const finalMergeIdentity = [input.mergeSha, input.mergeTreeSha];
+  if (finalMergeIdentity.some((value) => isNonEmptyString(value))) {
+    if (!isCommitSha(input.mergeSha) || !isCommitSha(input.mergeTreeSha)) {
+      errors.push("queue mergeSha/mergeTreeSha must be a complete immutable pair.");
+    }
+  }
+  const candidateLineage = [
+    input.candidateSha,
+    input.candidateTreeSha,
+    input.mergeGroupRunId,
+    input.mergeGroupRunAttempt,
+  ];
+  if (candidateLineage.some((value) => isNonEmptyString(value))) {
+    if (!isCommitSha(input.candidateSha) || !isCommitSha(input.candidateTreeSha)) {
+      errors.push("queue candidateSha/candidateTreeSha must be a complete immutable pair.");
+    }
+    if (!isCommitSha(input.mergeSha) || !isCommitSha(input.mergeTreeSha)) {
+      errors.push("queue candidate lineage requires the complete final merge identity.");
+    }
+    if (
+      !isPositiveSafeIntegerString(input.mergeGroupRunId) ||
+      !isPositiveSafeIntegerString(input.mergeGroupRunAttempt)
+    ) {
+      errors.push("queue merge-group run identity must be a bounded positive run/attempt pair.");
+    }
+    if (
+      isCommitSha(input.candidateTreeSha) &&
+      isCommitSha(input.mergeTreeSha) &&
+      input.candidateTreeSha.toLowerCase() !== input.mergeTreeSha.toLowerCase()
+    ) {
+      errors.push("queue candidate and final merge trees must agree.");
+    }
   }
   if (!["none", "readiness", "rollback", "fix-forward"].includes(recoveryMode)) {
     errors.push("recoveryMode must be none, readiness, rollback, or fix-forward.");
@@ -271,6 +314,7 @@ export function buildReleaseHealthRecord(input) {
     },
     deploymentRequired: input.deploymentRequired,
     pullRequest: {
+      number: input.prNumber ?? null,
       openedAt: emptyToNull(input.prOpenedAt),
       readyForReviewAt: emptyToNull(input.prReadyForReviewAt),
       approvedAt: emptyToNull(input.prApprovedAt),
@@ -286,7 +330,12 @@ export function buildReleaseHealthRecord(input) {
       mergedAt: emptyToNull(input.queueMergedAt),
       dequeuedAt: emptyToNull(input.queueDequeuedAt),
       failureReason: emptyToNull(input.queueFailureReason),
+      candidateSha: emptyToNull(input.candidateSha),
+      candidateTreeSha: emptyToNull(input.candidateTreeSha),
+      mergeGroupRunId: emptyToNull(input.mergeGroupRunId),
+      mergeGroupRunAttempt: emptyToNull(input.mergeGroupRunAttempt),
       mergeSha: emptyToNull(input.mergeSha),
+      mergeTreeSha: emptyToNull(input.mergeTreeSha),
       releaseCommitCommittedAt: emptyToNull(input.releaseCommitCommittedAt),
     },
     releaseCategory: {
@@ -847,6 +896,12 @@ function emptyToNull(value) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveSafeIntegerString(value) {
+  return (
+    typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value) && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER)
+  );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

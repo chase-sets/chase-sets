@@ -9,6 +9,7 @@ const advisory = read(".github/workflows/platform-merge-qualification.yml");
 const gate = read(".github/workflows/platform-merge-gate-verification.yml");
 const observer = read(".github/workflows/platform-merge-qualification-terminalizer.yml");
 const production = read(".github/workflows/platform-production.yml");
+const previewCleanup = read(".github/workflows/platform-preview-cleanup.yml");
 
 function job(workflow, id) {
   const marker = `  ${id}:\n`;
@@ -112,16 +113,18 @@ describe("run-attempt decision and terminal evidence", () => {
     expect(inspect).toContain("artifacts?per_page=100");
     expect(inspect).toContain("pagination returned");
     const terminalize = step(observer, "Emit exact missing terminal result");
-    for (const flag of ["--run ", "--jobs ", "--run-artifacts ", "--candidate-tree "]) {
+    for (const flag of ["--run ", "--parent-run ", "--jobs ", "--run-artifacts "]) {
       expect(terminalize).toContain(flag);
     }
+    expect(terminalize).not.toContain("--candidate-tree");
   });
 
-  it("does not suppress candidate tree lookup failure", () => {
-    const tree = step(observer, "Resolve candidate tree without suppression");
-    expect(tree).toContain("git/commits/${HEAD_SHA}");
-    expect(tree).not.toContain("|| true");
-    expect(tree).toContain("exit 1");
+  it("never treats workflow_run.head_sha as the upstream candidate identity", () => {
+    const inspect = step(observer, "Inspect complete advisory run evidence");
+    expect(inspect).toContain("parent-run.json");
+    expect(inspect).toContain("merge-gate-provisioning-${RUN_ID}-${RUN_ATTEMPT}");
+    expect(inspect).not.toContain("head_sha");
+    expect(observer).not.toContain("git/commits/${HEAD_SHA}");
   });
 
   it("uses exact attempt artifact names and deterministic terminal event names", () => {
@@ -135,12 +138,13 @@ describe("run-attempt decision and terminal evidence", () => {
 describe("event-driven exact cleanup", () => {
   const cleanup = job(observer, "cleanup");
 
-  it("observes every completed advisory run and activates provider cleanup only after an exact gate job started", () => {
+  it("observes every completed advisory run and activates cleanup only from a durable provisioning observation", () => {
     expect(observer).toContain('workflows: ["Platform Merge Qualification Advisory"]');
-    expect(job(observer, "terminalize")).toContain("gate_started: ${{ steps.inspect.outputs.gate_started }}");
+    expect(job(observer, "terminalize")).toContain("provisioned: ${{ steps.terminalize.outputs.provisioned }}");
     expect(cleanup).toContain("needs: terminalize");
-    expect(cleanup).toContain("if: always() && needs.terminalize.outputs.gate_started == 'true'");
-    expect(step(observer, "Inspect complete advisory run evidence")).toContain('echo "gate_started=${gate_started}"');
+    expect(cleanup).toContain("if: always() && needs.terminalize.outputs.provisioned == 'true'");
+    expect(step(observer, "Inspect complete advisory run evidence")).toContain("provisioning-observation.json");
+    expect(cleanup).not.toContain("gate_started");
     expect(cleanup).toContain(
       'namespace="chase-sets-gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}"',
     );
@@ -154,15 +158,19 @@ describe("event-driven exact cleanup", () => {
     expect(verify).toContain("cleanup-target");
     expect(verify).toContain("--workflow-id");
     expect(verify).toContain("--workflow-path");
-    for (const deletion of ["Delete exact gate provider webhooks", "Delete exact gate Kubernetes namespace"]) {
-      expect(step(observer, deletion)).toContain("if: always() && steps.target.outputs.cleanup_allowed == 'true'");
-    }
+    expect(step(observer, "Delete exact gate provider webhooks")).toContain(
+      "if: always() && steps.target.outputs.provider_cleanup_allowed == 'true'",
+    );
+    expect(step(observer, "Delete exact gate Kubernetes namespace")).toContain(
+      "if: always() && steps.target.outputs.namespace_cleanup_allowed == 'true'",
+    );
   });
 
   it("persists a fail record for force-cancelled attempts that reached immutable resolution", () => {
     const record = step(observer, "Persist cancelled post-identity attempt");
     expect(record).toContain("github.event.workflow_run.conclusion == 'cancelled'");
-    expect(record).toContain("steps.inspect.outputs.image_resolved == 'true'");
+    expect(record).toContain("steps.target.outputs.provider_cleanup_allowed == 'true'");
+    expect(record).toContain("provisioning-observation.json");
     expect(record).toContain("release-qualification-record.mjs write");
     expect(record).toContain('result:"fail"');
   });
@@ -171,10 +179,13 @@ describe("event-driven exact cleanup", () => {
     expect(step(observer, "Report cleanup no-op")).toContain("cleanup_status == 'absent'");
     expect(gate).toContain("scheduled gate sweep");
     expect(gate).toContain("runner-loss backstop");
+    expect(observer).toContain("provider-webhook-lifecycle.mjs delete");
+    expect(previewCleanup).toContain("schedule:");
+    expect(previewCleanup).toContain("provider-webhook-lifecycle.mjs delete");
   });
 
   it("keeps default-off and pre-gate advisory runs provider-inert", () => {
-    expect(cleanup.indexOf("if: always() && needs.terminalize.outputs.gate_started == 'true'")).toBeLessThan(
+    expect(cleanup.indexOf("if: always() && needs.terminalize.outputs.provisioned == 'true'")).toBeLessThan(
       cleanup.indexOf("environment: merge-gate"),
     );
     expect(job(observer, "terminalize")).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");

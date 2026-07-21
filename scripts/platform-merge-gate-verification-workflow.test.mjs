@@ -133,6 +133,20 @@ describe("merge-gate exact-digest deployment", () => {
     expect(create).toContain("kubectl create -f -");
     expect(gate).not.toContain("kubectl label namespace");
     expect(gate).not.toContain("kubectl annotate namespace");
+    const observe = step(gate, "Record gate namespace creation observation");
+    const upload = step(gate, "Upload gate namespace creation observation");
+    expect(observe).toContain("merge-gate-verification.mjs provisioning-observation");
+    expect(upload).toContain("merge-gate-provisioning-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(upload).toContain("id: provisioning-upload");
+    expect(step(gate, "Confirm durable gate namespace creation observation")).toContain(
+      "if: always() && steps.provisioning-upload.outcome == 'success'",
+    );
+    expect(gate.indexOf("- name: Create gate namespace")).toBeLessThan(
+      gate.indexOf("- name: Record gate namespace creation observation"),
+    );
+    expect(gate.indexOf("- name: Upload gate namespace creation observation")).toBeLessThan(
+      gate.indexOf("- name: Induced failure drill"),
+    );
   });
 
   it("requires delivered Stripe test-mode webhooks in the money smoke", () => {
@@ -158,6 +172,9 @@ describe("merge-gate teardown finalizers (every terminal path has a deleter)", (
     const record = step(gate, "Write merge-gate run record");
     for (const finalizer of [webhooks, teardown, probe, record]) {
       expect(finalizer).toContain("if: always()");
+    }
+    for (const credentialedFinalizer of [webhooks, teardown, probe]) {
+      expect(credentialedFinalizer).toContain("steps.provisioning.outputs.provisioned == 'true'");
     }
     expect(teardown).toContain("platform:kubernetes-deployment -- teardown");
     expect(teardown).not.toContain("|| true");

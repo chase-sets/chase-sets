@@ -127,6 +127,8 @@ describe("provider webhook lifecycle", () => {
       }
       if (url.includes("stripe.com")) {
         return response({
+          object: "list",
+          has_more: false,
           data: [
             { id: "we_owned", url: `${input.baseUrl}/api/payments/provider/webhooks` },
             { id: "we_shared", url: "https://marketplace.staging.chasesets.com/api/payments/provider/webhooks" },
@@ -147,6 +149,87 @@ describe("provider webhook lifecycle", () => {
       { provider: "easypost", id: "hook_owned" },
     ]);
     expect(deleted).toHaveLength(2);
+  });
+
+  it("collects and deletes a Stripe target beyond page one", async () => {
+    const deleted = [];
+    const fetch = async (url, init = {}) => {
+      if (init.method === "DELETE") {
+        deleted.push(url);
+        return response({ deleted: true });
+      }
+      if (url.includes("stripe.com")) {
+        const cursor = new URL(url).searchParams.get("starting_after");
+        return cursor
+          ? response({
+              object: "list",
+              has_more: false,
+              data: [{ id: "we_page_2", url: `${input.baseUrl}/api/payments/provider/webhooks` }],
+            })
+          : response({
+              object: "list",
+              has_more: true,
+              data: [{ id: "we_page_1", url: "https://example.test/unrelated" }],
+            });
+      }
+      return response({ webhooks: [] });
+    };
+    const result = await deleteProviderWebhooks(input, { fetch });
+    expect(result).toMatchObject({ collectionComplete: true, deleted: [{ provider: "stripe", id: "we_page_2" }] });
+    expect(deleted).toHaveLength(1);
+  });
+
+  it("fails closed on empty/malformed continuation pages, repeated cursors, and malformed EasyPost responses", async () => {
+    const emptyContinuation = async (url) =>
+      url.includes("stripe.com") ? response({ object: "list", has_more: true, data: [] }) : response({ webhooks: [] });
+    await expect(deleteProviderWebhooks(input, { fetch: emptyContinuation })).rejects.toThrow(
+      "omitted its continuation cursor",
+    );
+
+    let stripePage = 0;
+    const repeatedCursor = async (url) => {
+      if (!url.includes("stripe.com")) return response({ webhooks: [] });
+      stripePage += 1;
+      return response({
+        object: "list",
+        has_more: true,
+        data: [{ id: "we_same", url: stripePage === 1 ? "https://example.test/one" : "https://example.test/one" }],
+      });
+    };
+    await expect(deleteProviderWebhooks(input, { fetch: repeatedCursor })).rejects.toThrow(
+      "repeated or omitted its continuation cursor",
+    );
+
+    const malformedEasyPost = async (url) =>
+      url.includes("stripe.com")
+        ? response({ object: "list", has_more: false, data: [] })
+        : response({ webhooks: [], has_more: false });
+    await expect(deleteProviderWebhooks(input, { fetch: malformedEasyPost })).rejects.toThrow(
+      "unpaginated response contract",
+    );
+  });
+
+  it("reports partial deletion failure after attempting every exact target", async () => {
+    const deletions = [];
+    const fetch = async (url, init = {}) => {
+      if (init.method === "DELETE") {
+        deletions.push(url);
+        return url.endsWith("we_fail") ? response({ error: "provider failure" }, 500) : response({ deleted: true });
+      }
+      if (url.includes("stripe.com")) {
+        return response({
+          object: "list",
+          has_more: false,
+          data: [
+            { id: "we_fail", url: `${input.baseUrl}/api/payments/provider/webhooks` },
+            { id: "we_ok", url: `${input.baseUrl}/api/settlement/provider/money-movement/webhooks` },
+          ],
+        });
+      }
+      return response({ webhooks: [] });
+    };
+    await expect(deleteProviderWebhooks(input, { fetch })).rejects.toThrow("returned 500");
+    expect(deletions).toHaveLength(2);
   });
 
   it("rolls back endpoints already created when a later registration fails", async () => {

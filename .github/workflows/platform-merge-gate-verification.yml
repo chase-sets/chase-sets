@@ -46,6 +46,9 @@ on:
       candidate_tree_sha:
         description: Candidate git tree SHA the gate qualified.
         value: ${{ jobs.verify.outputs.candidate_tree_sha }}
+      provisioned:
+        description: True only after the namespace-created observation artifact was durably uploaded and verified.
+        value: ${{ jobs.verify.outputs.provisioned }}
       headroom_runs:
         description: Whole additional concurrent gate runs the preview pool could absorb at preflight time.
         value: ${{ jobs.preflight.outputs.headroom_runs }}
@@ -253,6 +256,7 @@ jobs:
       image_digest: ${{ steps.image.outputs.digest }}
       candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
       candidate_tree_sha: ${{ steps.candidate.outputs.candidate_tree }}
+      provisioned: ${{ steps.provisioning.outputs.provisioned }}
     env:
       DEPLOYMENT_ENVIRONMENT: preview
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
@@ -391,6 +395,44 @@ jobs:
             --candidate-tree-sha "$CANDIDATE_TREE" \
             --image-digest "$IMAGE_DIGEST" | kubectl create -f -
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
+
+      - name: Record gate namespace creation observation
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs provisioning-observation \
+            --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.owner.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.owner.outputs.workflow_path }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --candidate-sha "${{ steps.candidate.outputs.candidate_sha }}" \
+            --candidate-tree-sha "${{ steps.candidate.outputs.candidate_tree }}" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --out artifacts/merge-gate/provisioning-observation.json
+
+      - name: Upload gate namespace creation observation
+        id: provisioning-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-gate-provisioning-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-gate/provisioning-observation.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Confirm durable gate namespace creation observation
+        id: provisioning
+        if: always() && steps.provisioning-upload.outcome == 'success'
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs verify-provisioning-observation \
+            --observation artifacts/merge-gate/provisioning-observation.json \
+            --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.owner.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.owner.outputs.workflow_path }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --github-output "$GITHUB_OUTPUT"
 
       # Cleanup evidence drill: fail deliberately AFTER namespace creation so
       # the run proves the failure path reaches the always() finalizers.
@@ -636,7 +678,7 @@ jobs:
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase record-written
 
       - name: Delete gate provider webhooks
-        if: always()
+        if: always() && steps.provisioning.outputs.provisioned == 'true'
         env:
           PLATFORM_API_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
@@ -651,11 +693,11 @@ jobs:
       # FAILS rather than reporting green when the delete silently no-ops.
       # Never add `|| true` or `continue-on-error` here (#4778 lesson).
       - name: Delete gate Kubernetes namespace
-        if: always()
+        if: always() && steps.provisioning.outputs.provisioned == 'true'
         run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m
 
       - name: Probe gate namespace absence
-        if: always()
+        if: always() && steps.provisioning.outputs.provisioned == 'true'
         run: |
           set -euo pipefail
           survivors="$(kubectl get namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found -o name)"

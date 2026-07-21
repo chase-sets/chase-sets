@@ -1983,7 +1983,12 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "candidate_sha="
+              echo "candidate_tree_sha="
+              echo "merge_group_run_id="
+              echo "merge_group_run_attempt="
               echo "merge_sha=${release_commit}"
+              echo "merge_tree_sha=$(git rev-parse "${release_commit}^{tree}")"
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -2032,6 +2037,7 @@ jobs:
           DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
           DISPATCH_REASON: ${{ inputs.reason }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
+          PR_NUMBER: ${{ steps.release_health_metadata.outputs.pr_number }}
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
           PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
@@ -2041,7 +2047,12 @@ jobs:
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
           QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
+          CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
+          CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
+          MERGE_GROUP_RUN_ID: ${{ steps.release_health_metadata.outputs.merge_group_run_id }}
+          MERGE_GROUP_RUN_ATTEMPT: ${{ steps.release_health_metadata.outputs.merge_group_run_attempt }}
           MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
+          MERGE_TREE_SHA: ${{ steps.release_health_metadata.outputs.merge_tree_sha }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
           RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
           EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}
@@ -3679,7 +3690,12 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "candidate_sha="
+              echo "candidate_tree_sha="
+              echo "merge_group_run_id="
+              echo "merge_group_run_attempt="
               echo "merge_sha=${release_commit}"
+              echo "merge_tree_sha=$(git rev-parse "${release_commit}^{tree}")"
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -3746,6 +3762,7 @@ jobs:
           DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
           DISPATCH_REASON: ${{ inputs.reason }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
+          PR_NUMBER: ${{ steps.release_health_metadata.outputs.pr_number }}
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
           PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
@@ -3755,7 +3772,12 @@ jobs:
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
           QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
+          CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
+          CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
+          MERGE_GROUP_RUN_ID: ${{ steps.release_health_metadata.outputs.merge_group_run_id }}
+          MERGE_GROUP_RUN_ATTEMPT: ${{ steps.release_health_metadata.outputs.merge_group_run_attempt }}
           MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
+          MERGE_TREE_SHA: ${{ steps.release_health_metadata.outputs.merge_tree_sha }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
           RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
           EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}

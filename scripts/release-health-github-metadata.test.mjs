@@ -6,6 +6,21 @@ import {
 } from "./release-health-github-metadata.mjs";
 
 const releaseCommit = "225e00cb6e3772770b3ae764c30b5d9e6d03aa42";
+const candidateCommit = "335e00cb6e3772770b3ae764c30b5d9e6d03aa43";
+const sharedTree = "445e00cb6e3772770b3ae764c30b5d9e6d03aa44";
+const productionMergeGroupRun = {
+  id: 8000,
+  run_attempt: 2,
+  event: "merge_group",
+  path: ".github/workflows/platform-pr.yml",
+  status: "completed",
+  conclusion: "success",
+  head_branch: "gh-readonly-queue/main/pr-517-acde1234",
+  head_sha: candidateCommit,
+  candidateTreeSha: sharedTree,
+  created_at: "2026-06-01T03:18:13Z",
+  updated_at: "2026-06-01T03:18:40Z",
+};
 
 describe("release health GitHub metadata", () => {
   it("derives PR and merge queue timestamps from GitHub API records", () => {
@@ -28,7 +43,8 @@ describe("release health GitHub metadata", () => {
         { event: "removed_from_merge_queue", created_at: "2026-06-01T03:18:44Z" },
         { event: "merged", created_at: "2026-06-01T03:18:45Z", commit_id: releaseCommit },
       ],
-      mergeGroupRuns: [{ created_at: "2026-06-01T03:18:13Z" }],
+      mergeGroupRuns: [productionMergeGroupRun],
+      releaseTreeSha: sharedTree,
       branchRules: [{ type: "merge_queue", parameters: { max_entries_to_merge: 2 } }],
     });
 
@@ -43,7 +59,12 @@ describe("release health GitHub metadata", () => {
       queueDequeuedAt: null,
       queueFailureReason: null,
       queueBatchSize: 2,
+      candidateSha: candidateCommit,
+      candidateTreeSha: sharedTree,
+      mergeGroupRunId: "8000",
+      mergeGroupRunAttempt: "2",
       mergeSha: releaseCommit,
+      mergeTreeSha: sharedTree,
     });
   });
 
@@ -75,6 +96,36 @@ describe("release health GitHub metadata", () => {
     });
   });
 
+  it.each([
+    ["wrong tree", { candidateTreeSha: "f".repeat(40) }],
+    ["wrong candidate workflow", { path: ".github/workflows/unrelated.yml" }],
+    ["unrelated pull request", { head_branch: "gh-readonly-queue/main/pr-999-acde1234" }],
+    ["before queue entry", { created_at: "2026-06-01T03:17:54Z" }],
+    ["after merge", { created_at: "2026-06-01T03:18:46Z" }],
+  ])("does not manufacture a causal bridge for %s", (_name, override) => {
+    const metadata = buildReleaseHealthGithubMetadata({
+      releaseCommit,
+      pull: {
+        number: 517,
+        created_at: "2026-06-01T03:16:21Z",
+        draft: false,
+        merged_at: "2026-06-01T03:18:45Z",
+        merge_commit_sha: releaseCommit,
+      },
+      timeline: [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
+      mergeGroupRuns: [{ ...productionMergeGroupRun, ...override }],
+      releaseTreeSha: sharedTree,
+    });
+    expect(metadata).toMatchObject({
+      candidateSha: null,
+      candidateTreeSha: null,
+      mergeGroupRunId: null,
+      mergeGroupRunAttempt: null,
+      mergeSha: releaseCommit,
+      mergeTreeSha: sharedTree,
+    });
+  });
+
   it("collects metadata through the GitHub REST API", async () => {
     const calls = [];
     const responses = new Map([
@@ -95,9 +146,25 @@ describe("release health GitHub metadata", () => {
         [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
       ],
       [
-        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
-        { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
+        `/repos/chase-sets/chase-sets/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=1`,
+        {
+          total_count: 2,
+          workflow_runs: [
+            {
+              ...productionMergeGroupRun,
+              id: 7999,
+              head_branch: "gh-readonly-queue/main/pr-999-unrelated",
+              head_sha: "5".repeat(40),
+            },
+          ],
+        },
       ],
+      [
+        `/repos/chase-sets/chase-sets/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=2`,
+        { total_count: 2, workflow_runs: [productionMergeGroupRun] },
+      ],
+      [`/repos/chase-sets/chase-sets/git/commits/${releaseCommit}`, { tree: { sha: sharedTree } }],
+      [`/repos/chase-sets/chase-sets/git/commits/${candidateCommit}`, { tree: { sha: sharedTree } }],
       [
         "/repos/chase-sets/chase-sets/rules/branches/main?per_page=100",
         [{ type: "merge_queue", parameters: { max_entries_to_merge: 2 } }],
@@ -116,7 +183,7 @@ describe("release health GitHub metadata", () => {
     );
 
     expect(calls).toContain(
-      `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
+      `/repos/chase-sets/chase-sets/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=2`,
     );
     expect(metadata.queueMergeGroupStartedAt).toBe("2026-06-01T03:18:13Z");
     expect(metadata.queueBatchSize).toBe(2);
@@ -141,9 +208,11 @@ describe("release health GitHub metadata", () => {
         [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
       ],
       [
-        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
-        { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
+        `/repos/chase-sets/chase-sets/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=1`,
+        { total_count: 1, workflow_runs: [productionMergeGroupRun] },
       ],
+      [`/repos/chase-sets/chase-sets/git/commits/${releaseCommit}`, { tree: { sha: sharedTree } }],
+      [`/repos/chase-sets/chase-sets/git/commits/${candidateCommit}`, { tree: { sha: sharedTree } }],
     ]);
 
     const metadata = await collectReleaseHealthGithubMetadata(

@@ -6,11 +6,13 @@ import {
   MERGE_GATE_PROOF_REQUIRED_RUNS,
   aggregateMergeGateProof,
   buildMergeGateNamespaceManifest,
+  buildMergeGateProvisioningObservation,
   buildMergeGateRunRecord,
   evaluateMergeGateCapacity,
   parseCpuMillicores,
   parseMemoryMib,
   validateMergeGateConfig,
+  validateMergeGateProvisioningObservation,
   verifyMergeGateCleanupTarget,
 } from "./merge-gate-verification.mjs";
 
@@ -272,6 +274,56 @@ describe("atomic gate namespace manifest", () => {
       allowed: false,
       status: "refused",
     });
+  });
+});
+
+describe("durable namespace-created observation", () => {
+  const input = {
+    repository: "chase-sets/chase-sets",
+    workflowId: "778899",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
+    runId: "123456",
+    runAttempt: "2",
+    namespace: "chase-sets-gate-123456-2",
+    candidateSha: "0123456789abcdef0123456789abcdef01234567",
+    candidateTreeSha: "89abcdef0123456789abcdef0123456789abcdef",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    observedAt: "2026-07-21T12:00:00.000Z",
+  };
+
+  it("records only a complete exact run-attempt identity", () => {
+    const observation = buildMergeGateProvisioningObservation(input);
+    expect(validateMergeGateProvisioningObservation(observation, input)).toEqual([]);
+    expect(observation).toEqual({ schemaVersion: "merge-gate-provisioning-observation/v1", ...input });
+  });
+
+  it.each([
+    ["namespace", "chase-sets-gate-123456-1"],
+    ["imageDigest", "latest"],
+    ["observedAt", "2026-02-30T12:00:00.000Z"],
+  ])("rejects a malformed %s observation", (field, value) => {
+    expect(() => buildMergeGateProvisioningObservation({ ...input, [field]: value })).toThrow(
+      "invalid provisioning observation",
+    );
+  });
+
+  it.each([
+    ["candidateSha", "f".repeat(40)],
+    ["candidateTreeSha", "f".repeat(40)],
+    ["imageDigest", `sha256:${"f".repeat(64)}`],
+  ])("rejects %s disagreement with the independently owned expected identity", (field, value) => {
+    const observation = buildMergeGateProvisioningObservation({ ...input, [field]: value });
+    expect(validateMergeGateProvisioningObservation(observation, input)).toContain(
+      `observation ${field} does not match the owning run.`,
+    );
+  });
+
+  it("rejects unknown fields and exact-attempt disagreement", () => {
+    const observation = buildMergeGateProvisioningObservation(input);
+    expect(validateMergeGateProvisioningObservation({ ...observation, configured: true })).not.toEqual([]);
+    expect(validateMergeGateProvisioningObservation(observation, { ...input, runAttempt: "3" })).toEqual([
+      "observation runAttempt does not match the owning run.",
+    ]);
   });
 });
 

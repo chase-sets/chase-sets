@@ -12,6 +12,8 @@ import {
 import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
 
 export const PROVIDER_WEBHOOK_LIFECYCLE_VERSION = "provider-webhook-lifecycle/v1";
+const MAX_PROVIDER_LIST_PAGES = 100;
+const MAX_PROVIDER_ENDPOINTS = 10_000;
 
 function assertStripeTestKey(input) {
   if (!String(input.stripeApiKey ?? "").startsWith("sk_test_")) {
@@ -248,25 +250,11 @@ export async function deleteProviderWebhooks(input, dependencies = {}) {
   assertSandboxKeys(input);
   const urls = new Set(Object.values(endpointUrls(input.baseUrl)));
   const fetchImpl = dependencies.fetch ?? fetch;
-  const stripe = await requestJson(
-    `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/webhook_endpoints?limit=100`,
-    {
-      headers: stripeHeaders(input.stripeApiKey),
-    },
-    fetchImpl,
-  );
-  const easyPost = await requestJson(
-    `${input.easyPostApiBase ?? "https://api.easypost.com/v2"}/webhooks`,
-    {
-      headers: easyPostHeaders(input.easyPostApiKey),
-    },
-    fetchImpl,
-  );
+  const stripe = await listAllStripeWebhookEndpoints(input, fetchImpl);
+  const easyPost = await listAllEasyPostWebhookEndpoints(input, fetchImpl);
   const targets = [
-    ...(stripe.data ?? [])
-      .filter((endpoint) => urls.has(endpoint.url))
-      .map((endpoint) => ({ provider: "stripe", id: endpoint.id })),
-    ...(easyPost.webhooks ?? [])
+    ...stripe.filter((endpoint) => urls.has(endpoint.url)).map((endpoint) => ({ provider: "stripe", id: endpoint.id })),
+    ...easyPost
       .filter((endpoint) => urls.has(endpoint.url))
       .map((endpoint) => ({ provider: "easypost", id: endpoint.id })),
   ];
@@ -279,7 +267,99 @@ export async function deleteProviderWebhooks(input, dependencies = {}) {
     }
   }
   if (errors.length) throw new Error(errors.join("; "));
-  return { schemaVersion: PROVIDER_WEBHOOK_LIFECYCLE_VERSION, baseUrl: input.baseUrl, deleted: targets };
+  return {
+    schemaVersion: PROVIDER_WEBHOOK_LIFECYCLE_VERSION,
+    baseUrl: input.baseUrl,
+    collectionComplete: true,
+    deleted: targets,
+  };
+}
+
+async function listAllStripeWebhookEndpoints(input, fetchImpl) {
+  const apiBase = input.stripeApiBase ?? "https://api.stripe.com";
+  const maxPages = input.maxListPages ?? MAX_PROVIDER_LIST_PAGES;
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > MAX_PROVIDER_LIST_PAGES) {
+    throw new Error("Stripe webhook collection page bound is invalid.");
+  }
+  const endpoints = new Map();
+  const cursors = new Set();
+  let cursor = null;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (cursor) query.set("starting_after", cursor);
+    const payload = await requestJson(
+      `${apiBase}/v1/webhook_endpoints?${query}`,
+      { headers: stripeHeaders(input.stripeApiKey) },
+      fetchImpl,
+    );
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      Array.isArray(payload) ||
+      payload.object !== "list" ||
+      !Array.isArray(payload.data) ||
+      typeof payload.has_more !== "boolean"
+    ) {
+      throw new Error(`Stripe webhook collection page ${page} did not match the executable list contract.`);
+    }
+    for (const endpoint of payload.data) addProviderEndpoint(endpoints, endpoint, "Stripe", page);
+    if (endpoints.size > MAX_PROVIDER_ENDPOINTS) throw new Error("Stripe webhook collection exceeded its item bound.");
+    if (!payload.has_more) return [...endpoints.values()];
+    const nextCursor = payload.data.at(-1)?.id;
+    if (typeof nextCursor !== "string" || !nextCursor || cursors.has(nextCursor)) {
+      throw new Error(`Stripe webhook collection page ${page} repeated or omitted its continuation cursor.`);
+    }
+    cursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error(`Stripe webhook collection exceeded the bounded ${maxPages} pages.`);
+}
+
+async function listAllEasyPostWebhookEndpoints(input, fetchImpl) {
+  // EasyPost's documented GET /webhooks contract is deliberately
+  // unpaginated. Bound and validate the complete response so a malformed or
+  // unexpectedly oversized list is explicit incompleteness, never an empty
+  // successful cleanup.
+  const payload = await requestJson(
+    `${input.easyPostApiBase ?? "https://api.easypost.com/v2"}/webhooks`,
+    { headers: easyPostHeaders(input.easyPostApiKey) },
+    fetchImpl,
+  );
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    Array.isArray(payload) ||
+    Object.keys(payload).some((field) => field !== "webhooks") ||
+    !Array.isArray(payload.webhooks)
+  ) {
+    throw new Error("EasyPost webhook collection did not match the executable unpaginated response contract.");
+  }
+  if (payload.webhooks.length > MAX_PROVIDER_ENDPOINTS) {
+    throw new Error("EasyPost webhook collection exceeded its item bound.");
+  }
+  const endpoints = new Map();
+  for (const endpoint of payload.webhooks) addProviderEndpoint(endpoints, endpoint, "EasyPost", 1);
+  return [...endpoints.values()];
+}
+
+function addProviderEndpoint(endpoints, endpoint, provider, page) {
+  if (
+    typeof endpoint !== "object" ||
+    endpoint === null ||
+    Array.isArray(endpoint) ||
+    typeof endpoint.id !== "string" ||
+    endpoint.id.length < 3 ||
+    endpoint.id.length > 255 ||
+    typeof endpoint.url !== "string" ||
+    endpoint.url.length > 2_048
+  ) {
+    throw new Error(`${provider} webhook collection page ${page} contained a malformed endpoint.`);
+  }
+  const previous = endpoints.get(endpoint.id);
+  if (previous && previous.url !== endpoint.url) {
+    throw new Error(`${provider} webhook collection returned conflicting duplicate ${endpoint.id}.`);
+  }
+  if (!previous) endpoints.set(endpoint.id, { id: endpoint.id, url: endpoint.url });
 }
 
 function option(argv, name, fallback) {

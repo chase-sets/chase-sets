@@ -30,6 +30,7 @@ export const MERGE_GATE_CONFIG_SCHEMA_VERSION = "merge-gate-verification-config/
 export const MERGE_GATE_RUN_RECORD_SCHEMA_VERSION = "merge-gate-verification-run/v1";
 export const MERGE_GATE_PROOF_SCHEMA_VERSION = "merge-gate-verification-proof/v1";
 export const MERGE_GATE_PREFLIGHT_SCHEMA_VERSION = "merge-gate-preflight/v1";
+export const MERGE_GATE_PROVISIONING_OBSERVATION_SCHEMA_VERSION = "merge-gate-provisioning-observation/v1";
 export const MERGE_GATE_DEFAULT_CONFIG_PATH = "scripts/merge-gate-verification-config.json";
 // Ratified with the merge-gate scope fence: the successful-path overhead
 // budget for provider preflight plus cleanup, and the run count the proof
@@ -373,6 +374,96 @@ export function buildMergeGateNamespaceManifest(input) {
       },
     },
   };
+}
+
+export function buildMergeGateProvisioningObservation(input) {
+  const observation = {
+    schemaVersion: MERGE_GATE_PROVISIONING_OBSERVATION_SCHEMA_VERSION,
+    repository: String(input.repository ?? "").trim(),
+    workflowId: String(input.workflowId ?? "").trim(),
+    workflowPath: String(input.workflowPath ?? "").trim(),
+    runId: String(input.runId ?? "").trim(),
+    runAttempt: String(input.runAttempt ?? "").trim(),
+    namespace: String(input.namespace ?? "").trim(),
+    candidateSha: String(input.candidateSha ?? "")
+      .trim()
+      .toLowerCase(),
+    candidateTreeSha: String(input.candidateTreeSha ?? "")
+      .trim()
+      .toLowerCase(),
+    imageDigest: String(input.imageDigest ?? "")
+      .trim()
+      .toLowerCase(),
+    observedAt: input.observedAt === undefined ? new Date().toISOString() : String(input.observedAt).trim(),
+  };
+  const errors = validateMergeGateProvisioningObservation(observation);
+  if (errors.length > 0) throw new Error(`invalid provisioning observation: ${errors.join(" ")}`);
+  return observation;
+}
+
+export function validateMergeGateProvisioningObservation(observation, expected = null) {
+  const fields = [
+    "schemaVersion",
+    "repository",
+    "workflowId",
+    "workflowPath",
+    "runId",
+    "runAttempt",
+    "namespace",
+    "candidateSha",
+    "candidateTreeSha",
+    "imageDigest",
+    "observedAt",
+  ];
+  if (
+    typeof observation !== "object" ||
+    observation === null ||
+    Array.isArray(observation) ||
+    Object.keys(observation).length !== fields.length ||
+    Object.keys(observation).some((field) => !fields.includes(field))
+  ) {
+    return ["provisioning observation must be a closed object."];
+  }
+  const errors = [];
+  if (observation.schemaVersion !== MERGE_GATE_PROVISIONING_OBSERVATION_SCHEMA_VERSION)
+    errors.push("unsupported provisioning observation schema.");
+  if (!REPOSITORY_PATTERN.test(observation.repository)) errors.push("observation repository is invalid.");
+  if (!isBoundedPositiveSafeIntegerString(observation.workflowId)) errors.push("observation workflowId is invalid.");
+  if (!/^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/.test(observation.workflowPath))
+    errors.push("observation workflowPath is invalid.");
+  if (
+    !isBoundedPositiveSafeIntegerString(observation.runId) ||
+    !isBoundedPositiveSafeIntegerString(observation.runAttempt)
+  )
+    errors.push("observation run identity is invalid.");
+  if (observation.namespace !== `chase-sets-gate-${observation.runId}-${observation.runAttempt}`)
+    errors.push("observation namespace does not bind its run attempt.");
+  if (!isCommitSha(observation.candidateSha) || !isCommitSha(observation.candidateTreeSha))
+    errors.push("observation candidate identity is invalid.");
+  if (!IMAGE_DIGEST_PATTERN.test(observation.imageDigest)) errors.push("observation image digest is invalid.");
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(observation.observedAt) ||
+    !Number.isFinite(Date.parse(observation.observedAt)) ||
+    new Date(observation.observedAt).toISOString() !== observation.observedAt
+  )
+    errors.push("observation observedAt must be an exact UTC instant.");
+  if (expected) {
+    for (const field of [
+      "repository",
+      "workflowId",
+      "workflowPath",
+      "runId",
+      "runAttempt",
+      "namespace",
+      "candidateSha",
+      "candidateTreeSha",
+      "imageDigest",
+    ]) {
+      if (expected[field] !== undefined && String(expected[field]) !== observation[field])
+        errors.push(`observation ${field} does not match the owning run.`);
+    }
+  }
+  return errors;
 }
 
 export function verifyMergeGateCleanupTarget(namespace, expected) {
@@ -744,24 +835,83 @@ async function main(argv) {
     return;
   }
 
-  if (command === "cleanup-target") {
-    const namespacePath = readOption(argv, "--namespace");
-    const namespace =
-      namespacePath && existsSync(namespacePath) ? JSON.parse(readFileSync(namespacePath, "utf8")) : null;
-    const result = verifyMergeGateCleanupTarget(namespace, {
+  if (command === "provisioning-observation") {
+    const observation = buildMergeGateProvisioningObservation({
+      repository: readOption(argv, "--repository"),
+      workflowId: readOption(argv, "--workflow-id"),
+      workflowPath: readOption(argv, "--workflow-path"),
+      runId: readOption(argv, "--run-id"),
+      runAttempt: readOption(argv, "--run-attempt"),
+      namespace: readOption(argv, "--namespace"),
+      candidateSha: readOption(argv, "--candidate-sha"),
+      candidateTreeSha: readOption(argv, "--candidate-tree-sha"),
+      imageDigest: readOption(argv, "--image-digest"),
+      observedAt: now,
+    });
+    const outPath = readOption(argv, "--out");
+    if (!outPath) throw new Error("provisioning-observation requires --out.");
+    await writeJsonRecord(outPath, observation);
+    console.log(JSON.stringify(observation, null, 2));
+    return;
+  }
+
+  if (command === "verify-provisioning-observation") {
+    const observation = readJsonFile(readOption(argv, "--observation") ?? "", "provisioning observation");
+    const errors = validateMergeGateProvisioningObservation(observation, {
       repository: readOption(argv, "--repository"),
       workflowId: readOption(argv, "--workflow-id"),
       workflowPath: readOption(argv, "--workflow-path"),
       runId: readOption(argv, "--run-id"),
       runAttempt: readOption(argv, "--run-attempt"),
     });
+    if (errors.length > 0) throw new Error(errors.join(" "));
+    const githubOutputPath = readOption(argv, "--github-output");
+    if (githubOutputPath) appendFileSync(githubOutputPath, "provisioned=true\n", "utf8");
+    console.log(JSON.stringify({ provisioned: true, observation }, null, 2));
+    return;
+  }
+
+  if (command === "cleanup-target") {
+    const namespacePath = readOption(argv, "--namespace");
+    const namespace =
+      namespacePath && existsSync(namespacePath) ? JSON.parse(readFileSync(namespacePath, "utf8")) : null;
+    const expected = {
+      repository: readOption(argv, "--repository"),
+      workflowId: readOption(argv, "--workflow-id"),
+      workflowPath: readOption(argv, "--workflow-path"),
+      runId: readOption(argv, "--run-id"),
+      runAttempt: readOption(argv, "--run-attempt"),
+    };
+    const observationPath = readOption(argv, "--provisioning-observation");
+    const observation = observationPath ? readJsonFile(observationPath, "provisioning observation") : null;
+    const observationErrors = validateMergeGateProvisioningObservation(observation, expected);
+    const result = verifyMergeGateCleanupTarget(namespace, expected);
+    if (
+      observationErrors.length === 0 &&
+      result.allowed &&
+      (result.identity.candidateSha !== observation.candidateSha ||
+        result.identity.candidateTreeSha !== observation.candidateTreeSha ||
+        result.identity.imageDigest !== observation.imageDigest ||
+        result.identity.name !== observation.namespace)
+    ) {
+      result.allowed = false;
+      result.status = "refused";
+      result.errors.push("namespace immutable identity does not match the durable provisioning observation.");
+    }
+    const providerCleanupAllowed = observationErrors.length === 0;
+    if (!providerCleanupAllowed) {
+      result.allowed = false;
+      result.status = "refused";
+      result.errors.push(...observationErrors);
+    }
     const githubOutputPath = readOption(argv, "--github-output");
     if (githubOutputPath) {
       appendFileSync(
         githubOutputPath,
-        `cleanup_allowed=${result.allowed ? "true" : "false"}\ncleanup_status=${result.status}\n` +
-          `candidate_sha=${result.identity?.candidateSha ?? ""}\ncandidate_tree=${result.identity?.candidateTreeSha ?? ""}\n` +
-          `image_digest=${result.identity?.imageDigest ?? ""}\nnamespace=${result.identity?.name ?? ""}\n`,
+        `provider_cleanup_allowed=${providerCleanupAllowed ? "true" : "false"}\n` +
+          `namespace_cleanup_allowed=${result.allowed ? "true" : "false"}\ncleanup_status=${result.status}\n` +
+          `candidate_sha=${observation?.candidateSha ?? ""}\ncandidate_tree=${observation?.candidateTreeSha ?? ""}\n` +
+          `image_digest=${observation?.imageDigest ?? ""}\nnamespace=${observation?.namespace ?? ""}\n`,
         "utf8",
       );
     }

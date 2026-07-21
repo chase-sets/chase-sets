@@ -78,7 +78,7 @@ export function percentileSummary(values) {
 export async function collectDeliveryHealth(options, dependencies = {}) {
   validateOptions(options);
   const policy = dependencies.policy ?? (await readDeliveryHealthPolicy(options.policyPath));
-  validatePolicy(policy);
+  validateDeliveryHealthPolicy(policy);
   const client = dependencies.client ?? createGitHubClient(options, policy.collection);
   const end = new Date(options.checkedAt);
   const queryStart = new Date(end.getTime() - policy.windows.rolling7dDays * 86_400_000).toISOString();
@@ -229,6 +229,9 @@ export async function collectSourceData({ options, policy, client, queryStart })
   const qualificationFailures = [];
   const qualificationCandidates = [];
   await mapConcurrent(mergeGroupRuns, policy.collection.concurrency, async (run) => {
+    const parent = String(run.display_title ?? "").match(
+      /^Merge Qualification merge_group ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/,
+    );
     try {
       const evidence = await fetchMergeQualificationEvidence(
         client,
@@ -241,20 +244,39 @@ export async function collectSourceData({ options, policy, client, queryStart })
       for (const event of evidence.events) {
         validateCollectedQualificationEvent(event, run, options.repository, { requireLatestAttempt: false });
       }
+      const eventCandidates = [
+        ...new Set(
+          evidence.events.map((event) => event.candidateSha).filter((candidateSha) => isCommitSha(candidateSha)),
+        ),
+      ];
+      if (eventCandidates.length > 1) {
+        throw new Error(`Run ${run.id} attempt ${run.run_attempt} has conflicting observed candidate identities.`);
+      }
+      if (
+        evidence.decision?.candidateSha &&
+        eventCandidates.length === 1 &&
+        evidence.decision.candidateSha !== eventCandidates[0]
+      ) {
+        throw new Error(`Run ${run.id} attempt ${run.run_attempt} has disagreeing decision and event identities.`);
+      }
       qualificationEvents.push(...evidence.events);
       if (evidence.decision?.policyEnabled !== false) {
         qualificationCandidates.push({
-          candidateSha: String(run.head_sha ?? "").toLowerCase(),
+          parentRunId: evidence.decision?.parentRunId ?? parent?.[1] ?? "",
+          parentRunAttempt: evidence.decision?.parentRunAttempt ?? parent?.[2] ?? "",
           runId: String(run.id ?? ""),
           runAttempt: String(run.run_attempt ?? ""),
+          candidateSha: evidence.decision?.candidateSha ?? eventCandidates[0] ?? null,
         });
       }
     } catch (error) {
       qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
       qualificationCandidates.push({
-        candidateSha: String(run.head_sha ?? "").toLowerCase(),
+        parentRunId: parent?.[1] ?? "",
+        parentRunAttempt: parent?.[2] ?? "",
         runId: String(run.id ?? ""),
         runAttempt: String(run.run_attempt ?? ""),
+        candidateSha: null,
       });
     }
   });
@@ -295,24 +317,19 @@ export async function collectSourceData({ options, policy, client, queryStart })
     if (!health || !isCommitSha(health.releaseCommit)) continue;
     if (!health.staging?.result || health.staging.result === "skipped") continue;
     const rootCause = records.find((record) => record.schemaVersion === "platform-deploy-root-cause/v1");
-    let treeSha = null;
-    try {
-      const commit = await client.json(`/git/commits/${health.releaseCommit}`);
-      treeSha = commit?.tree?.sha ?? null;
-    } catch (error) {
-      qualificationFailures.push({
-        source: `release-tree:${health.releaseCommit}`,
-        error: boundedError(error),
-      });
-      continue;
-    }
     const release = {
-      candidateSha: health.queue?.mergeSha?.toLowerCase() ?? null,
+      candidateSha: health.queue?.candidateSha?.toLowerCase() ?? null,
+      candidateTreeSha: health.queue?.candidateTreeSha?.toLowerCase() ?? null,
       mainSha: health.releaseCommit.toLowerCase(),
-      treeSha: typeof treeSha === "string" ? treeSha.toLowerCase() : null,
+      mainTreeSha: health.queue?.mergeTreeSha?.toLowerCase() ?? null,
       imageDigest:
         (health.releaseState?.transitions ?? []).map((transition) => transition?.imageDigest).find(Boolean) ?? null,
       completedAt: health.staging?.completedAt ?? runTimestamp(run),
+      causalBridge: {
+        pullRequestNumber: health.pullRequest?.number ?? health.queue?.pullRequestNumber ?? null,
+        mergeGroupRunId: health.queue?.mergeGroupRunId ?? null,
+        mergeGroupRunAttempt: health.queue?.mergeGroupRunAttempt ?? null,
+      },
       staging: {
         result: health.staging?.result ?? null,
         rootCauseCode: rootCause?.rootCauseCode ?? null,
@@ -362,7 +379,7 @@ async function fetchMergeQualificationEvidence(client, runId, runAttempt, maxPag
   const artifacts = await client.paginate(
     `/actions/runs/${runId}/artifacts?per_page=100`,
     (payload) => payload?.artifacts,
-    { source: `merge-qualification-artifacts:${runId}`, maxPages },
+    { source: `merge-qualification-artifacts:${runId}`, maxPages, identity: (artifact) => artifact?.id },
   );
   const selected = artifacts.filter((artifact) =>
     options.terminalArtifacts
@@ -418,12 +435,16 @@ async function fetchMergeQualificationEvidence(client, runId, runAttempt, maxPag
 }
 
 function validateCollectedQualificationEvent(event, run, repository, { requireLatestAttempt = true } = {}) {
+  const parent = String(run.display_title ?? "").match(
+    /^Merge Qualification merge_group ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/,
+  );
   const expected = {
     repository,
     workflowId: String(run.workflow_id ?? ""),
     workflowPath: run.path,
     runId: String(run.id ?? ""),
-    candidateSha: String(run.head_sha ?? "").toLowerCase(),
+    parentRunId: parent?.[1] ?? "",
+    parentRunAttempt: parent?.[2] ?? "",
   };
   if (requireLatestAttempt) expected.runAttempt = String(run.run_attempt ?? "");
   for (const [field, value] of Object.entries(expected)) {
@@ -431,10 +452,13 @@ function validateCollectedQualificationEvent(event, run, repository, { requireLa
       throw new Error(`Merge-qualification event ${field} does not bind the exact observed source run.`);
     }
   }
+  if (event.parentWorkflowPath !== ".github/workflows/platform-pr.yml") {
+    throw new Error("Merge-qualification event does not bind the Platform PR parent workflow.");
+  }
   if (!requireLatestAttempt && BigInt(event.runAttempt) > BigInt(String(run.run_attempt ?? "0"))) {
     throw new Error("Merge-qualification event attempt is newer than the observed source run attempt.");
   }
-  if (!/^Merge Qualification merge_group [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(run.display_title ?? "")) {
+  if (!parent) {
     throw new Error("Merge-qualification event source is not a merge-group advisory run.");
   }
 }
@@ -448,7 +472,6 @@ function validateCollectedQualificationDecision(decision, run, repository) {
     workflowPath: run.path,
     runId: String(run.id ?? ""),
     runAttempt: String(run.run_attempt ?? ""),
-    candidateSha: String(run.head_sha ?? "").toLowerCase(),
     parentRunId: parent?.[1] ?? "",
     parentRunAttempt: parent?.[2] ?? "",
   };
@@ -456,6 +479,9 @@ function validateCollectedQualificationDecision(decision, run, repository) {
     if (decision[field] !== value) {
       throw new Error(`Merge-qualification decision ${field} does not bind the exact observed source run.`);
     }
+  }
+  if (decision.parentWorkflowPath !== ".github/workflows/platform-pr.yml") {
+    throw new Error("Merge-qualification decision does not bind the Platform PR parent workflow.");
   }
 }
 
@@ -1199,16 +1225,69 @@ export function createGitHubClient(options, collection = {}) {
 
   async function paginate(path, select = (payload) => payload, pagination = {}) {
     const values = [];
-    const separator = path.includes("?") ? "&" : "?";
     const pageLimit = pagination.maxPages ?? maxPages;
-    for (let page = 1; page <= pageLimit; page += 1) {
-      const response = await json(`${path}${separator}page=${page}`);
-      const selected = select(response);
-      const entries = Array.isArray(selected) ? selected : [];
-      values.push(...entries);
-      if (entries.length < 100) return values;
+    const perPage = pagination.perPage ?? 100;
+    const maxItems = pageLimit * perPage;
+    if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 100) {
+      throw new Error(`Collection ${pagination.source ?? path} has an invalid page bound.`);
     }
-    status.truncated.push(pagination.source ?? path.split("?")[0]);
+    const identities = new Map();
+    let expectedTotal = null;
+    let nextPath = appendPage(path, 1);
+    const seenPages = new Set();
+    for (let page = 1; page <= pageLimit; page += 1) {
+      if (seenPages.has(nextPath)) {
+        throw new Error(`Collection ${pagination.source ?? path} repeated pagination cursor ${nextPath}.`);
+      }
+      seenPages.add(nextPath);
+      const response = await request(nextPath);
+      const payload = response.status === 204 ? null : await response.json();
+      const selected = select(payload);
+      if (!Array.isArray(selected)) {
+        throw new Error(`Collection ${pagination.source ?? path} returned a malformed page ${page}.`);
+      }
+      if (payload && Object.hasOwn(payload, "total_count")) {
+        if (!Number.isSafeInteger(payload.total_count) || payload.total_count < 0) {
+          throw new Error(`Collection ${pagination.source ?? path} returned an invalid total_count.`);
+        }
+        if (expectedTotal === null) expectedTotal = payload.total_count;
+        else if (expectedTotal !== payload.total_count)
+          throw new Error(`Collection ${pagination.source ?? path} changed total_count between pages.`);
+        if (expectedTotal > maxItems && typeof pagination.stopWhen !== "function") {
+          status.truncated.push(pagination.source ?? path.split("?")[0]);
+          throw new Error(
+            `Collection ${pagination.source ?? path} declares ${expectedTotal} items beyond the ${maxItems} item bound.`,
+          );
+        }
+      }
+      for (const entry of selected) {
+        const identity = pagination.identity?.(entry);
+        if (identity === undefined || identity === null || identity === "") {
+          values.push(entry);
+          continue;
+        }
+        const key = String(identity);
+        const previous = identities.get(key);
+        if (previous === undefined) {
+          identities.set(key, canonicalJson(entry));
+          values.push(entry);
+        } else if (previous !== canonicalJson(entry)) {
+          throw new Error(`Collection ${pagination.source ?? path} returned conflicting duplicate ${key}.`);
+        }
+      }
+      if (pagination.stopWhen?.({ values, entries: selected, payload, page }) === true) return values;
+      const linkNext = parseNextLink(response.headers?.get?.("link"));
+      const completeByTotal = expectedTotal !== null && values.length >= expectedTotal;
+      if (completeByTotal) return values;
+      const continuationRequired =
+        linkNext !== null || selected.length >= perPage || (expectedTotal !== null && values.length < expectedTotal);
+      if (!continuationRequired) return values;
+      if (page === pageLimit) {
+        status.truncated.push(pagination.source ?? path.split("?")[0]);
+        throw new Error(`Collection ${pagination.source ?? path} exceeded the bounded ${pageLimit} pages.`);
+      }
+      nextPath = linkNext ?? appendPage(path, page + 1);
+    }
     return values;
   }
 
@@ -1263,29 +1342,26 @@ async function fetchPullRequests(client, repository, queryStart, maxPages) {
 }
 
 async function fetchWorkflowRuns(client, workflow, queryStart, maxPages, lastN) {
-  const runs = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const payload = await client.json(
-      `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100&page=${page}`,
-    );
-    const entries = payload?.workflow_runs ?? [];
-    runs.push(...entries);
-    const oldest = entries.at(-1);
-    if (
-      entries.length < 100 ||
-      (runs.length >= lastN && Date.parse(runTimestamp(oldest) ?? 0) < Date.parse(queryStart))
-    ) {
-      return runs;
-    }
-  }
-  client.markTruncated(`workflow:${workflow}`);
-  return runs;
+  return client.paginate(
+    `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100`,
+    (payload) => payload?.workflow_runs,
+    {
+      source: `workflow:${workflow}`,
+      maxPages,
+      identity: (run) => `${run?.id ?? ""}:${run?.run_attempt ?? ""}`,
+      stopWhen: ({ values, entries }) => {
+        const oldest = entries.at(-1);
+        return values.length >= lastN && Date.parse(runTimestamp(oldest) ?? 0) < Date.parse(queryStart);
+      },
+    },
+  );
 }
 
 async function fetchRunJobs(client, runId, maxPages) {
   return client.paginate(`/actions/runs/${runId}/jobs?filter=all&per_page=100`, (payload) => payload?.jobs, {
     source: `jobs:${runId}`,
     maxPages,
+    identity: (job) => job?.id,
   });
 }
 
@@ -1293,6 +1369,7 @@ async function fetchPullFiles(client, pullNumber, maxPages) {
   return client.paginate(`/pulls/${pullNumber}/files?per_page=100`, (payload) => payload, {
     source: `pull-files:${pullNumber}`,
     maxPages,
+    identity: (file) => file?.filename,
   });
 }
 
@@ -1300,6 +1377,7 @@ async function fetchPullReviews(client, pullNumber, maxPages) {
   return client.paginate(`/pulls/${pullNumber}/reviews?per_page=100`, (payload) => payload, {
     source: `pull-reviews:${pullNumber}`,
     maxPages,
+    identity: (review) => review?.id,
   });
 }
 
@@ -1308,6 +1386,7 @@ async function fetchCircuitIssues(client, repository, maxPages) {
   return client.paginate(`${API_BASE_URL}/search/issues?q=${query}&per_page=100`, (payload) => payload?.items, {
     source: "delivery-failure-signatures",
     maxPages,
+    identity: (issue) => issue?.id,
   });
 }
 
@@ -1318,6 +1397,7 @@ async function fetchReleaseHealthArtifacts(client, runId) {
     {
       source: `artifacts:${runId}`,
       maxPages: 2,
+      identity: (artifact) => artifact?.id,
     },
   );
   const selected = artifacts.filter((artifact) => /(?:staging|production)-release-health/.test(artifact.name ?? ""));
@@ -1568,9 +1648,67 @@ function safeRequestLabel(value) {
   }
 }
 
+function appendPage(path, page) {
+  const url = new URL(path, API_BASE_URL);
+  url.searchParams.set("page", String(page));
+  return String(path).startsWith("http") ? url.toString() : `${url.pathname}${url.search}`;
+}
+
+function parseNextLink(value) {
+  if (!value) return null;
+  for (const part of String(value).split(",")) {
+    const match = part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/);
+    if (match?.[2].split(/\s+/u).includes("next")) return match[1];
+  }
+  return null;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function normalizeIso(value) {
   const normalized = normalizeString(value);
   return normalized && Number.isFinite(Date.parse(normalized)) ? new Date(normalized).toISOString() : null;
+}
+
+function isCalendarInstant(value) {
+  if (typeof value !== "string") return false;
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|([+-])(\d{2}):(\d{2}))$/,
+  );
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const offsetHour = Number(offsetHourText ?? 0);
+  const offsetMinute = Number(offsetMinuteText ?? 0);
+  const days = month >= 1 && month <= 12 ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 0;
+  return (
+    year >= 2000 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= days &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59 &&
+    offsetHour <= 14 &&
+    offsetMinute <= 59 &&
+    !(offsetHour === 14 && offsetMinute !== 0) &&
+    Number.isFinite(Date.parse(value))
+  );
 }
 
 function parseBoolean(value) {
@@ -1606,10 +1744,154 @@ function validateOptions(options) {
   if (typeof options.fetchImpl !== "function") throw new Error("A fetch implementation is required.");
 }
 
-function validatePolicy(policy) {
-  if (policy?.schemaVersion !== "delivery-health-policy/v1") throw new Error("Unsupported delivery-health policy.");
-  if (!Number.isInteger(policy.windows?.lastN) || policy.windows.lastN < 1)
-    throw new Error("Policy lastN must be positive.");
+export function validateDeliveryHealthPolicy(policy) {
+  const errors = [];
+  const closed = (value, fields, label) => {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.keys(value).some((field) => !fields.includes(field)) ||
+      Object.keys(value).length !== fields.length
+    ) {
+      errors.push(`${label} must be a closed object with exactly ${fields.join(", ")}.`);
+      return false;
+    }
+    return true;
+  };
+  if (!closed(policy, ["schemaVersion", "windows", "collection", "baseline", "rollouts", "targets"], "policy")) {
+    throw new Error(`Invalid delivery-health policy: ${errors.join(" ")}`);
+  }
+  if (policy.schemaVersion !== "delivery-health-policy/v1") errors.push("Unsupported delivery-health policy.");
+  if (closed(policy.windows, ["rolling24hHours", "rolling7dDays", "lastN"], "policy.windows")) {
+    for (const [field, max] of [
+      ["rolling24hHours", 168],
+      ["rolling7dDays", 31],
+      ["lastN", 1_000],
+    ]) {
+      if (!Number.isSafeInteger(policy.windows[field]) || policy.windows[field] < 1 || policy.windows[field] > max)
+        errors.push(`policy.windows.${field} is outside its bounded positive range.`);
+    }
+  }
+  if (
+    closed(
+      policy.collection,
+      ["maxPages", "concurrency", "retries", "generatedPaths", "workflowSources"],
+      "policy.collection",
+    )
+  ) {
+    if (
+      !Number.isSafeInteger(policy.collection.maxPages) ||
+      policy.collection.maxPages < 1 ||
+      policy.collection.maxPages > 100
+    )
+      errors.push("policy.collection.maxPages must be 1..100.");
+    if (
+      !Number.isSafeInteger(policy.collection.concurrency) ||
+      policy.collection.concurrency < 1 ||
+      policy.collection.concurrency > 20
+    )
+      errors.push("policy.collection.concurrency must be 1..20.");
+    if (
+      !Number.isSafeInteger(policy.collection.retries) ||
+      policy.collection.retries < 0 ||
+      policy.collection.retries > 5
+    )
+      errors.push("policy.collection.retries must be 0..5.");
+    if (
+      !Array.isArray(policy.collection.generatedPaths) ||
+      policy.collection.generatedPaths.length > 100 ||
+      new Set(policy.collection.generatedPaths).size !== policy.collection.generatedPaths.length ||
+      policy.collection.generatedPaths.some((entry) => typeof entry !== "string" || !entry || entry.length > 256)
+    )
+      errors.push("policy.collection.generatedPaths must be a unique bounded string array.");
+    const sourceFields = [
+      "platformPr",
+      "releaseDispatch",
+      "platformDeploy",
+      "ephemeralVerification",
+      "mergeQualificationAdvisory",
+      "mergeQualificationTerminalizer",
+    ];
+    if (closed(policy.collection.workflowSources, sourceFields, "policy.collection.workflowSources")) {
+      const sources = Object.values(policy.collection.workflowSources);
+      if (
+        sources.some((source) => typeof source !== "string" || !/^[A-Za-z0-9._-]+\.ya?ml$/.test(source)) ||
+        new Set(sources).size !== sources.length
+      )
+        errors.push("policy.collection.workflowSources must contain unique workflow YAML basenames.");
+    }
+  }
+  if (closed(policy.baseline, ["sourceIssue", "capturedAt", "metrics"], "policy.baseline")) {
+    if (!Number.isSafeInteger(policy.baseline.sourceIssue) || policy.baseline.sourceIssue <= 0)
+      errors.push("policy.baseline.sourceIssue must be positive.");
+    if (!isCalendarInstant(policy.baseline.capturedAt))
+      errors.push("policy.baseline.capturedAt must be calendar-valid.");
+    if (
+      typeof policy.baseline.metrics !== "object" ||
+      policy.baseline.metrics === null ||
+      Array.isArray(policy.baseline.metrics)
+    ) {
+      errors.push("policy.baseline.metrics must be an object.");
+    } else {
+      for (const [name, metric] of Object.entries(policy.baseline.metrics)) {
+        if (!closed(metric, ["value", "currentPath"], `policy.baseline.metrics.${name}`)) continue;
+        if (!Number.isFinite(metric.value) || Math.abs(metric.value) > 1_000_000)
+          errors.push(`policy.baseline.metrics.${name}.value is invalid.`);
+        if (typeof metric.currentPath !== "string" || !metric.currentPath.startsWith("windows."))
+          errors.push(`policy.baseline.metrics.${name}.currentPath is invalid.`);
+      }
+    }
+  }
+  if (!Array.isArray(policy.rollouts) || policy.rollouts.length > 1_000) errors.push("policy.rollouts is invalid.");
+  else {
+    const issues = new Set();
+    for (const [index, rollout] of policy.rollouts.entries()) {
+      if (!closed(rollout, ["issue", "landedAt"], `policy.rollouts[${index}]`)) continue;
+      if (!Number.isSafeInteger(rollout.issue) || rollout.issue <= 0 || issues.has(rollout.issue))
+        errors.push(`policy.rollouts[${index}].issue is invalid or duplicated.`);
+      issues.add(rollout.issue);
+      if (rollout.landedAt !== null && !isCalendarInstant(rollout.landedAt))
+        errors.push(`policy.rollouts[${index}].landedAt is invalid.`);
+    }
+  }
+  if (typeof policy.targets !== "object" || policy.targets === null || Array.isArray(policy.targets)) {
+    errors.push("policy.targets must be an object.");
+  } else {
+    for (const [name, target] of Object.entries(policy.targets)) {
+      const required = ["window", "metric", "sampleMetric", "operator", "value", "minimumSample", "severity"];
+      const optional = ["p0Below", "p0At"];
+      if (
+        typeof target !== "object" ||
+        target === null ||
+        Array.isArray(target) ||
+        required.some((field) => !Object.hasOwn(target, field)) ||
+        Object.keys(target).some((field) => ![...required, ...optional].includes(field))
+      ) {
+        errors.push(`policy.targets.${name} must be a closed target contract.`);
+        continue;
+      }
+      if (!["rolling24h", "rolling7d", "lastN"].includes(target.window))
+        errors.push(`policy.targets.${name}.window is invalid.`);
+      if (!["gte", "lte", "eq"].includes(target.operator)) errors.push(`policy.targets.${name}.operator is invalid.`);
+      if (!["p0", "p1"].includes(target.severity)) errors.push(`policy.targets.${name}.severity is invalid.`);
+      if (
+        ![target.metric, target.sampleMetric].every(
+          (value) => typeof value === "string" && /^[A-Za-z0-9_.-]+$/.test(value),
+        )
+      )
+        errors.push(`policy.targets.${name} metric paths are invalid.`);
+      if (!Number.isFinite(target.value) || Math.abs(target.value) > 1_000_000)
+        errors.push(`policy.targets.${name}.value is invalid.`);
+      if (!Number.isSafeInteger(target.minimumSample) || target.minimumSample < 0 || target.minimumSample > 1_000_000)
+        errors.push(`policy.targets.${name}.minimumSample is invalid.`);
+      for (const field of optional) {
+        if (target[field] !== undefined && (!Number.isFinite(target[field]) || Math.abs(target[field]) > 1_000_000))
+          errors.push(`policy.targets.${name}.${field} is invalid.`);
+      }
+    }
+  }
+  if (errors.length > 0) throw new Error(`Invalid delivery-health policy: ${errors.join(" ")}`);
 }
 
 async function writeOutputs(options, result) {

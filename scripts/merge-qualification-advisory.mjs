@@ -36,6 +36,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isCommitSha, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { validateMergeGateProvisioningObservation } from "./merge-gate-verification.mjs";
 
 export const MERGE_QUALIFICATION_POLICY_SCHEMA_VERSION = "merge-qualification-policy/v1";
 export const MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION = "merge-qualification-event/v1";
@@ -60,9 +61,10 @@ export const MERGE_QUALIFICATION_TERMINAL_STATES = Object.freeze([
   "infrastructure_error",
 ]);
 
-// Terminal states that may have provisioned a gate namespace. not_applicable,
-// persistent_required, and infrastructure_error must never provision.
-const PROVISIONING_TERMINAL_STATES = new Set(["passed", "failed", "cancelled_evicted"]);
+// A durable namespace-created observation may precede pass, fail,
+// cancellation, or a later infrastructure failure. Routing-only outcomes can
+// never carry that observation.
+const PROVISIONING_TERMINAL_STATES = new Set(["passed", "failed", "cancelled_evicted", "infrastructure_error"]);
 
 const POLICY_DISABLED_REASONS = Object.freeze([
   "policy_absent",
@@ -213,10 +215,32 @@ export function evaluateMergeQualificationPolicy(content, { now = () => new Date
         disabledShapeErrors.push("disabled policy ceiling values are outside the bounded contract.");
       }
     }
+    const disabledEnabledAtMs = parseTimezoneInstantMs(policy.enabledAt);
+    const disabledExpiresAtMs = parseTimezoneInstantMs(policy.expiresAt);
     for (const field of ["enabledAt", "expiresAt"]) {
       if (policy[field] !== undefined && policy[field] !== null && parseTimezoneInstantMs(policy[field]) === null) {
         disabledShapeErrors.push(`disabled policy ${field} must be null or a calendar-valid timezone instant.`);
       }
+    }
+    const disabledHasOwner = typeof policy.owner === "string" && policy.owner.trim().length > 0;
+    const disabledHasCeiling = policy.ceiling !== undefined && policy.ceiling !== null;
+    const disabledHasEnabledAt = disabledEnabledAtMs !== null;
+    const disabledHasExpiresAt = disabledExpiresAtMs !== null;
+    if (new Set([disabledHasOwner, disabledHasCeiling, disabledHasEnabledAt, disabledHasExpiresAt]).size > 1) {
+      disabledShapeErrors.push(
+        "disabled policy owner, ceiling, enabledAt, and expiresAt must be either all null/absent or one coherent retained window.",
+      );
+    }
+    if (disabledHasEnabledAt && !(disabledEnabledAtMs < disabledExpiresAtMs)) {
+      disabledShapeErrors.push("disabled policy expiresAt must be strictly after enabledAt.");
+    }
+    if (
+      disabledHasEnabledAt &&
+      disabledExpiresAtMs - disabledEnabledAtMs > MERGE_QUALIFICATION_MAX_ENABLEMENT_DAYS * 24 * 60 * 60 * 1000
+    ) {
+      disabledShapeErrors.push(
+        `disabled policy retained advisory window must not exceed ${MERGE_QUALIFICATION_MAX_ENABLEMENT_DAYS} days.`,
+      );
     }
     if (policy.notes !== undefined && (typeof policy.notes !== "string" || policy.notes.length > 2_048)) {
       disabledShapeErrors.push("disabled policy notes must be a bounded string.");
@@ -333,8 +357,8 @@ export function buildMergeQualificationCandidate(input) {
     workflowPath: normalize(input.workflowPath),
     runId: normalize(input.runId),
     runAttempt: normalize(input.runAttempt),
-    candidateSha: lowerTrim(input.candidateSha),
-    candidateTreeSha: lowerTrim(input.candidateTreeSha),
+    candidateSha: input.candidateSha ? lowerTrim(input.candidateSha) : null,
+    candidateTreeSha: input.candidateTreeSha ? lowerTrim(input.candidateTreeSha) : null,
     builtImageDigest: lowerTrim(input.builtImageDigest),
     capturedAt: normalize(input.capturedAt),
   };
@@ -441,8 +465,10 @@ export function validateMergeQualificationDecision(decision) {
   ) {
     errors.push("decision run binding is invalid.");
   }
-  if (!isCommitSha(decision.candidateSha) || !isCommitSha(decision.candidateTreeSha))
-    errors.push("decision candidate identity is invalid.");
+  const candidateIdentityPresent = decision.candidateSha !== null || decision.candidateTreeSha !== null;
+  if (candidateIdentityPresent && (!isCommitSha(decision.candidateSha) || !isCommitSha(decision.candidateTreeSha))) {
+    errors.push("decision candidate identity must be null or a complete SHA/tree pair.");
+  }
   if (decision.builtImageDigest !== null && !IMAGE_DIGEST_PATTERN.test(decision.builtImageDigest ?? "")) {
     errors.push("decision builtImageDigest is invalid.");
   }
@@ -460,6 +486,9 @@ export function validateMergeQualificationDecision(decision) {
     !["isolated", "not_applicable", "persistent_required"].includes(decision.classifierClass)
   ) {
     errors.push("enabled decision requires an exact classifierClass.");
+  }
+  if (decision.policyEnabled && (!isCommitSha(decision.candidateSha) || !isCommitSha(decision.candidateTreeSha))) {
+    errors.push("enabled decision requires independently observed candidate SHA/tree evidence.");
   }
   if (!decision.policyEnabled && decision.classifierClass !== null)
     errors.push("disabled decision cannot classify a candidate.");
@@ -517,7 +546,7 @@ export function resolveMergeQualificationOutcome(input = {}) {
     reasonCodes,
     recordRequired: true,
     assertsAdvisoryCheck: true,
-    provisionsAllowed: PROVISIONING_TERMINAL_STATES.has(state),
+    provisionsAllowed: ["passed", "failed", "cancelled_evicted"].includes(state),
     summary: null,
   });
 
@@ -662,6 +691,7 @@ export function resolveRunTerminalization({
   jobs = [],
   artifactNames = [],
   decision = null,
+  provisioningObserved = false,
 } = {}) {
   if (runEvent !== "workflow_run") return { action: "skip", reason: "not_advisory_workflow_run" };
   if (runDisplayTitle && !/^Merge Qualification merge_group [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(runDisplayTitle)) {
@@ -678,9 +708,6 @@ export function resolveRunTerminalization({
   // entry.
   const gateJobs = jobs.filter((job) => /^Merge Qualification Gate/.test(String(job?.name ?? "")));
   const gateCancelled = gateJobs.some((job) => job?.conclusion === "cancelled");
-  const namespaceCreated = gateJobs.some((job) =>
-    (job?.steps ?? []).some((step) => step?.name === "Create gate namespace" && step?.conclusion === "success"),
-  );
   if (runConclusion === "cancelled") {
     // Attribute the cancellation to the EARLIEST cancelled stage — that is
     // where the pipeline actually died; later jobs are collateral.
@@ -696,10 +723,7 @@ export function resolveRunTerminalization({
       action: "terminalize",
       terminalState: "cancelled_evicted",
       reasonCodes: [reason],
-      // `provisioned` is an observed lifecycle fact, not an inference from a
-      // gate job merely starting. The observer/controller owns cleanup when
-      // exact namespace-creation evidence exists.
-      provisioned: namespaceCreated,
+      provisioned: provisioningObserved === true,
     };
   }
   const decisionErrors = validateMergeQualificationDecision(decision);
@@ -708,7 +732,7 @@ export function resolveRunTerminalization({
       action: "terminalize",
       terminalState: "infrastructure_error",
       reasonCodes: ["policy_decision_evidence_missing"],
-      provisioned: false,
+      provisioned: provisioningObserved === true,
     };
   }
   if (decision.policyEnabled !== true) {
@@ -719,7 +743,7 @@ export function resolveRunTerminalization({
       action: "terminalize",
       terminalState: "infrastructure_error",
       reasonCodes: ["publisher_skipped_enabled"],
-      provisioned: false,
+      provisioned: provisioningObserved === true,
     };
   }
   // The run completed without cancellation, the policy is enabled, and no
@@ -729,7 +753,7 @@ export function resolveRunTerminalization({
     action: "terminalize",
     terminalState: "infrastructure_error",
     reasonCodes: ["advisory_result_missing"],
-    provisioned: false,
+    provisioned: provisioningObserved === true,
   };
 }
 
@@ -753,11 +777,22 @@ export function buildMergeQualificationEvent(input) {
   const workflowId = normalize(input.workflowId ?? "1");
   const workflowPath = normalize(input.workflowPath ?? ".github/workflows/platform-merge-qualification.yml");
   const imageDigest = input.imageDigest ? normalize(input.imageDigest).toLowerCase() : null;
-  const candidateSha = normalize(input.candidateSha).toLowerCase();
-  const candidateTreeSha = normalize(input.candidateTreeSha).toLowerCase();
+  const builtImageDigest = input.builtImageDigest ? normalize(input.builtImageDigest).toLowerCase() : null;
+  const candidateSha = input.candidateSha ? normalize(input.candidateSha).toLowerCase() : null;
+  const candidateTreeSha = input.candidateTreeSha ? normalize(input.candidateTreeSha).toLowerCase() : null;
+  const gateCandidateSha = input.gateCandidateSha ? normalize(input.gateCandidateSha).toLowerCase() : null;
+  const gateCandidateTreeSha = input.gateCandidateTreeSha ? normalize(input.gateCandidateTreeSha).toLowerCase() : null;
+  // Immutable proof is observed independently at four owning boundaries:
+  // upstream candidate capture, image push, gate image resolution, and gate
+  // candidate resolution. Expected inputs never fill a missing observation.
   const identityAvailable =
-    input.identityAvailable === true ||
-    (["passed", "failed"].includes(normalize(input.terminalState)) && IMAGE_DIGEST_PATTERN.test(imageDigest ?? ""));
+    isCommitSha(candidateSha) &&
+    isCommitSha(candidateTreeSha) &&
+    IMAGE_DIGEST_PATTERN.test(imageDigest ?? "") &&
+    IMAGE_DIGEST_PATTERN.test(builtImageDigest ?? "") &&
+    imageDigest === builtImageDigest &&
+    gateCandidateSha === candidateSha &&
+    gateCandidateTreeSha === candidateTreeSha;
   const event = {
     schemaVersion: MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION,
     idempotencyKey:
@@ -765,25 +800,17 @@ export function buildMergeQualificationEvent(input) {
     repository,
     workflowId,
     workflowPath,
+    parentWorkflowId: normalize(input.parentWorkflowId),
+    parentWorkflowPath: normalize(input.parentWorkflowPath),
+    parentRunId: normalize(input.parentRunId),
+    parentRunAttempt: normalize(input.parentRunAttempt),
     candidateSha,
     candidateTreeSha,
     identityAvailable,
     imageDigest,
-    builtImageDigest: input.builtImageDigest
-      ? normalize(input.builtImageDigest).toLowerCase()
-      : identityAvailable
-        ? imageDigest
-        : null,
-    gateCandidateSha: input.gateCandidateSha
-      ? normalize(input.gateCandidateSha).toLowerCase()
-      : identityAvailable
-        ? candidateSha
-        : null,
-    gateCandidateTreeSha: input.gateCandidateTreeSha
-      ? normalize(input.gateCandidateTreeSha).toLowerCase()
-      : identityAvailable
-        ? candidateTreeSha
-        : null,
+    builtImageDigest,
+    gateCandidateSha,
+    gateCandidateTreeSha,
     classifierClass: input.classifierClass ?? null,
     terminalState: normalize(input.terminalState),
     reasonCodes: Array.isArray(input.reasonCodes) ? input.reasonCodes : [],
@@ -814,6 +841,10 @@ export function validateMergeQualificationEvent(event) {
     "repository",
     "workflowId",
     "workflowPath",
+    "parentWorkflowId",
+    "parentWorkflowPath",
+    "parentRunId",
+    "parentRunAttempt",
     "candidateSha",
     "candidateTreeSha",
     "identityAvailable",
@@ -845,15 +876,19 @@ export function validateMergeQualificationEvent(event) {
       "workflowId must be a bounded safe integer string and workflowPath must be an exact workflow YAML path.",
     );
   }
+  if (!isBoundedSafeIntegerString(event.parentWorkflowId) || !isWorkflowPath(event.parentWorkflowPath)) {
+    errors.push("parent workflow identity must bind the exact triggering workflow.");
+  }
+  if (!isBoundedSafeIntegerString(event.parentRunId) || !isBoundedSafeIntegerString(event.parentRunAttempt)) {
+    errors.push("parent run identity must bind the exact triggering run attempt.");
+  }
   const expectedKey = `merge-qualification:${event.repository}:${event.workflowId}:${event.runId}:${event.runAttempt}`;
   if (event.idempotencyKey !== expectedKey || event.idempotencyKey.length > MAX_IDENTITY_LENGTH) {
     errors.push("idempotencyKey must deterministically bind repository, workflow, run, and attempt.");
   }
-  if (!isCommitSha(event.candidateSha)) {
-    errors.push("candidateSha must be the 40-character merge-group candidate commit SHA.");
-  }
-  if (!isCommitSha(event.candidateTreeSha)) {
-    errors.push("candidateTreeSha must be the 40-character candidate git tree SHA.");
+  const candidateFieldsPresent = event.candidateSha !== null || event.candidateTreeSha !== null;
+  if (candidateFieldsPresent && (!isCommitSha(event.candidateSha) || !isCommitSha(event.candidateTreeSha))) {
+    errors.push("candidate identity must be null or a complete independently observed SHA/tree pair.");
   }
   if (typeof event.identityAvailable !== "boolean") {
     errors.push("identityAvailable must be a boolean.");
@@ -878,6 +913,15 @@ export function validateMergeQualificationEvent(event) {
   ]) {
     if (value !== null && typeof value !== "string") errors.push(`${field} must be a string or null.`);
   }
+  if (event.builtImageDigest !== null && !IMAGE_DIGEST_PATTERN.test(event.builtImageDigest ?? "")) {
+    errors.push("builtImageDigest must be null or an immutable sha256 image digest.");
+  }
+  if (event.gateCandidateSha !== null && !isCommitSha(event.gateCandidateSha)) {
+    errors.push("gateCandidateSha must be null or an exact commit SHA.");
+  }
+  if (event.gateCandidateTreeSha !== null && !isCommitSha(event.gateCandidateTreeSha)) {
+    errors.push("gateCandidateTreeSha must be null or an exact tree SHA.");
+  }
   if (["passed", "failed"].includes(event.terminalState)) {
     if (
       event.identityAvailable !== true ||
@@ -891,12 +935,7 @@ export function validateMergeQualificationEvent(event) {
         "passed/failed candidate evidence requires exact built and gate sha256 digests plus candidate SHA/tree echoes.",
       );
     }
-  } else if (
-    event.builtImageDigest !== null ||
-    event.gateCandidateSha !== null ||
-    event.gateCandidateTreeSha !== null ||
-    event.identityAvailable !== false
-  ) {
+  } else if (event.identityAvailable !== false) {
     errors.push("non-candidate terminal states must explicitly record immutable identity as unavailable.");
   }
   if (event.providerHeadroom !== null) {
@@ -991,12 +1030,21 @@ export function joinMergeQualificationToStaging({ events = [], releases = [] } =
   );
   return eligible.map((event) => {
     const qualifiedAtMs = parseTimezoneInstantMs(event.completedAt);
-    const sameTree = releases.filter((release) => release?.treeSha === event.candidateTreeSha);
-    if (sameTree.length === 0) {
+    const sameCausalAttempt = releases.filter(
+      (release) =>
+        release?.causalBridge?.mergeGroupRunId === event.parentRunId &&
+        release?.causalBridge?.mergeGroupRunAttempt === event.parentRunAttempt,
+    );
+    if (sameCausalAttempt.length === 0) {
+      const unrelatedSameTree = releases.some(
+        (release) =>
+          release?.candidateTreeSha === event.candidateTreeSha || release?.mainTreeSha === event.candidateTreeSha,
+      );
+      if (unrelatedSameTree) return comparison(event, null, "causal_mismatch");
       return comparison(event, null, "superseded");
     }
-    const identityUnavailable = sameTree.filter((release) => validateStagingRelease(release).length > 0);
-    const usableReleases = sameTree.filter((release) => validateStagingRelease(release).length === 0);
+    const identityUnavailable = sameCausalAttempt.filter((release) => validateStagingRelease(release).length > 0);
+    const usableReleases = sameCausalAttempt.filter((release) => validateStagingRelease(release).length === 0);
     if (usableReleases.length === 0 && identityUnavailable.length > 0) {
       return comparison(event, null, "identity_unavailable");
     }
@@ -1005,7 +1053,11 @@ export function joinMergeQualificationToStaging({ events = [], releases = [] } =
       return comparison(event, null, "no_subsequent_release");
     }
     const agreeing = subsequent.filter(
-      (release) => release.candidateSha === event.candidateSha && release.imageDigest === event.imageDigest,
+      (release) =>
+        release.candidateSha === event.candidateSha &&
+        release.candidateTreeSha === event.candidateTreeSha &&
+        release.mainTreeSha === event.candidateTreeSha &&
+        release.imageDigest === event.imageDigest,
     );
     if (agreeing.length === 0) {
       return comparison(event, null, "identity_mismatch");
@@ -1022,16 +1074,44 @@ export function isUsableStagingRelease(release) {
 }
 
 export function validateStagingRelease(release) {
-  if (!isClosedObject(release, ["candidateSha", "mainSha", "treeSha", "imageDigest", "completedAt", "staging"])) {
+  if (
+    !isClosedObject(release, [
+      "candidateSha",
+      "candidateTreeSha",
+      "mainSha",
+      "mainTreeSha",
+      "imageDigest",
+      "completedAt",
+      "causalBridge",
+      "staging",
+    ])
+  ) {
     return ["staging release must be a recursively closed object."];
   }
   const errors = [];
   if (!isCommitSha(release.candidateSha)) errors.push("candidateSha lineage is required.");
+  if (!isCommitSha(release.candidateTreeSha)) errors.push("candidateTreeSha lineage is required.");
   if (!isCommitSha(release.mainSha)) errors.push("mainSha is required.");
-  if (!isCommitSha(release.treeSha)) errors.push("treeSha is required.");
+  if (!isCommitSha(release.mainTreeSha)) errors.push("mainTreeSha is required.");
+  if (
+    isCommitSha(release.candidateTreeSha) &&
+    isCommitSha(release.mainTreeSha) &&
+    release.candidateTreeSha !== release.mainTreeSha
+  ) {
+    errors.push("candidate and final merge commits must carry the same proven tree.");
+  }
   if (!IMAGE_DIGEST_PATTERN.test(release.imageDigest ?? "")) errors.push("imageDigest must be exact sha256 identity.");
   if (parseTimezoneInstantMs(release.completedAt) === null)
     errors.push("completedAt must be a calendar-valid instant.");
+  if (
+    !isClosedObject(release.causalBridge, ["pullRequestNumber", "mergeGroupRunId", "mergeGroupRunAttempt"]) ||
+    !Number.isSafeInteger(release.causalBridge?.pullRequestNumber) ||
+    release.causalBridge.pullRequestNumber <= 0 ||
+    !isBoundedSafeIntegerString(release.causalBridge?.mergeGroupRunId) ||
+    !isBoundedSafeIntegerString(release.causalBridge?.mergeGroupRunAttempt)
+  ) {
+    errors.push("causalBridge must bind the PR and exact merge-group run attempt.");
+  }
   if (!isClosedObject(release.staging, ["result", "rootCauseCode"])) {
     errors.push("staging must be a closed result object.");
   } else {
@@ -1063,12 +1143,18 @@ function comparison(event, release, joinStatus) {
     schemaVersion: MERGE_QUALIFICATION_COMPARISON_SCHEMA_VERSION,
     candidateSha: event.candidateSha,
     candidateTreeSha: event.candidateTreeSha,
+    candidateParentRunId: event.parentRunId,
+    candidateParentRunAttempt: event.parentRunAttempt,
     imageDigest: event.imageDigest,
     terminalState: event.terminalState,
     qualificationCompletedAt: event.completedAt ?? null,
     joinStatus,
     mainSha: joined ? release.mainSha : null,
     releaseCandidateSha: joined ? release.candidateSha : null,
+    releaseCandidateTreeSha: joined ? release.candidateTreeSha : null,
+    mainTreeSha: joined ? release.mainTreeSha : null,
+    releaseParentRunId: joined ? release.causalBridge.mergeGroupRunId : null,
+    releaseParentRunAttempt: joined ? release.causalBridge.mergeGroupRunAttempt : null,
     mapping: joined
       ? release.mainSha === event.candidateSha
         ? "same-commit"
@@ -1123,47 +1209,50 @@ export function dedupeMergeQualificationEvents(events = []) {
   const invalidEvents = [];
   const byAttempt = new Map();
   let duplicateEventCount = 0;
-  const conflictedCandidates = new Set();
+  const conflictedLineages = new Set();
   for (const event of events) {
     const errors = validateMergeQualificationEvent(event);
     if (errors.length > 0) {
       invalidEvents.push({ candidateSha: event?.candidateSha ?? null, errors });
       continue;
     }
-    const key = `${event.candidateSha}|${event.runId}|${event.runAttempt}`;
+    const key = `${event.runId}|${event.runAttempt}`;
     const existing = byAttempt.get(key);
     if (!existing) {
       byAttempt.set(key, event);
     } else if (canonicalJson(existing) === canonicalJson(event)) {
       duplicateEventCount += 1;
     } else {
-      conflictedCandidates.add(event.candidateSha);
+      conflictedLineages.add(event.parentRunId);
     }
   }
-  const byCandidate = new Map();
+  const byLineage = new Map();
   let supersededAttemptCount = 0;
   for (const event of byAttempt.values()) {
-    if (conflictedCandidates.has(event.candidateSha)) continue;
-    const current = byCandidate.get(event.candidateSha);
+    if (conflictedLineages.has(event.parentRunId)) continue;
+    const current = byLineage.get(event.parentRunId);
     if (!current) {
-      byCandidate.set(event.candidateSha, event);
+      byLineage.set(event.parentRunId, event);
       continue;
     }
     supersededAttemptCount += 1;
     if (compareAttemptIdentity(event, current) > 0) {
-      byCandidate.set(event.candidateSha, event);
+      byLineage.set(event.parentRunId, event);
     }
   }
   return {
-    authoritative: [...byCandidate.values()],
+    authoritative: [...byLineage.values()],
     invalidEvents,
     duplicateEventCount,
     supersededAttemptCount,
-    conflictedCandidates: [...conflictedCandidates].sort(),
+    conflictedLineages: [...conflictedLineages].sort((left, right) => (BigInt(left) < BigInt(right) ? -1 : 1)),
   };
 }
 
 function compareAttemptIdentity(left, right) {
+  const leftParentAttempt = BigInt(left.parentRunAttempt);
+  const rightParentAttempt = BigInt(right.parentRunAttempt);
+  if (leftParentAttempt !== rightParentAttempt) return leftParentAttempt > rightParentAttempt ? 1 : -1;
   const leftRun = BigInt(left.runId);
   const rightRun = BigInt(right.runId);
   if (leftRun !== rightRun) return leftRun > rightRun ? 1 : -1;
@@ -1191,6 +1280,7 @@ const COMPARISON_JOIN_STATUSES = new Set([
   "no_subsequent_release",
   "identity_mismatch",
   "identity_unavailable",
+  "causal_mismatch",
 ]);
 
 export function validateMergeQualificationComparison(entry) {
@@ -1198,12 +1288,18 @@ export function validateMergeQualificationComparison(entry) {
     "schemaVersion",
     "candidateSha",
     "candidateTreeSha",
+    "candidateParentRunId",
+    "candidateParentRunAttempt",
     "imageDigest",
     "terminalState",
     "qualificationCompletedAt",
     "joinStatus",
     "mainSha",
     "releaseCandidateSha",
+    "releaseCandidateTreeSha",
+    "mainTreeSha",
+    "releaseParentRunId",
+    "releaseParentRunAttempt",
     "mapping",
     "releaseCompletedAt",
     "digestMatched",
@@ -1219,6 +1315,12 @@ export function validateMergeQualificationComparison(entry) {
     errors.push("unsupported comparison schema.");
   if (!isCommitSha(entry.candidateSha) || !isCommitSha(entry.candidateTreeSha))
     errors.push("candidate identity is invalid.");
+  if (
+    !isBoundedSafeIntegerString(entry.candidateParentRunId) ||
+    !isBoundedSafeIntegerString(entry.candidateParentRunAttempt)
+  ) {
+    errors.push("candidate causal attempt identity is invalid.");
+  }
   if (!IMAGE_DIGEST_PATTERN.test(entry.imageDigest ?? "")) errors.push("candidate imageDigest is required.");
   if (!["passed", "failed"].includes(entry.terminalState))
     errors.push("comparison terminalState must be passed or failed.");
@@ -1227,7 +1329,14 @@ export function validateMergeQualificationComparison(entry) {
   if (!COMPARISON_JOIN_STATUSES.has(entry.joinStatus)) errors.push("joinStatus is invalid.");
   const joined = entry.joinStatus === "joined";
   if (joined) {
-    if (!isCommitSha(entry.mainSha) || entry.releaseCandidateSha !== entry.candidateSha)
+    if (
+      !isCommitSha(entry.mainSha) ||
+      entry.releaseCandidateSha !== entry.candidateSha ||
+      entry.releaseCandidateTreeSha !== entry.candidateTreeSha ||
+      entry.mainTreeSha !== entry.candidateTreeSha ||
+      entry.releaseParentRunId !== entry.candidateParentRunId ||
+      entry.releaseParentRunAttempt !== entry.candidateParentRunAttempt
+    )
       errors.push("joined lineage is invalid.");
     if (parseTimezoneInstantMs(entry.releaseCompletedAt) === null) errors.push("releaseCompletedAt is invalid.");
     else if (
@@ -1246,6 +1355,10 @@ export function validateMergeQualificationComparison(entry) {
   } else if (
     entry.mainSha !== null ||
     entry.releaseCandidateSha !== null ||
+    entry.releaseCandidateTreeSha !== null ||
+    entry.mainTreeSha !== null ||
+    entry.releaseParentRunId !== null ||
+    entry.releaseParentRunAttempt !== null ||
     entry.releaseCompletedAt !== null ||
     entry.stagingResult !== null ||
     entry.stagingRootCauseCode !== null ||
@@ -1261,6 +1374,26 @@ export function validateMergeQualificationComparison(entry) {
   if (entry.caught === true && !(joined && entry.terminalState === "passed" && entry.stagingResult === "failure")) {
     errors.push("caught requires a joined passed qualification followed by staging failure.");
   }
+  const expectedFailureKind =
+    joined && entry.stagingResult === "failure"
+      ? CLASSIFIER_ROUTING_ROOT_CAUSE_CODES.includes(entry.stagingRootCauseCode)
+        ? "classifier-routing"
+        : APPLICATION_ROOT_CAUSE_CODES.includes(entry.stagingRootCauseCode)
+          ? "application"
+          : null
+      : null;
+  if (entry.stagingFailureKind !== expectedFailureKind) {
+    errors.push("stagingFailureKind must be derived from the staging result and root cause.");
+  }
+  const expectedCaught =
+    joined &&
+    entry.terminalState === "passed" &&
+    entry.stagingResult === "failure" &&
+    expectedFailureKind === "application";
+  const expectedRouting = joined && entry.stagingResult === "failure" && expectedFailureKind === "classifier-routing";
+  if (entry.caught !== expectedCaught || entry.classifierRoutingEvidence !== expectedRouting) {
+    errors.push("caught and classifierRoutingEvidence must be derived from the joined staging failure.");
+  }
   return errors;
 }
 
@@ -1275,7 +1408,7 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
   for (const event of authoritative) {
     terminalStates[event.terminalState] += 1;
   }
-  const conflicted = new Set(dedupe.conflictedCandidates);
+  const conflicted = new Set(dedupe.conflictedLineages);
   const observedAttempts = new Set(authoritative.map(candidateAttemptKey));
   // Orphans: inventory candidates that never reached a valid terminal
   // advisory state (run-level eviction before any publisher/terminalizer
@@ -1283,7 +1416,7 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
   // the evidence block instead — they have terminal claims, just undecidable
   // ones.
   const unresolvedCandidates = inventory.latest.filter(
-    (candidate) => !observedAttempts.has(candidateAttemptKey(candidate)) && !conflicted.has(candidate.candidateSha),
+    (candidate) => !observedAttempts.has(candidateAttemptKey(candidate)) && !conflicted.has(candidate.parentRunId),
   ).length;
   const orphanEventCount = dedupe.authoritative.filter(
     (event) => inventory.latest.length > 0 && !inventoryKeys.has(candidateAttemptKey(event)),
@@ -1295,11 +1428,11 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
       .filter((event) => ["passed", "failed"].includes(event.terminalState))
       .map(
         (event) =>
-          `${event.candidateSha}|${event.candidateTreeSha}|${event.imageDigest}|${event.terminalState}|${event.completedAt}`,
+          `${event.parentRunId}|${event.parentRunAttempt}|${event.candidateSha}|${event.candidateTreeSha}|${event.imageDigest}|${event.terminalState}|${event.completedAt}`,
       ),
   );
   for (const entry of comparisons) {
-    const comparisonKey = `${entry?.candidateSha}|${entry?.candidateTreeSha}|${entry?.imageDigest}|${entry?.terminalState}|${entry?.qualificationCompletedAt}`;
+    const comparisonKey = `${entry?.candidateParentRunId}|${entry?.candidateParentRunAttempt}|${entry?.candidateSha}|${entry?.candidateTreeSha}|${entry?.imageDigest}|${entry?.terminalState}|${entry?.qualificationCompletedAt}`;
     if (validateMergeQualificationComparison(entry).length === 0 && authoritativeComparisonKeys.has(comparisonKey)) {
       validComparisons.push(entry);
     } else {
@@ -1334,6 +1467,7 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
     classifierRoutingCount: validComparisons.filter((entry) => entry.classifierRoutingEvidence === true).length,
     supersededCount: validComparisons.filter((entry) => entry.joinStatus === "superseded").length,
     identityMismatchCount: validComparisons.filter((entry) => entry.joinStatus === "identity_mismatch").length,
+    causalMismatchCount: validComparisons.filter((entry) => entry.joinStatus === "causal_mismatch").length,
     temporalOrphanCount: validComparisons.filter((entry) => entry.joinStatus === "no_subsequent_release").length,
     orphanCount: unresolvedCandidates,
     providerHeadroom: {
@@ -1349,15 +1483,15 @@ export function summarizeMergeQualification({ events = [], comparisons = [], can
       invalidEventCount: dedupe.invalidEvents.length,
       duplicateEventCount: dedupe.duplicateEventCount,
       supersededAttemptCount: dedupe.supersededAttemptCount,
-      conflictCount: dedupe.conflictedCandidates.length,
-      conflictingCandidates: dedupe.conflictedCandidates,
+      conflictCount: dedupe.conflictedLineages.length,
+      conflictingLineages: dedupe.conflictedLineages,
       invalidComparisonCount,
       invalidCandidateCount: inventory.invalid.length,
       missingTerminalCount: unresolvedCandidates,
       orphanEventCount,
       complete:
         dedupe.invalidEvents.length === 0 &&
-        dedupe.conflictedCandidates.length === 0 &&
+        dedupe.conflictedLineages.length === 0 &&
         invalidComparisonCount === 0 &&
         inventory.invalid.length === 0 &&
         unresolvedCandidates === 0 &&
@@ -1381,6 +1515,7 @@ export function validateMergeQualificationSummary(summary) {
     "classifierRoutingCount",
     "supersededCount",
     "identityMismatchCount",
+    "causalMismatchCount",
     "temporalOrphanCount",
     "orphanCount",
     "providerHeadroom",
@@ -1396,6 +1531,7 @@ export function validateMergeQualificationSummary(summary) {
     "classifierRoutingCount",
     "supersededCount",
     "identityMismatchCount",
+    "causalMismatchCount",
     "temporalOrphanCount",
     "orphanCount",
   ]) {
@@ -1437,7 +1573,7 @@ export function validateMergeQualificationSummary(summary) {
     "duplicateEventCount",
     "supersededAttemptCount",
     "conflictCount",
-    "conflictingCandidates",
+    "conflictingLineages",
     "invalidComparisonCount",
     "invalidCandidateCount",
     "missingTerminalCount",
@@ -1446,17 +1582,20 @@ export function validateMergeQualificationSummary(summary) {
   ];
   if (!isClosedObject(summary.evidence, evidenceFields)) errors.push("evidence is not recursively closed.");
   else {
-    for (const field of evidenceFields.filter((field) => !["conflictingCandidates", "complete"].includes(field))) {
+    for (const field of evidenceFields.filter((field) => !["conflictingLineages", "complete"].includes(field))) {
       if (!boundedCount(summary.evidence[field])) errors.push(`evidence.${field} must be a bounded safe count.`);
     }
     if (typeof summary.evidence.complete !== "boolean") errors.push("evidence.complete must be boolean.");
     if (
-      !Array.isArray(summary.evidence.conflictingCandidates) ||
-      summary.evidence.conflictingCandidates.length > 1_000 ||
-      new Set(summary.evidence.conflictingCandidates).size !== summary.evidence.conflictingCandidates.length ||
-      summary.evidence.conflictingCandidates.some((sha) => !isCommitSha(sha))
+      !Array.isArray(summary.evidence.conflictingLineages) ||
+      summary.evidence.conflictingLineages.length > 1_000 ||
+      new Set(summary.evidence.conflictingLineages).size !== summary.evidence.conflictingLineages.length ||
+      summary.evidence.conflictingLineages.some((runId) => !isBoundedSafeIntegerString(runId))
     ) {
-      errors.push("evidence.conflictingCandidates is invalid.");
+      errors.push("evidence.conflictingLineages is invalid.");
+    }
+    if (summary.evidence.conflictCount !== summary.evidence.conflictingLineages.length) {
+      errors.push("evidence.conflictCount must equal conflictingLineages length.");
     }
   }
   if (isClosedObject(summary.terminalStates, MERGE_QUALIFICATION_TERMINAL_STATES)) {
@@ -1486,8 +1625,46 @@ export function validateMergeQualificationSummary(summary) {
   if (summary.candidateCount !== null && summary.sampleCount > summary.candidateCount) {
     errors.push("sampleCount cannot exceed candidateCount.");
   }
+  if (
+    summary.candidateCount !== null &&
+    summary.sampleCount + (summary.evidence?.missingTerminalCount ?? 0) + (summary.evidence?.conflictCount ?? 0) >
+      summary.candidateCount
+  ) {
+    errors.push("samples, missing terminals, and conflicts cannot exceed the candidate inventory.");
+  }
+  if (summary.stagingCatchCount > summary.counts?.success) {
+    errors.push("stagingCatchCount cannot exceed passed qualification outcomes.");
+  }
+  if (summary.classifierRoutingCount > (summary.counts?.success ?? 0) + (summary.counts?.applicationFailure ?? 0)) {
+    errors.push("classifierRoutingCount cannot exceed comparable candidate-level outcomes.");
+  }
+  if (summary.sampleCount === 0) {
+    for (const field of [
+      "stagingCatchCount",
+      "classifierRoutingCount",
+      "supersededCount",
+      "identityMismatchCount",
+      "causalMismatchCount",
+      "temporalOrphanCount",
+    ]) {
+      if (summary[field] !== 0) errors.push(`${field} must be zero when sampleCount is zero.`);
+    }
+  }
   if (summary.providerHeadroom?.sampleCount > summary.sampleCount) {
     errors.push("provider headroom samples cannot exceed terminal samples.");
+  }
+  if (
+    summary.providerHeadroom?.minHeadroomRuns !== null &&
+    summary.providerHeadroom?.latestHeadroomRuns !== null &&
+    summary.providerHeadroom.minHeadroomRuns > summary.providerHeadroom.latestHeadroomRuns
+  ) {
+    errors.push("provider minimum headroom cannot exceed the latest observed headroom.");
+  }
+  if (
+    summary.providerHeadroom?.sampleCount === 0 &&
+    (summary.providerHeadroom?.minHeadroomRuns !== null || summary.providerHeadroom?.latestHeadroomRuns !== null)
+  ) {
+    errors.push("zero provider-headroom samples require null derived headroom values.");
   }
   if (isClosedObject(summary.evidence, evidenceFields)) {
     const expectedComplete =
@@ -1507,20 +1684,29 @@ export function validateMergeQualificationSummary(summary) {
 function isPercentileSummary(value) {
   if (!isClosedObject(value, ["sampleCount", "p50", "p90", "p95"])) return false;
   if (!Number.isSafeInteger(value.sampleCount) || value.sampleCount < 0 || value.sampleCount > 1_000_000) return false;
-  return [value.p50, value.p90, value.p95].every(
-    (entry) => entry === null || (Number.isSafeInteger(entry) && entry >= 0 && entry <= 7 * 24 * 60 * 60),
-  );
+  const percentiles = [value.p50, value.p90, value.p95];
+  if (
+    !percentiles.every(
+      (entry) => entry === null || (Number.isSafeInteger(entry) && entry >= 0 && entry <= 7 * 24 * 60 * 60),
+    )
+  ) {
+    return false;
+  }
+  if (value.sampleCount === 0) return percentiles.every((entry) => entry === null);
+  return percentiles.every((entry) => entry !== null) && value.p50 <= value.p90 && value.p90 <= value.p95;
 }
 
 function normalizeCandidateInventory(candidates) {
   if (candidates === null) return { latest: [], invalid: [] };
   if (!Array.isArray(candidates)) return { latest: [], invalid: [candidates] };
   const invalid = [];
-  const latestBySha = new Map();
+  const latestByParentRun = new Map();
   for (const candidate of candidates) {
     if (
-      !isClosedObject(candidate, ["candidateSha", "runId", "runAttempt"]) ||
-      !isCommitSha(candidate.candidateSha) ||
+      !isClosedObject(candidate, ["parentRunId", "parentRunAttempt", "runId", "runAttempt", "candidateSha"]) ||
+      !isBoundedSafeIntegerString(candidate.parentRunId) ||
+      !isBoundedSafeIntegerString(candidate.parentRunAttempt) ||
+      !(candidate.candidateSha === null || isCommitSha(candidate.candidateSha)) ||
       !isBoundedSafeIntegerString(candidate.runId) ||
       !isBoundedSafeIntegerString(candidate.runAttempt)
     ) {
@@ -1528,19 +1714,24 @@ function normalizeCandidateInventory(candidates) {
       continue;
     }
     const normalized = {
-      candidateSha: candidate.candidateSha.toLowerCase(),
+      parentRunId: candidate.parentRunId,
+      parentRunAttempt: candidate.parentRunAttempt,
+      candidateSha: candidate.candidateSha?.toLowerCase() ?? null,
       runId: candidate.runId,
       runAttempt: candidate.runAttempt,
     };
-    const current = latestBySha.get(normalized.candidateSha);
+    const current = latestByParentRun.get(normalized.parentRunId);
     if (!current || compareAttemptIdentity(normalized, current) > 0)
-      latestBySha.set(normalized.candidateSha, normalized);
+      latestByParentRun.set(normalized.parentRunId, normalized);
   }
-  return { latest: [...latestBySha.values()].sort((a, b) => a.candidateSha.localeCompare(b.candidateSha)), invalid };
+  return {
+    latest: [...latestByParentRun.values()].sort((a, b) => (BigInt(a.parentRunId) < BigInt(b.parentRunId) ? -1 : 1)),
+    invalid,
+  };
 }
 
 function candidateAttemptKey(value) {
-  return `${value.candidateSha}|${value.runId}|${value.runAttempt}`;
+  return `${value.parentRunId}|${value.parentRunAttempt}|${value.runId}|${value.runAttempt}`;
 }
 
 function percentileSummary3(values) {
@@ -1671,9 +1862,7 @@ async function main(argv, env = process.env) {
         candidateRecord.workflowId === readOption(argv, "--parent-workflow-id") &&
         candidateRecord.workflowPath === readOption(argv, "--parent-workflow-path") &&
         candidateRecord.runId === readOption(argv, "--parent-run-id") &&
-        candidateRecord.runAttempt === readOption(argv, "--parent-run-attempt") &&
-        candidateRecord.candidateSha === lowerTrim(readOption(argv, "--candidate-sha")) &&
-        candidateRecord.candidateTreeSha === lowerTrim(readOption(argv, "--candidate-tree"))
+        candidateRecord.runAttempt === readOption(argv, "--parent-run-attempt")
           ? []
           : ["candidate evidence does not bind the exact parent workflow/run/attempt and candidate identity."];
       if (candidateErrors.length > 0 || bindingErrors.length > 0) {
@@ -1691,8 +1880,8 @@ async function main(argv, env = process.env) {
       parentWorkflowPath: readOption(argv, "--parent-workflow-path"),
       parentRunId: readOption(argv, "--parent-run-id"),
       parentRunAttempt: readOption(argv, "--parent-run-attempt"),
-      candidateSha: readOption(argv, "--candidate-sha"),
-      candidateTreeSha: readOption(argv, "--candidate-tree"),
+      candidateSha: candidateRecord?.candidateSha ?? readOption(argv, "--candidate-sha") ?? null,
+      candidateTreeSha: candidateRecord?.candidateTreeSha ?? readOption(argv, "--candidate-tree") ?? null,
       builtImageDigest: candidateRecord?.builtImageDigest ?? readOption(argv, "--built-image-digest") ?? null,
       policyEnabled: readOption(argv, "--policy-enabled") === "true",
       policyReasonCode: readOption(argv, "--policy-reason-code") || null,
@@ -1736,6 +1925,29 @@ async function main(argv, env = process.env) {
       return 1;
     }
     const policyPath = readOption(argv, "--policy") ?? MERGE_QUALIFICATION_POLICY_PATH;
+    const provisioningPath = readOption(argv, "--provisioning-observation");
+    const provisioningObservation = provisioningPath ? readJsonFileOrNull(provisioningPath) : null;
+    const provisioningErrors = provisioningPath
+      ? validateMergeGateProvisioningObservation(provisioningObservation, {
+          repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+          workflowId: readOption(argv, "--workflow-id") ?? env.GITHUB_WORKFLOW_ID,
+          workflowPath:
+            readOption(argv, "--workflow-path") ??
+            env.GITHUB_WORKFLOW_PATH ??
+            ".github/workflows/platform-merge-qualification.yml",
+          runId: readOption(argv, "--run-id") ?? env.GITHUB_RUN_ID,
+          runAttempt: readOption(argv, "--run-attempt") ?? env.GITHUB_RUN_ATTEMPT,
+        })
+      : [];
+    if (
+      provisioningObservation &&
+      decisionRecord &&
+      (provisioningObservation.candidateSha !== decisionRecord.candidateSha ||
+        provisioningObservation.candidateTreeSha !== decisionRecord.candidateTreeSha ||
+        provisioningObservation.imageDigest !== decisionRecord.builtImageDigest)
+    ) {
+      provisioningErrors.push("provisioning observation does not match the exact upstream decision identity.");
+    }
     const decision = decisionRecord
       ? {
           enabled: decisionRecord.policyEnabled,
@@ -1764,6 +1976,7 @@ async function main(argv, env = process.env) {
     });
     let event = null;
     const errors = [];
+    errors.push(...provisioningErrors);
     if (outcome.recordRequired) {
       const completedAt = now().toISOString();
       const runUrl = `${env.GITHUB_SERVER_URL ?? "https://github.com"}/${env.GITHUB_REPOSITORY ?? readOption(argv, "--repository") ?? ""}/actions/runs/${env.GITHUB_RUN_ID ?? readOption(argv, "--run-id") ?? ""}/attempts/${env.GITHUB_RUN_ATTEMPT ?? readOption(argv, "--run-attempt") ?? ""}`;
@@ -1775,9 +1988,12 @@ async function main(argv, env = process.env) {
           readOption(argv, "--workflow-path") ??
           env.GITHUB_WORKFLOW_PATH ??
           ".github/workflows/platform-merge-qualification.yml",
-        candidateSha: readOption(argv, "--candidate-sha"),
-        candidateTreeSha: readOption(argv, "--candidate-tree"),
-        identityAvailable: ["passed", "failed"].includes(outcome.terminalState),
+        parentWorkflowId: decisionRecord?.parentWorkflowId,
+        parentWorkflowPath: decisionRecord?.parentWorkflowPath,
+        parentRunId: decisionRecord?.parentRunId,
+        parentRunAttempt: decisionRecord?.parentRunAttempt,
+        candidateSha: decisionRecord?.candidateSha,
+        candidateTreeSha: decisionRecord?.candidateTreeSha,
         imageDigest: ["passed", "failed"].includes(outcome.terminalState) ? gateImageDigest : null,
         builtImageDigest: ["passed", "failed"].includes(outcome.terminalState)
           ? readOption(argv, "--built-image-digest")
@@ -1791,12 +2007,10 @@ async function main(argv, env = process.env) {
         classifierClass: readOption(argv, "--classifier-class") || null,
         terminalState: outcome.terminalState,
         reasonCodes: outcome.reasonCodes,
-        // The gate may only have provisioned when it actually ran; a
-        // cancellation before the gate (plan/image) provisioned nothing, and
-        // states whose schema forbids provisioning (an identity-mismatch
-        // infrastructure_error after a successful gate) record false — the
-        // gate's always() finalizers and the scheduled sweep own cleanup.
-        provisioned: outcome.provisionsAllowed && ["success", "failure", "cancelled"].includes(gateResult),
+        // This is set only after the exact namespace-created observation was
+        // durably uploaded. Gate/job outcomes and configured names are not
+        // provisioning evidence.
+        provisioned: provisioningObservation !== null && provisioningErrors.length === 0,
         startedAt: readOption(argv, "--started-at") ?? completedAt,
         completedAt,
         runId: readOption(argv, "--run-id") ?? env.GITHUB_RUN_ID,
@@ -1828,9 +2042,12 @@ async function main(argv, env = process.env) {
 
   if (command === "terminalize") {
     const run = readJsonFileOrNull(readOption(argv, "--run"));
+    const parentRun = readJsonFileOrNull(readOption(argv, "--parent-run"));
     const jobsPayload = readJsonFileOrNull(readOption(argv, "--jobs"));
     const artifactsPayload = readJsonFileOrNull(readOption(argv, "--run-artifacts"));
     const decision = readJsonFileOrNull(readOption(argv, "--decision"));
+    const provisioningPath = readOption(argv, "--provisioning-observation");
+    const provisioningObservation = provisioningPath ? readJsonFileOrNull(provisioningPath) : null;
     const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
     const collectionErrors = [];
     if (!run || normalize(run.repository?.full_name) !== repository)
@@ -1843,6 +2060,30 @@ async function main(argv, env = process.env) {
     }
     if (!isBoundedSafeIntegerString(String(run?.workflow_id ?? "")))
       collectionErrors.push("run workflow ID is invalid.");
+    const provisioningErrors = provisioningPath
+      ? validateMergeGateProvisioningObservation(provisioningObservation, {
+          repository,
+          workflowId: String(run?.workflow_id ?? ""),
+          workflowPath: run?.path,
+          runId: String(run?.id ?? ""),
+          runAttempt: String(run?.run_attempt ?? ""),
+        })
+      : [];
+    collectionErrors.push(...provisioningErrors);
+    const titleParent = String(run?.display_title ?? "").match(
+      /^Merge Qualification merge_group ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/,
+    );
+    if (
+      !titleParent ||
+      normalize(parentRun?.repository?.full_name) !== repository ||
+      parentRun?.path !== ".github/workflows/platform-pr.yml" ||
+      parentRun?.event !== "merge_group" ||
+      String(parentRun?.id ?? "") !== titleParent?.[1] ||
+      String(parentRun?.run_attempt ?? "") !== titleParent?.[2] ||
+      !isBoundedSafeIntegerString(String(parentRun?.workflow_id ?? ""))
+    ) {
+      collectionErrors.push("parent run causal binding failed.");
+    }
     for (const [payload, field, label] of [
       [jobsPayload, "jobs", "jobs"],
       [artifactsPayload, "artifacts", "artifacts"],
@@ -1867,7 +2108,11 @@ async function main(argv, env = process.env) {
       decision.workflowId === String(run?.workflow_id ?? "") &&
       decision.workflowPath === run?.path &&
       decision.runId === String(run?.id ?? "") &&
-      decision.runAttempt === String(run?.run_attempt ?? "")
+      decision.runAttempt === String(run?.run_attempt ?? "") &&
+      decision.parentWorkflowId === String(parentRun?.workflow_id ?? "") &&
+      decision.parentWorkflowPath === parentRun?.path &&
+      decision.parentRunId === String(parentRun?.id ?? "") &&
+      decision.parentRunAttempt === String(parentRun?.run_attempt ?? "")
         ? decision
         : null;
     const resolution = resolveRunTerminalization({
@@ -1879,6 +2124,7 @@ async function main(argv, env = process.env) {
       jobs: jobsPayload?.jobs ?? [],
       artifactNames: (artifactsPayload?.artifacts ?? []).map((artifact) => artifact?.name),
       decision: decisionBound,
+      provisioningObserved: provisioningObservation !== null && provisioningErrors.length === 0,
     });
     let event = null;
     const errors = [];
@@ -1893,8 +2139,15 @@ async function main(argv, env = process.env) {
         repository,
         workflowId: run?.workflow_id === undefined || run?.workflow_id === null ? "" : String(run.workflow_id),
         workflowPath: run?.path ?? ".github/workflows/platform-merge-qualification.yml",
-        candidateSha: decisionBound ? decisionBound.candidateSha : run?.head_sha,
-        candidateTreeSha: decisionBound ? decisionBound.candidateTreeSha : readOption(argv, "--candidate-tree"),
+        parentWorkflowId: String(parentRun?.workflow_id ?? ""),
+        parentWorkflowPath: parentRun?.path ?? "",
+        parentRunId: String(parentRun?.id ?? ""),
+        parentRunAttempt: String(parentRun?.run_attempt ?? ""),
+        // Decision-less cancellation is real evidence about an exact causal
+        // attempt, but it has no candidate identity. Never substitute the
+        // workflow_run/default-branch head SHA.
+        candidateSha: decisionBound?.candidateSha ?? provisioningObservation?.candidateSha ?? null,
+        candidateTreeSha: decisionBound?.candidateTreeSha ?? provisioningObservation?.candidateTreeSha ?? null,
         imageDigest: null,
         classifierClass: null,
         terminalState: resolution.terminalState,
@@ -1932,6 +2185,7 @@ async function main(argv, env = process.env) {
       ["skip_reason", resolution.action === "skip" ? resolution.reason : ""],
       ["terminal_state", resolution.action === "terminalize" ? resolution.terminalState : ""],
       ["event_written", resolution.action === "terminalize" && errors.length === 0 ? "true" : "false"],
+      ["provisioned", provisioningObservation !== null && provisioningErrors.length === 0 ? "true" : "false"],
     ]);
     console.log(JSON.stringify({ decision, resolution, event, errors }, null, 2));
     if (errors.length > 0) {
