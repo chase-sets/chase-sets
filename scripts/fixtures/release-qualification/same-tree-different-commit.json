@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "release-qualification/v1",
+  "repository": "chase-sets/chase-sets",
+  "candidateSha": "7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b",
+  "candidateTreeSha": "a3c2b54d90e1f6a7b8c9d0e1f2a3b4c5d6e7f809",
+  "imageRepository": "registry.digitalocean.com/chase-sets/chase-sets-platform",
+  "imageDigest": "sha256:9c4f1e2d3b4a5968778695a4b3c2d1e0f9e8d7c6b5a4938271605f4e3d2c1b0a",
+  "qualificationLane": "merge-gate-isolated",
+  "classifierPolicyVersion": "release-scope-classifier/v1",
+  "runId": "16409999999",
+  "runAttempt": "1",
+  "startedAt": "2026-07-21T11:20:00Z",
+  "completedAt": "2026-07-21T11:35:00Z",
+  "result": "pass",
+  "evidenceLinks": ["https://github.com/chase-sets/chase-sets/actions/runs/16409999999"]
+}

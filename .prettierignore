@@ -36,3 +36,5 @@ infrastructure/helm/*/templates/*.yaml
 .env.*
 !.env.example
 !**/.env.example
+# Intentionally malformed JSON fixture (release-qualification reader negative control)
+scripts/fixtures/release-qualification/malformed.json
