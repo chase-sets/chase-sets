@@ -1401,6 +1401,28 @@ describe("platform Kubernetes deployment", () => {
     expect(result).toMatchObject({ result: "success", releaseUninstalled: false });
   });
 
+  it("tears down a merge-gate namespace inside the bounded chase-sets-gate-<run>-<attempt> shape", async () => {
+    const calls = [];
+    const result = await teardownPlatformKubernetesNamespace({
+      release: "csg-1234-1",
+      namespace: "chase-sets-gate-1234-1",
+      timeout: "5m",
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"csg-1234-1"}' }, // helm status
+        { code: 0 }, // helm uninstall
+        { code: 0 }, // kubectl delete namespace
+        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-gate-1234-1" not found' }, // kubectl get namespace
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      action: "teardown",
+      namespace: "chase-sets-gate-1234-1",
+      result: "success",
+      releaseUninstalled: true,
+    });
+  });
+
   it("refuses to tear down namespaces that are neither preview nor verification kinds", async () => {
     for (const namespace of [
       "chase-sets-platform", // production/staging default
@@ -1411,6 +1433,11 @@ describe("platform Kubernetes deployment", () => {
       "other-chase-sets-verify-abc-1", // prefix appears away from the start
       "chase-sets-pr-", // missing number
       "chase-sets-pr-verify-1-1", // hybrid that matches neither exact kind
+      "chase-sets-gate-", // gate kind missing run/attempt
+      "chase-sets-gate-1234", // gate kind missing attempt
+      "chase-sets-gate-abc-1", // gate run identity must be numeric
+      "other-chase-sets-gate-1-1", // gate prefix appears away from the start
+      "chase-sets-gate-1-1-fixture", // trailing suffix breaks the bounded shape
       "",
     ]) {
       await expect(

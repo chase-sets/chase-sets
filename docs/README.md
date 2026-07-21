@@ -133,6 +133,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Catalog Game Provider Sync Operations](./runbooks/catalog-game-provider-sync-operations.md): Magic, One Piece, and Lorcana provider credential posture, production defaults, bulk-first imports, rotation, UI-only UAT, and emergency disablement.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, post-deploy production verification, rollout controls, health metrics, and gate categories.
 - [Release Qualification Evidence](./runbooks/release-qualification-evidence.md): durable merge-queue qualification records in the dedicated versioned Space, append-only attempt keys, fail-closed reader, dedicated credential rotation, 400-day retention, version recovery, and cost wager.
+- [Merge-Gate Verification](./runbooks/merge-gate-verification.md): cancellation-safe merge-gate verification environment — manual dispatch, safe rerun, terminal-path deleters, cleanup escalation, credential rotation, capacity limits, cost wager, and the 6-hour orphan SLO.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage policy administration, label provider configuration, value-based shipping evidence tiers, and label smoke checks.

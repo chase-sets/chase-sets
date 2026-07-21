@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "merge-gate-verification-config/v1",
+  "mergeQueueConcurrency": 2,
+  "headroomFactor": 1.5,
+  "perRunRequests": {
+    "cpuMillicores": 1750,
+    "memoryMib": 3584
+  },
+  "previewNodePoolName": "preview",
+  "fallbackPreviewNodeAllocatable": {
+    "cpuMillicores": 3900,
+    "memoryMib": 6350
+  },
+  "cleanupDeadlineHours": 2,
+  "orphanSloHours": 6,
+  "costWager": {
+    "owner": "todd.skelton@chasesets.com",
+    "basis": "Merge-gate verification fits existing staging DOKS preview-pool capacity (autoscaled 0..max, scale-to-zero); no permanent node-pool, database, or runner increase is authorized (issue #5838). Incremental cost is GitHub Actions minutes plus transient preview-pool node-hours already covered by the m102 preview posture.",
+    "monthlyDollarCeilingUsd": 30,
+    "actionsMinuteRateUsd": 0.008,
+    "expiresAt": "2026-08-20T00:00:00.000Z"
+  },
+  "capacityException": null
+}
