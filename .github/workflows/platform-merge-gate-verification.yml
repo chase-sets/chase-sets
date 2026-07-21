@@ -249,9 +249,11 @@ jobs:
           set -euo pipefail
           candidate_sha="$(git rev-parse HEAD)"
           candidate_tree="$(git rev-parse 'HEAD^{tree}')"
-          echo "candidate_sha=${candidate_sha}" >> "$GITHUB_OUTPUT"
-          echo "candidate_tree=${candidate_tree}" >> "$GITHUB_OUTPUT"
-          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+          {
+            echo "candidate_sha=${candidate_sha}"
+            echo "candidate_tree=${candidate_tree}"
+            echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          } >> "$GITHUB_OUTPUT"
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase candidate-resolved
           echo "Qualifying ${candidate_sha} (tree ${candidate_tree}) in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
 
@@ -306,9 +308,11 @@ jobs:
             echo "Registry resolved ${digest} but ${REQUESTED_DIGEST} was requested; refusing to deploy a different digest." >&2
             exit 1
           fi
-          echo "registry_name=${registry_name}" >> "$GITHUB_OUTPUT"
-          echo "repository=${repository}" >> "$GITHUB_OUTPUT"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          {
+            echo "registry_name=${registry_name}"
+            echo "repository=${repository}"
+            echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase image-resolved
           echo "Resolved immutable gate image ${repository}@${digest}."
 
