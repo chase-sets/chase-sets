@@ -1,0 +1,15 @@
+{
+  "name": "helm-values-copy-under-deployable",
+  "description": "Rendered Helm values copied under a deployable keep their release-machinery provenance (generatedBy references a release-workflow script) and stay persistent (review probe 1d-1).",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["deployment_release_workflow"],
+  "releaseWorkflowScriptReferences": ["scripts/render-platform-helm-values.mjs"],
+  "files": [
+    {
+      "path": "deployables/platform-api/deploy/values.production.yaml",
+      "status": "added",
+      "content": "generatedBy: \"node ./scripts/render-platform-helm-values.mjs\"\nglobal:\n  envOverrides:\n    CHASE_SETS_PUBLIC_INDEXING: \"true\"\n"
+    }
+  ]
+}

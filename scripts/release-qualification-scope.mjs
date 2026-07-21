@@ -67,6 +67,13 @@ export const INFRASTRUCTURE_RULINGS = Object.freeze([
   "repo-tooling",
 ]);
 export const WORKFLOW_CATEGORIES = Object.freeze(["release", "ci"]);
+export const CONTRACT_RULINGS = Object.freeze([
+  "money-movement-contract",
+  "live-provider",
+  "event-store-persistence",
+  "seed-machinery",
+  "runtime-library",
+]);
 
 export const releaseQualificationScopeRegistry = Object.freeze({
   policyVersion: RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION,
@@ -110,6 +117,33 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // barrels in these bounded contexts carry money-movement contracts.
   moneyMovementContexts: Object.freeze(["checkout", "ordering", "payments", "settlement"]),
 
+  // Shared contract workspaces by directory name under contracts/. Money and
+  // provider contracts are categorically persistent (ratified decisions);
+  // event-core carries stored-event compatibility semantics. An unregistered
+  // contracts directory fails closed.
+  contracts: Object.freeze({
+    "auth-context": "runtime-library",
+    "bounded-context-module": "runtime-library",
+    "catalog-seed": "seed-machinery",
+    "checkout-order-source": "money-movement-contract",
+    "event-core": "event-store-persistence",
+    http: "runtime-library",
+    localization: "runtime-library",
+    "market-estimate-display": "runtime-library",
+    "money-movement": "money-movement-contract",
+    "outbound-messaging": "live-provider",
+    "payment-processing": "live-provider",
+    "postage-labels": "live-provider",
+    primitives: "runtime-library",
+    "product-measures": "runtime-library",
+    "product-selection": "runtime-library",
+    "public-docs": "runtime-library",
+    realtime: "runtime-library",
+    "review-eligibility": "runtime-library",
+    "seller-attention-queue": "runtime-library",
+    "seller-desk": "runtime-library",
+  }),
+
   // Migration mechanisms (historical paths). Renamed copies are caught by the
   // SQL-DDL and BcSchemaMigration content detectors; DDL outside a registered
   // mechanism classifies as an unrecognized migration mechanism (fail closed).
@@ -150,7 +184,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^bounded-contexts\/catalog\/features\/source-observations\/api\//,
     /^bounded-contexts\/catalog\/features\/scope-sync-batches\//,
     /^bounded-contexts\/catalog\/features\/provider-scope-discovery\//,
-    /^bounded-contexts\/catalog\/features\/completion-report\/domain\/(?:reconcile|repeat-run)\.ts$/,
+    /^bounded-contexts\/catalog\/features\/completion-report\//,
     /^bounded-contexts\/catalog\/features\/catalog-items\/read-model\/display-identity-recompute\.ts$/,
     // Reconciliation processes over long-lived money and operations state.
     /^bounded-contexts\/settlement\/features\/liability-reconciliation\//,
@@ -284,6 +318,7 @@ export function validateReleaseQualificationScopeRegistry(registry) {
   validateRecordOfEnums(errors, registry.infrastructure, INFRASTRUCTURE_RULINGS, "infrastructure");
   validateRecordOfEnums(errors, registry.workflows, WORKFLOW_CATEGORIES, "workflows");
   validateRecordOfEnums(errors, registry.actions, WORKFLOW_CATEGORIES, "actions");
+  validateRecordOfEnums(errors, registry.contracts, CONTRACT_RULINGS, "contracts");
   validatePatternList(errors, registry.migrationSurfacePatterns, "migrationSurfacePatterns");
   validatePatternList(errors, registry.migrationMechanismRootPatterns, "migrationMechanismRootPatterns");
   validatePatternList(
@@ -372,8 +407,10 @@ const docsOrTestOnlyPatterns = [
   /^(?:vitest\.[^/]*\.mjs|vitest\.shared\.mjs|playwright\.config\.ts|tsconfig\.tests\.json|test-env\.d\.ts)$/,
 ];
 
+// Root package.json is intentionally absent: it owns the pnpm-run aliases
+// release workflows execute and classifies as release-workflow surface.
 const rootApplicationImagePatterns = [
-  /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|tsconfig\.json|tsconfig\.base\.json|tailwind\.config\.ts|Dockerfile|\.dockerignore)$/,
+  /^(?:pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|tsconfig\.json|tsconfig\.base\.json|tailwind\.config\.ts|Dockerfile|\.dockerignore)$/,
 ];
 
 const rootRepoToolingPatterns = [
@@ -430,8 +467,52 @@ function normalizeFilePath(filePath) {
 // Extracts scripts/ references from registered release workflows and actions
 // so a changed script that a release workflow executes classifies as release
 // machinery even when the workflow file itself did not change.
+const scriptReferenceTokenPattern = /\bscripts\/[A-Za-z0-9._/-]*?\.(?:mjs|cjs|js|ts|sh)\b/g;
+// Matches root pnpm-run alias invocations ("pnpm run smoke:platform"), the
+// indirection release workflows actually use. Filtered runs ("pnpm --filter x
+// run test") intentionally do not match: those resolve inside a workspace, not
+// against the root scripts map.
+const pnpmRunAliasPattern = /\bpnpm\s+(?:-[-\w=]+\s+)*run\s+([A-Za-z0-9:._-]+)/g;
+
+function safeReadCandidate(readFileAt, filePath) {
+  try {
+    const content = readFileAt("candidate", filePath);
+    return typeof content === "string" ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+// Root package.json scripts as an alias graph: each alias maps to the
+// scripts/ files it executes plus the further root aliases it chains into.
+function readRootScriptAliasGraph(readFileAt) {
+  const graph = new Map();
+  const content = safeReadCandidate(readFileAt, "package.json");
+  if (content === null) {
+    return graph;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return graph;
+  }
+  for (const [alias, command] of Object.entries(parsed?.scripts ?? {})) {
+    if (typeof command !== "string") {
+      continue;
+    }
+    graph.set(alias, {
+      scriptPaths: [...command.matchAll(scriptReferenceTokenPattern)].map((match) => match[0]),
+      aliasReferences: [...command.matchAll(pnpmRunAliasPattern)].map((match) => match[1]),
+    });
+  }
+  return graph;
+}
+
 export function collectReleaseWorkflowScriptReferences({ registry, readFileAt }) {
   const references = new Set();
+  const aliasGraph = readRootScriptAliasGraph(readFileAt);
+  const pendingAliases = [];
   const sources = [
     ...Object.entries(registry.workflows)
       .filter(([, category]) => category === "release")
@@ -441,18 +522,34 @@ export function collectReleaseWorkflowScriptReferences({ registry, readFileAt })
       .map(([dirName]) => `.github/actions/${dirName}/action.yml`),
   ];
   for (const sourcePath of sources) {
-    let content = null;
-    try {
-      content = readFileAt("candidate", sourcePath);
-    } catch {
-      content = null;
-    }
-    if (typeof content !== "string") {
+    const content = safeReadCandidate(readFileAt, sourcePath);
+    if (content === null) {
       continue;
     }
-    for (const match of content.matchAll(/\bscripts\/[A-Za-z0-9._/-]*?\.(?:mjs|cjs|js|ts|sh)\b/g)) {
+    for (const match of content.matchAll(scriptReferenceTokenPattern)) {
       references.add(match[0]);
     }
+    for (const match of content.matchAll(pnpmRunAliasPattern)) {
+      pendingAliases.push(match[1]);
+    }
+  }
+  // Transitive alias resolution: release workflows reach gate scripts through
+  // root pnpm-run aliases (and aliases that chain other aliases).
+  const resolvedAliases = new Set();
+  while (pendingAliases.length > 0) {
+    const alias = pendingAliases.shift();
+    if (resolvedAliases.has(alias)) {
+      continue;
+    }
+    resolvedAliases.add(alias);
+    const entry = aliasGraph.get(alias);
+    if (!entry) {
+      continue;
+    }
+    for (const scriptPath of entry.scriptPaths) {
+      references.add(scriptPath);
+    }
+    pendingAliases.push(...entry.aliasReferences);
   }
   return references;
 }
@@ -489,8 +586,30 @@ function classifyFile(file, ctx) {
     return persistent(["unregistered_workflow"]);
   }
 
-  // Documentation and test-only files carry no release-path consequence; this
-  // also neutralizes path-name lookalikes such as docs about Terraform.
+  // Registered persistent surfaces come BEFORE docs/test neutralization:
+  // a registered surface inside a fixtures/tests-named path (Helm chart test
+  // hooks, Terraform under a fixtures/ segment) is still that surface, and a
+  // rename ORIGIN on a registered surface (schema.ts renamed into tests/) is
+  // still a persistent change. Docs/test vocabulary only ever neutralizes
+  // paths that no registry claims.
+  const reasonCodes = new Set();
+  for (const candidatePath of [filePath, file.previousPath].filter(Boolean)) {
+    collectRegisteredSurfaceCodes(candidatePath, ctx, reasonCodes);
+  }
+  if (reasonCodes.size > 0) {
+    return persistent([...reasonCodes]);
+  }
+
+  // Root package.json owns the pnpm-run aliases release workflows execute:
+  // any change to it can rewire a release gate, so it is release-workflow
+  // surface area, fail closed. (Workspace package.json files are unaffected.)
+  if (filePath === "package.json") {
+    return persistent(["deployment_release_workflow"]);
+  }
+
+  // Documentation and test-only files outside every registered surface carry
+  // no release-path consequence; this also neutralizes path-name lookalikes
+  // such as docs about Terraform.
   if (matchesAny(filePath, docsOrTestOnlyPatterns)) {
     return { class: "not_applicable", reasonCodes: ["docs_or_test_only"] };
   }
@@ -499,14 +618,6 @@ function classifyFile(file, ctx) {
   }
   if (matchesAny(filePath, rootApplicationImagePatterns) || /^deployables\/[^/]+\/Dockerfile$/.test(filePath)) {
     return { class: "isolated", reasonCodes: ["application_image"] };
-  }
-
-  const reasonCodes = new Set();
-
-  // Registered persistent surfaces (historical paths), including the rename
-  // origin: renaming a registered surface away is itself a persistent change.
-  for (const candidatePath of [filePath, file.previousPath].filter(Boolean)) {
-    collectRegisteredSurfaceCodes(candidatePath, ctx, reasonCodes);
   }
 
   // Content-semantic detectors (rename-proof). Deleted files are read from the
@@ -526,6 +637,7 @@ function classifyFile(file, ctx) {
     reasonCodes.add("unreadable_file");
   } else {
     collectContentSemanticCodes(filePath, content, ctx, reasonCodes);
+    collectResolvedImportCodes(filePath, content, ctx, reasonCodes);
   }
 
   if (reasonCodes.size > 0) {
@@ -568,13 +680,55 @@ function classifyFile(file, ctx) {
     return persistent(["unregistered_infrastructure"]);
   }
 
+  // Shared contracts: persistent rulings were already collected above; the
+  // remaining registered contracts are ordinary application libraries, and an
+  // unregistered contracts directory fails closed.
+  const contractMatch = filePath.match(/^contracts\/([^/]+)\//);
+  if (contractMatch) {
+    if (ctx.registry.contracts[contractMatch[1]] === "runtime-library") {
+      return { class: "isolated", reasonCodes: ["application_runtime"] };
+    }
+    return persistent(["unregistered_contract"]);
+  }
+
   // Application code in workspace roots is provable in isolation.
-  if (/^(?:bounded-contexts|contracts|packages)\//.test(filePath)) {
+  if (/^(?:bounded-contexts|packages)\//.test(filePath)) {
     return { class: "isolated", reasonCodes: ["application_runtime"] };
   }
 
   // Anything else is an unknown surface: fail closed.
   return persistent(["unknown_surface"]);
+}
+
+// Rename-proof indirect-caller detection: an import whose RESOLVED repository
+// path lands on a registered seed/bootstrap/import/reconciliation surface
+// makes the importer part of that machinery, whether the specifier is
+// relative or package-style.
+function collectResolvedImportCodes(filePath, content, ctx, reasonCodes) {
+  const fileDir = path.posix.dirname(filePath);
+  for (const match of content.matchAll(/(?:from\s+|require\(\s*|import\(\s*)["']([^"']+)["']/g)) {
+    const specifier = match[1];
+    const candidates = [];
+    if (specifier.startsWith(".")) {
+      const resolved = path.posix.normalize(path.posix.join(fileDir, specifier));
+      candidates.push(resolved, `${resolved}.ts`, `${resolved}.tsx`, `${resolved}.mjs`, `${resolved}/index.ts`);
+    } else {
+      const packageMatch = specifier.match(/^@chase-sets\/([a-z0-9-]+)\/(.+)$/);
+      if (packageMatch) {
+        const [, packageName, subpath] = packageMatch;
+        for (const root of ["bounded-contexts", "contracts", "infrastructure", "packages"]) {
+          for (const mappedSubpath of [subpath, `support/${subpath}`]) {
+            const resolved = `${root}/${packageName}/${mappedSubpath}`;
+            candidates.push(resolved, `${resolved}.ts`, `${resolved}/index.ts`);
+          }
+        }
+      }
+    }
+    if (candidates.some((candidate) => matchesAny(candidate, ctx.registry.seedBootstrapImportReconciliationPatterns))) {
+      reasonCodes.add("seed_bootstrap_import_reconciliation");
+      return;
+    }
+  }
 }
 
 function persistent(codes) {
@@ -608,6 +762,25 @@ function collectRegisteredSurfaceCodes(filePath, ctx, reasonCodes) {
       reasonCodes.add("migration_schema");
     }
   }
+  const contractMatch = filePath.match(/^contracts\/([^/]+)\//);
+  if (contractMatch) {
+    const ruling = registry.contracts[contractMatch[1]];
+    if (ruling === "money-movement-contract") {
+      reasonCodes.add("money_movement_contract");
+    } else if (ruling === "live-provider") {
+      reasonCodes.add("live_provider_contract");
+    } else if (ruling === "event-store-persistence") {
+      reasonCodes.add("migration_schema");
+    } else if (ruling === "seed-machinery") {
+      reasonCodes.add("seed_bootstrap_import_reconciliation");
+    }
+  }
+  if (
+    filePath.startsWith("scripts/") &&
+    (registry.operationalScriptPaths.includes(filePath) || ctx.releaseWorkflowScriptReferences.has(filePath))
+  ) {
+    reasonCodes.add("deployment_release_workflow");
+  }
 }
 
 function collectContentSemanticCodes(filePath, content, ctx, reasonCodes) {
@@ -640,6 +813,15 @@ function collectContentSemanticCodes(filePath, content, ctx, reasonCodes) {
       infrastructureMatch && ctx.registry.infrastructure[infrastructureMatch[1]] === "test-mode-provider";
     if (!isRegisteredTestModeProvider) {
       reasonCodes.add("live_provider_contract");
+    }
+  }
+  // Provenance references to release machinery: content that embeds a script
+  // release workflows execute (for example rendered Helm values carrying their
+  // generatedBy marker) is deploy-surface material wherever it lives.
+  for (const match of content.matchAll(scriptReferenceTokenPattern)) {
+    if (ctx.releaseWorkflowScriptReferences.has(match[0]) || ctx.registry.operationalScriptPaths.includes(match[0])) {
+      reasonCodes.add("deployment_release_workflow");
+      break;
     }
   }
 }

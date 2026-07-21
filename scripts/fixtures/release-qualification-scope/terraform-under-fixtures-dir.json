@@ -1,0 +1,13 @@
+{
+  "name": "terraform-under-fixtures-dir",
+  "description": "Live Terraform under a fixtures/-named segment of the registered root is still Terraform (review F2, probe 1d-3).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["terraform_infrastructure"],
+  "files": [
+    {
+      "path": "infrastructure/digitalocean/production/fixtures/main.tf",
+      "status": "added",
+      "content": "resource \"digitalocean_domain\" \"extra\" {\n  name = \"ops.chasesets.com\"\n}\n"
+    }
+  ]
+}

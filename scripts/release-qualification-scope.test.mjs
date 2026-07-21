@@ -35,6 +35,7 @@ function loadFixtures() {
 
 function runFixture(fixture, overrides = {}) {
   const fileMap = new Map(fixture.files.map((file) => [file.path, file]));
+  const extraFiles = fixture.extraFiles ?? {};
   return classifyReleaseQualificationScope({
     base: fixture.omitBase ? null : DUMMY_BASE,
     candidate: DUMMY_CANDIDATE,
@@ -45,12 +46,17 @@ function runFixture(fixture, overrides = {}) {
     })),
     readFileAt: (ref, filePath) => {
       const entry = fileMap.get(filePath);
-      if (!entry) {
-        return null;
+      if (entry) {
+        return ref === "base" ? (entry.baseContent ?? entry.content ?? null) : (entry.content ?? null);
       }
-      return ref === "base" ? (entry.baseContent ?? entry.content ?? null) : (entry.content ?? null);
+      return extraFiles[filePath] ?? null;
     },
-    releaseWorkflowScriptReferences: new Set(fixture.releaseWorkflowScriptReferences ?? []),
+    // When a fixture omits the field, the classifier collects references
+    // itself from the fixture's readable files (extraFiles workflows and
+    // package.json), exercising the real pnpm-run alias resolution.
+    releaseWorkflowScriptReferences: fixture.releaseWorkflowScriptReferences
+      ? new Set(fixture.releaseWorkflowScriptReferences)
+      : undefined,
     requestedPolicyVersion: fixture.requestedPolicyVersion ?? null,
     now: () => 1753100000000,
     ...overrides,
@@ -335,14 +341,20 @@ describe("registration contract drift (fail-closed registration)", () => {
           .map((filePath) => filePath.split("/")[1]),
       ),
     ].sort();
+    const contracts = [
+      ...new Set(
+        tracked.filter((filePath) => /^contracts\/[^/]+\//.test(filePath)).map((filePath) => filePath.split("/")[1]),
+      ),
+    ].sort();
 
     expect(workflows).toEqual(Object.keys(releaseQualificationScopeRegistry.workflows).sort());
     expect(actions).toEqual(Object.keys(releaseQualificationScopeRegistry.actions).sort());
     expect(deployables).toEqual(Object.keys(releaseQualificationScopeRegistry.deployables).sort());
     expect(infrastructure).toEqual(Object.keys(releaseQualificationScopeRegistry.infrastructure).sort());
+    expect(contracts).toEqual(Object.keys(releaseQualificationScopeRegistry.contracts).sort());
     // eslint-disable-next-line no-console
     console.log(
-      `registration drift: scanned ${workflows.length}/${workflows.length} workflows, ${actions.length}/${actions.length} actions, ${deployables.length}/${deployables.length} deployables, ${infrastructure.length}/${infrastructure.length} infrastructure roots — all registered`,
+      `registration drift: scanned ${workflows.length}/${workflows.length} workflows, ${actions.length}/${actions.length} actions, ${deployables.length}/${deployables.length} deployables, ${infrastructure.length}/${infrastructure.length} infrastructure roots, ${contracts.length}/${contracts.length} contracts — all registered`,
     );
   });
 });
@@ -424,5 +436,62 @@ describe("git plumbing", () => {
     });
     expect(references.has("scripts/promoted-release.mjs")).toBe(true);
     expect(references.has("scripts/coverage-summary.mjs")).toBe(false);
+  });
+
+  it("resolves pnpm-run aliases from the candidate package.json, transitively", () => {
+    const references = collectReleaseWorkflowScriptReferences({
+      registry: releaseQualificationScopeRegistry,
+      readFileAt: (ref, filePath) => {
+        if (filePath === ".github/workflows/platform-production.yml") {
+          return "run: pnpm run smoke:chained --record\n";
+        }
+        if (filePath === ".github/workflows/platform-coverage.yml") {
+          return "run: pnpm run coverage:digest\n";
+        }
+        if (filePath === "package.json") {
+          return JSON.stringify({
+            scripts: {
+              "smoke:chained": "pnpm run smoke:platform && pnpm run ops",
+              "smoke:platform": "node ./scripts/platform-smoke.mjs",
+              ops: "node ./scripts/ops.mjs",
+              "coverage:digest": "node ./scripts/coverage-summary.mjs",
+              "self:loop": "pnpm run self:loop",
+            },
+          });
+        }
+        return null;
+      },
+    });
+    expect(references.has("scripts/platform-smoke.mjs")).toBe(true);
+    expect(references.has("scripts/ops.mjs")).toBe(true);
+    // Referenced only by a ci-category workflow: not release machinery.
+    expect(references.has("scripts/coverage-summary.mjs")).toBe(false);
+    // Self-referencing aliases terminate.
+    expect(references.size).toBe(2);
+  });
+
+  it("collects real release-gate scripts reached via pnpm-run aliases in the working tree", () => {
+    const references = collectReleaseWorkflowScriptReferences({
+      registry: releaseQualificationScopeRegistry,
+      readFileAt: (ref, filePath) => {
+        try {
+          return readFileSync(path.join(repoRoot, filePath), "utf8");
+        } catch {
+          return null;
+        }
+      },
+    });
+    // Probe 1x set from the max-scrutiny review: gate scripts release
+    // workflows invoke only through root pnpm-run aliases.
+    for (const scriptPath of [
+      "scripts/platform-smoke.mjs",
+      "scripts/stripe-money-smoke-test.mjs",
+      "scripts/ops.mjs",
+      "scripts/rollback-readiness.mjs",
+      "scripts/staging-mixed-version-wake-drill.mjs",
+      "scripts/platform-kubernetes-deployment.mjs",
+    ]) {
+      expect(references.has(scriptPath), `${scriptPath} must be release-referenced`).toBe(true);
+    }
   });
 });

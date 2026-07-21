@@ -1,0 +1,14 @@
+{
+  "name": "package-json-alias-rewire",
+  "description": "Rewiring a root package.json script alias is a release-workflow change, not an ordinary image input (review F1, probe 1x).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["deployment_release_workflow"],
+  "files": [
+    {
+      "path": "package.json",
+      "status": "modified",
+      "baseContent": "{\n  \"scripts\": {\n    \"deploy:kubernetes\": \"node ./scripts/platform-kubernetes-deployment.mjs\"\n  }\n}\n",
+      "content": "{\n  \"scripts\": {\n    \"deploy:kubernetes\": \"node ./scripts/evil.mjs\"\n  }\n}\n"
+    }
+  ]
+}

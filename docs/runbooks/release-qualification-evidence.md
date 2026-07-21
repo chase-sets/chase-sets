@@ -28,13 +28,15 @@ The production reader consumes the exact record key selected during release reso
 4. `result` is `pass`.
 5. For a new direct release, `completedAt` is at most 24 hours old. Rollback uses the record key retained in the previously promoted release manifest and is exempt from the age limit (`--mode rollback`).
 
+The canonical classifier policy version is `release-qualification-scope/v1` (exported by `scripts/release-qualification-scope.mjs`); records must carry that exact string until a new policy version is ratified.
+
 ```sh
 node scripts/release-qualification-record.mjs verify \
   --record-key "v1/attempts/chase-sets/chase-sets/<tree>/<digest>/<run>-<attempt>.json" \
   --repository chase-sets/chase-sets \
   --main-sha "$(git rev-parse HEAD)" \
   --image-digest "sha256:..." \
-  --classifier-policy-version release-scope-classifier/v1 \
+  --classifier-policy-version release-qualification-scope/v1 \
   --mode new-release
 ```
 
@@ -110,6 +112,9 @@ Registration contract — every new semantic owner must register, and unknown re
 - **Migration mechanisms**: add historical paths to `migrationSurfacePatterns` and mechanism homes to `migrationMechanismRootPatterns`. DDL content outside every registered mechanism classifies `persistent_required` (`unrecognized_migration_mechanism`).
 - **Providers**: add the `infrastructure/` directory to `registry.infrastructure` with ruling `live-provider` (or `test-mode-provider` for capture-only fakes). An unregistered infrastructure directory classifies `persistent_required` (`unregistered_infrastructure`).
 - **Workflows**: every file in `.github/workflows` (and every composite action) must be registered as `release` or `ci`. Unregistered workflows classify `persistent_required` (`unregistered_workflow`), and the registration-drift test in `scripts/release-qualification-scope.test.mjs` fails until the registry matches the tree.
+- **Shared contracts**: every directory under `contracts/` must carry a ruling in `registry.contracts` (`money-movement-contract`, `live-provider`, `event-store-persistence`, `seed-machinery`, or `runtime-library`). An unregistered contracts directory classifies `persistent_required` (`unregistered_contract`).
 - **Seed/bootstrap/import/reconciliation entry points**: register under `seedBootstrapImportReconciliationPatterns` (or `operationalScriptPaths` for operator scripts). The caller-inventory sweep in the test discovers entry points by path tokens and seed-import semantics; anything discovered classifies `persistent_required` unless an explicit `reviewedNonPersistentSurfaces` ruling (with rationale) covers it, and even then a stronger fail-closed result is always accepted.
 
 Fail-closed polarity (deliberate): this classifier treats a missing base, unreadable metadata or file content, unknown categories, classifier errors, and future policy versions as `persistent_required`. The sibling `scripts/release-deployment-scope.mjs` deliberately treats a missing base as deploy-required (fail open-to-deploy). Both fail toward the safer action for their consumer; production reconciliation must preserve both behaviors.
+
+Known limits (recorded): the SQL-DDL detector is static — DDL assembled dynamically at runtime (string concatenation, `sql.unsafe(...)` over composed fragments) is a detection ceiling and relies on the registered mechanism roots and review policy instead. Release-workflow script references resolve literal `scripts/` tokens and root `pnpm run` aliases (transitively) from the candidate's `package.json`; invocations composed from environment variables at runtime are outside static reach — register such scripts in `operationalScriptPaths`.
