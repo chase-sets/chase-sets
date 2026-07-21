@@ -1,0 +1,12 @@
+{
+  "name": "ci-workflow-only",
+  "description": "A registered ci-category workflow changes reporting only, never persistent environments.",
+  "expectedClass": "not_applicable",
+  "expectedReasonCodes": ["ci_only_workflow"],
+  "files": [
+    {
+      "path": ".github/workflows/platform-coverage.yml",
+      "status": "modified"
+    }
+  ]
+}

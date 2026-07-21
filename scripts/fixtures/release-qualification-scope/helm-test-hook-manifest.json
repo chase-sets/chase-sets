@@ -1,0 +1,13 @@
+{
+  "name": "helm-test-hook-manifest",
+  "description": "A Helm chart test hook under templates/tests/ runs in the persistent cluster: registered roots outrank test-path vocabulary (review F2, probe 1d-2).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["helm_doks_ingress_dns_spaces"],
+  "files": [
+    {
+      "path": "infrastructure/helm/platform/templates/tests/smoke-hook.yaml",
+      "status": "added",
+      "content": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: {{ include \"platform.fullname\" . }}-test\n  annotations:\n    \"helm.sh/hook\": test\nspec:\n  containers:\n    - name: smoke\n      image: {{ .Values.image.repository }}\n"
+    }
+  ]
+}

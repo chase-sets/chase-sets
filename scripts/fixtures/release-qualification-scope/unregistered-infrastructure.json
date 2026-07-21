@@ -1,0 +1,13 @@
+{
+  "name": "unregistered-infrastructure",
+  "description": "An infrastructure directory without a registered ruling fails closed.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unregistered_infrastructure"],
+  "files": [
+    {
+      "path": "infrastructure/edge-cache/index.ts",
+      "status": "added",
+      "content": "export const cache = new Map();\n"
+    }
+  ]
+}

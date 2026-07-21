@@ -1,0 +1,14 @@
+{
+  "name": "terraform-renamed-copy",
+  "description": "The same Terraform semantics at an unregistered path and neutral extension are still caught by content detection.",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["terraform_infrastructure"],
+  "files": [
+    {
+      "path": "tools/cloud/cluster-copy.txt",
+      "status": "added",
+      "content": "resource \"digitalocean_kubernetes_cluster\" \"platform\" {\n  name = \"chase-sets-platform\"\n}\n"
+    }
+  ]
+}

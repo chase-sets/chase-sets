@@ -1,0 +1,19 @@
+{
+  "name": "indirect-reconciliation-caller",
+  "description": "A new runtime file importing a registered reconciliation surface (relative specifier) and a helper inside the reconciliation feature directory are both that machinery (review F4, probes 1b-1/1b-2).",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "bounded-contexts/catalog/features/catalog-items/api/nightly-consistency.ts",
+      "status": "added",
+      "content": "import { buildCompletionReport } from \"../../completion-report/domain/reconcile\";\nexport async function nightlyConsistency(store) {\n  return buildCompletionReport(await store.manifest());\n}\n"
+    },
+    {
+      "path": "bounded-contexts/catalog/features/completion-report/domain/manifest.ts",
+      "status": "modified",
+      "content": "export const manifestExclusions = [\"new-behavior\"];\n"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "docs-only",
+  "description": "Documentation-only diff, including a doc whose name mentions terraform/helm/migration/seed: name vocabulary alone never forces a class.",
+  "proves": ["path_lookalike"],
+  "expectedClass": "not_applicable",
+  "expectedReasonCodes": ["docs_or_test_only"],
+  "files": [
+    {
+      "path": "docs/runbooks/release-notes.md",
+      "status": "modified"
+    },
+    {
+      "path": "docs/runbooks/terraform-helm-migration-seed-notes.md",
+      "status": "modified"
+    }
+  ]
+}

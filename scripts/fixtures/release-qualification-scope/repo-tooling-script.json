@@ -1,0 +1,13 @@
+{
+  "name": "repo-tooling-script",
+  "description": "A repository lint script that no release workflow references and that carries no persistent semantics.",
+  "expectedClass": "not_applicable",
+  "expectedReasonCodes": ["repo_tooling_only"],
+  "files": [
+    {
+      "path": "scripts/check-docs-index.mjs",
+      "status": "modified",
+      "content": "export function checkDocsIndex(entries) {\n  return entries.filter(Boolean);\n}\n"
+    }
+  ]
+}

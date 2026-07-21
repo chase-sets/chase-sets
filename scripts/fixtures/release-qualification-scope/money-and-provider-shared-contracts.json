@@ -1,0 +1,18 @@
+{
+  "name": "money-and-provider-shared-contracts",
+  "description": "Shared money-movement and payment-processing contract workspaces are categorically persistent (review F3, probes 1e-1/1e-2).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["live_provider_contract", "money_movement_contract"],
+  "files": [
+    {
+      "path": "contracts/money-movement/index.ts",
+      "status": "modified",
+      "content": "export type PayoutMode = \"standard\" | \"instant\";\n"
+    },
+    {
+      "path": "contracts/payment-processing/index.ts",
+      "status": "modified",
+      "content": "export type TokenKind = \"card\" | \"wallet\";\n"
+    }
+  ]
+}

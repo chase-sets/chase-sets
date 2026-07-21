@@ -1,0 +1,17 @@
+{
+  "name": "pnpm-alias-release-script",
+  "description": "A gate script invoked by a release workflow through a root pnpm-run alias is release machinery (review F1, probe 1x).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["deployment_release_workflow"],
+  "extraFiles": {
+    ".github/workflows/platform-staging-admin-smoke.yml": "on: workflow_dispatch\njobs:\n  smoke:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm run smoke:chained\n",
+    "package.json": "{\n  \"scripts\": {\n    \"smoke:chained\": \"pnpm run smoke:platform\",\n    \"smoke:platform\": \"node ./scripts/platform-smoke.mjs\"\n  }\n}\n"
+  },
+  "files": [
+    {
+      "path": "scripts/platform-smoke.mjs",
+      "status": "modified",
+      "content": "export function smoke() {\n  return true;\n}\n"
+    }
+  ]
+}

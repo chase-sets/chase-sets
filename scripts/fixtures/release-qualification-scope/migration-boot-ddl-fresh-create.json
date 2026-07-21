@@ -1,0 +1,14 @@
+{
+  "name": "migration-boot-ddl-fresh-create",
+  "description": "CREATE-only boot DDL would succeed against a fresh empty database, but long-lived compatibility is unproven: still persistent_required.",
+  "proves": ["fresh_database_create"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["migration_schema"],
+  "files": [
+    {
+      "path": "bounded-contexts/settlement/support/runtime-support/schema.ts",
+      "status": "modified",
+      "content": "export const settlementSchemaSql = `\nCREATE TABLE IF NOT EXISTS settlement_wallet_pages (\n  wallet_id text PRIMARY KEY\n);\n`;\n"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "release-referenced-script",
+  "description": "A script executed by a registered release workflow is release machinery even without name vocabulary.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["deployment_release_workflow"],
+  "releaseWorkflowScriptReferences": ["scripts/platform-smoke.mjs"],
+  "files": [
+    {
+      "path": "scripts/platform-smoke.mjs",
+      "status": "modified",
+      "content": "export function smoke() {\n  return true;\n}\n"
+    }
+  ]
+}

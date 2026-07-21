@@ -1,0 +1,15 @@
+{
+  "name": "migration-renamed-into-tests",
+  "description": "A registered migration surface renamed INTO a tests/ directory keeps its persistent classification via the rename origin (review F2, probe 1d-4).",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["migration_schema"],
+  "files": [
+    {
+      "path": "bounded-contexts/auth/tests/schema-archive.ts",
+      "status": "renamed",
+      "previousPath": "bounded-contexts/auth/support/runtime-support/schema.ts",
+      "content": "export const archived = true;\n"
+    }
+  ]
+}

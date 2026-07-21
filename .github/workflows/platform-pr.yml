@@ -1652,3 +1652,34 @@ jobs:
             gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
               -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
           fi
+
+  # Advisory-only release qualification lane classifier (issue #5837).
+  # Not a required check: classification outcomes — including fail-closed
+  # persistent_required results — always exit 0, and the job itself is
+  # continue-on-error so the advisory can never hold a merge group. The
+  # advisory qualification issue owns the 20-candidate soak and the
+  # staging-disagreement review; per the cost wager this job is
+  # repository-local compute only and records its own Actions minutes.
+  release-qualification-scope-advisory:
+    name: Release Qualification Scope Advisory
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    if: github.event_name == 'merge_group'
+    steps:
+      - name: Record job start for the Actions-minutes wager
+        id: clock
+        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Classify release qualification scope (advisory only)
+        run: |
+          set -euo pipefail
+          node ./scripts/release-qualification-scope.mjs classify \
+            --candidate "${{ github.event.merge_group.head_sha }}" \
+            --job-started-at "${{ steps.clock.outputs.started_at }}" \
+            --out artifacts/release-qualification-scope.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"

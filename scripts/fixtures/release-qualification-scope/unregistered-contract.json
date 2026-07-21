@@ -1,0 +1,13 @@
+{
+  "name": "unregistered-contract",
+  "description": "A contracts directory without a registered ruling fails closed (review F3, probe 1e-3).",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unregistered_contract"],
+  "files": [
+    {
+      "path": "contracts/provider-config/stripe-api-version.ts",
+      "status": "added",
+      "content": "export const stripeApiVersion = \"2027-01-01\";\n"
+    }
+  ]
+}

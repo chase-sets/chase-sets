@@ -1,0 +1,7 @@
+{
+  "name": "empty-diff",
+  "description": "Empty production-marker-to-candidate diff.",
+  "expectedClass": "not_applicable",
+  "expectedReasonCodes": ["empty_diff"],
+  "files": []
+}

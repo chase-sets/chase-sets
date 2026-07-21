@@ -1,0 +1,19 @@
+{
+  "name": "helm-and-renamed-k8s-manifest",
+  "description": "Helm values at the registered root plus a Kubernetes manifest renamed outside it.",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["helm_doks_ingress_dns_spaces"],
+  "files": [
+    {
+      "path": "infrastructure/helm/platform/values.yaml",
+      "status": "modified",
+      "content": "replicaCount: 2\nimage:\n  tag: latest\n"
+    },
+    {
+      "path": "ops/platform-deployment.yaml",
+      "status": "added",
+      "content": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: platform\n"
+    }
+  ]
+}

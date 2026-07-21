@@ -1,0 +1,13 @@
+{
+  "name": "migration-read-model-schema",
+  "description": "DDL in a feature read-model module belongs to the registered boot-schema mechanism.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["migration_schema"],
+  "files": [
+    {
+      "path": "bounded-contexts/inventory/features/stock-levels/read-model/schema.ts",
+      "status": "added",
+      "content": "export const inventoryStockSchemaSql = `\nCREATE TABLE IF NOT EXISTS inventory_stock_pages (\n  item_id text PRIMARY KEY\n);\nCREATE INDEX IF NOT EXISTS idx_stock ON inventory_stock_pages (item_id);\n`;\n"
+    }
+  ]
+}

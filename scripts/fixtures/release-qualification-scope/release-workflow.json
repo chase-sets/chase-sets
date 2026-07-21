@@ -1,0 +1,12 @@
+{
+  "name": "release-workflow",
+  "description": "A registered release-category workflow.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["deployment_release_workflow"],
+  "files": [
+    {
+      "path": ".github/workflows/platform-production.yml",
+      "status": "modified"
+    }
+  ]
+}

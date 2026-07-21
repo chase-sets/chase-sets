@@ -1,0 +1,13 @@
+{
+  "name": "seed-caller",
+  "description": "A registered per-context seed module.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "bounded-contexts/commercial-terms/support/runtime-support/seed.ts",
+      "status": "modified",
+      "content": "import { commercialTermsReservedSeedIds } from \"@chase-sets/commercial-terms/seed-support/ids\";\nexport async function seedCommercialTerms() {\n  return commercialTermsReservedSeedIds;\n}\n"
+    }
+  ]
+}

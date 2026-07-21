@@ -1,0 +1,18 @@
+{
+  "name": "app-image-isolated",
+  "description": "Image/build inputs are application changes provable in isolation.",
+  "expectedClass": "isolated",
+  "expectedReasonCodes": ["application_image"],
+  "files": [
+    {
+      "path": "Dockerfile",
+      "status": "modified",
+      "content": "FROM node:24-alpine AS base\nWORKDIR /app\nCOPY . .\n"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "status": "modified",
+      "content": "lockfileVersion: '9.0'\n"
+    }
+  ]
+}

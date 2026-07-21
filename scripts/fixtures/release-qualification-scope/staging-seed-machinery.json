@@ -1,0 +1,18 @@
+{
+  "name": "staging-seed-machinery",
+  "description": "The seed-testing deployable and representative-commerce state seed persistent staging.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "deployables/marketplace-seed-testing/index.ts",
+      "status": "modified",
+      "content": "export const seedTesting = true;\n"
+    },
+    {
+      "path": "deployables/platform-api/src/representative-commerce-state.ts",
+      "status": "modified",
+      "content": "export const representativeAccounts = 12;\n"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "app-runtime-isolated",
+  "description": "Ordinary application runtime change provable with disposable verification.",
+  "expectedClass": "isolated",
+  "expectedReasonCodes": ["application_runtime"],
+  "files": [
+    {
+      "path": "bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx",
+      "status": "modified",
+      "content": "export function ProviderBadge({ label }) {\n  return label;\n}\n"
+    },
+    {
+      "path": "contracts/localization/locales/en/marketplace/listing-copy.ts",
+      "status": "modified",
+      "content": "export const listingCopy = { title: \"Listings\" };\n"
+    }
+  ]
+}

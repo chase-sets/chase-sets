@@ -1,0 +1,16 @@
+{
+  "name": "test-only",
+  "description": "Test-only diff has no release-path consequence.",
+  "expectedClass": "not_applicable",
+  "expectedReasonCodes": ["docs_or_test_only"],
+  "files": [
+    {
+      "path": "bounded-contexts/settlement/tests/schema-upgrade.db.test.ts",
+      "status": "modified"
+    },
+    {
+      "path": "scripts/change-scope.test.mjs",
+      "status": "modified"
+    }
+  ]
+}
