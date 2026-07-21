@@ -2191,3 +2191,65 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 });
+
+describe("Release qualification evidence root (issue #5836)", () => {
+  const rootDir = "infrastructure/digitalocean/release-qualification";
+  const rqMain = readFileSync(resolve(`${rootDir}/main.tf`), "utf8");
+  const rqVersions = readFileSync(resolve(`${rootDir}/versions.tf`), "utf8");
+  const rqVariables = readFileSync(resolve(`${rootDir}/variables.tf`), "utf8");
+  const rqOutputs = readFileSync(resolve(`${rootDir}/outputs.tf`), "utf8");
+  const rqBackendExample = readFileSync(resolve(`${rootDir}/backend.hcl.example`), "utf8");
+  const rqReadme = readFileSync(resolve(`${rootDir}/README.md`), "utf8");
+  const rqAllTf = [rqMain, rqVersions, rqVariables, rqOutputs].join("\n");
+
+  it("creates only the dedicated private evidence Space and nothing else (cost wager)", () => {
+    const resources = rqAllTf.match(/^resource "/gm) ?? [];
+    expect(resources).toHaveLength(1);
+    expect(rqMain).toContain('resource "digitalocean_spaces_bucket" "release_qualification"');
+    expect(rqVariables).toContain('default = "chase-sets-release-qualification"');
+    expect(rqMain).toContain('acl    = "private"');
+    expect(rqAllTf).not.toMatch(/digitalocean_spaces_bucket_object|digitalocean_cdn|digitalocean_project/);
+  });
+
+  it("requires versioning, destroy protection, and the 400-day evidence-retention lifecycle", () => {
+    expect(rqMain).toMatch(/versioning\s*{\s*enabled = true\s*}/);
+    expect(rqMain).toContain("force_destroy = false");
+    expect(rqMain).toMatch(/lifecycle\s*{\s*prevent_destroy = true\s*}/);
+
+    const expirationDays = [...rqMain.matchAll(/^\s+days = (\d+)$/gm)].map((match) => Number(match[1]));
+    expect(expirationDays).toHaveLength(2);
+    for (const days of expirationDays) {
+      expect(days).toBeGreaterThanOrEqual(400);
+    }
+    expect(rqMain).toContain("noncurrent_version_expiration");
+  });
+
+  it("uses the shared remote-state backend at a DEDICATED key, never the state-bootstrap pattern", () => {
+    expect(rqVersions).toContain('backend "s3" {}');
+    expect(rqBackendExample).toContain('key                         = "release-qualification/shared.tfstate"');
+    expect(rqBackendExample).toContain('bucket                      = "chase-sets-terraform-state"');
+
+    // The intentionally local-state bootstrap root stays evidence-only: it
+    // must not grow a second bucket or any release-qualification wiring.
+    expect(stateBootstrapMain).not.toContain("release");
+    expect((stateBootstrapMain.match(/^resource "/gm) ?? []).length).toBe(1);
+  });
+
+  it("documents the runtime/terraform credential split and the record contract ownership", () => {
+    expect(rqVariables).toMatch(/RELEASE_EVIDENCE_SPACES_\*/);
+    expect(rqReadme).toContain("RELEASE_EVIDENCE_SPACES_ACCESS_ID");
+    expect(rqReadme).toContain("RELEASE_EVIDENCE_SPACES_SECRET_KEY");
+    expect(rqReadme).toContain("merge-gate");
+    expect(rqReadme).toContain("production");
+    expect(rqReadme).toContain("scripts/release-qualification-record.mjs");
+    expect(rqReadme).toContain("docs/runbooks/release-qualification-evidence.md");
+  });
+
+  it("keeps qualification records out of the Terraform-state bucket at runtime", () => {
+    // Records live in the dedicated Space; only this root's *state* uses the
+    // shared state bucket. The record CLI must default to the dedicated Space.
+    const recordScript = readFileSync(resolve("scripts/release-qualification-record.mjs"), "utf8");
+    expect(recordScript).toContain('RELEASE_QUALIFICATION_EVIDENCE_BUCKET = "chase-sets-release-qualification"');
+    expect(recordScript).not.toContain('"chase-sets-terraform-state"');
+  });
+});
