@@ -205,6 +205,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0023: ReturnShipment Aggregate And Platform Return-Facility Directory](./adr/0023-return-shipment-aggregate.md)
 - [ADR 0024: Recovered Return Inventory And Protection Recovery](./adr/0024-recovered-return-inventory-and-value.md)
 - [ADR 0025: Write-Path Inline Projection Apply](./adr/0025-write-path-inline-projection-apply.md)
+- [ADR 0026: Market-Price Methodology](./adr/0026-market-price-methodology.md)
 
 ## Generated Markdown
 
