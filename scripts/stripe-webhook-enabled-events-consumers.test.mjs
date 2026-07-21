@@ -1,28 +1,31 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalWriter = "scripts/stripe-webhook-events.mjs";
-const sourceRoots = ["scripts", "infrastructure", "deployables", "bounded-contexts", "packages", ".github"];
 const sourceExtensions = new Set([".mjs", ".js", ".cjs", ".ts", ".tsx", ".yml", ".yaml"]);
+const ignoredDirectoryNames = new Set([".git", "node_modules", "artifacts", "dist"]);
 
 function modulePaths(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
-    return entry.isDirectory() ? modulePaths(entryPath) : [entryPath];
+    if (entry.isDirectory()) {
+      return ignoredDirectoryNames.has(entry.name) ? [] : modulePaths(entryPath);
+    }
+    return [entryPath];
   });
 }
 
 function repositorySources() {
-  return sourceRoots
-    .flatMap((relativePath) => modulePaths(path.join(rootDir, relativePath)))
+  return modulePaths(rootDir)
     .filter((filePath) => sourceExtensions.has(path.extname(filePath)) && !filePath.includes(".test."))
     .map((filePath) => ({
       path: path.relative(rootDir, filePath).replaceAll("\\", "/"),
       source: readFileSync(filePath, "utf8"),
-    }));
+    }))
+    .filter(({ source }) => source.includes("enabled_events") || source.includes("appendStripeEnabledEvents"));
 }
 
 function enabledEventConsumerViolations(sources) {
@@ -51,13 +54,20 @@ describe("Stripe enabled_events consumers", () => {
   });
 
   it("rejects an inline literal enabled_events list as a negative control", () => {
-    const fixture = {
-      path: "scripts/inline-literal-fixture.mjs",
-      source: 'for (const event of ["payment_intent.succeeded"]) body.append("enabled_events[]", event);',
-    };
+    const fixtureDirectory = mkdtempSync(path.join(rootDir, "contracts", "stripe-webhook-enabled-events-"));
+    const fixturePath = path.join(fixtureDirectory, "payment-processing-webhook.mjs");
+    const fixtureRelativePath = path.relative(rootDir, fixturePath).replaceAll("\\", "/");
+    writeFileSync(
+      fixturePath,
+      'for (const event of ["payment_intent.succeeded"]) body.append("enabled_events[]", event);',
+    );
 
-    expect(enabledEventConsumerViolations([fixture])).toEqual([
-      `scripts/inline-literal-fixture.mjs writes enabled_events[] outside ${canonicalWriter}`,
-    ]);
+    try {
+      expect(enabledEventConsumerViolations(repositorySources())).toContain(
+        `${fixtureRelativePath} writes enabled_events[] outside ${canonicalWriter}`,
+      );
+    } finally {
+      rmSync(fixtureDirectory, { recursive: true, force: true });
+    }
   });
 });
