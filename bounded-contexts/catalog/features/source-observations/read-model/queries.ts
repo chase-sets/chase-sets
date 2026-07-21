@@ -7,6 +7,7 @@ import {
   type ListResult,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
+import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type {
   CatalogMergeCandidateExternalCatalogItemReference,
@@ -172,8 +173,8 @@ const sourceObservationListColumns = `observation_id,
        source_url,
        language_code,
        source_record_hash,
-       source_updated_at::text AS source_updated_at,
-       observed_at::text AS observed_at,
+       ${catalogIsoUtcTimestamp("source_updated_at")},
+       ${catalogIsoUtcTimestamp("observed_at")},
        source_profile_key,
        source_profile_version,
        source_mapping_fingerprint,
@@ -182,11 +183,11 @@ const sourceObservationListColumns = `observation_id,
        status_reason,
        promoted_catalog_item_id,
        promoted_reference_record_id,
-       promoted_at::text AS promoted_at,
+       ${catalogIsoUtcTimestamp("promoted_at")},
        promotion_profile_key,
        promotion_profile_version,
        promotion_plan_fingerprint,
-       updated_at::text AS updated_at`;
+       ${catalogIsoUtcTimestamp("updated_at")}`;
 
 export type SourceObservationIntegrationScopeRow = Readonly<{
   provider_key: string;
@@ -268,9 +269,9 @@ export async function listCatalogMergeCandidates(
                           c.warnings_json,
                           c.field_provenance_json,
                           c.promotion_intent,
-                          c.created_at::text AS created_at,
-                          c.updated_at::text AS updated_at,
-                          c.stale_at::text AS stale_at,
+                          ${catalogIsoUtcTimestamp("c.created_at", "created_at")},
+                          ${catalogIsoUtcTimestamp("c.updated_at", "updated_at")},
+                          ${catalogIsoUtcTimestamp("c.stale_at", "stale_at")},
                           COALESCE(m.observation_count, 0)::integer AS observation_count,
                           COALESCE(m.membership_json, '[]'::jsonb) AS membership_json
                    FROM catalog_merge_candidates c
@@ -348,9 +349,9 @@ export async function listSourceObservationIntegrationScopes(
        changed_observations,
        promoted_observations,
        rejected_observations,
-       first_observed_at::text AS first_observed_at,
-       latest_observed_at::text AS latest_observed_at,
-       latest_source_updated_at::text AS latest_source_updated_at
+       ${catalogIsoUtcTimestamp("first_observed_at")},
+       ${catalogIsoUtcTimestamp("latest_observed_at")},
+       ${catalogIsoUtcTimestamp("latest_source_updated_at")}
      FROM ${sourceObservationIntegrationScopeSummaryTable}
      ${where}
      ORDER BY latest_observed_at DESC, provider_key ASC, language_code ASC`,
@@ -576,7 +577,13 @@ export async function getSourceObservationDetail(
   observationId: string,
 ): Promise<SourceObservationDetailRow | null> {
   const result = await db.query<SourceObservationDetailRow>(
-    `SELECT * FROM catalog_source_observations WHERE observation_id = $1`,
+    catalogIsoUtcListSql(
+      `SELECT * FROM catalog_source_observations WHERE observation_id = $1`,
+      "source_updated_at",
+      "observed_at",
+      "promoted_at",
+      "updated_at",
+    ),
     [observationId],
   );
 

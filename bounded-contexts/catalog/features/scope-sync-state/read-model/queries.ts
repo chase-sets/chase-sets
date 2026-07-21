@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { deriveCatalogScopeSyncUnitState, type CatalogScopeSyncUnitObservedStatus } from "../domain/state";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CatalogScopeSyncUnitStateUpsertInput = Readonly<{
   scopeKey: string;
@@ -149,10 +150,15 @@ export async function listCatalogScopeSyncState(
   scopeKey: string,
 ): Promise<readonly CatalogScopeSyncUnitStateRow[]> {
   const result = await db.query<CatalogScopeSyncUnitStateRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_scope_sync_state
      WHERE scope_key = $1
      ORDER BY provider_key ASC, unit_key ASC`,
+      "last_started_at",
+      "last_completed_at",
+      "updated_at",
+    ),
     [scopeKey],
   );
 
@@ -164,11 +170,16 @@ export async function readCatalogScopeSyncUnitState(
   input: Readonly<{ scopeKey: string; providerKey: string; unitKey: string }>,
 ): Promise<CatalogScopeSyncUnitStateRow | null> {
   const result = await db.query<CatalogScopeSyncUnitStateRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_scope_sync_state
      WHERE scope_key = $1
-       AND provider_key = $2
+      AND provider_key = $2
        AND unit_key = $3`,
+      "last_started_at",
+      "last_completed_at",
+      "updated_at",
+    ),
     [input.scopeKey, input.providerKey, input.unitKey],
   );
 

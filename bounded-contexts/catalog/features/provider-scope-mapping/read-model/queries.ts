@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { catalogIsoUtcTimestampColumns } from "../../../support/runtime-support/iso-utc-timestamp";
 import {
   normalizeProviderScopeMappingIdentity,
   type ProviderScopeMappingConfidenceTier,
@@ -36,7 +37,7 @@ export async function listProposedProviderScopeMappings(
 ): Promise<readonly ProviderScopeMappingRow[]> {
   const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE review_status = 'proposed'
      ORDER BY catalog_provider_scope_mappings.proposed_at ASC, mapping_id ASC
@@ -56,7 +57,7 @@ export async function listAcceptedProviderScopeMappingsByScopeRecord(
   }
 
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE scope_record_id = $1
        AND review_status IN ('accepted', 'auto-accepted')
@@ -78,7 +79,7 @@ export async function listAcceptedProviderScopeMappingsByProviderUnit(
   });
 
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE provider_key = $1
        AND unit_key = $2
@@ -102,7 +103,7 @@ export async function listAcceptedProviderScopeMappingsForProviders(
   }
 
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE provider_key = ANY($1::text[])
        AND review_status IN ('accepted', 'auto-accepted')
@@ -128,7 +129,7 @@ export async function listProviderScopeMappingsByScopeRecord(
   }
 
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE scope_record_id = $1
      ORDER BY provider_key ASC, unit_key ASC, catalog_provider_scope_mappings.updated_at DESC`,
@@ -148,7 +149,7 @@ export async function getProviderScopeMapping(
   }
 
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_provider_scope_mappings WHERE mapping_id = $1`,
     [normalizedMappingId],
   );

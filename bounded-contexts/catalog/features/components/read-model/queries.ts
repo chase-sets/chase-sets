@@ -6,6 +6,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type ComponentRow = Readonly<{
   component_id: string;
@@ -58,7 +59,13 @@ export async function listComponents(
   }
 
   const query = buildFilteredQuery("catalog_components", params, ["key", "name"], "key ASC", extraConditions);
-  return executeListQuery<ComponentRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<ComponentRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listComponentIds(db: PgQueryable, params: ComponentListParams = {}): Promise<string[]> {
@@ -74,9 +81,10 @@ export async function listComponentBulkRows(
     return [];
   }
 
-  const result = await db.query<ComponentRow>(`SELECT * FROM catalog_components WHERE component_id = ANY($1::text[])`, [
-    [...componentIds],
-  ]);
+  const result = await db.query<ComponentRow>(
+    catalogIsoUtcListSql(`SELECT * FROM catalog_components WHERE component_id = ANY($1::text[])`, "updated_at"),
+    [[...componentIds]],
+  );
 
   return result.rows.map((row) => ({
     id: row.component_id,
@@ -87,7 +95,7 @@ export async function listComponentBulkRows(
 
 export async function getComponentDetail(db: PgQueryable, componentId: string) {
   const result = await db.query<ComponentDetailRow>(
-    `SELECT * FROM catalog_admin_component_detail_pages WHERE component_id = $1`,
+    catalogIsoUtcListSql(`SELECT * FROM catalog_admin_component_detail_pages WHERE component_id = $1`, "updated_at"),
     [componentId],
   );
 

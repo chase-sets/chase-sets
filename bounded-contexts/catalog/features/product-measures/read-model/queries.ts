@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CatalogProductMeasureProfileRow = Readonly<{
   profile_id: string;
@@ -36,9 +37,12 @@ export async function listProductMeasureProfiles(db: PgQueryable) {
     precedence: number;
     updated_at: string;
   }>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_product_measure_profiles
      ORDER BY precedence ASC, key ASC`,
+      "updated_at",
+    ),
   );
 
   return result.rows.map((row) => ({
@@ -63,10 +67,13 @@ export async function listResolvedProductMeasures(db: PgQueryable, catalogItemId
     missing_reason: string | null;
     updated_at: string;
   }>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_resolved_product_measures
      ${where}
      ORDER BY catalog_item_id ASC, product_id ASC`,
+      "updated_at",
+    ),
     values,
   );
 

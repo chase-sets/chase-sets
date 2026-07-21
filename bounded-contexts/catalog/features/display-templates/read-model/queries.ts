@@ -5,6 +5,7 @@ import {
   type ListResult,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type DisplayTemplateListParams = ListParams & {
   targetKind?: string;
@@ -40,11 +41,14 @@ export async function listDisplayTemplates(
     values,
   );
   const result = await db.query<DisplayTemplateRow>(
-    `SELECT *
+    catalogIsoUtcListSql(
+      `SELECT *
      FROM catalog_display_templates
      ${where}
      ORDER BY target_kind ASC, priority DESC, name ASC
      ${pagination.sql}`,
+      "updated_at",
+    ),
     [...values, ...pagination.values],
   );
 
@@ -56,7 +60,7 @@ export async function listDisplayTemplates(
 
 export async function getDisplayTemplateDetail(db: PgQueryable, displayTemplateId: string) {
   const result = await db.query<DisplayTemplateRow>(
-    `SELECT * FROM catalog_display_templates WHERE display_template_id = $1`,
+    catalogIsoUtcListSql(`SELECT * FROM catalog_display_templates WHERE display_template_id = $1`, "updated_at"),
     [displayTemplateId],
   );
 

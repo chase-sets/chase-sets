@@ -6,6 +6,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type DimensionRow = Readonly<{
   dimension_id: string;
@@ -55,7 +56,13 @@ export async function listDimensions(
     extraConditions,
     extraValues,
   );
-  return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<DimensionRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listDimensionIds(db: PgQueryable, params: DimensionListParams = {}): Promise<string[]> {
@@ -71,9 +78,10 @@ export async function listDimensionBulkRows(
     return [];
   }
 
-  const result = await db.query<DimensionRow>(`SELECT * FROM catalog_dimensions WHERE dimension_id = ANY($1::text[])`, [
-    [...dimensionIds],
-  ]);
+  const result = await db.query<DimensionRow>(
+    catalogIsoUtcListSql(`SELECT * FROM catalog_dimensions WHERE dimension_id = ANY($1::text[])`, "updated_at"),
+    [[...dimensionIds]],
+  );
 
   return result.rows.map((row) => ({
     id: row.dimension_id,
@@ -83,9 +91,10 @@ export async function listDimensionBulkRows(
 }
 
 export async function getDimension(db: PgQueryable, dimensionId: string) {
-  const dimensionResult = await db.query<DimensionRow>(`SELECT * FROM catalog_dimensions WHERE dimension_id = $1`, [
-    dimensionId,
-  ]);
+  const dimensionResult = await db.query<DimensionRow>(
+    catalogIsoUtcListSql(`SELECT * FROM catalog_dimensions WHERE dimension_id = $1`, "updated_at"),
+    [dimensionId],
+  );
 
   if (dimensionResult.rows.length === 0) {
     return null;

@@ -6,6 +6,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcListSql } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type FieldRow = Readonly<{
   field_id: string;
@@ -46,7 +47,13 @@ export async function listFields(db: PgQueryable, params: FieldListParams = {}):
   }
 
   const query = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC", extraConditions, extraValues);
-  return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
+  return executeListQuery<FieldRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listFieldIds(db: PgQueryable, params: FieldListParams = {}): Promise<string[]> {
@@ -59,9 +66,10 @@ export async function listFieldBulkRows(db: PgQueryable, fieldIds: readonly stri
     return [];
   }
 
-  const result = await db.query<FieldRow>(`SELECT * FROM catalog_fields WHERE field_id = ANY($1::text[])`, [
-    [...fieldIds],
-  ]);
+  const result = await db.query<FieldRow>(
+    catalogIsoUtcListSql(`SELECT * FROM catalog_fields WHERE field_id = ANY($1::text[])`, "updated_at"),
+    [[...fieldIds]],
+  );
 
   return result.rows.map((row) => ({
     id: row.field_id,
@@ -71,7 +79,10 @@ export async function listFieldBulkRows(db: PgQueryable, fieldIds: readonly stri
 }
 
 export async function getField(db: PgQueryable, fieldId: string) {
-  const result = await db.query<FieldRow>(`SELECT * FROM catalog_fields WHERE field_id = $1`, [fieldId]);
+  const result = await db.query<FieldRow>(
+    catalogIsoUtcListSql(`SELECT * FROM catalog_fields WHERE field_id = $1`, "updated_at"),
+    [fieldId],
+  );
 
   return result.rows[0] ?? null;
 }

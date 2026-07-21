@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+import { catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CatalogItemGtinLookupRow = Readonly<{
   gtin: string;
@@ -113,6 +114,8 @@ export async function listCatalogItems(
 
   const listResult = await db.query<CatalogItemListRow>(
     `SELECT item.*,
+       ${catalogIsoUtcTimestamp("item.display_identity_resolved_at", "display_identity_resolved_at")},
+       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")},
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
@@ -137,7 +140,7 @@ export async function listCatalogItems(
 
 export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
   const result = await db.query<CatalogItemDetailRow>(
-    `SELECT * FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
+    `SELECT *, ${catalogIsoUtcTimestamp("display_identity_resolved_at")}, ${catalogIsoUtcTimestamp("updated_at")} FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -165,7 +168,7 @@ export async function getCatalogItemByGtin(db: PgQueryable, gtin: string): Promi
        item.subtitle,
        item.status,
        item.blueprint_id,
-       link.updated_at
+       ${catalogIsoUtcTimestamp("link.updated_at", "updated_at")}
      FROM catalog_item_gtins AS link
      JOIN catalog_items AS item ON item.catalog_item_id = link.catalog_item_id
      WHERE link.gtin = $1`,
@@ -219,6 +222,8 @@ export async function listCatalogItemBulkRows(
 
   const result = await db.query<CatalogItemListRow>(
     `SELECT item.*,
+       ${catalogIsoUtcTimestamp("item.display_identity_resolved_at", "display_identity_resolved_at")},
+       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")},
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
@@ -259,7 +264,7 @@ export async function listCatalogItemsForBulkPublish(
        item.status,
        item.field_values,
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers,
-       item.updated_at
+       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")}
      FROM catalog_items AS item
      LEFT JOIN catalog_blueprints AS blueprint
        ON blueprint.blueprint_id = item.blueprint_id

@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { CatalogLifecycleStatus } from "../../../support/runtime-support/common";
 import type { CatalogScopeProductDomain, CatalogScopeRecordKind } from "../domain/contract";
+import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 
 export type CatalogScopeRecordRow = Readonly<{
   scope_record_id: string;
@@ -67,7 +68,7 @@ export async function listCatalogScopeRecords(
   return executeListQuery<CatalogScopeRecordRow>(
     db,
     query.countSql,
-    query.listSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
     query.countValues,
     query.listValues,
   );
@@ -82,7 +83,7 @@ export async function listStaleActiveCatalogScopeRecords(
 ): Promise<readonly CatalogScopeRecordRow[]> {
   const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
   const result = await db.query<CatalogScopeRecordRow>(
-    `SELECT *, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")}
      FROM catalog_scope_records
      WHERE lifecycle_status = 'active'
        AND updated_at < $1
@@ -99,7 +100,7 @@ export async function getCatalogScopeRecord(
   scopeRecordId: string,
 ): Promise<CatalogScopeRecordRow | null> {
   const result = await db.query<CatalogScopeRecordRow>(
-    `SELECT *, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")}
      FROM catalog_scope_records
      WHERE scope_record_id = $1`,
     [scopeRecordId],

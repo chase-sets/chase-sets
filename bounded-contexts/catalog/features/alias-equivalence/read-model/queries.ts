@@ -1,5 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { catalogIsoUtcTimestampColumns } from "../../../support/runtime-support/iso-utc-timestamp";
 import type { CatalogAliasReviewStateKey, CatalogAliasTargetKind, CatalogAliasTypeKey } from "../domain/alias";
 import { CATALOG_ALIAS_PUBLISHABLE_REVIEW_STATES } from "../domain/alias";
 
@@ -154,7 +155,7 @@ export async function listSourceObservationAliasCandidates(
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = normalizeLimit(filter.limit);
   const result = await db.query<CatalogAliasCandidateRow>(
-    `SELECT *, first_observed_at::text AS first_observed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("first_observed_at", "updated_at")}
      FROM catalog_source_observation_alias_candidates
      ${where}
      ORDER BY catalog_source_observation_alias_candidates.first_observed_at DESC, alias_hash ASC
@@ -186,7 +187,7 @@ export async function getSourceObservationAliasCandidate(
   aliasHash: string,
 ): Promise<CatalogAliasCandidateRow | null> {
   const result = await db.query<CatalogAliasCandidateRow>(
-    `SELECT *, first_observed_at::text AS first_observed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("first_observed_at", "updated_at")}
      FROM catalog_source_observation_alias_candidates WHERE alias_hash = $1`,
     [aliasHash],
   );
@@ -210,7 +211,7 @@ export async function listCatalogItemAliases(
   }
 
   const result = await db.query<CatalogItemAliasRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_item_aliases
      WHERE catalog_item_id = $1${statusCondition}
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
@@ -229,7 +230,7 @@ export async function listPublishableCatalogItemAliases(
   catalogItemId: string,
 ): Promise<readonly CatalogItemAliasRow[]> {
   const result = await db.query<CatalogItemAliasRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_item_aliases
      WHERE catalog_item_id = $1 AND review_status = ANY($2::text[])
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
@@ -263,8 +264,7 @@ export async function countCatalogItemsForAliasText(
 
 export async function getCatalogItemAlias(db: PgQueryable, aliasHash: string): Promise<CatalogItemAliasRow | null> {
   const result = await db.query<CatalogItemAliasRow>(
-    `SELECT *,
-            proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_item_aliases WHERE alias_hash = $1`,
     [aliasHash],
   );
@@ -288,7 +288,7 @@ export async function listReferenceRecordAliases(
   }
 
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_reference_record_aliases
      WHERE reference_record_id = $1${statusCondition}
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
@@ -304,7 +304,7 @@ export async function listPublishableReferenceRecordAliases(
   referenceRecordId: string,
 ): Promise<readonly CatalogReferenceRecordAliasRow[]> {
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_reference_record_aliases
      WHERE reference_record_id = $1 AND review_status = ANY($2::text[])
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
@@ -319,7 +319,7 @@ export async function getReferenceRecordAlias(
   aliasHash: string,
 ): Promise<CatalogReferenceRecordAliasRow | null> {
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
      FROM catalog_reference_record_aliases WHERE alias_hash = $1`,
     [aliasHash],
   );
