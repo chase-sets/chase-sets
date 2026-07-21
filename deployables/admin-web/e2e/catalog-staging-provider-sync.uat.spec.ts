@@ -1351,6 +1351,31 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     });
 
     expect(selectedProviderScopeMatchesSelectedScope(scope("en:3:sv:sv08"), scope("en:sv:sv08"))).toBe(true);
+    expect(
+      selectedProviderScopeMatchesSelectedScope(
+        scope("en:sv:sv09", [
+          { name: "languageCode", value: "en" },
+          { name: "seriesId", value: "sv" },
+          { name: "expansionId", value: "sv09" },
+        ]),
+        scope("en:sv:sv08"),
+      ),
+    ).toBe(false);
+  });
+
+  test("does not treat a three-segment MTGJSON product-line scope as native", () => {
+    const mtgjsonScope: SelectedProviderScope = {
+      providerKey: "mtgjson",
+      importScope: "en:1:5DN",
+      displayLabel: "mtgjson / en / 1 / 5DN",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "productLineId", value: "1" },
+        { name: "setCode", value: "5DN" },
+      ],
+    };
+
+    expect(selectedProviderScopeHasNativeImportScope(mtgjsonScope)).toBe(false);
   });
 
   test("matches provider-scoped command forms by their settled execution identity", () => {
@@ -1844,11 +1869,16 @@ async function selectGuidedScope({
         guidedScopeFieldName(sourceScope.getByRole("combobox", { name: dependent.label }), dependent.label),
       ),
     );
+    const dependentValues = await Promise.all(
+      dependentSelections.map(async (dependent) =>
+        sourceScope.getByRole("combobox", { name: dependent.label }).inputValue(),
+      ),
+    );
 
     // Each change performs a client GET revalidation. Do not touch the next
-    // control until the current value has committed to the route, every child
-    // has been cleared in both route and form state, and the immediate child's
-    // requested option has populated from the revalidated option slice.
+    // control until the current value has committed to the route and every
+    // child has either cleared or proven its preserved value is still valid in
+    // the revalidated option slice.
     const selectedOption = await selectOption(scopeSelect, selection.choice, () =>
       recoverSourceOptionSelection(page, selection.label),
     );
@@ -1861,7 +1891,12 @@ async function selectGuidedScope({
       (url) =>
         expectedRouteFields.every(
           ({ fieldName: expectedFieldName, value }) => url.searchParams.get(expectedFieldName) === value,
-        ) && dependentFieldNames.every((dependentFieldName) => !url.searchParams.get(dependentFieldName)?.trim()),
+        ) &&
+        dependentFieldNames.every((dependentFieldName, dependentIndex) => {
+          const routeValue = url.searchParams.get(dependentFieldName)?.trim();
+          const previousValue = dependentValues[dependentIndex]?.trim();
+          return !routeValue || routeValue === previousValue;
+        }),
       { timeout: sourceOptionTimeoutMs },
     );
 
@@ -1878,10 +1913,28 @@ async function selectGuidedScope({
         timeout: sourceOptionTimeoutMs,
       },
     );
-    for (const dependent of dependentSelections) {
-      await expect(settledSourceScope.getByRole("combobox", { name: dependent.label })).toHaveValue("", {
-        timeout: sourceOptionTimeoutMs,
-      });
+    for (const [dependentIndex, dependent] of dependentSelections.entries()) {
+      const dependentSelect = settledSourceScope.getByRole("combobox", { name: dependent.label });
+      const previousValue = dependentValues[dependentIndex]?.trim();
+      if (!previousValue) {
+        await expect(dependentSelect).toHaveValue("", { timeout: sourceOptionTimeoutMs });
+        continue;
+      }
+
+      const currentValue = await dependentSelect.inputValue();
+      if (!currentValue) {
+        continue;
+      }
+
+      // A parent reselect may keep a child when its value is still valid. In
+      // that case, wait for the new parent's option slice to include it, then
+      // prove the preserved value remains selected rather than accepting stale
+      // route state.
+      await waitForSourceOptionsToSettle(page);
+      await waitForOption(dependentSelect, { values: [previousValue] }, () =>
+        recoverSourceOptionSelection(page, dependent.label),
+      );
+      await expect(dependentSelect).toHaveValue(previousValue, { timeout: sourceOptionTimeoutMs });
     }
 
     const childSelection = journey.scope[index + 1];
@@ -3698,7 +3751,8 @@ function selectedProviderScopeMatchesNativeSettledScope(
 }
 
 function selectedProviderScopeHasNativeImportScope(scope: SelectedProviderScope): boolean {
-  return scope.importScope?.split(":").filter(Boolean).length === 3;
+  const fieldNames = new Set(scope.fields.map((field) => field.name));
+  return fieldNames.has("seriesId") && !fieldNames.has("productLineId");
 }
 
 function selectedProviderScopeMatchesImportScope(
