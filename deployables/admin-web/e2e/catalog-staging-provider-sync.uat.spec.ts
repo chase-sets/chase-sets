@@ -67,6 +67,11 @@ type SelectedGuidedScopeChoice = SelectedScopeChoice &
     selectedValue: string;
   }>;
 
+type SelectedOptionIdentity = Readonly<{
+  label: string;
+  value: string;
+}>;
+
 type ScopeSelection = Readonly<{
   label: string | RegExp;
   choice: SelectChoice;
@@ -139,6 +144,10 @@ type LorcanaDownstreamSmokeResult = Readonly<{
 }>;
 
 type MissingOptionRecovery = () => Promise<boolean>;
+
+function commandFormMarkup(importScope: string, languageCode: string, expansionId: string): string {
+  return `<form><input name="providerKey" value="tcgplayer"><input name="importScope" value="${importScope}"><input name="languageCode" value="${languageCode}"><input name="expansionId" value="${expansionId}"></form>`;
+}
 
 const preferredYugiohSetLabels = [
   "25th Anniversary Rarity Collection",
@@ -1543,6 +1552,63 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(expectedNativeGuidedImportScope(choices.slice(0, 2))).toBeNull();
   });
 
+  test("does not admit the checked option text as a requested scope identity", () => {
+    expect(selectedScopeChoiceValues({ label: "Floodborn", value: "2" })).toEqual(["2"]);
+  });
+
+  test("keeps an atomic command-form snapshot when the form is replaced before assertion", async ({ page }) => {
+    await page.setContent(commandFormMarkup("en:TFC", "en", "TFC"));
+    const snapshot = await selectedProviderScopeFromCommandForm(page.locator("form"));
+
+    await page.setContent(commandFormMarkup("en:ROTF", "en", "ROTF"));
+
+    // Assertions use the captured command-form values, never the replacement
+    // locator that may have appeared after a route revalidation.
+    expect(snapshot.importScope).toBe("en:TFC");
+    expect(snapshot.fields).toEqual(expect.arrayContaining([{ name: "expansionId", value: "TFC" }]));
+  });
+
+  test("rejects a checked but unrequested option identity", async ({ page }) => {
+    await page.setContent(
+      '<select aria-label="Set"><option value="1">The First Chapter</option><option value="2" selected>Floodborn</option></select>',
+    );
+
+    await expect(
+      waitForOption(page.getByRole("combobox", { name: "Set" }), { labels: ["The First Chapter"] }),
+    ).resolves.toEqual({
+      label: "The First Chapter",
+      value: "1",
+    });
+    expect(selectedScopeChoiceValues({ label: "The First Chapter", value: "1" })).not.toContain("Floodborn");
+  });
+
+  test("settles sequential English-to-Japanese TCGdex selections with the shared SV value", async ({ page }) => {
+    await page.setContent(`
+      <fieldset aria-label="Source scope">
+        <select aria-label="Language" name="languageCode"><option value="en">English</option><option value="ja">Japanese</option></select>
+        <select aria-label="Series" name="seriesId"><option value=""></option><option value="SV" selected>Scarlet &amp; Violet</option></select>
+        <select aria-label="Expansion" name="expansionId"><option value=""></option><option value="SV8" selected>Surging Sparks</option></select>
+      </fieldset>
+    `);
+    await page.locator("html").evaluate((html) => html.setAttribute("data-admin-web-hydrated", "true"));
+    const sourceScope = page.getByRole("group", { name: "Source scope" });
+
+    await selectOption(sourceScope.getByRole("combobox", { name: "Language" }), { values: ["ja"] });
+    await clearUnverifiedGuidedScopeDescendants(page, sourceScope, [
+      { label: "Series", choice: { values: ["SV"] } },
+      { label: "Expansion", choice: { values: ["SV8"] } },
+    ]);
+    await selectOption(sourceScope.getByRole("combobox", { name: "Series" }), { values: ["SV"] });
+    await selectOption(sourceScope.getByRole("combobox", { name: "Expansion" }), { values: ["SV8"] });
+
+    const selectedChoices: readonly SelectedGuidedScopeChoice[] = [
+      { label: "Language", fieldName: "languageCode", selectedValue: "ja", values: ["ja"] },
+      { label: "Series", fieldName: "seriesId", selectedValue: "SV", values: ["SV"] },
+      { label: "Expansion", fieldName: "expansionId", selectedValue: "SV8", values: ["SV8"] },
+    ];
+    expect(expectedNativeGuidedImportScope(selectedChoices)).toBe("ja:SV:SV8");
+  });
+
   test("registers a dispatchable per-game scope for every matrix row and one full-matrix fan-out", () => {
     for (const row of providerProductLineFormMatrix) {
       expect(supportedProviderUatJourneyScopes, row.productLine).toContain(row.scope);
@@ -1864,16 +1930,6 @@ async function selectGuidedScope({
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
     const fieldName = await guidedScopeFieldName(scopeSelect, selection.label);
     const dependentSelections = journey.scope.slice(index + 1);
-    const dependentFieldNames = await Promise.all(
-      dependentSelections.map(async (dependent) =>
-        guidedScopeFieldName(sourceScope.getByRole("combobox", { name: dependent.label }), dependent.label),
-      ),
-    );
-    const dependentValues = await Promise.all(
-      dependentSelections.map(async (dependent) =>
-        sourceScope.getByRole("combobox", { name: dependent.label }).inputValue(),
-      ),
-    );
 
     // Each change performs a client GET revalidation. Do not touch the next
     // control until the current value has committed to the route and every
@@ -1891,12 +1947,7 @@ async function selectGuidedScope({
       (url) =>
         expectedRouteFields.every(
           ({ fieldName: expectedFieldName, value }) => url.searchParams.get(expectedFieldName) === value,
-        ) &&
-        dependentFieldNames.every((dependentFieldName, dependentIndex) => {
-          const routeValue = url.searchParams.get(dependentFieldName)?.trim();
-          const previousValue = dependentValues[dependentIndex]?.trim();
-          return !routeValue || routeValue === previousValue;
-        }),
+        ),
       { timeout: sourceOptionTimeoutMs },
     );
 
@@ -1913,29 +1964,12 @@ async function selectGuidedScope({
         timeout: sourceOptionTimeoutMs,
       },
     );
-    for (const [dependentIndex, dependent] of dependentSelections.entries()) {
-      const dependentSelect = settledSourceScope.getByRole("combobox", { name: dependent.label });
-      const previousValue = dependentValues[dependentIndex]?.trim();
-      if (!previousValue) {
-        await expect(dependentSelect).toHaveValue("", { timeout: sourceOptionTimeoutMs });
-        continue;
-      }
-
-      const currentValue = await dependentSelect.inputValue();
-      if (!currentValue) {
-        continue;
-      }
-
-      // A parent reselect may keep a child when its value is still valid. In
-      // that case, wait for the new parent's option slice to include it, then
-      // prove the preserved value remains selected rather than accepting stale
-      // route state.
-      await waitForSourceOptionsToSettle(page);
-      await waitForOption(dependentSelect, { values: [previousValue] }, () =>
-        recoverSourceOptionSelection(page, dependent.label),
-      );
-      await expect(dependentSelect).toHaveValue(previousValue, { timeout: sourceOptionTimeoutMs });
-    }
+    // Descendant values are not identities: e.g. TCGdex's `SV` occurs under
+    // both English and Japanese. This driver has no parent-qualified option
+    // identity to prove that a retained descendant belongs to the new chain,
+    // so it fails closed by clearing it and letting the following iterations
+    // reselect the requested option from the revalidated slice.
+    await clearUnverifiedGuidedScopeDescendants(page, settledSourceScope, dependentSelections);
 
     const childSelection = journey.scope[index + 1];
     if (childSelection) {
@@ -1945,25 +1979,25 @@ async function selectGuidedScope({
       );
     }
 
-    const settledScopeSelect = settledSourceScope.getByRole("combobox", { name: selection.label });
     selectedChoices.push({
       label: selection.label,
       fieldName,
       selectedValue: selectedOption.value,
-      values: await selectedScopeChoiceValues(settledScopeSelect, selection.choice),
+      values: selectedScopeChoiceValues(selectedOption),
     });
   }
 
   await contextBar.getByRole("button", { name: "Select source scope" }).click();
   const settled = await waitForSelectedProviderScope(page, journey, selectedChoices);
-  if (!settled.scope.importScope) {
+  if (!settled.importScope) {
     throw new Error(`Selected source scope command form for ${journey.unitKey} did not expose a full importScope.`);
   }
-  const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.scope.importScope;
-  await expect(settled.commandForm.locator('input[name="importScope"]').first()).toHaveValue(expectedImportScope, {
-    timeout: sourceOptionTimeoutMs,
-  });
-  return settled.scope;
+  const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.importScope;
+  // `settled` is an atomic command-form snapshot. Do not read the live
+  // locator here: a route revalidation can replace it between observation and
+  // assertion.
+  expect(settled.importScope).toBe(expectedImportScope);
+  return settled;
 }
 
 function expectedNativeGuidedImportScope(selectedChoices: readonly SelectedGuidedScopeChoice[]): string | null {
@@ -1990,7 +2024,7 @@ async function waitForSelectedProviderScope(
   page: Page,
   journey: ProviderSyncJourney,
   selectedChoices: readonly SelectedScopeChoice[],
-): Promise<Readonly<{ scope: SelectedProviderScope; commandForm: Locator }>> {
+): Promise<SelectedProviderScope> {
   const commandForms = sourceScopeSyncForms(page, journey.unitKey);
   await expect(commandForms.first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
@@ -2014,7 +2048,7 @@ async function waitForSelectedProviderScope(
         lastRouteScope &&
         selectedProviderScopeHasSettled(selectedScope, lastRouteScope, selectedChoices, journey.unitKey)
       ) {
-        return { scope: selectedScope, commandForm };
+        return selectedScope;
       }
     }
 
@@ -2030,14 +2064,28 @@ async function waitForSelectedProviderScope(
   );
 }
 
-async function selectedScopeChoiceValues(scopeSelect: Locator, choice: SelectChoice): Promise<readonly string[]> {
-  const selectedValue = await scopeSelect.inputValue();
-  const selectedText = await scopeSelect
-    .locator("option:checked")
-    .innerText()
-    .then(normalizeWhitespace)
-    .catch(() => "");
-  return uniqueTruthy([selectedValue, selectedText, ...(choice.labels ?? []), ...(choice.values ?? [])]);
+function selectedScopeChoiceValues(selectedOption: SelectedOptionIdentity): readonly string[] {
+  // The selected option's value is the only identity the driver can carry
+  // forward. Declared labels/values are lookup alternatives, not aliases for a
+  // settled scope; specifically, a stale checked option's text is never one.
+  return [selectedOption.value];
+}
+
+async function clearUnverifiedGuidedScopeDescendants(
+  page: Page,
+  sourceScope: Locator,
+  dependentSelections: readonly ScopeSelection[],
+): Promise<void> {
+  for (const dependent of dependentSelections) {
+    const dependentSelect = sourceScope.getByRole("combobox", { name: dependent.label });
+    if (!(await dependentSelect.inputValue())) {
+      continue;
+    }
+
+    await dependentSelect.selectOption({ value: "" });
+    await expect(dependentSelect).toHaveValue("", { timeout: sourceOptionTimeoutMs });
+    await waitForSourceOptionsToSettle(page);
+  }
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
@@ -3649,9 +3697,17 @@ function normalizeWhitespace(value: string): string {
 }
 
 async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promise<SelectedProviderScope> {
-  const providerKey = await hiddenInputValue(commandForm, "providerKey");
-  const importScope = emptyToNull(await hiddenInputValue(commandForm, "importScope"));
-  const fields = await selectedProviderScopeFieldsFromCommandForm(commandForm);
+  // Read every command-form value in one DOM evaluation. A locator can resolve
+  // to a replacement form after a client revalidation, so separate locator
+  // reads could construct a scope that never existed together.
+  const values = await commandForm.evaluate((form, fieldNames) => {
+    const valueFor = (name: string) =>
+      (form.querySelector(`input[name="${name}"]`) as HTMLInputElement | null)?.value ?? "";
+    return Object.fromEntries(["providerKey", "importScope", ...fieldNames].map((name) => [name, valueFor(name)]));
+  }, selectedProviderScopeFieldNames);
+  const providerKey = values.providerKey ?? "";
+  const importScope = emptyToNull(values.importScope ?? "");
+  const fields = selectedProviderScopeFieldsFromCommandFormValues(values);
   expect(
     fields.length,
     "The shared importer command form should carry the selected source scope fields.",
@@ -3664,19 +3720,13 @@ async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promi
   };
 }
 
-async function hiddenInputValue(form: Locator, name: string): Promise<string> {
-  return form.locator(`input[name="${name}"]`).first().inputValue();
-}
-
-async function selectedProviderScopeFieldsFromCommandForm(
-  commandForm: Locator,
-): Promise<readonly SelectedProviderScopeField[]> {
-  const fields = await Promise.all(
-    selectedProviderScopeFieldNames.map(async (name) => ({
-      name,
-      value: (await optionalHiddenInputValue(commandForm, name)).trim(),
-    })),
-  );
+function selectedProviderScopeFieldsFromCommandFormValues(
+  values: Readonly<Record<string, string>>,
+): readonly SelectedProviderScopeField[] {
+  const fields = selectedProviderScopeFieldNames.map((name) => ({
+    name,
+    value: (values[name] ?? "").trim(),
+  }));
   return fields.filter((field) => field.value.length > 0);
 }
 
@@ -3832,11 +3882,6 @@ function productDomainsMatch(left: string, right: string): boolean {
 
 function comparableProviderScopeValue(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-async function optionalHiddenInputValue(form: Locator, name: string): Promise<string> {
-  const input = form.locator(`input[name="${name}"]`).first();
-  return (await input.count()) > 0 ? input.inputValue() : "";
 }
 
 function selectedProviderScopeDisplayLabel(
