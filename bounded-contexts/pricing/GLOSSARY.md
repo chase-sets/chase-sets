@@ -131,7 +131,7 @@ A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tap
 
 ## Market-State Snapshot
 
-A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a resolved product: active listing count and lowest ask, open offer count and highest bid, and the Spread between them, captured from the already-projected listing/offer state. Open offer count and highest bid screen out linkage-flagged counterparty bids; the ask side is deliberately unscreened -- see [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the snapshot bid hygiene rules and the ask-side rationale.
+A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a resolved product: active listing count and lowest ask, open offer count and highest bid, and the Spread between them, captured from the already-projected listing/offer state. See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the snapshot bid hygiene rules and the ask-side rationale.
 
 ## Product Market Aggregate
 
