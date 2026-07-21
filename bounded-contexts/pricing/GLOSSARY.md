@@ -191,7 +191,10 @@ A **Price Benchmark** is the planned reference price used to compare listings, o
 
 ### Repricing Run
 
-A **Repricing Run** is the planned batch evaluation of Repricing Candidates under a Repricing Policy.
+A **Repricing Run** is one simultaneous, Product-scoped evaluation round triggered by a changed Market Price,
+a competing-ask change, or the daily drift sweep. Every assigned listing in the round reads the same captured
+input snapshot; outputs never feed back into another listing inside that round. Each policy batch publishes a
+`RepricingPolicyEvaluated` fact with its trigger, rule/anchor/clamp trace, changed count, and skip reasons.
 
 ### Repricing Candidate
 
@@ -214,14 +217,16 @@ Repricing Anchor Chain: `market-estimate`, `lowest-competing-ask`, `comp-percent
 
 ### Repricing Tolerance
 
-A **Repricing Tolerance** is a Repricing Rule directive's allowed movement range around its resolved anchor
-price (percent or absolute) below which the evaluation engine leaves the listing's price untouched.
+A **Repricing Tolerance** is a Repricing Rule directive's allowed difference between a listing's current price
+and its fully rounded-and-clamped Terminal Price (percent of the current price or an absolute amount). A target
+inside or exactly on that band is `within-tolerance`: the engine records the evaluation and emits no price command.
 
 ### Terminal Price
 
-A **Terminal Price** is the planned final bounded price the repricing evaluation engine produces after
-applying a Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing
-Guardrail clamps) -- not yet shipped; see Repricing Run.
+A **Terminal Price** is the final bounded price the repricing evaluation engine produces after applying a
+Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing Guardrail clamps).
+It becomes a Marketplace price-update command only when it falls outside Repricing Tolerance and the daily
+change budget admits it.
 
 ### Floor Price
 

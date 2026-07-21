@@ -65,6 +65,7 @@ export type PlatformWorkerConfig = Readonly<{
   pricingRecommendationJobLaneCount: number;
   pricingRecommendationJobWorkflowMaxActiveClaims: number;
   pricingRecommendationJobMaxActiveClaimsPerJob: number;
+  pricingRepricingEvaluationJobLaneCount: number;
   pricingBulkRepriceJobLaneCount: number;
   pricingBulkRepriceJobWorkflowMaxActiveClaims: number;
   pricingBulkRepriceJobMaxActiveClaimsPerJob: number;
@@ -381,6 +382,7 @@ export function loadConfig(): PlatformWorkerConfig {
       "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
       1,
     ),
+    pricingRepricingEvaluationJobLaneCount: getPositiveNumberEnv("PRICING_REPRICING_EVALUATION_JOB_LANE_COUNT", 1),
     pricingBulkRepriceJobLaneCount: getPositiveNumberEnv("PRICING_BULK_REPRICE_JOB_LANE_COUNT", 1),
     pricingBulkRepriceJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
       "PRICING_BULK_REPRICE_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",

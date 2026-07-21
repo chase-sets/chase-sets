@@ -53,4 +53,5 @@ export {
   marketEstimatePolicy,
   type MarketEstimatePolicyValue,
 } from "./features/market-estimates/domain/estimate-policy";
+export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";

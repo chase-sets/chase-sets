@@ -5,7 +5,12 @@ import type {
   AppendToStreamsIndependentlyTelemetry,
   EventStore,
 } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type {
+  AppendToStreamInput,
+  EventStoreContext,
+  ExpectedStreamVersion,
+  StoredEvent,
+} from "@chase-sets/event-core/storage";
 
 /**
  * The bulk append lane: the reusable "chunked multi-listing appends + lane
@@ -40,6 +45,10 @@ export type BulkAppendLaneItem<Command> = Readonly<{
   streamId: string;
   command: Command;
   context: EventStoreContext;
+  /** Optional caller-observed version for manual-edit-wins workflows. */
+  expectedVersion?: ExpectedStreamVersion;
+  /** Stable mutation identity; encoded events receive deterministic ids for retry-safe appends. */
+  eventIdPrefix?: string;
 }>;
 
 export type BulkAppendLaneOutcome<Event extends DomainEvent> = Readonly<{
@@ -162,7 +171,12 @@ async function prepareBulkAppendItem<State, Command, Event extends DomainEvent>(
       return { kind: "no_op", streamId: item.streamId, version: loaded.version };
     }
 
-    const events = newEvents.map((event) => config.codec.encode(event));
+    const events = newEvents.map((event, index) => {
+      const encoded = config.codec.encode(event);
+      return item.eventIdPrefix
+        ? { ...encoded, eventId: `${item.eventIdPrefix}:${index}` as NonNullable<typeof encoded.eventId> }
+        : encoded;
+    });
 
     return {
       kind: "append",
@@ -171,7 +185,7 @@ async function prepareBulkAppendItem<State, Command, Event extends DomainEvent>(
       newEvents,
       appendInput: {
         streamId: item.streamId,
-        expectedVersion: loaded.version,
+        expectedVersion: item.expectedVersion ?? loaded.version,
         events,
         context: item.context,
       },

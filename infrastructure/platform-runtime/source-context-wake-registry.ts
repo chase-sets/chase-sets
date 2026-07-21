@@ -496,6 +496,7 @@ export const sourceContextWakeRegistry = [
       "platform-operations:reported-content-queue-projection",
       "platform-operations:risk-alert-queue-projection",
       "pricing:pricing-market-input-projection",
+      "pricing:pricing-repricing-evaluation-reaction",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
@@ -661,7 +662,10 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
-    affectedProjectionNames: ["collections:collections-saved-list-valuation-projection"],
+    affectedProjectionNames: [
+      "collections:collections-saved-list-valuation-projection",
+      "pricing:pricing-repricing-evaluation-reaction",
+    ],
     routeDependencyIds: [],
   }),
   registryEntry({

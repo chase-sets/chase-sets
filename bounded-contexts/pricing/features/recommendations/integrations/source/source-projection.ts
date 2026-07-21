@@ -299,6 +299,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         productId: string;
         priceAmount: string;
         quantityCap: number;
+        gradedCard?: unknown | null;
       };
 
       await db.query(
@@ -311,9 +312,12 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            price_amount,
            quantity_cap,
            status,
+           grading,
+           created_at,
+           pause_reason,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, NULL, $9, $10)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              inventory_item_id = EXCLUDED.inventory_item_id,
@@ -321,6 +325,9 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
              quantity_cap = EXCLUDED.quantity_cap,
+             grading = EXCLUDED.grading,
+             created_at = EXCLUDED.created_at,
+             pause_reason = NULL,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_market_listing_inputs.last_stream_version < EXCLUDED.last_stream_version`,
@@ -332,6 +339,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.productId,
           data.priceAmount,
           data.quantityCap,
+          data.gradedCard ? "graded" : "raw",
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -377,6 +385,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
       await db.query(
         `UPDATE pricing_market_listing_inputs
          SET status = 'active',
+             pause_reason = NULL,
              updated_at = $2,
              last_stream_version = $3
          WHERE listing_id = $1
@@ -385,14 +394,21 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
       );
     },
     "marketplace.listing.paused": async (event) => {
+      const data = event.data as { reason?: string };
       await db.query(
         `UPDATE pricing_market_listing_inputs
          SET status = 'paused',
+             pause_reason = $4,
              updated_at = $2,
              last_stream_version = $3
          WHERE listing_id = $1
            AND last_stream_version < $3`,
-        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt, event.streamVersion],
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+          event.timing.recordedAt,
+          event.streamVersion,
+          data.reason ?? "seller",
+        ],
       );
     },
     "marketplace.listing.withdrawn": async (event) => {

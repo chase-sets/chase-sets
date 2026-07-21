@@ -27,7 +27,7 @@
     }
   },
   "summary": {
-    "scannedFileCount": 565,
+    "scannedFileCount": 608,
     "exemptFileCount": 0,
     "findingFileCount": 1,
     "findingCount": 4,
@@ -42,28 +42,28 @@
         {
           "category": "customPixelBreakpoint",
           "severity": "warning",
-          "line": 440,
+          "line": 565,
           "column": 24,
           "detail": "min-[420px]:grid-cols-[minmax(0,1fr)_auto]"
         },
         {
           "category": "customPixelBreakpoint",
           "severity": "warning",
-          "line": 440,
+          "line": 565,
           "column": 24,
           "detail": "min-[420px]:items-center"
         },
         {
           "category": "customPixelBreakpoint",
           "severity": "warning",
-          "line": 453,
+          "line": 578,
           "column": 26,
           "detail": "min-[420px]:flex"
         },
         {
           "category": "customPixelBreakpoint",
           "severity": "warning",
-          "line": 453,
+          "line": 578,
           "column": 26,
           "detail": "min-[420px]:items-center"
         }

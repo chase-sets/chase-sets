@@ -121,7 +121,7 @@ const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 4;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 5;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -393,11 +393,21 @@ export type MarketplaceListingServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   publishListing: (
-    params: Readonly<{ accountId: string; listingId: string; feeQuoteFingerprint?: string | null }>,
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      feeQuoteFingerprint?: string | null;
+      idempotencyKey?: string;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   pauseListing: (
-    params: Readonly<{ accountId: string; listingId: string }>,
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      reason?: "seller" | "policy-input-missing";
+      idempotencyKey?: string;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   withdrawListing: (
@@ -892,6 +902,23 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     assert(listing.listingId !== null && listing.accountId === accountId, "Listing not found.");
 
     return listing;
+  }
+
+  async function findReplayedListingMutation(listingId: string, idempotencyKey: string) {
+    const eventId = `${idempotencyKey}:0`;
+    let fromVersion = 1;
+    while (true) {
+      const events = await deps.eventStore.readStream({
+        streamId: `marketplace.listing-${listingId}`,
+        fromVersion,
+        limit: 500,
+      });
+      const replayed = events.find((event) => event.eventId === eventId);
+      if (replayed || events.length < 500) {
+        return replayed ?? null;
+      }
+      fromVersion += events.length;
+    }
   }
 
   async function resolveEvidenceRequirementsForListing(
@@ -1760,6 +1787,17 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           try {
             const listing = await loadOwnedListingState(update.listingId, params.accountId);
             assert(listing.priceAmount !== null, "Listing price is missing.");
+            if (update.idempotencyKey && tryMoneyToCents(listing.priceAmount) === tryMoneyToCents(update.priceAmount)) {
+              const replayed = await findReplayedListingMutation(update.listingId, update.idempotencyKey);
+              if (replayed) {
+                outcomesByListingId.set(update.listingId, {
+                  listingId: update.listingId,
+                  outcome: "applied",
+                  version: replayed.streamVersion,
+                });
+                continue;
+              }
+            }
             const quote = termsSession.quote(update.priceAmount);
             if (update.feeQuoteFingerprint) {
               assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
@@ -1768,10 +1806,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
             laneItems.push({
               streamId: `marketplace.listing-${update.listingId}`,
+              expectedVersion: update.expectedVersion,
+              eventIdPrefix: update.idempotencyKey,
               command: {
                 type: "UpdateListingPrice",
                 priceAmount: update.priceAmount,
                 feeLocks,
+                minimumChange: update.minimumChange,
+                changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,
               },
               context,
             });
@@ -1901,6 +1943,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         {
           type: "PublishListing",
           readiness,
+          allowAlreadyActiveNoOp: params.idempotencyKey?.startsWith("repricing:"),
           csatOutcomeFact: createListingPublishedCsatOutcomeFact({
             accountId: params.accountId,
             listingId: params.listingId,
@@ -1916,7 +1959,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "PauseListing" },
+        command: { type: "PauseListing", reason: params.reason },
         context,
       });
 

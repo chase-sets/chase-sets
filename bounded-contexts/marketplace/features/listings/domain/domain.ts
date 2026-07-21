@@ -1,7 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, roundRational, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -61,6 +61,24 @@ function normalizePercentageBps(value: number, fieldName: string): number {
  */
 function isMoneyAmountUnchanged(current: string | null, next: string): boolean {
   return current !== null && moneyToCents(current) === moneyToCents(next);
+}
+
+function isWithinMinimumListingPriceChange(
+  currentAmount: string | null,
+  nextAmount: string,
+  minimumChange: NonNullable<UpdateListingPriceCommand["minimumChange"]>,
+): boolean {
+  if (currentAmount === null) {
+    return false;
+  }
+  const current = moneyToCents(currentAmount);
+  const next = moneyToCents(nextAmount);
+  const delta = current >= next ? current - next : next - current;
+  const threshold =
+    minimumChange.mode === "absolute"
+      ? moneyToCents(minimumChange.amount)
+      : roundRational(current * BigInt(Math.round(minimumChange.percent * 100)), 10_000n, "nearest");
+  return delta <= threshold;
 }
 
 function areFeeLockQuotesUnchanged(
@@ -319,6 +337,7 @@ export type MarketplaceListingState = Readonly<{
   evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
+  pauseReason: "seller" | "policy-input-missing" | null;
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
@@ -355,6 +374,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidenceRequirements: null,
   evidence: [],
   status: "draft",
+  pauseReason: null,
 };
 
 export type CreateListingCommand = Readonly<{
@@ -386,6 +406,8 @@ export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
   feeLocks: readonly MarketplaceListingFeeLock[];
+  minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  changeSource?: "repricing-engine";
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
@@ -443,8 +465,12 @@ export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   readiness: ListingEvidenceReadinessResult;
   csatOutcomeFact?: JsonObject;
+  allowAlreadyActiveNoOp?: boolean;
 }>;
-export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
+export type PauseListingCommand = Readonly<{
+  type: "PauseListing";
+  reason?: "seller" | "policy-input-missing";
+}>;
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
   reportId: string;
@@ -497,6 +523,7 @@ export type ListingCreatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
     feeLocks: MarketplaceListingFeeLock[];
+    changeSource?: "repricing-engine";
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
     evidenceRequirements: ListingEvidenceRequirementSnapshot;
@@ -583,7 +610,10 @@ export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
   Readonly<{ csatOutcomeFact?: JsonObject }>
 >;
-export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
+export type ListingPausedEvent = DomainEvent<
+  "marketplace.listing.paused",
+  Readonly<{ reason: "seller" | "policy-input-missing" }>
+>;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
   Readonly<{
@@ -676,7 +706,15 @@ export const decideMarketplaceListing: AggregateDecider<
       const data = {
         priceAmount: normalizeMoneyAmount(command.priceAmount),
         ...feeLockProjectionFields(feeLocks),
+        ...(command.changeSource ? { changeSource: command.changeSource } : {}),
       };
+
+      if (
+        command.minimumChange &&
+        isWithinMinimumListingPriceChange(state.priceAmount, data.priceAmount, command.minimumChange)
+      ) {
+        return [];
+      }
 
       if (
         isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&
@@ -812,6 +850,9 @@ export const decideMarketplaceListing: AggregateDecider<
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
+      if (state.status === "active" && command.allowAlreadyActiveNoOp) {
+        return [];
+      }
       assert(state.status !== "active", "Listing is already active.");
       assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(state.evidenceRequirements, "Listing evidence requirements are unavailable.");
@@ -832,7 +873,7 @@ export const decideMarketplaceListing: AggregateDecider<
         return [];
       }
       assert(state.status === "active", "Only active listings can be paused.");
-      return [{ type: "marketplace.listing.paused", data: {} }];
+      return [{ type: "marketplace.listing.paused", data: { reason: command.reason ?? "seller" } }];
     case "AutoUnlistListing":
       assert(state.listingId !== null, "Listing must be created first.");
       if (state.status !== "active") {
@@ -897,6 +938,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         evidenceRequirements: event.data.evidenceRequirements ?? null,
         evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
+        pauseReason: null,
       };
     case "marketplace.listing.price-updated":
       return {
@@ -984,9 +1026,10 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return {
         ...state,
         status: "active",
+        pauseReason: null,
       };
     case "marketplace.listing.paused":
-      return { ...state, status: "paused" };
+      return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
     case "marketplace.listing.auto-unlisted":
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":

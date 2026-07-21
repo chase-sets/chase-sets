@@ -24,6 +24,7 @@
     "market-rollups",
     "market-estimates",
     "repricing-policies",
+    "repricing-engine",
     "public-market-pages",
     "bulk-reprice-ingestion"
   ],
@@ -167,6 +168,37 @@
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "pricing-repricing-evaluation-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn"
+      ],
+      "order": 31,
+      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "pricing",
+      "reactionName": "pricing-repricing-evaluation-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 32,
+      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "pricing-catalog-input-projection",
@@ -214,6 +246,15 @@
         "pricing_market_trade_rollup_rederive_queue"
       ],
       "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-repricing-evaluation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace", "pricing"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
   ],
@@ -410,6 +451,11 @@
       "classification": "slice",
       "purpose": "Own the RepricingPolicy aggregate (seller-owned rule pipeline: anchor chain, offset, floor, ceiling, tolerance, budgets, scope) and the resolved listing-to-policy assignment read model that is the repricing evaluation engine's work queue input.",
       "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "repricing-engine": {
+      "classification": "slice",
+      "purpose": "React to changed market signals, evaluate assigned Repricing Policies in simultaneous product rounds, suppress writes inside tolerance, and publish RepricingPolicyEvaluated facts.",
+      "expectedConsumers": ["Internal pricing module composition", "platform-worker"]
     },
     "public-market-pages": {
       "classification": "slice",

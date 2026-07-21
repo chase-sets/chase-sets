@@ -1573,6 +1573,130 @@ describe("marketplace listing runtime", () => {
       ]);
     });
 
+    it("lets a manual edit win when an automated bulk update carries a stale observed version", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_manual_wins" as never,
+        },
+        context,
+      );
+      await services.updateListingPrice(
+        { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00" },
+        context,
+      );
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [{ listingId: "lst_manual_wins", priceAmount: "18.00", expectedVersion: 1 }],
+        },
+        context,
+      );
+
+      expect(outcomes).toEqual([
+        {
+          listingId: "lst_manual_wins",
+          outcome: "conflict",
+          version: 2,
+          message: "Expected stream version does not match current version.",
+        },
+      ]);
+      await expect(services.loadListingState("lst_manual_wins")).resolves.toMatchObject({ priceAmount: "22.00" });
+    });
+
+    it("applies tolerance against Marketplace's authoritative price instead of a stale caller projection", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "10.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_authoritative_tolerance" as never,
+        },
+        context,
+      );
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [
+            {
+              listingId: "lst_authoritative_tolerance",
+              priceAmount: "11.00",
+              expectedVersion: 1,
+              minimumChange: { mode: "absolute", amount: "0.25" },
+              idempotencyKey: "repricing:round:product:listing:price",
+            },
+          ],
+        },
+        context,
+      );
+
+      expect(outcomes[0]).toMatchObject({ outcome: "applied" });
+      await expect(services.loadListingState("lst_authoritative_tolerance")).resolves.toMatchObject({
+        priceAmount: "11.00",
+      });
+    });
+
+    it("replays a deterministic repricing mutation after a crash without appending a second move", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "100.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_retry_once" as never,
+        },
+        context,
+      );
+      const mutation = {
+        accountId: "acc_seller",
+        updates: [
+          {
+            listingId: "lst_retry_once",
+            priceAmount: "90.00",
+            expectedVersion: 1,
+            minimumChange: { mode: "absolute" as const, amount: "0.25" },
+            idempotencyKey: "repricing:round-1:product-1:lst_retry_once:price",
+          },
+        ],
+      };
+
+      await expect(services.applyBulkListingPriceUpdates(mutation, context)).resolves.toMatchObject([
+        { outcome: "applied" },
+      ]);
+      await expect(services.applyBulkListingPriceUpdates(mutation, context)).resolves.toMatchObject([
+        { outcome: "applied" },
+      ]);
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_retry_once" })).resolves.toHaveLength(2);
+      await expect(services.loadListingState("lst_retry_once")).resolves.toMatchObject({ priceAmount: "90.00" });
+    });
+
     it("isolates an unowned/unknown listing to an error outcome without blocking the rest of the batch", async () => {
       const { eventStore } = createInMemoryEventStore();
       const services = createMarketplaceListingRuntime({

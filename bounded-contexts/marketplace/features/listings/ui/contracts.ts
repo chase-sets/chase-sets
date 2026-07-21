@@ -294,6 +294,14 @@ export interface MarketplaceBulkListingPriceUpdateInput {
   listingId: string;
   priceAmount: string;
   feeQuoteFingerprint?: string | null;
+  /**
+   * Optional optimistic precondition used by automated repricing. A manual
+   * edit after the evaluator's snapshot produces a per-listing conflict and
+   * is never overwritten.
+   */
+  expectedVersion?: number;
+  minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  idempotencyKey?: string;
 }
 
 /** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */

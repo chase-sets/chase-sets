@@ -745,6 +745,24 @@ async function appendEventsToStreamsIndependently(
       continue;
     }
 
+    const eventCandidates: AppendEventCandidate[] = input.events.map((event) => ({
+      streamId: input.streamId,
+      event,
+      context: input.context,
+      now,
+      eventId: event.eventId ?? args.createEventId(),
+    }));
+    const replayEventsById = await readExistingEventsById(args.client, args.readEventsByIdsSql, eventCandidates);
+    if (eventCandidates.every((candidate) => replayEventsById.has(candidate.eventId))) {
+      const storedEvents = eventCandidates.map((candidate) => {
+        const stored = replayEventsById.get(candidate.eventId)!;
+        assertIdempotentEventMatch(stored, candidate);
+        return stored;
+      });
+      results.push({ streamId: input.streamId, outcome: "appended", storedEvents });
+      continue;
+    }
+
     await args.client.query(args.upsertStreamSql, [input.streamId, now]);
 
     const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
@@ -782,13 +800,6 @@ async function appendEventsToStreamsIndependently(
       continue;
     }
 
-    const eventCandidates: AppendEventCandidate[] = input.events.map((event) => ({
-      streamId: input.streamId,
-      event,
-      context: input.context,
-      now,
-      eventId: event.eventId ?? args.createEventId(),
-    }));
     const existingEventsById = await readExistingEventsById(args.client, args.readEventsByIdsSql, eventCandidates);
     const plannedEventsById = new Map<string, AppendEventToInsert>();
     let nextVersion = currentVersion;

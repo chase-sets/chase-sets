@@ -30,6 +30,7 @@ The Pricing-owned TCGplayer ingestion boundary is documented in [TCGplayer Price
 - Price Signal Set
 - Market Price Snapshot
 - Repricing Policy
+- Repricing evaluation engine
 - Price Recommendation
 
 ### Repricing Policy is a seller-owned domain aggregate, not platform policy
@@ -44,6 +45,12 @@ lifecycle, not a resolved configuration value. The feature's rule-authoring nume
 percent magnitudes, change-budget bounds) are documented compiled defaults in
 `features/repricing-policies/domain/policy-bounds.ts` pending any future seller-tier policy machinery -- see
 that file's header.
+
+`features/repricing-engine/` reacts to changed Market Price and competing-ask facts by enqueueing replay-safe,
+Product-scoped Repricing Runs. Worker lanes evaluate every assigned policy listing against one captured input
+snapshot, then send only beyond-tolerance targets through Marketplace's existing chunked price-update command
+path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
+`RepricingPolicyEvaluated` facts.
 
 ## Incoming Dependencies
 
