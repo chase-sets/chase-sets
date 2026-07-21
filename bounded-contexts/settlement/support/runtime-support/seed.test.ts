@@ -20,7 +20,10 @@ describe("settlement seed", () => {
     };
 
     try {
-      await seedSettlementDatabase(pool as never);
+      await seedSettlementDatabase(pool as never, undefined, {
+        enabledDataProfiles: ["scenario-seed"],
+        environmentName: "test",
+      });
     } finally {
       logSpy.mockRestore();
     }

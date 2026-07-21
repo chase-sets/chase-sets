@@ -25,6 +25,7 @@ import {
 } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -403,6 +404,74 @@ describe("platform api bootstrap", () => {
     );
 
     expect(migrationsAfterThirdBoot.rows.map((row) => row.migration_id)).toEqual(migrationIds);
+  }, 120_000);
+
+  it("bootstraps and reconciles every whitelisted public policy value in the production landing profile", async () => {
+    const landingPools = createPlatformApiPools({
+      runtimeProfile: "landing",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6184,
+    });
+
+    try {
+      const runtime = createPlatformApiHost({
+        runtimeProfile: "landing",
+        pools: landingPools,
+        hostPorts: {
+          processorGateway: createFakePaymentProcessorGateway(),
+          listingPhotoStorage,
+        },
+      });
+      const bootstrapOptions = {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "production",
+        runtimeProfile: "landing",
+      } as const;
+
+      expect(runtime.mountedContexts.map(({ contextName, mountRole }) => [contextName, mountRole])).toEqual(
+        expect.arrayContaining([
+          ["commercial-terms", "source-only"],
+          ["settlement", "source-only"],
+        ]),
+      );
+
+      await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
+      await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        ...bootstrapOptions,
+        enabledDataProfiles: ["critical-bootstrap"],
+      });
+
+      const app = buildPlatformApiApp(runtime, { runtimeProfile: "landing" });
+      const response = await app.request("/api/public-presence/policy-values");
+      const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
+
+      expect(response.status).toBe(200);
+      expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+
+      for (const [contextName, policyKeys] of [
+        [
+          "commercial-terms",
+          ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+        ],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+      ] as const) {
+        const result = await landingPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
+          `SELECT policy_key, COUNT(*) AS count
+             FROM platform_policy_documents
+            WHERE policy_key = ANY($1::text[])
+              AND status = 'active'
+            GROUP BY policy_key
+            ORDER BY policy_key`,
+          [policyKeys],
+        );
+        expect(result.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual(
+          [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
+        );
+      }
+    } finally {
+      await closePlatformApiPools(landingPools);
+    }
   }, 120_000);
 
   it("serializes two concurrent API host bootstraps with a database advisory lock", async () => {

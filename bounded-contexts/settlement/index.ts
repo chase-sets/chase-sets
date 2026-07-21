@@ -141,5 +141,6 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         },
       },
     }),
+  seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: seedSettlementDatabase,
 });

@@ -1,0 +1,56 @@
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import PressRoute, { loader } from "../routes/marketplace/press";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("press route policy values", () => {
+  it.each([
+    ["non-OK", () => vi.fn(async () => new Response("unavailable", { status: 503 }))],
+    ["network", () => vi.fn(async () => Promise.reject(new Error("network unavailable")))],
+    [
+      "missing-key",
+      () =>
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                values: {},
+                resolvedAt: "2026-07-12T00:00:00.000Z",
+                propagationSeconds: 360,
+                changeCalloutDays: 30,
+              }),
+              { headers: { "Content-Type": "application/json" } },
+            ),
+        ),
+    ],
+  ])("keeps the page available with explicit markers on a %s failure", async (_failure, createFetch) => {
+    vi.stubGlobal("fetch", createFetch());
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const data = await loader({ request: new Request("https://chasesets.test/press") } as never);
+    const router = createMemoryRouter([{ path: "/press", loader: () => data, Component: PressRoute }], {
+      initialEntries: ["/press"],
+    });
+
+    render(<RouterProvider router={router} />);
+
+    expect((await screen.findAllByText("Temporarily unavailable")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("5% of the item price");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[public-presence] Public policy values are unavailable.",
+      expect.objectContaining({
+        event: "public-policy-values.unavailable",
+        route: "/press",
+        unresolvedKeys: expect.arrayContaining(data.article.policyValueKeys),
+      }),
+    );
+  });
+});

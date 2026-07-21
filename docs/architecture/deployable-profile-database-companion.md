@@ -10,6 +10,8 @@ Deployable profiles control which runtime slices are mounted, exposed, and runni
 - `active_runtime_context_names`: contexts mounted by the selected API and worker profile.
 - `exposed_route_context_names`: contexts reachable through ingress for the selected production mode.
 
+An active runtime context may be source-only. Source-only contexts provide a pool and may reconcile explicitly profiled bootstrap data without mounting their APIs, subscriptions, workers, or routes, so they belong to `active_runtime_context_names` but not `exposed_route_context_names`.
+
 Production may pre-provision the full canonical context database set while staying in landing mode. Creating a database/user does not expose a route, run a worker, or promote marketplace behavior. Preview and staging can stay disposable because their cleanup workflows own their databases.
 
 ## Migration Sequence

@@ -1,9 +1,5 @@
 import { PublicHelpArticlePage } from "@chase-sets/public-presence/web";
-import {
-  findPublicHelpArticleByPath,
-  loadPublicPolicyValues,
-  resolveArticlePolicyValues,
-} from "@chase-sets/public-presence/server";
+import { findPublicHelpArticleByPath, resolvePublicPolicyArticle } from "@chase-sets/public-presence/server";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 
@@ -17,8 +13,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 export async function loader({ request }: LoaderFunctionArgs) {
   const source = findPublicHelpArticleByPath(SALES_FEES_PATH);
   if (!source) throw new Error("The compiled sales-fees article is unavailable.");
-  const policyValues = await loadPublicPolicyValues(request);
-  const article = resolveArticlePolicyValues(source, policyValues);
+  const article = await resolvePublicPolicyArticle(request, source, SALES_FEES_PATH);
   return { article, related: [] };
 }
 

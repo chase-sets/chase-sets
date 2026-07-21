@@ -9,6 +9,7 @@ const request = new Request("https://chasesets.com/help");
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const policyValue = (type: "bps" | "money" | "days" | "hours", value: number | string) => ({
@@ -86,6 +87,48 @@ describe("public help routes", () => {
     expect(body).toContain("2.9%");
     expect(body).toContain("$0.30");
     expect(body).toContain("0.5%");
+  });
+
+  it.each([
+    ["non-OK", () => vi.fn(async () => new Response("unavailable", { status: 503 }))],
+    ["network", () => vi.fn(async () => Promise.reject(new Error("network unavailable")))],
+    [
+      "missing-key",
+      () =>
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                values: {},
+                resolvedAt: "2026-07-12T00:00:00.000Z",
+                propagationSeconds: 360,
+                changeCalloutDays: 30,
+              }),
+              { headers: { "Content-Type": "application/json" } },
+            ),
+        ),
+    ],
+  ])("degrades a token-bearing help article on a %s policy failure", async (_failure, createFetch) => {
+    vi.stubGlobal("fetch", createFetch());
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const data = await articleLoader({
+      request,
+      params: { category: "buying", slug: "order-protection" },
+      context: {},
+    } as never);
+
+    expect(JSON.stringify(data.article.blocks)).toContain('"type":"policy-value-unavailable"');
+    expect(JSON.stringify(data.article.blocks)).not.toContain("48 hours");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[public-presence] Public policy values are unavailable.",
+      expect.objectContaining({
+        event: "public-policy-values.unavailable",
+        route: "/help/buying/order-protection",
+        unresolvedKeys: expect.arrayContaining(data.article.policyValueKeys),
+      }),
+    );
   });
 
   it("returns 404 responses for unknown categories and articles", async () => {

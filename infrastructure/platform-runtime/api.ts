@@ -3,6 +3,7 @@ import {
   countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
+  drainLocalProjectionHandlerSets,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -207,8 +208,7 @@ export function createApiHost(
       services: contextServices,
       pool,
       notificationWaiterPool: mountedNotificationWaiterPool,
-      projectionHandlerSets:
-        mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
+      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
     };
   });
 
@@ -266,12 +266,15 @@ export function getApiHostSeedOrder(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtimeProfile?: ApiHostRuntimeProfile,
+  options?: Pick<BcSeedOptions, "enabledDataProfiles" | "environmentName">,
 ): readonly string[] {
   const entries = getApiHostEntries(registry, hostName, runtimeProfile);
-  const activeEntries = entries.filter(
-    (entry) => getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, runtimeProfile) === "active",
+  const seedEntries = entries.filter(
+    (entry) =>
+      getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, runtimeProfile) === "active" ||
+      Boolean(options && entry.module.seedProfiles && seedProfilesOverlap(entry.module.seedProfiles, options)),
   );
-  const activeNames = activeEntries.map((entry) => entry.contextName);
+  const seedNames = seedEntries.map((entry) => entry.contextName);
   const byName = new Map(entries.map((entry) => [entry.contextName, entry]));
   const visited = new Set<string>();
   const inProgress = new Set<string>();
@@ -292,7 +295,7 @@ export function getApiHostSeedOrder(
     }
 
     inProgress.add(contextName);
-    for (const dependencyName of getSeedDependencyNames(entry, activeNames)) {
+    for (const dependencyName of getSeedDependencyNames(entry, seedNames)) {
       visit(dependencyName as ApiHostContextName);
     }
     inProgress.delete(contextName);
@@ -300,7 +303,7 @@ export function getApiHostSeedOrder(
     orderedNames.push(contextName);
   }
 
-  for (const contextName of activeNames) {
+  for (const contextName of seedNames) {
     visit(contextName);
   }
 
@@ -423,7 +426,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     );
   }
 
-  for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
+  for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile, options)) {
     const context = mountedContextsByName.get(contextName);
     if (!context) {
       throw new Error(`API host '${hostName}' is missing mounted context '${contextName}' during seed.`);
@@ -434,6 +437,18 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
         seedApiModuleForHostBootstrap(context, options, bootstrapLock),
       );
+      continue;
+    }
+
+    if (context.mountRole === "source-only") {
+      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
+        seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+      );
+      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
+        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+      });
       continue;
     }
 
@@ -464,7 +479,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
     // shipments) complete once every context has seeded and drained.
-    for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
+    for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile, options)) {
       const context = mountedContextsByName.get(contextName);
       if (!context || !shouldRunContextSeed(context, options)) {
         continue;

@@ -583,6 +583,8 @@
     }
   },
   "runtimeDeployables": ["platform-worker"],
+  "sourceRuntimeDeployables": ["platform-api"],
+  "sourceRuntimeProfiles": ["landing"],
   "apiRuntimeProfiles": ["proof", "public"],
   "workerRuntimeProfiles": ["proof", "public"]
 }

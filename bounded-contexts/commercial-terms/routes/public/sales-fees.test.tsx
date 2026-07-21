@@ -24,6 +24,7 @@ function policyValue(type: "bps" | "money", value: number | string, currency?: s
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("sales fees route", () => {
@@ -89,6 +90,54 @@ describe("sales fees route", () => {
     expect(document.body.textContent).toContain("Wave 3: 500 invites");
     expect(document.body.textContent).toContain(
       "A qualified seller signup chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range.",
+    );
+  });
+
+  it.each([
+    ["non-OK", () => vi.fn(async () => new Response("unavailable", { status: 503 }))],
+    ["network", () => vi.fn(async () => Promise.reject(new Error("network unavailable")))],
+    [
+      "missing-key",
+      () =>
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                values: Object.fromEntries(
+                  Object.entries(values).filter(([key]) => key !== "marketplace-sales-fee.standard.bps"),
+                ),
+                resolvedAt: "2026-07-12T00:00:00.000Z",
+                propagationSeconds: 300,
+                changeCalloutDays: 30,
+              }),
+              { headers: { "Content-Type": "application/json" } },
+            ),
+        ),
+    ],
+  ])("keeps the page available with explicit markers on a %s policy failure", async (_failure, createFetch) => {
+    vi.stubGlobal("fetch", createFetch());
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const data = await loader({
+      request: new Request("https://chasesets.test/sales-fees"),
+      params: {},
+      context: undefined,
+    } as never);
+    const router = createMemoryRouter([{ path: "/sales-fees", loader: () => data, Component: SalesFeesRoute }], {
+      initialEntries: ["/sales-fees"],
+    });
+
+    render(<RouterProvider router={router} />);
+
+    expect((await screen.findAllByText("Temporarily unavailable")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("5% of the item price");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[public-presence] Public policy values are unavailable.",
+      expect.objectContaining({
+        event: "public-policy-values.unavailable",
+        route: "/sales-fees",
+        unresolvedKeys: expect.arrayContaining(["marketplace-sales-fee.standard.bps"]),
+      }),
     );
   });
 

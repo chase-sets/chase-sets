@@ -5,15 +5,22 @@ import type { HelpArticle, HelpArticleInline } from "./article-model";
 export function resolveArticlePolicyValues(
   article: HelpArticle,
   policyValues: PublicPolicyValuesResponse,
-  options: Readonly<{ now?: string; changeCalloutDays?: number }> = {},
+  options: Readonly<{
+    now?: string;
+    changeCalloutDays?: number;
+    unavailableKeys?: readonly string[];
+  }> = {},
 ): HelpArticle {
   const now = Date.parse(options.now ?? policyValues.resolvedAt);
   const windowMs = (options.changeCalloutDays ?? policyValues.changeCalloutDays) * 86_400_000;
-  const usedValues = article.policyValueKeys.map((key) => {
-    const value = policyValues.values[key];
-    if (!value) throw new Error(`Article '${article.href}' could not resolve public policy value '${key}'.`);
-    return [key, value] as const;
-  });
+  const unavailableKeys = new Set(options.unavailableKeys ?? []);
+  const usedValues = article.policyValueKeys
+    .filter((key) => !unavailableKeys.has(key))
+    .map((key) => {
+      const value = policyValues.values[key];
+      if (!value) throw new Error(`Article '${article.href}' could not resolve public policy value '${key}'.`);
+      return [key, value] as const;
+    });
   const formatted = new Map(usedValues.map(([key, value]) => [key, formatPublicPolicyValue(value)]));
   const effectiveDates = new Set(
     usedValues.flatMap(([, value]) =>
@@ -30,8 +37,11 @@ export function resolveArticlePolicyValues(
     ...article,
     blocks: article.blocks.map((block) =>
       block.type === "list"
-        ? { ...block, items: block.items.map((item) => resolveInline(item, formatted, article.href)) }
-        : { ...block, content: resolveInline(block.content, formatted, article.href) },
+        ? {
+            ...block,
+            items: block.items.map((item) => resolveInline(item, formatted, unavailableKeys, article.href)),
+          }
+        : { ...block, content: resolveInline(block.content, formatted, unavailableKeys, article.href) },
     ),
     policyChanges: [...effectiveDates].sort().map((effectiveFrom) => ({
       effectiveFrom,
@@ -43,10 +53,14 @@ export function resolveArticlePolicyValues(
 function resolveInline(
   content: readonly HelpArticleInline[],
   formatted: ReadonlyMap<string, string>,
+  unavailableKeys: ReadonlySet<string>,
   href: string,
 ): readonly HelpArticleInline[] {
   return content.map((inline) => {
     if (inline.type !== "policy-value") return inline;
+    if (unavailableKeys.has(inline.key)) {
+      return { type: "policy-value-unavailable", key: inline.key };
+    }
     const value = formatted.get(inline.key);
     if (value === undefined)
       throw new Error(`Article '${href}' could not resolve public policy value '${inline.key}'.`);
