@@ -1337,6 +1337,40 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ).toBe(false);
   });
 
+  test("matches a settled native Pokemon scope to its provider-scoped command form", () => {
+    const fields: readonly SelectedProviderScopeField[] = [
+      { name: "languageCode", value: "en" },
+      { name: "seriesId", value: "sv" },
+      { name: "expansionId", value: "sv08" },
+    ];
+    const scope = (importScope: string, scopeFields = fields): SelectedProviderScope => ({
+      providerKey: "tcgdex",
+      importScope,
+      displayLabel: `tcgdex / ${importScope}`,
+      fields: scopeFields,
+    });
+
+    expect(selectedProviderScopeMatchesSelectedScope(scope("en:3:sv:sv08"), scope("en:sv:sv08"))).toBe(true);
+  });
+
+  test("matches provider-scoped command forms by their settled execution identity", () => {
+    const fields: readonly SelectedProviderScopeField[] = [
+      { name: "languageCode", value: "en" },
+      { name: "productLineId", value: "3" },
+      { name: "seriesId", value: "sv" },
+      { name: "expansionId", value: "sv08" },
+    ];
+    const scope = (importScope: string): SelectedProviderScope => ({
+      providerKey: "tcgdex",
+      importScope,
+      displayLabel: `tcgdex / ${importScope}`,
+      fields,
+    });
+
+    expect(selectedProviderScopeMatchesSelectedScope(scope("en:3:sv:sv08"), scope("en:3:sv:sv08"))).toBe(true);
+    expect(selectedProviderScopeMatchesSelectedScope(scope("en:3:sv:sv09"), scope("en:3:sv:sv08"))).toBe(false);
+  });
+
   test("allows rerunnable no-promotable coverage for launch and regression scopes", () => {
     expect(providerUatScopeAcceptsSettledNoPromotableCoverage("lorcana-launch")).toBe(true);
     expect(providerUatScopeAcceptsSettledNoPromotableCoverage("all-provider-regression")).toBe(true);
@@ -3626,7 +3660,10 @@ function selectedProviderScopeMatchesSelectedScope(
   }
 
   if (candidate.importScope && expected.importScope) {
-    return selectedProviderScopeMatchesImportScope(candidate, expected.importScope);
+    return (
+      selectedProviderScopeMatchesImportScope(candidate, expected.importScope) ||
+      selectedProviderScopeMatchesNativeSettledScope(candidate, expected)
+    );
   }
 
   if (normalizeWhitespace(candidate.displayLabel) === normalizeWhitespace(expected.displayLabel)) {
@@ -3636,6 +3673,32 @@ function selectedProviderScopeMatchesSelectedScope(
   const candidateValues = selectedProviderScopeComparableValues(candidate);
   const expectedFieldValues = expected.fields.map((field) => comparableProviderScopeValue(field.value)).filter(Boolean);
   return expectedFieldValues.length > 0 && expectedFieldValues.every((value) => candidateValues.has(value));
+}
+
+function selectedProviderScopeMatchesNativeSettledScope(
+  candidate: SelectedProviderScope,
+  expected: SelectedProviderScope,
+): boolean {
+  if (!selectedProviderScopeHasNativeImportScope(candidate) && !selectedProviderScopeHasNativeImportScope(expected)) {
+    return false;
+  }
+
+  const nativeFieldNames = ["languageCode", "seriesId", "expansionId"] as const;
+  const candidateFields = new Map(candidate.fields.map((field) => [field.name, field.value]));
+  const expectedFields = new Map(expected.fields.map((field) => [field.name, field.value]));
+  return nativeFieldNames.every((name) => {
+    const expectedValue = expectedFields.get(name);
+    const candidateValue = candidateFields.get(name);
+    return (
+      expectedValue !== undefined &&
+      candidateValue !== undefined &&
+      comparableProviderScopeValue(candidateValue) === comparableProviderScopeValue(expectedValue)
+    );
+  });
+}
+
+function selectedProviderScopeHasNativeImportScope(scope: SelectedProviderScope): boolean {
+  return scope.importScope?.split(":").filter(Boolean).length === 3;
 }
 
 function selectedProviderScopeMatchesImportScope(
