@@ -220,6 +220,71 @@ function dailyTcgplayerYugiohModelsAfterStalePokemonScope() {
   return { shellReadModel, streamedSourceOptions: streamedReadModel.sourceOptions };
 }
 
+// Reproduces the live UAT retry-1 shape from #5850: a TCGplayer Magic single-card
+// import context before the operator's scope has picked a product line, and the
+// same context after a retry lands with productLineId=1 selected and the Product
+// Line option page streamed in fully loaded and ready (453 options).
+function tcgplayerProductLineRetryReadModels() {
+  const profile = profileReview({
+    providerKey: "tcgplayer",
+    profileKey: "mtg-single-card-product-sku",
+    profileVersion: "2026.06.19",
+    ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    displayName: "TCGplayer Magic single cards",
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    profile: {
+      providerKey: "tcgplayer",
+      supportedScopes: ["product-line/category", "set-name"],
+    },
+    supportedScopes: ["product-line/category", "set-name"],
+  });
+
+  const requestUrlBeforeRetry =
+    "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&profileVersion=2026.06.19";
+  const beforeRetryReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+    requestUrl: requestUrlBeforeRetry,
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: [profile], total: 1, count: 1 },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+
+  const scopeAfterRetry = sourceObservationScope({
+    provider_key: "tcgplayer",
+    product_line_id: "1",
+    product_line_name: "Magic: The Gathering",
+  });
+  const requestUrlAfterRetry =
+    "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&productLineId=1&profileVersion=2026.06.19";
+  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+    requestUrl: requestUrlAfterRetry,
+    scopes: [scopeAfterRetry],
+    profiles: [profile],
+    cacheOnly: false,
+  });
+  const productLineItems = Array.from({ length: 453 }, (_, index) => ({
+    value: String(index + 1),
+    label: index === 0 ? "Magic: The Gathering" : `Product Line ${index + 1}`,
+    parentValue: null,
+  }));
+  const afterRetryReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+    requestUrl: requestUrlAfterRetry,
+    scopes: { items: [scopeAfterRetry], total: 1, count: 1 },
+    profileReviews: { items: [profile], total: 1, count: 1 },
+    sourceOptionPages: requests.map((request) =>
+      request.queryKind === "product-lines"
+        ? { request, response: optionResponse(request, "fresh", "live", productLineItems) }
+        : { request },
+    ),
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+
+  return { beforeRetryReadModel, afterRetryReadModel };
+}
+
 function rejectedSourceOptionsPromise() {
   const promise = Promise.reject(new Error("streamed source options unavailable"));
   promise.catch(() => undefined);
@@ -1058,6 +1123,61 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     await waitFor(() => {
       expect(container.querySelector("[data-catalog-source-options-status]")).not.toBeNull();
     });
+  });
+
+  // Regression coverage for #5850. The guided scope selects used `defaultValue`
+  // inside a `Fragment key={field.queryKind}` subtree that is intentionally
+  // stable across a streamed-options revalidation (so focus/scroll survive the
+  // fallback -> resolved swap) — but a stable key means `defaultValue` only ever
+  // applies once, at first mount. A live UAT retry proved the resulting defect:
+  // the route carried productLineId=1 with 453 Product Line options loaded and
+  // Ready, yet the already-mounted control still showed the placeholder from
+  // whatever was selected (or absent) at first mount. `rerender` on the SAME
+  // `render()` instance (no unmount, matching the client GET navigation that
+  // revalidates the loader in place without remounting the route) reproduces
+  // that exact shape.
+  it("reflects a route/deferred-option revalidation on the already-mounted guided select instead of freezing at its first-mount value", () => {
+    const { beforeRetryReadModel, afterRetryReadModel } = tcgplayerProductLineRetryReadModels();
+
+    const { rerender } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={beforeRetryReadModel} />);
+    expandImportContextBar();
+
+    const scopeGroupBefore = screen.getByRole("group", { name: "Source scope" });
+    const productLineBefore = within(scopeGroupBefore).getByLabelText<HTMLSelectElement>("Product Line");
+    expect(productLineBefore.value).toBe("");
+
+    // Revalidation: the route now carries productLineId=1 and the option page has
+    // streamed in fully loaded (453 items, ready) — the retry-1 shape from the
+    // live UAT run.
+    rerender(<CatalogIntegrationsSurfacePage surface="daily" readModel={afterRetryReadModel} />);
+
+    const scopeGroupAfter = screen.getByRole("group", { name: "Source scope" });
+    const productLineAfter = within(scopeGroupAfter).getByLabelText<HTMLSelectElement>("Product Line");
+    expect(productLineAfter.value).toBe("1");
+    expect(within(productLineAfter).getByRole("option", { name: "Magic: The Gathering" }).getAttribute("value")).toBe(
+      "1",
+    );
+    // Purely a passive prop update carried by the route/loader — no user action
+    // (submit) fired to produce this value.
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  // AC2 (#5850), stated literally: route has productLineId, options loaded ->
+  // control shows the product line. A fresh mount already passed even on the
+  // buggy `defaultValue` code (defaultValue does apply on first mount); this
+  // guards the observable contract regardless of which mechanism satisfies it.
+  it("shows the route's selected product line on a fresh mount whose options are already loaded and ready", () => {
+    const { afterRetryReadModel } = tcgplayerProductLineRetryReadModels();
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={afterRetryReadModel} />);
+    expandImportContextBar();
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const productLine = within(scopeGroup).getByLabelText<HTMLSelectElement>("Product Line");
+    expect(productLine.value).toBe("1");
+    expect(within(productLine).getByRole<HTMLOptionElement>("option", { name: "Magic: The Gathering" }).selected).toBe(
+      true,
+    );
   });
 });
 
