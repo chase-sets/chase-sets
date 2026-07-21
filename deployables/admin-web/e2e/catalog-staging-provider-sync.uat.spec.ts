@@ -61,6 +61,12 @@ type SelectedScopeChoice = Readonly<{
   values: readonly string[];
 }>;
 
+type SelectedGuidedScopeChoice = SelectedScopeChoice &
+  Readonly<{
+    fieldName: string;
+    selectedValue: string;
+  }>;
+
 type ScopeSelection = Readonly<{
   label: string | RegExp;
   choice: SelectChoice;
@@ -1467,6 +1473,17 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ]);
   });
 
+  test("builds the full native guided import scope only from the settled field order", () => {
+    const choices: readonly SelectedGuidedScopeChoice[] = [
+      { label: "Language", fieldName: "languageCode", selectedValue: "ja", values: ["ja", "Japanese"] },
+      { label: "Series", fieldName: "seriesId", selectedValue: "SV", values: ["SV", "Scarlet & Violet"] },
+      { label: "Expansion", fieldName: "expansionId", selectedValue: "SV8", values: ["SV8"] },
+    ];
+
+    expect(expectedNativeGuidedImportScope(choices)).toBe("ja:SV:SV8");
+    expect(expectedNativeGuidedImportScope(choices.slice(0, 2))).toBeNull();
+  });
+
   test("registers a dispatchable per-game scope for every matrix row and one full-matrix fan-out", () => {
     for (const row of providerProductLineFormMatrix) {
       expect(supportedProviderUatJourneyScopes, row.productLine).toContain(row.scope);
@@ -1763,28 +1780,130 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
   await selectOption(unit, { values: [journey.unitKey] }, () => recoverImporterFromAdminError(page));
   await expect(unit).toHaveValue(journey.unitKey, { timeout: pageReadyTimeoutMs });
 
-  const selectedChoices: SelectedScopeChoice[] = [];
-  for (const selection of journey.scope) {
+  return selectGuidedScope({ page, contextBar, journey });
+}
+
+async function selectGuidedScope({
+  page,
+  contextBar,
+  journey,
+}: Readonly<{
+  page: Page;
+  contextBar: Locator;
+  journey: ProviderSyncJourney;
+}>): Promise<SelectedProviderScope> {
+  const selectedChoices: SelectedGuidedScopeChoice[] = [];
+
+  for (let index = 0; index < journey.scope.length; index += 1) {
+    const selection = journey.scope[index];
+    if (!selection) {
+      continue;
+    }
+
     const sourceScope = page.getByRole("group", { name: "Source scope" });
     await expect(sourceScope).toBeVisible({ timeout: sourceOptionTimeoutMs });
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
-    await selectOption(scopeSelect, selection.choice, () => recoverSourceOptionSelection(page, selection.label));
-    await expect(scopeSelect).not.toHaveValue("", { timeout: sourceOptionTimeoutMs });
+    const fieldName = await guidedScopeFieldName(scopeSelect, selection.label);
+    const dependentSelections = journey.scope.slice(index + 1);
+    const dependentFieldNames = await Promise.all(
+      dependentSelections.map(async (dependent) =>
+        guidedScopeFieldName(sourceScope.getByRole("combobox", { name: dependent.label }), dependent.label),
+      ),
+    );
+
+    // Each change performs a client GET revalidation. Do not touch the next
+    // control until the current value has committed to the route, every child
+    // has been cleared in both route and form state, and the immediate child's
+    // requested option has populated from the revalidated option slice.
+    const selectedOption = await selectOption(scopeSelect, selection.choice, () =>
+      recoverSourceOptionSelection(page, selection.label),
+    );
+    await expect(scopeSelect).toHaveValue(selectedOption.value, { timeout: sourceOptionTimeoutMs });
+    const expectedRouteFields = [
+      ...selectedChoices.map((choice) => ({ fieldName: choice.fieldName, value: choice.selectedValue })),
+      { fieldName, value: selectedOption.value },
+    ];
+    await page.waitForURL(
+      (url) =>
+        expectedRouteFields.every(
+          ({ fieldName: expectedFieldName, value }) => url.searchParams.get(expectedFieldName) === value,
+        ) && dependentFieldNames.every((dependentFieldName) => !url.searchParams.get(dependentFieldName)?.trim()),
+      { timeout: sourceOptionTimeoutMs },
+    );
+
+    const settledSourceScope = page.getByRole("group", { name: "Source scope" });
+    for (const selectedChoice of selectedChoices) {
+      await expect(settledSourceScope.getByRole("combobox", { name: selectedChoice.label })).toHaveValue(
+        selectedChoice.selectedValue,
+        { timeout: sourceOptionTimeoutMs },
+      );
+    }
+    await expect(settledSourceScope.getByRole("combobox", { name: selection.label })).toHaveValue(
+      selectedOption.value,
+      {
+        timeout: sourceOptionTimeoutMs,
+      },
+    );
+    for (const dependent of dependentSelections) {
+      await expect(settledSourceScope.getByRole("combobox", { name: dependent.label })).toHaveValue("", {
+        timeout: sourceOptionTimeoutMs,
+      });
+    }
+
+    const childSelection = journey.scope[index + 1];
+    if (childSelection) {
+      const childSelect = settledSourceScope.getByRole("combobox", { name: childSelection.label });
+      await waitForOption(childSelect, childSelection.choice, () =>
+        recoverSourceOptionSelection(page, childSelection.label),
+      );
+    }
+
+    const settledScopeSelect = settledSourceScope.getByRole("combobox", { name: selection.label });
     selectedChoices.push({
       label: selection.label,
-      values: await selectedScopeChoiceValues(scopeSelect, selection.choice),
+      fieldName,
+      selectedValue: selectedOption.value,
+      values: await selectedScopeChoiceValues(settledScopeSelect, selection.choice),
     });
   }
 
   await contextBar.getByRole("button", { name: "Select source scope" }).click();
-  return waitForSelectedProviderScope(page, journey, selectedChoices);
+  const settled = await waitForSelectedProviderScope(page, journey, selectedChoices);
+  if (!settled.scope.importScope) {
+    throw new Error(`Selected source scope command form for ${journey.unitKey} did not expose a full importScope.`);
+  }
+  const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.scope.importScope;
+  await expect(settled.commandForm.locator('input[name="importScope"]').first()).toHaveValue(expectedImportScope, {
+    timeout: sourceOptionTimeoutMs,
+  });
+  return settled.scope;
+}
+
+function expectedNativeGuidedImportScope(selectedChoices: readonly SelectedGuidedScopeChoice[]): string | null {
+  const nativeFieldOrder = ["languageCode", "seriesId", "expansionId"];
+  if (
+    selectedChoices.length !== nativeFieldOrder.length ||
+    !selectedChoices.every((choice, index) => choice.fieldName === nativeFieldOrder[index])
+  ) {
+    return null;
+  }
+  return selectedChoices.map((choice) => choice.selectedValue).join(":");
+}
+
+async function guidedScopeFieldName(scopeSelect: Locator, label: string | RegExp): Promise<string> {
+  await expectSelectVisible(scopeSelect);
+  const fieldName = await scopeSelect.getAttribute("name");
+  if (!fieldName) {
+    throw new Error(`Guided source scope field ${String(label)} did not expose its structured route field name.`);
+  }
+  return fieldName;
 }
 
 async function waitForSelectedProviderScope(
   page: Page,
   journey: ProviderSyncJourney,
   selectedChoices: readonly SelectedScopeChoice[],
-): Promise<SelectedProviderScope> {
+): Promise<Readonly<{ scope: SelectedProviderScope; commandForm: Locator }>> {
   const commandForms = sourceScopeSyncForms(page, journey.unitKey);
   await expect(commandForms.first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
@@ -1808,7 +1927,7 @@ async function waitForSelectedProviderScope(
         lastRouteScope &&
         selectedProviderScopeHasSettled(selectedScope, lastRouteScope, selectedChoices, journey.unitKey)
       ) {
-        return selectedScope;
+        return { scope: selectedScope, commandForm };
       }
     }
 
@@ -3491,6 +3610,7 @@ function selectedProviderScopeHasSettled(
   unitKey: string,
 ): boolean {
   return (
+    candidate.importScope !== null &&
     selectedProviderScopeMatchesSelectedScope(candidate, expectedRouteScope) &&
     selectedProviderScopeMatchesJourneySelection(candidate, selectedChoices) &&
     selectedProviderScopeMatchesUnitDomain(candidate, unitKey)
@@ -3686,14 +3806,14 @@ async function selectOption(
   select: Locator,
   choice: SelectChoice,
   recoverMissingOptions?: MissingOptionRecovery,
-): Promise<void> {
+): Promise<{ label: string; value: string }> {
   await expectSelectVisible(select, recoverMissingOptions);
 
   const option = await waitForOption(select, choice, recoverMissingOptions);
   if (await select.isDisabled()) {
     const currentValue = await select.inputValue();
     if (currentValue === option.value) {
-      return;
+      return option;
     }
     throw new Error(
       `Expected disabled select to already use ${option.label} (${option.value}), but current value is ${currentValue}.`,
@@ -3702,6 +3822,7 @@ async function selectOption(
 
   await expect(select).toBeEnabled({ timeout: sourceOptionTimeoutMs });
   await select.selectOption({ value: option.value });
+  return option;
 }
 
 async function waitForOption(
