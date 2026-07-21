@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const fingerprintBaselinePattern =
   /const\s+(\w+)\s*=\s*\{\s*count:\s*\d+,\s*sha256:\s*"[a-f0-9]{64}"\s*,?\s*\}\s*as const;/gs;
+// Discovery recognizes only the canonical single-named-import idiom.
 const namedImportPattern = /import\s*\{\s*(\w+)\s*\}\s*from\s*["'](\.[^"']+)["'];/g;
 const staticImportPattern = /import\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["'](\.[^"']+)["'];/g;
 const translationKeyPattern = /^\s{2}"([^"]+)":/gm;
@@ -95,7 +96,7 @@ export function updateKeySetBaselines(files) {
 }
 
 export function findGitKeySetTripwireViolations({ rootDir = process.cwd() } = {}) {
-  const baseRef = git(rootDir, ["merge-base", "origin/main", "HEAD"]);
+  const baseRef = git(rootDir, ["merge-base", "origin/main", "HEAD"], { allowFailure: true });
   if (!baseRef) return [];
 
   const currentFiles = loadTrackedTypeScriptFiles(rootDir);

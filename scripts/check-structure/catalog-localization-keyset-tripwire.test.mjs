@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  findGitKeySetTripwireViolations,
   findKeySetTripwireViolations,
   keySetFingerprint,
   updateKeySetBaselines,
@@ -8,6 +13,14 @@ import {
 const catalogTestPath = "contracts/localization/catalog-key-set.test.ts";
 const catalogMapPath = "contracts/localization/locales/en/catalog.ts";
 const catalogLeafPath = "contracts/localization/locales/en/catalog/source-observations.ts";
+const tempRoots = [];
+
+function gitInitFixture() {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "cs-keyset-tripwire-"));
+  tempRoots.push(rootDir);
+  execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
+  return rootDir;
+}
 
 function fixtureFiles(keys) {
   const fingerprint = keySetFingerprint(keys);
@@ -19,6 +32,17 @@ function fixtureFiles(keys) {
 }
 
 describe("catalog localization key-set tripwire", () => {
+  afterEach(() => {
+    for (const rootDir of tempRoots.splice(0)) rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  it("returns no violations when origin/main cannot be resolved", () => {
+    const rootDir = gitInitFixture();
+
+    expect(() => findGitKeySetTripwireViolations({ rootDir })).not.toThrow();
+    expect(findGitKeySetTripwireViolations({ rootDir })).toEqual([]);
+  });
+
   it("fails the negative control when a real catalog translation artifact loses a key without a rebaseline", () => {
     const baseFiles = fixtureFiles(["catalog.alpha", "catalog.removed"]);
     const currentFiles = fixtureFiles(["catalog.alpha"]);
