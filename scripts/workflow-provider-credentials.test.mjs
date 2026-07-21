@@ -74,22 +74,106 @@ ${envLines}        run: |
     expect(
       nodeScriptInvocations('node scripts/release-qualification-record.mjs write\nnode "./scripts/other tool.mjs"'),
     ).toEqual(["scripts/other tool.mjs", "scripts/release-qualification-record.mjs"]);
+    expect(
+      nodeScriptInvocations(
+        'node "$GITHUB_WORKSPACE/scripts/release-qualification-record.mjs" write\nnode ${GITHUB_WORKSPACE}/scripts/terraform-plan-inspection.mjs',
+      ),
+    ).toEqual(["scripts/release-qualification-record.mjs", "scripts/terraform-plan-inspection.mjs"]);
     expect(spacesCredentialEnvNames(readFileSync(resolve("scripts/release-qualification-record.mjs"), "utf8"))).toEqual(
       ["RELEASE_EVIDENCE_SPACES_ACCESS_ID", "RELEASE_EVIDENCE_SPACES_SECRET_KEY"],
     );
   });
 
-  it("every real workflow threads the dedicated evidence credentials wherever they are used", () => {
+  it("every real workflow and composite action threads the dedicated evidence credentials wherever they are used", () => {
     const workflowDir = resolve(".github/workflows");
-    const workflowFiles = readdirSync(workflowDir).filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"));
-    expect(workflowFiles.length).toBeGreaterThan(20);
-
-    for (const file of workflowFiles) {
-      const result = checkWorkflowSpacesEvidenceCredentials(readFileSync(resolve(workflowDir, file), "utf8"), {
-        workflowFile: `.github/workflows/${file}`,
-      });
-      expect(result.violations, `.github/workflows/${file}`).toEqual([]);
+    const candidateFiles = readdirSync(workflowDir)
+      .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
+      .map((name) => `.github/workflows/${name}`);
+    const actionsDir = resolve(".github/actions");
+    for (const entry of readdirSync(actionsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      for (const candidate of ["action.yml", "action.yaml"]) {
+        try {
+          readFileSync(resolve(actionsDir, entry.name, candidate), "utf8");
+          candidateFiles.push(`.github/actions/${entry.name}/${candidate}`);
+        } catch {
+          // action manifest under the other extension
+        }
+      }
     }
+    expect(candidateFiles.length).toBeGreaterThan(20);
+    expect(candidateFiles).toContain(".github/actions/setup-pnpm-workspace/action.yml");
+
+    for (const file of candidateFiles) {
+      const result = checkWorkflowSpacesEvidenceCredentials(readFileSync(resolve(file), "utf8"), {
+        workflowFile: file,
+      });
+      expect(result.violations, file).toEqual([]);
+    }
+  });
+
+  it("parses composite-action run steps at their shallower indent (real discovery, not path keywords)", () => {
+    const composite = `name: Example composite
+runs:
+  using: composite
+  steps:
+    - name: Persist qualification record
+      shell: bash
+      run: |
+        node scripts/release-qualification-record.mjs write --record record.json
+`;
+    const result = checkWorkflowSpacesEvidenceCredentials(composite, {
+      workflowFile: ".github/actions/example/action.yml",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining(
+        "step 'Persist qualification record' uses dedicated Spaces evidence credentials but does not declare step env: RELEASE_EVIDENCE_SPACES_ACCESS_ID, RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+      ),
+    ]);
+  });
+
+  it("negative control: the $GITHUB_WORKSPACE invocation idiom is resolved, not skipped", () => {
+    const workspaceIdiom = `jobs:
+  qualify:
+    steps:
+      - name: Persist release qualification record
+        run: |
+          (
+            cd "$tmp"
+            node "$GITHUB_WORKSPACE/scripts/release-qualification-record.mjs" write --record record.json
+          )
+`;
+    const result = checkWorkflowSpacesEvidenceCredentials(workspaceIdiom, {
+      workflowFile: ".github/workflows/platform-merge-gate.yml",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining(
+        "does not declare step env: RELEASE_EVIDENCE_SPACES_ACCESS_ID, RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+      ),
+    ]);
+  });
+
+  it("fails closed on a node script invocation the guard cannot resolve and inspect", () => {
+    const unresolvable = `jobs:
+  qualify:
+    steps:
+      - name: Run generated helper
+        run: node "$RUNNER_TEMP/generated-helper.mjs"
+`;
+    const result = checkWorkflowSpacesEvidenceCredentials(unresolvable, {
+      workflowFile: ".github/workflows/platform-merge-gate.yml",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining(
+        "invokes node script '$RUNNER_TEMP/generated-helper.mjs' that does not resolve in the repository",
+      ),
+    ]);
   });
 
   it("negative control: a realistic merge-gate step invoking the real record script without env is rejected", () => {
