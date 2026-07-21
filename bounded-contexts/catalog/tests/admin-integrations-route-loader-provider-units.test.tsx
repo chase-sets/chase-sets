@@ -98,6 +98,32 @@ describe("Catalog integrations route", () => {
       permissions: ["catalog.view", "catalog.manage"],
     });
   });
+
+  it("keeps the importer on its soft-fail path when the supplementary attention queue fails", async () => {
+    const attentionQueue = vi.fn().mockRejectedValue(new Error("attention queue unavailable"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
+        items: [profileReview({ active: true, lifecycle: "active" })],
+        total: 1,
+        count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogAttentionQueueReadModel: attentionQueue,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    await expect(routeData.deferredAttentionQueue).resolves.toBeNull();
+    expect(attentionQueue).toHaveBeenCalledOnce();
+    expect(routeData.readModel.routeContext.providerKey).toBe("tcgdex");
+  });
   it("keeps provider-only TCGplayer units selectable when profile reviews are temporarily unavailable", async () => {
     const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";

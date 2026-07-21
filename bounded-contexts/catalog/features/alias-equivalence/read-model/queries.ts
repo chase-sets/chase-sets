@@ -154,9 +154,10 @@ export async function listSourceObservationAliasCandidates(
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = normalizeLimit(filter.limit);
   const result = await db.query<CatalogAliasCandidateRow>(
-    `SELECT * FROM catalog_source_observation_alias_candidates
+    `SELECT *, first_observed_at::text AS first_observed_at, updated_at::text AS updated_at
+     FROM catalog_source_observation_alias_candidates
      ${where}
-     ORDER BY first_observed_at DESC, alias_hash ASC
+     ORDER BY catalog_source_observation_alias_candidates.first_observed_at DESC, alias_hash ASC
      LIMIT ${limit}`,
     values,
   );
@@ -185,7 +186,8 @@ export async function getSourceObservationAliasCandidate(
   aliasHash: string,
 ): Promise<CatalogAliasCandidateRow | null> {
   const result = await db.query<CatalogAliasCandidateRow>(
-    `SELECT * FROM catalog_source_observation_alias_candidates WHERE alias_hash = $1`,
+    `SELECT *, first_observed_at::text AS first_observed_at, updated_at::text AS updated_at
+     FROM catalog_source_observation_alias_candidates WHERE alias_hash = $1`,
     [aliasHash],
   );
 
@@ -208,7 +210,8 @@ export async function listCatalogItemAliases(
   }
 
   const result = await db.query<CatalogItemAliasRow>(
-    `SELECT * FROM catalog_item_aliases
+    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_item_aliases
      WHERE catalog_item_id = $1${statusCondition}
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
     values,
@@ -226,7 +229,8 @@ export async function listPublishableCatalogItemAliases(
   catalogItemId: string,
 ): Promise<readonly CatalogItemAliasRow[]> {
   const result = await db.query<CatalogItemAliasRow>(
-    `SELECT * FROM catalog_item_aliases
+    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_item_aliases
      WHERE catalog_item_id = $1 AND review_status = ANY($2::text[])
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
     [catalogItemId, PUBLISHABLE],
@@ -258,9 +262,12 @@ export async function countCatalogItemsForAliasText(
 }
 
 export async function getCatalogItemAlias(db: PgQueryable, aliasHash: string): Promise<CatalogItemAliasRow | null> {
-  const result = await db.query<CatalogItemAliasRow>(`SELECT * FROM catalog_item_aliases WHERE alias_hash = $1`, [
-    aliasHash,
-  ]);
+  const result = await db.query<CatalogItemAliasRow>(
+    `SELECT *,
+            proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_item_aliases WHERE alias_hash = $1`,
+    [aliasHash],
+  );
 
   return result.rows[0] ?? null;
 }
@@ -281,7 +288,8 @@ export async function listReferenceRecordAliases(
   }
 
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT * FROM catalog_reference_record_aliases
+    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_reference_record_aliases
      WHERE reference_record_id = $1${statusCondition}
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
     values,
@@ -296,7 +304,8 @@ export async function listPublishableReferenceRecordAliases(
   referenceRecordId: string,
 ): Promise<readonly CatalogReferenceRecordAliasRow[]> {
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT * FROM catalog_reference_record_aliases
+    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_reference_record_aliases
      WHERE reference_record_id = $1 AND review_status = ANY($2::text[])
      ORDER BY alias_type ASC, normalized_alias_text ASC`,
     [referenceRecordId, PUBLISHABLE],
@@ -310,7 +319,8 @@ export async function getReferenceRecordAlias(
   aliasHash: string,
 ): Promise<CatalogReferenceRecordAliasRow | null> {
   const result = await db.query<CatalogReferenceRecordAliasRow>(
-    `SELECT * FROM catalog_reference_record_aliases WHERE alias_hash = $1`,
+    `SELECT *, proposed_at::text AS proposed_at, reviewed_at::text AS reviewed_at, updated_at::text AS updated_at
+     FROM catalog_reference_record_aliases WHERE alias_hash = $1`,
     [aliasHash],
   );
 

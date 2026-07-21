@@ -82,11 +82,11 @@ export async function listStaleActiveCatalogScopeRecords(
 ): Promise<readonly CatalogScopeRecordRow[]> {
   const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
   const result = await db.query<CatalogScopeRecordRow>(
-    `SELECT *
+    `SELECT *, updated_at::text AS updated_at
      FROM catalog_scope_records
      WHERE lifecycle_status = 'active'
        AND updated_at < $1
-     ORDER BY updated_at ASC, scope_record_id ASC
+     ORDER BY catalog_scope_records.updated_at ASC, scope_record_id ASC
      LIMIT ${limit}`,
     [options.before],
   );
@@ -99,7 +99,7 @@ export async function getCatalogScopeRecord(
   scopeRecordId: string,
 ): Promise<CatalogScopeRecordRow | null> {
   const result = await db.query<CatalogScopeRecordRow>(
-    `SELECT *
+    `SELECT *, updated_at::text AS updated_at
      FROM catalog_scope_records
      WHERE scope_record_id = $1`,
     [scopeRecordId],
