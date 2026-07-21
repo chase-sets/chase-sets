@@ -1,0 +1,14 @@
+{
+  "name": "path-lookalike-runtime",
+  "description": "A runtime file whose NAME contains terraform/migration/seed but whose content has no such semantics classifies by its code, not its name.",
+  "proves": ["path_lookalike"],
+  "expectedClass": "isolated",
+  "expectedReasonCodes": ["application_runtime"],
+  "files": [
+    {
+      "path": "bounded-contexts/marketplace/features/listings/ui/terraform-migration-seed-badge.tsx",
+      "status": "added",
+      "content": "export function ProviderBadge({ label }) {\n  return label;\n}\n"
+    }
+  ]
+}

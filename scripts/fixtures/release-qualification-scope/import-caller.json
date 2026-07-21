@@ -1,0 +1,13 @@
+{
+  "name": "import-caller",
+  "description": "Catalog source-observation import machinery mutates long-lived catalog state.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
+      "status": "modified",
+      "content": "export const importBatchSize = 25;\n"
+    }
+  ]
+}

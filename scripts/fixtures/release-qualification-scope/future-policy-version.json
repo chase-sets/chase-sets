@@ -1,0 +1,14 @@
+{
+  "name": "future-policy-version",
+  "description": "A future policy version fails closed before evaluating anything.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unsupported_policy_version"],
+  "expectedFailClosedTrigger": "unsupported_policy_version",
+  "requestedPolicyVersion": "release-qualification-scope/v2",
+  "files": [
+    {
+      "path": "docs/runbooks/release-notes.md",
+      "status": "modified"
+    }
+  ]
+}

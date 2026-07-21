@@ -1,0 +1,22 @@
+{
+  "name": "mixed-diff-max-wins",
+  "description": "The strongest class wins and the record reports the winning class's reason codes.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["migration_schema"],
+  "files": [
+    {
+      "path": "docs/runbooks/notes.md",
+      "status": "modified"
+    },
+    {
+      "path": "bounded-contexts/marketplace/features/listings/ui/listing-card.tsx",
+      "status": "modified",
+      "content": "export function ProviderBadge({ label }) {\n  return label;\n}\n"
+    },
+    {
+      "path": "bounded-contexts/marketplace/support/runtime-support/schema.ts",
+      "status": "modified",
+      "content": "export const marketplaceSchemaSql = `\nCREATE TABLE IF NOT EXISTS marketplace_listing_pages (\n  listing_id text PRIMARY KEY\n);\n`;\n"
+    }
+  ]
+}

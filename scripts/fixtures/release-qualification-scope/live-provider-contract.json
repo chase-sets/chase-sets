@@ -1,0 +1,13 @@
+{
+  "name": "live-provider-contract",
+  "description": "Live provider SDK contract surfaces.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["live_provider_contract"],
+  "files": [
+    {
+      "path": "infrastructure/stripe-payments/index.ts",
+      "status": "modified",
+      "content": "import Stripe from \"stripe\";\nexport function createClient(key) {\n  return new Stripe(key);\n}\n"
+    }
+  ]
+}

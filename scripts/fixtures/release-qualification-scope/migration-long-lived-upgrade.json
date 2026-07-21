@@ -1,0 +1,14 @@
+{
+  "name": "migration-long-lived-upgrade",
+  "description": "An ALTER-based upgrade migration encodes long-lived-database compatibility semantics that a fresh empty run never exercises.",
+  "proves": ["long_lived_upgrade", "second_run_stability"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["migration_schema"],
+  "files": [
+    {
+      "path": "bounded-contexts/pricing/support/runtime-support/unlogged-projection-migrations.ts",
+      "status": "modified",
+      "content": "import type { BcSchemaMigration } from \"@chase-sets/bounded-context-module\";\n\nexport const pricingUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[] = [\n  {\n    migrationId: \"20260721_pricing_unlogged_projections\",\n    description: \"Store replayable pricing projections as unlogged tables.\",\n    statements: [\"SET lock_timeout = '5s';\", \"ALTER TABLE pricing_rollup_pages SET UNLOGGED;\"],\n  },\n];\n"
+    }
+  ]
+}

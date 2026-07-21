@@ -1,0 +1,12 @@
+{
+  "name": "unreadable-file",
+  "description": "A runtime file whose content cannot be read fails closed.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unreadable_file"],
+  "files": [
+    {
+      "path": "bounded-contexts/auth/features/sign-in/api/route.ts",
+      "status": "modified"
+    }
+  ]
+}

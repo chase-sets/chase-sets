@@ -1,0 +1,14 @@
+{
+  "name": "missing-base",
+  "description": "Without a production-marker base the complete diff cannot be evaluated: fail closed.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["missing_base"],
+  "expectedFailClosedTrigger": "missing_base",
+  "omitBase": true,
+  "files": [
+    {
+      "path": "docs/runbooks/release-notes.md",
+      "status": "modified"
+    }
+  ]
+}

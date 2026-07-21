@@ -1,0 +1,20 @@
+{
+  "name": "seed-renamed-copy",
+  "description": "A seed module renamed away from its historical path, and a brand-new copy at an unregistered path, are both caught by seed-contract content semantics.",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/scenario-data.ts",
+      "status": "renamed",
+      "previousPath": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "content": "import { identitySeedIds } from \"@chase-sets/identity/seed-support/ids\";\nexport function scenarioData() {\n  return identitySeedIds;\n}\n"
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/demo-data.ts",
+      "status": "added",
+      "content": "import type { BcSeedOptions } from \"@chase-sets/bounded-context-module\";\nexport function demoData(options: BcSeedOptions) {\n  return options;\n}\n"
+    }
+  ]
+}

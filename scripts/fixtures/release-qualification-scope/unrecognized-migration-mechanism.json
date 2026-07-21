@@ -1,0 +1,13 @@
+{
+  "name": "unrecognized-migration-mechanism",
+  "description": "DDL arriving through a mechanism no registry owns fails closed with its own reason code.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unrecognized_migration_mechanism"],
+  "files": [
+    {
+      "path": "db/migrations/0001_widen_amount.sql",
+      "status": "added",
+      "content": "ALTER TABLE settlement_wallet_pages ADD COLUMN amount_minor bigint;\n"
+    }
+  ]
+}

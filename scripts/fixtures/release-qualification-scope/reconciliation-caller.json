@@ -1,0 +1,14 @@
+{
+  "name": "reconciliation-caller",
+  "description": "Settlement liability reconciliation runs against long-lived money state; a second reconciliation run must classify identically (stability).",
+  "proves": ["second_run_stability"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "bounded-contexts/settlement/features/liability-reconciliation/read-model/liability-reconciliation.ts",
+      "status": "modified",
+      "content": "export function reconcileLiability(rows) {\n  return rows.length;\n}\n"
+    }
+  ]
+}

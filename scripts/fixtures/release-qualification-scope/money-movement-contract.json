@@ -1,0 +1,13 @@
+{
+  "name": "money-movement-contract",
+  "description": "Domain surfaces of money-movement contexts.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["money_movement_contract"],
+  "files": [
+    {
+      "path": "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts",
+      "status": "modified",
+      "content": "export const payoutFloorMinor = 100;\n"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "destructive-data",
+  "description": "Runtime code that deletes long-lived rows.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["destructive_data"],
+  "files": [
+    {
+      "path": "bounded-contexts/inventory/features/stock-levels/read-model/cleanup.ts",
+      "status": "modified",
+      "content": "export const cleanupSql = \"DELETE FROM inventory_stock_pages WHERE updated_at < now() - interval '90 days'\";\n"
+    }
+  ]
+}

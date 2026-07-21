@@ -1,0 +1,13 @@
+{
+  "name": "terraform-historical-path",
+  "description": "Terraform at its historical registered root.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["terraform_infrastructure"],
+  "files": [
+    {
+      "path": "infrastructure/digitalocean/platform/main.tf",
+      "status": "modified",
+      "content": "resource \"digitalocean_kubernetes_cluster\" \"platform\" {\n  name = \"chase-sets-platform\"\n}\n"
+    }
+  ]
+}

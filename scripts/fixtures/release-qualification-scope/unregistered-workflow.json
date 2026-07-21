@@ -1,0 +1,12 @@
+{
+  "name": "unregistered-workflow",
+  "description": "A workflow file the registry does not know fails closed.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unregistered_workflow"],
+  "files": [
+    {
+      "path": ".github/workflows/nightly-experiment.yml",
+      "status": "added"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "workflow-semantics-renamed-copy",
+  "description": "GitHub-workflow-shaped content outside .github/workflows fails closed by semantics.",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unregistered_workflow_semantics"],
+  "files": [
+    {
+      "path": "ops/deploy-pipeline.yml",
+      "status": "added",
+      "content": "on:\n  workflow_dispatch:\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo deploy\n"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "renamed-deployable",
+  "description": "A deployable directory the registry does not know (for example a renamed deployable) fails closed.",
+  "proves": ["renamed_copy"],
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unregistered_deployable"],
+  "files": [
+    {
+      "path": "deployables/platform-api-v2/src/main.ts",
+      "status": "added",
+      "content": "export function main() {\n  return 0;\n}\n"
+    }
+  ]
+}

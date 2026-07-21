@@ -1,0 +1,13 @@
+{
+  "name": "bootstrap-caller",
+  "description": "Deployable boot entry points apply schema and seeds against long-lived databases.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["seed_bootstrap_import_reconciliation"],
+  "files": [
+    {
+      "path": "deployables/platform-worker/src/bootstrap.ts",
+      "status": "modified",
+      "content": "export async function bootstrapWorker() {\n  return \"ready\";\n}\n"
+    }
+  ]
+}

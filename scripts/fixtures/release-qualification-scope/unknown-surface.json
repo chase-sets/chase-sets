@@ -1,0 +1,13 @@
+{
+  "name": "unknown-surface",
+  "description": "A path outside every known surface fails closed.",
+  "expectedClass": "persistent_required",
+  "expectedReasonCodes": ["unknown_surface"],
+  "files": [
+    {
+      "path": "ops-notes/runlog.txt",
+      "status": "added",
+      "content": "hello\n"
+    }
+  ]
+}
