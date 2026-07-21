@@ -1,4 +1,4 @@
-import { Fragment, Suspense, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, Suspense, useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Await, useSubmit, type SubmitFunction } from "react-router";
 import {
   Badge,
@@ -373,6 +373,16 @@ function DeferredGuidedSourceScopeFields({
 // so the route updates from real synced provider options instead of a hand-typed
 // importScope string. A child whose parent is unselected renders disabled with the
 // provider's own "select the parent first" diagnostic.
+//
+// The select is rendered CONTROLLED (`value`, not `defaultValue`) via
+// `RouteControlledGuidedScopeSelect` below: the surrounding
+// `Fragment key={field.queryKind}` is intentionally stable across a streamed
+// options revalidation (see `DeferredGuidedSourceScopeFields`) so focus/scroll
+// survive the fallback -> resolved swap, but a stable key means `defaultValue`
+// only ever applies once, at first mount. After a route/deferred-option
+// revalidation the DOM would then keep showing whatever was selected at that
+// first mount forever, even though `field.selectedValue` (route-derived) moved on
+// — the exact blank-control defect this fixes.
 function GuidedSourceScopeFields({
   fields,
   submit,
@@ -388,20 +398,8 @@ function GuidedSourceScopeFields({
       <WorkbenchFormGrid columns="three">
         {fields.map((field, index) => (
           <Fragment key={field.queryKind}>
-            <NativeSelect
-              name={field.fieldName}
-              label={field.label}
-              placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
-                label: field.label,
-              })}
-              description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
-              items={field.options.map((option) => ({
-                value: option.value,
-                label: option.label,
-                description: option.description ?? undefined,
-              }))}
-              defaultValue={field.selectedValue || undefined}
-              disabled={field.parentMissing}
+            <RouteControlledGuidedScopeSelect
+              field={field}
               onChange={(event) =>
                 submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
               }
@@ -411,6 +409,56 @@ function GuidedSourceScopeFields({
         ))}
       </WorkbenchFormGrid>
     </Fieldset>
+  );
+}
+
+// One guided scope select, kept route-controlled without losing instant feedback
+// on the operator's own change. `field.selectedValue` is the route/loader's
+// canonical value, but it only actually MOVES after the client-GET navigation
+// this select's `onChange` kicks off resolves (`submitSourceScopeFilter` ->
+// `submit`) — a later render, not this tick. A plain `value={field.selectedValue}`
+// select would work for revalidation but would visibly snap the just-picked
+// option back to the stale route value the instant the change event finishes,
+// because React restores a controlled element's DOM to its last-rendered value
+// after any native event unless the state it is controlled by was updated
+// synchronously in the handler. Local state fixes that: `onChange` updates it
+// synchronously (so the pick sticks immediately, matching the pre-existing
+// optimistic cascade-clear/parent-hydration DOM writes elsewhere in this file),
+// and the effect resyncs that same local state to `field.selectedValue` whenever
+// a real revalidation changes the route out from under this still-mounted
+// instance (the retry-1 defect this component exists to close).
+function RouteControlledGuidedScopeSelect({
+  field,
+  onChange,
+}: {
+  field: CatalogPrimaryWorkbenchGuidedScopeField;
+  onChange: (event: ChangeEvent<HTMLSelectElement>) => void;
+}) {
+  const [value, setValue] = useState(field.selectedValue);
+  useEffect(() => {
+    setValue(field.selectedValue);
+  }, [field.selectedValue]);
+
+  return (
+    <NativeSelect
+      name={field.fieldName}
+      label={field.label}
+      placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
+        label: field.label,
+      })}
+      description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
+      items={field.options.map((option) => ({
+        value: option.value,
+        label: option.label,
+        description: option.description ?? undefined,
+      }))}
+      value={value}
+      disabled={field.parentMissing}
+      onChange={(event) => {
+        setValue(event.currentTarget.value);
+        onChange(event);
+      }}
+    />
   );
 }
 
