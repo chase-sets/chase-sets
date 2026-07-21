@@ -4,17 +4,16 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
 
 export const STRIPE_WEBHOOK_ENDPOINT_PROBE_VERSION = "stripe-webhook-endpoint/v1";
 export const CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION = "create production payments webhook endpoint";
-export const STRIPE_DELIVERED_EVENTS = Object.freeze([...webhookEventRegistry.payment]);
 export const INTERNAL_ONLY_PAYMENT_EVENTS = Object.freeze([
   // Chase Sets routes this granted-token usage fact internally; Stripe never delivers it to this Dashboard endpoint.
   "shared_payment.granted_token.used",
   // Chase Sets routes this granted-token lifecycle fact internally; Stripe never delivers it to this Dashboard endpoint.
   "shared_payment.granted_token.deactivated",
 ]);
-export const STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS = STRIPE_DELIVERED_EVENTS;
 
 export const STRIPE_PAYMENTS_WEBHOOK_ENVIRONMENTS = Object.freeze({
   staging: Object.freeze({
@@ -95,7 +94,7 @@ function summarizeEndpoint(endpoint) {
     status: endpoint.status,
     livemode: endpoint.livemode,
     enabledEventCount: enabledEvents.length,
-    missingRequiredEvents: STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS.filter((event) => !enabledEvents.includes(event)),
+    missingRequiredEvents: STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS.filter((event) => !enabledEvents.includes(event)),
   };
 }
 
@@ -212,9 +211,7 @@ function createWebhookEndpointBody(environment, canonicalUrl) {
     api_version: webhookEventRegistry.apiVersion,
     description: `Chase Sets ${environment} Payments webhook endpoint`,
   });
-  for (const event of STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS) {
-    body.append("enabled_events[]", event);
-  }
+  appendStripeEnabledEvents(body, STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS);
   return body;
 }
 

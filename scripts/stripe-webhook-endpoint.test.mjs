@@ -3,14 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION,
   INTERNAL_ONLY_PAYMENT_EVENTS,
-  STRIPE_DELIVERED_EVENTS,
-  STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS,
   createCanonicalStripePaymentsWebhookEndpoint,
   parseStripePaymentsWebhookEndpointArgs,
   repointStagingStripePaymentsWebhookEndpoint,
   runStripePaymentsWebhookEndpointCommand,
   verifyStripePaymentsWebhookEndpoint,
 } from "./stripe-webhook-endpoint.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -25,7 +24,7 @@ function endpoint(overrides = {}) {
     url: canonicalStagingUrl,
     status: "enabled",
     livemode: false,
-    enabled_events: [...STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS],
+    enabled_events: [...STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS],
     ...overrides,
   };
 }
@@ -223,7 +222,7 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
   };
 
   it("pins the created event set to the Stripe-delivered adapter events", () => {
-    expect(STRIPE_DELIVERED_EVENTS).toEqual([
+    expect(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS).toEqual([
       "checkout.session.completed",
       "checkout.session.async_payment_succeeded",
       "checkout.session.async_payment_failed",
@@ -246,7 +245,6 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
       "review.opened",
       "review.closed",
     ]);
-    expect(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS).toBe(STRIPE_DELIVERED_EVENTS);
     expect(INTERNAL_ONLY_PAYMENT_EVENTS).toHaveLength(2);
   });
 
@@ -353,7 +351,7 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
     expect(calls.map((call) => call.init.method ?? "GET")).toEqual(["GET", "POST", "GET"]);
     const createBody = new URLSearchParams(calls[1].init.body);
     expect(createBody.get("url")).toBe(productionUrl);
-    expect(createBody.getAll("enabled_events[]")).toEqual(STRIPE_PAYMENTS_REQUIRED_WEBHOOK_EVENTS);
+    expect(createBody.getAll("enabled_events[]")).toEqual(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS);
     expect(JSON.stringify(result)).not.toContain("whsec_sensitive_fixture");
     expect(JSON.stringify(result)).not.toContain("sk_live_fixture");
   });

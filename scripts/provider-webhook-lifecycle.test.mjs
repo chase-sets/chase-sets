@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProviderWebhooks, deleteProviderWebhooks } from "./provider-webhook-lifecycle.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -42,7 +43,11 @@ describe("provider webhook lifecycle", () => {
       { provider: "stripe", id: "we_connect" },
       { provider: "easypost", id: "hook_easypost" },
     ]);
+    expect(result.ok).toBe(true);
     expect(new URLSearchParams(calls[0].init.body).get("url")).toContain("/api/payments/provider/webhooks");
+    expect(new URLSearchParams(calls[0].init.body).getAll("enabled_events[]")).toEqual(
+      STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+    );
     expect(new URLSearchParams(calls[1].init.body).get("connect")).toBe("true");
     expect(JSON.parse(calls[2].init.body).webhook).toMatchObject({
       url: expect.stringContaining("/api/fulfillment/provider/postage/webhooks"),

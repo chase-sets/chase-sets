@@ -9,6 +9,7 @@ import {
   PAYMENTS_PROVIDER_WEBHOOK_PATH,
   SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH,
 } from "./provider-webhook-paths.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
 
 export const PROVIDER_WEBHOOK_LIFECYCLE_VERSION = "provider-webhook-lifecycle/v1";
 
@@ -67,7 +68,7 @@ async function createStripeEndpoint(input, fetchImpl) {
     connect: String(input.connect),
     "metadata[verification_namespace]": input.namespace,
   });
-  for (const event of input.events) body.append("enabled_events[]", event);
+  appendStripeEnabledEvents(body, input.events);
   return requestJson(
     `${input.apiBase}/v1/webhook_endpoints`,
     { method: "POST", headers: stripeHeaders(input.apiKey), body },
@@ -89,7 +90,7 @@ export async function createProviderWebhooks(input, dependencies = {}) {
         namespace: input.namespace,
         url: urls.payment,
         connect: false,
-        events: webhookEventRegistry.payment,
+        events: STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
       },
       fetchImpl,
     );
@@ -120,6 +121,7 @@ export async function createProviderWebhooks(input, dependencies = {}) {
     );
     created.push({ provider: "easypost", id: easyPost.id });
     return {
+      ok: true,
       schemaVersion: PROVIDER_WEBHOOK_LIFECYCLE_VERSION,
       namespace: input.namespace,
       baseUrl: input.baseUrl,
