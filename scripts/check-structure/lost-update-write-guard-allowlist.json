@@ -2036,47 +2036,47 @@
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:252 directly synchronizes pricing_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:344:UPDATE:pricing_market_listing_inputs",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:352:UPDATE:pricing_market_listing_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:344 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:362:UPDATE:pricing_market_listing_inputs",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:370:UPDATE:pricing_market_listing_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:362 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:378:UPDATE:pricing_market_listing_inputs",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:386:UPDATE:pricing_market_listing_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:378 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:389:UPDATE:pricing_market_listing_inputs",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:399:UPDATE:pricing_market_listing_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:389 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:400:UPDATE:pricing_market_listing_inputs",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:416:UPDATE:pricing_market_listing_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:400 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:526:DELETE:pricing_order_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:542:DELETE:pricing_order_signal_lines",
     "reason": "DELETE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:526 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:578:UPDATE:pricing_order_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:594:UPDATE:pricing_order_signal_lines",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:578 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:593:UPDATE:pricing_order_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:609:UPDATE:pricing_order_signal_lines",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:593 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:619:DELETE:pricing_fulfillment_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:635:DELETE:pricing_fulfillment_signal_lines",
     "reason": "DELETE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:619 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:665:UPDATE:pricing_fulfillment_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:681:UPDATE:pricing_fulfillment_signal_lines",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:665 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:680:UPDATE:pricing_fulfillment_signal_lines",
+    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:696:UPDATE:pricing_fulfillment_signal_lines",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:680 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
