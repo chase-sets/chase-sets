@@ -10,7 +10,7 @@
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:watch": "vitest --config ./tests/vitest.config.mjs",
     "test:fast": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/schema-upgrade.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/schema-upgrade.db.test.ts --exclude features/attention/read-model/queries.db.test.ts",
     "test:db": "vitest run --config ./tests/vitest.config.mjs tests/schema-upgrade.db.test.ts features/attention/read-model/queries.db.test.ts"
   },
   "exports": {
