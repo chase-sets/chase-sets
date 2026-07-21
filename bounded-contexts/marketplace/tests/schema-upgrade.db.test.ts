@@ -39,6 +39,21 @@ describeDb("marketplace schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("records the review-hold stream-version migration once across fresh boots", async () => {
+    const pool = pools.marketplace;
+
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+
+    expect(await readColumnNames(pool, "marketplace_review_hold_pages")).toContain("last_stream_version");
+    const migration = await pool.query<{ applied_count: string }>(
+      `SELECT COUNT(*) AS applied_count
+       FROM bounded_context_schema_migrations
+       WHERE migration_id = '20260720_marketplace_review_hold_stream_version'`,
+    );
+    expect(migration.rows).toEqual([{ applied_count: "1" }]);
+  });
+
   it("converges deployed seller-metrics tables to the complete fresh schema", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);

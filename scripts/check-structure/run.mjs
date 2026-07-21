@@ -27,6 +27,7 @@ import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
+import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -186,6 +187,8 @@ const temporarySingleSliceSupportDebtLabel =
 const structureMetricsOutputPath = process.env.STRUCTURE_METRICS_OUTPUT_PATH ?? "artifacts/structure-metrics.json";
 const violations = [];
 const warnings = [];
+const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
+violations.push(...lostUpdateWriteGuard.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
