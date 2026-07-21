@@ -1582,31 +1582,94 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(selectedScopeChoiceValues({ label: "The First Chapter", value: "1" })).not.toContain("Floodborn");
   });
 
-  test("settles sequential English-to-Japanese TCGdex selections with the shared SV value", async ({ page }) => {
+  for (const { from, to } of [
+    { from: "en", to: "ja" },
+    { from: "ja", to: "en" },
+  ]) {
+    test(`selects shared SV only from the refreshed ${from}-to-${to} child slice`, async ({ page }) => {
+      await page.setContent('<div data-catalog-source-options-status="available">old slice</div>');
+      const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
+      await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
+
+      await page.evaluate(
+        ({ from, to }) => {
+          document.documentElement.dataset.committedParent = to;
+          document.body.innerHTML = `
+          <div data-catalog-deferred-panel="loading">Loading source options</div>
+          <fieldset aria-label="Source scope" data-slice-parent="${from}">
+            <select aria-label="Series"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+          </fieldset>
+        `;
+        },
+        { from, to },
+      );
+      await expect(page.locator('[data-catalog-deferred-panel="loading"]')).toBeVisible();
+      await page.evaluate((to) => {
+        document.body.innerHTML = `
+          <div data-catalog-source-options-status="available">${to} slice</div>
+          <fieldset aria-label="Source scope" data-slice-parent="${to}">
+            <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = this.closest('fieldset').dataset.sliceParent"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+          </fieldset>
+        `;
+      }, to);
+
+      await refreshedSlice;
+      const sourceScope = page.getByRole("group", { name: "Source scope" });
+      await selectOption(sourceScope.getByRole("combobox", { name: "Series" }), { values: ["SV"] });
+
+      await expect(sourceScope).toHaveAttribute("data-slice-parent", to);
+      await expect(page.locator("html")).toHaveAttribute("data-selected-slice-parent", to);
+    });
+  }
+
+  test("does not select a repeated scalar from a delayed stale child slice after the parent route commits", async ({
+    page,
+  }) => {
+    await page.setContent('<div data-catalog-source-options-status="available">Japanese slice</div>');
+    const refreshedSlice = sourceOptionSliceAfterParentCommit(page);
+    await expect(page.locator("[data-catalog-source-options-status]")).toBeVisible();
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.committedParent = "en";
+      document.body.innerHTML = `
+        <div data-catalog-deferred-panel="loading">Loading source options</div>
+        <fieldset aria-label="Source scope" data-slice-parent="ja">
+          <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = 'ja'"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+        </fieldset>
+      `;
+    });
+    await expect(page.locator('[data-catalog-deferred-panel="loading"]')).toBeVisible();
+    await page.evaluate(() => {
+      document.body.innerHTML = `
+        <div data-catalog-source-options-status="available">English slice</div>
+        <fieldset aria-label="Source scope" data-slice-parent="en">
+          <select aria-label="Series" onchange="document.documentElement.dataset.selectedSliceParent = 'en'"><option value="">Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+        </fieldset>
+      `;
+    });
+
+    await refreshedSlice;
+    await selectOption(page.getByRole("combobox", { name: "Series" }), { values: ["SV"] });
+
+    await expect(page.locator("html")).toHaveAttribute("data-selected-slice-parent", "en");
+  });
+
+  test("clears stale descendants even when their current value is blank", async ({ page }) => {
     await page.setContent(`
       <fieldset aria-label="Source scope">
-        <select aria-label="Language" name="languageCode"><option value="en">English</option><option value="ja">Japanese</option></select>
-        <select aria-label="Series" name="seriesId"><option value=""></option><option value="SV" selected>Scarlet &amp; Violet</option></select>
-        <select aria-label="Expansion" name="expansionId"><option value=""></option><option value="SV8" selected>Surging Sparks</option></select>
+        <select aria-label="Series" onchange="document.documentElement.dataset.seriesCleared = 'true'"><option value="" selected>Select</option><option value="SV">Scarlet &amp; Violet</option></select>
+        <select aria-label="Expansion" onchange="document.documentElement.dataset.expansionCleared = 'true'"><option value="" selected>Select</option><option value="SV8">Surging Sparks</option></select>
       </fieldset>
     `);
     await page.locator("html").evaluate((html) => html.setAttribute("data-admin-web-hydrated", "true"));
-    const sourceScope = page.getByRole("group", { name: "Source scope" });
 
-    await selectOption(sourceScope.getByRole("combobox", { name: "Language" }), { values: ["ja"] });
-    await clearUnverifiedGuidedScopeDescendants(page, sourceScope, [
+    await clearUnverifiedGuidedScopeDescendants(page, page.getByRole("group", { name: "Source scope" }), [
       { label: "Series", choice: { values: ["SV"] } },
       { label: "Expansion", choice: { values: ["SV8"] } },
     ]);
-    await selectOption(sourceScope.getByRole("combobox", { name: "Series" }), { values: ["SV"] });
-    await selectOption(sourceScope.getByRole("combobox", { name: "Expansion" }), { values: ["SV8"] });
 
-    const selectedChoices: readonly SelectedGuidedScopeChoice[] = [
-      { label: "Language", fieldName: "languageCode", selectedValue: "ja", values: ["ja"] },
-      { label: "Series", fieldName: "seriesId", selectedValue: "SV", values: ["SV"] },
-      { label: "Expansion", fieldName: "expansionId", selectedValue: "SV8", values: ["SV8"] },
-    ];
-    expect(expectedNativeGuidedImportScope(selectedChoices)).toBe("ja:SV:SV8");
+    await expect(page.locator("html")).toHaveAttribute("data-series-cleared", "true");
+    await expect(page.locator("html")).toHaveAttribute("data-expansion-cleared", "true");
   });
 
   test("registers a dispatchable per-game scope for every matrix row and one full-matrix fan-out", () => {
@@ -1930,6 +1993,10 @@ async function selectGuidedScope({
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
     const fieldName = await guidedScopeFieldName(scopeSelect, selection.label);
     const dependentSelections = journey.scope.slice(index + 1);
+    // The source-options boundary is intentionally streamed. Capture its next
+    // generation before the parent submit: the URL commits before that boundary
+    // replaces the old child-option slice.
+    const nextSourceOptionSlice = dependentSelections.length > 0 ? sourceOptionSliceAfterParentCommit(page) : null;
 
     // Each change performs a client GET revalidation. Do not touch the next
     // control until the current value has committed to the route and every
@@ -1969,6 +2036,9 @@ async function selectGuidedScope({
     // identity to prove that a retained descendant belongs to the new chain,
     // so it fails closed by clearing it and letting the following iterations
     // reselect the requested option from the revalidated slice.
+    if (nextSourceOptionSlice) {
+      await nextSourceOptionSlice;
+    }
     await clearUnverifiedGuidedScopeDescendants(page, settledSourceScope, dependentSelections);
 
     const childSelection = journey.scope[index + 1];
@@ -2078,14 +2148,29 @@ async function clearUnverifiedGuidedScopeDescendants(
 ): Promise<void> {
   for (const dependent of dependentSelections) {
     const dependentSelect = sourceScope.getByRole("combobox", { name: dependent.label });
-    if (!(await dependentSelect.inputValue())) {
-      continue;
-    }
-
+    // A blank value does not make an old option list safe. Submit the explicit
+    // clear for every descendant so the next route generation cannot retain a
+    // stale slice behind an apparently empty control.
     await dependentSelect.selectOption({ value: "" });
     await expect(dependentSelect).toHaveValue("", { timeout: sourceOptionTimeoutMs });
     await waitForSourceOptionsToSettle(page);
   }
+}
+
+async function sourceOptionSliceAfterParentCommit(page: Page): Promise<void> {
+  // submitSourceScopeFilter stamps every parent change with force-refresh-all.
+  // The deferred status panel is therefore the product's refresh-generation
+  // marker: it switches to the loading fallback, then resolves from the exact
+  // GET route that contains the committed parent. Unlike an option value, that
+  // lifecycle cannot be shared by Japanese and English `SV` slices.
+  const loadingSlice = page.locator('[data-catalog-deferred-panel="loading"]').filter({
+    hasText: "Loading source options",
+  });
+  await expect(loadingSlice).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expect(loadingSlice).toBeHidden({ timeout: sourceOptionTimeoutMs });
+  await expect(page.locator("[data-catalog-source-options-status]").first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
