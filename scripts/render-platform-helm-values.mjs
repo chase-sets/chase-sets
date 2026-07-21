@@ -548,8 +548,13 @@ export function buildDoksIngressValues(options = {}) {
 
 export function buildPreviewDoksIngressValues(options = {}) {
   const previewIdentifier = String(options.previewIdentifier ?? options.env?.PREVIEW_IDENTIFIER ?? "").trim();
-  if (!/^pr-[0-9]+$/.test(previewIdentifier)) {
-    throw new Error("Preview DOKS ingress requires a preview identifier like pr-123.");
+  // Two disposable identifier shapes share the preview ingress path and the
+  // one *.preview.chasesets.com wildcard: PR previews (pr-<number>) and
+  // merge-gate verification runs (gate-<run-id>-<run-attempt>). Both stay
+  // single-label hostnames (see buildPreviewDoksIngressHosts), so the shared
+  // wildcard certificate covers every host of both kinds.
+  if (!/^(?:pr-[0-9]+|gate-[0-9]+-[0-9]+)$/.test(previewIdentifier)) {
+    throw new Error("Preview DOKS ingress requires a preview identifier like pr-123 or gate-<run>-<attempt>.");
   }
 
   return {

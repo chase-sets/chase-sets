@@ -59,9 +59,12 @@ export function assertAdminQaActorFixturesRunAllowed(
   if (input.localOverride === "true") {
     return;
   }
+  // Disposable verification namespaces on the staging DOKS cluster: the
+  // post-production ephemeral verifier and the merge-gate verifier. Canonical
+  // namespace shapes live in scripts/ephemeral-verification-namespace.mjs.
   if (
     environmentName === "preview" &&
-    /^chase-sets-verify-\d+-\d+$/u.test(input.ephemeralVerificationNamespace ?? "")
+    /^chase-sets-(?:verify|gate)-\d+-\d+$/u.test(input.ephemeralVerificationNamespace ?? "")
   ) {
     return;
   }

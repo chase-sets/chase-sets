@@ -1,0 +1,673 @@
+name: Platform Merge Gate Verification
+
+# Cancellation-safe merge-gate verification environment (issue #5838, epic
+# #5496). Deploys ONE exact immutable digest to a uniquely labeled
+# chase-sets-gate-<run>-<attempt> namespace on the staging DOKS cluster with
+# disposable in-cluster Postgres, loads representative commerce state, runs
+# platform and Stripe test-mode smoke, persists the durable qualification
+# record, and guarantees foreground teardown on success, failure, timeout, and
+# cancellation. The scheduled gate sweep in platform-preview-cleanup.yml is
+# the independent stale-resource backstop (labels + bounded naming + cleanup
+# deadline). Reusable via workflow_call for the advisory merge-group
+# qualification chain; never a required check from this issue.
+#
+# Terminal-path deleters (every path has one):
+#   success      -> "Delete gate provider webhooks" + "Delete gate Kubernetes namespace" (always())
+#   failure      -> same always() finalizers (drill: induced-failure proves it)
+#   cancellation -> job-level always() keeps the finalizers reachable (#5830 pattern)
+#   timeout      -> job timeout cancels the job; same always() finalizers run
+#   runner loss  -> nothing on the runner can run; scheduled gate sweep deletes at the cleanup deadline
+#   skip         -> preflight fails before ANY provider mutation; nothing exists to delete
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: Immutable sha256 image digest to qualify. Empty resolves the candidate tree tag.
+        required: false
+        default: ""
+        type: string
+      candidate_ref:
+        description: Candidate commit or ref to qualify. Empty uses the triggering SHA.
+        required: false
+        default: ""
+        type: string
+      drill:
+        description: Teardown drill mode. Callers use none.
+        required: false
+        default: none
+        type: string
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Immutable sha256 image digest to qualify. Empty resolves the candidate tree tag from the registry.
+        required: false
+        default: ""
+        type: string
+      candidate_ref:
+        description: Candidate commit or ref to qualify. Defaults to main.
+        required: false
+        default: main
+        type: string
+      drill:
+        description: Teardown drill mode for cleanup evidence runs.
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - induced-failure
+          - stranded-fixture
+          - withheld-credential
+
+permissions:
+  contents: read
+
+# Dedicated merge-gate concurrency, separate from the preview, staging, and
+# production groups. Duplicate qualifications of the same digest serialize;
+# distinct candidates run in parallel bounded by the capacity preflight.
+concurrency:
+  group: platform-merge-gate-${{ inputs.image_digest || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Merge Gate Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: merge-gate
+    outputs:
+      started_at: ${{ steps.timing.outputs.started_at }}
+      completed_at: ${{ steps.capacity.outputs.completed_at }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Record preflight start
+        id: timing
+        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # Fail-before-mutation credential matrix: every environment-scoped
+      # secret the gate uses is named here, exactly as the steps below
+      # reference it. Any missing credential fails the run before a single
+      # provider call. The withheld-credential drill withholds the Stripe
+      # secret to prove the refusal path end to end.
+      - name: Validate merge-gate credential matrix
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          RELEASE_EVIDENCE_SPACES_ACCESS_ID: ${{ secrets.RELEASE_EVIDENCE_SPACES_ACCESS_ID }}
+          RELEASE_EVIDENCE_SPACES_SECRET_KEY: ${{ secrets.RELEASE_EVIDENCE_SPACES_SECRET_KEY }}
+          STRIPE_SECRET_KEY: ${{ inputs.drill == 'withheld-credential' && '' || secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs credentials \
+            --require "DIGITALOCEAN_ACCESS_TOKEN,SPACES_ACCESS_ID,SPACES_SECRET_KEY,RELEASE_EVIDENCE_SPACES_ACCESS_ID,RELEASE_EVIDENCE_SPACES_SECRET_KEY,STRIPE_SECRET_KEY,STRIPE_PUBLISHABLE_KEY,EASYPOST_API_KEY,PLATFORM_INTERNAL_AUTH_SECRET,PLATFORM_ADMIN_EMAIL,PLATFORM_ADMIN_PASSWORD,CHASE_SETS_DISCORD_INVITE_URL" \
+            --stripe-test-mode-var STRIPE_SECRET_KEY
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure preflight Kubernetes context
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/chase-sets-merge-gate-preflight.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$MERGE_GATE_DOKS_CLUSTER" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      # Cost wager + capacity headroom, both fail-closed BEFORE provisioning:
+      # unknown cost or a missing/expired wager expiry fails, and available
+      # preview-pool capacity must cover 1.5x the configured merge-queue
+      # concurrency's per-run footprint after subtracting every live pod
+      # request (live chase-sets-pr-* previews included).
+      - name: Run cost-wager and capacity preflight
+        id: capacity
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-gate
+          kubectl get nodes -o json > "${RUNNER_TEMP}/gate-nodes.json"
+          kubectl get pods --all-namespaces -o json > "${RUNNER_TEMP}/gate-pods.json"
+          doctl kubernetes cluster node-pool list "$MERGE_GATE_DOKS_CLUSTER" --output json > "${RUNNER_TEMP}/gate-node-pools.json"
+          node ./scripts/merge-gate-verification.mjs preflight \
+            --config scripts/merge-gate-verification-config.json \
+            --nodes "${RUNNER_TEMP}/gate-nodes.json" \
+            --pods "${RUNNER_TEMP}/gate-pods.json" \
+            --node-pools "${RUNNER_TEMP}/gate-node-pools.json" \
+            --out artifacts/merge-gate/preflight.json
+          echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload merge-gate preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-gate-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-gate
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Deliberately strands a labeled gate fixture namespace whose cleanup
+  # deadline is already past, WITHOUT foreground teardown, so the scheduled
+  # gate sweep in platform-preview-cleanup.yml can prove backstop deletion.
+  stranded-fixture-drill:
+    name: Stranded Fixture Drill
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.drill == 'stranded-fixture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: merge-gate
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure fixture Kubernetes context
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/chase-sets-merge-gate-fixture.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$MERGE_GATE_DOKS_CLUSTER" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Create deliberately stranded gate fixture namespace
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs namespace-manifest \
+            --config scripts/merge-gate-verification-config.json \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}99" \
+            --repository "${{ github.repository }}" \
+            --candidate-sha "$(git rev-parse HEAD)" \
+            --candidate-tree-sha "$(git rev-parse 'HEAD^{tree}')" \
+            --image-digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+            --cleanup-deadline-hours 0 | kubectl create -f -
+          echo "Stranded fixture chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}99 awaits the scheduled gate sweep."
+
+  verify:
+    name: Verify Merge Candidate
+    # Keep the job alive through workflow cancellation so the always()
+    # finalizers can remove any namespace this job created (#5830 pattern).
+    # Drills that never provision (stranded-fixture, withheld-credential)
+    # skip this job entirely.
+    if: >
+      always() &&
+      needs.preflight.result == 'success' &&
+      inputs.drill != 'stranded-fixture' &&
+      inputs.drill != 'withheld-credential'
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: merge-gate
+    env:
+      DEPLOYMENT_ENVIRONMENT: preview
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      GATE_SLUG: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      PREVIEW_IDENTIFIER: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_HELM_RELEASE: csg-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      MERGE_GATE_PHASES_FILE: artifacts/merge-gate/phases.ndjson
+      STRIPE_CONNECT_ACCOUNTS_API: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.candidate_ref || github.sha }}
+
+      - name: Resolve gate candidate
+        id: candidate
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse HEAD)"
+          candidate_tree="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "candidate_sha=${candidate_sha}"
+            echo "candidate_tree=${candidate_tree}"
+            echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          } >> "$GITHUB_OUTPUT"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase candidate-resolved
+          echo "Qualifying ${candidate_sha} (tree ${candidate_tree}) in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      # The gate deploys ONLY an immutable digest. A requested digest is
+      # verified to exist; an empty request resolves the candidate's
+      # boot-smoked merge-group tree tag and pins its digest before any
+      # cluster mutation.
+      - name: Resolve exact gate image digest
+        id: image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          REQUESTED_DIGEST: ${{ inputs.image_digest }}
+          CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]')"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required for merge-gate verification." >&2
+            exit 1
+          fi
+          doctl registry login --expiry-seconds 3600
+          repository="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}"
+          if [ -n "$REQUESTED_DIGEST" ]; then
+            if ! printf '%s' "$REQUESTED_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+              echo "image_digest must be an immutable sha256 digest (got '${REQUESTED_DIGEST}')." >&2
+              exit 1
+            fi
+            reference="${repository}@${REQUESTED_DIGEST}"
+          else
+            reference="${repository}:tree-${CANDIDATE_TREE}"
+          fi
+          if ! docker buildx imagetools inspect "$reference" >/dev/null 2>&1; then
+            echo "Gate image ${reference} does not exist; qualify a candidate whose merge-group build pushed an image." >&2
+            exit 1
+          fi
+          digest="$(docker buildx imagetools inspect "$reference" --format '{{.Manifest.Digest}}')"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "Gate image ${reference} did not resolve to an immutable sha256 digest (got '${digest}')." >&2
+            exit 1
+          fi
+          if [ -n "$REQUESTED_DIGEST" ] && [ "$digest" != "$REQUESTED_DIGEST" ]; then
+            echo "Registry resolved ${digest} but ${REQUESTED_DIGEST} was requested; refusing to deploy a different digest." >&2
+            exit 1
+          fi
+          {
+            echo "registry_name=${registry_name}"
+            echo "repository=${repository}"
+            echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase image-resolved
+          echo "Resolved immutable gate image ${repository}@${digest}."
+
+      - name: Configure gate Kubernetes context
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/chase-sets-merge-gate.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$MERGE_GATE_DOKS_CLUSTER" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      # Namespace, labels, and annotations are ONE atomic create: the
+      # label-scoped gate sweeper has no create-then-label gap to leak
+      # through, and `kubectl create` refuses to reuse an existing namespace.
+      - name: Create gate namespace
+        env:
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs namespace-manifest \
+            --config scripts/merge-gate-verification-config.json \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --repository "${{ github.repository }}" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --candidate-tree-sha "$CANDIDATE_TREE" \
+            --image-digest "$IMAGE_DIGEST" | kubectl create -f -
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
+
+      # Cleanup evidence drill: fail deliberately AFTER namespace creation so
+      # the run proves the failure path reaches the always() finalizers.
+      - name: Induced failure drill
+        if: inputs.drill == 'induced-failure'
+        run: |
+          echo "Induced failure after namespace creation (drill=induced-failure); the always() finalizers must still tear down $CHASE_SETS_KUBERNETES_NAMESPACE." >&2
+          exit 1
+
+      - name: Register gate provider webhooks
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: |
+          set -euo pipefail
+          node ./scripts/provider-webhook-lifecycle.mjs create --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --base-url "$PLATFORM_API_BASE_URL"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase webhooks-created
+
+      - name: Apply gate Kubernetes runtime secrets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          UCP_BUSINESS_SIGNING_KEY_ID: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}
+          UCP_BUSINESS_SIGNING_ALG: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
+          UCP_BUSINESS_SIGNING_PRIVATE_JWK: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
+          UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
+          UCP_AP2_VERIFIER_URL: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
+          UCP_AP2_VERIFIER_AUTH_TOKEN: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
+          UCP_AP2_VERIFIER_TIMEOUT_MS: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+        run: |
+          set -euo pipefail
+          export CATALOG_ASSET_S3_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+          export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+          export OTEL_EXPORTER_OTLP_HEADERS=""
+          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase secrets-applied
+
+      - name: Apply gate Kubernetes registry pull secret
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          REGISTRY_NAME: ${{ steps.image.outputs.registry_name }}
+        run: |
+          set -euo pipefail
+          registry_pull_secret_name="registry-${REGISTRY_NAME}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson --dry-run=client -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      - name: Deploy gate Kubernetes release
+        id: deploy
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.repository }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          landing_domain="${GATE_SLUG}.preview.chasesets.com"
+          marketplace_domain="${GATE_SLUG}-marketplace.preview.chasesets.com"
+          pnpm run platform:kubernetes-deployment -- deploy \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
+            --runtime-env "PREVIEW_IDENTIFIER=${GATE_SLUG}" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
+            --runtime-env "CHASE_SETS_MARKETPLACE_ORIGIN=https://${marketplace_domain}" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.preview.chasesets.com" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=chase-sets-preview-catalog-assets" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=nyc3" \
+            --runtime-env "NOTIFICATION_EMAIL_PROVIDER=noop" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API}" \
+            --runtime-env "EASYPOST_MODE=${EASYPOST_MODE}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase deployed
+
+      - name: Capture gate deploy diagnostics
+        if: failure()
+        run: pnpm run platform:kubernetes-deployment -- diagnostics --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" || true
+
+      # Exact-digest proof: every running platform container in the gate
+      # namespace must report the pinned immutable digest, so the smoke that
+      # follows can only ever exercise the requested candidate image.
+      - name: Prove running pod digest
+        id: digest-proof
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_REPOSITORY_REF: ${{ steps.image.outputs.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-gate
+          kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" -o json > artifacts/merge-gate/gate-pods.json
+          # Only platform-image containers count: the namespace also runs the
+          # disposable Postgres and observability sidecars from other images.
+          platform_rows="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image}{" "}{.imageID}{"\n"}{end}' \
+            | grep -F "$IMAGE_REPOSITORY_REF" || true)"
+          if [ -z "$platform_rows" ]; then
+            echo "No running containers use ${IMAGE_REPOSITORY_REF}; cannot prove the gate digest." >&2
+            exit 1
+          fi
+          mismatched="$(printf '%s\n' "$platform_rows" | grep -v "$IMAGE_DIGEST" || true)"
+          if [ -n "$mismatched" ]; then
+            echo "Running platform containers report a different image digest than ${IMAGE_DIGEST}:" >&2
+            printf '%s\n' "$mismatched" >&2
+            exit 1
+          fi
+          kubectl top pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --no-headers > artifacts/merge-gate/gate-top.txt || true
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase digest-proven
+          echo "Every running platform container reports ${IMAGE_DIGEST}."
+
+      - name: Wait for gate ingress URLs
+        run: |
+          set -euo pipefail
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${GATE_SLUG}-admin.preview.chasesets.com/health/ready" \
+            --url "https://${GATE_SLUG}-marketplace.preview.chasesets.com/health/ready" \
+            --attempts 24 --delay-ms 5000
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${GATE_SLUG}.preview.chasesets.com/" \
+            --attempts 6 --delay-ms 5000
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase ingress-ready
+
+      - name: Run representative commerce state
+        id: representative
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-gate
+          pod="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            -l app.kubernetes.io/component=platform-api \
+            -o jsonpath='{.items[0].metadata.name}')"
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" "$pod" -- \
+            env EPHEMERAL_VERIFICATION_NAMESPACE="$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
+              REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=/tmp/representative-commerce-state.json \
+              pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+          kubectl cp "$CHASE_SETS_KUBERNETES_NAMESPACE/$pod:/tmp/representative-commerce-state.json" \
+            artifacts/merge-gate/representative-commerce-state.json
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase representative-complete
+
+      - name: Smoke check
+        id: smoke
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_WAITLIST_EMAIL: ops+gate-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
+          SMOKE_SOURCE: merge-gate-verification
+          SMOKE_UTM_CAMPAIGN: gate-${{ steps.candidate.outputs.candidate_sha }}
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+        run: |
+          set -euo pipefail
+          pnpm run smoke:platform -- "https://${GATE_SLUG}.preview.chasesets.com" "https://${GATE_SLUG}-admin.preview.chasesets.com" "https://${GATE_SLUG}-marketplace.preview.chasesets.com"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase smoke-complete
+
+      # Stripe proof uses test-mode keys and REQUIRES delivered webhooks: the
+      # gate registered exact-host endpoints above, so delivery is provable.
+      - name: Stripe money smoke
+        id: stripe
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
+          PLATFORM_AUTH_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
+          STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"
+          SMOKE_REGISTER_SELLER: "true"
+          SMOKE_SELLER_EMAIL: stripe-gate+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SELLER_PASSWORD: gate-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Gate ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          pnpm run stripe:money-smoke -- --edge-check --seller-flow
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase stripe-complete
+
+      # Durable qualification evidence (release-qualification/v1, #5863):
+      # written for pass AND fail so every attempt is on the record.
+      # Cancellation skips the write — a cancelled run is not a qualification
+      # result and its grace period belongs to teardown.
+      - name: Persist release qualification record
+        if: ${{ !cancelled() }}
+        env:
+          RELEASE_EVIDENCE_SPACES_ACCESS_ID: ${{ secrets.RELEASE_EVIDENCE_SPACES_ACCESS_ID }}
+          RELEASE_EVIDENCE_SPACES_SECRET_KEY: ${{ secrets.RELEASE_EVIDENCE_SPACES_SECRET_KEY }}
+          RECORD_REPOSITORY: ${{ github.repository }}
+          RECORD_CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+          RECORD_CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
+          RECORD_IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          RECORD_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RECORD_STARTED_AT: ${{ steps.candidate.outputs.started_at }}
+          RECORD_RESULT: ${{ job.status == 'success' && 'pass' || 'fail' }}
+          RECORD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-gate
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const record = {
+            schemaVersion: "release-qualification/v1",
+            repository: process.env.RECORD_REPOSITORY,
+            candidateSha: process.env.RECORD_CANDIDATE_SHA,
+            candidateTreeSha: process.env.RECORD_CANDIDATE_TREE,
+            imageRepository: process.env.RECORD_IMAGE_REPOSITORY,
+            imageDigest: process.env.RECORD_IMAGE_DIGEST,
+            qualificationLane: "merge-gate",
+            classifierPolicyVersion: "release-qualification-scope/v1",
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            startedAt: process.env.RECORD_STARTED_AT,
+            completedAt: `${new Date().toISOString().slice(0, 19)}.000Z`,
+            result: process.env.RECORD_RESULT,
+            evidenceLinks: [process.env.RECORD_RUN_URL],
+          };
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/merge-gate-qualification-record.json`, `${JSON.stringify(record, null, 2)}\n`);
+          NODE
+          node ./scripts/release-qualification-record.mjs write \
+            --record "$RUNNER_TEMP/merge-gate-qualification-record.json" \
+            --out artifacts/merge-gate/qualification-record-write.json
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase record-written
+
+      - name: Delete gate provider webhooks
+        if: always()
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: |
+          set -euo pipefail
+          node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase webhooks-deleted
+
+      # Required foreground teardown: `teardown` verifies the namespace is
+      # actually gone and throws if it survives, so this step — and the run —
+      # FAILS rather than reporting green when the delete silently no-ops.
+      # Never add `|| true` or `continue-on-error` here (#4778 lesson).
+      - name: Delete gate Kubernetes namespace
+        if: always()
+        run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m
+
+      - name: Probe gate namespace absence
+        if: always()
+        run: |
+          set -euo pipefail
+          survivors="$(kubectl get namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found -o name)"
+          if [ -n "$survivors" ]; then
+            echo "Gate namespace ${CHASE_SETS_KUBERNETES_NAMESPACE} survived teardown." >&2
+            exit 1
+          fi
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase teardown-complete
+          echo "Absence probe: ${CHASE_SETS_KUBERNETES_NAMESPACE} is gone."
+
+      # Per-run instrumentation for the 10-run proof: phase timings,
+      # preflight+cleanup overhead vs the 2-minute budget, compute requests,
+      # observed utilization, provider calls, Actions minutes, and estimated
+      # incremental cost per qualification.
+      - name: Write merge-gate run record
+        if: always()
+        env:
+          RECORD_RESULT: ${{ job.status == 'success' && 'pass' || (job.status == 'cancelled' && 'cancelled' || 'fail') }}
+          RECORD_DRILL: ${{ inputs.drill || 'none' }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          JOB_STARTED_AT: ${{ steps.candidate.outputs.started_at }}
+          PREFLIGHT_STARTED_AT: ${{ needs.preflight.outputs.started_at }}
+          PREFLIGHT_COMPLETED_AT: ${{ needs.preflight.outputs.completed_at }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-gate-verification.mjs run-record \
+            --config scripts/merge-gate-verification-config.json \
+            --phases "$MERGE_GATE_PHASES_FILE" \
+            --repository "${{ github.repository }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --candidate-sha "${CANDIDATE_SHA:-}" \
+            --candidate-tree-sha "${CANDIDATE_TREE:-}" \
+            --image-digest "${IMAGE_DIGEST:-}" \
+            --result "$RECORD_RESULT" \
+            --drill "$RECORD_DRILL" \
+            --job-started-at "${JOB_STARTED_AT:-}" \
+            --preflight-started-at "${PREFLIGHT_STARTED_AT:-}" \
+            --preflight-completed-at "${PREFLIGHT_COMPLETED_AT:-}" \
+            --pods artifacts/merge-gate/gate-pods.json \
+            --top artifacts/merge-gate/gate-top.txt \
+            --provider-call doctl=4 \
+            --provider-call stripe-webhook-lifecycle=2 \
+            --provider-call easypost-webhook-lifecycle=2 \
+            --provider-call spaces-qualification-record-writes=1 \
+            --out artifacts/merge-gate/merge-gate-run-record.json
+
+      - name: Upload merge-gate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-gate-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-gate
+          if-no-files-found: warn
+          retention-days: 30

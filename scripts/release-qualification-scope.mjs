@@ -237,6 +237,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-doks-foundation.yml": "release",
     "platform-emergency-recovery.yml": "release",
     "platform-ephemeral-verification.yml": "release",
+    "platform-merge-gate-verification.yml": "release",
     "platform-merge-group-failure-signatures.yml": "ci",
     "platform-merge-queue-posture.yml": "ci",
     "platform-observability-state-migration.yml": "release",

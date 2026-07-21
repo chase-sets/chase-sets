@@ -71,6 +71,25 @@ describe("platform preview cleanup namespace teardown guard", () => {
     expect(workflow).toMatch(/schedule:\s*\n\s*-\s*cron:/);
   });
 
+  it("keeps a required, unconditionally-failing namespace-deletion step in the stale gate sweep (#5838)", () => {
+    const workflow = readWorkflow();
+    const step = extractStep(workflow, "Delete stale gate Kubernetes namespace");
+
+    expect(step).toContain("if: always()");
+    expect(step).toContain("platform:kubernetes-deployment -- teardown");
+    expect(step).toContain('--namespace "${{ matrix.namespace }}"');
+    expect(step).toContain('--release "${{ matrix.release }}"');
+    expect(step).not.toContain("continue-on-error");
+    expect(step).not.toContain("|| true");
+    expect(step).not.toContain("2>/dev/null");
+    expect(step).not.toMatch(/\bset\s+\+e\b/);
+
+    const contextIndex = workflow.indexOf("- name: Configure gate cleanup Kubernetes context");
+    const deleteIndex = workflow.indexOf("- name: Delete stale gate Kubernetes namespace");
+    expect(contextIndex).toBeGreaterThan(-1);
+    expect(contextIndex).toBeLessThan(deleteIndex);
+  });
+
   it("never deletes a namespace for a still-open PR: the sweep only selects PRs whose state is closed", async () => {
     const { discoverPreviewCleanupTargets } = await import("./digitalocean-preview-cleanup-sweep.mjs");
     const result = await discoverPreviewCleanupTargets(

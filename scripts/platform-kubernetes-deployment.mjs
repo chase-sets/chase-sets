@@ -10,7 +10,7 @@ import {
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
+import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -45,13 +45,16 @@ const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
 // teardown only ever deletes disposable namespaces created outside Terraform
 // by a Helm deploy (`--create-namespace`), so nothing else destroys them when
-// their owning workflow ends. Two kinds exist, each with its own strict
+// their owning workflow ends. Three kinds exist, each with its own strict
 // parser owned by the workflow that creates it:
 //   - PR preview:            chase-sets-pr-<number>          (platform-pr.yml)
 //   - ephemeral verification: anything under chase-sets-verify-
 //                             (platform-ephemeral-verification.yml; the
 //                              canonical parser lives in
 //                              ephemeral-verification-namespace.mjs)
+//   - merge-gate verification: chase-sets-gate-<run>-<attempt>
+//                             (platform-merge-gate-verification.yml; parser
+//                              also in ephemeral-verification-namespace.mjs)
 // The bare "chase-sets-platform" default above is the staging/production
 // namespace, so teardown must never fall through to it: require an explicit
 // disposable namespace matching exactly one of these prefixes and reject
@@ -59,7 +62,11 @@ const defaultTimeout = "10m";
 const previewNamespacePattern = /^chase-sets-pr-\d+$/;
 
 function isDisposableNamespace(namespace) {
-  return previewNamespacePattern.test(namespace) || VERIFICATION_NAMESPACE_PATTERN.test(namespace);
+  return (
+    previewNamespacePattern.test(namespace) ||
+    VERIFICATION_NAMESPACE_PATTERN.test(namespace) ||
+    MERGE_GATE_NAMESPACE_PATTERN.test(namespace)
+  );
 }
 
 export function platformKubernetesWorkloads(options = {}) {

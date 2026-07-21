@@ -608,6 +608,27 @@ describe("render platform Helm values", () => {
     expect(first.tls.secretName).toBe(previewWildcardTlsSecretName);
   });
 
+  it("renders single-label merge-gate hosts under the same shared preview wildcard (#5838)", () => {
+    const gateIngress = buildPreviewDoksIngressValues({ previewIdentifier: "gate-123456-2" });
+
+    expect(gateIngress.enabled).toBe(true);
+    expect(gateIngress.clusterIssuer).toBe("");
+    expect(gateIngress.tls.secretName).toBe(previewWildcardTlsSecretName);
+    expect(gateIngress.hosts.map((host) => host.host)).toEqual([
+      "gate-123456-2.preview.chasesets.com",
+      "gate-123456-2-marketplace.preview.chasesets.com",
+      "gate-123456-2-admin.preview.chasesets.com",
+    ]);
+  });
+
+  it("rejects preview identifiers outside the pr-<n> and gate-<run>-<attempt> shapes", () => {
+    for (const previewIdentifier of ["", "gate-abc-1", "gate-1", "verify-1-1", "staging", "pr-", "gate-1-1-extra"]) {
+      expect(() => buildPreviewDoksIngressValues({ previewIdentifier })).toThrow(
+        "Preview DOKS ingress requires a preview identifier",
+      );
+    }
+  });
+
   it("omits the cert-manager cluster-issuer annotation entirely when doksIngress.clusterIssuer is empty (#4857)", () => {
     // Verified against a live `helm template` render for both shapes: a
     // preview-shaped values set (clusterIssuer="") renders no `annotations:`

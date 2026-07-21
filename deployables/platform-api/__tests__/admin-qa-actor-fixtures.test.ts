@@ -62,13 +62,24 @@ describe("admin-qa actor fixtures run guardrails", () => {
         ephemeralVerificationNamespace: "chase-sets-verify-12345-1",
       }),
     ).not.toThrow();
+    // Merge-gate verification namespaces (#5838) share the disposable
+    // in-cluster contract and are equally allowed.
     expect(() =>
       assertAdminQaActorFixturesRunAllowed({
         deploymentEnvironment: "preview",
         confirmation: "provision admin qa fixtures",
-        ephemeralVerificationNamespace: "chase-sets-pr-4056",
+        ephemeralVerificationNamespace: "chase-sets-gate-12345-1",
       }),
-    ).toThrow("identified ephemeral verification namespace");
+    ).not.toThrow();
+    for (const namespace of ["chase-sets-pr-4056", "chase-sets-gate-abc-1", "chase-sets-gate-1-1-fixture"]) {
+      expect(() =>
+        assertAdminQaActorFixturesRunAllowed({
+          deploymentEnvironment: "preview",
+          confirmation: "provision admin qa fixtures",
+          ephemeralVerificationNamespace: namespace,
+        }),
+      ).toThrow("identified ephemeral verification namespace");
+    }
   });
 });
 
