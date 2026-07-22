@@ -79,9 +79,14 @@ describe("public web route smoke", () => {
 
   it("allows degraded and non-5xx responses in the DB-less boot walk", async () => {
     const inventory = await loadPublicWebRouteInventory();
-    const baseUrl = await startRouteServer((_request, response) => {
-      response.writeHead(404, { "Content-Type": "text/html" });
-      response.end(`<main>${inventory.degradedMarker}</main>`);
+    const baseUrl = await startRouteServer((request, response) => {
+      if (request.url === "/route-smoke-redirected") {
+        response.writeHead(404);
+        response.end(`<main>${inventory.degradedMarker}</main>`);
+        return;
+      }
+      response.writeHead(302, { Location: "/route-smoke-redirected" });
+      response.end();
     });
 
     const result = await smokePublicWebRoutes({
@@ -92,6 +97,17 @@ describe("public web route smoke", () => {
     });
     expect(result.manifestRoutes.length).toBeGreaterThan(0);
     expect(result.helpArticles.length).toBeGreaterThan(0);
+  });
+
+  it("rejects every 5xx response in the DB-less boot walk", async () => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(503, { "Content-Type": "application/json" });
+      response.end('{"error":"temporarily unavailable"}');
+    });
+
+    await expect(smokePublicWebRoutes({ baseUrl, mode: "no-5xx", attempts: 1, logger: quietLogger })).rejects.toThrow(
+      /Public route smoke failed \(no-5xx\):[\s\S]*returned 503/u,
+    );
   });
 
   it("turns red when a discovered legacy policy source returns 500", async () => {
@@ -117,6 +133,72 @@ describe("public web route smoke", () => {
     await expect(smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger })).rejects.toThrow(
       new RegExp(`${degradedPath} returned the degraded marker`),
     );
+  });
+
+  it("rejects successful JSON error representations for every deployed target", async () => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end('{"error":"policy resolver unavailable"}');
+    });
+
+    await expect(smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger })).rejects.toThrow(
+      /Public route smoke failed \(healthy\):[\s\S]*application\/json/u,
+    );
+  });
+
+  it("rejects a deployed target with no content type", async () => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(200);
+      response.end();
+    });
+
+    await expect(smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger })).rejects.toThrow(
+      /Public route smoke failed \(healthy\):[\s\S]*missing Content-Type/u,
+    );
+  });
+
+  it("rejects the deployed degraded marker when its visible text is split across elements", async () => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(200, { "Content-Type": "text/html" });
+      response.end("<main>Temporarily <span>unavailable</span></main>");
+    });
+
+    await expect(smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger })).rejects.toThrow(
+      /Public route smoke failed \(healthy\):[\s\S]*returned the degraded marker/u,
+    );
+  });
+
+  it("accepts healthy HTML content with normal media-type casing and parameters", async () => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(200, { "Content-Type": "Text/HTML; Charset=UTF-8" });
+      response.end(
+        '<html><body><script>"Temporarily unavailable"</script><main data-note="Temporarily unavailable">Service unavailable temporarily.</main></body></html>',
+      );
+    });
+
+    await expect(
+      smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger }),
+    ).resolves.toMatchObject({ strictRoutes: expect.any(Array) });
+  });
+
+  it("retries a failed healthy response and validates the successful response metadata", async () => {
+    const attemptsByPath = new Map();
+    const baseUrl = await startRouteServer((request, response) => {
+      const attempts = (attemptsByPath.get(request.url) ?? 0) + 1;
+      attemptsByPath.set(request.url, attempts);
+      if (request.url === "/sales-fees" && attempts === 1) {
+        response.writeHead(503, { "Content-Type": "application/json" });
+        response.end('{"error":"retryable"}');
+        return;
+      }
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end("<main>Healthy public page</main>");
+    });
+
+    await expect(
+      smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 2, retryDelayMs: 1, logger: quietLogger }),
+    ).resolves.toMatchObject({ strictRoutes: expect.any(Array) });
+    expect(attemptsByPath.get("/sales-fees")).toBe(2);
   });
 
   it("is wired into DB-less boot smoke and each issue-scoped deployed workflow", async () => {

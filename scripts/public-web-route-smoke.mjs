@@ -229,6 +229,40 @@ function describeError(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isHtmlContentType(contentType) {
+  return contentType?.split(";", 1)[0].trim().toLowerCase() === "text/html";
+}
+
+function decodeHtmlCharacterReferences(value) {
+  const namedReferences = new Map([
+    ["amp", "&"],
+    ["apos", "'"],
+    ["gt", ">"],
+    ["lt", "<"],
+    ["nbsp", " "],
+    ["quot", '"'],
+  ]);
+  return value.replace(/&(?:#([0-9]+)|#x([0-9a-f]+)|([a-z][a-z0-9]+));/giu, (reference, decimal, hex, name) => {
+    if (name) return namedReferences.get(name.toLowerCase()) ?? reference;
+    const codePoint = Number.parseInt(decimal ?? hex, decimal ? 10 : 16);
+    return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ? String.fromCodePoint(codePoint)
+      : reference;
+  });
+}
+
+function normalizeVisibleHtmlText(html) {
+  const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/iu.exec(html)?.[1] ?? html;
+  return decodeHtmlCharacterReferences(
+    body
+      .replace(/<!--[\s\S]*?-->/gu, " ")
+      .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ")
+      .replace(/<[^>]*>/gu, " "),
+  )
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 async function probeRoute({
   baseUrl,
   route,
@@ -257,11 +291,15 @@ async function probeRoute({
       const body = isStrict ? await response.text() : null;
       if (!isStrict) await response.body?.cancel();
 
+      const contentType = response.headers.get("content-type");
+
       if (response.status >= 500) {
         lastFailure = `${route.path} returned ${response.status} ${response.statusText || "Server Error"}.`;
       } else if (isStrict && response.status !== 200) {
         lastFailure = `${route.path} must return healthy 200, got ${response.status} ${response.statusText}.`;
-      } else if (isStrict && body.includes(degradedMarker)) {
+      } else if (isStrict && !isHtmlContentType(contentType)) {
+        lastFailure = `${route.path} must return HTML content, got '${contentType ?? "missing Content-Type"}'.`;
+      } else if (isStrict && normalizeVisibleHtmlText(body).includes(degradedMarker.replace(/\s+/gu, " ").trim())) {
         lastFailure = `${route.path} returned the degraded marker '${degradedMarker}'.`;
       } else {
         logger.log(`[public-route-smoke] ${route.path} -> ${response.status}${isStrict ? " healthy" : ""}`);
