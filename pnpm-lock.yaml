@@ -1107,6 +1107,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/public-docs':
+        specifier: workspace:*
+        version: link:../../contracts/public-docs
       hono:
         specifier: ^4.12.12
         version: 4.12.18

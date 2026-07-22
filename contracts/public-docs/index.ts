@@ -6,16 +6,18 @@ export type PublicHelpArticlePolicyCitation = Readonly<{
   citedPolicies: readonly string[];
 }>;
 
-export type PublicTermsOfServicePublicationMetadata = Readonly<{
-  policyKey: "terms-of-service";
-  version: `v${number}`;
-  locale: string;
-  href: "/terms";
-  publicationStatus: "counsel-review-required" | "published";
-  effectiveAt: string | null;
-  counselApprovalReference: string | null;
-  rolloutJurisdictionsOrProductLimits: readonly string[];
-}>;
+export {
+  publicPolicyHrefsByKey,
+  publicPolicyKeys,
+  publicPolicyPublicationStatuses,
+  type PublicPolicyHref,
+  type PublicPolicyKey,
+  type PublicPolicyPublicationRecord,
+  type PublicPolicyPublicationStatus,
+  type PublicPolicyVersion,
+  type PublicTermsOfServicePublicationMetadata,
+} from "./policy-corpus";
 
 export { publicHelpArticlePolicyCitations } from "./generated/help-article-policy-citations";
+export { publicPolicyPublicationRecords } from "./generated/index";
 export { publicTermsOfServicePublicationMetadata } from "./generated/terms-of-service-publication";

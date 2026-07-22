@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "react-router dev",
-    "prebuild": "pnpm --filter @chase-sets/public-presence run compile:terms-of-service && pnpm --filter @chase-sets/public-presence run compile:help-articles && pnpm --filter @chase-sets/public-presence run compile:developer-articles",
+    "prebuild": "pnpm --filter @chase-sets/public-presence run compile:public-policies && pnpm --filter @chase-sets/public-presence run compile:help-articles && pnpm --filter @chase-sets/public-presence run compile:developer-articles",
     "build": "node ../../scripts/react-router-build.mjs",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
