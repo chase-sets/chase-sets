@@ -86,7 +86,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.compare.chaseSets.availability":
     "Prelaunch. Beta invite waves begin {betaWavesWindow}; signup opens to everyone on {publicLaunchDate}.",
   "publicPresence.compare.chaseSets.coverage":
-    "Five games at launch — Magic: The Gathering, Pokemon (English and Japanese), Yu-Gi-Oh!, Disney Lorcana, and One Piece — with curated catalogs covering raw and graded cards.",
+    "Five games at launch: Magic: The Gathering, Pokemon (English and Japanese), Yu-Gi-Oh!, Disney Lorcana, and One Piece. Curated catalogs cover raw and graded cards.",
   "publicPresence.compare.chaseSets.feeLock":
     "Every listing locks its fee the moment you create it. Later schedule changes never raise the fee on an existing listing.",
   "publicPresence.compare.chaseSets.payouts":
@@ -94,7 +94,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.compare.chaseSets.processing":
     "No separate seller payment-processing fee. Card processing is buyer-side at checkout and $0 when buyers pay with Chase Sets balance.",
   "publicPresence.compare.chaseSets.protection":
-    "Order Protection is included on every order and never itemized as a separate buyer fee.",
+    "Order Protection is included on every order. It's never itemized as a separate buyer fee.",
   "publicPresence.compare.chaseSets.sellerFees.fallback":
     "One published standard schedule with a per-item cap, locked at listing time. Current numbers are on the marketplace sales fees page.",
   "publicPresence.compare.chaseSets.sellerFees.live":
@@ -107,7 +107,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.compare.ebay.description":
     "A dated, sourced seller comparison: fees, payment processing, protection, payout timing, and catalog coverage side by side, plus a calculator that runs your own sale across both fee schedules. Chase Sets is prelaunch, and this page says so plainly.",
   "publicPresence.compare.ebay.faq.competitorFees.answer":
-    "As of {asOf}, eBay's published trading-cards fees for sellers without a store are a {finalValueFeeRate} final value fee on the portion of a sale up to {tierThreshold} and {aboveTierRate} above it, with payment processing included, plus a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}). Store subscriptions, optional listing upgrades, and promoted listings can change what a seller pays.",
+    "As of {asOf}, eBay's published trading-cards fees for sellers without a store are a {finalValueFeeRate} final value fee on the portion of a sale up to {tierThreshold}, plus {aboveTierRate} above it. Payment processing is included. There's also a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}). Store subscriptions, optional listing upgrades, and promoted listings can change what a seller pays.",
   "publicPresence.compare.ebay.faq.competitorFees.question": "How much does eBay charge to sell trading cards?",
   "publicPresence.compare.ebay.feeLock":
     "Final value fees are charged at sale time at the rate then in effect. eBay does not publish a listing-time fee lock.",
@@ -118,16 +118,16 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.compare.ebay.processing":
     "Payment processing is included in the final value fee; the per-order fee still applies to every order.",
   "publicPresence.compare.ebay.protection":
-    "eBay Money Back Guarantee covers eligible orders under its published policy.",
+    "eBay's Money Back Guarantee covers eligible orders. See eBay's published policy for details.",
   "publicPresence.compare.ebay.sellerFees":
-    "{finalValueFeeRate} trading-cards final value fee on the portion of a sale up to {tierThreshold} and {aboveTierRate} above it, plus a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}), non-store rate, per eBay's published fee schedule as of {asOf}.",
+    "{finalValueFeeRate} trading-cards final value fee on the portion of a sale up to {tierThreshold}, plus {aboveTierRate} above it. Add a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}), non-store rate, per eBay's published fee schedule as of {asOf}.",
   "publicPresence.compare.ebay.title": "Chase Sets vs eBay for selling trading cards",
   "publicPresence.compare.eyebrow": "Honest comparison",
   "publicPresence.compare.faq.chaseSetsFees.answer":
     "Chase Sets publishes one standard seller fee schedule: a percentage of the item price with a per-item cap, and no separate seller payment-processing fee. Every listing locks its fee the moment it is created. The calculator on this page loads the current numbers live from the published schedule.",
   "publicPresence.compare.faq.chaseSetsFees.question": "What does Chase Sets charge sellers?",
   "publicPresence.compare.faq.keepMore.answer":
-    "It depends on the sale price and order size, so run your own numbers: the calculator on this page applies each marketplace's published schedule to the same order, rounding competitor fees down in the competitor's favor. Listings created during a founder's 60-day window lock 0% seller fees until they sell.",
+    "It depends on the sale price and order size, so run your own numbers. The calculator on this page applies each marketplace's published schedule to the same order, rounding competitor fees down in the competitor's favor. Listings created during a founder's 60-day window lock 0% seller fees until they sell.",
   "publicPresence.compare.faq.keepMore.question": "Will I keep more of the sale on Chase Sets than on {competitor}?",
   "publicPresence.compare.faq.title": "Questions sellers ask",
   "publicPresence.compare.honesty.title": "Where {competitor} is ahead today",
@@ -163,7 +163,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.compare.tcgplayer.payouts": "Seller payouts follow TCGplayer's published payment schedule.",
   "publicPresence.compare.tcgplayer.processing":
     "Sellers pay {processingRate} + {processingFixed} payment processing per order on top of the commission.",
-  "publicPresence.compare.tcgplayer.protection": "TCGplayer's published Buyer Safeguard policy covers eligible orders.",
+  "publicPresence.compare.tcgplayer.protection":
+    "TCGplayer's Buyer Safeguard policy covers eligible orders. The policy is published by TCGplayer.",
   "publicPresence.compare.tcgplayer.sellerFees":
     "{commissionRate} marketplace commission, capped at {commissionCap} per item, for standard marketplace sellers, per TCGplayer's published fee schedule as of {asOf}.",
   "publicPresence.compare.tcgplayer.title": "Chase Sets vs TCGplayer for selling trading cards",
@@ -171,8 +172,7 @@ export const publicPresenceEnglishTranslations = {
     "The fee lock is a platform primitive: every listing keeps the fee captured when it was created. There is no separate seller payment-processing line, Order Protection is included on every order, and listings created during a founder's 60-day window lock 0% seller fees until they sell.",
   "publicPresence.compare.why.title": "Why sellers join Chase Sets anyway",
   "publicPresence.faq.all": "Read every FAQ",
-  "publicPresence.faq.description":
-    "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
+  "publicPresence.faq.description": "Quick, plain answers about buying, selling, fees, and protection.",
   "publicPresence.faq.fees.answer":
     "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers pay only payment processing at cost, shown before payment: {checkoutCardRate} + {checkoutCardFixed} by card, {checkoutBankRate} by bank account, $0.00 with Chase Sets balance.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
@@ -180,14 +180,14 @@ export const publicPresenceEnglishTranslations = {
     "Not yet. Chase Sets opens to everyone on {publicLaunchDate}, and beta invite waves begin {betaWavesWindow}. Join the waitlist for an invite before launch and founders offer eligibility.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
-    "Before payment, checkout shows item details, seller profile, shipping, return options, and support coverage. After purchase, support reviews tracking, payment status, listing evidence, and account context.",
+    "Before you pay, checkout shows item details, seller profile, shipping, and return options. After you buy, support reviews tracking, payment status, and order details.",
   "publicPresence.faq.safety.question": "How are purchases protected?",
   "publicPresence.faq.shipping.answer":
     "Checkout shows shipping method, estimate, and items from the same seller. The Collector Shipping Credit puts 5% of item value toward shipping before payment. The Accepted Offer Rebate gives sellers who accept offers a 5% shipping rebate.",
   "publicPresence.faq.shipping.question": "How does shipping work?",
   "publicPresence.faq.title": "Marketplace questions",
   "publicPresence.footer.description":
-    "Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and protection rules while public checkout remains gated.",
+    "Public policies cover privacy, support, checkout, fees, refunds, returns, and protection. Checkout itself isn't open yet.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
     "Request early access to post open offers for the cards you want, or list yours with 0% fees during beta. Built for people who buy and sell.",
@@ -231,10 +231,10 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.finalCta.point.foundingBadge":
     "First 500 founders: your numbered badge is claimed by your first listing or offer, and locks 0% seller fees for 60 days.",
   "publicPresence.home.finalCta.point.buyers":
-    "Collectors get item, account, shipping, return, support, and shipping-credit details before checkout.",
+    "Collectors see item, account, and shipping details before checkout. Return, support, and shipping-credit details are included too.",
   "publicPresence.home.finalCta.point.sellers":
     "Founding sellers get input on bulk listing, pricing, fulfillment, beta fee-lock rules, and offer rebates.",
-  "publicPresence.home.finalCta.point.terms": "Public policies stay visible before marketplace transactions open.",
+  "publicPresence.home.finalCta.point.terms": "Public policies stay visible before you pay.",
   "publicPresence.home.finalCta.title": "Help shape the founding seller wave",
   "publicPresence.home.foundersOffer.action": "Read the founders offer terms",
   "publicPresence.home.foundersOffer.badge": "Capped at 500 founders",
@@ -283,8 +283,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.buyerHero.highlight.shippingCredit.value": "Earn 5% of item value toward shipping",
   "publicPresence.home.buyerHero.highlight.setCompletion.label": "Set completion",
   "publicPresence.home.buyerHero.highlight.setCompletion.value": "Find the cards that finish your sets",
-  "publicPresence.home.heroImageAlt":
-    "Trading cards being sorted, priced, and prepared for shipment on an account workspace.",
+  "publicPresence.home.heroImageAlt": "Trading cards being sorted, priced, and prepared for shipment.",
   "publicPresence.home.launchTimeline.action": "Get in line for a beta wave",
   "publicPresence.home.launchTimeline.description":
     "Chase Sets opens to everyone on {publicLaunchDate}. Numbered beta invite waves begin {betaWavesWindow}, and invites go to the waitlist first.",
@@ -301,7 +300,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.launchTimeline.step.waves.description":
     "Wave 1: {waveOneInviteCount} invites. Wave 2: {waveTwoInviteCount} invites. Wave 3: {waveThreeInviteCount} invites. Each wave opens only after marketplace checks pass.",
   "publicPresence.home.launchTimeline.step.waves.gates":
-    "Later waves wait for checkout failures below 2%, near-real-time projections, and support load within a solo operator's capacity.",
+    "Later waves open once checkout, shipping, and support are running smoothly for the accounts already in.",
   "publicPresence.home.launchTimeline.step.waves.qualification":
     "A qualified Wave 1 seller chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range. Signup alone does not qualify.",
   "publicPresence.home.launchTimeline.title": "When can I use Chase Sets?",
@@ -310,7 +309,7 @@ export const publicPresenceEnglishTranslations = {
     "The same request becomes a priced offer against the real catalog entry, visible to every matching seller.",
   "publicPresence.home.openOffers.after.offerCard.amount": "$140.00",
   "publicPresence.home.openOffers.after.offerCard.details":
-    "Catalog-backed identity, buyer price, and shipping destination are set before any seller sees it.",
+    "The exact card, price, and shipping destination are locked in before any seller sees it.",
   "publicPresence.home.openOffers.after.offerCard.status": "Sample offer • visible to matching sellers",
   "publicPresence.home.openOffers.after.offerCard.title": "Charizard ex — Special Illustration Rare",
   "publicPresence.home.openOffers.after.point.accept":
@@ -331,7 +330,7 @@ export const publicPresenceEnglishTranslations = {
     "If it goes wrong, the group can only remove the post after the fact.",
   "publicPresence.home.openOffers.before.title": "Social card groups",
   "publicPresence.home.openOffers.description":
-    "Buyers already post “looking for” requests in card groups and hope a stranger notices. Chase Sets turns that into a real, catalog-backed offer any matching seller can accept.",
+    "Buyers already post “looking for” requests in card groups and hope a stranger notices. Chase Sets turns that into a real offer any matching seller can accept.",
   "publicPresence.home.openOffers.step.accept": "Any seller with a matching card can accept it, at your price.",
   "publicPresence.home.openOffers.step.checkout":
     "Acceptance becomes a real order — checkout fee and shipping shown before payment.",
@@ -361,9 +360,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.comparison.row.youKeep.label": "You keep",
   "publicPresence.home.sellerEconomics.comparison.row.youKeep.tcgplayer": "$8.38",
   "publicPresence.home.sellerEconomics.comparison.sourceNote":
-    "TCGplayer and eBay figures use each marketplace's own published seller-fee schedule, applied to a $10.00 item price before shipping or tax, as of July 2026, with cents rounded down in each marketplace's favor. Chase Sets figures reflect the 0% beta seller fee lock with no separate seller payment-processing fee.",
+    "TCGplayer and eBay figures use each marketplace's own published seller-fee schedule. Both apply to a $10.00 item price before shipping or tax, as of July 2026, with cents rounded down in each marketplace's favor. Chase Sets figures reflect the 0% beta seller fee lock with no separate seller payment-processing fee.",
   "publicPresence.home.sellerEconomics.comparison.title": "The same $10 card, three marketplaces",
-  "publicPresence.home.sellerEconomics.math.description": "Founder example before shipping and protection allowance.",
+  "publicPresence.home.sellerEconomics.math.description": "Founder example before shipping and protection costs.",
   "publicPresence.home.sellerEconomics.math.item": "Buyer item price",
   "publicPresence.home.sellerEconomics.math.item.value": "$10.00",
   "publicPresence.home.sellerEconomics.math.processingFee": "Seller-side processing",
@@ -376,13 +375,13 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.total": "Seller net before shipping",
   "publicPresence.home.sellerEconomics.math.total.value": "$10.00",
   "publicPresence.home.sellerEconomics.math.graded.description":
-    "A larger founder example before shipping and protection allowance.",
+    "A larger founder example before shipping and protection costs.",
   "publicPresence.home.sellerEconomics.math.graded.item": "Graded card sale price",
   "publicPresence.home.sellerEconomics.math.graded.item.value": "$100.00",
   "publicPresence.home.sellerEconomics.math.graded.processingFee": "Seller-side processing",
   "publicPresence.home.sellerEconomics.math.graded.processingFee.value": "None",
   "publicPresence.home.sellerEconomics.math.graded.reassurance":
-    "Founders keep the sale price before shipping and protection allowance.",
+    "Founders keep the sale price before shipping and protection costs.",
   "publicPresence.home.sellerEconomics.math.graded.sellerFee": "Founder seller fee",
   "publicPresence.home.sellerEconomics.math.graded.sellerFee.value": "$0.00",
   "publicPresence.home.sellerEconomics.math.graded.title": "$100 graded-card founder math",
@@ -393,42 +392,42 @@ export const publicPresenceEnglishTranslations = {
     "Join the seller wave and help shape how these tools work with real inventories.",
   "publicPresence.home.sellerTools.cta.title": "Ready to stop pricing in a spreadsheet?",
   "publicPresence.home.sellerTools.description":
-    "Chase Sets connects market signals to seller decisions: less spreadsheet maintenance, more control over the margin and inventory you actually manage.",
+    "Chase Sets turns market data into pricing decisions — less spreadsheet work, more control over your margin and inventory.",
   "publicPresence.home.sellerTools.comingToBeta": "Coming to beta",
   "publicPresence.home.sellerTools.market.description":
-    "Market tape, rollups, and charts turn completed sales into price history, market estimates, and collection value signals.",
+    "Completed sales turn into price history and market estimates. See your collection value without a spreadsheet.",
   "publicPresence.home.sellerTools.market.point.collection": "Track collection value as market estimates move.",
   "publicPresence.home.sellerTools.market.point.fairness":
-    "Buyer-facing market context helps prices stay easier to understand.",
-  "publicPresence.home.sellerTools.market.point.history": "Price history stays close to the catalog item.",
+    "Buyers see the same market context you do, so prices make sense at a glance.",
+  "publicPresence.home.sellerTools.market.point.history": "See price history right on the card's page.",
   "publicPresence.home.sellerTools.market.title": "See the market behind every card",
   "publicPresence.home.sellerTools.live": "Available now",
   "publicPresence.home.sellerTools.repricing.description":
-    "A repricing policy can follow a market anchor while respecting the floor you control, with changes previewed and auditable before it acts.",
+    "Set a price floor, then let Chase Sets track the market for you. Every change previews before it goes live.",
   "publicPresence.home.sellerTools.repricing.point.anchor":
-    "Choose a market anchor and let the strategy follow signals continuously.",
+    "Pick a reference price, and Chase Sets keeps your listing priced to match the market.",
   "publicPresence.home.sellerTools.repricing.point.floor":
-    "Hard floors keep a market move from pushing below the price you accept.",
+    "Set a floor price. Chase Sets never prices your card below it.",
   "publicPresence.home.sellerTools.repricing.point.preview":
-    "Preview proposed changes and keep an audit trail of what moved.",
-  "publicPresence.home.sellerTools.repricing.title": "Set a strategy once. Keep prices in context.",
+    "Preview every price change before it goes live, and see exactly what changed.",
+  "publicPresence.home.sellerTools.repricing.title": "Set your rules once. Prices stay current automatically.",
   "publicPresence.home.sellerTools.scale.description":
-    "Bulk repricing and agent-ready APIs give high-volume sellers a path beyond one-card-at-a-time work, with the same policy and market facts underneath.",
-  "publicPresence.home.sellerTools.scale.point.api": "API-ready foundations for seller workflows and agents.",
-  "publicPresence.home.sellerTools.scale.point.bulk": "A bulk on-ramp for importing and managing large price sets.",
-  "publicPresence.home.sellerTools.scale.point.inventory": "Designed for six-figure inventories.",
+    "Bulk pricing tools and an API help high-volume sellers move past one-card-at-a-time work.",
+  "publicPresence.home.sellerTools.scale.point.api": "An API for sellers who want to automate pricing.",
+  "publicPresence.home.sellerTools.scale.point.bulk": "Import and manage large inventories in bulk.",
+  "publicPresence.home.sellerTools.scale.point.inventory": "Built for sellers with six-figure inventories.",
   "publicPresence.home.sellerTools.scale.title": "From spreadsheet scale to a native workflow",
   "publicPresence.home.sellerTools.title": "Seller tools that follow the market",
   "publicPresence.home.title": "The marketplace that works both ways.",
   "publicPresence.home.buyerHero.title": "The cards you need, with the full picture before you pay.",
   "publicPresence.home.trust.description":
-    "Chase Sets is still prelaunch. The trust proof available now is public policy clarity, visible support, no live transaction pressure, and payment plans that keep totals visible before money moves.",
+    "Chase Sets is still prelaunch, so nothing here processes a real payment yet. What you can check today: public policies, real support, and totals shown before you'd ever pay.",
   "publicPresence.home.trust.payment.description":
-    "Payments use secure provider-backed flows and visible totals before money moves.",
+    "Payments run through a secure, verified provider, with totals shown before any money moves.",
   "publicPresence.home.trust.payment.title": "Payment clarity",
   "publicPresence.home.trust.policies.description":
     "Prelaunch terms, privacy, refund, return, order protection, and marketplace sales fee pages are public.",
-  "publicPresence.home.trust.title": "Trust and status before early access",
+  "publicPresence.home.trust.title": "What you can verify before you sign up",
   "publicPresence.help.article.meta.title": "{title} | Chase Sets Help",
   "publicPresence.help.articleCount": "Articles: {count}",
   "publicPresence.help.audience.buyer.description":
@@ -599,7 +598,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.sellerFees": "Marketplace sales fees",
   "publicPresence.nav.terms": "Terms",
   "publicPresence.preview.section.description":
-    "Sample UI showing how price, seller profile, condition, shipping, earned shipping credit, card processing, returns, and order protection stay together before checkout.",
+    "A sample of what checkout shows: price, seller profile, condition, and shipping. Earned shipping credit, card processing, returns, and order protection stay together too.",
   "publicPresence.preview.section.title": "Preview the buying experience",
   "publicPresence.preview.listing.badge": "Sample listing",
   "publicPresence.preview.listing.title": "Pikachu Illustration Rare",
@@ -612,7 +611,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.listing.availability.value": "Sample: 3 available",
   "publicPresence.preview.listing.condition.value": "Raw Near Mint",
   "publicPresence.preview.listing.description":
-    "Pokemon Scarlet & Violet 151, 173/165 Illustration Rare, English. Condition, seller history, shipping estimate, return options, and support coverage stay with the listing.",
+    "Pokemon Scarlet & Violet 151, 173/165 Illustration Rare, English. Condition, seller history, shipping, returns, and support stay with the listing.",
   "publicPresence.preview.listing.imageAlt": "Sample Pikachu 173/165 Illustration Rare Pokemon card.",
   "publicPresence.preview.listing.price.detail": "Raw market estimate",
   "publicPresence.preview.listing.price.explanation":
@@ -635,7 +634,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.total.cardProcessing.value": "{checkoutCardFee} · $0 with Chase Sets balance",
   "publicPresence.preview.total.due": "Estimated order total",
   "publicPresence.preview.total.due.value": "{checkoutCardTotal}",
-  "publicPresence.preview.total.protectionCaption": "Every order includes Order Protection.",
+  "publicPresence.preview.total.protectionCaption": "Order Protection comes with every order.",
   "publicPresence.preview.total.protectionLink": "Read the protection policy",
   "publicPresence.preview.total.tax": "Tax",
   "publicPresence.preview.total.tax.value": "$0.00 in this sample",
@@ -647,10 +646,10 @@ export const publicPresenceEnglishTranslations = {
     "Provider-backed checkout confirms the final charge before you pay. Card processing is {checkoutCardRate} + {checkoutCardFixed}, shown before payment; paying with Chase Sets balance makes it $0.",
   "publicPresence.preview.trust.payment.title": "Secure payment review",
   "publicPresence.preview.trust.shipping.description":
-    "One combined Shipping line shows any buyer overflow after the shipping allowance. Higher-value orders can qualify for shipping covered by the allowance; protection included.",
+    "One combined Shipping line covers shipping and Order Protection together. On higher-value orders, that line can run a little higher.",
   "publicPresence.preview.trust.shipping.title": "Shipping credit",
   "publicPresence.preview.trust.support.description":
-    "Support reviews tracking, payment status, seller details, listing evidence, and return options.",
+    "Support reviews tracking and payment status. They also check seller details, listing evidence, and return options.",
   "publicPresence.preview.trust.support.title": "Support context",
   "publicPresence.preview.trust.title": "Signals before payment",
   "publicPresence.promoBar.action.activated": "Promo bar message activated.",
@@ -745,7 +744,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.email.placeholder": "you@example.com",
   "publicPresence.waitlist.error.title": "Waitlist signup failed",
   "publicPresence.waitlist.formDescription":
-    "Tell us your marketplace intent and first priority so invites reach the right accounts first.",
+    "Tell us whether you buy, sell, or both, and what matters most — invites go to the right people first.",
   "publicPresence.waitlist.formTitle": "Request early access",
   "publicPresence.waitlist.gamePrefill": "We'll note this as your game. Adjust anytime after signup.",
   "publicPresence.waitlist.game.disneyLorcana": "Disney Lorcana",
@@ -777,13 +776,13 @@ export const publicPresenceEnglishTranslations = {
     "Finding the cards needed to finish collections or decks.",
   "publicPresence.waitlist.interests": "First priority",
   "publicPresence.waitlist.interests.description": "Choose the workflow you would use first.",
-  "publicPresence.waitlist.noCommitment": "No live marketplace transactions are available during prelaunch.",
+  "publicPresence.waitlist.noCommitment": "No live transactions happen during prelaunch.",
   "publicPresence.waitlist.sellerInventory.description":
     "Optional, sellers only: helps us measure real inventory behind the waitlist, not just interest.",
   "publicPresence.waitlist.sellerInventory.title": "Tell us about your inventory",
   "publicPresence.waitlist.storeUrl.label": "Store link",
   "publicPresence.waitlist.storeUrl.placeholder": "https://",
-  "publicPresence.waitlist.role": "Marketplace intent",
+  "publicPresence.waitlist.role": "What do you want to do?",
   "publicPresence.waitlist.role.both": "Purchase and sell",
   "publicPresence.waitlist.role.buy": "Purchase cards",
   "publicPresence.waitlist.role.sell": "List cards",
@@ -831,6 +830,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.whatNext.point.founders":
     "Beta access starts your 60-day 0% window. Your first listing or offer claims your numbered founder badge while numbers remain.",
   "publicPresence.welcome.whatNext.point.review":
-    "We review signups by role, interest, and referral activity as beta invite waves open.",
+    "We review signups by role, interest, and referral activity. This happens as beta invite waves open.",
   "publicPresence.welcome.whatNext.title": "What happens next",
 } as const;

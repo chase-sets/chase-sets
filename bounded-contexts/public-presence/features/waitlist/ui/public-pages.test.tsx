@@ -283,7 +283,7 @@ describe("public waitlist form migration smoke", () => {
     expect(previewSection.textContent).not.toMatch(/quoted before payment/i);
     expect(previewSection.textContent).not.toContain("At checkout");
     expect(previewSection.textContent).toContain("$0 with Chase Sets balance");
-    expect(previewSection.textContent).toContain("Every order includes Order Protection.");
+    expect(previewSection.textContent).toContain("Order Protection comes with every order.");
     expect(previewSection.querySelector('a[href="/order-protection"]')).not.toBeNull();
     expect(previewSection.textContent).not.toContain("Order protectionIncluded");
   });
