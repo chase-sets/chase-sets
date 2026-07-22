@@ -174,14 +174,16 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           PROJECTION_CONVERGENCE_BUDGET_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_BUDGET_MS || '300000' }}
           PROJECTION_CONVERGENCE_POLL_INTERVAL_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS || '5000' }}
-          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}
+          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}
         run: |
           set -euo pipefail
           gate_out=artifacts/wake-drills/route-matrix-projection-convergence-gate.json
           # Bounded convergence gate (issues #4709/#4721, same mode the deploy
-          # probes use): wait for staging projections to report caught-up after
-          # any recent rollout before driving samples. Timing gate only; the
-          # samples and evidence still fail loudly on steady-state breaches.
+          # probes use): wait for the checkout sample's exact durable dependency
+          # to report caught-up after any recent rollout before driving samples.
+          # Unrelated degraded projections remain diagnostic and do not delay this
+          # route-scoped evidence. Timing gate only; the samples and evidence still
+          # fail loudly on steady-state breaches.
           set +e
           pnpm run guest-buy-now:freshness-probe -- \
             --convergence-gate \
@@ -193,7 +195,7 @@ jobs:
             --out "$gate_out"
           gate_exit=$?
           set -e
-          converged="$(jq -r '.gate.converged // "unknown"' "$gate_out" 2>/dev/null || echo unknown)"
+          converged="$(jq -r 'if .gate.converged == null then "unknown" else (.gate.converged | tostring) end' "$gate_out" 2>/dev/null || echo unknown)"
           converged_after_ms="$(jq -r '.gate.convergedAfterMs // "did not converge"' "$gate_out" 2>/dev/null || echo unknown)"
           lagging="$(jq -r '(.gate.final.laggingGroups // []) | join(", ")' "$gate_out" 2>/dev/null || echo "")"
           {
