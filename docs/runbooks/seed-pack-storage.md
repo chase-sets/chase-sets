@@ -16,25 +16,38 @@ The provider constraint is `digitalocean/digitalocean ~> 2.85`; `hashicorp/setup
 
 ## Apply Window
 
-Use an owner-attended window with no concurrent seed-pack Terraform run. For the first apply, schedule the operator session immediately after this repository change merges and before the next daily `Platform Terraform State Snapshot` run at 09:23 UTC; the durable-state inventory includes `seed-packs/shared.tfstate` once the repository change lands. Prefer the `Platform Seed Packs Apply` workflow: run `mode=plan` at the exact intended commit, review the artifact for exactly three creates (the private versioned bucket and two bucket-scoped `readwrite` keys), then run `mode=apply` with confirmation `apply seed-packs`. The apply job repeats that exact plan and runs both access probes before it succeeds.
+Use an owner-attended window with no concurrent seed-pack Terraform run. For the first apply, schedule the operator session immediately after this repository change merges and before the next daily `Platform Terraform State Snapshot` run at 09:23 UTC; the durable-state inventory includes `seed-packs/shared.tfstate` once the repository change lands.
 
-For a local operator session from `infrastructure/digitalocean/seed-packs`:
+The `Platform Seed Packs Apply` workflow has two disjoint operations:
+
+1. On `main`, copy the exact current 40-character lowercase commit SHA. Dispatch `mode=plan` with that SHA as `release_ref` and confirmation `plan seed-packs`. The workflow rejects mutable refs and refuses to plan unless its own `main` workflow commit is that exact SHA.
+2. Download `seed-packs-reviewed-plan-<run-id>-<run-attempt>`. Review `reviewed-plan.txt` for exactly three creates (the private versioned bucket and two bucket-scoped `readwrite` keys), no other changes, no public ACL, and no unexpected lifecycle rule. Cross-check `provenance.json` and the job summary: repository, workflow path/ref, source run/attempt, release commit/ref, `production` approval environment, Terraform root, state key, Terraform version, and configuration/lock/backend/review/apply-payload digests must all be present. Record the source run ID, run attempt, and the `sha256:` GitHub artifact digest from the summary.
+3. Within 24 hours, dispatch `mode=apply` with the same exact `release_ref`, the recorded reviewed run ID, run attempt, artifact digest, and confirmation `apply seed-packs`. Approve the `production` job only when those inputs name the artifact just reviewed. Missing inputs, mutable or mismatched commits, another repository/workflow/branch, a failed or non-dispatch source run, another attempt, an expired or stale artifact, and any artifact/provenance/configuration digest mismatch all fail before Terraform can apply.
+
+The apply operation downloads only that named artifact from this repository and source run. It authenticates and decrypts the saved binary payload, initializes the backend, and executes `terraform apply` against that file. It never runs `terraform plan`. A changed Terraform state makes Terraform reject the saved plan as stale; provider observations that changed after planning cannot be folded into a fresh unreviewed plan. Stop and create a new plan run instead of bypassing either failure.
+
+For repository-only validation from `infrastructure/digitalocean/seed-packs`, keep the backend disabled and providers mocked:
 
 ```sh
-cp backend.hcl.example backend.hcl
-terraform init -reconfigure -backend-config=backend.hcl
-terraform plan -out=tfplan
-terraform show -no-color tfplan
-terraform apply tfplan
+terraform init -backend=false
+terraform fmt -check -recursive
+terraform validate
+terraform test
 ```
 
-Expected first apply: `3 to add, 0 to change, 0 to destroy`. Stop on any other resource count, any public ACL, a grant whose bucket is not `cs-dev-seed-packs`, or any current-object age expiration.
+Do not perform a local provider plan/apply for this change. Todd-only operator issue #5951 owns the terminal workflow plan review, production approval, apply, live probes, and scoped-key provisioning. Expected first apply remains `3 to add, 0 to change, 0 to destroy`. Stop on any other resource count, any public ACL, a grant whose bucket is not `cs-dev-seed-packs`, or any current-object age expiration.
+
+## Reviewed Plan Protection
+
+Terraform binary plans can contain cleartext sensitive values. The plan operation therefore deletes the plaintext binary before artifact upload and retains only secret-safe `reviewed-plan.txt`, authenticated `provenance.json`, and `apply-payload.enc`. The payload uses AES-256-GCM with an HKDF-derived key rooted in the already-authorized `SPACES_SECRET_KEY`; no new secret or operator provisioning step is required. The encryption material is step-local and never printed. Exact credential values are checked against the review text before upload.
+
+GitHub's immutable artifact digest binds the three uploaded files. The provenance bytes are authenticated as encryption associated data, and the decrypted payload digest must match the reviewed provenance before the temporary binary is written. The apply step deletes that temporary file on success or failure. Tampering, a wrong authorized secret, a substituted bundle or payload, or decryption failure stops before provider mutation.
 
 ## Provider Acceptance and Access Probes
 
 After apply, create a disposable object with each scoped key. For each key, request that exact object without authentication and require HTTP `403` with `AccessDenied`. Then use the scoped key against `chase-sets-terraform-state` and require an `AccessDenied` response. Delete the disposable object before ending the window. The apply workflow performs this sequence for both keys without printing their values.
 
-These live probes remain operator evidence. Terraform validation, provider-schema inspection, and a `-refresh=false` fixture plan do not prove DigitalOcean accepted the bucket, lifecycle, or grant contract.
+These live probes remain operator evidence queued in #5951. Terraform validation, provider-schema inspection, and a backend-disabled mocked plan do not prove DigitalOcean accepted the bucket, lifecycle, or grant contract; do not claim provider acceptance until #5951 records the real responses.
 
 ## Secret Handoff
 
@@ -60,4 +73,4 @@ Build `delete-request.json` from the reviewed exact key list, never from an unbo
 
 Before apply, rollback is no-op. After bucket creation, keep the private bucket and revoke either scoped key with `terraform destroy -target=digitalocean_spaces_key.<dev|ci>` only when access must end immediately; remove its destination secrets in the same window. Do not destroy the bucket or bypass `prevent_destroy`. For an erroneous grant, revoke the affected key first, correct source, and apply a replacement.
 
-Post on #5874: exact commit and workflow run, redacted plan summary, provider version, bucket/versioning/lifecycle outputs, both unauthenticated `403` results, both cross-bucket `AccessDenied` results, destination names updated (never values), rollback status, and current Space usage against the 5 GiB bound.
+Post the terminal operator evidence on #5951 and cross-link it from #5874: exact commit, reviewed plan run/attempt/artifact digest, apply run, redacted plan summary, provider version, bucket/versioning/lifecycle outputs, both unauthenticated `403` results, both cross-bucket `AccessDenied` results, destination names updated (never values), rollback status, and current Space usage against the 5 GiB bound.

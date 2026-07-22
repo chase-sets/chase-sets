@@ -17,6 +17,11 @@ const providerToolRequirements = [
     pattern: /(?:^|[\s;&|$(])aws(?=\s|$)/m,
     requiredEnv: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
   },
+  {
+    tool: "reviewed-plan",
+    pattern: /(?:^|[\s;&|$(])node\s+scripts\/terraform-reviewed-plan\.mjs\s+(?:seal|open)(?=\s|$)/m,
+    requiredEnv: ["PLAN_ENCRYPTION_SECRET"],
+  },
 ];
 
 const terraformProviderOperationPattern = /(?:^|[\s;&|$(])terraform\s+(?:-[^\s]+\s+)*(?:plan|apply)(?=\s|$)/m;

@@ -2396,9 +2396,15 @@ describe("Seed Pack storage root (issue #5874)", () => {
     expect(seedRunbook).toContain("Do not add them to `staging` or `production`");
   });
 
-  it("wires plan/apply, live privacy/isolation probes, rotation, and revocation deletion", () => {
-    expect(seedWorkflow).toContain("terraform plan -out=tfplan");
-    expect(seedWorkflow).toContain("terraform apply -auto-approve tfplan");
+  it("binds the reviewed encrypted plan payload to apply and wires live privacy/isolation probes", () => {
+    expect(seedWorkflow).toContain('plan -out="$binary_plan"');
+    expect(seedWorkflow).toContain('apply -auto-approve "$decrypted_plan"');
+    expect(seedWorkflow).toContain("reviewed_plan_run_id:");
+    expect(seedWorkflow).toContain("reviewed_plan_run_attempt:");
+    expect(seedWorkflow).toContain("reviewed_plan_artifact_digest:");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs seal");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs verify-source");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs open");
     expect(seedWorkflow).toContain("probe_key dev dev_spaces_access_id dev_spaces_secret_key");
     expect(seedWorkflow).toContain("probe_key ci ci_spaces_access_id ci_spaces_secret_key");
     expect(seedWorkflow).toContain('status" != "403"');
@@ -2407,6 +2413,6 @@ describe("Seed Pack storage root (issue #5874)", () => {
     expect(seedRunbook).toContain("terraform apply -replace=digitalocean_spaces_key.dev");
     expect(seedRunbook).toContain("terraform apply -replace=digitalocean_spaces_key.ci");
     expect(seedRunbook).toContain("aws s3api delete-objects");
-    expect(seedRunbook).toContain("Post on #5874");
+    expect(seedRunbook).toContain("Post the terminal operator evidence on #5951 and cross-link it from #5874");
   });
 });
