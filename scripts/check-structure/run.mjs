@@ -26,6 +26,7 @@ import { validateReadAfterWriteRouteInventory } from "./read-after-write-invento
 import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
+import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
@@ -3363,6 +3364,9 @@ export async function runStructureCheck(options = {}) {
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);
+
+  const browserE2eDisclosureGuardResult = await validateBrowserE2eDisclosureGuard({ repoRoot });
+  violations.push(...browserE2eDisclosureGuardResult.violations);
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
   for (const violation of workspaceTsconfigResult.violations) {
