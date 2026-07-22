@@ -37,6 +37,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Open-Offer Demo Walkthrough](./campaigns/offer-flow-demo.md): the truth-gated 30-second staging capture script and honest TODD creative handoff.
 - [Seller Migration Campaign Assets](./campaigns/seller-migration-assets.md): the #4085 guide, proof walkthrough, #4073 demo-clip handoff, and #4083 admission-mail link.
 - [Brand & Distribution Kit](./campaigns/brand-distribution-kit.md): repo-owned OG/social cards, per-game share links, the /press creator & press fact sheet, claims-gated post templates for the weekly per-game series, and the operator follow-up list for creative assets (#4086).
+- [Discord Founders Circle](./campaigns/discord-founders-circle.md): channel map, roles/permissions, moderation baseline, manual Founder-flair procedure, invite/secret provisioning, and measurement for the founders-circle Discord (#4084, access model ruled by #5893).
 
 ### Contributing
 

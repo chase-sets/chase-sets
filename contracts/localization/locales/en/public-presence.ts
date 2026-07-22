@@ -243,7 +243,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.foundersOffer.point.badge":
     "Claim your numbered founder badge with your first listing or offer — shown publicly on your profile and listings, permanently.",
   "publicPresence.home.foundersOffer.point.community":
-    "Join the founders-circle Discord after your invite and help shape the early community.",
+    "Join the founders-circle Discord anytime and help shape the early community.",
   "publicPresence.home.foundersOffer.point.expiry":
     "The badge and any listings you lock never expire. The 60-day window and the 500 numbers are what run out.",
   "publicPresence.home.foundersOffer.point.input":
@@ -825,7 +825,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.wavePlacement.storeLink.label": "Link your TCGplayer or eBay store",
   "publicPresence.welcome.wavePlacement.storeLink.why": "Sellers with live inventory get earlier waves.",
   "publicPresence.welcome.wavePlacement.title": "Help us place you in the right wave",
-  "publicPresence.welcome.whatNext.point.discord": "Founders circle Discord access follows the first invite waves.",
+  "publicPresence.welcome.whatNext.point.discord":
+    "Join the founders circle on Discord anytime — the private founders-lounge channel unlocks with your Founder role at each admission wave.",
   "publicPresence.welcome.whatNext.point.email": "Invite and founder-badge emails go to the address you gave us.",
   "publicPresence.welcome.whatNext.point.founders":
     "Beta access starts your 60-day 0% window. Your first listing or offer claims your numbered founder badge while numbers remain.",

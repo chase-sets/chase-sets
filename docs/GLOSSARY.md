@@ -105,6 +105,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Qualified Seller Signup | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Sell/both-intent Waitlist Signup with a real Cohort Quality Signal (named game plus inventory-size bucket). |
 | Wave-1 Admission Bar | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Pre-declared campaign pass/fail threshold: qualified sellers, five-game coverage, and overall signup floor. |
 | Campaign Channel Attribution | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Durable per-channel Waitlist Signup breakdown by UTM source/medium/campaign. |
+| Founders Circle | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Open warm-holding Discord community surface with a role-gated `#founders-lounge`, ruled by #5893 option A. |
 | Tax Quote | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
 | Tax Nexus Readiness | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
 | Collection-Required Jurisdiction | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |
