@@ -5,7 +5,11 @@ import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
-import { PolicyArtifactPage, type PolicyArtifactPageCopy } from "./policy-artifact-page";
+import {
+  buildPolicyArtifactPageCopy,
+  PolicyArtifactPage,
+  type PolicyArtifactPageCopyProfile,
+} from "./policy-artifact-page";
 
 /**
  * Machine-readable policy metadata for a corpus route, mirroring the /terms
@@ -29,33 +33,16 @@ export function buildPolicyArtifactMeta(
   ];
 }
 
-/** Shared page chrome for the corpus routes added by the registry slice. */
-export function buildPolicyCorpusPageCopy(
-  artifact: PublicPolicyArtifact,
-  docCopy: Readonly<{ eyebrow: string }>,
-): PolicyArtifactPageCopy {
-  const { metadata } = artifact;
-  return {
-    eyebrow: docCopy.eyebrow,
-    printLabel: t("publicPresence.info.policies.print"),
-    counselPendingTitle: t("publicPresence.info.policies.counselPending.title"),
-    counselPendingDescription: t("publicPresence.info.policies.counselPending.description"),
-    metadataLabel: t("publicPresence.info.policies.metadata.label"),
-    metadataTitle: t("publicPresence.info.policies.metadata.title"),
-    versionText: t("publicPresence.info.policies.metadata.version", { version: metadata.version }),
-    effectiveText:
-      metadata.publicationStatus === "published"
-        ? t("publicPresence.info.policies.metadata.effective", { effectiveAt: metadata.effectiveAt ?? "" })
-        : t("publicPresence.info.policies.metadata.effectivePending"),
-    localeText: t("publicPresence.info.policies.metadata.locale", { locale: metadata.locale }),
-    tocLabel: t("publicPresence.info.policies.toc.label"),
-    tocTitle: t("publicPresence.info.policies.toc.title"),
-    counselRequiredBadge: t("publicPresence.info.policies.section.counselRequired"),
-  };
-}
-
-export function PolicyArtifactRouteAdapter({ artifact, eyebrow }: { artifact: PublicPolicyArtifact; eyebrow: string }) {
-  return <PolicyArtifactPage artifact={artifact} copy={buildPolicyCorpusPageCopy(artifact, { eyebrow })} />;
+export function PolicyArtifactRouteAdapter({
+  artifact,
+  eyebrow,
+  copyProfile = "corpus",
+}: {
+  artifact: PublicPolicyArtifact;
+  eyebrow: string;
+  copyProfile?: PolicyArtifactPageCopyProfile;
+}) {
+  return <PolicyArtifactPage artifact={artifact} copy={buildPolicyArtifactPageCopy(artifact, copyProfile, eyebrow)} />;
 }
 
 export const sellerAgreementMeta: MetaFunction = () =>
@@ -64,13 +51,10 @@ export const sellerAgreementMeta: MetaFunction = () =>
     description: t("publicPresence.routes.sellerAgreement.meta.description"),
   });
 
-export function SellerAgreementRouteAdapter() {
-  return (
-    <PolicyArtifactRouteAdapter
-      artifact={sellerAgreementPolicyArtifact}
-      eyebrow={t("publicPresence.info.sellerAgreement.eyebrow")}
-    />
-  );
+export function SellerAgreementRouteAdapter({
+  artifact = sellerAgreementPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
+  return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.sellerAgreement.eyebrow")} />;
 }
 
 export const paymentsTermsMeta: MetaFunction = () =>
@@ -79,13 +63,10 @@ export const paymentsTermsMeta: MetaFunction = () =>
     description: t("publicPresence.routes.paymentsTerms.meta.description"),
   });
 
-export function PaymentsTermsRouteAdapter() {
-  return (
-    <PolicyArtifactRouteAdapter
-      artifact={paymentsTermsPolicyArtifact}
-      eyebrow={t("publicPresence.info.paymentsTerms.eyebrow")}
-    />
-  );
+export function PaymentsTermsRouteAdapter({
+  artifact = paymentsTermsPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
+  return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.paymentsTerms.eyebrow")} />;
 }
 
 export const agentTermsMeta: MetaFunction = () =>
@@ -94,13 +75,10 @@ export const agentTermsMeta: MetaFunction = () =>
     description: t("publicPresence.routes.agentTerms.meta.description"),
   });
 
-export function AgentTermsRouteAdapter() {
-  return (
-    <PolicyArtifactRouteAdapter
-      artifact={agentConnectorTermsPolicyArtifact}
-      eyebrow={t("publicPresence.info.agentTerms.eyebrow")}
-    />
-  );
+export function AgentTermsRouteAdapter({
+  artifact = agentConnectorTermsPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
+  return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.agentTerms.eyebrow")} />;
 }
 
 export const authenticityTermsMeta: MetaFunction = () =>
@@ -109,11 +87,10 @@ export const authenticityTermsMeta: MetaFunction = () =>
     description: t("publicPresence.routes.authenticityTerms.meta.description"),
   });
 
-export function AuthenticityTermsRouteAdapter() {
+export function AuthenticityTermsRouteAdapter({
+  artifact = authenticityServiceTermsPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
   return (
-    <PolicyArtifactRouteAdapter
-      artifact={authenticityServiceTermsPolicyArtifact}
-      eyebrow={t("publicPresence.info.authenticityTerms.eyebrow")}
-    />
+    <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.authenticityTerms.eyebrow")} />
   );
 }

@@ -13,6 +13,9 @@ import {
 } from "@chase-sets/design-system";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
+import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+
+export type PolicyArtifactPageCopyProfile = "corpus" | "terms-of-service";
 
 export type PolicyArtifactPageCopy = Readonly<{
   eyebrow: string;
@@ -22,12 +25,88 @@ export type PolicyArtifactPageCopy = Readonly<{
   metadataLabel: string;
   metadataTitle: string;
   versionText: string;
-  effectiveText: string;
+  effectivePendingText: string;
+  formatEffectiveText: (effectiveAt: string) => string;
   localeText: string;
   tocLabel: string;
   tocTitle: string;
   counselRequiredBadge: string;
 }>;
+
+type PolicyArtifactPublicationPosture =
+  | Readonly<{ kind: "counsel-pending" }>
+  | Readonly<{ kind: "published"; effectiveAt: string }>;
+
+/**
+ * The sole visible publication-posture mapper. Published artifacts must carry
+ * the effective timestamp that the page promises to show; an internally
+ * contradictory published artifact fails closed instead of rendering stale or
+ * empty effective-date copy.
+ */
+export function resolvePolicyArtifactPublicationPosture(
+  artifact: PublicPolicyArtifact,
+): PolicyArtifactPublicationPosture {
+  const { publicationStatus, effectiveAt } = artifact.metadata;
+  if (publicationStatus !== "published") {
+    return { kind: "counsel-pending" };
+  }
+  if (effectiveAt === null) {
+    throw new Error(`Published policy artifact '${artifact.metadata.policyKey}' requires an effectiveAt timestamp.`);
+  }
+  return { kind: "published", effectiveAt };
+}
+
+/**
+ * Canonical localized copy builder for every artifact-backed policy route.
+ * Pending posture keys live here so route adapters cannot pin a page to the
+ * pre-publication state independently of the artifact.
+ */
+export function buildPolicyArtifactPageCopy(
+  artifact: PublicPolicyArtifact,
+  profile: PolicyArtifactPageCopyProfile,
+  eyebrow: string,
+): PolicyArtifactPageCopy {
+  const { metadata } = artifact;
+  const effectiveCopy = {
+    effectivePendingText:
+      profile === "terms-of-service"
+        ? t("publicPresence.info.terms.metadata.effectivePending")
+        : t("publicPresence.info.policies.metadata.effectivePending"),
+    formatEffectiveText: (effectiveAt: string) => t("publicPresence.info.policies.metadata.effective", { effectiveAt }),
+  };
+
+  if (profile === "terms-of-service") {
+    return {
+      eyebrow,
+      printLabel: t("publicPresence.info.terms.print"),
+      counselPendingTitle: t("publicPresence.info.terms.counselPending.title"),
+      counselPendingDescription: t("publicPresence.info.terms.counselPending.description"),
+      metadataLabel: t("publicPresence.info.terms.metadata.label"),
+      metadataTitle: t("publicPresence.info.terms.metadata.title"),
+      versionText: t("publicPresence.info.terms.metadata.version", { version: metadata.version }),
+      ...effectiveCopy,
+      localeText: t("publicPresence.info.terms.metadata.locale", { locale: metadata.locale }),
+      tocLabel: t("publicPresence.info.terms.toc.label"),
+      tocTitle: t("publicPresence.info.terms.toc.title"),
+      counselRequiredBadge: t("publicPresence.info.terms.section.counselRequired"),
+    };
+  }
+
+  return {
+    eyebrow,
+    printLabel: t("publicPresence.info.policies.print"),
+    counselPendingTitle: t("publicPresence.info.policies.counselPending.title"),
+    counselPendingDescription: t("publicPresence.info.policies.counselPending.description"),
+    metadataLabel: t("publicPresence.info.policies.metadata.label"),
+    metadataTitle: t("publicPresence.info.policies.metadata.title"),
+    versionText: t("publicPresence.info.policies.metadata.version", { version: metadata.version }),
+    ...effectiveCopy,
+    localeText: t("publicPresence.info.policies.metadata.locale", { locale: metadata.locale }),
+    tocLabel: t("publicPresence.info.policies.toc.label"),
+    tocTitle: t("publicPresence.info.policies.toc.title"),
+    counselRequiredBadge: t("publicPresence.info.policies.section.counselRequired"),
+  };
+}
 
 /**
  * Shared page for every Public Policy Artifact route. A section renders its
@@ -44,6 +123,7 @@ export function PolicyArtifactPage({
   copy: PolicyArtifactPageCopy;
 }) {
   const { metadata } = artifact;
+  const publicationPosture = resolvePolicyArtifactPublicationPosture(artifact);
 
   return (
     <PublicPresencePageShell>
@@ -65,7 +145,7 @@ export function PolicyArtifactPage({
           }
         />
 
-        {metadata.publicationStatus !== "published" ? (
+        {publicationPosture.kind === "counsel-pending" ? (
           <Banner tone="warning" title={copy.counselPendingTitle} description={copy.counselPendingDescription} />
         ) : null}
 
@@ -75,7 +155,11 @@ export function PolicyArtifactPage({
               {copy.metadataTitle}
             </Heading>
             <Text>{copy.versionText}</Text>
-            <Text>{copy.effectiveText}</Text>
+            <Text>
+              {publicationPosture.kind === "published"
+                ? copy.formatEffectiveText(publicationPosture.effectiveAt)
+                : copy.effectivePendingText}
+            </Text>
             <Text>{copy.localeText}</Text>
           </Stack>
         </Surface>
