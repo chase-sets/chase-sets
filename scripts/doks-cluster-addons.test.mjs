@@ -5,11 +5,16 @@ import { describe, expect, it } from "vitest";
 import {
   applyDoksDnsTokenSecret,
   buildDoksDnsTokenSecretManifest,
+  canonicalValuesChecksum,
+  clusterAddonsAreUpToDate,
   doksDnsTokenSecretName,
   doksDnsTokenSecretNamespace,
+  dryRunOutput,
+  installStepsWithValuesChecksums,
   loadBalancerName,
   pinned,
   planClusterAddons,
+  requiredClusterAddons,
 } from "./doks-cluster-addons.mjs";
 
 const ingressNginxValues = readFileSync(
@@ -189,5 +194,138 @@ describe("doks cluster addons planner", () => {
     const serialized = JSON.stringify(steps.map((step) => ({ name: step.name, command: step.command.join(" ") })));
     expect(serialized).not.toContain("digitalocean-dns-token");
     expect(serialized.toLowerCase()).not.toContain("access-token");
+  });
+
+  describe("steady-state release preflight", () => {
+    function deployedReleaseResponses(overrides = {}) {
+      const required = requiredClusterAddons();
+      return new Map(
+        required.flatMap((release) => [
+          [
+            `metadata:${release.releaseName}:${release.namespace}`,
+            JSON.stringify({
+              name: release.releaseName,
+              namespace: release.namespace,
+              revision: 7,
+              updated: "2026-07-22 12:00:00.000000 +0000 UTC",
+              status: "deployed",
+              chart: release.chart,
+              app_version: "1.0.0",
+              ...overrides[release.releaseName]?.metadata,
+            }),
+          ],
+          [
+            `values:${release.releaseName}:${release.namespace}`,
+            JSON.stringify({
+              chaseSetsDoksAddons: { valuesChecksum: release.valuesChecksum },
+              ...overrides[release.releaseName]?.values,
+            }),
+          ],
+        ]),
+      );
+    }
+
+    function helmReader(responses) {
+      return async (_command, args) => {
+        const key = `${args[1] === "metadata" ? "metadata" : "values"}:${args[2]}:${args[4]}`;
+        const response = responses.get(key);
+        if (response instanceof Error) {
+          throw response;
+        }
+        if (response === undefined) {
+          throw new Error(`missing response for ${key}`);
+        }
+        return response;
+      };
+    }
+
+    it("skips mutations when every deployed release has the pinned chart metadata and canonical values checksum", async () => {
+      const responses = deployedReleaseResponses();
+      const calls = [];
+      const upToDate = await clusterAddonsAreUpToDate({
+        runCommand: async (command, args) => {
+          calls.push([command, args]);
+          return helmReader(responses)(command, args);
+        },
+      });
+
+      expect(upToDate).toBe(true);
+      expect(calls).toHaveLength(requiredClusterAddons().length * 2);
+      expect(calls).toContainEqual([
+        "helm",
+        ["get", "metadata", "ingress-nginx", "--namespace", "ingress-nginx", "--output", "json"],
+      ]);
+      expect(calls.every(([, args]) => !args.includes("upgrade") && !args.includes("repo"))).toBe(true);
+    });
+
+    it("falls through when a deployed chart version differs from the pinned metadata", async () => {
+      const responses = deployedReleaseResponses({
+        "cert-manager": { metadata: { chart: "cert-manager-v1.16.1" } },
+      });
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
+    });
+
+    it("falls through when a required release is missing", async () => {
+      const responses = deployedReleaseResponses();
+      responses.delete("metadata:argo-rollouts:argo-rollouts");
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
+    });
+
+    it("falls through when Helm metadata cannot be read or is malformed", async () => {
+      const readFailure = deployedReleaseResponses();
+      readFailure.set("metadata:ingress-nginx:ingress-nginx", new Error("cluster unavailable"));
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(readFailure) })).resolves.toBe(false);
+
+      const malformed = deployedReleaseResponses();
+      malformed.set("metadata:ingress-nginx:ingress-nginx", '{"name":"ingress-nginx"}');
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(malformed) })).resolves.toBe(false);
+    });
+
+    it("falls through when a deployed release has a different canonical values checksum", async () => {
+      const responses = deployedReleaseResponses({
+        "chase-sets-doks-ingress": { values: { chaseSetsDoksAddons: { valuesChecksum: "stale" } } },
+      });
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
+    });
+
+    it("keeps the staging and production dry-run output byte-for-byte on the preflight-free install contract", () => {
+      for (const environment of ["staging", "production"]) {
+        const expected = JSON.stringify(
+          {
+            environment,
+            loadBalancerName: loadBalancerName(environment),
+            steps: planClusterAddons({ environment }).map((step) => ({
+              name: step.name,
+              command: step.command.join(" "),
+            })),
+          },
+          null,
+          2,
+        );
+        expect(dryRunOutput({ environment })).toBe(expected);
+      }
+    });
+
+    it("calculates checksums from each canonical checked-in values file", () => {
+      for (const release of requiredClusterAddons()) {
+        const pinnedRelease = Object.values(pinned).find((entry) => entry.releaseName === release.releaseName);
+        expect(release.valuesChecksum).toBe(canonicalValuesChecksum(pinnedRelease.valuesFile));
+      }
+    });
+
+    it("records every canonical checksum only on real upgrade/install commands", () => {
+      const dryRunSteps = planClusterAddons({ environment: "production" });
+      const installSteps = installStepsWithValuesChecksums(dryRunSteps);
+
+      expect(dryRunSteps.flatMap((step) => step.command).join(" ")).not.toContain("chaseSetsDoksAddons.valuesChecksum");
+      for (const release of requiredClusterAddons()) {
+        const installStep = installSteps.find(
+          (step) => step.command.includes("upgrade") && step.command.includes(release.releaseName),
+        );
+        expect(installStep.command).toEqual(
+          expect.arrayContaining(["--set-string", `chaseSetsDoksAddons.valuesChecksum=${release.valuesChecksum}`]),
+        );
+      }
+    });
   });
 });

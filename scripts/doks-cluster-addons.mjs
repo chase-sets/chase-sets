@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const chartDir = path.join(scriptDir, "..", "infrastructure", "helm", "doks-ingress");
+const valuesChecksumKey = "chaseSetsDoksAddons.valuesChecksum";
 
 // Pinned upstream releases. Bump deliberately with an operator note; the DOKS
 // cutover proves ingress and cert issuance against these exact versions.
@@ -44,8 +47,17 @@ export const pinned = {
     // namespace, so the ClusterIssuer release rides in the same namespace.
     namespace: "cert-manager",
     chartPath: chartDir,
+    version: "0.1.0",
+    valuesFile: path.join(chartDir, "values.yaml"),
   },
 };
+
+const releaseRequirements = [
+  { key: "ingressNginx", chartName: "ingress-nginx" },
+  { key: "certManager", chartName: "cert-manager" },
+  { key: "argoRollouts", chartName: "argo-rollouts" },
+  { key: "clusterIssuers", chartName: "chase-sets-doks-ingress" },
+];
 
 const supportedEnvironments = new Set(["staging", "production"]);
 
@@ -60,6 +72,97 @@ export const doksDnsTokenSecretNamespace = "cert-manager";
 
 export function loadBalancerName(environment) {
   return `chase-sets-${environment}-doks-ingress`;
+}
+
+export function canonicalValuesChecksum(valuesFile) {
+  return createHash("sha256").update(readFileSync(valuesFile)).digest("hex");
+}
+
+export function requiredClusterAddons() {
+  return releaseRequirements.map(({ key, chartName }) => {
+    const release = pinned[key];
+    return {
+      releaseName: release.releaseName,
+      namespace: release.namespace,
+      chart: `${chartName}-${release.version}`,
+      valuesChecksum: canonicalValuesChecksum(release.valuesFile),
+    };
+  });
+}
+
+export function parseReleaseMetadata(output) {
+  const metadata = JSON.parse(output);
+  if (
+    !metadata ||
+    typeof metadata !== "object" ||
+    typeof metadata.name !== "string" ||
+    typeof metadata.namespace !== "string" ||
+    typeof metadata.chart !== "string" ||
+    typeof metadata.status !== "string"
+  ) {
+    throw new Error("Helm release metadata has an unexpected shape.");
+  }
+  return metadata;
+}
+
+export function parseReleaseValues(output) {
+  const values = JSON.parse(output);
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    throw new Error("Helm release values have an unexpected shape.");
+  }
+  return values;
+}
+
+function checksumFromReleaseValues(values) {
+  return values.chaseSetsDoksAddons?.valuesChecksum;
+}
+
+export async function clusterAddonsAreUpToDate(options = {}) {
+  const runCommand = options.runCommand;
+  if (typeof runCommand !== "function") {
+    throw new Error("clusterAddonsAreUpToDate requires a runCommand function.");
+  }
+
+  try {
+    for (const required of requiredClusterAddons()) {
+      const metadata = parseReleaseMetadata(
+        await runCommand("helm", [
+          "get",
+          "metadata",
+          required.releaseName,
+          "--namespace",
+          required.namespace,
+          "--output",
+          "json",
+        ]),
+      );
+      const values = parseReleaseValues(
+        await runCommand("helm", [
+          "get",
+          "values",
+          required.releaseName,
+          "--namespace",
+          required.namespace,
+          "--output",
+          "json",
+        ]),
+      );
+      if (
+        metadata.name !== required.releaseName ||
+        metadata.namespace !== required.namespace ||
+        metadata.status !== "deployed" ||
+        metadata.chart !== required.chart ||
+        checksumFromReleaseValues(values) !== required.valuesChecksum
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    // A missing release, malformed output, or a failed read is drift. The
+    // caller deliberately falls through to the existing fail-loud install path.
+    return false;
+  }
 }
 
 // Pure planner: returns the ordered helm steps so a dry run and the tests can
@@ -189,6 +292,20 @@ export function planClusterAddons(options = {}) {
   ];
 }
 
+export function dryRunOutput(options = {}) {
+  const environment = options.environment ?? "staging";
+  const steps = planClusterAddons(options);
+  return JSON.stringify(
+    {
+      environment,
+      loadBalancerName: loadBalancerName(environment),
+      steps: steps.map((step) => ({ name: step.name, command: step.command.join(" ") })),
+    },
+    null,
+    2,
+  );
+}
+
 // Pure manifest builder: never printed or logged with a real token (the
 // caller passes it straight to kubectl's stdin, never through a command-line
 // argument), so it is safe to unit test without a live cluster or secret
@@ -262,6 +379,43 @@ function runStep(step) {
   });
 }
 
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(output);
+      } else {
+        reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
+      }
+    });
+  });
+}
+
+function withValuesChecksum(step) {
+  const required = requiredClusterAddons().find(
+    (entry) =>
+      entry.releaseName === step.command[3] &&
+      entry.namespace === step.command[step.command.indexOf("--namespace") + 1],
+  );
+  if (!required) {
+    return step;
+  }
+  return {
+    ...step,
+    command: [...step.command, "--set-string", `${valuesChecksumKey}=${required.valuesChecksum}`],
+  };
+}
+
+export function installStepsWithValuesChecksums(steps) {
+  return steps.map(withValuesChecksum);
+}
+
 function parseArgs(argv) {
   const options = { environment: "staging", dryRun: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -297,23 +451,18 @@ async function main(argv) {
   const steps = planClusterAddons(options);
 
   if (options.dryRun) {
-    console.log(
-      JSON.stringify(
-        {
-          environment: options.environment,
-          loadBalancerName: loadBalancerName(options.environment),
-          steps: steps.map((step) => ({ name: step.name, command: step.command.join(" ") })),
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(dryRunOutput(options));
+    return 0;
+  }
+
+  if (await clusterAddonsAreUpToDate({ runCommand })) {
+    console.log(`DOKS cluster add-ons up to date for ${options.environment}; skipped.`);
     return 0;
   }
 
   for (const step of steps) {
     console.log(`==> ${step.name}`);
-    await runStep(step);
+    await runStep(installStepsWithValuesChecksums([step])[0]);
 
     // The environment-scoped DNS-01 solver reads this Secret, so it must
     // exist before the next step installs the ClusterIssuer that references
