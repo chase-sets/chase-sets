@@ -33,6 +33,13 @@ repairs to drafts, not new scope.
    a machine with only transition states is a finding. (This class escaped two
    full-path code reviews; plan time is the cheapest place to catch an
    omission that is invisible in a diff.)
+10. **Authority-timing.** For every external-authority dependency (GitHub API
+    shapes, provider payloads, queue/webhook associations, cloud-API state):
+    was the authority probed at the exact moment the implementation will need
+    it — not just shown to exist? An unprobed timing assumption is a finding,
+    ranked with missed decisions (PR #5883: the merge-queue run's PR
+    association is empty until after merge; no implementation could have
+    fixed a defect that only a pre-merge probe would have surfaced).
 
-Report findings ranked by rework-risk: a missed decision or false parallel
-claim outranks a fuzzy AC.
+Report findings ranked by rework-risk: a missed decision, false parallel
+claim, or unprobed authority-timing assumption outranks a fuzzy AC.
