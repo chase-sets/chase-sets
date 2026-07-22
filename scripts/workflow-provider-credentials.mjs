@@ -19,6 +19,13 @@ const providerToolRequirements = [
   },
 ];
 
+const terraformProviderOperationPattern = /(?:^|[\s;&|$(])terraform\s+(?:-[^\s]+\s+)*(?:plan|apply)(?=\s|$)/m;
+const terraformDigitalOceanProviderEnv = [
+  "TF_VAR_digitalocean_token",
+  "TF_VAR_spaces_access_id",
+  "TF_VAR_spaces_secret_key",
+];
+
 // Workflow job steps sit at a 6-space list indent; composite-action steps
 // (`.github/actions/*/action.yml`) sit shallower because `steps:` nests
 // directly under `runs:`. Derive the item indent from the `steps:` line so
@@ -194,9 +201,19 @@ export function checkWorkflowProviderCredentials(source, { workflowFile = "workf
 
     const name = stepName(step.source);
     const envKeys = stepEnvKeys(step.source);
-    const requiredEnv = [...new Set(tools.flatMap((tool) => tool.requiredEnv))];
+    const requiredEnv = [
+      ...new Set([
+        ...tools.flatMap((tool) => tool.requiredEnv),
+        ...(terraformProviderOperationPattern.test(run) ? terraformDigitalOceanProviderEnv : []),
+      ]),
+    ];
     const missingEnv = requiredEnv.filter((key) => !envKeys.has(key));
-    checkedSteps.push({ name, line: step.startLine, tools: tools.map(({ tool }) => tool) });
+    checkedSteps.push({
+      name,
+      line: step.startLine,
+      tools: tools.map(({ tool }) => tool),
+      requiredEnv,
+    });
 
     if (missingEnv.length > 0) {
       violations.push(

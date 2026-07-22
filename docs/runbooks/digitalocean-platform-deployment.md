@@ -10,6 +10,7 @@ The platform runtime runs on DOKS. Deployables are thin composition roots packag
 | `digitalocean/platform` | `landing/<environment>.tfstate` | managed Postgres, users, pools, alerts, uptime, live DOKS A records |
 | `digitalocean/environment-dns` | `environment-dns/<environment>.tfstate` | durable mail, asset, and diagnostic DNS |
 | `digitalocean/catalog-assets` | `catalog-assets/<environment>.tfstate` | Spaces bucket and CDN |
+| `digitalocean/seed-packs` | `seed-packs/shared.tfstate` | private Observation Pack Space and bucket-scoped dev/CI keys |
 
 Never move or remove state addresses to hide a planned destroy. Use a real backend plan and the destructive-plan approval gate.
 

@@ -1,0 +1,210 @@
+name: Platform Seed Packs Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run a plan only, or apply the reviewed plan.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      release_ref:
+        description: Exact ref to check out. Defaults to main.
+        required: false
+        default: main
+        type: string
+      confirm:
+        description: Type "plan seed-packs" or "apply seed-packs".
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: platform-seed-packs
+  cancel-in-progress: false
+
+jobs:
+  seed-packs:
+    name: Seed Packs ${{ inputs.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The shared infrastructure mutation requires the existing owner-reviewed
+    # environment. Scoped runtime keys are never stored in this environment.
+    environment: production
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Confirm seed-packs operation
+        run: |
+          set -euo pipefail
+          expected="${{ inputs.mode }} seed-packs"
+          if [ "${{ inputs.confirm }}" != "$expected" ]; then
+            echo "Confirmation text did not match exactly; expected '${expected}'." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init seed packs
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform init -backend-config=backend.hcl.example
+
+      - name: Terraform format seed packs
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate seed packs
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform validate
+
+      - name: Terraform plan seed packs
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          terraform plan -out=tfplan
+          mkdir -p ../../../artifacts/seed-packs
+          terraform show -no-color tfplan > ../../../artifacts/seed-packs/seed-packs-plan.txt
+
+      - name: Upload seed-packs Terraform plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seed-packs-terraform-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/seed-packs/seed-packs-plan.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Terraform apply seed packs
+        if: inputs.mode == 'apply'
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Verify seed-pack privacy and key isolation
+        if: inputs.mode == 'apply'
+        working-directory: infrastructure/digitalocean/seed-packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          bucket="$(terraform output -raw seed_packs_bucket_name)"
+          origin="$(terraform output -raw seed_packs_bucket_origin)"
+          endpoint="https://$(terraform output -raw seed_packs_bucket_endpoint)"
+          backend_access_id="$AWS_ACCESS_KEY_ID"
+          backend_secret_key="$AWS_SECRET_ACCESS_KEY"
+          active_probe_object=""
+          printf 'seed-pack access probe\n' > "${RUNNER_TEMP}/seed-pack-probe.txt"
+
+          cleanup_probe() {
+            if [ -n "$active_probe_object" ]; then
+              aws s3api delete-object --bucket "$bucket" --key "$active_probe_object" --endpoint-url "$endpoint" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_probe EXIT
+
+          probe_key() {
+            audience="$1"
+            access_output="$2"
+            secret_output="$3"
+            export AWS_ACCESS_KEY_ID="$backend_access_id"
+            export AWS_SECRET_ACCESS_KEY="$backend_secret_key"
+            access_id="$(terraform output -raw "$access_output")"
+            secret_key="$(terraform output -raw "$secret_output")"
+            if [ -z "$access_id" ]; then
+              echo "${access_output} is required for the ${audience} scoped-key probe." >&2
+              return 1
+            fi
+            if [ -z "$secret_key" ]; then
+              echo "${secret_output} is required for the ${audience} scoped-key probe." >&2
+              return 1
+            fi
+            echo "::add-mask::${access_id}"
+            echo "::add-mask::${secret_key}"
+            export AWS_ACCESS_KEY_ID="$access_id"
+            export AWS_SECRET_ACCESS_KEY="$secret_key"
+            active_probe_object="operator-probes/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${audience}.txt"
+
+            aws s3api put-object \
+              --bucket "$bucket" \
+              --key "$active_probe_object" \
+              --body "${RUNNER_TEMP}/seed-pack-probe.txt" \
+              --endpoint-url "$endpoint" >/dev/null
+            aws s3api head-object --bucket "$bucket" --key "$active_probe_object" --endpoint-url "$endpoint" >/dev/null
+
+            anonymous_response="${RUNNER_TEMP}/${audience}-anonymous-response.xml"
+            status="$(curl -sS -o "$anonymous_response" -w '%{http_code}' "https://${origin}/${active_probe_object}")"
+            if [ "$status" != "403" ] || ! grep -qi "AccessDenied" "$anonymous_response"; then
+              echo "${audience} probe object was not private; status=${status}." >&2
+              return 1
+            fi
+
+            cross_bucket_error="${RUNNER_TEMP}/${audience}-cross-bucket-error.txt"
+            if aws s3api list-objects-v2 \
+              --bucket chase-sets-terraform-state \
+              --max-items 1 \
+              --endpoint-url "$endpoint" >/dev/null 2>"$cross_bucket_error"; then
+              echo "${audience} scoped key unexpectedly accessed the Terraform-state bucket." >&2
+              return 1
+            fi
+            if ! grep -qi "AccessDenied" "$cross_bucket_error"; then
+              echo "${audience} cross-bucket probe failed without the required AccessDenied response." >&2
+              return 1
+            fi
+
+            cleanup_probe
+            active_probe_object=""
+            echo "${audience} scoped key passed read/write, anonymous 403, and cross-bucket denial probes."
+          }
+
+          probe_key dev dev_spaces_access_id dev_spaces_secret_key
+          probe_key ci ci_spaces_access_id ci_spaces_secret_key
+          trap - EXIT
+
+      - name: Summarize seed-packs operation
+        if: always()
+        run: |
+          {
+            echo "## Seed Packs Terraform"
+            echo ""
+            echo "- Mode: ${{ inputs.mode }}"
+            echo "- Release ref: ${{ inputs.release_ref }}"
+            echo "- State key: seed-packs/shared.tfstate"
+            echo "- Plan artifact: seed-packs-terraform-plan-${{ github.run_id }}-${{ github.run_attempt }}"
+            if [ "${{ inputs.mode }}" = "apply" ]; then
+              echo "- Provider acceptance and both scoped-key probes: required"
+              echo "- Secret provisioning: operator handoff remains required"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

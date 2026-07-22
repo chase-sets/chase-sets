@@ -126,6 +126,7 @@ describe("digitalocean-terraform-state-snapshot", () => {
       "catalog-assets/staging.tfstate",
       "catalog-assets/production.tfstate",
       "observability/shared.tfstate",
+      "seed-packs/shared.tfstate",
     ]);
     expect(DEFAULT_TERRAFORM_STATE_KEYS.some((key) => key.startsWith("platform/previews/"))).toBe(false);
   });
