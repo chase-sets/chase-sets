@@ -444,6 +444,8 @@ test.describe.serial("catalog admin integrations", () => {
 
     await test.step("Map / confirm the sync scope", async () => {
       const importContextBar = page.locator("[data-catalog-import-context-bar='true']");
+      const contextBarTrigger = importContextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
+      await clickUntilDisclosureExpanded(contextBarTrigger, true);
       await expect(importContextBar.getByRole("combobox", { name: "Provider" })).toBeVisible();
       const unitSelect = importContextBar.getByRole("combobox", { name: "Unit" });
       if (await unitSelect.count()) {
