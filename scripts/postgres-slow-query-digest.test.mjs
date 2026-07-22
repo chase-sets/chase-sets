@@ -12,14 +12,14 @@ import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/pos
 const checkedAt = "2026-07-03T15:30:00.000Z";
 
 describe("postgres slow-query digest", () => {
-  it("uses encrypted but unverified TLS for DigitalOcean sslmode=require URLs", () => {
+  it("preserves full certificate verification for managed PostgreSQL URLs", () => {
     const connectionString = normalizePostgresConnectionString(
       "postgresql://user:secret@db.example:25060/database?sslmode=require",
     );
 
-    expect(connectionString).toContain("sslmode=require");
+    expect(connectionString).toContain("sslmode=verify-full");
     expect(connectionString).toContain("uselibpqcompat=true");
-    expect(resolvePostgresSsl(connectionString)).toEqual({ rejectUnauthorized: false });
+    expect(resolvePostgresSsl(connectionString, {})).toEqual({ rejectUnauthorized: true });
   });
 
   it("parses options and database URLs from flags and environment", () => {
@@ -281,7 +281,9 @@ describe("postgres slow-query digest", () => {
       {
         async collectDatabase(database) {
           if (database.contextName === "payments") {
-            throw new Error(`failed ${database.url} token=abc123 for user@example.com`);
+            throw new Error(
+              `failed ${database.url} token=abc123 for user@example.com -----BEGIN CERTIFICATE----- ca-marker`,
+            );
           }
           return {
             contextName: database.contextName,
@@ -304,8 +306,10 @@ describe("postgres slow-query digest", () => {
       {
         contextName: "payments",
         category: "collection-error",
-        message: "failed [redacted-postgres-url] token=[redacted] for [redacted-email]",
+        classification: "postgres-query-failed",
       },
     ]);
+    expect(JSON.stringify(evidence)).not.toContain("CERTIFICATE");
+    expect(JSON.stringify(evidence)).not.toContain("ca-marker");
   });
 });

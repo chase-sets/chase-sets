@@ -107,11 +107,13 @@ jobs:
             -backend-config=use_path_style=true \
             -backend-config=use_lockfile=true
 
-      - name: Export staging database URLs
+      - name: Export staging database URLs and TLS trust
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
         run: |
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
@@ -119,6 +121,7 @@ jobs:
           node ../../../scripts/terraform-state-database-urls.mjs \
             --state "$state_path" \
             --environment staging \
+            --ca-path "$MANAGED_POSTGRES_CA_PATH" \
             --github-env "$GITHUB_ENV"
 
       - name: Provision admin-qa actor fixtures
@@ -126,6 +129,14 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/admin-qa-actor-fixtures
           pnpm --filter @chase-sets/app-platform-api run admin-qa-actor-fixtures:production
+
+      - name: Remove managed Postgres CA
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
 
       - name: Upload admin-qa actor fixtures evidence
         if: always()

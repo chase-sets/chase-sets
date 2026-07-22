@@ -114,11 +114,13 @@ jobs:
             -backend-config=use_path_style=true \
             -backend-config=use_lockfile=true
 
-      - name: Export provider proof database URLs
+      - name: Export provider proof database URLs and TLS trust
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
         run: |
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-${DEPLOYMENT_ENVIRONMENT}.tfstate.json"
@@ -127,6 +129,7 @@ jobs:
             --state "$state_path" \
             --environment "$DEPLOYMENT_ENVIRONMENT" \
             --contexts payments,settlement,fulfillment \
+            --ca-path "$MANAGED_POSTGRES_CA_PATH" \
             --github-env "$GITHUB_ENV"
 
       - name: Run provider proof status report
@@ -136,6 +139,14 @@ jobs:
           pnpm run marketplace:provider-proof-status -- \
             --environment "$DEPLOYMENT_ENVIRONMENT" \
             > artifacts/provider-proof-status/provider-proof-status.json
+
+      - name: Remove managed Postgres CA
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
 
       - name: Summarize provider proof status
         run: |

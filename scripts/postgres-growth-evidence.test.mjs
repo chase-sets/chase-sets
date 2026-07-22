@@ -13,14 +13,14 @@ import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/pos
 const checkedAt = "2026-07-03T14:30:00.000Z";
 
 describe("postgres growth evidence", () => {
-  it("uses encrypted but unverified TLS for DigitalOcean sslmode=require URLs", () => {
+  it("preserves full certificate verification for managed PostgreSQL URLs", () => {
     const connectionString = normalizePostgresConnectionString(
       "postgresql://user:secret@db.example:25060/database?sslmode=require",
     );
 
-    expect(connectionString).toContain("sslmode=require");
+    expect(connectionString).toContain("sslmode=verify-full");
     expect(connectionString).toContain("uselibpqcompat=true");
-    expect(resolvePostgresSsl(connectionString)).toEqual({ rejectUnauthorized: false });
+    expect(resolvePostgresSsl(connectionString, {})).toEqual({ rejectUnauthorized: true });
   });
 
   it("parses options and database URLs from flags and environment", () => {
@@ -335,7 +335,7 @@ describe("postgres growth evidence", () => {
       {
         async collectDatabase(database) {
           if (database.contextName === "payments") {
-            throw new Error(`failed ${database.url}`);
+            throw new Error(`failed ${database.url} -----BEGIN CERTIFICATE----- ca-marker`);
           }
           return {
             contextName: database.contextName,
@@ -357,8 +357,10 @@ describe("postgres growth evidence", () => {
       {
         contextName: "payments",
         category: "collection-error",
-        message: "failed [redacted-postgres-url]",
+        classification: "postgres-query-failed",
       },
     ]);
+    expect(JSON.stringify(evidence)).not.toContain("CERTIFICATE");
+    expect(JSON.stringify(evidence)).not.toContain("ca-marker");
   });
 });

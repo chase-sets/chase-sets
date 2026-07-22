@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MARKETPLACE_PROVIDER_PROOF_STATUS_VERSION,
   buildProviderProofStatus,
-  normalizeProviderProofDatabaseUrl,
   parseProviderProofStatusArgs,
-  resolveProviderProofDatabaseSsl,
   runProviderProofStatus,
   validateProviderProofStatusOptions,
 } from "./marketplace-provider-proof-status.mjs";
@@ -270,14 +268,6 @@ describe("marketplace provider proof status", () => {
     ]);
   });
 
-  it("uses DigitalOcean-compatible TLS settings for sslmode=require database URLs", () => {
-    const databaseUrl = "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require";
-    const normalized = normalizeProviderProofDatabaseUrl(databaseUrl);
-
-    expect(new URL(normalized).searchParams.get("uselibpqcompat")).toBe("true");
-    expect(resolveProviderProofDatabaseSsl(normalized)).toEqual({ rejectUnauthorized: false });
-  });
-
   it("queries each bounded-context read model without leaking full provider identifiers", async () => {
     const queryLog = [];
     class ClientStub {
@@ -290,7 +280,7 @@ describe("marketplace provider proof status", () => {
       async end() {}
 
       async query(sql) {
-        queryLog.push({ connectionString: this.config.connectionString, sql });
+        queryLog.push({ connectionString: this.config.connectionString, ssl: this.config.ssl, sql });
         return { rows: rowsForQuery(this.config.connectionString, sql) };
       }
     }
@@ -309,6 +299,7 @@ describe("marketplace provider proof status", () => {
     expect(new Set(queryLog.map((entry) => entry.connectionString))).toEqual(
       new Set(["postgres://payments-db", "postgres://settlement-db", "postgres://fulfillment-db"]),
     );
+    expect(queryLog.every((entry) => entry.ssl?.rejectUnauthorized === true)).toBe(true);
     expect(queryLog.map((entry) => entry.sql).join("\n")).not.toMatch(/\b(DELETE|INSERT|UPDATE|UPSERT|MERGE)\b/i);
     expect(report.gateStatus).toMatchObject({
       stripeMoneyOperationsCouldPassProviderRowThresholds: true,

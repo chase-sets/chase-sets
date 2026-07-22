@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateProviderRefreshSchedules,
   parseCatalogProviderRefreshStatusArgs,
+  runCatalogProviderRefreshStatus,
 } from "./catalog-provider-refresh-status.mjs";
 
 const CHECKED_AT = "2026-07-13T12:00:00.000Z";
@@ -38,9 +39,8 @@ describe("catalog provider refresh status evaluation", () => {
     );
 
     expect(record.result).toBe("warning");
-    expect(record.failedProviders).toEqual([
-      expect.objectContaining({ providerKey: "tcgdex", failed: true, lastRunError: "provider transport 503" }),
-    ]);
+    expect(record.failedProviders).toEqual([expect.objectContaining({ providerKey: "tcgdex", failed: true })]);
+    expect(JSON.stringify(record)).not.toContain("provider transport 503");
   });
 
   it("warns when a scheduled provider has not completed within twice its cadence", () => {
@@ -81,5 +81,38 @@ describe("catalog provider refresh status evaluation", () => {
 
     expect(options.environment).toBe("staging");
     expect(options.catalogDatabaseUrl).toBe("postgres://catalog");
+  });
+
+  it("keeps verification enabled on the production read-only query path", async () => {
+    const queries = [];
+    let clientConfig;
+    class ClientStub {
+      constructor(config) {
+        clientConfig = config;
+      }
+
+      async connect() {}
+
+      async query(sql) {
+        queries.push(sql);
+        return { rows: [] };
+      }
+
+      async end() {}
+    }
+
+    const record = await runCatalogProviderRefreshStatus(
+      {
+        environment: "staging",
+        checkedAt: CHECKED_AT,
+        catalogDatabaseUrl: "postgresql://catalog:secret@db.example/catalog?sslmode=verify-full",
+      },
+      ClientStub,
+    );
+
+    expect(clientConfig.ssl).toEqual({ rejectUnauthorized: true });
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).not.toMatch(/\b(DELETE|INSERT|UPDATE|UPSERT|MERGE)\b/i);
+    expect(record.result).toBe("success");
   });
 });

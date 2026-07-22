@@ -4,7 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
+import { postgresClientConfig, postgresFailureFields } from "./lib/postgres-connection.mjs";
 
 const { Client } = pg;
 
@@ -78,7 +78,7 @@ export async function runPostgresGrowthEvidence(options, dependencies = {}) {
       errors.push({
         contextName: database.contextName,
         category: "collection-error",
-        message: supportSafeErrorMessage(error),
+        ...postgresFailureFields(error),
       });
     }
   }
@@ -112,7 +112,7 @@ export function buildPostgresGrowthEvidence(input) {
   const errors = input.errors.map((error) => ({
     contextName: sanitizeContextName(error.contextName),
     category: "collection-error",
-    message: supportSafeErrorMessage(error.message),
+    ...postgresFailureFields(error),
   }));
 
   return {
@@ -163,8 +163,7 @@ export function buildPostgresGrowthEvidence(input) {
 }
 
 export async function collectPostgresDatabaseGrowth(database, options) {
-  const connectionString = normalizePostgresConnectionString(database.url);
-  const client = new Client({ connectionString, ssl: resolvePostgresSsl(connectionString) });
+  const client = new Client(postgresClientConfig(database.url));
   try {
     await client.connect();
     return await collectPostgresDatabaseGrowthWithClient(client, database, options);
@@ -371,15 +370,6 @@ function sanitizeIdentifier(value) {
   return String(value ?? "unknown")
     .replace(/[^a-zA-Z0-9_.-]/g, "_")
     .slice(0, 120);
-}
-
-function supportSafeErrorMessage(error) {
-  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-  return message
-    .replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted-postgres-url]")
-    .replace(/password=[^&\s]+/gi, "password=[redacted]")
-    .replace(/token=[^&\s]+/gi, "token=[redacted]")
-    .slice(0, 240);
 }
 
 function nonNegativeInteger(value) {

@@ -3,6 +3,7 @@ import pg from "pg";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { postgresClientConfig, safeFailureFields } from "./lib/postgres-connection.mjs";
 
 const { Client } = pg;
 
@@ -260,44 +261,13 @@ async function queryFulfillmentStatus(databaseUrl, ClientCtor) {
 }
 
 async function queryDatabase(databaseUrl, ClientCtor, queryFn) {
-  const normalizedDatabaseUrl = normalizeProviderProofDatabaseUrl(databaseUrl);
-  const client = new ClientCtor({
-    connectionString: normalizedDatabaseUrl,
-    ssl: resolveProviderProofDatabaseSsl(normalizedDatabaseUrl),
-  });
+  const client = new ClientCtor(postgresClientConfig(databaseUrl));
   await client.connect();
   try {
     return await queryFn(client);
   } finally {
     await client.end();
   }
-}
-
-export function normalizeProviderProofDatabaseUrl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
-      url.searchParams.set("uselibpqcompat", "true");
-      return url.toString();
-    }
-  } catch {
-    return databaseUrl;
-  }
-
-  return databaseUrl;
-}
-
-export function resolveProviderProofDatabaseSsl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require") {
-      return { rejectUnauthorized: false };
-    }
-  } catch {
-    return undefined;
-  }
-
-  return undefined;
 }
 
 function buildStripeMoneyStatus(payments, settlement) {
@@ -566,7 +536,7 @@ async function main(argv, env = process.env) {
     console.log(JSON.stringify(report, null, 2));
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(safeFailureFields("marketplace-provider-proof-status-failed", error)));
     return 1;
   }
 }
