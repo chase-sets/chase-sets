@@ -14,6 +14,8 @@ Environment data setup is split by purpose, not by deployable.
 
 `admin-qa-actor-fixtures` is explicit staging Identity fixtures for the m65 Admin Workflows Staging QA actor matrix (issue #3016). It provisions the support-safe `admin-qa-*` staging actor aliases that map to real, whole-role Identity grants (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), each magic-link only and idempotent. It does not attempt to provision the single-permission partial-actor rows because Identity has no scoped single-permission membership grant; those stay proven by local regression guardrails only. It must be run only by an operator-confirmed staging fixture workflow, never as implicit deployment bootstrap.
 
+`representative-catalog` is opt-in Catalog data for dev, local, remote-dev, test, and preview. It replays accepted governed Observation Packs through the real Catalog import and promotion path so those environments can use representative provider-backed Catalog Items and assets. It is never a default bootstrap profile and is rejected in staging and production; staging continues to use its real provider pipeline.
+
 ## Environment Policy
 
 | Environment | Data profiles |
@@ -25,6 +27,10 @@ Environment data setup is split by purpose, not by deployable.
 | Production | `critical-bootstrap`, `catalog-integration-bootstrap` |
 
 Staging may additionally run `representative-commerce-state` and `admin-qa-actor-fixtures` through an explicit operator action after deployment or reset. The DOKS release workflow may run `scenario-seed` in its isolated post-deploy E2E Job; it remains excluded from the staging bootstrap profile set in the table.
+
+| Opt-in profile | Explicitly allowed environments | Rejected environments | Default enrollment |
+| --- | --- | --- | --- |
+| `representative-catalog` | Dev, Local, Remote Dev, Test, Preview | Staging, Production | Never |
 
 Staging and production are long-lived. They should receive real operator actions and provider imports. Staging may receive synthetic commerce usage, but the synthetic layer must be clearly internal, idempotent, and derived from current Catalog integration data instead of replacing it.
 

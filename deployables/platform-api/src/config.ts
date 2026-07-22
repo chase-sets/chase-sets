@@ -380,10 +380,23 @@ function isLongLivedEnvironment(environmentName: string) {
   return environmentName === "production" || environmentName === "staging";
 }
 
+export class RepresentativeCatalogProfileEnvironmentError extends Error {
+  constructor(environmentName: string) {
+    super(`representative-catalog is not allowed when DEPLOYMENT_ENVIRONMENT=${environmentName}.`);
+    this.name = "RepresentativeCatalogProfileEnvironmentError";
+  }
+}
+
 function assertDataProfilesAllowed(
   environmentName: string,
   profiles: readonly EnvironmentDataProfile[],
 ): readonly EnvironmentDataProfile[] {
+  if (
+    (environmentName === "production" || environmentName === "staging") &&
+    profiles.includes("representative-catalog")
+  ) {
+    throw new RepresentativeCatalogProfileEnvironmentError(environmentName);
+  }
   if (environmentName === "production" && profiles.includes("representative-commerce-state")) {
     throw new Error("representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.");
   }

@@ -10,6 +10,7 @@ import {
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
+import type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
@@ -84,12 +85,7 @@ function createModule(
       handlers: Readonly<Record<string, never>>;
     }[];
     projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
-    seedProfiles?: readonly (
-      | "critical-bootstrap"
-      | "catalog-integration-bootstrap"
-      | "scenario-seed"
-      | "representative-commerce-state"
-    )[];
+    seedProfiles?: readonly EnvironmentDataProfile[];
     seed?: () => Promise<void>;
   }> = {},
 ) {
@@ -650,6 +646,33 @@ describe("platform host api registry", () => {
 
     expect(identitySeed).toHaveBeenCalledTimes(1);
     expect(marketplaceSeed).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for a mounted context with no representative catalog seed handler", async () => {
+    const catalogSeed = vi.fn(async () => undefined);
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: {
+          contextName: "catalog",
+          apiDeployables: ["platform-api"],
+        },
+        module: createModule("catalog", { seed: catalogSeed }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", {
+      pools: { catalog: createPool() as never },
+    });
+
+    await expect(
+      seedApiHostIfEmpty(registry, "platform-api", runtime, {
+        enabledDataProfiles: ["representative-catalog"],
+        environmentName: "preview",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(catalogSeed).not.toHaveBeenCalled();
   });
 
   it("forwards schema bootstrap options while seeding mounted contexts", async () => {
