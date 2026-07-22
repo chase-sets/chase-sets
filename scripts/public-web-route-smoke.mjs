@@ -246,15 +246,15 @@ function findHtmlElement(node, tagName) {
 }
 
 function visibleHtmlText(node) {
-  if (node.nodeName === "#comment") return " ";
   if (node.nodeName === "#text") return node.value;
   if (
+    node.nodeName === "#comment" ||
     nonVisibleHtmlElements.has(node.tagName) ||
     node.attrs?.some((attribute) => attribute.name.toLowerCase() === "hidden")
   ) {
-    return " ";
+    return "";
   }
-  return ` ${(node.childNodes ?? []).map(visibleHtmlText).join("")} `;
+  return (node.childNodes ?? []).map(visibleHtmlText).join("");
 }
 
 function normalizeText(value) {

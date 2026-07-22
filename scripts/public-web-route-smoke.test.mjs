@@ -210,19 +210,61 @@ describe("public web route smoke", () => {
 
   it.each([
     {
+      name: "the canonical marker split inside temporarily",
+      contentType: "text/html",
+      body: "<main>Tempor<span>arily</span> unavailable</main>",
+      expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
+    },
+    {
+      name: "the canonical marker split inside unavailable",
+      contentType: "text/html",
+      body: "<main>Temporarily unavail<span>able</span></main>",
+      expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
+    },
+    {
+      name: "adjacent inline elements without source whitespace",
+      contentType: "text/html",
+      body: "<main><span>Temporarily</span><span>unavailable</span></main>",
+      expectedExitCode: 0,
+    },
+    {
+      name: "adjacent inline elements with source whitespace",
+      contentType: "text/html",
+      body: "<main><span>Temporarily</span> <span>unavailable</span></main>",
+      expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
+    },
+    {
       name: "a standards-defined named whitespace entity",
       contentType: "text/html",
       body: "<main>Temporarily&ensp;unavailable</main>",
       expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
+    },
+    {
+      name: "direct Unicode whitespace",
+      contentType: "text/html",
+      body: "<main>Temporarily\u2003unavailable</main>",
+      expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
     },
     {
       name: "mixed-case canonical visible text",
       contentType: "text/html",
       body: "<main>tEMPORARILY UNAVAILABLE</main>",
       expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
     },
     {
-      name: "a longer word that only starts with the canonical marker",
+      name: "a longer first word that starts with the canonical marker",
+      contentType: "text/html",
+      body: "<main>Temporarilyish unavailable</main>",
+      expectedExitCode: 0,
+    },
+    {
+      name: "a longer second word that starts with the canonical marker",
       contentType: "text/html",
       body: "<main>Temporarily unavailableish</main>",
       expectedExitCode: 0,
@@ -232,12 +274,14 @@ describe("public web route smoke", () => {
       contentType: "application/json",
       body: '{"error":"policy resolver unavailable"}',
       expectedExitCode: 1,
+      expectedFailure: "content-type",
     },
     {
       name: "canonical visible text split across markup",
       contentType: "text/html",
       body: "<main>Temporarily <span>unavailable</span></main>",
       expectedExitCode: 1,
+      expectedFailure: "degraded-marker",
     },
     {
       name: "ordinary healthy HTML",
@@ -245,24 +289,31 @@ describe("public web route smoke", () => {
       body: "<main>Marketplace policies are available.</main>",
       expectedExitCode: 0,
     },
-  ])("classifies $name through the real checker CLI", async ({ contentType, body, expectedExitCode }) => {
-    const baseUrl = await startRouteServer((_request, response) => {
-      response.writeHead(200, { "Content-Type": contentType });
-      response.end(body);
-    });
+  ])(
+    "classifies $name through the real checker CLI",
+    async ({ contentType, body, expectedExitCode, expectedFailure }) => {
+      const baseUrl = await startRouteServer((_request, response) => {
+        response.writeHead(200, { "Content-Type": contentType });
+        response.end(body);
+      });
 
-    const result = await runCheckerCli(baseUrl);
+      const result = await runCheckerCli(baseUrl);
 
-    expect(result.signal).toBeNull();
-    expect(result.exitCode).toBe(expectedExitCode);
-    await expectEveryStrictTargetIn(result.output);
-    if (expectedExitCode === 1 && contentType === "text/html") {
-      expect(result.stderr).toContain("returned the degraded marker");
-    }
-    if (expectedExitCode === 0) {
-      expect(result.stdout).toContain("Passed 32 public routes in healthy mode.");
-    }
-  });
+      expect(result.signal).toBeNull();
+      expect(result.exitCode).toBe(expectedExitCode);
+      await expectEveryStrictTargetIn(result.output);
+      if (expectedFailure === "degraded-marker") {
+        expect(result.stderr.match(/returned the degraded marker/gu)).toHaveLength(5);
+      }
+      if (expectedFailure === "content-type") {
+        expect(result.stderr.match(/must return HTML content/gu)).toHaveLength(5);
+      }
+      if (expectedExitCode === 0) {
+        expect(result.stdout).toContain("Passed 32 public routes in healthy mode.");
+        expect(result.stderr).not.toContain("returned the degraded marker");
+      }
+    },
+  );
 
   it("accepts healthy HTML content with normal media-type casing and parameters", async () => {
     const baseUrl = await startRouteServer((_request, response) => {
