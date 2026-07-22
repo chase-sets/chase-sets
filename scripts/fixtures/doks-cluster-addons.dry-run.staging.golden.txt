@@ -1,0 +1,38 @@
+{
+  "environment": "staging",
+  "loadBalancerName": "chase-sets-staging-doks-ingress",
+  "steps": [
+    {
+      "name": "add ingress-nginx repo",
+      "command": "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update"
+    },
+    {
+      "name": "add cert-manager repo",
+      "command": "helm repo add jetstack https://charts.jetstack.io --force-update"
+    },
+    {
+      "name": "add Argo repo",
+      "command": "helm repo add argo https://argoproj.github.io/argo-helm --force-update"
+    },
+    {
+      "name": "refresh repos",
+      "command": "helm repo update ingress-nginx jetstack argo"
+    },
+    {
+      "name": "install ingress-nginx controller and DigitalOcean load balancer",
+      "command": "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx --version 4.11.3 --namespace ingress-nginx --create-namespace --values <repo>/infrastructure/helm/doks-ingress/ingress-nginx-values.yaml --set-string controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=chase-sets-staging-doks-ingress --atomic --wait --timeout 10m"
+    },
+    {
+      "name": "install cert-manager",
+      "command": "helm upgrade --install cert-manager jetstack/cert-manager --version v1.16.2 --namespace cert-manager --create-namespace --values <repo>/infrastructure/helm/doks-ingress/cert-manager-values.yaml --atomic --wait --timeout 10m"
+    },
+    {
+      "name": "install Argo Rollouts controller and CRDs",
+      "command": "helm upgrade --install argo-rollouts argo/argo-rollouts --version 2.41.0 --namespace argo-rollouts --create-namespace --values <repo>/infrastructure/helm/doks-ingress/argo-rollouts-values.yaml --atomic --wait --timeout 10m"
+    },
+    {
+      "name": "install ACME cluster issuers",
+      "command": "helm upgrade --install chase-sets-doks-ingress <repo>/infrastructure/helm/doks-ingress --namespace cert-manager --atomic --wait --timeout 5m --set clusterIssuers.production.dns01.enabled=true --set-string clusterIssuers.production.dns01.dnsZones[0]=preview.chasesets.com --set previewWildcardCertificate.enabled=true"
+    }
+  ]
+}

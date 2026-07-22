@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,7 +11,6 @@ import {
   configurationMarkerForStep,
   doksDnsTokenSecretName,
   doksDnsTokenSecretNamespace,
-  dryRunOutput,
   installStepsWithConfigurationMarkers,
   loadBalancerName,
   materialOverridesFromCommand,
@@ -25,6 +25,57 @@ const ingressNginxValues = readFileSync(
   resolve("infrastructure", "helm", "doks-ingress", "ingress-nginx-values.yaml"),
   "utf8",
 );
+
+const dryRunScriptPath = resolve("scripts", "doks-cluster-addons.mjs");
+const issuerValuesPath = "<repo>/infrastructure/helm/doks-ingress/values.yaml";
+const normalizedDryRunPaths = [
+  "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml",
+  "infrastructure/helm/doks-ingress/cert-manager-values.yaml",
+  "infrastructure/helm/doks-ingress/argo-rollouts-values.yaml",
+  "infrastructure/helm/doks-ingress/values.yaml",
+  "infrastructure/helm/doks-ingress",
+];
+
+function normalizeDryRunPaths(output) {
+  return normalizedDryRunPaths.reduce((normalized, relativePath) => {
+    const escapedAbsolutePath = JSON.stringify(resolve(relativePath)).slice(1, -1);
+    return normalized.replaceAll(escapedAbsolutePath, `<repo>/${relativePath}`);
+  }, output);
+}
+
+function runRealDryRun(environment) {
+  const result = spawnSync(process.execPath, [dryRunScriptPath, "--environment", environment, "--dry-run"], {
+    encoding: "utf8",
+    env: { ...process.env, DIGITALOCEAN_ACCESS_TOKEN: "do_dry_run_must_not_read_this" },
+  });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).not.toContain("do_dry_run_must_not_read_this");
+  return normalizeDryRunPaths(result.stdout);
+}
+
+function baseDryRunGolden(environment) {
+  return readFileSync(resolve("scripts", "fixtures", `doks-cluster-addons.dry-run.${environment}.golden.txt`), "utf8");
+}
+
+function baseContractWithApprovedIssuerValues(baseOutput) {
+  const before =
+    `helm upgrade --install chase-sets-doks-ingress <repo>/infrastructure/helm/doks-ingress ` +
+    "--namespace cert-manager --atomic";
+  const after =
+    `helm upgrade --install chase-sets-doks-ingress <repo>/infrastructure/helm/doks-ingress ` +
+    `--namespace cert-manager --values ${issuerValuesPath} --atomic`;
+  if (baseOutput.indexOf(before) < 0 || baseOutput.indexOf(before) !== baseOutput.lastIndexOf(before)) {
+    throw new Error("The reviewed base golden must contain exactly one issuer command without --values.");
+  }
+  return baseOutput.replace(before, after);
+}
+
+function enforceApprovedDryRunContract(baseOutput, currentOutput) {
+  if (currentOutput !== baseContractWithApprovedIssuerValues(baseOutput)) {
+    throw new Error("Dry-run output differs from the reviewed base contract beyond the approved issuer-values delta.");
+  }
+}
 
 describe("doks cluster addons planner", () => {
   it("plans repos, controller, cert-manager, and issuers in order", () => {
@@ -446,24 +497,32 @@ describe("doks cluster addons planner", () => {
       ).resolves.toBe(false);
     });
 
-    it("keeps the staging and production dry-run output byte-for-byte on the preflight-free install contract", () => {
+    it("matches the reviewed base CLI goldens plus only the approved issuer-values delta", () => {
+      // Captured from the real origin/main CLI at 93172b2173e40bdd0089c63a28b58cd86466a6b9.
+      // These immutable goldens do not import or call the changed head planner.
       for (const environment of ["staging", "production"]) {
-        const expected = JSON.stringify(
-          {
-            environment,
-            loadBalancerName: loadBalancerName(environment),
-            steps: planClusterAddons({ environment }).map((step) => ({
-              name: step.name,
-              command: step.command.join(" "),
-            })),
-          },
-          null,
-          2,
+        const baseOutput = baseDryRunGolden(environment);
+        const currentOutput = runRealDryRun(environment);
+        expect(() => enforceApprovedDryRunContract(baseOutput, currentOutput)).not.toThrow();
+        expect(currentOutput).toContain(`--values ${issuerValuesPath}`);
+        expect(currentOutput).not.toContain("--description");
+        expect(currentOutput).not.toContain("chase-sets-doks-addons:v1:");
+      }
+    });
+
+    it("rejects any second command or output-byte delta from the reviewed dry-run contract", () => {
+      for (const environment of ["staging", "production"]) {
+        const baseOutput = baseDryRunGolden(environment);
+        const currentOutput = runRealDryRun(environment);
+        const secondCommandDelta = currentOutput.replace("--force-update", "--force-update --debug");
+        const secondOutputByteDelta = `${currentOutput} `;
+
+        expect(() => enforceApprovedDryRunContract(baseOutput, secondCommandDelta)).toThrow(
+          "beyond the approved issuer-values delta",
         );
-        const output = dryRunOutput({ environment });
-        expect(output).toBe(expected);
-        expect(output).not.toContain("--description");
-        expect(output).not.toContain("chase-sets-doks-addons:v1:");
+        expect(() => enforceApprovedDryRunContract(baseOutput, secondOutputByteDelta)).toThrow(
+          "beyond the approved issuer-values delta",
+        );
       }
     });
 
