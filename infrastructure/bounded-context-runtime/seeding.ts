@@ -8,8 +8,16 @@ import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 
 export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = ENVIRONMENT_DATA_PROFILES;
 
+export const defaultSeedDataProfiles = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+  "scenario-seed",
+  "representative-commerce-state",
+  "admin-qa-actor-fixtures",
+] as const satisfies readonly EnvironmentDataProfile[];
+
 export const defaultSeedOptions: BcSeedOptions = {
-  enabledDataProfiles: allEnvironmentDataProfiles,
+  enabledDataProfiles: defaultSeedDataProfiles,
   environmentName: null,
 };
 

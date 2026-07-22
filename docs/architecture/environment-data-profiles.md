@@ -14,7 +14,7 @@ Environment data setup is split by purpose, not by deployable.
 
 `admin-qa-actor-fixtures` is explicit staging Identity fixtures for the m65 Admin Workflows Staging QA actor matrix (issue #3016). It provisions the support-safe `admin-qa-*` staging actor aliases that map to real, whole-role Identity grants (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), each magic-link only and idempotent. It does not attempt to provision the single-permission partial-actor rows because Identity has no scoped single-permission membership grant; those stay proven by local regression guardrails only. It must be run only by an operator-confirmed staging fixture workflow, never as implicit deployment bootstrap.
 
-`representative-catalog` is opt-in Catalog data for dev, local, remote-dev, test, and preview. It replays accepted governed Observation Packs through the real Catalog import and promotion path so those environments can use representative provider-backed Catalog Items and assets. It is never a default bootstrap profile and is rejected in staging and production; staging continues to use its real provider pipeline.
+`representative-catalog` is a reserved, opt-in Catalog profile for dev, local, remote-dev, test, and preview. It is never a default bootstrap profile and is rejected in staging and production; staging continues to use its real provider pipeline. No seed handler currently implements this profile, so it performs no replay. As intended by [ADR 0027](../adr/0027-representative-catalog-observation-packs.md), [#5876](https://github.com/chase-sets/chase-sets/issues/5876) will later add accepted governed Observation Pack replay behind this profile.
 
 ## Environment Policy
 
