@@ -42,7 +42,7 @@ test("privileged setup succeeds on a retained first retry without entering the P
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
-      "/api/platform/projections/refresh",
+      "/api/platform/projections/refresh-checkpoint",
       "/api/auth/register",
     ]);
     expect(testInfo.retry, "the first attempt intentionally creates the retained retry trace").toBe(1);
@@ -103,17 +103,16 @@ async function routeProbeRequest(
     );
   }
 
-  if (path === "/api/platform/projections/refresh") {
+  if (path === "/api/platform/projections/refresh-checkpoint") {
     assertProbe(request.headers.cookie === `chase_sets_session=${markers.session}`, "projection-session");
-    return writeJson(response, 200, {
-      projectionGroups: [
-        {
-          targetContextName: "auth",
-          projectionName: "auth-identity-invitation-projection",
-          subscriptions: [{ sourceContextName: "identity", lastGlobalPosition: "5944" }],
-        },
-      ],
-    });
+    assertProbe(
+      isRecord(body) &&
+        body.targetContextName === "auth" &&
+        body.projectionName === "auth-identity-invitation-projection" &&
+        body.sourceContextName === "identity",
+      "projection-request",
+    );
+    return writeJson(response, 200, { lastGlobalPosition: "5944" });
   }
 
   if (path === "/api/auth/register") {

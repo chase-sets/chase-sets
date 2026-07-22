@@ -104,6 +104,38 @@ export function createProjectionOperationsRoutes(
     });
   });
 
+  app.post("/refresh-checkpoint", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_OPERATE_PERMISSION);
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    const body = await readJsonBody(c.req.raw);
+    const targetContextName = readBoundedName(body.targetContextName);
+    const projectionName = readBoundedName(body.projectionName);
+    const sourceContextName = readBoundedName(body.sourceContextName);
+    if (!targetContextName || !projectionName || !sourceContextName) {
+      return c.json({ error: { code: "invalid_projection_checkpoint_request" } }, 400);
+    }
+
+    const projectionGroups = await refreshProjectionStatuses();
+    const group = projectionGroups.find(
+      (candidate) => candidate.targetContextName === targetContextName && candidate.projectionName === projectionName,
+    );
+    const positions =
+      group?.subscriptions
+        .filter((subscription) => subscription.sourceContextName === sourceContextName)
+        .map((subscription) => subscription.lastGlobalPosition) ?? [];
+    if (positions.length === 0) {
+      return c.json({ error: { code: "projection_checkpoint_not_found" } }, 404);
+    }
+
+    const lastGlobalPosition = positions.reduce((maximum, position) =>
+      BigInt(position) > BigInt(maximum) ? position : maximum,
+    );
+    return c.json({ lastGlobalPosition });
+  });
+
   // Read-only push-wake pipeline status for the operator console. Structural
   // fields only (ADR 0010 privacy boundary): counts, lanes, origins,
   // states, positions, owners, and timestamps — never wake-intent metadata,
@@ -791,6 +823,10 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 
   const body = await request.json();
   return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+}
+
+function readBoundedName(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null;
 }
 
 function readLimit(value: string | undefined): number {
