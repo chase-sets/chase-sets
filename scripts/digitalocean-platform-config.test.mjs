@@ -2210,6 +2210,40 @@ describe("DigitalOcean platform configuration", () => {
       markStagingDeployedIndex,
     );
   });
+
+  it("scopes every staging Buy Now convergence gate to checkout.session-projection and publishes its evidence", () => {
+    const deployGateStep = workflowStep(platformProductionWorkflow, "Await staging projection convergence");
+    const routeMatrixGateStep = workflowStep(
+      platformStagingRouteMatrixEvidenceWorkflow,
+      "Await staging projection convergence",
+    );
+    const evidenceUploadStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const scopedDefault =
+      "PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}";
+
+    expect(deployGateStep).toContain(scopedDefault);
+    expect(routeMatrixGateStep).toContain(scopedDefault);
+    expect(deployGateStep).toContain('--convergence-projection-names "${PROJECTION_CONVERGENCE_PROJECTION_NAMES}"');
+    expect(routeMatrixGateStep).toContain(
+      '--convergence-projection-names "${PROJECTION_CONVERGENCE_PROJECTION_NAMES}"',
+    );
+    const truthfulConvergenceSummary =
+      'if .gate.converged == null then "unknown" else (.gate.converged | tostring) end';
+    expect(deployGateStep).toContain(truthfulConvergenceSummary);
+    expect(routeMatrixGateStep).toContain(truthfulConvergenceSummary);
+    expect(deployGateStep).not.toContain('.gate.converged // "unknown"');
+    expect(routeMatrixGateStep).not.toContain('.gate.converged // "unknown"');
+    expect(deployGateStep).not.toContain(
+      "PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}",
+    );
+    expect(routeMatrixGateStep).not.toContain(
+      "PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}",
+    );
+    expect(evidenceUploadStep).toContain("artifacts/release-health/staging-projection-convergence-gate.json");
+    expect(platformProductionWorkflow.indexOf("- name: Await staging projection convergence")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Staging Buy Now freshness probes"),
+    );
+  });
 });
 
 describe("Release qualification evidence root (issue #5836)", () => {

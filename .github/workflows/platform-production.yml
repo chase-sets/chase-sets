@@ -1516,7 +1516,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           PROJECTION_CONVERGENCE_BUDGET_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_BUDGET_MS || '300000' }}
           PROJECTION_CONVERGENCE_POLL_INTERVAL_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS || '5000' }}
-          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}
+          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"
@@ -1528,9 +1528,12 @@ jobs:
           gate_out=artifacts/release-health/staging-projection-convergence-gate.json
           # Bounded convergence gate (issue #4709): every deploy rolls the fleet, so the
           # Buy Now freshness probes race post-rollout projection replay. Wait for the
-          # staging projection-status surface to report all groups caught-up (or spend the
-          # budget) before probing. This never blocks promotion on its own; the probe step
-          # that follows still fails loudly on steady-state SLO breaches.
+          # staging projection-status surface to report the Buy Now route's exact durable
+          # dependency caught-up (or spend the budget) before probing. Do not default to
+          # all groups: unrelated degraded projections and the status collector's own auth
+          # session event are valid lag elsewhere but do not gate checkout.session-projection.
+          # This never blocks promotion on its own; the probe step that follows still fails
+          # loudly on steady-state SLO breaches.
           set +e
           pnpm run guest-buy-now:freshness-probe -- \
             --convergence-gate \
@@ -1542,7 +1545,7 @@ jobs:
             --out "$gate_out"
           gate_exit=$?
           set -e
-          converged="$(jq -r '.gate.converged // "unknown"' "$gate_out" 2>/dev/null || echo unknown)"
+          converged="$(jq -r 'if .gate.converged == null then "unknown" else (.gate.converged | tostring) end' "$gate_out" 2>/dev/null || echo unknown)"
           converged_after_ms="$(jq -r '.gate.convergedAfterMs // "did not converge"' "$gate_out" 2>/dev/null || echo unknown)"
           lagging="$(jq -r '(.gate.final.laggingGroups // []) | join(", ")' "$gate_out" 2>/dev/null || echo "")"
           {
@@ -1701,6 +1704,7 @@ jobs:
         with:
           name: staging-buy-now-freshness-probes
           path: |
+            artifacts/release-health/staging-projection-convergence-gate.json
             artifacts/release-health/guest-buy-now-freshness-probe.json
             artifacts/release-health/account-buy-now-freshness-probe.json
           if-no-files-found: error

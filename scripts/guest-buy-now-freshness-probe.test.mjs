@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_READY_SLO_MS,
@@ -33,6 +36,8 @@ import {
   SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON,
 } from "./guest-buy-now-freshness-probe.mjs";
 
+const execFileAsync = promisify(execFile);
+
 const baseOptions = {
   checkedAt: "2026-06-09T16:00:00.000Z",
   environment: "staging",
@@ -61,15 +66,35 @@ const unreadyWakeStatusSnapshot = {
 
 const convergedProjectionStatusSnapshot = {
   projectionGroups: [
-    { projectionName: "checkout-session-projection", caughtUp: true, state: "caught-up" },
+    { projectionName: "checkout.session-projection", caughtUp: true, state: "caught-up" },
     { projectionName: "auth-identity-invitation-projection", caughtUp: true, state: "idle" },
   ],
 };
 
 const laggingProjectionStatusSnapshot = {
   projectionGroups: [
-    { projectionName: "checkout-session-projection", caughtUp: true, state: "caught-up" },
+    { projectionName: "checkout.session-projection", caughtUp: true, state: "caught-up" },
     { projectionName: "auth-identity-invitation-projection", caughtUp: false, state: "behind" },
+  ],
+};
+
+const observedRun29666002029ProjectionStatusSnapshot = {
+  projectionGroups: [
+    { projectionName: "checkout.session-projection", caughtUp: true, state: "caught-up" },
+    { projectionName: "auth-session-projection", caughtUp: false, state: "behind", outstandingEventCount: "1" },
+    {
+      projectionName: "auth-session-transactional-email-projection",
+      caughtUp: false,
+      state: "behind",
+      outstandingEventCount: "1",
+    },
+    {
+      projectionName: "collections-catalog-product-projection",
+      caughtUp: false,
+      state: "degraded",
+      outstandingEventCount: "0",
+      blockedStreamCount: 8,
+    },
   ],
 };
 
@@ -1708,9 +1733,18 @@ describe("guest Buy Now freshness probe", () => {
     });
   });
 
-  it("scopes projection convergence to the requested projection names", () => {
+  it("scopes run 29666002029 auth lag and unrelated degraded groups away from the Buy Now dependency", () => {
+    expect(evaluateProjectionConvergence(observedRun29666002029ProjectionStatusSnapshot)).toMatchObject({
+      converged: false,
+      totalGroups: 4,
+      laggingGroups: [
+        "auth-session-projection",
+        "auth-session-transactional-email-projection",
+        "collections-catalog-product-projection",
+      ],
+    });
     expect(
-      evaluateProjectionConvergence(laggingProjectionStatusSnapshot, ["checkout-session-projection"]),
+      evaluateProjectionConvergence(observedRun29666002029ProjectionStatusSnapshot, ["checkout.session-projection"]),
     ).toMatchObject({ converged: true, totalGroups: 1, laggingGroups: [] });
     expect(evaluateProjectionConvergence(laggingProjectionStatusSnapshot, ["missing-projection"])).toMatchObject({
       converged: false,
@@ -1791,6 +1825,71 @@ describe("guest Buy Now freshness probe", () => {
     });
     expect(evidence.gate.final.laggingGroups).toEqual(["auth-identity-invitation-projection"]);
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("forced non-convergence: the real CLI path warns and exits zero so probes still proceed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-projection-gate-cli-"));
+    const outFile = join(directory, "staging-projection-convergence-gate.json");
+    const server = createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      if (request.url === "/api/auth/password-sign-in") {
+        response.end(JSON.stringify({ sessionToken: "admin-token" }));
+        return;
+      }
+      if (request.url === "/api/platform/projections/refresh") {
+        response.end(JSON.stringify(observedRun29666002029ProjectionStatusSnapshot));
+        return;
+      }
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: "not-found" }));
+    });
+
+    await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const address = server.address();
+      expect(address).not.toBeNull();
+      expect(typeof address).toBe("object");
+      const { stdout, stderr } = await execFileAsync(
+        process.execPath,
+        [
+          resolve("scripts/guest-buy-now-freshness-probe.mjs"),
+          "--convergence-gate",
+          "--environment",
+          "staging",
+          "--admin-base-url",
+          `http://127.0.0.1:${address.port}`,
+          "--convergence-budget-ms",
+          "0",
+          "--convergence-projection-names",
+          "all",
+          "--out",
+          outFile,
+        ],
+        {
+          env: {
+            ...process.env,
+            PLATFORM_ADMIN_EMAIL: "admin@example.test",
+            PLATFORM_ADMIN_PASSWORD: "secret",
+          },
+        },
+      );
+
+      const evidence = JSON.parse(stdout);
+      expect(evidence).toMatchObject({
+        promotionDecision: "proceed",
+        convergenceBudgetMs: 0,
+        gate: { attempted: true, converged: false, sampleCount: 1 },
+      });
+      expect(stderr).toContain(
+        "WARNING: staging projections did not fully converge within 0ms before the Buy Now probe",
+      );
+      expect(stderr).toContain("Proceeding to probes; steady-state SLO breaches still fail loudly.");
+      expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+    } finally {
+      await new Promise((resolveClose, rejectClose) =>
+        server.close((error) => (error ? rejectClose(error) : resolveClose())),
+      );
+    }
   });
 
   it("signs in as admin and reads the projection refresh surface for status", async () => {
