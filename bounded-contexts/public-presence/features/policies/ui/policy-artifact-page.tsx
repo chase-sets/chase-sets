@@ -65,7 +65,9 @@ export function PolicyArtifactPage({
           }
         />
 
-        <Banner tone="warning" title={copy.counselPendingTitle} description={copy.counselPendingDescription} />
+        {metadata.publicationStatus !== "published" ? (
+          <Banner tone="warning" title={copy.counselPendingTitle} description={copy.counselPendingDescription} />
+        ) : null}
 
         <Surface element="section" tone="subtle" aria-label={copy.metadataLabel}>
           <Stack gap={2}>

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -67,10 +68,38 @@ function assertValidCorpus(registry) {
   }
 }
 
+function fingerprintArtifactContent(artifact) {
+  const ownedContent = {
+    title: artifact.title,
+    description: artifact.description,
+    sections: artifact.sections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      draftText: section.draftText,
+      reviewStatus: section.reviewStatus,
+      reviewManifest: {
+        scopeNote: section.reviewManifest.scopeNote,
+        decisionRefs: section.reviewManifest.decisionRefs,
+        productTruthRefs: section.reviewManifest.productTruthRefs,
+        openQuestions: section.reviewManifest.openQuestions,
+        assumptions: section.reviewManifest.assumptions.map((assumption) => ({
+          assertion: assumption.assertion,
+          evidenceRef: assumption.evidenceRef,
+        })),
+      },
+    })),
+  };
+  return `sha256:${createHash("sha256").update(JSON.stringify(ownedContent)).digest("hex")}`;
+}
+
 async function renderPublicationModule(entry) {
   const { artifact, requiredSubjectIds } = entry;
   const { launchRequired: _launchRequired, ...legacyOrder } = artifact.metadata;
-  const record = { ...artifact.metadata, consentActivatable: isConsentActivatable(artifact, requiredSubjectIds) };
+  const record = {
+    ...artifact.metadata,
+    contentFingerprint: fingerprintArtifactContent(artifact),
+    consentActivatable: isConsentActivatable(artifact, requiredSubjectIds),
+  };
   const policyKey = artifact.metadata.policyKey;
   const legacyExport =
     policyKey === "terms-of-service"

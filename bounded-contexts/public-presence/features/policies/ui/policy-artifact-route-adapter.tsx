@@ -43,12 +43,19 @@ export function buildPolicyCorpusPageCopy(
     metadataLabel: t("publicPresence.info.policies.metadata.label"),
     metadataTitle: t("publicPresence.info.policies.metadata.title"),
     versionText: t("publicPresence.info.policies.metadata.version", { version: metadata.version }),
-    effectiveText: t("publicPresence.info.policies.metadata.effectivePending"),
+    effectiveText:
+      metadata.publicationStatus === "published"
+        ? t("publicPresence.info.policies.metadata.effective", { effectiveAt: metadata.effectiveAt ?? "" })
+        : t("publicPresence.info.policies.metadata.effectivePending"),
     localeText: t("publicPresence.info.policies.metadata.locale", { locale: metadata.locale }),
     tocLabel: t("publicPresence.info.policies.toc.label"),
     tocTitle: t("publicPresence.info.policies.toc.title"),
     counselRequiredBadge: t("publicPresence.info.policies.section.counselRequired"),
   };
+}
+
+export function PolicyArtifactRouteAdapter({ artifact, eyebrow }: { artifact: PublicPolicyArtifact; eyebrow: string }) {
+  return <PolicyArtifactPage artifact={artifact} copy={buildPolicyCorpusPageCopy(artifact, { eyebrow })} />;
 }
 
 export const sellerAgreementMeta: MetaFunction = () =>
@@ -59,11 +66,9 @@ export const sellerAgreementMeta: MetaFunction = () =>
 
 export function SellerAgreementRouteAdapter() {
   return (
-    <PolicyArtifactPage
+    <PolicyArtifactRouteAdapter
       artifact={sellerAgreementPolicyArtifact}
-      copy={buildPolicyCorpusPageCopy(sellerAgreementPolicyArtifact, {
-        eyebrow: t("publicPresence.info.sellerAgreement.eyebrow"),
-      })}
+      eyebrow={t("publicPresence.info.sellerAgreement.eyebrow")}
     />
   );
 }
@@ -76,11 +81,9 @@ export const paymentsTermsMeta: MetaFunction = () =>
 
 export function PaymentsTermsRouteAdapter() {
   return (
-    <PolicyArtifactPage
+    <PolicyArtifactRouteAdapter
       artifact={paymentsTermsPolicyArtifact}
-      copy={buildPolicyCorpusPageCopy(paymentsTermsPolicyArtifact, {
-        eyebrow: t("publicPresence.info.paymentsTerms.eyebrow"),
-      })}
+      eyebrow={t("publicPresence.info.paymentsTerms.eyebrow")}
     />
   );
 }
@@ -93,11 +96,9 @@ export const agentTermsMeta: MetaFunction = () =>
 
 export function AgentTermsRouteAdapter() {
   return (
-    <PolicyArtifactPage
+    <PolicyArtifactRouteAdapter
       artifact={agentConnectorTermsPolicyArtifact}
-      copy={buildPolicyCorpusPageCopy(agentConnectorTermsPolicyArtifact, {
-        eyebrow: t("publicPresence.info.agentTerms.eyebrow"),
-      })}
+      eyebrow={t("publicPresence.info.agentTerms.eyebrow")}
     />
   );
 }
@@ -110,11 +111,9 @@ export const authenticityTermsMeta: MetaFunction = () =>
 
 export function AuthenticityTermsRouteAdapter() {
   return (
-    <PolicyArtifactPage
+    <PolicyArtifactRouteAdapter
       artifact={authenticityServiceTermsPolicyArtifact}
-      copy={buildPolicyCorpusPageCopy(authenticityServiceTermsPolicyArtifact, {
-        eyebrow: t("publicPresence.info.authenticityTerms.eyebrow"),
-      })}
+      eyebrow={t("publicPresence.info.authenticityTerms.eyebrow")}
     />
   );
 }
