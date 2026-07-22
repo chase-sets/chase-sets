@@ -21,7 +21,16 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   must be accepted by an **external provider** (payment-provider event sets,
   webhook payloads, third-party API schemas) names the provider's **test-mode
   surface** as its evidence method — internal consistency has passed every
-  internal gate and still been rejected live (#5811).
+  internal gate and still been rejected live (#5811). An AC whose acceptance
+  depends on data produced FROM an external authority (GitHub API shapes,
+  provider payloads, queue/webhook associations, cloud-API state) names a
+  **captured probe** as its evidence method: live call output, or a durable
+  link/fixture, taken at the exact lifecycle moment the implementation needs
+  the data. Endpoint/docs existence and post-hoc replay do not qualify — PR
+  #5883 needed five-plus repair rounds because `actions/runs.pull_requests`
+  is empty while a merge-group run is queued and populates only after merge
+  (live run 29888165410 confirmed `pull_requests: []` mid-queue); the defect
+  was invisible to every check except a probe taken at that exact moment.
 - **Verification plan.** The scoped commands that prove the change
   (`pnpm --filter <workspace> run test`, guards, e2e batch if UI).
 - **Predicted footprint.** Workspaces/files the change will touch, plus chain
@@ -54,6 +63,10 @@ The orchestrator dispatches an issue only when ALL hold:
 6. No unresolved full-path decision — or the issue is explicitly linked
    `Blocked by` the decision issue.
 7. Terms conform to the owning context's glossary; new terms are registered.
+8. Every AC depending on an external authority embeds its captured probe (or
+   a link to one) taken at the exact lifecycle moment the implementation
+   needs the data — not endpoint/docs existence, not a post-hoc replay
+   (#5883).
 
 Fails → planning-repair pass, not an implementation lane.
 

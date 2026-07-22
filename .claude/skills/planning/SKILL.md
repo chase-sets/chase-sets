@@ -55,6 +55,10 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
    Issues behind an unresolved decision are created blocked, linked to it.
+   Route every authority-timing uncertainty (will this AC's data exist from
+   the external authority at the moment implementation needs it?) to a
+   probe-now step instead of letting it surface as a mid-lane discovery
+   (`references/issue-standard.md` item 8).
 5. **Drafting.** Author artifacts per the reference standards. Every path
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
