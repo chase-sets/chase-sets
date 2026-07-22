@@ -36,13 +36,15 @@ describe("marketplace fake-cdn fallback asset correspondence (#5879)", () => {
     }
   });
 
-  it("rejects a known-missing historical fallback while the real assets still resolve (negative control)", async () => {
-    // charizard.png is referenced by discovery/checkout UI but has never existed
-    // under public/fake-cdn/assets/ -- a real, currently-true missing-asset case
-    // from the same defect class, distinct from this issue's scope. Proves the
-    // resolver above rejects an absent file rather than passing vacuously.
-    const missingHistoricalFallback = "/fake-cdn/assets/charizard.png";
-    const resolvedMissing = await resolvePublicAssetPath(missingHistoricalFallback);
+  it("rejects a synthetic missing fallback while the real assets still resolve (negative control)", async () => {
+    // A fixture-only filename that can never collide with a real production
+    // asset (unlike a real card name, which could legitimately be added to
+    // public/fake-cdn/assets/ later and silently turn this into a false
+    // failure). Proves the resolver above rejects an absent file rather than
+    // passing vacuously, without depending on any path staying absent forever.
+    const syntheticMissingFallback = "/fake-cdn/assets/__fallback-asset-correspondence-test-missing-control__.png";
+    expect(scenarioSeedFallbackAssetPaths).not.toContain(syntheticMissingFallback);
+    const resolvedMissing = await resolvePublicAssetPath(syntheticMissingFallback);
     expect(existsSync(resolvedMissing)).toBe(false);
 
     for (const fallbackPath of scenarioSeedFallbackAssetPaths) {
