@@ -86,14 +86,26 @@ describe("exact candidate image handoff", () => {
     expect(record).toContain("candidate-evidence");
     expect(record).toContain('--queue-base-sha "${{ github.event.merge_group.base_sha }}"');
     expect(record).toContain('gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}"');
-    expect(record).toContain("gh api --paginate --slurp");
-    expect(record).toContain("commits/${candidate_sha}/pulls?per_page=100");
+    // Pull-request identity must come from the merge-queue entry association,
+    // the only authority GitHub exposes while the candidate is still queued.
+    expect(record).toContain("gh api graphql");
+    expect(record).toContain("mergeQueue(branch: $branch)");
+    expect(record).toContain("entries(first: 100)");
+    expect(record).toContain("totalCount");
+    expect(record).toContain("headCommit { oid }");
+    expect(record).toContain("baseCommit { oid }");
+    expect(record).toContain("pullRequest { number headRefOid }");
     expect(record).toContain('--run-metadata "$run_metadata"');
-    expect(record).toContain('--associated-pull-pages "$associated_pull_pages"');
+    expect(record).toContain('--merge-queue-snapshot "$merge_queue_snapshot"');
+    // Post-merge-only association sources can never appear at the producer.
+    expect(record).not.toContain("/pulls?");
+    expect(record).not.toContain("commits/${candidate_sha}");
+    expect(record).not.toContain("--associated-pull-pages");
     expect(record).not.toContain(".pull_requests");
     expect(record).not.toContain("head_branch");
     expect(record).toContain('--built-image-digest "$BUILT_IMAGE_DIGEST"');
     expect(upload).toContain("merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(upload).toContain("path: artifacts/merge-qualification-candidate/");
     expect(docker).toContain("permissions:\n      contents: read\n      actions: read\n      pull-requests: read");
   });
 

@@ -414,13 +414,135 @@ export function buildMergeQualificationCandidate(input) {
   return { record, errors: validateMergeQualificationCandidate(record) };
 }
 
+// Merge-queue entry states GitHub reports while a candidate is still queued.
+// UNMERGEABLE is excluded: an unmergeable entry can never become this run's
+// merged candidate, so it must not source candidate identity.
+export const PRE_MERGE_QUEUE_ENTRY_STATES = Object.freeze(["QUEUED", "AWAITING_CHECKS", "MERGEABLE", "LOCKED"]);
+
 // GitHub's Actions run representation does not populate `pull_requests` for
-// real merge_group runs. The commit association endpoint is the authoritative
-// bridge instead: GET /commits/<merge-group SHA>/pulls returns the PRs whose
-// merge_commit_sha is that immutable queue candidate. The workflow saves the
-// run response and every paginated association page, then this boundary
-// derives (rather than accepts) workflow/run/SHA/tree/PR identity from them.
-export function buildMergeQualificationCandidateFromGithubMetadata(input) {
+// real merge_group runs, and `commits/<merge-group SHA>/pulls` stays empty
+// until AFTER the pull request merges (live merge-group run 29888165410
+// demonstrated the post-merge timing), so neither can identify the candidate
+// at producer time. The only association GitHub exposes while the candidate
+// is still queued is the merge queue itself: the GraphQL mergeQueue entry
+// whose immutable headCommit.oid IS this run's merge-group SHA names the
+// exact pull request being merged. The producing merge_group run captures
+// that snapshot while its own candidate is still queued, and this boundary
+// derives (rather than accepts) workflow/run/SHA/tree/PR identity from it.
+// The temporal guard is structural: GitHub removes the entry at merge or
+// dequeue, so a snapshot taken after merge has no entry for this SHA and the
+// build refuses; the run metadata must also still be in flight.
+export function buildMergeQualificationCandidateFromMergeQueueSnapshot(input) {
+  const run = input?.run;
+  const repository = normalize(input?.repository);
+  const queueBaseSha = lowerTrim(input?.queueBaseSha);
+  const candidateSha = lowerTrim(run?.head_sha);
+  const candidateTreeSha = lowerTrim(run?.head_commit?.tree_id);
+  const snapshot = input?.mergeQueueSnapshot;
+  const metadataErrors = [];
+
+  if (
+    typeof run !== "object" ||
+    run === null ||
+    Array.isArray(run) ||
+    run.event !== "merge_group" ||
+    run.path !== PLATFORM_PR_WORKFLOW_PATH ||
+    !isBoundedSafeIntegerString(String(run.workflow_id ?? "")) ||
+    !isBoundedSafeIntegerString(String(run.id ?? "")) ||
+    !isBoundedSafeIntegerString(String(run.run_attempt ?? "")) ||
+    !["queued", "in_progress"].includes(run.status)
+  ) {
+    metadataErrors.push("candidate Actions run metadata is not an in-flight Platform PR merge_group attempt.");
+  }
+  if (run?.repository?.full_name !== repository) {
+    metadataErrors.push("candidate Actions run repository does not match the requested repository.");
+  }
+  if (
+    !isCommitSha(candidateSha) ||
+    !isCommitSha(candidateTreeSha) ||
+    lowerTrim(run?.head_commit?.id) !== candidateSha
+  ) {
+    metadataErrors.push("candidate Actions run does not carry an exact head SHA/tree identity.");
+  }
+  if (!isCommitSha(queueBaseSha)) metadataErrors.push("candidate merge_group base SHA is invalid.");
+
+  const entriesConnection =
+    isClosedObject(snapshot, ["data"]) &&
+    isClosedObject(snapshot.data, ["repository"]) &&
+    isClosedObject(snapshot.data.repository, ["mergeQueue"]) &&
+    isClosedObject(snapshot.data.repository.mergeQueue, ["entries"]) &&
+    isClosedObject(snapshot.data.repository.mergeQueue.entries, ["totalCount", "nodes"])
+      ? snapshot.data.repository.mergeQueue.entries
+      : null;
+  const nodes = Array.isArray(entriesConnection?.nodes) ? entriesConnection.nodes : null;
+  if (
+    entriesConnection === null ||
+    nodes === null ||
+    !Number.isSafeInteger(entriesConnection.totalCount) ||
+    entriesConnection.totalCount < 1 ||
+    entriesConnection.totalCount > 100 ||
+    entriesConnection.totalCount !== nodes.length ||
+    nodes.some((node) => typeof node !== "object" || node === null || Array.isArray(node))
+  ) {
+    metadataErrors.push("candidate merge-queue snapshot is not a complete closed queue observation.");
+  }
+
+  const matches = (nodes ?? []).filter((node) => lowerTrim(node?.headCommit?.oid) === candidateSha);
+  const pullRequests = [];
+  if (matches.length !== 1) {
+    metadataErrors.push(
+      "candidate merge-queue snapshot holds no still-queued entry for this merge-group SHA; the queue association is only observable before merge.",
+    );
+  } else {
+    const entry = matches[0];
+    const number = entry?.pullRequest?.number;
+    const headSha = lowerTrim(entry?.pullRequest?.headRefOid);
+    if (
+      !isClosedObject(entry, ["position", "state", "solo", "enqueuedAt", "headCommit", "baseCommit", "pullRequest"]) ||
+      !isClosedObject(entry.headCommit, ["oid"]) ||
+      !isClosedObject(entry.baseCommit, ["oid"]) ||
+      !isClosedObject(entry.pullRequest, ["number", "headRefOid"]) ||
+      !Number.isSafeInteger(entry.position) ||
+      entry.position < 0 ||
+      typeof entry.solo !== "boolean" ||
+      parseTimezoneInstantMs(entry.enqueuedAt) === null ||
+      !PRE_MERGE_QUEUE_ENTRY_STATES.includes(entry.state) ||
+      lowerTrim(entry.baseCommit.oid) !== queueBaseSha ||
+      !Number.isSafeInteger(number) ||
+      number <= 0 ||
+      !isCommitSha(headSha)
+    ) {
+      metadataErrors.push("candidate merge-queue entry is not an exact queued PR/head/base identity.");
+    } else {
+      pullRequests.push({ number, headSha });
+    }
+  }
+
+  const built = buildMergeQualificationCandidate({
+    repository,
+    workflowId: String(run?.workflow_id ?? ""),
+    workflowPath: run?.path,
+    runId: String(run?.id ?? ""),
+    runAttempt: String(run?.run_attempt ?? ""),
+    queueBaseSha,
+    pullRequests,
+    candidateSha,
+    candidateTreeSha,
+    builtImageDigest: input?.builtImageDigest,
+    capturedAt: input?.capturedAt,
+  });
+  return { record: built.record, errors: [...new Set([...metadataErrors, ...built.errors])] };
+}
+
+// Post-merge verification rebuild for release discovery ONLY: after the
+// candidate merges, GET /commits/<merge-group SHA>/pulls returns the PRs
+// whose merge_commit_sha is that immutable queue candidate, so the scheduled
+// collector re-derives the same closed record from durable post-merge state
+// and requires byte-equivalence with the producer's queue-snapshot record.
+// That association is empty while the candidate is still queued, so it can
+// never source producer-time identity (see
+// buildMergeQualificationCandidateFromMergeQueueSnapshot).
+export function buildMergeQualificationCandidateFromMergedCommitAssociation(input) {
   const run = input?.run;
   const repository = normalize(input?.repository);
   const queueBaseSha = lowerTrim(input?.queueBaseSha);
@@ -438,8 +560,8 @@ export function buildMergeQualificationCandidateFromGithubMetadata(input) {
     !isBoundedSafeIntegerString(String(run.workflow_id ?? "")) ||
     !isBoundedSafeIntegerString(String(run.id ?? "")) ||
     !isBoundedSafeIntegerString(String(run.run_attempt ?? "")) ||
-    !["queued", "in_progress", "completed"].includes(run.status) ||
-    (run.status === "completed" && run.conclusion !== "success")
+    run.status !== "completed" ||
+    run.conclusion !== "success"
   ) {
     metadataErrors.push("candidate Actions run metadata is not an exact Platform PR merge_group attempt.");
   }
@@ -2189,10 +2311,16 @@ async function main(argv, env = process.env) {
   }
 
   if (command === "candidate-evidence") {
-    const built = buildMergeQualificationCandidateFromGithubMetadata({
+    if (readOption(argv, "--associated-pull-pages")) {
+      console.error(
+        "candidate-evidence no longer accepts --associated-pull-pages: commits/<sha>/pulls is empty while the candidate is queued, so it can never provide producer-time identity. Pass --merge-queue-snapshot captured during the merge_group run instead.",
+      );
+      return 1;
+    }
+    const built = buildMergeQualificationCandidateFromMergeQueueSnapshot({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
       run: readJsonFileOrNull(readOption(argv, "--run-metadata")),
-      associatedPullRequestPages: readJsonFileOrNull(readOption(argv, "--associated-pull-pages")),
+      mergeQueueSnapshot: readJsonFileOrNull(readOption(argv, "--merge-queue-snapshot")),
       queueBaseSha: readOption(argv, "--queue-base-sha"),
       builtImageDigest: readOption(argv, "--built-image-digest"),
       capturedAt: readOption(argv, "--captured-at") ?? now().toISOString(),

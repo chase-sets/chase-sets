@@ -8,6 +8,9 @@ import {
   MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION,
   MERGE_QUALIFICATION_POLICY_PATH,
   MERGE_QUALIFICATION_TERMINAL_STATES,
+  PRE_MERGE_QUEUE_ENTRY_STATES,
+  buildMergeQualificationCandidateFromMergeQueueSnapshot,
+  buildMergeQualificationCandidateFromMergedCommitAssociation,
   buildMergeQualificationEvent,
   buildMergeQualificationDecision,
   dedupeMergeQualificationEvents,
@@ -1588,6 +1591,217 @@ describe("classifier registration for the enablement policy", () => {
         });
         expect(built.errors, `${classifierClass}:${reasonCode}`).toEqual([]);
       }
+    }
+  });
+});
+
+describe("producer-time candidate identity from the pre-merge merge-queue snapshot", () => {
+  // Synthetic shapes mirroring the introspected GraphQL contract
+  // (MergeQueue.entries -> MergeQueueEntry{position,state,solo,enqueuedAt,
+  // headCommit,baseCommit,pullRequest}); the real captured pre-merge fixture
+  // drives the same path in release-health-github-metadata.test.mjs.
+  const candidateSha = "a".repeat(40);
+  const candidateTree = "b".repeat(40);
+  const queueBaseSha = "c".repeat(40);
+  const prHeadSha = "d".repeat(40);
+  const digest = `sha256:${"e".repeat(64)}`;
+  const capturedAt = "2026-07-22T01:20:00.000Z";
+
+  const inFlightRun = () => ({
+    id: 29888165410,
+    event: "merge_group",
+    path: ".github/workflows/platform-pr.yml",
+    status: "in_progress",
+    workflow_id: 274293632,
+    run_attempt: 1,
+    head_sha: candidateSha,
+    head_commit: { id: candidateSha, tree_id: candidateTree },
+    repository: { full_name: "chase-sets/chase-sets" },
+  });
+  const queuedEntry = () => ({
+    position: 0,
+    state: "AWAITING_CHECKS",
+    solo: false,
+    enqueuedAt: "2026-07-22T01:17:20Z",
+    headCommit: { oid: candidateSha },
+    baseCommit: { oid: queueBaseSha },
+    pullRequest: { number: 5886, headRefOid: prHeadSha },
+  });
+  const snapshotOf = (nodes, totalCount = nodes.length) => ({
+    data: { repository: { mergeQueue: { entries: { totalCount, nodes } } } },
+  });
+  const build = (overrides = {}) =>
+    buildMergeQualificationCandidateFromMergeQueueSnapshot({
+      repository: "chase-sets/chase-sets",
+      run: inFlightRun(),
+      mergeQueueSnapshot: snapshotOf([queuedEntry()]),
+      queueBaseSha,
+      builtImageDigest: digest,
+      capturedAt,
+      ...overrides,
+    });
+
+  it("derives the exact candidate from the still-queued entry in every pre-merge state", () => {
+    expect(PRE_MERGE_QUEUE_ENTRY_STATES).toEqual(["QUEUED", "AWAITING_CHECKS", "MERGEABLE", "LOCKED"]);
+    for (const state of PRE_MERGE_QUEUE_ENTRY_STATES) {
+      const built = build({ mergeQueueSnapshot: snapshotOf([{ ...queuedEntry(), state }]) });
+      expect(built.errors, state).toEqual([]);
+      expect(built.record).toEqual({
+        schemaVersion: "merge-qualification-candidate/v2",
+        repository: "chase-sets/chase-sets",
+        workflowId: "274293632",
+        workflowPath: ".github/workflows/platform-pr.yml",
+        runId: "29888165410",
+        runAttempt: "1",
+        queueBaseSha,
+        pullRequests: [{ number: 5886, headSha: prHeadSha }],
+        candidateSha,
+        candidateTreeSha: candidateTree,
+        builtImageDigest: digest,
+        capturedAt,
+      });
+    }
+  });
+
+  it("tolerates unrelated queued entries but requires exactly one entry for this merge-group SHA", () => {
+    const other = {
+      ...queuedEntry(),
+      headCommit: { oid: "9".repeat(40) },
+      baseCommit: { oid: candidateSha },
+      pullRequest: { number: 5990, headRefOid: "8".repeat(40) },
+    };
+    expect(build({ mergeQueueSnapshot: snapshotOf([queuedEntry(), other]) }).errors).toEqual([]);
+    const duplicated = build({ mergeQueueSnapshot: snapshotOf([queuedEntry(), queuedEntry()]) });
+    expect(duplicated.errors.join(" ")).toContain("no still-queued entry");
+  });
+
+  it("refuses a snapshot taken after merge or dequeue, when the entry no longer exists", () => {
+    const gone = {
+      ...queuedEntry(),
+      headCommit: { oid: "9".repeat(40) },
+      pullRequest: { number: 5990, headRefOid: "8".repeat(40) },
+      baseCommit: { oid: candidateSha },
+    };
+    for (const snapshot of [snapshotOf([gone]), snapshotOf([], 0)]) {
+      const built = build({ mergeQueueSnapshot: snapshot });
+      expect(built.errors.length).toBeGreaterThan(0);
+      expect(built.errors.join(" ")).toContain("before merge");
+    }
+  });
+
+  it("refuses run metadata that is not an in-flight merge_group attempt (completed replay)", () => {
+    const built = build({ run: { ...inFlightRun(), status: "completed", conclusion: "success" } });
+    expect(built.errors.join(" ")).toContain("in-flight");
+  });
+
+  it("refuses UNMERGEABLE entries, wrong queue base, and inexact or unclosed entry identity", () => {
+    const cases = [
+      { ...queuedEntry(), state: "UNMERGEABLE" },
+      { ...queuedEntry(), state: "MERGED" },
+      { ...queuedEntry(), baseCommit: { oid: "f".repeat(40) } },
+      { ...queuedEntry(), pullRequest: { number: 0, headRefOid: prHeadSha } },
+      { ...queuedEntry(), pullRequest: { number: 5886, headRefOid: "not-a-sha" } },
+      { ...queuedEntry(), pullRequest: { number: 5886, headRefOid: prHeadSha, extra: true } },
+      { ...queuedEntry(), solo: "false" },
+      { ...queuedEntry(), enqueuedAt: "2026-07-22T01:17:20" },
+      { ...queuedEntry(), surprise: true },
+    ];
+    for (const entry of cases) {
+      const built = build({ mergeQueueSnapshot: snapshotOf([entry]) });
+      expect(built.errors.join(" "), JSON.stringify(entry)).toContain("exact queued PR/head/base identity");
+    }
+  });
+
+  it("refuses incomplete or unclosed queue observations (truncation, ceiling, GraphQL errors)", () => {
+    const withErrors = { ...snapshotOf([queuedEntry()]), errors: [{ message: "boom" }] };
+    const cases = [
+      null,
+      {},
+      withErrors,
+      snapshotOf([queuedEntry()], 2),
+      snapshotOf([queuedEntry()], 101),
+      { data: { repository: { mergeQueue: null } } },
+      { data: { repository: { mergeQueue: { entries: { totalCount: 1, nodes: [null] } } } } },
+    ];
+    for (const snapshot of cases) {
+      const built = build({ mergeQueueSnapshot: snapshot });
+      expect(built.errors.join(" "), JSON.stringify(snapshot)).toContain("closed queue observation");
+    }
+  });
+
+  it("keeps the post-merge commit-association rebuild collector-only: completed successful runs required", () => {
+    const association = [
+      {
+        number: 5886,
+        merge_commit_sha: candidateSha,
+        head: { sha: prHeadSha },
+        base: { sha: queueBaseSha },
+      },
+    ];
+    const mergedRun = { ...inFlightRun(), status: "completed", conclusion: "success" };
+    const rebuilt = buildMergeQualificationCandidateFromMergedCommitAssociation({
+      repository: "chase-sets/chase-sets",
+      run: mergedRun,
+      associatedPullRequestPages: [association],
+      queueBaseSha,
+      builtImageDigest: digest,
+      capturedAt,
+    });
+    expect(rebuilt.errors).toEqual([]);
+    expect(rebuilt.record).toEqual(build().record);
+    const inFlight = buildMergeQualificationCandidateFromMergedCommitAssociation({
+      repository: "chase-sets/chase-sets",
+      run: inFlightRun(),
+      associatedPullRequestPages: [association],
+      queueBaseSha,
+      builtImageDigest: digest,
+      capturedAt,
+    });
+    expect(inFlight.errors.join(" ")).toContain("exact Platform PR merge_group attempt");
+  });
+
+  it("CLI candidate-evidence consumes the snapshot and hard-rejects the post-merge association flag", () => {
+    const workDir = mkdtempSync(path.join(tmpdir(), "merge-queue-candidate-cli-"));
+    try {
+      const runPath = path.join(workDir, "run.json");
+      const snapshotPath = path.join(workDir, "merge-queue-snapshot.json");
+      const outPath = path.join(workDir, "candidate.json");
+      writeFileSync(runPath, JSON.stringify(inFlightRun()));
+      writeFileSync(snapshotPath, JSON.stringify(snapshotOf([queuedEntry()])));
+      const base = [
+        "scripts/merge-qualification-advisory.mjs",
+        "candidate-evidence",
+        "--repository",
+        "chase-sets/chase-sets",
+        "--run-metadata",
+        runPath,
+        "--queue-base-sha",
+        queueBaseSha,
+        "--built-image-digest",
+        digest,
+        "--captured-at",
+        capturedAt,
+      ];
+      execFileSync(process.execPath, [...base, "--merge-queue-snapshot", snapshotPath, "--out", outPath], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      });
+      expect(JSON.parse(readFileSync(outPath, "utf8"))).toEqual(build().record);
+      expect(() =>
+        execFileSync(process.execPath, [...base, "--associated-pull-pages", snapshotPath], {
+          cwd: repoRoot,
+          stdio: "pipe",
+        }),
+      ).toThrow();
+      writeFileSync(snapshotPath, JSON.stringify(snapshotOf([], 0)));
+      expect(() =>
+        execFileSync(process.execPath, [...base, "--merge-queue-snapshot", snapshotPath], {
+          cwd: repoRoot,
+          stdio: "pipe",
+        }),
+      ).toThrow();
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
     }
   });
 });

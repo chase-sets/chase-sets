@@ -437,22 +437,51 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILT_IMAGE_DIGEST: ${{ steps.push.outputs.image_digest }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification-candidate
           run_metadata="artifacts/merge-qualification-candidate/run.json"
-          associated_pull_pages="artifacts/merge-qualification-candidate/associated-pull-pages.json"
+          merge_queue_snapshot="artifacts/merge-qualification-candidate/merge-queue-snapshot.json"
           gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
           candidate_sha="$(jq -r '.head_sha' "$run_metadata")"
           candidate_tree="$(jq -r '.head_commit.tree_id' "$run_metadata")"
           test "$candidate_sha" = "$(git rev-parse HEAD)"
           test "$candidate_tree" = "$(git rev-parse 'HEAD^{tree}')"
-          gh api --paginate --slurp \
-            "repos/${{ github.repository }}/commits/${candidate_sha}/pulls?per_page=100" > "$associated_pull_pages"
+          # The merge-queue entry is the only pull-request association GitHub
+          # exposes while this candidate is still queued: actions/runs
+          # pull_requests stays empty for merge_group runs, and
+          # commits/<sha>/pulls only materializes after merge. This snapshot
+          # is taken inside the merge_group run itself, so the entry whose
+          # headCommit.oid is this run's SHA must still be present.
+          queue_branch="${MERGE_GROUP_BASE_REF#refs/heads/}"
+          # shellcheck disable=SC2016 # $owner/$name/$branch are GraphQL variables, not shell expansions.
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%/*}" \
+            -f name="${GITHUB_REPOSITORY#*/}" \
+            -f branch="$queue_branch" \
+            -f query='query($owner: String!, $name: String!, $branch: String!) {
+              repository(owner: $owner, name: $name) {
+                mergeQueue(branch: $branch) {
+                  entries(first: 100) {
+                    totalCount
+                    nodes {
+                      position
+                      state
+                      solo
+                      enqueuedAt
+                      headCommit { oid }
+                      baseCommit { oid }
+                      pullRequest { number headRefOid }
+                    }
+                  }
+                }
+              }
+            }' > "$merge_queue_snapshot"
           node ./scripts/merge-qualification-advisory.mjs candidate-evidence \
             --repository "${{ github.repository }}" \
             --run-metadata "$run_metadata" \
-            --associated-pull-pages "$associated_pull_pages" \
+            --merge-queue-snapshot "$merge_queue_snapshot" \
             --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
             --built-image-digest "$BUILT_IMAGE_DIGEST" \
             --out artifacts/merge-qualification-candidate/candidate.json
@@ -463,7 +492,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/merge-qualification-candidate/candidate.json
+          # candidate.json plus the raw in-run merge-queue snapshot and run
+          # metadata it was derived from, kept as durable pre-merge evidence.
+          path: artifacts/merge-qualification-candidate/
           if-no-files-found: error
           retention-days: 30
 

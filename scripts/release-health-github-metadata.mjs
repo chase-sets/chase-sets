@@ -8,7 +8,7 @@ import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import {
   MERGE_QUALIFICATION_CANDIDATE_SCHEMA_VERSION,
   RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION,
-  buildMergeQualificationCandidateFromGithubMetadata,
+  buildMergeQualificationCandidateFromMergedCommitAssociation,
   validateMergeQualificationCandidate,
 } from "./merge-qualification-advisory.mjs";
 
@@ -424,7 +424,7 @@ function candidateRunCouldBelong({ run, queueQueuedAt, queueMergedAt }) {
 
 function validateCandidateArtifact(record, { repository, run, associatedPulls, pull, releaseTreeSha }) {
   const errors = validateMergeQualificationCandidate(record);
-  const rebuilt = buildMergeQualificationCandidateFromGithubMetadata({
+  const rebuilt = buildMergeQualificationCandidateFromMergedCommitAssociation({
     repository,
     run,
     associatedPullRequestPages: [associatedPulls],

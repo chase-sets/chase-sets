@@ -161,7 +161,7 @@ async function collect(setup = fixture()) {
 }
 
 describe("production release candidate linkage", () => {
-  it("drives a real successful empty-pull merge_group shape through the production CLI and release discovery", async () => {
+  it("drives the real empty-pull merge_group run through the queue-snapshot CLI and post-merge release discovery", async () => {
     const realFixture = JSON.parse(
       readFileSync(
         path.join(
@@ -178,11 +178,40 @@ describe("production release candidate linkage", () => {
 
     const workDir = mkdtempSync(path.join(tmpdir(), "merge-group-candidate-evidence-"));
     try {
+      const associated = realFixture.associatedPullRequestPages[0][0];
+      // Producer-time observation of run 29882700998: while the candidate was
+      // queued the run was still in flight and the only pull-request
+      // association GitHub exposed was its merge-queue entry. The entry shape
+      // follows the introspected GraphQL contract; the recorded post-merge
+      // association below proves the identities agree.
+      const preMergeRun = { ...realFixture.run, status: "in_progress", conclusion: null };
+      const preMergeQueueSnapshot = {
+        data: {
+          repository: {
+            mergeQueue: {
+              entries: {
+                totalCount: 1,
+                nodes: [
+                  {
+                    position: 0,
+                    state: "AWAITING_CHECKS",
+                    solo: false,
+                    enqueuedAt: "2026-07-22T01:17:20Z",
+                    headCommit: { oid: realFixture.run.head_sha },
+                    baseCommit: { oid: associated.base.sha },
+                    pullRequest: { number: associated.number, headRefOid: associated.head.sha },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
       const runPath = path.join(workDir, "run.json");
-      const pullsPath = path.join(workDir, "associated-pulls.json");
+      const snapshotPath = path.join(workDir, "merge-queue-snapshot.json");
       const candidatePath = path.join(workDir, "candidate.json");
-      writeFileSync(runPath, JSON.stringify(realFixture.run));
-      writeFileSync(pullsPath, JSON.stringify(realFixture.associatedPullRequestPages));
+      writeFileSync(runPath, JSON.stringify(preMergeRun));
+      writeFileSync(snapshotPath, JSON.stringify(preMergeQueueSnapshot));
       execFileSync(
         process.execPath,
         [
@@ -192,10 +221,10 @@ describe("production release candidate linkage", () => {
           repository,
           "--run-metadata",
           runPath,
-          "--associated-pull-pages",
-          pullsPath,
+          "--merge-queue-snapshot",
+          snapshotPath,
           "--queue-base-sha",
-          realFixture.associatedPullRequestPages[0][0].base.sha,
+          associated.base.sha,
           "--built-image-digest",
           imageDigest,
           "--captured-at",
@@ -210,10 +239,8 @@ describe("production release candidate linkage", () => {
         runId: "29882700998",
         candidateSha: realFixture.run.head_sha,
         candidateTreeSha: realFixture.run.head_commit.tree_id,
-        pullRequests: [{ number: 5888, headSha: realFixture.associatedPullRequestPages[0][0].head.sha }],
+        pullRequests: [{ number: 5888, headSha: associated.head.sha }],
       });
-
-      const associated = realFixture.associatedPullRequestPages[0][0];
       const routes = new Map([
         [`/repos/${repository}/commits/${realFixture.run.head_sha}/pulls`, [{ number: associated.number }]],
         [
@@ -282,11 +309,19 @@ describe("production release candidate linkage", () => {
         lineageReasons: [],
       });
 
-      for (const associatedPages of [
-        [[{ ...associated, merge_commit_sha: "f".repeat(40) }]],
-        [[associated, { ...associated, head: { sha: "e".repeat(40) } }]],
+      // Temporal negative controls: replaying the producer after merge — the
+      // completed run plus the recorded post-merge queue state (entry gone) —
+      // must refuse to fabricate candidate evidence.
+      const postMergeQueueSnapshot = {
+        data: { repository: { mergeQueue: { entries: { totalCount: 0, nodes: [] } } } },
+      };
+      for (const [replayRun, replaySnapshot] of [
+        [realFixture.run, preMergeQueueSnapshot],
+        [preMergeRun, postMergeQueueSnapshot],
+        [realFixture.run, postMergeQueueSnapshot],
       ]) {
-        writeFileSync(pullsPath, JSON.stringify(associatedPages));
+        writeFileSync(runPath, JSON.stringify(replayRun));
+        writeFileSync(snapshotPath, JSON.stringify(replaySnapshot));
         expect(() =>
           execFileSync(
             process.execPath,
@@ -297,8 +332,8 @@ describe("production release candidate linkage", () => {
               repository,
               "--run-metadata",
               runPath,
-              "--associated-pull-pages",
-              pullsPath,
+              "--merge-queue-snapshot",
+              snapshotPath,
               "--queue-base-sha",
               associated.base.sha,
               "--built-image-digest",
@@ -310,6 +345,149 @@ describe("production release candidate linkage", () => {
           ),
         ).toThrow();
       }
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("proves producer-time identity from the real pre-merge queue window (PR #5886, run 29890726423)", async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        path.join(repoRoot, "scripts/fixtures/merge-qualification/real-premerge-merge-queue-snapshot.json"),
+        "utf8",
+      ),
+    );
+    // All three observations were captured in the same still-queued window:
+    // the run was in flight, BOTH legacy association sources were empty at
+    // the producer execution point, and the merge-queue entry alone named the
+    // candidate's pull request.
+    expect(fixture.run.status).toBe("in_progress");
+    expect(fixture.run.pull_requests).toEqual([]);
+    expect(fixture.commitPullsWhileQueued).toEqual([]);
+    const entry = fixture.mergeQueueSnapshot.data.repository.mergeQueue.entries.nodes[0];
+    expect(entry.headCommit.oid).toBe(fixture.run.head_sha);
+    expect(entry.baseCommit.oid).toBe(fixture.queueBaseSha);
+
+    const workDir = mkdtempSync(path.join(tmpdir(), "premerge-queue-candidate-"));
+    try {
+      const runPath = path.join(workDir, "run.json");
+      const snapshotPath = path.join(workDir, "merge-queue-snapshot.json");
+      const candidatePath = path.join(workDir, "candidate.json");
+      writeFileSync(runPath, JSON.stringify(fixture.run));
+      writeFileSync(snapshotPath, JSON.stringify(fixture.mergeQueueSnapshot));
+      execFileSync(
+        process.execPath,
+        [
+          "scripts/merge-qualification-advisory.mjs",
+          "candidate-evidence",
+          "--repository",
+          repository,
+          "--run-metadata",
+          runPath,
+          "--merge-queue-snapshot",
+          snapshotPath,
+          "--queue-base-sha",
+          fixture.queueBaseSha,
+          "--built-image-digest",
+          imageDigest,
+          "--captured-at",
+          "2026-07-22T04:20:00.000Z",
+          "--out",
+          candidatePath,
+        ],
+        { cwd: repoRoot, encoding: "utf8" },
+      );
+      const candidate = JSON.parse(readFileSync(candidatePath, "utf8"));
+      expect(candidate).toEqual({
+        schemaVersion: "merge-qualification-candidate/v2",
+        repository,
+        workflowId: String(fixture.run.workflow_id),
+        workflowPath: fixture.run.path,
+        runId: String(fixture.run.id),
+        runAttempt: String(fixture.run.run_attempt),
+        queueBaseSha: fixture.queueBaseSha,
+        pullRequests: [{ number: entry.pullRequest.number, headSha: entry.pullRequest.headRefOid }],
+        candidateSha: fixture.run.head_sha,
+        candidateTreeSha: fixture.run.head_commit.tree_id,
+        builtImageDigest: imageDigest,
+        capturedAt: "2026-07-22T04:20:00.000Z",
+      });
+
+      // Post-merge, release discovery independently re-derives the same
+      // identity from the (now populated) commit association and accepts the
+      // producer's queue-snapshot record byte-for-byte.
+      const merged = fixture.afterMerge;
+      const associated = merged.associatedPullRequestPages[0][0];
+      expect(associated.number).toBe(entry.pullRequest.number);
+      expect(associated.head.sha).toBe(entry.pullRequest.headRefOid);
+      expect(associated.merge_commit_sha).toBe(fixture.run.head_sha);
+      const routes = new Map([
+        [`/repos/${repository}/commits/${fixture.run.head_sha}/pulls`, [{ number: associated.number }]],
+        [
+          `/repos/${repository}/pulls/${associated.number}`,
+          { ...associated, created_at: merged.pullCreatedAt, draft: false },
+        ],
+        [`/repos/${repository}/pulls/${associated.number}/reviews?per_page=100`, []],
+        [
+          `/repos/${repository}/issues/${associated.number}/timeline?per_page=100`,
+          [{ event: "added_to_merge_queue", created_at: merged.addedToMergeQueueAt }],
+        ],
+        [`/repos/${repository}/rules/branches/main?per_page=100`, []],
+        [
+          `/repos/${repository}/git/commits/${fixture.run.head_sha}`,
+          { tree: { sha: fixture.run.head_commit.tree_id } },
+        ],
+        [
+          `/repos/${repository}/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=1`,
+          { total_count: 1, workflow_runs: [merged.run] },
+        ],
+        [
+          `/repos/${repository}/actions/runs/${merged.run.id}/artifacts?per_page=100&page=1`,
+          {
+            total_count: 1,
+            artifacts: [
+              {
+                id: 40000000002,
+                name: `merge-qualification-candidate-${merged.run.id}-${merged.run.run_attempt}`,
+                expired: false,
+                archive_download_url: "https://artifacts.test/premerge-candidate",
+              },
+            ],
+          },
+        ],
+        [
+          `/repos/${repository}/commits/${fixture.run.head_sha}/pulls?per_page=100`,
+          merged.associatedPullRequestPages[0],
+        ],
+      ]);
+      const metadata = await collectReleaseHealthGithubMetadata(
+        {
+          repository,
+          releaseCommit: fixture.run.head_sha,
+          sourceWorkflowCreatedAt: merged.run.created_at,
+          token: "fixture",
+        },
+        {
+          fetchImpl: async (url) => {
+            const parsed = new URL(url);
+            if (parsed.href === "https://artifacts.test/premerge-candidate") {
+              return new Response(buildZip([["candidate.json", JSON.stringify(candidate), 8]]), { status: 200 });
+            }
+            const key = `${parsed.pathname}${parsed.search}`;
+            if (!routes.has(key)) throw new Error(`Unexpected pre-merge fixture request: ${key}`);
+            return new Response(JSON.stringify(routes.get(key)), { status: 200 });
+          },
+        },
+      );
+      expect(metadata).toMatchObject({
+        pullRequestNumber: 5886,
+        candidateSha: fixture.run.head_sha,
+        candidateTreeSha: fixture.run.head_commit.tree_id,
+        mergeGroupRunId: String(fixture.run.id),
+        mergeGroupRunAttempt: String(fixture.run.run_attempt),
+        lineageComplete: true,
+        lineageReasons: [],
+      });
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }
