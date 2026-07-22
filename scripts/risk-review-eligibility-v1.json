@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "risk-review-eligibility/v1",
+  "mode": "advisory",
+  "eligiblePrincipals": [],
+  "eligibleTeams": []
+}

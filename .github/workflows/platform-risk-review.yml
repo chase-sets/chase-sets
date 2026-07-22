@@ -1,0 +1,90 @@
+name: Risk Review Advisory
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to re-evaluate
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: risk-review-advisory-${{ github.event.pull_request.number || github.event.merge_group.head_sha || inputs.pull_request }}
+  cancel-in-progress: true
+
+jobs:
+  advisory:
+    name: Risk Review (Advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate trusted-base risk policy
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RISK_REVIEW_PULL_REQUEST: ${{ inputs.pull_request }}
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+
+            // Elevated review events never fetch or execute pull-request head code.
+            // These modules are read from the repository's trusted default branch.
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "risk-review-trusted-base");
+            const sourcePaths = [
+              "scripts/lib/risk-policy-v1.mjs",
+              "scripts/platform-risk-review.mjs",
+              "scripts/risk-review-eligibility-v1.json",
+            ];
+            await mkdir(path.join(trustedRoot, "scripts", "lib"), { recursive: true });
+            for (const sourcePath of sourcePaths) {
+              const response = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: sourcePath,
+                ref: context.payload.repository.default_branch,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                throw new Error("trusted-base-source-unavailable");
+              }
+              const target = path.join(trustedRoot, sourcePath);
+              await mkdir(path.dirname(target), { recursive: true });
+              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            }
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-risk-review.mjs")], {
+              env: {
+                ...process.env,
+                GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+                RISK_REVIEW_OUTPUT: path.join(process.env.RUNNER_TEMP, "risk-review-evaluation.json"),
+              },
+              stdio: "inherit",
+            });
+
+      - name: Preserve advisory workflow boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ "${{ steps.evaluate.outcome }}" != "success" ]; then
+            {
+              echo "## Risk Review — advisory"
+              echo
+              echo "Evaluation state: **unknown** (safe code: \`workflow-boundary-failure\`)."
+              echo
+              echo "The advisory workflow remains non-enforcing."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0

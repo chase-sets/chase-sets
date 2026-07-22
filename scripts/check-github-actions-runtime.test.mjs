@@ -203,4 +203,70 @@ jobs:
       expect.stringContaining("checkout step must document why pull_request_target is safe"),
     ]);
   });
+
+  it("discovers risk-review semantics under an arbitrary workflow filename and accepts the trusted advisory shape", () => {
+    const rootDir = workflowRootWith(
+      `
+name: Risk Review Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const sourcePaths = ["scripts/platform-risk-review.mjs"];
+            const options = { ref: context.payload.repository.default_branch };
+      - run: exit 0
+`,
+      "arbitrary-safety-surface.yml",
+    );
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it("rejects semantically discovered risk review that executes head code or propagates advisory failure", () => {
+    const rootDir = workflowRootWith(
+      `
+name: Renamed Workflow
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@${checkoutSha} # v6.0.0
+        with:
+          ref: context.payload.pull_request.head.sha
+      - uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: const source = "scripts/platform-risk-review.mjs";
+`,
+      "another-name.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must not checkout code"),
+        expect.stringContaining("trusted base"),
+        expect.stringContaining("must not make its workflow red"),
+      ]),
+    );
+  });
 });
