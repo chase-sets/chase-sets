@@ -13,3 +13,8 @@ export {
 } from "./ids";
 export { catalogScenarioItems, representativeProductContentsScenario, type CatalogScenarioItemAlias } from "./scenario";
 export * from "./representative-commerce-state";
+export {
+  scenarioSeedFallbackAssets,
+  scenarioSeedFallbackAssetPaths,
+  type ScenarioSeedFallbackAssetKey,
+} from "./fallback-assets";

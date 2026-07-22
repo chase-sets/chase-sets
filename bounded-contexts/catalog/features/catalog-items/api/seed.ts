@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds, scenarioSeedFallbackAssets } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { CatalogItemId, FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
@@ -515,40 +515,44 @@ export async function seedCatalogItems(
 }
 
 function pokemonEnglishCardBack(): CatalogItemImageFallback {
-  return imageFallback("/fake-cdn/assets/pokemon_tcg_back.png", "Pokemon TCG English card back", "permanent");
+  return imageFallback(scenarioSeedFallbackAssets.pokemonEnglishCardBack, "Pokemon TCG English card back", "permanent");
 }
 
 function pokemonJapaneseCardBack(): CatalogItemImageFallback {
-  return imageFallback("/fake-cdn/assets/pokemon-card-back.png", "Pokemon TCG Japanese card back", "permanent");
+  return imageFallback(
+    scenarioSeedFallbackAssets.pokemonJapaneseCardBack,
+    "Pokemon TCG Japanese card back",
+    "permanent",
+  );
 }
 
 function pokemonSealedFallback(): CatalogItemImageFallback {
   return imageFallback(
-    "/fake-cdn/assets/pokemon-card-back.png",
+    scenarioSeedFallbackAssets.pokemonJapaneseCardBack,
     "Pokemon sealed product loading image",
     "loading-only",
   );
 }
 
 function onePieceCardBack(): CatalogItemImageFallback {
-  return imageFallback("/fake-cdn/assets/one-piece-card-back.png", "One Piece Card Game card back", "permanent");
+  return imageFallback(scenarioSeedFallbackAssets.onePieceCardBack, "One Piece Card Game card back", "permanent");
 }
 
 function onePieceSealedFallback(): CatalogItemImageFallback {
   return imageFallback(
-    "/fake-cdn/assets/one-piece-card-back.png",
+    scenarioSeedFallbackAssets.onePieceCardBack,
     "One Piece sealed product loading image",
     "loading-only",
   );
 }
 
 function lorcanaCardBack(): CatalogItemImageFallback {
-  return imageFallback("/fake-cdn/assets/lorcana-card-back.png", "Disney Lorcana card back", "permanent");
+  return imageFallback(scenarioSeedFallbackAssets.lorcanaCardBack, "Disney Lorcana card back", "permanent");
 }
 
 function lorcanaSealedFallback(): CatalogItemImageFallback {
   return imageFallback(
-    "/fake-cdn/assets/lorcana-card-back.png",
+    scenarioSeedFallbackAssets.lorcanaCardBack,
     "Disney Lorcana sealed product loading image",
     "loading-only",
   );
