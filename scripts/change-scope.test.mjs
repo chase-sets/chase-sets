@@ -840,6 +840,21 @@ describe("change-scope", () => {
     expect(scope.composeSmokeRequired).toBe(false);
   });
 
+  it("treats the public-web route smoke as release machinery needing a cluster preview", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["scripts/public-web-route-smoke.mjs"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.terraformRequired).toBe(true);
+    expect(scope.deployRequired).toBe(true);
+    expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
+  });
+
   it("keeps DOKS-only Terraform changes on the plan-only lane, off the cluster-preview surface", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

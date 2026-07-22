@@ -366,6 +366,16 @@ jobs:
 
             for _ in $(seq 1 30); do
               if curl --fail --silent --output /dev/null "http://localhost:${host_port}${health_path}"; then
+                if [ "$component" = "public-web" ] && ! node ./scripts/public-web-route-smoke.mjs \
+                  --base-url "http://localhost:${host_port}" \
+                  --mode no-5xx \
+                  --attempts 2 \
+                  --retry-delay-ms 1000; then
+                  echo "Boot smoke failed for public-web: generated public route inventory was not 5xx-free." >&2
+                  docker logs "$container_id" >&2 || true
+                  docker rm -f "$container_id" >/dev/null || true
+                  return 1
+                fi
                 echo "Boot smoke passed for ${component} (${health_path})."
                 docker rm -f "$container_id" >/dev/null
                 return 0
@@ -1338,6 +1348,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_PUBLIC_ROUTE_MODE: "healthy"
         run: |
           set -euo pipefail
           pnpm run smoke:platform -- \
@@ -1466,6 +1477,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_PUBLIC_ROUTE_MODE: "healthy"
         run: |
           pnpm run smoke:platform -- \
             http://localhost:18180 \

@@ -49,6 +49,7 @@ describe("platform ephemeral verification workflow", () => {
     );
     expect(step(verification, "Wait for verification ingress URLs")).toContain("platform-ingress-wait.mjs");
     expect(step(verification, "Smoke check")).toContain("pnpm run smoke:platform");
+    expect(step(verification, "Smoke check")).toContain('SMOKE_PUBLIC_ROUTE_MODE: "healthy"');
     expect(step(verification, "Run representative commerce state")).toContain(
       "representative-commerce-state:production",
     );

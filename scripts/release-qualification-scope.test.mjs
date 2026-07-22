@@ -485,6 +485,7 @@ describe("git plumbing", () => {
     // workflows invoke only through root pnpm-run aliases.
     for (const scriptPath of [
       "scripts/platform-smoke.mjs",
+      "scripts/public-web-route-smoke.mjs",
       "scripts/stripe-money-smoke-test.mjs",
       "scripts/ops.mjs",
       "scripts/rollback-readiness.mjs",

@@ -342,6 +342,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: release-${{ steps.release.outputs.release_commit }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_PUBLIC_ROUTE_MODE: "healthy"
         run: pnpm run smoke:platform -- "https://${VERIFICATION_SLUG}.preview.chasesets.com" "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com" "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com"
 
       - name: Stripe money smoke

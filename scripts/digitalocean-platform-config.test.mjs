@@ -1260,6 +1260,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeStep).toContain("if: steps.release_image.outputs.built == 'true'");
     expect(smokeStep).toContain('boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready');
     expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" /');
+    expect(smokeStep).toContain("node ./scripts/public-web-route-smoke.mjs");
+    expect(smokeStep).toContain("--mode no-5xx");
 
     const pushStep = workflowStep(platformProductionWorkflow, "Push release image");
     expect(pushStep).toContain('docker push "$RELEASE_IMAGE"');

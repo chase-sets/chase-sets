@@ -73,6 +73,7 @@ const rootTestConfigPatterns = [/^vitest\.shared\.mjs$/];
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
   /^scripts\/platform-smoke/,
+  /^scripts\/public-web-route-smoke/,
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];

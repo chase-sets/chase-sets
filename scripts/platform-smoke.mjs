@@ -21,6 +21,7 @@ import {
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 import { createReadAfterWriteReceiptFromCommitReceipt } from "./platform-smoke-freshness.mjs";
+import { PUBLIC_WEB_ROUTE_SMOKE_MODES, smokePublicWebRoutes } from "./public-web-route-smoke.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -68,6 +69,10 @@ const nativeMcpAccountId = getSmokeEnv("SMOKE_NATIVE_MCP_ACCOUNT_ID") || null;
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
 const fetchTimeoutMs = readPositiveIntegerEnv("SMOKE_FETCH_TIMEOUT_MS", 15_000);
+const publicRouteSmokeMode = getSmokeEnv("SMOKE_PUBLIC_ROUTE_MODE") || "healthy";
+if (!PUBLIC_WEB_ROUTE_SMOKE_MODES.includes(publicRouteSmokeMode)) {
+  throw new Error(`SMOKE_PUBLIC_ROUTE_MODE must be one of: ${PUBLIC_WEB_ROUTE_SMOKE_MODES.join(", ")}.`);
+}
 const commitReceiptHeader = "Chase-Sets-Commit-Receipt";
 const readAfterWriteHeader = "Chase-Sets-Read-After-Write";
 const readTargetContextHeader = "Chase-Sets-Read-Target-Context";
@@ -551,6 +556,13 @@ async function main() {
   if (requireLanding) {
     await expectOk("landing home", `${landingUrl}/`);
     await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
+    await smokePublicWebRoutes({
+      baseUrl: landingUrl,
+      mode: publicRouteSmokeMode,
+      attempts: fetchAttempts,
+      retryDelayMs: fetchRetryDelayMs,
+      timeoutMs: fetchTimeoutMs,
+    });
   } else {
     console.warn("Skipping landing smoke; SMOKE_REQUIRE_LANDING is not true.");
   }
