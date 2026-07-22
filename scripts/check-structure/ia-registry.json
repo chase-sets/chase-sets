@@ -424,6 +424,18 @@
     },
     {
       "deployable": "public-web",
+      "family": "agent-terms",
+      "owningContext": "public-presence",
+      "purpose": "Agent connector terms policy artifact surface (public-presence, counsel-pending)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "authenticity-terms",
+      "owningContext": "public-presence",
+      "purpose": "Authenticity service terms policy artifact surface (public-presence, counsel-pending)."
+    },
+    {
+      "deployable": "public-web",
       "family": "compare",
       "owningContext": "public-presence",
       "purpose": "Compare surface (public-presence)."
@@ -478,6 +490,12 @@
     },
     {
       "deployable": "public-web",
+      "family": "payments-terms",
+      "owningContext": "public-presence",
+      "purpose": "Payments terms policy artifact surface (public-presence, counsel-pending)."
+    },
+    {
+      "deployable": "public-web",
       "family": "press",
       "owningContext": "public-presence",
       "purpose": "Press surface (public-presence)."
@@ -499,6 +517,12 @@
       "family": "sales-fees",
       "owningContext": "commercial-terms",
       "purpose": "Sales Fees surface (commercial-terms)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "seller-agreement",
+      "owningContext": "public-presence",
+      "purpose": "Seller agreement policy artifact surface (public-presence, counsel-pending)."
     },
     {
       "deployable": "public-web",

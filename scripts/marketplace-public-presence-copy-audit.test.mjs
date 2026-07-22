@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { publicPolicyPublicationRecords } from "../contracts/public-docs/generated/index.ts";
 import {
+  LAUNCH_AUDITED_POLICY_PAGES,
   MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
   REQUIRED_PUBLIC_PRESENCE_PAGES,
   auditPublicPresenceCopy,
@@ -234,6 +236,47 @@ describe("marketplace public presence copy audit", () => {
 
     expect(audit.passesPublicPresenceCopyAudit).toBe(false);
     expect(audit.errors).toContain("Public Presence copy audit checkedAt must be an ISO timestamp.");
+  });
+
+  it("keeps the explicit launch-audit set consistent with the generated policy corpus", () => {
+    expect(LAUNCH_AUDITED_POLICY_PAGES).toEqual([{ name: "terms", path: "/terms", policyKey: "terms-of-service" }]);
+    for (const policyPage of LAUNCH_AUDITED_POLICY_PAGES) {
+      const record = publicPolicyPublicationRecords[policyPage.policyKey];
+      expect(record).toBeDefined();
+      expect(record.href).toBe(policyPage.path);
+      expect(record.launchRequired).toBe(true);
+    }
+  });
+
+  it("fails launch mode when a launch-required corpus document in the audit set is still counsel-pending", async () => {
+    const pages = allPages("Live marketplace policies are available. Support is available.");
+    pages["/terms"] = publishedTermsHtml("Live marketplace policies are available. Support is available.");
+    pages["/seller-agreement"] =
+      `<html><head><title>seller agreement</title></head><body><main data-policy-key="seller-agreement" data-policy-version="v1" data-policy-publication-status="counsel-review-required" data-policy-effective-at="">Live marketplace policies are available. Counsel-approved language required.</main></body></html>`;
+
+    const audit = await auditPublicPresenceCopy(
+      {
+        baseUrl: "https://chasesets.com",
+        mode: "launch",
+        checkedAt: "2026-05-30T15:00:00.000Z",
+      },
+      {
+        fetch: fetchWithPages(pages),
+        launchAuditedPolicyPages: [
+          ...LAUNCH_AUDITED_POLICY_PAGES,
+          { name: "sellerAgreement", path: "/seller-agreement", policyKey: "seller-agreement" },
+        ],
+      },
+    );
+
+    expect(audit.passesPublicPresenceCopyAudit).toBe(false);
+    expect(audit.errors).toEqual(
+      expect.arrayContaining([
+        "Public Presence /seller-agreement policy artifact must be published before launch.",
+        "Public Presence /seller-agreement policy artifact must expose an effective ISO timestamp before launch.",
+      ]),
+    );
+    expect(audit.errors).not.toContain("Public Presence /terms policy artifact must be published before launch.");
   });
 
   it("parses operator arguments from flags and environment", () => {

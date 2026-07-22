@@ -17,6 +17,13 @@ export const REQUIRED_PUBLIC_PRESENCE_PAGES = [
   { name: "contact", path: "/contact" },
 ];
 
+// The explicit code-level launch-audit set over the public policy corpus.
+// Launch mode verifies published policy metadata only for these entries;
+// widening the set to further launch-required corpus documents is a reviewed
+// code change owned by the corpus launch gate. There are deliberately no
+// runtime exemption inputs.
+export const LAUNCH_AUDITED_POLICY_PAGES = [{ name: "terms", path: "/terms", policyKey: "terms-of-service" }];
+
 const UNCERTIFIED_AGENT_COMMERCE_CLAIMS = [
   "\\bUCP\\b",
   "\\bAP2\\b",
@@ -65,12 +72,32 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
   }
 
   const options = normalizeAuditInput(input);
+  const launchAuditedPolicyPages = dependencies.launchAuditedPolicyPages ?? LAUNCH_AUDITED_POLICY_PAGES;
+  const auditedPolicyPagesByName = new Map(launchAuditedPolicyPages.map((page) => [page.name, page]));
+  const pagesToAudit = [
+    ...REQUIRED_PUBLIC_PRESENCE_PAGES,
+    ...launchAuditedPolicyPages.filter(
+      (policyPage) => !REQUIRED_PUBLIC_PRESENCE_PAGES.some((page) => page.name === policyPage.name),
+    ),
+  ];
   const pageResults = [];
-  for (const page of REQUIRED_PUBLIC_PRESENCE_PAGES) {
-    pageResults.push(await auditPage({ baseUrl: options.baseUrl, page, fetchImpl }));
+  for (const page of pagesToAudit) {
+    pageResults.push(
+      await auditPage({
+        baseUrl: options.baseUrl,
+        page,
+        fetchImpl,
+        auditedPolicyPage: auditedPolicyPagesByName.get(page.name),
+      }),
+    );
   }
 
-  const errors = validateAudit({ checkedAt: options.checkedAt, mode: options.mode, pages: pageResults });
+  const errors = validateAudit({
+    checkedAt: options.checkedAt,
+    mode: options.mode,
+    pages: pageResults,
+    launchAuditedPolicyPages,
+  });
   const termsPage = pageResults.find((page) => page.name === "terms");
   const termsPublicationReady = isTermsPublicationReady(termsPage?.termsPublicationMetadata);
 
@@ -111,7 +138,7 @@ async function main(argv, env = process.env) {
   return 0;
 }
 
-async function auditPage({ baseUrl, page, fetchImpl }) {
+async function auditPage({ baseUrl, page, fetchImpl, auditedPolicyPage }) {
   const url = new URL(page.path, ensureTrailingSlash(baseUrl)).toString();
   const response = await fetchImpl(url, { redirect: "follow" });
   const html = await response.text();
@@ -124,7 +151,7 @@ async function auditPage({ baseUrl, page, fetchImpl }) {
     title: html.match(/<title>(.*?)<\/title>/i)?.[1] ?? null,
     futureOnlyLaunchCopyMatches: matchPatterns(text, FUTURE_ONLY_LAUNCH_COPY),
     uncertifiedAgentCommerceClaimMatches: matchPatterns(text, UNCERTIFIED_AGENT_COMMERCE_CLAIMS),
-    termsPublicationMetadata: page.name === "terms" ? readTermsPublicationMetadata(html) : null,
+    termsPublicationMetadata: auditedPolicyPage ? readPolicyPublicationMetadata(html) : null,
   };
 }
 
@@ -147,7 +174,7 @@ function validateOptions(options) {
   return errors;
 }
 
-function validateAudit({ checkedAt, mode, pages }) {
+function validateAudit({ checkedAt, mode, pages, launchAuditedPolicyPages }) {
   const errors = [];
   if (!isIsoTimestamp(checkedAt)) {
     errors.push("Public Presence copy audit checkedAt must be an ISO timestamp.");
@@ -169,24 +196,30 @@ function validateAudit({ checkedAt, mode, pages }) {
     }
   }
   if (mode === "launch") {
-    const metadata = pages.find((page) => page.name === "terms")?.termsPublicationMetadata;
-    if (metadata?.policyKey !== "terms-of-service") {
-      errors.push("Public Presence /terms must expose the canonical terms-of-service policy key before launch.");
-    }
-    if (!/^v[1-9][0-9]*$/.test(metadata?.version ?? "")) {
-      errors.push("Public Presence /terms must expose a canonical vN policy version before launch.");
-    }
-    if (metadata?.publicationStatus !== "published") {
-      errors.push("Public Presence /terms policy artifact must be published before launch.");
-    }
-    if (!isIsoTimestamp(metadata?.effectiveAt)) {
-      errors.push("Public Presence /terms policy artifact must expose an effective ISO timestamp before launch.");
+    for (const policyPage of launchAuditedPolicyPages) {
+      const metadata = pages.find((page) => page.name === policyPage.name)?.termsPublicationMetadata;
+      if (metadata?.policyKey !== policyPage.policyKey) {
+        errors.push(
+          `Public Presence ${policyPage.path} must expose the canonical ${policyPage.policyKey} policy key before launch.`,
+        );
+      }
+      if (!/^v[1-9][0-9]*$/.test(metadata?.version ?? "")) {
+        errors.push(`Public Presence ${policyPage.path} must expose a canonical vN policy version before launch.`);
+      }
+      if (metadata?.publicationStatus !== "published") {
+        errors.push(`Public Presence ${policyPage.path} policy artifact must be published before launch.`);
+      }
+      if (!isIsoTimestamp(metadata?.effectiveAt)) {
+        errors.push(
+          `Public Presence ${policyPage.path} policy artifact must expose an effective ISO timestamp before launch.`,
+        );
+      }
     }
   }
   return errors;
 }
 
-function readTermsPublicationMetadata(html) {
+function readPolicyPublicationMetadata(html) {
   return {
     policyKey: readDataAttribute(html, "policy-key"),
     version: readDataAttribute(html, "policy-version"),
