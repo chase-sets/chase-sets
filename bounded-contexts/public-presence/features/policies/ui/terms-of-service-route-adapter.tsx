@@ -1,6 +1,6 @@
 import type { MetaFunction } from "react-router";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
-import { termsOfServicePolicyArtifact } from "../domain/terms-of-service";
+import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import { TermsOfServicePage } from "./terms-of-service-page";
 
 export const termsOfServiceMeta: MetaFunction = () => {
@@ -15,6 +15,8 @@ export const termsOfServiceMeta: MetaFunction = () => {
   ];
 };
 
-export function TermsOfServiceRouteAdapter() {
-  return <TermsOfServicePage />;
+export function TermsOfServiceRouteAdapter({
+  artifact = termsOfServicePolicyArtifact,
+}: Readonly<{ artifact?: TermsOfServicePolicyArtifact }> = {}) {
+  return <TermsOfServicePage artifact={artifact} />;
 }
