@@ -1937,6 +1937,10 @@ describe("DigitalOcean platform configuration", () => {
       "notify-staging-advisory-dispatch-failure",
     );
     const advisoryDispatchStep = workflowStep(platformProductionWorkflow, "Dispatch advisory staging evidence");
+    const stagingResetRedeployStep = workflowStep(
+      platformStagingResetWorkflow,
+      "Queue DOKS redeploy after database recreation",
+    );
     const stagingPlaywrightVersionStep = workflowStep(
       platformStagingAdvisoryEvidenceWorkflow,
       "Resolve Playwright Chromium version",
@@ -1980,6 +1984,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryDispatchStep).toContain('--field release_commit="$RELEASE_COMMIT"');
     expect(advisoryDispatchStep).toContain('--field platform_image="$PLATFORM_IMAGE"');
     expect(advisoryDispatchStep).toContain('--field platform_image_digest="$PLATFORM_IMAGE_DIGEST"');
+    expect(stagingResetRedeployStep).toContain("gh workflow run platform-production.yml");
+    expect(stagingResetRedeployStep).toContain("--ref main");
+    expect(stagingResetRedeployStep).toContain("-f dispatch_source=recovery");
     expect(deployStagingJob.indexOf("- name: Wait for staging ingress URLs")).toBeLessThan(
       deployStagingJob.indexOf("- name: Dispatch advisory staging evidence"),
     );
@@ -1995,9 +2002,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
     expect(advisoryEvidenceJob).toContain("Upload staging advisory evidence");
     expect(advisoryEvidenceJob).toContain("staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
-    expect(advisoryEvidenceJob).toContain("Fail advisory evidence signal");
+    expect(advisoryEvidenceJob).toContain("Fail scenario-seed advisory signal");
+    expect(advisoryEvidenceJob).toContain("Fail marketplace E2E advisory signal");
+    expect(advisoryEvidenceJob).toContain('"scenario-seed"');
+    expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
+    expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
     expect(advisoryEvidenceJob.indexOf("- name: Upload staging advisory evidence")).toBeLessThan(
-      advisoryEvidenceJob.indexOf("- name: Fail advisory evidence signal"),
+      advisoryEvidenceJob.indexOf("- name: Fail scenario-seed advisory signal"),
     );
     expect(advisoryNotificationJob).toContain("needs: staging-advisory-evidence");
     expect(advisoryNotificationJob).toContain("issues: write");
@@ -2044,6 +2055,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("pnpm run test:e2e:deployed");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_EMAIL");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_PASSWORD");
+    expect(stagingCriticalFlowStep).toContain("PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || '' }}");
+    expect(stagingCriticalFlowStep).toContain("PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || '' }}");
+    expect(stagingCriticalFlowStep).toContain("for name in PLATFORM_ADMIN_EMAIL PLATFORM_ADMIN_PASSWORD");
+    expect(stagingCriticalFlowStep).toContain(
+      "credentials-not-threaded: staging marketplace E2E missing required trust inputs",
+    );
     expect(stagingCriticalFlowStep).toContain("CATALOG_ADMIN_E2E_EMAIL");
     expect(stagingCriticalFlowStep).toContain("CATALOG_ADMIN_E2E_PASSWORD");
     expect(stagingCriticalFlowStep).toContain("vars.MARKETPLACE_E2E_EMAIL || ''");

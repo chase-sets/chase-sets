@@ -1,6 +1,6 @@
 import { encodeCommitReceipt } from "@chase-sets/http/responses";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerOrSignInSyntheticAccount } from "../e2e/support/auth";
+import { registerOrSignInSyntheticAccount, signInWithPassword } from "../e2e/support/auth";
 
 type RequestCall = Readonly<{
   method: "GET" | "POST";
@@ -28,6 +28,13 @@ class FakeResponse {
 
   public headers() {
     return this.responseHeaders;
+  }
+
+  public toFetchResponse() {
+    return new Response(JSON.stringify(this.body), {
+      status: this.statusCode,
+      headers: this.responseHeaders,
+    });
   }
 }
 
@@ -59,6 +66,27 @@ function createFakePage(route: FakeRoute) {
   return { calls, cookies, page: page as never };
 }
 
+function stubPrivilegedFetch(route: FakeRoute) {
+  const calls: RequestCall[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const headers = Object.fromEntries(new Headers(init.headers).entries());
+      const data = typeof init.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
+      const call = {
+        method: init.method === "GET" ? "GET" : "POST",
+        url,
+        headers,
+        data,
+      } as const;
+      calls.push(call);
+      return (await route(call)).toFetchResponse();
+    }),
+  );
+  return calls;
+}
+
 const account = {
   email: "critical-flow-run@example.test",
   password: "synthetic-password",
@@ -75,9 +103,61 @@ afterEach(() => {
   delete process.env.PLATFORM_ADMIN_PASSWORD;
   delete process.env.TF_VAR_platform_admin_email;
   delete process.env.TF_VAR_platform_admin_password;
+  vi.unstubAllGlobals();
 });
 
 describe("marketplace smoke auth support", () => {
+  it("reports a bounded account fingerprint and status without credential or response markers", async () => {
+    const adversarialAccount = {
+      email: "email-secret-marker@example.test",
+      password: "password-secret-marker",
+    };
+    const { page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/password-sign-in")) {
+        return new FakeResponse(401, {
+          authorization: "authorization-secret-marker",
+          token: "token-secret-marker",
+        });
+      }
+      throw new Error(`Unexpected request: ${call.method} ${call.url}`);
+    });
+
+    const error = await signInWithPassword(page, "https://marketplace.test", adversarialAccount).catch(
+      (caught: unknown) => caught,
+    );
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toMatch(/account=sha256:[0-9a-f]{12}, status=401/);
+    expect(message).not.toContain(adversarialAccount.email);
+    expect(message).not.toContain(adversarialAccount.password);
+    expect(message).not.toContain("authorization-secret-marker");
+    expect(message).not.toContain("token-secret-marker");
+  });
+
+  it("classifies privileged transport failures without credential or exception text", async () => {
+    process.env.PLATFORM_ADMIN_EMAIL = "privileged-email-secret@example.invalid";
+    process.env.PLATFORM_ADMIN_PASSWORD = "privileged-password-secret";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("arbitrary-transport-exception-secret");
+      }),
+    );
+    const { page } = createFakePage(() => {
+      throw new Error("Playwright request transport must not be reached");
+    });
+
+    const error = await registerOrSignInSyntheticAccount(page, "https://marketplace.test", account).catch(
+      (caught: unknown) => caught,
+    );
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toBe("platform admin setup failed (network)");
+    expect(message).not.toContain(process.env.PLATFORM_ADMIN_EMAIL);
+    expect(message).not.toContain(process.env.PLATFORM_ADMIN_PASSWORD);
+    expect(message).not.toContain("arbitrary-transport-exception-secret");
+  });
+
   it("provisions a pending invitation through the platform admin before registering a synthetic account", async () => {
     withPlatformAdminEnv();
     const invitationReceipt = encodeCommitReceipt([
@@ -87,16 +167,16 @@ describe("marketplace smoke auth support", () => {
         eventIds: ["evt_invitation"],
       },
     ]);
-    const { calls, cookies, page } = createFakePage((call) => {
+    const privilegedCalls = stubPrivilegedFetch((call) => {
       if (call.url.endsWith("/api/auth/password-sign-in")) {
         return new FakeResponse(200, { sessionToken: "admin_session" });
       }
       if (call.url.endsWith("/api/identity/current-actor-display")) {
-        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        expect(call.headers?.cookie).toBe("chase_sets_session=admin_session");
         return new FakeResponse(200, { account: { account_id: "acc_platform" } });
       }
       if (call.url.endsWith("/api/identity/invitations")) {
-        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        expect(call.headers?.cookie).toBe("chase_sets_session=admin_session");
         expect(call.data).toMatchObject({
           accountId: "acc_platform",
           email: account.email,
@@ -111,7 +191,7 @@ describe("marketplace smoke auth support", () => {
         );
       }
       if (call.url.endsWith("/api/platform/projections/refresh")) {
-        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        expect(call.headers?.cookie).toBe("chase_sets_session=admin_session");
         return new FakeResponse(200, {
           projectionGroups: [
             {
@@ -122,6 +202,9 @@ describe("marketplace smoke auth support", () => {
           ],
         });
       }
+      throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
+    });
+    const { calls, cookies, page } = createFakePage((call) => {
       if (call.url.endsWith("/api/auth/register")) {
         expect(call.data).toMatchObject({
           email: account.email,
@@ -136,12 +219,12 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
-      "/api/auth/register",
     ]);
     expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));
   });
@@ -155,13 +238,9 @@ describe("marketplace smoke auth support", () => {
         eventIds: ["evt_invitation"],
       },
     ]);
-    const { cookies, page } = createFakePage((call) => {
+    stubPrivilegedFetch((call) => {
       if (call.url.endsWith("/api/auth/password-sign-in")) {
-        const email = (call.data as { email?: string }).email;
-        if (email === account.email) {
-          expect(call.data).toMatchObject({ password: account.password });
-        }
-        return new FakeResponse(200, { sessionToken: email === account.email ? "synthetic_session" : "admin_session" });
+        return new FakeResponse(200, { sessionToken: "admin_session" });
       }
       if (call.url.endsWith("/api/identity/current-actor-display")) {
         return new FakeResponse(200, { account: { account_id: "acc_platform" } });
@@ -186,8 +265,15 @@ describe("marketplace smoke auth support", () => {
           ],
         });
       }
+      throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
+    });
+    const { cookies, page } = createFakePage((call) => {
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(409, { error: "User exists." });
+      }
+      if (call.url.endsWith("/api/auth/password-sign-in")) {
+        expect(call.data).toMatchObject({ email: account.email, password: account.password });
+        return new FakeResponse(200, { sessionToken: "synthetic_session" });
       }
       throw new Error(`Unexpected request: ${call.method} ${call.url}`);
     });
@@ -209,7 +295,7 @@ describe("marketplace smoke auth support", () => {
         eventIds: ["evt_invitation"],
       },
     ]);
-    const { calls, page } = createFakePage((call) => {
+    const privilegedCalls = stubPrivilegedFetch((call) => {
       if (call.url.endsWith("/api/auth/password-sign-in")) {
         expect(call.data).toMatchObject({
           email: "platform-admin@example.test",
@@ -240,6 +326,9 @@ describe("marketplace smoke auth support", () => {
           ],
         });
       }
+      throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
+    });
+    const { calls, page } = createFakePage((call) => {
       if (call.url.endsWith("/api/auth/register")) {
         expect(call.data).toMatchObject({ password: account.password });
         return new FakeResponse(201, { sessionToken: "synthetic_session" });
@@ -251,12 +340,12 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
-      "/api/auth/register",
     ]);
   });
 

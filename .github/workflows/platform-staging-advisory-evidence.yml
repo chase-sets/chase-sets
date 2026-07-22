@@ -227,6 +227,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           CI: "true"
           PLAYWRIGHT_SKIP_WEB_SERVER: "true"
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
           MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
           MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
@@ -235,6 +237,16 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: |
           set -euo pipefail
+          missing_trust_inputs=()
+          for name in PLATFORM_ADMIN_EMAIL PLATFORM_ADMIN_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              missing_trust_inputs+=("$name")
+            fi
+          done
+          if [ "${#missing_trust_inputs[@]}" -gt 0 ]; then
+            printf 'credentials-not-threaded: staging marketplace E2E missing required trust inputs: %s\n' "${missing_trust_inputs[*]}" >&2
+            exit 1
+          fi
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
@@ -253,6 +265,10 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/staging-advisory-evidence
           checked_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          failed_phases="$(jq -cn \
+            --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
+            --arg marketplaceE2e "$MARKETPLACE_E2E_OUTCOME" \
+            '[if $scenarioSeed == "success" then empty else "scenario-seed" end, if $marketplaceE2e == "success" then empty else "marketplace-e2e" end]')"
           jq -n \
             --arg checkedAt "$checked_at" \
             --arg releaseCommit "${{ inputs.release_commit }}" \
@@ -260,7 +276,8 @@ jobs:
             --arg platformImageDigest "${{ inputs.platform_image_digest }}" \
             --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
             --arg marketplaceE2e "$MARKETPLACE_E2E_OUTCOME" \
-            '{schemaVersion:"staging-advisory-evidence/v1",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,scenarioSeed:$scenarioSeed,marketplaceE2e:$marketplaceE2e}' \
+            --argjson failedPhases "$failed_phases" \
+            '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}' \
             > artifacts/staging-advisory-evidence/summary.json
           {
             echo "## Staging advisory evidence"
@@ -287,10 +304,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Fail advisory evidence signal
-        if: always() && (steps.scenario_seed.outcome != 'success' || steps.marketplace_e2e.outcome != 'success')
+      - name: Fail scenario-seed advisory signal
+        if: always() && steps.scenario_seed.outcome != 'success'
+        env:
+          SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
         run: |
-          echo "Advisory scenario seed or marketplace E2E evidence failed; production promotion is unaffected." >&2
+          echo "Advisory scenario-seed phase failed with outcome ${SCENARIO_SEED_OUTCOME}; production promotion is unaffected." >&2
+          exit 1
+
+      - name: Fail marketplace E2E advisory signal
+        if: always() && steps.marketplace_e2e.outcome != 'success'
+        env:
+          MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
+        run: |
+          echo "Advisory marketplace E2E phase failed with outcome ${MARKETPLACE_E2E_OUTCOME}; production promotion is unaffected." >&2
           exit 1
 
   notify-staging-advisory-evidence:
