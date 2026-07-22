@@ -20,6 +20,7 @@ export type { SchemaBootstrapLockAcquisition, SchemaBootstrapOptions } from "./s
 export {
   allEnvironmentDataProfiles,
   countEventsWithPrefix,
+  defaultSeedDataProfiles,
   defaultSeedOptions,
   seedApiModuleIfEmpty,
   seedApiModulesIfEmpty,

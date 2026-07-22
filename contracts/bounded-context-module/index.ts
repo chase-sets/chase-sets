@@ -485,6 +485,7 @@ export const ENVIRONMENT_DATA_PROFILES = [
   "scenario-seed",
   "representative-commerce-state",
   "admin-qa-actor-fixtures",
+  "representative-catalog",
 ] as const;
 
 export type EnvironmentDataProfile = (typeof ENVIRONMENT_DATA_PROFILES)[number];

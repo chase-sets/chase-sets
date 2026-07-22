@@ -61,6 +61,7 @@ describe("platform runtime config schema", () => {
       "scenario-seed",
       "representative-commerce-state",
       "admin-qa-actor-fixtures",
+      "representative-catalog",
     ]);
   });
 

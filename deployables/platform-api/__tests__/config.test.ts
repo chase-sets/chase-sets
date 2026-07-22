@@ -8,6 +8,7 @@ import {
   getPlatformApiContextsForRuntimeProfile,
   loadBootstrapConfig,
   loadConfig,
+  RepresentativeCatalogProfileEnvironmentError,
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
@@ -425,6 +426,28 @@ describe("platform api config", () => {
     process.env.PLATFORM_DATA_PROFILES = "scenario-seed,unknown";
 
     expect(() => loadBootstrapConfig()).toThrow("PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.");
+  });
+
+  it("allows representative catalog only as an explicit request outside long-lived environments", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_DATA_PROFILES = "representative-catalog";
+
+    for (const environmentName of ["dev", "local", "remote-dev", "test", "preview"] as const) {
+      process.env.DEPLOYMENT_ENVIRONMENT = environmentName;
+      expect(loadBootstrapConfig().dataProfiles).toEqual(["representative-catalog"]);
+    }
+
+    for (const environmentName of ["staging", "production"] as const) {
+      process.env.DEPLOYMENT_ENVIRONMENT = environmentName;
+      if (environmentName === "production") {
+        process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+        process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+      }
+      expect(() => loadBootstrapConfig()).toThrow(RepresentativeCatalogProfileEnvironmentError);
+      expect(() => loadBootstrapConfig()).toThrow(
+        `representative-catalog is not allowed when DEPLOYMENT_ENVIRONMENT=${environmentName}.`,
+      );
+    }
   });
 
   it("allows representative commerce state only outside production", () => {
