@@ -5,6 +5,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { parse as parseYaml } from "yaml";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const chartDir = path.join(scriptDir, "..", "infrastructure", "helm", "doks-ingress");
@@ -120,6 +122,10 @@ function valuesFilesFromCommand(command) {
   return valuesFiles;
 }
 
+function allValuesFiles(valuesFiles, command) {
+  return [...new Set([...valuesFiles, ...valuesFilesFromCommand(command)])];
+}
+
 function fingerprintedOverride(override) {
   if (override.flag !== "--set-file") {
     return override;
@@ -134,9 +140,8 @@ function fingerprintedOverride(override) {
 // override in the real plan. Operational flags such as wait timeouts are
 // deliberately absent so they cannot force a release mutation.
 export function effectiveConfigurationFingerprint(valuesFiles, command) {
-  const allValuesFiles = [...new Set([...valuesFiles, ...valuesFilesFromCommand(command)])];
   const materialPlan = {
-    valuesFiles: allValuesFiles.map((valuesFile) => canonicalValuesChecksum(valuesFile)),
+    valuesFiles: allValuesFiles(valuesFiles, command).map((valuesFile) => canonicalValuesChecksum(valuesFile)),
     overrides: materialOverridesFromCommand(command).map(fingerprintedOverride),
   };
   return createHash("sha256").update(JSON.stringify(materialPlan)).digest("hex");
@@ -167,6 +172,7 @@ export function requiredClusterAddons(options = {}) {
       chart: chartName,
       version: release.version,
       materialOverrides: materialOverridesFromCommand(step.command),
+      expectedValues: expectedUserSuppliedValues(valuesFiles, step.command),
       configurationMarker: configurationMarkerForStep(step, valuesFiles),
     };
   });
@@ -294,17 +300,52 @@ function expectedOverrideValue({ flag, assignment }) {
   return rawValue;
 }
 
-function releaseValuesMatchMaterialOverrides(values, overrides) {
-  return overrides.every((override) => {
-    let actualValue = values;
-    for (const part of valuePathFromAssignment(override.assignment)) {
-      if (actualValue === null || typeof actualValue !== "object" || !(part in actualValue)) {
-        return false;
-      }
-      actualValue = actualValue[part];
+function isValuesMap(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeHelmValues(base, incoming) {
+  if (!isValuesMap(base) || !isValuesMap(incoming)) {
+    return structuredClone(incoming);
+  }
+  const merged = structuredClone(base);
+  for (const [key, value] of Object.entries(incoming)) {
+    merged[key] = key in merged ? mergeHelmValues(merged[key], value) : structuredClone(value);
+  }
+  return merged;
+}
+
+function setValueAtPath(values, pathParts, value) {
+  let target = values;
+  for (let index = 0; index < pathParts.length - 1; index += 1) {
+    const part = pathParts[index];
+    const nextPart = pathParts[index + 1];
+    if (target[part] === null || typeof target[part] !== "object") {
+      target[part] = typeof nextPart === "number" ? [] : {};
     }
-    return JSON.stringify(actualValue) === JSON.stringify(expectedOverrideValue(override));
-  });
+    target = target[part];
+  }
+  target[pathParts.at(-1)] = structuredClone(value);
+}
+
+// `helm get values` returns the merged user-supplied Config for a release. Build
+// that same complete Config from every source-owned values file (including the
+// local chart values.yaml, passed explicitly at install time) and every material
+// runtime override. Comparing the whole object catches drift outside --set flags
+// while keeping operational flags such as timeouts out of the gate.
+export function expectedUserSuppliedValues(valuesFiles, command) {
+  let expected = {};
+  for (const valuesFile of allValuesFiles(valuesFiles, command)) {
+    const parsed = parseYaml(readFileSync(valuesFile, "utf8"));
+    if (!isValuesMap(parsed)) {
+      throw new Error(`Helm values file ${valuesFile} must contain a mapping.`);
+    }
+    expected = mergeHelmValues(expected, parsed);
+  }
+  for (const override of materialOverridesFromCommand(command)) {
+    setValueAtPath(expected, valuePathFromAssignment(override.assignment), expectedOverrideValue(override));
+  }
+  return expected;
 }
 
 export async function clusterAddonsAreUpToDate(options = {}) {
@@ -361,7 +402,7 @@ export async function clusterAddonsAreUpToDate(options = {}) {
           history.revision === metadata.revision &&
           history.status === "deployed" &&
           parseConfigurationMarker(history.description) === required.configurationMarker &&
-          releaseValuesMatchMaterialOverrides(values, required.materialOverrides)
+          isDeepStrictEqual(values, required.expectedValues)
         );
       }),
     );
@@ -486,6 +527,8 @@ export function planClusterAddons(options = {}) {
         pinned.clusterIssuers.chartPath,
         "--namespace",
         pinned.clusterIssuers.namespace,
+        "--values",
+        pinned.clusterIssuers.valuesFile,
         "--atomic",
         "--wait",
         "--timeout",

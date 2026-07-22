@@ -6,7 +6,6 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   configurationMarkerForStep,
-  loadBalancerName,
   pinned,
   planClusterAddons,
   requiredClusterAddons,
@@ -178,7 +177,7 @@ function recordedHelm3154State(environment) {
           `${required.releaseName}:${required.namespace}`,
           {
             metadata: releaseMetadata,
-            values: expectedValues(required.releaseName, environment),
+            values: structuredClone(required.expectedValues),
             history: {
               revision: releaseMetadata.revision,
               updated: "2026-07-22T04:41:46.787941022Z",
@@ -193,34 +192,6 @@ function recordedHelm3154State(environment) {
     ),
     responses: {},
   };
-}
-
-function expectedValues(releaseName, environment) {
-  if (releaseName === "ingress-nginx") {
-    return {
-      controller: {
-        service: {
-          annotations: {
-            "service.beta.kubernetes.io/do-loadbalancer-name": loadBalancerName(environment),
-          },
-        },
-      },
-    };
-  }
-  if (releaseName === "chase-sets-doks-ingress") {
-    return {
-      clusterIssuers: {
-        production: {
-          dns01: {
-            enabled: true,
-            dnsZones: [environment === "production" ? "chasesets.com" : "preview.chasesets.com"],
-          },
-        },
-      },
-      ...(environment === "staging" ? { previewWildcardCertificate: { enabled: true } } : {}),
-    };
-  }
-  return {};
 }
 
 function createHarness(state) {
@@ -295,18 +266,6 @@ function installStep(environment, releaseName) {
   return planClusterAddons({ environment }).find(
     (step) => step.command[step.command.indexOf("--install") + 1] === releaseName,
   );
-}
-
-function markerForChangedAssignment(environment, releaseName, currentAssignment, changedAssignment) {
-  const step = installStep(environment, releaseName);
-  const changedStep = { ...step, command: [...step.command] };
-  const assignmentIndex = changedStep.command.indexOf(currentAssignment);
-  if (assignmentIndex < 0) {
-    throw new Error(`Assignment ${currentAssignment} was not found in ${releaseName}.`);
-  }
-  changedStep.command[assignmentIndex] = changedAssignment;
-  const release = Object.values(pinned).find((candidate) => candidate.releaseName === releaseName);
-  return configurationMarkerForStep(changedStep, [release.valuesFile]);
 }
 
 afterEach(() => {
@@ -426,61 +385,43 @@ describe("doks cluster add-ons real CLI state machine", () => {
   });
 
   it.each([
-    ["staging", "load balancer", "ingress-nginx"],
-    ["staging", "DNS-01 enablement", "chase-sets-doks-ingress"],
-    ["staging", "DNS-01 zone", "chase-sets-doks-ingress"],
-    ["staging", "preview wildcard", "chase-sets-doks-ingress"],
-    ["production", "load balancer", "ingress-nginx"],
-    ["production", "DNS-01 enablement", "chase-sets-doks-ingress"],
-    ["production", "DNS-01 zone", "chase-sets-doks-ingress"],
-  ])("falls through for the opposite %s %s value with canonical file bytes", (environment, control, releaseName) => {
+    ["staging", "ingress controller.replicaCount", "ingress-nginx", (values) => (values.controller.replicaCount = 9)],
+    ["staging", "cert-manager replicaCount", "cert-manager", (values) => (values.replicaCount = 9)],
+    ["staging", "Argo controller.replicas", "argo-rollouts", (values) => (values.controller.replicas = 9)],
+    [
+      "staging",
+      "issuer clusterIssuers.email",
+      "chase-sets-doks-ingress",
+      (values) => (values.clusterIssuers.email = "drift@example.test"),
+    ],
+    [
+      "production",
+      "ingress controller.replicaCount",
+      "ingress-nginx",
+      (values) => (values.controller.replicaCount = 9),
+    ],
+    ["production", "cert-manager replicaCount", "cert-manager", (values) => (values.replicaCount = 9)],
+    ["production", "Argo controller.replicas", "argo-rollouts", (values) => (values.controller.replicas = 9)],
+    [
+      "production",
+      "issuer clusterIssuers.email",
+      "chase-sets-doks-ingress",
+      (values) => (values.clusterIssuers.email = "drift@example.test"),
+    ],
+  ])("falls through full install for exact-marker %s %s drift", (environment, _control, releaseName, mutate) => {
     const state = recordedHelm3154State(environment);
-    const releaseKey = `${releaseName}:${pinned[releaseName === "ingress-nginx" ? "ingressNginx" : "clusterIssuers"].namespace}`;
-    const release = state.releases[releaseKey];
-    let marker;
-    if (control === "load balancer") {
-      const expected = `controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=${loadBalancerName(environment)}`;
-      const oppositeEnvironment = environment === "staging" ? "production" : "staging";
-      const opposite = `controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=${loadBalancerName(oppositeEnvironment)}`;
-      marker = markerForChangedAssignment(environment, releaseName, expected, opposite);
-      release.values.controller.service.annotations["service.beta.kubernetes.io/do-loadbalancer-name"] =
-        loadBalancerName(oppositeEnvironment);
-    } else if (control === "DNS-01 enablement") {
-      marker = markerForChangedAssignment(
-        environment,
-        releaseName,
-        "clusterIssuers.production.dns01.enabled=true",
-        "clusterIssuers.production.dns01.enabled=false",
-      );
-      release.values.clusterIssuers.production.dns01.enabled = false;
-    } else if (control === "DNS-01 zone") {
-      const expectedZone = environment === "staging" ? "preview.chasesets.com" : "chasesets.com";
-      const oppositeZone = environment === "staging" ? "chasesets.com" : "preview.chasesets.com";
-      marker = markerForChangedAssignment(
-        environment,
-        releaseName,
-        `clusterIssuers.production.dns01.dnsZones[0]=${expectedZone}`,
-        `clusterIssuers.production.dns01.dnsZones[0]=${oppositeZone}`,
-      );
-      release.values.clusterIssuers.production.dns01.dnsZones[0] = oppositeZone;
-    } else {
-      marker = markerForChangedAssignment(
-        environment,
-        releaseName,
-        "previewWildcardCertificate.enabled=true",
-        "previewWildcardCertificate.enabled=false",
-      );
-      release.values.previewWildcardCertificate.enabled = false;
-    }
-    release.history.description = marker;
-    state.failPrefix = ["repo", "add"];
-    state.failCode = 97;
+    const required = requiredClusterAddons({ environment }).find((release) => release.releaseName === releaseName);
+    const release = state.releases[`${releaseName}:${required.namespace}`];
+    expect(release.history.description).toBe(required.configurationMarker);
+    mutate(release.values);
+    expect(release.history.description).toBe(required.configurationMarker);
 
     const run = createHarness(state).run(environment);
-    expect(run.result.status).toBe(1);
+    expect(run.result.status).toBe(0);
     expect(run.result.stdout).not.toContain("up to date");
-    expect(run.result.stderr).toContain('Step "add ingress-nginx repo" failed with exit code 97.');
-    expect(helmMutations(run.log)).toHaveLength(1);
+    expect(run.result.stdout).toContain(`DOKS cluster ingress add-ons installed for ${environment}.`);
+    expect(helmMutations(run.log).filter((call) => call.args[0] === "upgrade")).toHaveLength(4);
+    assertSecretAppliedWithoutLeak(run);
   });
 
   it.each(["ingress-nginx", "cert-manager", "argo-rollouts", "chase-sets-doks-ingress"])(

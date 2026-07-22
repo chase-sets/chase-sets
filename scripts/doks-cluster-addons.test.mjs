@@ -282,34 +282,6 @@ describe("doks cluster addons planner", () => {
       },
     };
 
-    function expectedReleaseValues(releaseName, environment) {
-      if (releaseName === "ingress-nginx") {
-        return {
-          controller: {
-            service: {
-              annotations: {
-                "service.beta.kubernetes.io/do-loadbalancer-name": loadBalancerName(environment),
-              },
-            },
-          },
-        };
-      }
-      if (releaseName === "chase-sets-doks-ingress") {
-        return {
-          clusterIssuers: {
-            production: {
-              dns01: {
-                enabled: true,
-                dnsZones: [environment === "production" ? "chasesets.com" : "preview.chasesets.com"],
-              },
-            },
-          },
-          ...(environment === "staging" ? { previewWildcardCertificate: { enabled: true } } : {}),
-        };
-      }
-      return {};
-    }
-
     function deployedReleaseResponses(environment = "staging", overrides = {}) {
       const required = requiredClusterAddons({ environment });
       return new Map(
@@ -325,9 +297,7 @@ describe("doks cluster addons planner", () => {
           [
             `values:${release.releaseName}:${release.namespace}`,
             overrides[release.releaseName]?.valuesOutput ??
-              JSON.stringify(
-                overrides[release.releaseName]?.values ?? expectedReleaseValues(release.releaseName, environment),
-              ),
+              JSON.stringify(overrides[release.releaseName]?.values ?? release.expectedValues),
           ],
           [
             `history:${release.releaseName}:${release.namespace}`,
@@ -450,8 +420,14 @@ describe("doks cluster addons planner", () => {
     });
 
     it("falls through when material values disagree with the expected environment plan", async () => {
+      const productionIngressValues = structuredClone(
+        requiredClusterAddons({ environment: "production" }).find((release) => release.releaseName === "ingress-nginx")
+          .expectedValues,
+      );
+      productionIngressValues.controller.service.annotations["service.beta.kubernetes.io/do-loadbalancer-name"] =
+        loadBalancerName("staging");
       const wrongLoadBalancer = deployedReleaseResponses("production", {
-        "ingress-nginx": { values: expectedReleaseValues("ingress-nginx", "staging") },
+        "ingress-nginx": { values: productionIngressValues },
       });
       await expect(
         clusterAddonsAreUpToDate({ environment: "production", runCommand: helmReader(wrongLoadBalancer) }),
