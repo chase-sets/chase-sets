@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const chartDir = path.join(scriptDir, "..", "infrastructure", "helm", "doks-ingress");
-const valuesChecksumKey = "chaseSetsDoksAddons.valuesChecksum";
+const configurationMarkerPrefix = "chase-sets-doks-addons:v1:";
+const configurationMarkerPattern = /^chase-sets-doks-addons:v1:[a-f0-9]{64}$/;
+const materialValueFlags = new Set(["--set", "--set-string", "--set-json", "--set-file"]);
 
 // Pinned upstream releases. Bump deliberately with an operator note; the DOKS
 // cutover proves ingress and cert issuance against these exact versions.
@@ -78,14 +80,94 @@ export function canonicalValuesChecksum(valuesFile) {
   return createHash("sha256").update(readFileSync(valuesFile)).digest("hex");
 }
 
-export function requiredClusterAddons() {
+function releaseNameFromUpgradeCommand(command) {
+  const installFlagIndex = command.indexOf("--install");
+  return installFlagIndex >= 0 ? command[installFlagIndex + 1] : undefined;
+}
+
+function namespaceFromCommand(command) {
+  const namespaceFlagIndex = command.indexOf("--namespace");
+  return namespaceFlagIndex >= 0 ? command[namespaceFlagIndex + 1] : undefined;
+}
+
+export function materialOverridesFromCommand(command) {
+  const overrides = [];
+  for (let index = 0; index < command.length; index += 1) {
+    const flag = command[index];
+    if (!materialValueFlags.has(flag)) {
+      continue;
+    }
+    const assignment = command[++index];
+    if (typeof assignment !== "string" || !assignment.includes("=")) {
+      throw new Error(`${flag} requires a key=value assignment.`);
+    }
+    overrides.push({ flag, assignment });
+  }
+  return overrides;
+}
+
+function valuesFilesFromCommand(command) {
+  const valuesFiles = [];
+  for (let index = 0; index < command.length; index += 1) {
+    if (command[index] === "--values" || command[index] === "-f") {
+      const valuesFile = command[++index];
+      if (typeof valuesFile !== "string" || !valuesFile) {
+        throw new Error("Helm values flags require a file path.");
+      }
+      valuesFiles.push(valuesFile);
+    }
+  }
+  return valuesFiles;
+}
+
+function fingerprintedOverride(override) {
+  if (override.flag !== "--set-file") {
+    return override;
+  }
+  const separatorIndex = override.assignment.indexOf("=");
+  const key = override.assignment.slice(0, separatorIndex);
+  const valuesFile = override.assignment.slice(separatorIndex + 1);
+  return { flag: override.flag, assignment: `${key}=sha256:${canonicalValuesChecksum(valuesFile)}` };
+}
+
+// The marker covers source-owned values bytes and every material Helm value
+// override in the real plan. Operational flags such as wait timeouts are
+// deliberately absent so they cannot force a release mutation.
+export function effectiveConfigurationFingerprint(valuesFiles, command) {
+  const allValuesFiles = [...new Set([...valuesFiles, ...valuesFilesFromCommand(command)])];
+  const materialPlan = {
+    valuesFiles: allValuesFiles.map((valuesFile) => canonicalValuesChecksum(valuesFile)),
+    overrides: materialOverridesFromCommand(command).map(fingerprintedOverride),
+  };
+  return createHash("sha256").update(JSON.stringify(materialPlan)).digest("hex");
+}
+
+export function configurationMarkerForStep(step, valuesFiles) {
+  return `${configurationMarkerPrefix}${effectiveConfigurationFingerprint(valuesFiles, step.command)}`;
+}
+
+export function requiredClusterAddons(options = {}) {
+  const environment = options.environment ?? "staging";
+  const steps = options.steps ?? planClusterAddons({ environment });
+
   return releaseRequirements.map(({ key, chartName }) => {
     const release = pinned[key];
+    const step = steps.find(
+      (candidate) =>
+        releaseNameFromUpgradeCommand(candidate.command) === release.releaseName &&
+        namespaceFromCommand(candidate.command) === release.namespace,
+    );
+    if (!step) {
+      throw new Error(`No install step found for Helm release ${release.releaseName}.`);
+    }
+    const valuesFiles = [release.valuesFile];
     return {
       releaseName: release.releaseName,
       namespace: release.namespace,
-      chart: `${chartName}-${release.version}`,
-      valuesChecksum: canonicalValuesChecksum(release.valuesFile),
+      chart: chartName,
+      version: release.version,
+      materialOverrides: materialOverridesFromCommand(step.command),
+      configurationMarker: configurationMarkerForStep(step, valuesFiles),
     };
   });
 }
@@ -98,7 +180,12 @@ export function parseReleaseMetadata(output) {
     typeof metadata.name !== "string" ||
     typeof metadata.namespace !== "string" ||
     typeof metadata.chart !== "string" ||
-    typeof metadata.status !== "string"
+    typeof metadata.version !== "string" ||
+    typeof metadata.appVersion !== "string" ||
+    !Number.isInteger(metadata.revision) ||
+    metadata.revision < 1 ||
+    typeof metadata.status !== "string" ||
+    typeof metadata.deployedAt !== "string"
   ) {
     throw new Error("Helm release metadata has an unexpected shape.");
   }
@@ -113,8 +200,111 @@ export function parseReleaseValues(output) {
   return values;
 }
 
-function checksumFromReleaseValues(values) {
-  return values.chaseSetsDoksAddons?.valuesChecksum;
+export function parseReleaseHistory(output) {
+  const history = JSON.parse(output);
+  if (
+    !Array.isArray(history) ||
+    history.length !== 1 ||
+    !Number.isInteger(history[0]?.revision) ||
+    history[0].revision < 1 ||
+    typeof history[0].updated !== "string" ||
+    typeof history[0].status !== "string" ||
+    typeof history[0].chart !== "string" ||
+    typeof history[0].app_version !== "string" ||
+    typeof history[0].description !== "string"
+  ) {
+    throw new Error("Helm release history has an unexpected shape.");
+  }
+  return history[0];
+}
+
+function parseConfigurationMarker(description) {
+  if (!configurationMarkerPattern.test(description)) {
+    throw new Error("Helm release configuration marker has an unexpected shape.");
+  }
+  return description;
+}
+
+function valuePathFromAssignment(assignment) {
+  const separatorIndex = assignment.indexOf("=");
+  const key = assignment.slice(0, separatorIndex);
+  const pathParts = [];
+  let part = "";
+  for (let index = 0; index < key.length; index += 1) {
+    const character = key[index];
+    if (character === "\\") {
+      if (index + 1 >= key.length) {
+        throw new Error("Helm value path ends with an escape character.");
+      }
+      part += key[++index];
+    } else if (character === ".") {
+      if (!part) {
+        throw new Error("Helm value path contains an empty segment.");
+      }
+      pathParts.push(part);
+      part = "";
+    } else if (character === "[") {
+      if (part) {
+        pathParts.push(part);
+        part = "";
+      }
+      const closingIndex = key.indexOf("]", index + 1);
+      const arrayIndex = key.slice(index + 1, closingIndex);
+      if (closingIndex < 0 || !/^\d+$/.test(arrayIndex)) {
+        throw new Error("Helm value path contains an invalid array index.");
+      }
+      pathParts.push(Number(arrayIndex));
+      index = closingIndex;
+    } else {
+      part += character;
+    }
+  }
+  if (part) {
+    pathParts.push(part);
+  }
+  if (pathParts.length === 0) {
+    throw new Error("Helm value path is empty.");
+  }
+  return pathParts;
+}
+
+function expectedOverrideValue({ flag, assignment }) {
+  const rawValue = assignment.slice(assignment.indexOf("=") + 1);
+  if (flag === "--set-string") {
+    return rawValue;
+  }
+  if (flag === "--set-json") {
+    return JSON.parse(rawValue);
+  }
+  if (flag === "--set-file") {
+    return readFileSync(rawValue, "utf8");
+  }
+  if (rawValue === "true") {
+    return true;
+  }
+  if (rawValue === "false") {
+    return false;
+  }
+  if (rawValue === "null") {
+    return null;
+  }
+  if (/^-?\d+$/.test(rawValue)) {
+    return Number(rawValue);
+  }
+  return rawValue;
+}
+
+function releaseValuesMatchMaterialOverrides(values, overrides) {
+  return overrides.every((override) => {
+    let actualValue = values;
+    for (const part of valuePathFromAssignment(override.assignment)) {
+      if (actualValue === null || typeof actualValue !== "object" || !(part in actualValue)) {
+        return false;
+      }
+      actualValue = actualValue[part];
+    }
+    return JSON.stringify(actualValue) === JSON.stringify(expectedOverrideValue(override));
+  });
 }
 
 export async function clusterAddonsAreUpToDate(options = {}) {
@@ -124,40 +314,58 @@ export async function clusterAddonsAreUpToDate(options = {}) {
   }
 
   try {
-    for (const required of requiredClusterAddons()) {
-      const metadata = parseReleaseMetadata(
-        await runCommand("helm", [
-          "get",
-          "metadata",
-          required.releaseName,
-          "--namespace",
-          required.namespace,
-          "--output",
-          "json",
-        ]),
-      );
-      const values = parseReleaseValues(
-        await runCommand("helm", [
-          "get",
-          "values",
-          required.releaseName,
-          "--namespace",
-          required.namespace,
-          "--output",
-          "json",
-        ]),
-      );
-      if (
-        metadata.name !== required.releaseName ||
-        metadata.namespace !== required.namespace ||
-        metadata.status !== "deployed" ||
-        metadata.chart !== required.chart ||
-        checksumFromReleaseValues(values) !== required.valuesChecksum
-      ) {
-        return false;
-      }
-    }
-    return true;
+    const releaseChecks = await Promise.all(
+      requiredClusterAddons({ environment: options.environment }).map(async (required) => {
+        const reads = await Promise.allSettled([
+          runCommand("helm", [
+            "get",
+            "metadata",
+            required.releaseName,
+            "--namespace",
+            required.namespace,
+            "--output",
+            "json",
+          ]),
+          runCommand("helm", [
+            "get",
+            "values",
+            required.releaseName,
+            "--namespace",
+            required.namespace,
+            "--output",
+            "json",
+          ]),
+          runCommand("helm", [
+            "history",
+            required.releaseName,
+            "--namespace",
+            required.namespace,
+            "--max",
+            "1",
+            "--output",
+            "json",
+          ]),
+        ]);
+        if (reads.some((read) => read.status === "rejected")) {
+          return false;
+        }
+        const metadata = parseReleaseMetadata(reads[0].value);
+        const values = parseReleaseValues(reads[1].value);
+        const history = parseReleaseHistory(reads[2].value);
+        return (
+          metadata.name === required.releaseName &&
+          metadata.namespace === required.namespace &&
+          metadata.status === "deployed" &&
+          metadata.chart === required.chart &&
+          metadata.version === required.version &&
+          history.revision === metadata.revision &&
+          history.status === "deployed" &&
+          parseConfigurationMarker(history.description) === required.configurationMarker &&
+          releaseValuesMatchMaterialOverrides(values, required.materialOverrides)
+        );
+      }),
+    );
+    return releaseChecks.every(Boolean);
   } catch {
     // A missing release, malformed output, or a failed read is drift. The
     // caller deliberately falls through to the existing fail-loud install path.
@@ -338,9 +546,8 @@ export function buildDoksDnsTokenSecretManifest(token, environment = "staging") 
 
 // Applies the manifest by piping it to `kubectl apply -f -` stdin so the
 // token value never appears in a spawned command's argv (visible in process
-// listings) or in this planner's --dry-run output. cert-manager's namespaced
-// resource (this Secret) must exist in the `cert-manager` namespace the
-// preceding "install cert-manager" step just created.
+// listings) or in this planner's --dry-run output. The caller invokes this only
+// after cert-manager was installed or its deployed release passed preflight.
 export function applyDoksDnsTokenSecret(options = {}) {
   const spawnImpl = options.spawn ?? spawn;
   const kubectlPath = options.kubectlPath ?? "kubectl";
@@ -397,23 +604,26 @@ function runCommand(command, args) {
   });
 }
 
-function withValuesChecksum(step) {
-  const required = requiredClusterAddons().find(
+function withConfigurationMarker(step, requiredClusterAddons) {
+  const required = requiredClusterAddons.find(
     (entry) =>
-      entry.releaseName === step.command[3] &&
-      entry.namespace === step.command[step.command.indexOf("--namespace") + 1],
+      entry.releaseName === releaseNameFromUpgradeCommand(step.command) &&
+      entry.namespace === namespaceFromCommand(step.command),
   );
   if (!required) {
     return step;
   }
   return {
     ...step,
-    command: [...step.command, "--set-string", `${valuesChecksumKey}=${required.valuesChecksum}`],
+    // Helm stores descriptions in release metadata rather than chart values,
+    // so closed values schemas (notably cert-manager's) never see this marker.
+    command: [...step.command, "--description", required.configurationMarker],
   };
 }
 
-export function installStepsWithValuesChecksums(steps) {
-  return steps.map(withValuesChecksum);
+export function installStepsWithConfigurationMarkers(steps) {
+  const required = requiredClusterAddons({ steps });
+  return steps.map((step) => withConfigurationMarker(step, required));
 }
 
 function parseArgs(argv) {
@@ -455,14 +665,23 @@ async function main(argv) {
     return 0;
   }
 
-  if (await clusterAddonsAreUpToDate({ runCommand })) {
+  if (await clusterAddonsAreUpToDate({ runCommand, environment: options.environment })) {
     console.log(`DOKS cluster add-ons up to date for ${options.environment}; skipped.`);
+    // Credential rotation is independent of Helm release drift. Reconcile the
+    // Secret on every invocation, including the steady-state Helm fast path.
+    console.log(`==> apply ${options.environment} DNS-01 token secret`);
+    const applied = await applyDoksDnsTokenSecret({
+      token: process.env.DIGITALOCEAN_ACCESS_TOKEN,
+      environment: options.environment,
+    });
+    console.log(`Applied ${applied.name} secret in namespace ${applied.namespace}.`);
     return 0;
   }
 
-  for (const step of steps) {
+  const installSteps = installStepsWithConfigurationMarkers(steps);
+  for (const step of installSteps) {
     console.log(`==> ${step.name}`);
-    await runStep(installStepsWithValuesChecksums([step])[0]);
+    await runStep(step);
 
     // The environment-scoped DNS-01 solver reads this Secret, so it must
     // exist before the next step installs the ClusterIssuer that references

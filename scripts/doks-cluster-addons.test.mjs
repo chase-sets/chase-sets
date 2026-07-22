@@ -7,11 +7,15 @@ import {
   buildDoksDnsTokenSecretManifest,
   canonicalValuesChecksum,
   clusterAddonsAreUpToDate,
+  configurationMarkerForStep,
   doksDnsTokenSecretName,
   doksDnsTokenSecretNamespace,
   dryRunOutput,
-  installStepsWithValuesChecksums,
+  installStepsWithConfigurationMarkers,
   loadBalancerName,
+  materialOverridesFromCommand,
+  parseReleaseHistory,
+  parseReleaseMetadata,
   pinned,
   planClusterAddons,
   requiredClusterAddons,
@@ -197,29 +201,144 @@ describe("doks cluster addons planner", () => {
   });
 
   describe("steady-state release preflight", () => {
-    function deployedReleaseResponses(overrides = {}) {
-      const required = requiredClusterAddons();
+    // Recorded from Helm v3.15.4 against the production DOKS releases on
+    // 2026-07-22. Keep the provider's exact JSON field names and separate
+    // chart/version fields; history intentionally has a different shape.
+    const recordedHelm3154Metadata = {
+      "ingress-nginx": {
+        name: "ingress-nginx",
+        chart: "ingress-nginx",
+        version: "4.11.3",
+        appVersion: "1.11.3",
+        namespace: "ingress-nginx",
+        revision: 65,
+        status: "deployed",
+        deployedAt: "2026-07-22T04:41:21Z",
+      },
+      "cert-manager": {
+        name: "cert-manager",
+        chart: "cert-manager",
+        version: "v1.16.2",
+        appVersion: "v1.16.2",
+        namespace: "cert-manager",
+        revision: 66,
+        status: "deployed",
+        deployedAt: "2026-07-22T04:41:35Z",
+      },
+      "argo-rollouts": {
+        name: "argo-rollouts",
+        chart: "argo-rollouts",
+        version: "2.41.0",
+        appVersion: "v1.9.0",
+        namespace: "argo-rollouts",
+        revision: 64,
+        status: "deployed",
+        deployedAt: "2026-07-22T04:41:43Z",
+      },
+      "chase-sets-doks-ingress": {
+        name: "chase-sets-doks-ingress",
+        chart: "chase-sets-doks-ingress",
+        version: "0.1.0",
+        appVersion: "0.1.0",
+        namespace: "cert-manager",
+        revision: 64,
+        status: "deployed",
+        deployedAt: "2026-07-22T04:41:46Z",
+      },
+    };
+
+    const recordedHelm3154History = {
+      "ingress-nginx": {
+        revision: 65,
+        updated: "2026-07-22T04:41:21.556635702Z",
+        status: "deployed",
+        chart: "ingress-nginx-4.11.3",
+        app_version: "1.11.3",
+        description: "Upgrade complete",
+      },
+      "cert-manager": {
+        revision: 66,
+        updated: "2026-07-22T04:41:35.740925828Z",
+        status: "deployed",
+        chart: "cert-manager-v1.16.2",
+        app_version: "v1.16.2",
+        description: "Upgrade complete",
+      },
+      "argo-rollouts": {
+        revision: 64,
+        updated: "2026-07-22T04:41:43.294727581Z",
+        status: "deployed",
+        chart: "argo-rollouts-2.41.0",
+        app_version: "v1.9.0",
+        description: "Upgrade complete",
+      },
+      "chase-sets-doks-ingress": {
+        revision: 64,
+        updated: "2026-07-22T04:41:46.787941022Z",
+        status: "deployed",
+        chart: "chase-sets-doks-ingress-0.1.0",
+        app_version: "0.1.0",
+        description: "Upgrade complete",
+      },
+    };
+
+    function expectedReleaseValues(releaseName, environment) {
+      if (releaseName === "ingress-nginx") {
+        return {
+          controller: {
+            service: {
+              annotations: {
+                "service.beta.kubernetes.io/do-loadbalancer-name": loadBalancerName(environment),
+              },
+            },
+          },
+        };
+      }
+      if (releaseName === "chase-sets-doks-ingress") {
+        return {
+          clusterIssuers: {
+            production: {
+              dns01: {
+                enabled: true,
+                dnsZones: [environment === "production" ? "chasesets.com" : "preview.chasesets.com"],
+              },
+            },
+          },
+          ...(environment === "staging" ? { previewWildcardCertificate: { enabled: true } } : {}),
+        };
+      }
+      return {};
+    }
+
+    function deployedReleaseResponses(environment = "staging", overrides = {}) {
+      const required = requiredClusterAddons({ environment });
       return new Map(
         required.flatMap((release) => [
           [
             `metadata:${release.releaseName}:${release.namespace}`,
-            JSON.stringify({
-              name: release.releaseName,
-              namespace: release.namespace,
-              revision: 7,
-              updated: "2026-07-22 12:00:00.000000 +0000 UTC",
-              status: "deployed",
-              chart: release.chart,
-              app_version: "1.0.0",
-              ...overrides[release.releaseName]?.metadata,
-            }),
+            overrides[release.releaseName]?.metadataOutput ??
+              JSON.stringify({
+                ...recordedHelm3154Metadata[release.releaseName],
+                ...overrides[release.releaseName]?.metadata,
+              }),
           ],
           [
             `values:${release.releaseName}:${release.namespace}`,
-            JSON.stringify({
-              chaseSetsDoksAddons: { valuesChecksum: release.valuesChecksum },
-              ...overrides[release.releaseName]?.values,
-            }),
+            overrides[release.releaseName]?.valuesOutput ??
+              JSON.stringify(
+                overrides[release.releaseName]?.values ?? expectedReleaseValues(release.releaseName, environment),
+              ),
+          ],
+          [
+            `history:${release.releaseName}:${release.namespace}`,
+            overrides[release.releaseName]?.historyOutput ??
+              JSON.stringify([
+                {
+                  ...recordedHelm3154History[release.releaseName],
+                  description: release.configurationMarker,
+                  ...overrides[release.releaseName]?.history,
+                },
+              ]),
           ],
         ]),
       );
@@ -227,7 +346,10 @@ describe("doks cluster addons planner", () => {
 
     function helmReader(responses) {
       return async (_command, args) => {
-        const key = `${args[1] === "metadata" ? "metadata" : "values"}:${args[2]}:${args[4]}`;
+        const type = args[0] === "history" ? "history" : args[1];
+        const releaseName = args[0] === "history" ? args[1] : args[2];
+        const namespace = args[0] === "history" ? args[3] : args[4];
+        const key = `${type}:${releaseName}:${namespace}`;
         const response = responses.get(key);
         if (response instanceof Error) {
           throw response;
@@ -239,10 +361,19 @@ describe("doks cluster addons planner", () => {
       };
     }
 
-    it("skips mutations when every deployed release has the pinned chart metadata and canonical values checksum", async () => {
-      const responses = deployedReleaseResponses();
+    it("parses Helm v3.15.4 metadata and history using their distinct provider shapes", () => {
+      const metadata = parseReleaseMetadata(JSON.stringify(recordedHelm3154Metadata["cert-manager"]));
+      const history = parseReleaseHistory(JSON.stringify([recordedHelm3154History["cert-manager"]]));
+
+      expect(metadata).toMatchObject({ chart: "cert-manager", version: "v1.16.2", appVersion: "v1.16.2" });
+      expect(history).toMatchObject({ chart: "cert-manager-v1.16.2", app_version: "v1.16.2" });
+    });
+
+    it("skips Helm mutations when every release has the pinned metadata, material values, and marker", async () => {
+      const responses = deployedReleaseResponses("production");
       const calls = [];
       const upToDate = await clusterAddonsAreUpToDate({
+        environment: "production",
         runCommand: async (command, args) => {
           calls.push([command, args]);
           return helmReader(responses)(command, args);
@@ -250,17 +381,21 @@ describe("doks cluster addons planner", () => {
       });
 
       expect(upToDate).toBe(true);
-      expect(calls).toHaveLength(requiredClusterAddons().length * 2);
+      expect(calls).toHaveLength(requiredClusterAddons({ environment: "production" }).length * 3);
       expect(calls).toContainEqual([
         "helm",
         ["get", "metadata", "ingress-nginx", "--namespace", "ingress-nginx", "--output", "json"],
+      ]);
+      expect(calls).toContainEqual([
+        "helm",
+        ["history", "cert-manager", "--namespace", "cert-manager", "--max", "1", "--output", "json"],
       ]);
       expect(calls.every(([, args]) => !args.includes("upgrade") && !args.includes("repo"))).toBe(true);
     });
 
     it("falls through when a deployed chart version differs from the pinned metadata", async () => {
-      const responses = deployedReleaseResponses({
-        "cert-manager": { metadata: { chart: "cert-manager-v1.16.1" } },
+      const responses = deployedReleaseResponses("staging", {
+        "cert-manager": { metadata: { version: "v1.16.1" } },
       });
       await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
     });
@@ -281,11 +416,58 @@ describe("doks cluster addons planner", () => {
       await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(malformed) })).resolves.toBe(false);
     });
 
-    it("falls through when a deployed release has a different canonical values checksum", async () => {
-      const responses = deployedReleaseResponses({
-        "chase-sets-doks-ingress": { values: { chaseSetsDoksAddons: { valuesChecksum: "stale" } } },
+    it("falls through when Helm values or history cannot be read or parsed", async () => {
+      const valuesReadFailure = deployedReleaseResponses();
+      valuesReadFailure.set("values:ingress-nginx:ingress-nginx", new Error("values unavailable"));
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(valuesReadFailure) })).resolves.toBe(false);
+
+      const malformedValues = deployedReleaseResponses("staging", {
+        "ingress-nginx": { valuesOutput: "[]" },
       });
-      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(malformedValues) })).resolves.toBe(false);
+
+      const historyReadFailure = deployedReleaseResponses();
+      historyReadFailure.set("history:ingress-nginx:ingress-nginx", new Error("history unavailable"));
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(historyReadFailure) })).resolves.toBe(false);
+
+      const malformedHistory = deployedReleaseResponses("staging", {
+        "ingress-nginx": { historyOutput: "[]" },
+      });
+      await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(malformedHistory) })).resolves.toBe(false);
+    });
+
+    it("falls through when the release marker is missing, malformed, or stale", async () => {
+      for (const description of [
+        "",
+        "chase-sets-doks-addons:v1:not-a-sha",
+        `chase-sets-doks-addons:v1:${"0".repeat(64)}`,
+      ]) {
+        const responses = deployedReleaseResponses("staging", {
+          "ingress-nginx": { history: { description } },
+        });
+        await expect(clusterAddonsAreUpToDate({ runCommand: helmReader(responses) })).resolves.toBe(false);
+      }
+    });
+
+    it("falls through when material values disagree with the expected environment plan", async () => {
+      const wrongLoadBalancer = deployedReleaseResponses("production", {
+        "ingress-nginx": { values: expectedReleaseValues("ingress-nginx", "staging") },
+      });
+      await expect(
+        clusterAddonsAreUpToDate({ environment: "production", runCommand: helmReader(wrongLoadBalancer) }),
+      ).resolves.toBe(false);
+
+      const wrongIssuers = deployedReleaseResponses("staging", {
+        "chase-sets-doks-ingress": {
+          values: {
+            clusterIssuers: { production: { dns01: { enabled: false, dnsZones: ["chasesets.com"] } } },
+            previewWildcardCertificate: { enabled: false },
+          },
+        },
+      });
+      await expect(
+        clusterAddonsAreUpToDate({ environment: "staging", runCommand: helmReader(wrongIssuers) }),
+      ).resolves.toBe(false);
     });
 
     it("keeps the staging and production dry-run output byte-for-byte on the preflight-free install contract", () => {
@@ -302,29 +484,61 @@ describe("doks cluster addons planner", () => {
           null,
           2,
         );
-        expect(dryRunOutput({ environment })).toBe(expected);
+        const output = dryRunOutput({ environment });
+        expect(output).toBe(expected);
+        expect(output).not.toContain("--description");
+        expect(output).not.toContain("chase-sets-doks-addons:v1:");
       }
     });
 
-    it("calculates checksums from each canonical checked-in values file", () => {
-      for (const release of requiredClusterAddons()) {
-        const pinnedRelease = Object.values(pinned).find((entry) => entry.releaseName === release.releaseName);
-        expect(release.valuesChecksum).toBe(canonicalValuesChecksum(pinnedRelease.valuesFile));
+    it("fingerprints every values file and material override while excluding operational timeouts", () => {
+      for (const environment of ["staging", "production"]) {
+        const defaultRequirements = requiredClusterAddons({ environment });
+        const timeoutSteps = planClusterAddons({ environment, installTimeout: "99m", issuerTimeout: "77m" });
+        const timeoutRequirements = requiredClusterAddons({ environment, steps: timeoutSteps });
+        expect(timeoutRequirements.map((release) => release.configurationMarker)).toEqual(
+          defaultRequirements.map((release) => release.configurationMarker),
+        );
+
+        for (const release of defaultRequirements) {
+          const pinnedRelease = Object.values(pinned).find((entry) => entry.releaseName === release.releaseName);
+          expect(canonicalValuesChecksum(pinnedRelease.valuesFile)).toMatch(/^[a-f0-9]{64}$/);
+          expect(release.configurationMarker).toMatch(/^chase-sets-doks-addons:v1:[a-f0-9]{64}$/);
+        }
       }
     });
 
-    it("records every canonical checksum only on real upgrade/install commands", () => {
+    it("changes the marker for every material --set or --set-string value", () => {
+      for (const environment of ["staging", "production"]) {
+        for (const step of planClusterAddons({ environment }).filter((candidate) =>
+          candidate.command.includes("upgrade"),
+        )) {
+          const release = Object.values(pinned).find(
+            (candidate) => candidate.releaseName === step.command[step.command.indexOf("--install") + 1],
+          );
+          const marker = configurationMarkerForStep(step, [release.valuesFile]);
+          const overrides = materialOverridesFromCommand(step.command);
+          for (const override of overrides) {
+            const changedStep = { ...step, command: [...step.command] };
+            const assignmentIndex = changedStep.command.indexOf(override.assignment);
+            changedStep.command[assignmentIndex] =
+              `${override.assignment.slice(0, override.assignment.indexOf("=") + 1)}opposite`;
+            expect(configurationMarkerForStep(changedStep, [release.valuesFile])).not.toBe(marker);
+          }
+        }
+      }
+    });
+
+    it("records every configuration marker only on real upgrade/install commands", () => {
       const dryRunSteps = planClusterAddons({ environment: "production" });
-      const installSteps = installStepsWithValuesChecksums(dryRunSteps);
+      const installSteps = installStepsWithConfigurationMarkers(dryRunSteps);
 
-      expect(dryRunSteps.flatMap((step) => step.command).join(" ")).not.toContain("chaseSetsDoksAddons.valuesChecksum");
-      for (const release of requiredClusterAddons()) {
+      expect(dryRunSteps.flatMap((step) => step.command).join(" ")).not.toContain("chase-sets-doks-addons:v1:");
+      for (const release of requiredClusterAddons({ environment: "production" })) {
         const installStep = installSteps.find(
           (step) => step.command.includes("upgrade") && step.command.includes(release.releaseName),
         );
-        expect(installStep.command).toEqual(
-          expect.arrayContaining(["--set-string", `chaseSetsDoksAddons.valuesChecksum=${release.valuesChecksum}`]),
-        );
+        expect(installStep.command).toEqual(expect.arrayContaining(["--description", release.configurationMarker]));
       }
     });
   });
