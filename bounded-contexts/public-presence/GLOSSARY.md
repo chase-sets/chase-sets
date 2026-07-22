@@ -136,6 +136,16 @@ Notes:
 
 The **Beta Wave Policy** is the revisable `public-presence.beta-waves` policy document that owns wave dates, per-wave invite counts, admission/operations gates, and the proportional Argo exposure paired with each wave.
 
+## Founders Circle
+
+The **Founders Circle** is the Discord community surface for the beta-signup campaign: an open warm-holding server joinable via the invite everywhere it renders (home page, welcome page, welcome email), with a role-gated `#founders-lounge` channel visible only to accounts holding the Founder role.
+
+Notes:
+
+- Access model ruled by #5893 option A: public channels are open to every member on join; `#founders-lounge` access is granted manually at each admission wave, never automatically.
+- No Discord↔account linkage exists or is planned; "Founder #N" flair is applied manually, post-activation, and only after it matches the account's public profile badge (#4887).
+- Operating blueprint: [Discord Founders Circle](../../docs/campaigns/discord-founders-circle.md).
+
 ## Beta Admission
 
 A **Beta Admission** is the one-time, event-sourced placement of a Waitlist Signup into a numbered beta wave. It grants registration admission for that email and issues one idempotent beta invitation; it is not a Founder Number or an Identity team membership.
