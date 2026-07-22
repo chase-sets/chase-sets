@@ -1,6 +1,6 @@
 import { encodeCommitReceipt } from "@chase-sets/http/responses";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerOrSignInSyntheticAccount } from "../e2e/support/auth";
+import { registerOrSignInSyntheticAccount, signInWithPassword } from "../e2e/support/auth";
 
 type RequestCall = Readonly<{
   method: "GET" | "POST";
@@ -78,6 +78,33 @@ afterEach(() => {
 });
 
 describe("marketplace smoke auth support", () => {
+  it("reports a bounded account fingerprint and status without credential or response markers", async () => {
+    const adversarialAccount = {
+      email: "email-secret-marker@example.test",
+      password: "password-secret-marker",
+    };
+    const { page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/password-sign-in")) {
+        return new FakeResponse(401, {
+          authorization: "authorization-secret-marker",
+          token: "token-secret-marker",
+        });
+      }
+      throw new Error(`Unexpected request: ${call.method} ${call.url}`);
+    });
+
+    const error = await signInWithPassword(page, "https://marketplace.test", adversarialAccount).catch(
+      (caught: unknown) => caught,
+    );
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toMatch(/account=sha256:[0-9a-f]{12}, status=401/);
+    expect(message).not.toContain(adversarialAccount.email);
+    expect(message).not.toContain(adversarialAccount.password);
+    expect(message).not.toContain("authorization-secret-marker");
+    expect(message).not.toContain("token-secret-marker");
+  });
+
   it("provisions a pending invitation through the platform admin before registering a synthetic account", async () => {
     withPlatformAdminEnv();
     const invitationReceipt = encodeCommitReceipt([

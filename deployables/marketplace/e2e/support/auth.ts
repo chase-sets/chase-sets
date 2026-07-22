@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, type APIResponse, type Page } from "@playwright/test";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 
@@ -99,7 +100,11 @@ async function startPasswordSession(
     },
   });
 
-  expect(response.status(), `${label} should start a session`).toBe(200);
+  const accountIdentifier = createHash("sha256").update(account.email.trim().toLowerCase()).digest("hex").slice(0, 12);
+  expect(
+    response.status(),
+    `${label} should start a session (account=sha256:${accountIdentifier}, status=${response.status()})`,
+  ).toBe(200);
   return (await response.json()) as { sessionToken: string };
 }
 
