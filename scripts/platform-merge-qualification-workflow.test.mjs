@@ -75,6 +75,8 @@ describe("exact candidate image handoff", () => {
     expect(record).toContain("continue-on-error: true");
     expect(upload).toContain("continue-on-error: true");
     expect(record).toContain("candidate-evidence");
+    expect(record).toContain('--queue-base-sha "${{ github.event.merge_group.base_sha }}"');
+    expect(record).toContain("[.pull_requests[] | {number, headSha: .head.sha}] | sort_by(.number)");
     expect(record).toContain('--built-image-digest "$BUILT_IMAGE_DIGEST"');
     expect(upload).toContain("merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(docker).toContain("permissions:\n      contents: read\n      actions: read");
@@ -143,7 +145,11 @@ describe("event-driven exact cleanup", () => {
     expect(job(observer, "terminalize")).toContain("provisioned: ${{ steps.terminalize.outputs.provisioned }}");
     expect(cleanup).toContain("needs: terminalize");
     expect(cleanup).toContain("if: always() && needs.terminalize.outputs.provisioned == 'true'");
-    expect(step(observer, "Inspect complete advisory run evidence")).toContain("provisioning-observation.json");
+    expect(step(observer, "Emit exact missing terminal result")).toContain("--cleanup-ownership-out");
+    expect(step(observer, "Upload exact cleanup ownership")).toContain(
+      "merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}",
+    );
+    expect(step(observer, "Download exact cleanup ownership")).toContain("cleanup-ownership");
     expect(cleanup).not.toContain("gate_started");
     expect(cleanup).toContain(
       'namespace="chase-sets-gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}"',
@@ -170,7 +176,7 @@ describe("event-driven exact cleanup", () => {
     const record = step(observer, "Persist cancelled post-identity attempt");
     expect(record).toContain("github.event.workflow_run.conclusion == 'cancelled'");
     expect(record).toContain("steps.target.outputs.provider_cleanup_allowed == 'true'");
-    expect(record).toContain("provisioning-observation.json");
+    expect(record).toContain("cleanup-ownership.json");
     expect(record).toContain("release-qualification-record.mjs write");
     expect(record).toContain('result:"fail"');
   });

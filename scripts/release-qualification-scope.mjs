@@ -46,6 +46,34 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 export const RELEASE_QUALIFICATION_SCOPE_SCHEMA_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_CLASSES = Object.freeze(["not_applicable", "isolated", "persistent_required"]);
+export const RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS = Object.freeze({
+  not_applicable: Object.freeze(["ci_only_workflow", "docs_or_test_only", "empty_diff", "repo_tooling_only"]),
+  isolated: Object.freeze(["application_image", "application_runtime"]),
+  persistent_required: Object.freeze([
+    "classifier_error",
+    "deployment_release_workflow",
+    "destructive_data",
+    "helm_doks_ingress_dns_spaces",
+    "live_provider_contract",
+    "migration_schema",
+    "missing_base",
+    "missing_candidate",
+    "money_movement_contract",
+    "seed_bootstrap_import_reconciliation",
+    "terraform_infrastructure",
+    "unknown_change_status",
+    "unreadable_file",
+    "unreadable_metadata",
+    "unrecognized_migration_mechanism",
+    "unregistered_contract",
+    "unregistered_deployable",
+    "unregistered_infrastructure",
+    "unregistered_workflow",
+    "unregistered_workflow_semantics",
+    "unknown_surface",
+    "unsupported_policy_version",
+  ]),
+});
 
 const CLASS_RANK = { not_applicable: 0, isolated: 1, persistent_required: 2 };
 

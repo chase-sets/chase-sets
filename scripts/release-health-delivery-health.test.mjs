@@ -1,9 +1,15 @@
 import { deflateRawSync } from "node:zlib";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildMergeQualificationDecision, buildMergeQualificationEvent } from "./merge-qualification-advisory.mjs";
+import {
+  buildMergeQualificationCandidate,
+  buildMergeQualificationDecision,
+  buildMergeQualificationEvent,
+  resolveRunTerminalization,
+} from "./merge-qualification-advisory.mjs";
 import { collectReleaseHealthGithubMetadata } from "./release-health-github-metadata.mjs";
 import {
   DELIVERY_HEALTH_VERSION,
+  GITHUB_ACTIONS_COMPLETED_CONCLUSIONS,
   buildDeliveryHealth,
   collectSourceData,
   createGitHubClient,
@@ -477,11 +483,7 @@ describe("delivery-health/v1", () => {
           mainTreeSha: passed.candidateTreeSha,
           imageDigest: passed.imageDigest,
           completedAt: "2026-07-18T11:00:00.000Z",
-          causalBridge: {
-            pullRequestNumber: 5839,
-            mergeGroupRunId: passed.parentRunId,
-            mergeGroupRunAttempt: passed.parentRunAttempt,
-          },
+          causalBridge: causalBridgeFor(passed),
           staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
         },
       ],
@@ -531,11 +533,7 @@ describe("delivery-health/v1", () => {
           mainTreeSha: passed.candidateTreeSha,
           imageDigest: passed.imageDigest,
           completedAt: "2026-07-18T09:00:00.000Z",
-          causalBridge: {
-            pullRequestNumber: 5839,
-            mergeGroupRunId: passed.parentRunId,
-            mergeGroupRunAttempt: passed.parentRunAttempt,
-          },
+          causalBridge: causalBridgeFor(passed),
           staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
         },
       ],
@@ -673,10 +671,17 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
     queue: {
       candidateSha,
       candidateTreeSha: candidateTree,
+      candidateArtifactId: "18000",
+      candidateArtifactName: "merge-qualification-candidate-8000-1",
+      mergeGroupWorkflowId: "2",
+      mergeGroupWorkflowPath: ".github/workflows/platform-pr.yml",
+      candidateImageDigest: passedEvent.imageDigest,
       mergeGroupRunId: "8000",
       mergeGroupRunAttempt: "1",
       mergeSha: mainSha,
       mergeTreeSha: candidateTree,
+      lineageComplete: true,
+      lineageReasons: [],
     },
     staging: { result: "failure", applied: true, startedAt: iso(60), completedAt: "2026-07-18T11:00:00.000Z" },
     production: { result: "skipped" },
@@ -701,6 +706,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
             workflow_id: 1,
             path: ".github/workflows/platform-merge-qualification.yml",
             event: "workflow_run",
+            status: "completed",
             display_title: "Merge Qualification merge_group 8000-1",
             conclusion: "success",
             // Real workflow_run semantics: this is the default-branch SHA,
@@ -730,7 +736,14 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       "/actions/workflows/platform-ephemeral-verification.yml/runs": () => ({ workflow_runs: [] }),
       "/actions/workflows/platform-merge-qualification-terminalizer.yml/runs": () => ({
         workflow_runs: [
-          { id: 9200, event: "workflow_run", conclusion: "success", run_attempt: 1, updated_at: iso(95) },
+          {
+            id: 9200,
+            event: "workflow_run",
+            status: "completed",
+            conclusion: "success",
+            run_attempt: 1,
+            updated_at: iso(95),
+          },
         ],
       }),
       "/actions/runs/9101/jobs": () => ({
@@ -785,6 +798,109 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
 
   const options = { repository: "chase-sets/chase-sets", checkedAt: "2026-07-18T12:00:00.000Z" };
 
+  it("defines a closed disposition for every completed GitHub Actions conclusion", () => {
+    expect(Object.keys(GITHUB_ACTIONS_COMPLETED_CONCLUSIONS).sort()).toEqual(
+      [
+        "action_required",
+        "cancelled",
+        "failure",
+        "neutral",
+        "skipped",
+        "stale",
+        "startup_failure",
+        "success",
+        "timed_out",
+      ].sort(),
+    );
+  });
+
+  it.each(["startup_failure", "action_required"])(
+    "inventories a production-shaped %s attempt as visibly incomplete when terminal evidence is absent",
+    async (conclusion) => {
+      const runId = conclusion === "startup_failure" ? 9301 : 9302;
+      const source = await collectSourceData({
+        options,
+        policy,
+        client: fakeClient({
+          "/actions/workflows/platform-merge-qualification.yml/runs": () => ({
+            workflow_runs: [
+              {
+                id: runId,
+                workflow_id: 1,
+                path: ".github/workflows/platform-merge-qualification.yml",
+                event: "workflow_run",
+                status: "completed",
+                display_title: "Merge Qualification merge_group 8300-1",
+                conclusion,
+                run_attempt: 1,
+                created_at: iso(120),
+                run_started_at: iso(119),
+                updated_at: iso(100),
+              },
+            ],
+          }),
+          [`/actions/runs/${runId}/artifacts`]: () => ({ artifacts: [] }),
+        }),
+        queryStart: "2026-07-11T12:00:00.000Z",
+      });
+      expect(source.mergeQualification.candidates).toEqual([
+        {
+          parentRunId: "8300",
+          parentRunAttempt: "1",
+          runId: String(runId),
+          runAttempt: "1",
+          candidateSha: null,
+        },
+      ]);
+      expect(source.mergeQualification.events).toEqual([]);
+      expect(source.mergeQualification.failures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: `merge-qualification-completed-attempt:${runId}:1` }),
+        ]),
+      );
+      const record = buildDeliveryHealth({
+        checkedAt: options.checkedAt,
+        publicationMode: "hourly",
+        repository: options.repository,
+        policy,
+        source,
+        apiStatus: source.apiStatus,
+      }).record;
+      expect(record.mergeQualification).toMatchObject({ candidateCount: 1, sampleCount: 0 });
+      expect(record.mergeQualification.evidence.complete).toBe(false);
+    },
+  );
+
+  it("fails an unknown future completed conclusion visibly", async () => {
+    const source = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient({
+        "/actions/workflows/platform-merge-qualification.yml/runs": () => ({
+          workflow_runs: [
+            {
+              id: 9303,
+              workflow_id: 1,
+              path: ".github/workflows/platform-merge-qualification.yml",
+              event: "workflow_run",
+              status: "completed",
+              display_title: "Merge Qualification merge_group 8301-1",
+              conclusion: "future_conclusion",
+              run_attempt: 1,
+              updated_at: iso(100),
+            },
+          ],
+        }),
+        "/actions/runs/9303/artifacts": () => ({ artifacts: [] }),
+      }),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(source.mergeQualification.candidates).toHaveLength(1);
+    expect(source.mergeQualification.failures).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: "merge-qualification-conclusion:9303:1" })]),
+    );
+  });
+
   it("collects qualification artifacts, the candidate inventory, staging identities, and executes the join end to end", async () => {
     const source = await collectSourceData({
       options,
@@ -805,7 +921,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
         mainTreeSha: candidateTree,
         imageDigest: passedEvent.imageDigest,
         completedAt: "2026-07-18T11:00:00.000Z",
-        causalBridge: { pullRequestNumber: 5839, mergeGroupRunId: "8000", mergeGroupRunAttempt: "1" },
+        causalBridge: causalBridgeFor(passedEvent),
         staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
       },
     ]);
@@ -829,7 +945,142 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
     });
   });
 
+  it("carries executable early-cancellation terminalization through the observer collector and canonical summary", async () => {
+    const resolution = resolveRunTerminalization({
+      runEvent: "workflow_run",
+      runConclusion: "cancelled",
+      runDisplayTitle: "Merge Qualification merge_group 8004-1",
+      runId: "9004",
+      runAttempt: "1",
+      jobs: [],
+      artifactNames: [],
+      decision: null,
+    });
+    expect(resolution).toMatchObject({
+      action: "terminalize",
+      terminalState: "cancelled_evicted",
+      reasonCodes: ["run_force_cancelled"],
+    });
+    const built = buildMergeQualificationEvent({
+      repository: options.repository,
+      workflowId: "1",
+      workflowPath: ".github/workflows/platform-merge-qualification.yml",
+      parentWorkflowId: "2",
+      parentWorkflowPath: ".github/workflows/platform-pr.yml",
+      parentRunId: "8004",
+      parentRunAttempt: "1",
+      candidateSha: null,
+      candidateTreeSha: null,
+      imageDigest: null,
+      classifierClass: null,
+      terminalState: resolution.terminalState,
+      reasonCodes: resolution.reasonCodes,
+      provisioned: false,
+      startedAt: "2026-07-18T10:00:00.000Z",
+      completedAt: "2026-07-18T10:01:00.000Z",
+      runId: "9004",
+      runAttempt: "1",
+      evidenceLinks: ["https://github.com/chase-sets/chase-sets/actions/runs/9004/attempts/1"],
+      providerHeadroom: null,
+    });
+    expect(built.errors).toEqual([]);
+    const source = await collectSourceData({
+      options,
+      policy,
+      client: fakeClient({
+        "/actions/workflows/platform-merge-qualification.yml/runs": () => ({
+          workflow_runs: [
+            {
+              id: 9004,
+              workflow_id: 1,
+              path: ".github/workflows/platform-merge-qualification.yml",
+              event: "workflow_run",
+              status: "completed",
+              display_title: "Merge Qualification merge_group 8004-1",
+              conclusion: "cancelled",
+              run_attempt: 1,
+              updated_at: iso(100),
+            },
+          ],
+        }),
+        "/actions/workflows/platform-merge-qualification-terminalizer.yml/runs": () => ({
+          workflow_runs: [
+            { id: 9204, event: "workflow_run", status: "completed", conclusion: "success", run_attempt: 1 },
+          ],
+        }),
+        "/actions/workflows/platform-production.yml/runs": () => ({ workflow_runs: [] }),
+        "/actions/runs/9004/artifacts": () => ({ artifacts: [] }),
+        "/actions/runs/9204/artifacts": () => ({
+          artifacts: [
+            {
+              id: 24,
+              name: "merge-qualification-terminal-9004-1",
+              archive_download_url: "https://example.test/terminal-event-zip",
+            },
+          ],
+        }),
+        "https://example.test/terminal-event-zip": () => buildZip([["event.json", JSON.stringify(built.event), 0]]),
+      }),
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+    expect(source.mergeQualification).toMatchObject({
+      events: [built.event],
+      candidates: [
+        {
+          parentRunId: "8004",
+          parentRunAttempt: "1",
+          runId: "9004",
+          runAttempt: "1",
+          candidateSha: null,
+        },
+      ],
+      failures: [],
+    });
+    const record = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(record.mergeQualification).toMatchObject({
+      candidateCount: 1,
+      sampleCount: 1,
+      counts: { cancellation: 1 },
+      evidence: { complete: true },
+    });
+  });
+
   it("joins production metadata collected from a distinct same-tree merge candidate to its final main commit", async () => {
+    const queueBaseSha = "4".repeat(40);
+    const pullHeadSha = "5".repeat(40);
+    const mergeGroupRun = {
+      id: 8000,
+      run_attempt: 1,
+      workflow_id: 2,
+      event: "merge_group",
+      path: ".github/workflows/platform-pr.yml",
+      status: "completed",
+      conclusion: "success",
+      head_sha: candidateSha,
+      pull_requests: [{ number: 5839, head: { sha: pullHeadSha } }],
+      created_at: "2026-07-18T10:00:00Z",
+      updated_at: "2026-07-18T10:20:00Z",
+    };
+    const candidateRecord = buildMergeQualificationCandidate({
+      repository: "chase-sets/chase-sets",
+      workflowId: "2",
+      workflowPath: ".github/workflows/platform-pr.yml",
+      runId: "8000",
+      runAttempt: "1",
+      queueBaseSha,
+      pullRequests: [{ number: 5839, headSha: pullHeadSha }],
+      candidateSha,
+      candidateTreeSha: candidateTree,
+      builtImageDigest: passedEvent.imageDigest,
+      capturedAt: "2026-07-18T10:10:00Z",
+    }).record;
     const responses = new Map([
       [`/repos/chase-sets/chase-sets/commits/${mainSha}/pulls`, [{ number: 5839 }]],
       [
@@ -840,6 +1091,8 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
           draft: false,
           merged_at: "2026-07-18T10:30:00Z",
           merge_commit_sha: mainSha,
+          base: { sha: queueBaseSha },
+          head: { sha: pullHeadSha },
         },
       ],
       ["/repos/chase-sets/chase-sets/pulls/5839/reviews?per_page=100", []],
@@ -851,24 +1104,24 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
         "/repos/chase-sets/chase-sets/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=1",
         {
           total_count: 1,
-          workflow_runs: [
+          workflow_runs: [mergeGroupRun],
+        },
+      ],
+      [
+        "/repos/chase-sets/chase-sets/actions/runs/8000/artifacts?per_page=100&page=1",
+        {
+          total_count: 1,
+          artifacts: [
             {
-              id: 8000,
-              run_attempt: 1,
-              event: "merge_group",
-              path: ".github/workflows/platform-pr.yml",
-              status: "completed",
-              conclusion: "success",
-              head_branch: "gh-readonly-queue/main/pr-5839-production",
-              head_sha: candidateSha,
-              created_at: "2026-07-18T10:00:00Z",
-              updated_at: "2026-07-18T10:20:00Z",
+              id: 18000,
+              name: "merge-qualification-candidate-8000-1",
+              expired: false,
+              archive_download_url: "https://example.test/candidate-zip",
             },
           ],
         },
       ],
       [`/repos/chase-sets/chase-sets/git/commits/${mainSha}`, { tree: { sha: candidateTree } }],
-      [`/repos/chase-sets/chase-sets/git/commits/${candidateSha}`, { tree: { sha: candidateTree } }],
       ["/repos/chase-sets/chase-sets/rules/branches/main?per_page=100", []],
     ]);
     const metadata = await collectReleaseHealthGithubMetadata(
@@ -876,18 +1129,32 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       {
         fetchImpl: async (url) => {
           const parsed = new URL(url);
+          if (parsed.href === "https://example.test/candidate-zip") {
+            return new Response(buildZip([["candidate.json", JSON.stringify(candidateRecord), 8]]), { status: 200 });
+          }
           const key = parsed.pathname + parsed.search;
-          return { ok: true, status: 200, json: async () => responses.get(key) };
+          if (!responses.has(key)) throw new Error(`no production metadata fixture route for ${key}`);
+          return new Response(JSON.stringify(responses.get(key)), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         },
       },
     );
     expect(metadata).toMatchObject({
       candidateSha,
       candidateTreeSha: candidateTree,
+      candidateArtifactId: "18000",
+      candidateArtifactName: "merge-qualification-candidate-8000-1",
+      mergeGroupWorkflowId: "2",
+      mergeGroupWorkflowPath: ".github/workflows/platform-pr.yml",
+      candidateImageDigest: passedEvent.imageDigest,
       mergeGroupRunId: "8000",
       mergeGroupRunAttempt: "1",
       mergeSha: mainSha,
       mergeTreeSha: candidateTree,
+      lineageComplete: true,
+      lineageReasons: [],
     });
     expect(metadata.candidateSha).not.toBe(metadata.mergeSha);
 
@@ -897,10 +1164,17 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       queue: {
         candidateSha: metadata.candidateSha,
         candidateTreeSha: metadata.candidateTreeSha,
+        candidateArtifactId: metadata.candidateArtifactId,
+        candidateArtifactName: metadata.candidateArtifactName,
+        mergeGroupWorkflowId: metadata.mergeGroupWorkflowId,
+        mergeGroupWorkflowPath: metadata.mergeGroupWorkflowPath,
+        candidateImageDigest: metadata.candidateImageDigest,
         mergeGroupRunId: metadata.mergeGroupRunId,
         mergeGroupRunAttempt: metadata.mergeGroupRunAttempt,
         mergeSha: metadata.mergeSha,
         mergeTreeSha: metadata.mergeTreeSha,
+        lineageComplete: metadata.lineageComplete,
+        lineageReasons: metadata.lineageReasons,
       },
     };
     const source = await collectSourceData({
@@ -944,6 +1218,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       workflow_id: 1,
       path: ".github/workflows/platform-merge-qualification.yml",
       event: "workflow_run",
+      status: "completed",
       display_title: `Merge Qualification merge_group ${parent}-1`,
       conclusion: "success",
       head_sha: defaultSha,
@@ -1005,9 +1280,12 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       queryStart: "2026-07-11T12:00:00.000Z",
     });
     expect(failing.mergeQualification.events).toEqual([]);
-    expect(failing.mergeQualification.failures).toEqual([
-      expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
-    ]);
+    expect(failing.mergeQualification.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
+        expect.objectContaining({ source: "merge-qualification-completed-attempt:9001:1" }),
+      ]),
+    );
     const record = buildDeliveryHealth({
       checkedAt: options.checkedAt,
       publicationMode: "hourly",
@@ -1030,9 +1308,12 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       queryStart: "2026-07-11T12:00:00.000Z",
     });
     expect(foreignSchema.mergeQualification.events).toEqual([]);
-    expect(foreignSchema.mergeQualification.failures).toEqual([
-      expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
-    ]);
+    expect(foreignSchema.mergeQualification.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
+        expect.objectContaining({ source: "merge-qualification-completed-attempt:9001:1" }),
+      ]),
+    );
 
     const missingEventJson = await collectSourceData({
       options,
@@ -1043,9 +1324,12 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       queryStart: "2026-07-11T12:00:00.000Z",
     });
     expect(missingEventJson.mergeQualification.events).toEqual([]);
-    expect(missingEventJson.mergeQualification.failures).toEqual([
-      expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
-    ]);
+    expect(missingEventJson.mergeQualification.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "merge-qualification-artifacts:9001" }),
+        expect.objectContaining({ source: "merge-qualification-completed-attempt:9001:1" }),
+      ]),
+    );
   });
 
   it("negative control: candidate=1/event=0 stays visible and partial", async () => {
@@ -1132,6 +1416,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       workflow_id: 1,
       path: ".github/workflows/platform-merge-qualification.yml",
       event: "workflow_run",
+      status: "completed",
       display_title: "Merge Qualification merge_group 8000-2",
       conclusion: "success",
       head_sha: "e".repeat(40),
@@ -1371,6 +1656,22 @@ function candidateFor(event) {
     candidateSha: event.candidateSha,
     runId: event.runId,
     runAttempt: event.runAttempt,
+  };
+}
+
+function causalBridgeFor(event, pullRequestNumber = 5839, overrides = {}) {
+  return {
+    pullRequestNumber,
+    candidateArtifactId: "18000",
+    candidateArtifactName: `merge-qualification-candidate-${event.parentRunId}-${event.parentRunAttempt}`,
+    workflowId: event.parentWorkflowId,
+    workflowPath: event.parentWorkflowPath,
+    mergeGroupRunId: event.parentRunId,
+    mergeGroupRunAttempt: event.parentRunAttempt,
+    candidateImageDigest: event.imageDigest,
+    lineageComplete: true,
+    lineageReasons: [],
+    ...overrides,
   };
 }
 

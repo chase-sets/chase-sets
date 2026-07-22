@@ -47,7 +47,7 @@ on:
         description: Candidate git tree SHA the gate qualified.
         value: ${{ jobs.verify.outputs.candidate_tree_sha }}
       provisioned:
-        description: True only after the namespace-created observation artifact was durably uploaded and verified.
+        description: True only after the namespace create command and same-step ownership observation completed successfully.
         value: ${{ jobs.verify.outputs.provisioned }}
       headroom_runs:
         description: Whole additional concurrent gate runs the preview pool could absorb at preflight time.
@@ -256,7 +256,7 @@ jobs:
       image_digest: ${{ steps.image.outputs.digest }}
       candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
       candidate_tree_sha: ${{ steps.candidate.outputs.candidate_tree }}
-      provisioned: ${{ steps.provisioning.outputs.provisioned }}
+      provisioned: ${{ steps.namespace.outputs.provisioned }}
     env:
       DEPLOYMENT_ENVIRONMENT: preview
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
@@ -378,12 +378,22 @@ jobs:
       # label-scoped gate sweeper has no create-then-label gap to leak
       # through, and `kubectl create` refuses to reuse an existing namespace.
       - name: Create gate namespace
+        id: namespace
         env:
           CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
           CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          created=false
+          handed_off=false
+          cleanup_unhanded_namespace() {
+            if [ "$created" = "true" ] && [ "$handed_off" != "true" ]; then
+              echo "Namespace creation did not reach its durable same-step ownership handoff; deleting the exact namespace." >&2
+              kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --wait=true --timeout=10m
+            fi
+          }
+          trap cleanup_unhanded_namespace EXIT
           node ./scripts/merge-gate-verification.mjs namespace-manifest \
             --config scripts/merge-gate-verification-config.json \
             --run-id "${{ github.run_id }}" \
@@ -394,11 +404,7 @@ jobs:
             --candidate-sha "$CANDIDATE_SHA" \
             --candidate-tree-sha "$CANDIDATE_TREE" \
             --image-digest "$IMAGE_DIGEST" | kubectl create -f -
-          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
-
-      - name: Record gate namespace creation observation
-        run: |
-          set -euo pipefail
+          created=true
           node ./scripts/merge-gate-verification.mjs provisioning-observation \
             --repository "${{ github.repository }}" \
             --workflow-id "${{ steps.owner.outputs.workflow_id }}" \
@@ -406,10 +412,14 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --candidate-sha "${{ steps.candidate.outputs.candidate_sha }}" \
-            --candidate-tree-sha "${{ steps.candidate.outputs.candidate_tree }}" \
-            --image-digest "${{ steps.image.outputs.digest }}" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --candidate-tree-sha "$CANDIDATE_TREE" \
+            --image-digest "$IMAGE_DIGEST" \
             --out artifacts/merge-gate/provisioning-observation.json
+          echo "provisioned=true" >> "$GITHUB_OUTPUT"
+          node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
+          handed_off=true
+          trap - EXIT
 
       - name: Upload gate namespace creation observation
         id: provisioning-upload
@@ -678,7 +688,7 @@ jobs:
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase record-written
 
       - name: Delete gate provider webhooks
-        if: always() && steps.provisioning.outputs.provisioned == 'true'
+        if: always() && steps.namespace.outcome == 'success'
         env:
           PLATFORM_API_BASE_URL: https://${{ env.GATE_SLUG }}-marketplace.preview.chasesets.com
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
@@ -693,11 +703,11 @@ jobs:
       # FAILS rather than reporting green when the delete silently no-ops.
       # Never add `|| true` or `continue-on-error` here (#4778 lesson).
       - name: Delete gate Kubernetes namespace
-        if: always() && steps.provisioning.outputs.provisioned == 'true'
+        if: always() && steps.namespace.outcome == 'success'
         run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m
 
       - name: Probe gate namespace absence
-        if: always() && steps.provisioning.outputs.provisioned == 'true'
+        if: always() && steps.namespace.outcome == 'success'
         run: |
           set -euo pipefail
           survivors="$(kubectl get namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found -o name)"

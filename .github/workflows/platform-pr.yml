@@ -448,6 +448,8 @@ jobs:
             --workflow-path "$workflow_path" \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
+            --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
+            --pull-requests "$(printf '%s' "$run_json" | jq -c '[.pull_requests[] | {number, headSha: .head.sha}] | sort_by(.number)')" \
             --candidate-sha "$(git rev-parse HEAD)" \
             --candidate-tree "$(git rev-parse 'HEAD^{tree}')" \
             --built-image-digest "$BUILT_IMAGE_DIGEST" \

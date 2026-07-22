@@ -1966,10 +1966,17 @@ jobs:
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           committed_at="$(git show -s --format=%cI "$release_commit")"
+          linkage_args=()
+          if [ "${{ inputs.dispatch_source }}" = "automatic" ]; then
+            linkage_name="release-candidate-linkage-${{ inputs.dispatch_run_id }}-${{ inputs.dispatch_attempt }}"
+            gh run download "${{ inputs.dispatch_run_id }}" --name "$linkage_name" --dir artifacts/release-candidate-linkage
+            linkage_args=(--linkage-file artifacts/release-candidate-linkage/linkage.json)
+          fi
           if ! node ./scripts/release-health-github-metadata.mjs \
             --repository "${{ github.repository }}" \
             --release-commit "$release_commit" \
             --source-workflow-created-at "${SOURCE_WORKFLOW_CREATED_AT:-}" \
+            "${linkage_args[@]}" \
             --format github-output >> "$GITHUB_OUTPUT"; then
             echo "GitHub release-health metadata was unavailable; writing deterministic fallbacks." >&2
             {
@@ -1983,12 +1990,19 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "candidate_artifact_id="
+              echo "candidate_artifact_name="
+              echo "merge_group_workflow_id="
+              echo "merge_group_workflow_path="
               echo "candidate_sha="
               echo "candidate_tree_sha="
+              echo "candidate_image_digest="
               echo "merge_group_run_id="
               echo "merge_group_run_attempt="
               echo "merge_sha=${release_commit}"
               echo "merge_tree_sha=$(git rev-parse "${release_commit}^{tree}")"
+              echo "lineage_complete=false"
+              echo 'lineage_reasons_json=["metadata-unavailable"]'
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -2049,10 +2063,17 @@ jobs:
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
           CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
           CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
+          CANDIDATE_ARTIFACT_ID: ${{ steps.release_health_metadata.outputs.candidate_artifact_id }}
+          CANDIDATE_ARTIFACT_NAME: ${{ steps.release_health_metadata.outputs.candidate_artifact_name }}
+          MERGE_GROUP_WORKFLOW_ID: ${{ steps.release_health_metadata.outputs.merge_group_workflow_id }}
+          MERGE_GROUP_WORKFLOW_PATH: ${{ steps.release_health_metadata.outputs.merge_group_workflow_path }}
+          CANDIDATE_IMAGE_DIGEST: ${{ steps.release_health_metadata.outputs.candidate_image_digest }}
           MERGE_GROUP_RUN_ID: ${{ steps.release_health_metadata.outputs.merge_group_run_id }}
           MERGE_GROUP_RUN_ATTEMPT: ${{ steps.release_health_metadata.outputs.merge_group_run_attempt }}
           MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
           MERGE_TREE_SHA: ${{ steps.release_health_metadata.outputs.merge_tree_sha }}
+          LINEAGE_COMPLETE: ${{ steps.release_health_metadata.outputs.lineage_complete || 'false' }}
+          LINEAGE_REASONS_JSON: ${{ steps.release_health_metadata.outputs.lineage_reasons_json || '["metadata-unavailable"]' }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
           RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
           EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}
@@ -3673,10 +3694,17 @@ jobs:
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           committed_at="$(git show -s --format=%cI "$release_commit")"
+          linkage_args=()
+          if [ "${{ inputs.dispatch_source }}" = "automatic" ]; then
+            linkage_name="release-candidate-linkage-${{ inputs.dispatch_run_id }}-${{ inputs.dispatch_attempt }}"
+            gh run download "${{ inputs.dispatch_run_id }}" --name "$linkage_name" --dir artifacts/release-candidate-linkage
+            linkage_args=(--linkage-file artifacts/release-candidate-linkage/linkage.json)
+          fi
           if ! node ./scripts/release-health-github-metadata.mjs \
             --repository "${{ github.repository }}" \
             --release-commit "$release_commit" \
             --source-workflow-created-at "${SOURCE_WORKFLOW_CREATED_AT:-}" \
+            "${linkage_args[@]}" \
             --format github-output >> "$GITHUB_OUTPUT"; then
             echo "GitHub release-health metadata was unavailable; writing deterministic fallbacks." >&2
             {
@@ -3690,12 +3718,19 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "candidate_artifact_id="
+              echo "candidate_artifact_name="
+              echo "merge_group_workflow_id="
+              echo "merge_group_workflow_path="
               echo "candidate_sha="
               echo "candidate_tree_sha="
+              echo "candidate_image_digest="
               echo "merge_group_run_id="
               echo "merge_group_run_attempt="
               echo "merge_sha=${release_commit}"
               echo "merge_tree_sha=$(git rev-parse "${release_commit}^{tree}")"
+              echo "lineage_complete=false"
+              echo 'lineage_reasons_json=["metadata-unavailable"]'
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -3774,10 +3809,17 @@ jobs:
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
           CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
           CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
+          CANDIDATE_ARTIFACT_ID: ${{ steps.release_health_metadata.outputs.candidate_artifact_id }}
+          CANDIDATE_ARTIFACT_NAME: ${{ steps.release_health_metadata.outputs.candidate_artifact_name }}
+          MERGE_GROUP_WORKFLOW_ID: ${{ steps.release_health_metadata.outputs.merge_group_workflow_id }}
+          MERGE_GROUP_WORKFLOW_PATH: ${{ steps.release_health_metadata.outputs.merge_group_workflow_path }}
+          CANDIDATE_IMAGE_DIGEST: ${{ steps.release_health_metadata.outputs.candidate_image_digest }}
           MERGE_GROUP_RUN_ID: ${{ steps.release_health_metadata.outputs.merge_group_run_id }}
           MERGE_GROUP_RUN_ATTEMPT: ${{ steps.release_health_metadata.outputs.merge_group_run_attempt }}
           MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
           MERGE_TREE_SHA: ${{ steps.release_health_metadata.outputs.merge_tree_sha }}
+          LINEAGE_COMPLETE: ${{ steps.release_health_metadata.outputs.lineage_complete || 'false' }}
+          LINEAGE_REASONS_JSON: ${{ steps.release_health_metadata.outputs.lineage_reasons_json || '["metadata-unavailable"]' }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
           RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
           EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}

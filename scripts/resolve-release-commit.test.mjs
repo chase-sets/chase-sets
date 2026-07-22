@@ -178,6 +178,7 @@ describe("resolve release commit", () => {
     const dispatcher = workflowJob(dispatcherWorkflow, "dispatch-release-candidate");
     const staging = workflowJob(workflow, "deploy-staging");
     const production = workflowJob(workflow, "deploy-production");
+    const stagingHealth = workflowJob(workflow, "record-staging-release-health");
 
     expect(workflow).toContain(
       "group: ${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
@@ -191,6 +192,17 @@ describe("resolve release commit", () => {
     expect(dispatcher).toContain("--field dispatch_source=automatic");
     expect(dispatcher).toContain('--field dispatch_run_id="${{ github.run_id }}"');
     expect(dispatcher).toContain('--field dispatch_attempt="${{ github.run_attempt }}"');
+    expect(dispatcher.indexOf("Collect exact release candidate linkage")).toBeLessThan(
+      dispatcher.indexOf("Dispatch automatic release"),
+    );
+    expect(dispatcher).toContain("release-health-github-metadata.mjs");
+    expect(dispatcher).toContain("release-candidate-linkage-${{ github.run_id }}-${{ github.run_attempt }}");
+    for (const healthJob of [stagingHealth, production]) {
+      expect(healthJob).toContain(
+        'gh run download "${{ inputs.dispatch_run_id }}" --name "$linkage_name" --dir artifacts/release-candidate-linkage',
+      );
+      expect(healthJob).toContain("--linkage-file artifacts/release-candidate-linkage/linkage.json");
+    }
     expect(workflowJob(workflow, "resolve-release")).toContain("if: github.event_name == 'workflow_dispatch'");
 
     const activationIndex = staging.indexOf("- name: Activate immutable release before staging mutation");

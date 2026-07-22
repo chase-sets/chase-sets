@@ -15,12 +15,15 @@ import {
   joinMergeQualificationToStaging,
   resolveMergeQualificationOutcome,
   resolveRunTerminalization,
+  recoverMergeGateProvisioningObservation,
   summarizeMergeQualification,
+  validateMergeQualificationDecision,
   validateMergeQualificationComparison,
   validateMergeQualificationEvent,
   validateMergeQualificationSummary,
 } from "./merge-qualification-advisory.mjs";
 import {
+  RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS,
   classifyReleaseQualificationScope,
   releaseQualificationScopeRegistry,
 } from "./release-qualification-scope.mjs";
@@ -436,6 +439,22 @@ function candidateFor(event) {
   };
 }
 
+function causalBridgeForEvent(event, pullRequestNumber = 55, overrides = {}) {
+  return {
+    pullRequestNumber,
+    candidateArtifactId: "7001",
+    candidateArtifactName: `merge-qualification-candidate-${event.parentRunId}-${event.parentRunAttempt}`,
+    workflowId: event.parentWorkflowId,
+    workflowPath: event.parentWorkflowPath,
+    mergeGroupRunId: event.parentRunId,
+    mergeGroupRunAttempt: event.parentRunAttempt,
+    candidateImageDigest: event.imageDigest,
+    lineageComplete: true,
+    lineageReasons: [],
+    ...overrides,
+  };
+}
+
 describe("merge-qualification-event/v1 fixtures", () => {
   it("accepts a complete terminal event", () => {
     const { event, errors } = buildMergeQualificationEvent(validEvent);
@@ -502,12 +521,29 @@ describe("merge-qualification-event/v1 fixtures", () => {
     const { errors } = buildMergeQualificationEvent({
       ...validEvent,
       imageDigest: null,
+      builtImageDigest: null,
+      gateCandidateSha: null,
+      gateCandidateTreeSha: null,
       classifierClass: "not_applicable",
       terminalState: "not_applicable",
       reasonCodes: ["docs_or_test_only"],
       provisioned: false,
     });
     expect(errors).toEqual([]);
+  });
+
+  it("rejects a not_applicable event classified persistent_required", () => {
+    const event = builtEvent({
+      imageDigest: null,
+      builtImageDigest: null,
+      gateCandidateSha: null,
+      gateCandidateTreeSha: null,
+      classifierClass: "persistent_required",
+      terminalState: "not_applicable",
+      reasonCodes: ["docs_or_test_only"],
+      provisioned: false,
+    });
+    expect(validateMergeQualificationEvent(event)).not.toEqual([]);
   });
 
   it.each([
@@ -561,7 +597,7 @@ describe("independent idempotent run terminalization (cancellation/eviction back
     builtImageDigest: DIGEST,
     policyEnabled: true,
     classifierClass: "isolated",
-    classifierReasonCodes: ["isolated_runtime"],
+    classifierReasonCodes: ["application_runtime"],
     observedAt: "2026-07-21T10:00:00.000Z",
   }).decision;
   const base = {
@@ -575,7 +611,13 @@ describe("independent idempotent run terminalization (cancellation/eviction back
   };
 
   it("evaluates cancellation before a skipped publisher or disabled decision", () => {
-    const disabled = { ...decision, policyEnabled: false, policyReasonCode: "policy_disabled", classifierClass: null };
+    const disabled = {
+      ...decision,
+      policyEnabled: false,
+      policyReasonCode: "policy_disabled",
+      classifierClass: null,
+      classifierReasonCodes: [],
+    };
     expect(
       resolveRunTerminalization({
         ...base,
@@ -592,11 +634,21 @@ describe("independent idempotent run terminalization (cancellation/eviction back
       terminalState: "infrastructure_error",
       reasonCodes: ["policy_decision_evidence_missing"],
     });
-    const disabled = { ...decision, policyEnabled: false, policyReasonCode: "policy_disabled", classifierClass: null };
+    const disabled = {
+      ...decision,
+      policyEnabled: false,
+      policyReasonCode: "policy_disabled",
+      classifierClass: null,
+      classifierReasonCodes: [],
+    };
     expect(resolveRunTerminalization({ ...base, decision: disabled })).toEqual({
       action: "skip",
       reason: "policy_disabled",
     });
+  });
+
+  it("rejects an enabled decision that carries the disabled-policy reason", () => {
+    expect(validateMergeQualificationDecision({ ...decision, policyReasonCode: "policy_disabled" })).not.toEqual([]);
   });
 
   it("never terminalizes advisory runs triggered by a pull-request Platform PR run", () => {
@@ -651,6 +703,64 @@ describe("independent idempotent run terminalization (cancellation/eviction back
     expect(beforeProvisioning.provisioned).toBe(false);
     expect(afterProvisioning.provisioned).toBe(true);
   });
+
+  it("recovers exact cleanup ownership after runner loss or observation-upload failure", () => {
+    const run = {
+      id: 4242,
+      run_attempt: 2,
+      workflow_id: 77,
+      path: ".github/workflows/platform-merge-qualification.yml",
+      repository: { full_name: "chase-sets/chase-sets" },
+    };
+    const jobs = [
+      {
+        name: "Merge Qualification Gate / Verify Merge Candidate",
+        steps: [
+          {
+            name: "Create gate namespace",
+            conclusion: "success",
+            completed_at: "2026-07-21T10:05:00.000Z",
+          },
+          { name: "Upload gate namespace creation observation", conclusion: "failure" },
+        ],
+      },
+    ];
+    const first = recoverMergeGateProvisioningObservation({ jobs, decision, run });
+    const redelivery = recoverMergeGateProvisioningObservation({ jobs, decision, run });
+    expect(first.errors).toEqual([]);
+    expect(first.observation).toMatchObject({
+      runId: "4242",
+      runAttempt: "2",
+      namespace: "chase-sets-gate-4242-2",
+      observedAt: "2026-07-21T10:05:00.000Z",
+    });
+    expect(redelivery).toEqual(first);
+  });
+
+  it.each([
+    ["create failure", "failure"],
+    ["pre-create cancellation", "cancelled"],
+    ["create skip", "skipped"],
+  ])("never infers namespace creation from %s", (_name, conclusion) => {
+    expect(
+      recoverMergeGateProvisioningObservation({
+        decision,
+        run: {
+          id: 4242,
+          run_attempt: 2,
+          workflow_id: 77,
+          path: ".github/workflows/platform-merge-qualification.yml",
+          repository: { full_name: "chase-sets/chase-sets" },
+        },
+        jobs: [
+          {
+            name: "Merge Qualification Gate / Verify Merge Candidate",
+            steps: [{ name: "Create gate namespace", conclusion }],
+          },
+        ],
+      }),
+    ).toEqual({ observation: null, errors: [] });
+  });
 });
 describe("terminalize CLI determinism (byte-identical events across observer re-runs)", () => {
   const workDir = mkdtempSync(path.join(tmpdir(), "merge-qualification-terminalize-"));
@@ -676,7 +786,7 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
           builtImageDigest: DIGEST,
           policyEnabled: true,
           classifierClass: "isolated",
-          classifierReasonCodes: ["isolated_runtime"],
+          classifierReasonCodes: ["application_runtime"],
           observedAt: "2026-07-21T10:00:00.000Z",
         }).decision,
       ),
@@ -793,11 +903,7 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
     mainTreeSha: tree(n),
     imageDigest: digestFor(n),
     completedAt: `2026-07-21T1${n}:00:00.000Z`,
-    causalBridge: {
-      pullRequestNumber: 500 + n,
-      mergeGroupRunId: String(8000 + n),
-      mergeGroupRunAttempt: "1",
-    },
+    causalBridge: causalBridgeForEvent(isolatedEvent(n, "passed"), 500 + n),
     staging: { result: stagingResult, rootCauseCode },
     ...overrides,
   });
@@ -842,7 +948,10 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
     );
 
     const unrelated = release(3, "success", null, {
-      causalBridge: { pullRequestNumber: 999, mergeGroupRunId: "7000", mergeGroupRunAttempt: "1" },
+      causalBridge: causalBridgeForEvent(event, 999, {
+        candidateArtifactName: "merge-qualification-candidate-7000-1",
+        mergeGroupRunId: "7000",
+      }),
     });
     expect(joinMergeQualificationToStaging({ events: [event], releases: [unrelated] })[0].joinStatus).toBe(
       "causal_mismatch",
@@ -855,6 +964,9 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
       releases: [release(4, "success")],
     });
     expect(entry).toMatchObject({ joinStatus: "superseded", mapping: "superseded", mainSha: null, caught: false });
+    expect(validateMergeQualificationComparison({ ...entry, mapping: "same-commit", digestMatched: true })).not.toEqual(
+      [],
+    );
   });
 
   it("counts a staging application/contract failure after a passed qualification as caught", () => {
@@ -938,6 +1050,9 @@ describe("staging comparison join (tree-keyed, temporally and identity safe)", (
     const event = isolatedEvent(9, "passed");
     const mismatched = release(9, "failure", "blocking-staging-verification", {
       imageDigest: `sha256:${"f".repeat(64)}`,
+      causalBridge: causalBridgeForEvent(event, 509, {
+        candidateImageDigest: `sha256:${"f".repeat(64)}`,
+      }),
     });
     const [entry] = joinMergeQualificationToStaging({ events: [event], releases: [mismatched] });
     expect(entry).toMatchObject({
@@ -1140,11 +1255,7 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
           mainTreeSha: event.candidateTreeSha,
           imageDigest: event.imageDigest,
           completedAt: "2026-07-21T12:00:00.000Z",
-          causalBridge: {
-            pullRequestNumber: 55,
-            mergeGroupRunId: event.parentRunId,
-            mergeGroupRunAttempt: event.parentRunAttempt,
-          },
+          causalBridge: causalBridgeForEvent(event),
           staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
         },
       ],
@@ -1178,11 +1289,7 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
           mainTreeSha: event.candidateTreeSha,
           imageDigest: event.imageDigest,
           completedAt: "2026-07-21T12:00:00.000Z",
-          causalBridge: {
-            pullRequestNumber: 55,
-            mergeGroupRunId: event.parentRunId,
-            mergeGroupRunAttempt: event.parentRunAttempt,
-          },
+          causalBridge: causalBridgeForEvent(event),
           staging: { result: "failure", rootCauseCode: "blocking-staging-verification" },
         },
       ],
@@ -1232,6 +1339,20 @@ describe("evidence dedupe and authoritative-attempt selection", () => {
     for (const contradiction of contradictions) {
       expect(validateMergeQualificationSummary({ ...summary, ...contradiction })).not.toEqual([]);
     }
+
+    const zero = summarizeMergeQualification({});
+    expect(
+      validateMergeQualificationSummary({
+        ...zero,
+        candidateCount: 10,
+        evidence: {
+          ...zero.evidence,
+          missingTerminalCount: 0,
+          conflictCount: 0,
+          complete: true,
+        },
+      }),
+    ).not.toEqual([]);
   });
 });
 
@@ -1239,6 +1360,15 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
   const shas = Array.from({ length: 20 }, (_, index) => String(index).padStart(2, "0").repeat(20));
   const minutes = (n) => n * 60;
   const digestFor = (index) => `sha256:${String(index % 10).repeat(64)}`;
+  const reasonFor = (terminalState) =>
+    ({
+      passed: "gate_passed",
+      failed: "gate_failed",
+      cancelled_evicted: "run_force_cancelled",
+      infrastructure_error: "gate_not_invoked",
+      not_applicable: "docs_or_test_only",
+      persistent_required: "migration_schema",
+    })[terminalState];
   const event = (index, terminalState, durationMinutes, headroomRuns) =>
     builtEvent({
       parentRunId: String(8000 + index),
@@ -1251,7 +1381,7 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
       gateCandidateTreeSha: ["passed", "failed"].includes(terminalState) ? shas[index] : null,
       classifierClass: ["not_applicable", "persistent_required"].includes(terminalState) ? terminalState : "isolated",
       terminalState,
-      reasonCodes: ["fixture_reason"],
+      reasonCodes: [reasonFor(terminalState)],
       provisioned: ["passed", "failed", "cancelled_evicted"].includes(terminalState),
       startedAt: "2026-07-21T10:00:00.000Z",
       completedAt: new Date(Date.parse("2026-07-21T10:00:00.000Z") + minutes(durationMinutes) * 1000).toISOString(),
@@ -1290,11 +1420,7 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
     mainTreeSha: events[index].candidateTreeSha,
     imageDigest: events[index].imageDigest,
     completedAt: "2026-07-21T12:00:00.000Z",
-    causalBridge: {
-      pullRequestNumber: 500 + index,
-      mergeGroupRunId: events[index].parentRunId,
-      mergeGroupRunAttempt: events[index].parentRunAttempt,
-    },
+    causalBridge: causalBridgeForEvent(events[index], 500 + index),
     staging: { result: "failure", rootCauseCode },
     ...overrides,
   });
@@ -1307,7 +1433,14 @@ describe("delivery-health summarizer over the synthetic 20-candidate fixture set
     ...joinMergeQualificationToStaging({ events: [events[2]], releases: [] }),
     ...joinMergeQualificationToStaging({
       events: [events[3]],
-      releases: [stagingRelease(3, null, { imageDigest: `sha256:${"f".repeat(64)}` })],
+      releases: [
+        stagingRelease(3, null, {
+          imageDigest: `sha256:${"f".repeat(64)}`,
+          causalBridge: causalBridgeForEvent(events[3], 503, {
+            candidateImageDigest: `sha256:${"f".repeat(64)}`,
+          }),
+        }),
+      ],
     }),
     ...joinMergeQualificationToStaging({
       events: [events[4]],
@@ -1429,5 +1562,31 @@ describe("classifier registration for the enablement policy", () => {
     expect(record.class).toBe("persistent_required");
     expect(record.reasonCodes).toContain("deployment_release_workflow");
     expect(releaseQualificationScopeRegistry.operationalScriptPaths).toContain(MERGE_QUALIFICATION_POLICY_PATH);
+  });
+
+  it("accepts every canonical classifier reason at its exact decision state boundary", () => {
+    for (const [classifierClass, reasonCodes] of Object.entries(RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS)) {
+      for (const reasonCode of reasonCodes) {
+        const built = buildMergeQualificationDecision({
+          repository: "chase-sets/chase-sets",
+          workflowId: "77",
+          workflowPath: ".github/workflows/platform-merge-qualification.yml",
+          runId: "4242",
+          runAttempt: "1",
+          parentWorkflowId: "11",
+          parentWorkflowPath: ".github/workflows/platform-pr.yml",
+          parentRunId: "4000",
+          parentRunAttempt: "1",
+          candidateSha: "a".repeat(40),
+          candidateTreeSha: "b".repeat(40),
+          builtImageDigest: classifierClass === "isolated" ? DIGEST : null,
+          policyEnabled: true,
+          classifierClass,
+          classifierReasonCodes: [reasonCode],
+          observedAt: "2026-07-21T10:00:00.000Z",
+        });
+        expect(built.errors, `${classifierClass}:${reasonCode}`).toEqual([]);
+      }
+    }
   });
 });

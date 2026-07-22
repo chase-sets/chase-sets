@@ -32,13 +32,28 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     queueMergedAt: readOption(argv, "--queue-merged-at") ?? readEnv("QUEUE_MERGED_AT", env) ?? null,
     queueDequeuedAt: readOption(argv, "--queue-dequeued-at") ?? readEnv("QUEUE_DEQUEUED_AT", env) ?? null,
     queueFailureReason: readOption(argv, "--queue-failure-reason") ?? readEnv("QUEUE_FAILURE_REASON", env) ?? null,
+    candidateArtifactId: readOption(argv, "--candidate-artifact-id") ?? readEnv("CANDIDATE_ARTIFACT_ID", env) ?? null,
+    candidateArtifactName:
+      readOption(argv, "--candidate-artifact-name") ?? readEnv("CANDIDATE_ARTIFACT_NAME", env) ?? null,
+    mergeGroupWorkflowId:
+      readOption(argv, "--merge-group-workflow-id") ?? readEnv("MERGE_GROUP_WORKFLOW_ID", env) ?? null,
+    mergeGroupWorkflowPath:
+      readOption(argv, "--merge-group-workflow-path") ?? readEnv("MERGE_GROUP_WORKFLOW_PATH", env) ?? null,
     candidateSha: readOption(argv, "--candidate-sha") ?? readEnv("CANDIDATE_SHA", env) ?? null,
     candidateTreeSha: readOption(argv, "--candidate-tree-sha") ?? readEnv("CANDIDATE_TREE_SHA", env) ?? null,
+    candidateImageDigest:
+      readOption(argv, "--candidate-image-digest") ?? readEnv("CANDIDATE_IMAGE_DIGEST", env) ?? null,
     mergeGroupRunId: readOption(argv, "--merge-group-run-id") ?? readEnv("MERGE_GROUP_RUN_ID", env) ?? null,
     mergeGroupRunAttempt:
       readOption(argv, "--merge-group-run-attempt") ?? readEnv("MERGE_GROUP_RUN_ATTEMPT", env) ?? null,
     mergeSha: readOption(argv, "--merge-sha") ?? readEnv("MERGE_SHA", env) ?? null,
     mergeTreeSha: readOption(argv, "--merge-tree-sha") ?? readEnv("MERGE_TREE_SHA", env) ?? null,
+    lineageComplete: normalizeBoolean(
+      readOption(argv, "--lineage-complete") ?? readEnv("LINEAGE_COMPLETE", env) ?? "false",
+    ),
+    lineageReasons: parseJsonList(
+      readOption(argv, "--lineage-reasons-json") ?? readEnv("LINEAGE_REASONS_JSON", env) ?? '["lineage-not-collected"]',
+    ),
     releaseCommitCommittedAt:
       readOption(argv, "--release-commit-committed-at") ?? readEnv("RELEASE_COMMIT_COMMITTED_AT", env) ?? null,
     releaseCategory: readOption(argv, "--release-category") ?? readEnv("RELEASE_CATEGORY", env) ?? "ordinary-deploy",
@@ -198,6 +213,8 @@ export function buildReleaseHealthRecord(input) {
   const dispatchSource = input.dispatchSource ?? (releaseMode === "emergency" ? "emergency" : "manual");
   const recoveryMode = input.recoveryMode ?? "none";
   const queueBatchSize = Number.isInteger(input.queueBatchSize) ? input.queueBatchSize : 1;
+  const lineageReasons = Array.isArray(input.lineageReasons) ? input.lineageReasons : ["lineage-not-collected"];
+  const lineageComplete = input.lineageComplete === true;
   const releaseCategory = input.releaseCategory ?? "ordinary-deploy";
   const exposurePostureCategories = Array.isArray(input.exposurePostureCategories)
     ? [...input.exposurePostureCategories].sort()
@@ -250,8 +267,13 @@ export function buildReleaseHealthRecord(input) {
     }
   }
   const candidateLineage = [
+    input.candidateArtifactId,
+    input.candidateArtifactName,
+    input.mergeGroupWorkflowId,
+    input.mergeGroupWorkflowPath,
     input.candidateSha,
     input.candidateTreeSha,
+    input.candidateImageDigest,
     input.mergeGroupRunId,
     input.mergeGroupRunAttempt,
   ];
@@ -263,11 +285,18 @@ export function buildReleaseHealthRecord(input) {
       errors.push("queue candidate lineage requires the complete final merge identity.");
     }
     if (
+      !isPositiveSafeIntegerString(input.candidateArtifactId) ||
+      input.candidateArtifactName !==
+        `merge-qualification-candidate-${input.mergeGroupRunId}-${input.mergeGroupRunAttempt}` ||
+      !isPositiveSafeIntegerString(input.mergeGroupWorkflowId) ||
+      input.mergeGroupWorkflowPath !== ".github/workflows/platform-pr.yml" ||
       !isPositiveSafeIntegerString(input.mergeGroupRunId) ||
       !isPositiveSafeIntegerString(input.mergeGroupRunAttempt)
     ) {
-      errors.push("queue merge-group run identity must be a bounded positive run/attempt pair.");
+      errors.push("queue candidate artifact must bind the exact Platform PR workflow/run/attempt identity.");
     }
+    if (!/^sha256:[0-9a-f]{64}$/.test(input.candidateImageDigest ?? ""))
+      errors.push("queue candidate image digest must be an exact immutable sha256 value.");
     if (
       isCommitSha(input.candidateTreeSha) &&
       isCommitSha(input.mergeTreeSha) &&
@@ -275,6 +304,17 @@ export function buildReleaseHealthRecord(input) {
     ) {
       errors.push("queue candidate and final merge trees must agree.");
     }
+  }
+  if (
+    lineageReasons.length > 100 ||
+    new Set(lineageReasons).size !== lineageReasons.length ||
+    lineageReasons.some((reason) => typeof reason !== "string" || reason.length === 0 || reason.length > 256)
+  ) {
+    errors.push("lineageReasons must be a unique bounded string list.");
+  }
+  const candidateLineageComplete = candidateLineage.every((value) => isNonEmptyString(value));
+  if (lineageComplete !== (candidateLineageComplete && lineageReasons.length === 0)) {
+    errors.push("lineageComplete must be derived from the full candidate linkage and zero collection reasons.");
   }
   if (!["none", "readiness", "rollback", "fix-forward"].includes(recoveryMode)) {
     errors.push("recoveryMode must be none, readiness, rollback, or fix-forward.");
@@ -330,12 +370,19 @@ export function buildReleaseHealthRecord(input) {
       mergedAt: emptyToNull(input.queueMergedAt),
       dequeuedAt: emptyToNull(input.queueDequeuedAt),
       failureReason: emptyToNull(input.queueFailureReason),
+      candidateArtifactId: emptyToNull(input.candidateArtifactId),
+      candidateArtifactName: emptyToNull(input.candidateArtifactName),
+      mergeGroupWorkflowId: emptyToNull(input.mergeGroupWorkflowId),
+      mergeGroupWorkflowPath: emptyToNull(input.mergeGroupWorkflowPath),
       candidateSha: emptyToNull(input.candidateSha),
       candidateTreeSha: emptyToNull(input.candidateTreeSha),
+      candidateImageDigest: emptyToNull(input.candidateImageDigest),
       mergeGroupRunId: emptyToNull(input.mergeGroupRunId),
       mergeGroupRunAttempt: emptyToNull(input.mergeGroupRunAttempt),
       mergeSha: emptyToNull(input.mergeSha),
       mergeTreeSha: emptyToNull(input.mergeTreeSha),
+      lineageComplete,
+      lineageReasons,
       releaseCommitCommittedAt: emptyToNull(input.releaseCommitCommittedAt),
     },
     releaseCategory: {

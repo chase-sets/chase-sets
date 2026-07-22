@@ -106,6 +106,7 @@ jobs:
             "${provisioning_args[@]}" \
             --repository "${{ github.repository }}" \
             --out artifacts/merge-qualification/event.json \
+            --cleanup-ownership-out artifacts/merge-qualification/cleanup-ownership.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -115,6 +116,15 @@ jobs:
         with:
           name: merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           path: artifacts/merge-qualification/event.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload exact cleanup ownership
+        if: steps.terminalize.outputs.provisioned == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: artifacts/merge-qualification/cleanup-ownership.json
           if-no-files-found: error
           retention-days: 30
 
@@ -134,6 +144,12 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
+
+      - name: Download exact cleanup ownership
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: artifacts/merge-qualification-cleanup/ownership
 
       - name: Validate observer cleanup credentials
         env:
@@ -178,13 +194,6 @@ jobs:
             artifacts/merge-qualification-cleanup/artifacts.json >/dev/null; then
             gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification-cleanup/decision
           fi
-          provision_name="merge-gate-provisioning-${RUN_ID}-${RUN_ATTEMPT}"
-          provision_count="$(jq -r --arg name "$provision_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' artifacts/merge-qualification-cleanup/artifacts.json)"
-          if [ "$provision_count" != "1" ]; then
-            echo "Cleanup requires exactly one durable provisioning observation." >&2
-            exit 1
-          fi
-          gh run download "$RUN_ID" --name "$provision_name" --dir artifacts/merge-qualification-cleanup/provisioning
 
       - name: Configure observer Kubernetes context
         env:
@@ -209,7 +218,7 @@ jobs:
           fi
           node ./scripts/merge-gate-verification.mjs cleanup-target \
             "${namespace_args[@]}" \
-            --provisioning-observation artifacts/merge-qualification-cleanup/provisioning/provisioning-observation.json \
+            --provisioning-observation artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
             --repository "${{ github.repository }}" \
             --workflow-id "${{ github.event.workflow_run.workflow_id }}" \
             --workflow-path ".github/workflows/platform-merge-qualification.yml" \
@@ -241,7 +250,7 @@ jobs:
           fi
           jq -n \
             --slurpfile decision "$decision" \
-            --slurpfile observation artifacts/merge-qualification-cleanup/provisioning/provisioning-observation.json \
+            --slurpfile observation artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
             --slurpfile run artifacts/merge-qualification-cleanup/run.json \
             '{schemaVersion:"release-qualification/v1",repository:$observation[0].repository,candidateSha:$observation[0].candidateSha,candidateTreeSha:$observation[0].candidateTreeSha,imageRepository:"registry.digitalocean.com/chase-sets/chase-sets-platform",imageDigest:$observation[0].imageDigest,qualificationLane:"merge-gate",classifierPolicyVersion:"release-qualification-scope/v1",runId:$observation[0].runId,runAttempt:$observation[0].runAttempt,startedAt:$decision[0].observedAt,completedAt:$run[0].updated_at,result:"fail",evidenceLinks:[$run[0].html_url]}' \
             > artifacts/merge-qualification-cleanup/cancelled-qualification.json

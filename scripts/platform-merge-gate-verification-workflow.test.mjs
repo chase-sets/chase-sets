@@ -133,16 +133,19 @@ describe("merge-gate exact-digest deployment", () => {
     expect(create).toContain("kubectl create -f -");
     expect(gate).not.toContain("kubectl label namespace");
     expect(gate).not.toContain("kubectl annotate namespace");
-    const observe = step(gate, "Record gate namespace creation observation");
     const upload = step(gate, "Upload gate namespace creation observation");
-    expect(observe).toContain("merge-gate-verification.mjs provisioning-observation");
+    expect(create).toContain("merge-gate-verification.mjs provisioning-observation");
+    expect(create).toContain("trap cleanup_unhanded_namespace EXIT");
+    expect(create).toContain("created=true");
+    expect(create).toContain('echo "provisioned=true" >> "$GITHUB_OUTPUT"');
+    expect(create).toContain("handed_off=true");
     expect(upload).toContain("merge-gate-provisioning-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(upload).toContain("id: provisioning-upload");
     expect(step(gate, "Confirm durable gate namespace creation observation")).toContain(
       "if: always() && steps.provisioning-upload.outcome == 'success'",
     );
     expect(gate.indexOf("- name: Create gate namespace")).toBeLessThan(
-      gate.indexOf("- name: Record gate namespace creation observation"),
+      gate.indexOf("- name: Upload gate namespace creation observation"),
     );
     expect(gate.indexOf("- name: Upload gate namespace creation observation")).toBeLessThan(
       gate.indexOf("- name: Induced failure drill"),
@@ -174,7 +177,7 @@ describe("merge-gate teardown finalizers (every terminal path has a deleter)", (
       expect(finalizer).toContain("if: always()");
     }
     for (const credentialedFinalizer of [webhooks, teardown, probe]) {
-      expect(credentialedFinalizer).toContain("steps.provisioning.outputs.provisioned == 'true'");
+      expect(credentialedFinalizer).toContain("steps.namespace.outcome == 'success'");
     }
     expect(teardown).toContain("platform:kubernetes-deployment -- teardown");
     expect(teardown).not.toContain("|| true");

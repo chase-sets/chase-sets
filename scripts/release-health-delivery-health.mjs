@@ -28,6 +28,17 @@ const INTENTIONAL_OUTCOMES = new Set([
   "cancelled-by-newer-candidate",
   "skipped/not-eligible",
 ]);
+export const GITHUB_ACTIONS_COMPLETED_CONCLUSIONS = Object.freeze({
+  success: "terminal-evidence-or-disabled-decision",
+  failure: "terminal-evidence-or-incomplete",
+  neutral: "terminal-evidence-or-incomplete",
+  cancelled: "terminal-evidence-or-incomplete",
+  skipped: "terminal-evidence-or-incomplete",
+  timed_out: "terminal-evidence-or-incomplete",
+  action_required: "terminal-evidence-or-incomplete",
+  stale: "terminal-evidence-or-incomplete",
+  startup_failure: "terminal-evidence-or-incomplete",
+});
 const SLI_MARKER_PATTERN = /<!--\s*delivery-health-sli\/v1\s+({[\s\S]*?})\s*-->/;
 
 export function parseDeliveryHealthArgs(argv, env = process.env) {
@@ -122,27 +133,21 @@ export async function collectSourceData({ options, policy, client, queryStart })
       fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
     ),
     safely("platform-pr-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformPr, queryStart, options.checkedAt, policy.collection.maxPages),
     ),
     safely("release-dispatch-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.releaseDispatch,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
+      fetchWorkflowRuns(client, workflows.releaseDispatch, queryStart, options.checkedAt, policy.collection.maxPages),
     ),
     safely("platform-deploy-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, options.checkedAt, policy.collection.maxPages),
     ),
     safely("ephemeral-verification-runs", () =>
       fetchWorkflowRuns(
         client,
         workflows.ephemeralVerification,
         queryStart,
+        options.checkedAt,
         policy.collection.maxPages,
-        policy.windows.lastN,
       ),
     ),
     safely("delivery-failure-signatures", () =>
@@ -153,8 +158,8 @@ export async function collectSourceData({ options, policy, client, queryStart })
         client,
         workflows.mergeQualificationAdvisory,
         queryStart,
+        options.checkedAt,
         policy.collection.maxPages,
-        policy.windows.lastN,
       ),
     ),
     safely("merge-qualification-terminalizer-runs", () =>
@@ -162,8 +167,8 @@ export async function collectSourceData({ options, policy, client, queryStart })
         client,
         workflows.mergeQualificationTerminalizer,
         queryStart,
+        options.checkedAt,
         policy.collection.maxPages,
-        policy.windows.lastN,
       ),
     ),
   ]);
@@ -222,16 +227,24 @@ export async function collectSourceData({ options, policy, client, queryStart })
   const mergeGroupRuns = qualificationRuns.filter(
     (run) =>
       run.event === "workflow_run" &&
-      /^Merge Qualification merge_group /.test(run.display_title ?? "") &&
-      ["success", "failure", "cancelled", "timed_out"].includes(run.conclusion),
+      run.status === "completed" &&
+      /^Merge Qualification merge_group [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(run.display_title ?? ""),
   );
   const qualificationEvents = [];
   const qualificationFailures = [];
   const qualificationCandidates = [];
+  const disabledQualificationAttempts = new Set();
   await mapConcurrent(mergeGroupRuns, policy.collection.concurrency, async (run) => {
     const parent = String(run.display_title ?? "").match(
       /^Merge Qualification merge_group ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/,
     );
+    const conclusionDisposition = GITHUB_ACTIONS_COMPLETED_CONCLUSIONS[run.conclusion];
+    if (!conclusionDisposition) {
+      qualificationFailures.push({
+        source: `merge-qualification-conclusion:${run.id}:${run.run_attempt}`,
+        error: `unknown completed GitHub Actions conclusion ${JSON.stringify(run.conclusion)}`,
+      });
+    }
     try {
       const evidence = await fetchMergeQualificationEvidence(
         client,
@@ -268,6 +281,8 @@ export async function collectSourceData({ options, policy, client, queryStart })
           runAttempt: String(run.run_attempt ?? ""),
           candidateSha: evidence.decision?.candidateSha ?? eventCandidates[0] ?? null,
         });
+      } else {
+        disabledQualificationAttempts.add(`${run.id}|${run.run_attempt}`);
       }
     } catch (error) {
       qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
@@ -281,16 +296,23 @@ export async function collectSourceData({ options, policy, client, queryStart })
     }
   });
   const completedTerminalizerRuns = terminalizerRuns.filter(
-    (run) => run.event === "workflow_run" && ["success", "failure", "cancelled", "timed_out"].includes(run.conclusion),
+    (run) => run.event === "workflow_run" && run.status === "completed",
   );
   const qualificationRunsByAttempt = new Map(qualificationRuns.map((run) => [`${run.id}|${run.run_attempt}`, run]));
   await mapConcurrent(completedTerminalizerRuns, policy.collection.concurrency, async (run) => {
     try {
+      const conclusionDisposition = GITHUB_ACTIONS_COMPLETED_CONCLUSIONS[run.conclusion];
+      if (!conclusionDisposition) {
+        throw new Error(`Unknown completed GitHub Actions conclusion ${JSON.stringify(run.conclusion)}.`);
+      }
       const events = (
         await fetchMergeQualificationEvidence(client, run.id, run.run_attempt, policy.collection.maxPages, {
           terminalArtifacts: true,
         })
       ).events;
+      if (events.length === 0 && run.conclusion !== "success") {
+        throw new Error(`Completed observer conclusion ${run.conclusion} produced no exact terminal evidence.`);
+      }
       for (const event of events) {
         const sourceRun = qualificationRunsByAttempt.get(`${event.runId}|${event.runAttempt}`);
         if (!sourceRun)
@@ -302,8 +324,18 @@ export async function collectSourceData({ options, policy, client, queryStart })
       qualificationFailures.push({ source: `merge-qualification-artifacts:${run.id}`, error: boundedError(error) });
     }
   });
+  const exactTerminalAttempts = new Set(qualificationEvents.map((event) => `${event.runId}|${event.runAttempt}`));
+  for (const candidate of qualificationCandidates) {
+    const attempt = `${candidate.runId}|${candidate.runAttempt}`;
+    if (!exactTerminalAttempts.has(attempt) && !disabledQualificationAttempts.has(attempt)) {
+      qualificationFailures.push({
+        source: `merge-qualification-completed-attempt:${candidate.runId}:${candidate.runAttempt}`,
+        error: "completed advisory attempt has no exact terminal event or disabled-policy decision",
+      });
+    }
+  }
 
-  // Candidate inventory: every merge-group run head SHA in the window. A
+  // Candidate inventory: every exact completed advisory run attempt in the window. A
   // candidate with no terminal event (run-level eviction before publisher
   // AND terminalizer evidence) surfaces as an orphan in the summary.
   // Persistent-staging releases for the comparison join, built from the same
@@ -327,8 +359,15 @@ export async function collectSourceData({ options, policy, client, queryStart })
       completedAt: health.staging?.completedAt ?? runTimestamp(run),
       causalBridge: {
         pullRequestNumber: health.pullRequest?.number ?? health.queue?.pullRequestNumber ?? null,
+        candidateArtifactId: health.queue?.candidateArtifactId ?? null,
+        candidateArtifactName: health.queue?.candidateArtifactName ?? null,
+        workflowId: health.queue?.mergeGroupWorkflowId ?? null,
+        workflowPath: health.queue?.mergeGroupWorkflowPath ?? null,
         mergeGroupRunId: health.queue?.mergeGroupRunId ?? null,
         mergeGroupRunAttempt: health.queue?.mergeGroupRunAttempt ?? null,
+        candidateImageDigest: health.queue?.candidateImageDigest ?? null,
+        lineageComplete: health.queue?.lineageComplete === true,
+        lineageReasons: Array.isArray(health.queue?.lineageReasons) ? health.queue.lineageReasons : [],
       },
       staging: {
         result: health.staging?.result ?? null,
@@ -1341,18 +1380,15 @@ async function fetchPullRequests(client, repository, queryStart, maxPages) {
   return pulls;
 }
 
-async function fetchWorkflowRuns(client, workflow, queryStart, maxPages, lastN) {
+async function fetchWorkflowRuns(client, workflow, queryStart, queryEnd, maxPages) {
+  const created = encodeURIComponent(`${queryStart}..${queryEnd}`);
   return client.paginate(
-    `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100`,
+    `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100&created=${created}`,
     (payload) => payload?.workflow_runs,
     {
       source: `workflow:${workflow}`,
       maxPages,
       identity: (run) => `${run?.id ?? ""}:${run?.run_attempt ?? ""}`,
-      stopWhen: ({ values, entries }) => {
-        const oldest = entries.at(-1);
-        return values.length >= lastN && Date.parse(runTimestamp(oldest) ?? 0) < Date.parse(queryStart);
-      },
     },
   );
 }
