@@ -54,7 +54,12 @@ const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
 const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
 const helmPatterns = [/^infrastructure\/helm\//];
-const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/, /^deployables\/[^/]+\/Dockerfile$/];
+const dockerPatterns = [
+  /^Dockerfile$/,
+  /^\.dockerignore$/,
+  /^deployables\/[^/]+\/Dockerfile$/,
+  /^scripts\/public-web-route-smoke\.mjs$/,
+];
 const rootRuntimePatterns = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,

@@ -850,7 +850,7 @@ describe("change-scope", () => {
 
     expect(scope.terraformRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
-    expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.dockerImageRequired).toBe(true);
     expect(scope.clusterPreviewRequired).toBe(true);
     expect(scope.composeSmokeRequired).toBe(false);
   });
