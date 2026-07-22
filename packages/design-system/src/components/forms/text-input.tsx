@@ -1,11 +1,14 @@
 import { forwardRef, useId, type InputHTMLAttributes } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import type { ControlSize } from "../control-sizing";
 import { InputAddon } from "./input-addon";
-import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClassForSize, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface TextInputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">, BaseInputProps {}
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">, BaseInputProps {
+  controlSize?: ControlSize;
+}
 
 export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function TextInput(
   {
@@ -18,6 +21,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
     required,
     hideLabel,
     type = "text",
+    controlSize = "md",
     "aria-describedby": ariaDescribedBy,
     ...rest
   },
@@ -52,7 +56,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
           describedBy: ariaDescribedBy,
         })}
         aria-invalid={!!error || undefined}
-        className={cx(controlClass, !!error && controlErrorClass)}
+        className={cx(controlClassForSize(controlSize), !!error && controlErrorClass)}
       />
     </FieldChrome>
   );
@@ -71,6 +75,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
     counter,
     required,
     hideLabel,
+    controlSize = "md",
     "aria-describedby": ariaDescribedBy,
     ...rest
   },
@@ -106,7 +111,11 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
             describedBy: ariaDescribedBy,
           })}
           aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1.5rem)]")}
+          className={cx(
+            controlClassForSize(controlSize),
+            !!error && controlErrorClass,
+            "pl-[calc(var(--control-md-px)+1.5rem)]",
+          )}
         />
       </InputAddon>
     </FieldChrome>
