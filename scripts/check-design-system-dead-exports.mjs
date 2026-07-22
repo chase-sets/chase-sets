@@ -72,7 +72,6 @@ const canonicalReserveZeroConsumerExports = [
   "InspectorLayout",
   "Label",
   "layoutWidthClasses",
-  "MarketingVisualCard",
   "MarketplaceActionSheet",
   "MarketplaceFacetStrip",
   "MarketplaceProductCard",

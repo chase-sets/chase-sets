@@ -20,9 +20,6 @@ const variantSpecs = [
   // Hero: eager + fetchpriority=high, the page's LCP element. 800w keeps
   // mobile viewports (~375-430 CSS px at 2x DPR) off the desktop-weight file.
   { source: "chase-sets-prelaunch-hero.webp", widths: [800, 1200] },
-  // Below-the-fold "how it works" visual (MarketingVisualCard): lazy +
-  // fetchpriority=low, but still worth trimming for the ~50vw desktop slot.
-  { source: "chase-sets-waitlist-card-panels.webp", widths: [600, 1080] },
 ];
 
 function variantFileName(source, width) {

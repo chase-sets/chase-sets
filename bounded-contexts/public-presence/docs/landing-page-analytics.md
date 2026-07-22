@@ -37,7 +37,7 @@ Primary funnel metrics:
 
 - Landing page view to hero form start.
 - Hero intent tab selection to form submission.
-- Audience-path CTA selection to final form start.
+- Seller-tools early-access CTA click to final form start.
 - Mobile sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
 - Submitted signup to succeeded or failed action result.
@@ -48,7 +48,6 @@ First experiments to run:
 
 - Hero promise: seller margin headline versus buyer-total clarity headline.
 - CTA framing: "Request early access" with seller-beta context versus seller-beta-only access wording.
-- Section order: audience path immediately after seller economics versus after product preview.
 - Founder proof: eligibility language in final CTA versus a dedicated status panel.
 - Mobile sticky CTA enabled versus hidden.
 
