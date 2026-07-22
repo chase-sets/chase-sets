@@ -4,8 +4,15 @@ import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
-import { controlHeightClasses } from "../control-sizing";
-import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
+import { controlHeightClasses, type ControlSize } from "../control-sizing";
+import {
+  FieldChrome,
+  controlClass,
+  controlClassForSize,
+  controlErrorClass,
+  fieldDescribedBy,
+  type BaseInputProps,
+} from "./shared";
 
 export interface SelectItem {
   value: string;
@@ -18,6 +25,7 @@ export interface NativeSelectProps
   extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "style" | "size">, BaseInputProps {
   items: SelectItem[];
   placeholder?: string;
+  controlSize?: ControlSize;
 }
 
 export const NativeSelect = forwardRef<HTMLSelectElement, NativeSelectProps>(function NativeSelect(
@@ -32,6 +40,7 @@ export const NativeSelect = forwardRef<HTMLSelectElement, NativeSelectProps>(fun
     hideLabel,
     items,
     placeholder,
+    controlSize = "md",
     "aria-describedby": ariaDescribedBy,
     ...rest
   },
@@ -65,7 +74,7 @@ export const NativeSelect = forwardRef<HTMLSelectElement, NativeSelectProps>(fun
           describedBy: ariaDescribedBy,
         })}
         aria-invalid={!!error || undefined}
-        className={cx(controlClass, !!error && controlErrorClass)}
+        className={cx(controlClassForSize(controlSize), !!error && controlErrorClass)}
       >
         {placeholder ? <option value="">{placeholder}</option> : null}
         {items.map((item) => (

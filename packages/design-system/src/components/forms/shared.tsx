@@ -7,6 +7,7 @@ import {
   controlHeightClasses,
   controlPaddingClasses,
   controlTextClasses,
+  type ControlSize,
 } from "../control-sizing";
 
 export interface FieldChromeProps {
@@ -29,12 +30,16 @@ export { type FieldFrameProps };
 const controlBaseClass =
   "focus-ring w-full min-w-0 rounded-tokenMd border border-border bg-surface-2 text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60";
 
-export const controlClass = cx(
-  controlBaseClass,
-  controlHeightClasses.md,
-  controlPaddingClasses.md,
-  controlTextClasses.md,
-);
+export function controlClassForSize(controlSize: ControlSize = "md"): string {
+  return cx(
+    controlBaseClass,
+    controlHeightClasses[controlSize],
+    controlPaddingClasses[controlSize],
+    controlTextClasses[controlSize],
+  );
+}
+
+export const controlClass = controlClassForSize("md");
 
 export const compoundControlClass = cx(
   controlBaseClass,

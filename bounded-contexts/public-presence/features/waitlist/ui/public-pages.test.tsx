@@ -693,4 +693,51 @@ describe("public waitlist form migration smoke", () => {
     const heroForm = document.getElementById("waitlist-form")?.querySelector("form");
     expect(new FormData(heroForm!).getAll("games")).toEqual(["pokemon"]);
   });
+
+  it("#5619: renders every landing text input and select at the text-base 16px control-size contract, leaving checkbox/segmented controls untouched", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const heroForm = document.getElementById("waitlist-form")?.querySelector("form");
+    const finalForm = document.getElementById("waitlist-form-final")?.querySelector("form");
+    if (!heroForm || !finalForm) {
+      throw new Error("Expected both waitlist panels to render a form.");
+    }
+
+    // storeUrl only renders once a seller role is selected and hasStoreLink is checked.
+    fireEvent.change(finalForm.querySelector('select[name="role"]')!, { target: { value: "sell" } });
+    fireEvent.click(finalForm.querySelector('input[name="hasStoreLink"]')!);
+
+    const heroEmail = heroForm.querySelector<HTMLInputElement>('input[name="email"]');
+    const roleSelect = finalForm.querySelector<HTMLSelectElement>('select[name="role"]');
+    const interestsSelect = finalForm.querySelector<HTMLSelectElement>('select[name="interests"]');
+    const inventorySizeSelect = finalForm.querySelector<HTMLSelectElement>('select[name="inventorySize"]');
+    const storeUrlInput = finalForm.querySelector<HTMLInputElement>('input[name="storeUrl"]');
+
+    const landingTextControls = [heroEmail, roleSelect, interestsSelect, inventorySizeSelect, storeUrlInput];
+    for (const control of landingTextControls) {
+      if (!control) {
+        throw new Error("Expected every landing text input and select to render.");
+      }
+      expect(control.className).toContain("text-base");
+      expect(control.className).toContain("min-h-[var(--control-lg-height)]");
+      expect(control.className).not.toContain("text-sm");
+    }
+
+    // Checkbox and segmented controls are out of scope and must stay at their existing sizing.
+    const marketingConsentCheckbox = finalForm.querySelector('input[name="marketingConsent"]');
+    const hasStoreLinkCheckbox = finalForm.querySelector('input[name="hasStoreLink"]');
+    const heroSegmentedControl = heroForm.querySelector('[role="radiogroup"]');
+    expect(marketingConsentCheckbox?.closest("label")?.className).not.toContain("text-base");
+    expect(hasStoreLinkCheckbox?.closest("label")?.className).not.toContain("text-base");
+    expect(heroSegmentedControl).not.toBeNull();
+    expect(heroSegmentedControl?.className).not.toContain("text-base");
+  });
 });

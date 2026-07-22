@@ -1482,6 +1482,7 @@ function WaitlistSignupPanel({
               autoComplete="email"
               placeholder={t("publicPresence.waitlist.email.placeholder")}
               onFocus={() => trackFormStart("email")}
+              controlSize="lg"
             />
             {isHero ? (
               <>
@@ -1503,6 +1504,7 @@ function WaitlistSignupPanel({
                   required
                   onFocus={() => trackFormStart("role")}
                   onChange={(event) => trackRoleSelected(event.currentTarget.value as WaitlistMarketplaceIntent)}
+                  controlSize="lg"
                 />
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
@@ -1513,6 +1515,7 @@ function WaitlistSignupPanel({
                   required
                   onFocus={() => trackFormStart("interests")}
                   onChange={(event) => trackInterestSelected(event.currentTarget.value as WaitlistInterest)}
+                  controlSize="lg"
                 />
               </Grid>
             )}
@@ -1541,6 +1544,7 @@ function WaitlistSignupPanel({
                   placeholder={t("publicPresence.waitlist.inventorySize.placeholder")}
                   items={inventorySizeItems}
                   onFocus={() => trackFormStart("inventorySize")}
+                  controlSize="lg"
                 />
                 <Checkbox
                   label={t("publicPresence.waitlist.hasStoreLink.label")}
@@ -1559,6 +1563,7 @@ function WaitlistSignupPanel({
                     type="url"
                     placeholder={t("publicPresence.waitlist.storeUrl.placeholder")}
                     onFocus={() => trackFormStart("storeUrl")}
+                    controlSize="lg"
                   />
                 ) : null}
               </Stack>
