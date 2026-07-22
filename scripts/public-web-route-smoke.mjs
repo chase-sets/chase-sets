@@ -3,6 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
+import { parse } from "parse5";
 import { fetchWithTimeout } from "./platform-smoke-fetch.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
@@ -233,34 +234,53 @@ function isHtmlContentType(contentType) {
   return contentType?.split(";", 1)[0].trim().toLowerCase() === "text/html";
 }
 
-function decodeHtmlCharacterReferences(value) {
-  const namedReferences = new Map([
-    ["amp", "&"],
-    ["apos", "'"],
-    ["gt", ">"],
-    ["lt", "<"],
-    ["nbsp", " "],
-    ["quot", '"'],
-  ]);
-  return value.replace(/&(?:#([0-9]+)|#x([0-9a-f]+)|([a-z][a-z0-9]+));/giu, (reference, decimal, hex, name) => {
-    if (name) return namedReferences.get(name.toLowerCase()) ?? reference;
-    const codePoint = Number.parseInt(decimal ?? hex, decimal ? 10 : 16);
-    return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
-      ? String.fromCodePoint(codePoint)
-      : reference;
-  });
+const nonVisibleHtmlElements = new Set(["script", "style", "template", "noscript"]);
+
+function findHtmlElement(node, tagName) {
+  if (node.tagName === tagName) return node;
+  for (const child of node.childNodes ?? []) {
+    const match = findHtmlElement(child, tagName);
+    if (match) return match;
+  }
+  return null;
+}
+
+function visibleHtmlText(node) {
+  if (node.nodeName === "#comment") return " ";
+  if (node.nodeName === "#text") return node.value;
+  if (
+    nonVisibleHtmlElements.has(node.tagName) ||
+    node.attrs?.some((attribute) => attribute.name.toLowerCase() === "hidden")
+  ) {
+    return " ";
+  }
+  return ` ${(node.childNodes ?? []).map(visibleHtmlText).join("")} `;
+}
+
+function normalizeText(value) {
+  return value
+    .normalize("NFKC")
+    .replace(/\p{White_Space}+/gu, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
 }
 
 function normalizeVisibleHtmlText(html) {
-  const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/iu.exec(html)?.[1] ?? html;
-  return decodeHtmlCharacterReferences(
-    body
-      .replace(/<!--[\s\S]*?-->/gu, " ")
-      .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ")
-      .replace(/<[^>]*>/gu, " "),
-  )
-    .replace(/\s+/gu, " ")
-    .trim();
+  const document = parse(html);
+  return normalizeText(visibleHtmlText(findHtmlElement(document, "body") ?? document));
+}
+
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function containsCanonicalPhrase(text, phrase) {
+  const normalizedPhrase = normalizeText(phrase);
+  const phraseBoundary = "\\p{L}\\p{N}\\p{M}\\p{Pc}";
+  return new RegExp(
+    `(?<![${phraseBoundary}])${escapeRegularExpression(normalizedPhrase)}(?![${phraseBoundary}])`,
+    "u",
+  ).test(text);
 }
 
 async function probeRoute({
@@ -299,7 +319,7 @@ async function probeRoute({
         lastFailure = `${route.path} must return healthy 200, got ${response.status} ${response.statusText}.`;
       } else if (isStrict && !isHtmlContentType(contentType)) {
         lastFailure = `${route.path} must return HTML content, got '${contentType ?? "missing Content-Type"}'.`;
-      } else if (isStrict && normalizeVisibleHtmlText(body).includes(degradedMarker.replace(/\s+/gu, " ").trim())) {
+      } else if (isStrict && containsCanonicalPhrase(normalizeVisibleHtmlText(body), degradedMarker)) {
         lastFailure = `${route.path} returned the degraded marker '${degradedMarker}'.`;
       } else {
         logger.log(`[public-route-smoke] ${route.path} -> ${response.status}${isStrict ? " healthy" : ""}`);

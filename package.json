@@ -164,6 +164,7 @@
     "@react-router/node": "^7.14.0",
     "@react-router/serve": "^7.14.0",
     "isbot": "^5.1.37",
+    "parse5": "8.0.1",
     "pg": "^8.20.0",
     "react-router": "^7.14.0",
     "ulid": "^3.0.2"

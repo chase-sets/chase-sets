@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +32,45 @@ async function startRouteServer(handler) {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Route smoke test server did not bind a TCP port.");
   return `http://127.0.0.1:${address.port}`;
+}
+
+async function runCheckerCli(baseUrl) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        path.join(repoRoot, "scripts/public-web-route-smoke.mjs"),
+        "--base-url",
+        baseUrl,
+        "--mode",
+        "healthy",
+        "--attempts",
+        "1",
+        "--timeout-ms",
+        "5000",
+      ],
+      { cwd: repoRoot, windowsHide: true },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (exitCode, signal) => {
+      resolve({ exitCode, signal, stdout, stderr, output: `${stdout}\n${stderr}` });
+    });
+  });
+}
+
+async function expectEveryStrictTargetIn(output) {
+  const inventory = await loadPublicWebRouteInventory();
+  for (const route of inventory.strictRoutes) expect(output).toContain(route.path);
 }
 
 async function independentlyReadMountedManifestRoutes() {
@@ -166,6 +206,62 @@ describe("public web route smoke", () => {
     await expect(smokePublicWebRoutes({ baseUrl, mode: "healthy", attempts: 1, logger: quietLogger })).rejects.toThrow(
       /Public route smoke failed \(healthy\):[\s\S]*returned the degraded marker/u,
     );
+  });
+
+  it.each([
+    {
+      name: "a standards-defined named whitespace entity",
+      contentType: "text/html",
+      body: "<main>Temporarily&ensp;unavailable</main>",
+      expectedExitCode: 1,
+    },
+    {
+      name: "mixed-case canonical visible text",
+      contentType: "text/html",
+      body: "<main>tEMPORARILY UNAVAILABLE</main>",
+      expectedExitCode: 1,
+    },
+    {
+      name: "a longer word that only starts with the canonical marker",
+      contentType: "text/html",
+      body: "<main>Temporarily unavailableish</main>",
+      expectedExitCode: 0,
+    },
+    {
+      name: "a successful JSON error representation",
+      contentType: "application/json",
+      body: '{"error":"policy resolver unavailable"}',
+      expectedExitCode: 1,
+    },
+    {
+      name: "canonical visible text split across markup",
+      contentType: "text/html",
+      body: "<main>Temporarily <span>unavailable</span></main>",
+      expectedExitCode: 1,
+    },
+    {
+      name: "ordinary healthy HTML",
+      contentType: "text/html; charset=utf-8",
+      body: "<main>Marketplace policies are available.</main>",
+      expectedExitCode: 0,
+    },
+  ])("classifies $name through the real checker CLI", async ({ contentType, body, expectedExitCode }) => {
+    const baseUrl = await startRouteServer((_request, response) => {
+      response.writeHead(200, { "Content-Type": contentType });
+      response.end(body);
+    });
+
+    const result = await runCheckerCli(baseUrl);
+
+    expect(result.signal).toBeNull();
+    expect(result.exitCode).toBe(expectedExitCode);
+    await expectEveryStrictTargetIn(result.output);
+    if (expectedExitCode === 1 && contentType === "text/html") {
+      expect(result.stderr).toContain("returned the degraded marker");
+    }
+    if (expectedExitCode === 0) {
+      expect(result.stdout).toContain("Passed 32 public routes in healthy mode.");
+    }
   });
 
   it("accepts healthy HTML content with normal media-type casing and parameters", async () => {
