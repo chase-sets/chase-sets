@@ -38,6 +38,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Seller Migration Campaign Assets](./campaigns/seller-migration-assets.md): the #4085 guide, proof walkthrough, #4073 demo-clip handoff, and #4083 admission-mail link.
 - [Brand & Distribution Kit](./campaigns/brand-distribution-kit.md): repo-owned OG/social cards, per-game share links, the /press creator & press fact sheet, claims-gated post templates for the weekly per-game series, and the operator follow-up list for creative assets (#4086).
 - [Discord Founders Circle](./campaigns/discord-founders-circle.md): channel map, roles/permissions, moderation baseline, manual Founder-flair procedure, invite/secret provisioning, and measurement for the founders-circle Discord (#4084, access model ruled by #5893).
+- [Creator Seeding](./campaigns/creator-seeding.md): truth-gated creator offer copy, the personal-link/UTM attribution convention, the counts-only 5-games × archetypes coverage template, per-platform outreach templates, and operator handoff for the weeks-3–4 creator channel (#4074, decisions #5896/#5897 resolved).
 
 ### Contributing
 

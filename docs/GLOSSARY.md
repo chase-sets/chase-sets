@@ -106,6 +106,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Wave-1 Admission Bar | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Pre-declared campaign pass/fail threshold: qualified sellers, five-game coverage, and overall signup floor. |
 | Campaign Channel Attribution | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Durable per-channel Waitlist Signup breakdown by UTM source/medium/campaign. |
 | Founders Circle | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Open warm-holding Discord community surface with a role-gated `#founders-lounge`, ruled by #5893 option A. |
+| Creator Seeding | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Weeks-3–4 outreach channel inviting mid-size creators to share a personal tracked (`?ref=`, `utm_source=creator`) link with their audience; zero new build (#4074). |
 | Tax Quote | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
 | Tax Nexus Readiness | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
 | Collection-Required Jurisdiction | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |
