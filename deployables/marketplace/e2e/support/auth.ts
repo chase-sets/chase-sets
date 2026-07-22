@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { expect, type APIResponse, type Page } from "@playwright/test";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 
+const privilegedRequestTimeoutMs = 15_000;
+const privilegedResponseBodyLimitBytes = 64 * 1024;
+const privilegedSessionTokenLimitCharacters = 8 * 1024;
+
 export type MarketplaceE2EAccount = {
   email: string;
   password: string;
@@ -59,7 +63,7 @@ export async function registerOrSignInSyntheticAccount(
   origin: string,
   account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
 ) {
-  await provisionSyntheticAccountInvitation(page, origin, account.email);
+  await provisionSyntheticAccountInvitation(origin, account.email);
 
   const response = await page.request.post(`${origin}/api/auth/register`, {
     data: {
@@ -108,23 +112,31 @@ async function startPasswordSession(
   return (await response.json()) as { sessionToken: string };
 }
 
-async function provisionSyntheticAccountInvitation(page: Page, origin: string, email: string) {
+async function provisionSyntheticAccountInvitation(origin: string, email: string) {
   const adminEmail = firstConfiguredEnvValue("PLATFORM_ADMIN_EMAIL", "TF_VAR_platform_admin_email");
   const adminPassword = firstConfiguredEnvValue("PLATFORM_ADMIN_PASSWORD", "TF_VAR_platform_admin_password");
   if (!adminEmail || !adminPassword) {
     return;
   }
 
-  const adminSession = await startPasswordSession(
-    page,
-    origin,
-    { email: adminEmail, password: adminPassword },
-    "platform-admin password sign-in",
-  );
-  const adminCookie = `chase_sets_session=${adminSession.sessionToken}`;
-  const actor = await getCurrentActorDisplay(page, origin, adminCookie);
-  const invitationResponse = await page.request.post(`${origin}/api/identity/invitations`, {
+  const accountIdentifier = createHash("sha256").update(adminEmail.trim().toLowerCase()).digest("hex").slice(0, 12);
+  const adminSessionResponse = await privilegedRequest(origin, "/api/auth/password-sign-in", {
+    method: "POST",
+    data: { email: adminEmail, password: adminPassword },
+    expectedStatus: 200,
+    operation: "platform-admin password sign-in",
+    failureMessage: (status) =>
+      `platform-admin password sign-in should start a session (account=sha256:${accountIdentifier}, status=${status})`,
+  });
+  const adminCookie = `chase_sets_session=${readPrivilegedSessionToken(adminSessionResponse.body)}`;
+  const actor = await getCurrentActorDisplay(origin, adminCookie);
+  const invitationResponse = await privilegedRequest(origin, "/api/identity/invitations", {
+    method: "POST",
     headers: { Cookie: adminCookie },
+    expectedStatus: 201,
+    operation: "platform admin invitation",
+    failureMessage: () => "platform admin should create a smoke account invitation",
+    discardResponseBody: true,
     data: {
       invitationId: createSmokeInvitationId(),
       accountId: actor.account.account_id,
@@ -134,20 +146,27 @@ async function provisionSyntheticAccountInvitation(page: Page, origin: string, e
     },
   });
 
-  expect(invitationResponse.status(), "platform admin should create a smoke account invitation").toBe(201);
-  await waitForAuthInvitationProjection(page, origin, adminCookie, invitationResponse);
+  await waitForAuthInvitationProjection(origin, adminCookie, invitationResponse.headers);
 }
 
-async function getCurrentActorDisplay(page: Page, origin: string, adminCookie: string) {
-  const response = await page.request.get(`${origin}/api/identity/current-actor-display`, {
+async function getCurrentActorDisplay(origin: string, adminCookie: string) {
+  const response = await privilegedRequest(origin, "/api/identity/current-actor-display", {
+    method: "GET",
     headers: { Cookie: adminCookie },
+    expectedStatus: 200,
+    operation: "platform admin current actor",
+    failureMessage: () => "platform admin current actor should be readable",
   });
-  expect(response.status(), "platform admin current actor should be readable").toBe(200);
-  return (await response.json()) as { account: { account_id: string } };
+  const body = response.body;
+  if (!isRecord(body) || !isRecord(body.account) || typeof body.account.account_id !== "string") {
+    throw new Error("platform admin current actor failed (invalid-response)");
+  }
+
+  return body as { account: { account_id: string } };
 }
 
-async function waitForAuthInvitationProjection(page: Page, origin: string, adminCookie: string, response: APIResponse) {
-  const identityCommit = decodeCommitReceipt(response.headers()[CHASE_SETS_COMMIT_RECEIPT_HEADER.toLowerCase()]).find(
+async function waitForAuthInvitationProjection(origin: string, adminCookie: string, headers: Headers) {
+  const identityCommit = decodeCommitReceipt(headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
     (source) => source.sourceContextName === "identity",
   );
   if (!identityCommit) {
@@ -158,11 +177,14 @@ async function waitForAuthInvitationProjection(page: Page, origin: string, admin
   await expect
     .poll(
       async () => {
-        const refreshResponse = await page.request.post(`${origin}/api/platform/projections/refresh`, {
+        const refreshResponse = await privilegedRequest(origin, "/api/platform/projections/refresh", {
+          method: "POST",
           headers: { Cookie: adminCookie },
+          expectedStatus: 200,
+          operation: "platform admin projection refresh",
+          failureMessage: () => "platform admin should refresh projection status",
         });
-        expect(refreshResponse.status(), "platform admin should refresh projection status").toBe(200);
-        const body = (await refreshResponse.json()) as ProjectionRefreshResponse;
+        const body = refreshResponse.body as ProjectionRefreshResponse;
         const authInvitationProjection = body.projectionGroups?.find(
           (group) =>
             group.targetContextName === "auth" && group.projectionName === "auth-identity-invitation-projection",
@@ -173,6 +195,127 @@ async function waitForAuthInvitationProjection(page: Page, origin: string, admin
       { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
     )
     .toBe(true);
+}
+
+type PrivilegedRequestOptions = {
+  method: "GET" | "POST";
+  headers?: Readonly<Record<string, string>>;
+  data?: unknown;
+  expectedStatus: number;
+  operation: string;
+  failureMessage: (status: number) => string;
+  discardResponseBody?: boolean;
+};
+
+async function privilegedRequest(origin: string, path: string, options: PrivilegedRequestOptions) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), privilegedRequestTimeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, origin), {
+      method: options.method,
+      headers: {
+        Accept: "application/json",
+        ...(options.data === undefined ? {} : { "Content-Type": "application/json" }),
+        ...options.headers,
+      },
+      body: options.data === undefined ? undefined : JSON.stringify(options.data),
+      credentials: "omit",
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } catch {
+    clearTimeout(timeout);
+    const classification = controller.signal.aborted ? "timeout" : "network";
+    throw new Error(`platform admin setup failed (${classification})`);
+  }
+
+  try {
+    if (response.status !== options.expectedStatus) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // The fixed status classification remains authoritative when cleanup fails.
+      }
+      throw new Error(options.failureMessage(response.status));
+    }
+    const body = options.discardResponseBody
+      ? await discardPrivilegedBody(response, options.operation, controller.signal)
+      : await readPrivilegedJson(response, options.operation, controller.signal);
+    return { body, headers: response.headers };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function discardPrivilegedBody(response: Response, operation: string, signal: AbortSignal) {
+  try {
+    await response.body?.cancel();
+    return undefined;
+  } catch {
+    const classification = signal.aborted ? "timeout" : "response-read";
+    throw new Error(`${operation} failed (${classification})`);
+  }
+}
+
+async function readPrivilegedJson(response: Response, operation: string, signal: AbortSignal): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error(`${operation} failed (empty-response)`);
+  }
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > privilegedResponseBodyLimitBytes) {
+        await reader.cancel();
+        throw new Error(`${operation} failed (response-too-large)`);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === `${operation} failed (response-too-large)`) {
+      throw error;
+    }
+    const classification = signal.aborted ? "timeout" : "response-read";
+    throw new Error(`${operation} failed (${classification})`);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    throw new Error(`${operation} failed (invalid-json)`);
+  }
+}
+
+function readPrivilegedSessionToken(body: unknown) {
+  if (
+    !isRecord(body) ||
+    typeof body.sessionToken !== "string" ||
+    body.sessionToken.length === 0 ||
+    body.sessionToken.length > privilegedSessionTokenLimitCharacters
+  ) {
+    throw new Error("platform-admin password sign-in failed (invalid-response)");
+  }
+
+  return body.sessionToken;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type ProjectionRefreshResponse = {
