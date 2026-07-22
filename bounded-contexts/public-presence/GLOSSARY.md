@@ -149,3 +149,14 @@ Notes:
 ## Beta Admission
 
 A **Beta Admission** is the one-time, event-sourced placement of a Waitlist Signup into a numbered beta wave. It grants registration admission for that email and issues one idempotent beta invitation; it is not a Founder Number or an Identity team membership.
+
+## Creator Seeding
+
+**Creator Seeding** is the weeks-3–4 outreach channel that invites mid-size creators (~10,000–250,000 followers/subscribers on their primary platform) to join the beta waitlist and share a personal tracked link with their audience.
+
+Notes:
+
+- Reuses shipped mechanics only — the `?ref=` referral code, the durable UTM tuple, and Qualified Seller Signup wave ranking; it adds no new referral, queue, or admission machinery.
+- Each creator's personal link carries `utm_source=creator`, so per-creator attribution surfaces on the Campaign Channel Attribution table and rolls up into the Grafana channel funnel under one aggregate `creator` channel.
+- The populated target list, creator identities, and contact details are never committed to this public repository; only counts-only coverage templates and per-game outreach counts are.
+- Operating blueprint: [Creator Seeding](../../docs/campaigns/creator-seeding.md).
