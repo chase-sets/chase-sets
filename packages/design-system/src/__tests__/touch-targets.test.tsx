@@ -88,7 +88,17 @@ describe("design-system touch targets", () => {
     expectHeightTarget(screen.getByRole("switch", { name: "Notifications" }).closest("label") as HTMLElement);
     expectHeightTarget(screen.getByRole("button", { name: "Crop" }));
     expectHeightTarget(screen.getByRole("button", { name: "Name" }));
-    expectSquareTarget(screen.getByLabelText("Select row alpha"));
+
+    const rowCheckbox = screen.getByLabelText("Select row alpha") as HTMLInputElement;
+    expect(rowCheckbox.className).toContain("h-4");
+    expect(rowCheckbox.className).toContain("w-4");
+    expectSquareTarget(rowCheckbox.closest("label") as HTMLElement);
+
+    const selectAllCheckbox = screen.getByLabelText("Select all rows") as HTMLInputElement;
+    expect(selectAllCheckbox.className).toContain("h-4");
+    expect(selectAllCheckbox.className).toContain("w-4");
+    expectSquareTarget(selectAllCheckbox.closest("label") as HTMLElement);
+
     expectSquareTarget(screen.getByRole("button", { name: "Pack Alpha" }));
   });
 });
