@@ -175,6 +175,7 @@ export async function fetchTcgdexSetObservationPayloads(input: {
   setId: string;
   seriesId?: string | null;
   fetch?: typeof globalThis.fetch;
+  observedAt?: string;
   onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
 }): Promise<readonly TcgdexObservationPayload[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
@@ -187,7 +188,7 @@ export async function fetchTcgdexSetObservationPayloads(input: {
     expansionId: setId,
   });
   const set = await fetchJson<TcgdexSet>(fetcher, setUrl);
-  const observedAt = new Date().toISOString();
+  const observedAt = input.observedAt ?? new Date().toISOString();
   const observations: TcgdexObservationPayload[] = [];
   await input.onProgress?.({
     phase: "fetching",

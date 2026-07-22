@@ -787,7 +787,8 @@
         "fields",
         "product-contents",
         "product-measures",
-        "reference-data"
+        "reference-data",
+        "source-observations"
       ],
       "crossCuttingRuntimeComposition": true
     }

@@ -185,13 +185,10 @@ test.describe.serial("catalog admin integrations", () => {
     ).toBeVisible();
     await expectAdminWebHydrated(page);
     await expectVisibleText(page, "Catalog control plane");
-    // #1970: when the selected provider profile declares source-option groups, the
-    // deferred source-options status panel streams in after first paint. The
-    // browser-e2e seed contract selects a provider with source-option groups.
-    const sourceOptionsPanel = page.getByText("Source options").first();
-    await expect(sourceOptionsPanel, "browser-e2e seed contract requires source options").toBeVisible({
-      timeout: 30_000,
-    });
+    const runSyncStageTrigger = page.getByRole("button", { name: "Run sync" }).first();
+    await clickUntilDisclosureExpanded(runSyncStageTrigger, true);
+    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
+    await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
     // The supplementary alias-review workspace streams behind its own boundary.
     await expectAliasReviewWorkspace(page);
     // The daily surface does not render a page-local "Import to promotion
@@ -226,7 +223,13 @@ test.describe.serial("catalog admin integrations", () => {
     const contextBarTrigger = importContextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
     const importProviderSelect = importContextBar.getByRole("combobox", { name: "Provider" });
     await expect(contextBarTrigger).toBeVisible();
-    await expect(contextBarTrigger).toHaveAttribute("aria-expanded", "true");
+    await clickUntilDisclosureExpanded(contextBarTrigger, true);
+    // #1970: provider source options belong to the import-scope disclosure, not
+    // the Run sync stage. Scope this streamed assertion to its owning Step 0 bar.
+    await expect(
+      importContextBar.getByText("Source options").first(),
+      "browser-e2e seed contract requires source options in Step 0",
+    ).toBeVisible({ timeout: 30_000 });
     await expect(importContextBar.getByRole("button", { name: "Select source scope" })).toBeVisible();
     const urlBeforeToggle = page.url();
     // Collapse to the one-line summary: the form's provider select hides.
@@ -251,8 +254,6 @@ test.describe.serial("catalog admin integrations", () => {
     // only the per-surface return affordance (none on the daily route). Open each
     // owning stage and confirm its single canonical action; the run-sync stage is
     // the default landing when there is nothing to review yet.
-    await page.getByRole("button", { name: "Run sync" }).first().click();
-    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
     await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1969: an import-context change is now a fetcher-scoped CLIENT navigation,
@@ -276,8 +277,8 @@ test.describe.serial("catalog admin integrations", () => {
     // #1974: the selected-record command surface is the canonical BulkActionBar /
     // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). Open the
     // "Review changes" stage and, IF the browser-e2e daily route has a selectable
-    // changed Source Observation (it never does today — no test or seed ever runs a
-    // live Catalog sync; see logSeedContractGap below), select its row checkbox and
+    // changed Source Observation (the deterministic recovery fixture is promoted,
+    // and no test or seed runs a live Catalog sync; see logSeedContractGap below), select its row checkbox and
     // prove the bulk bar surfaces the consolidated command taxonomy: primary
     // "Preview promotion", secondary "Defer" / "Clear selection", and the destructive
     // reason-required "Reject" behind a BulkActionPanel trigger that opens a reason
@@ -431,7 +432,8 @@ test.describe.serial("catalog admin integrations", () => {
     // candidate, bulk-promote reviewed Source Observations, and land on the draft
     // Catalog Items handoff. Every step that depends on seeded provider data stays
     // conditional (mirrors the rest of this file) — the merge-group e2e seed does
-    // not currently populate Source Observations, so a hard assertion here would
+    // does not populate reviewable/candidate Source Observations (its one promoted
+    // observation exists only for recovery-control coverage), so a hard assertion here would
     // repeat the poisoned-seed-contract incident this suite already guards
     // against. The composition/wiring assertions (scope selector present, stage
     // reachable, handoff route resolves) stay unconditional because they hold
@@ -442,6 +444,8 @@ test.describe.serial("catalog admin integrations", () => {
 
     await test.step("Map / confirm the sync scope", async () => {
       const importContextBar = page.locator("[data-catalog-import-context-bar='true']");
+      const contextBarTrigger = importContextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
+      await clickUntilDisclosureExpanded(contextBarTrigger, true);
       await expect(importContextBar.getByRole("combobox", { name: "Provider" })).toBeVisible();
       const unitSelect = importContextBar.getByRole("combobox", { name: "Unit" });
       if (await unitSelect.count()) {
@@ -774,27 +778,28 @@ test.describe.serial("catalog admin integrations", () => {
       }
     }
 
-    // Reapply / Replay are per-observation Source Observation review-row commands
-    // (available only on a "promoted" observation; Replay is further gated on original
-    // source-profile evidence being recorded), not part of the import-job table above.
-    // Open "Review changes" and guard on either command form actually rendering before
-    // inspecting its command metadata. The test never submits these commands.
-    //
-    // The `observation.reapply` intent is also used by the unit-level Source-scope workset
-    // (`data-catalog-source-scope-unit`), whose reapply form deliberately carries an
-    // EMPTY selectedObservationIds — it reapplies the whole unit's promoted set, not a
-    // per-observation selection. Exclude that workset form so we assert on the
-    // review-row command, which carries the row's own observationId as the selection.
+    // Reapply / Replay are per-observation Source Observation review-row commands,
+    // not part of the import-job table above. Navigate to the explicit promoted filter
+    // so this test is independent of every prior serial test's stage/filter state, then
+    // wait on the seeded row's visible status and accessible actions. This is the
+    // user-visible convergence boundary: only after the promoted row renders do we
+    // inspect the action forms' exact row identity. The test never submits a command.
+    await expectPageOk(page, "/catalog/integrations?providerKey=tcgdex&filter.status=promoted");
     await page.getByRole("button", { name: "Review changes" }).first().click();
-    for (const intent of ["observation.reapply", "observation.replay"] as const) {
-      const commandForm = page
-        .locator(`form[data-catalog-primary-workbench-command="${intent}"]:not([data-catalog-source-scope-unit])`)
-        .first();
-      if (!(await commandForm.count())) {
-        continue;
-      }
+    const reviewTable = page.getByRole("table", { name: "Source Observation review" });
+    const promotedRow = reviewTable.getByRole("row").filter({ hasText: "Pikachu" });
+    await expect(promotedRow).toContainText("Promoted");
+
+    for (const [intent, actionName] of [
+      ["observation.reapply", "Reapply: Pikachu"],
+      ["observation.replay", "Replay: Pikachu"],
+    ] as const) {
+      const actionButton = promotedRow.getByRole("button", { name: actionName });
+      await expect(actionButton).toBeVisible();
+      await expect(actionButton).toBeEnabled();
+      const commandForm = actionButton.locator("xpath=ancestor::form");
       await expect(commandForm.locator('input[name="_intent"]')).toHaveValue(intent);
-      await expect(commandForm.locator('input[name="selectedObservationIds"]')).not.toHaveValue("");
+      await expect(commandForm.locator('input[name="selectedObservationIds"]')).toHaveValue("tcgdex_en_base2_60");
     }
   });
 
