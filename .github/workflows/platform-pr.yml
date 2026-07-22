@@ -289,8 +289,9 @@ jobs:
         if: always()
         run: |
           test -f artifacts/playwright/results/playwright-results.json
-          mkdir -p artifacts/playwright/per-spec-flake-telemetry/results
-          cp artifacts/playwright/results/playwright-results.json artifacts/playwright/per-spec-flake-telemetry/results/playwright-results.json
+          node scripts/playwright-per-spec-report.mjs \
+            artifacts/playwright/results/playwright-results.json \
+            artifacts/playwright/per-spec-flake-telemetry/results/playwright-results.json
 
       - name: Upload per-spec flake telemetry v1
         if: always()

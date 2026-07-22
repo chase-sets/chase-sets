@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,7 @@ import {
   collectPerSpecFlakeTelemetry,
   collectReleaseHealthFlakeDigest,
   collapsePerSpecTelemetry,
+  extractPlaywrightSpecTelemetry,
   parseReleaseHealthFlakeDigestArgs,
   runProducesPerSpecTelemetry,
   workflowProducesPerSpecTelemetry,
@@ -17,6 +19,7 @@ import {
   writeReleaseHealthFlakeDigest,
 } from "./release-health-flake-digest.mjs";
 import { renderCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
+import { normalizePlaywrightPerSpecReport } from "./playwright-per-spec-report.mjs";
 
 describe("release health flake digest", () => {
   it("keeps breach issue filing authenticated, milestone-safe, and after artifact upload", async () => {
@@ -44,6 +47,7 @@ describe("release health flake digest", () => {
       "name: playwright-e2e-results-v1-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}",
     );
     expect(e2e).toContain("artifacts/playwright/per-spec-flake-telemetry/results/playwright-results.json");
+    expect(e2e).toContain("node scripts/playwright-per-spec-report.mjs");
     expect(e2e).toContain("name: playwright-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-");
     expect(e2e).toContain("if-no-files-found: error");
   });
@@ -117,27 +121,21 @@ describe("release health flake digest", () => {
   });
 
   it("collects authoritative completed attempts, skips placeholders, and rejects bad producer evidence through the real ZIP path", async () => {
-    const report = JSON.stringify({
-      suites: [
-        {
-          title: "marketplace",
-          specs: [
-            {
-              title: "can buy",
-              tests: [
-                {
-                  projectName: "chromium",
-                  results: [
-                    { retry: 0, status: "failed" },
-                    { retry: 1, status: "passed" },
-                  ],
-                },
-              ],
-            },
+    const report = JSON.stringify(
+      perSpecReport({
+        suiteTitle: "marketplace",
+        specTitle: "can buy",
+        test: {
+          expectedStatus: "passed",
+          projectName: "chromium",
+          results: [
+            { retry: 0, status: "failed" },
+            { retry: 1, status: "passed" },
           ],
+          status: "flaky",
         },
-      ],
-    });
+      }),
+    );
     const workflow = Buffer.from(
       `name: x\n# PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1\n- name: Upload per-spec flake telemetry v1\n  if: always()\n  name: playwright-e2e-results-v1-${"${{ github.run_id }}"}-${"${{ github.run_attempt }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/per-spec-flake-telemetry`,
     ).toString("base64");
@@ -237,14 +235,7 @@ describe("release health flake digest", () => {
   });
 
   it("rejects duplicate, malformed, and oversized canonical payloads while accepting a large diagnostic-shaped archive", async () => {
-    const validReport = JSON.stringify({
-      suites: [
-        {
-          title: "suite",
-          specs: [{ title: "spec", tests: [{ projectName: "chromium", results: [{ retry: 0, status: "passed" }] }] }],
-        },
-      ],
-    });
+    const validReport = JSON.stringify(perSpecReport());
     const baseWorkflow = Buffer.from(
       `# PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1\n- name: Upload per-spec flake telemetry v1\n  if: always()\n  name: playwright-e2e-results-v1-${"${{ github.run_id }}"}-${"${{ github.run_attempt }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/per-spec-flake-telemetry`,
     ).toString("base64");
@@ -296,10 +287,46 @@ describe("release health flake digest", () => {
     ).rejects.toThrow("exactly one results/playwright-results.json");
     for (const invalid of [
       "{}",
+      JSON.stringify({ suites: [{ title: "not-a-complete-playwright-suite" }] }),
+      JSON.stringify({
+        suites: [
+          {
+            title: "suite",
+            suites: [],
+            specs: [{ title: "spec", tests: [], unknown: true }],
+          },
+        ],
+      }),
+      JSON.stringify(
+        perSpecReport({
+          test: {
+            expectedStatus: "passed",
+            projectName: "chromium",
+            results: [{ retry: 0, status: "failed" }],
+            status: "expected",
+          },
+        }),
+      ),
       JSON.stringify({ suites: [{ title: "suite", specs: "wrong" }] }),
       JSON.stringify({
         suites: [
-          { title: "suite", specs: [{ title: "spec", tests: [{ results: [{ retry: 0, status: "unknown" }] }] }] },
+          {
+            title: "suite",
+            suites: [],
+            specs: [
+              {
+                title: "spec",
+                tests: [
+                  {
+                    expectedStatus: "passed",
+                    projectName: "chromium",
+                    results: [{ retry: 0, status: "unknown" }],
+                    status: "unexpected",
+                  },
+                ],
+              },
+            ],
+          },
         ],
       }),
     ]) {
@@ -327,6 +354,40 @@ describe("release health flake digest", () => {
       { name: "timedOut", passedOnRetryCount: 0, failedJobCount: 1, runUrl: "https://run/1" },
     ]);
   });
+
+  (process.env.PLAYWRIGHT_REAL_REPORTER_PROBE === "true" ? it : it.skip)(
+    "classifies the complete Playwright 1.60 outcome taxonomy from real JSON reporter output",
+    async () => {
+      const reports = await runRealPlaywrightTaxonomyProbe();
+      const normalized = {
+        suites: reports.flatMap((report) => normalizePlaywrightPerSpecReport(report).suites),
+      };
+      const entries = extractPlaywrightSpecTelemetry(normalized, {
+        run: { id: 160, html_url: "https://run/160" },
+        runAttempt: 1,
+        matrixIndex: "0",
+      });
+      const entryFor = (title) => entries.find((entry) => entry.name.split(" › ").includes(title));
+
+      expect(entryFor("ordinary pass")).toMatchObject({ terminalStatus: "passed", terminalRetry: 0 });
+      expect(entryFor("ordinary unexpected failure")).toMatchObject({ terminalStatus: "failed", terminalRetry: 1 });
+      expect(entryFor("skip")).toMatchObject({ terminalStatus: "skipped", terminalRetry: 0 });
+      expect(entryFor("expected failure")).toMatchObject({ terminalStatus: "expected", terminalRetry: 0 });
+      expect(entryFor("unexpected pass")).toMatchObject({ terminalStatus: "failed", terminalRetry: 1 });
+      expect(entryFor("retry pass")).toMatchObject({ terminalStatus: "passed", terminalRetry: 1 });
+      expect(entryFor("timedOut")).toMatchObject({ terminalStatus: "timedOut", terminalRetry: 1 });
+      expect(entryFor("interrupted")).toMatchObject({ terminalStatus: "interrupted", terminalRetry: 0 });
+
+      const summary = summarizePerSpecFlakes(
+        entries.filter((entry) => !entry.name.includes("failure that stops the run")),
+      );
+      const summaryFor = (title) => summary.find((item) => item.name.split(" › ").includes(title));
+      expect(summaryFor("expected failure")).toBeUndefined();
+      expect(summaryFor("retry pass")).toMatchObject({ passedOnRetryCount: 1 });
+      expect(summary.filter((item) => item.failedJobCount > 0)).toHaveLength(4);
+    },
+    60_000,
+  );
 
   it("builds a weekly digest with previous-window trends and breaches", () => {
     const windows = buildDigestWindows("2026-07-08T00:00:00.000Z", 7);
@@ -461,6 +522,96 @@ describe("release health flake digest", () => {
     });
   });
 });
+
+function perSpecReport({
+  suiteTitle = "suite",
+  specTitle = "spec",
+  test = {
+    expectedStatus: "passed",
+    projectName: "chromium",
+    results: [{ retry: 0, status: "passed" }],
+    status: "expected",
+  },
+} = {}) {
+  return {
+    suites: [
+      {
+        title: suiteTitle,
+        specs: [{ title: specTitle, tests: [test] }],
+        suites: [],
+      },
+    ],
+  };
+}
+
+async function runRealPlaywrightTaxonomyProbe() {
+  await mkdir(join(process.cwd(), "artifacts"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), "artifacts", "playwright-taxonomy-"));
+  const playwrightCli = join(process.cwd(), "node_modules", "@playwright", "test", "cli.js");
+  try {
+    const taxonomy = join(root, "taxonomy");
+    await mkdir(taxonomy);
+    await writeFile(
+      join(taxonomy, "playwright.config.mjs"),
+      `import { defineConfig } from "@playwright/test";
+export default defineConfig({ testDir: ".", outputDir: "test-results", retries: 1, workers: 1, timeout: 40, reporter: [["json", { outputFile: "report.json" }]] });\n`,
+    );
+    await writeFile(
+      join(taxonomy, "taxonomy.spec.mjs"),
+      `import { test, expect } from "@playwright/test";
+test("ordinary pass", () => expect(1).toBe(1));
+test("ordinary unexpected failure", () => expect(1).toBe(2));
+test.skip("skip", () => {});
+test("expected failure", () => { test.fail(); expect(1).toBe(2); });
+test("unexpected pass", () => { test.fail(); expect(1).toBe(1); });
+test("retry pass", ({}, testInfo) => expect(testInfo.retry).toBe(1));
+test("timedOut", async () => new Promise((resolve) => setTimeout(resolve, 250)));\n`,
+    );
+    await runPlaywright(playwrightCli, taxonomy);
+
+    const interrupted = join(root, "interrupted");
+    await mkdir(interrupted);
+    await writeFile(
+      join(interrupted, "playwright.config.mjs"),
+      `import { defineConfig } from "@playwright/test";
+export default defineConfig({ testDir: ".", outputDir: "test-results", fullyParallel: true, maxFailures: 1, retries: 0, workers: 2, timeout: 10_000, reporter: [["json", { outputFile: "report.json" }]] });\n`,
+    );
+    await writeFile(
+      join(interrupted, "interrupted.spec.mjs"),
+      `import { test, expect } from "@playwright/test";
+test("failure that stops the run", async () => { await new Promise((resolve) => setTimeout(resolve, 500)); expect(1).toBe(2); });
+test("interrupted", async () => new Promise((resolve) => setTimeout(resolve, 5_000)));\n`,
+    );
+    await runPlaywright(playwrightCli, interrupted);
+
+    return [
+      JSON.parse(await readFile(join(taxonomy, "report.json"), "utf8")),
+      JSON.parse(await readFile(join(interrupted, "report.json"), "utf8")),
+    ];
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function runPlaywright(playwrightCli, cwd) {
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [playwrightCli, "test", "--config", "playwright.config.mjs"], {
+      cwd,
+      env: { ...process.env, CI: "true" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", () => {
+      // The taxonomy intentionally contains unexpected outcomes. The artifact,
+      // rather than the runner exit code, is the evidence under test.
+      readFile(join(cwd, "report.json"), "utf8").then(resolve, () => reject(new Error(stderr)));
+    });
+  });
+}
 
 function buildStoredZip(entries) {
   const locals = [];

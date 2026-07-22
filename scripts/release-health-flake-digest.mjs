@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { classifyPlaywrightTest, validatePlaywrightPerSpecReport } from "./playwright-per-spec-report.mjs";
 import { parseCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
 
 export const RELEASE_HEALTH_FLAKE_DIGEST_VERSION = "release-health-flake-digest/v1";
@@ -447,15 +448,14 @@ function collectSuiteSpecs(suite, parents, entries, source) {
   const path = [...parents, suite?.title].filter(Boolean);
   for (const spec of suite?.specs ?? []) {
     for (const test of spec?.tests ?? []) {
-      const results = [...(test?.results ?? [])].filter((result) => Number.isInteger(result?.retry));
-      if (results.length === 0) continue;
-      const terminalRetry = Math.max(...results.map((result) => result.retry));
-      const terminal = results.filter((result) => result.retry === terminalRetry).at(-1);
+      const terminalStatus = classifyPlaywrightTest(test);
+      if (terminalStatus === null) continue;
+      const terminalRetry = test.results.at(-1).retry;
       const name = [...path, spec.title, test.projectName].filter(Boolean).join(" › ");
       entries.push({
         name,
         occurrenceId: `${source.run.id}:${source.runAttempt}:${source.matrixIndex}:${name}`,
-        terminalStatus: terminal.status,
+        terminalStatus,
         terminalRetry,
         runUrl:
           source.run.html_url ??
@@ -576,49 +576,7 @@ function readExactZipEntry(buffer, expectedName, maximum) {
 }
 
 function validatePlaywrightReport(report) {
-  if (!isRecord(report) || !Array.isArray(report.suites))
-    throw new Error("Playwright report must contain a suites array.");
-  for (const suite of report.suites) validateSuite(suite);
-  return report;
-}
-
-function validateSuite(suite) {
-  if (!isRecord(suite) || typeof suite.title !== "string") throw new Error("Playwright suite is malformed.");
-  if (suite.suites !== undefined) {
-    if (!Array.isArray(suite.suites)) throw new Error("Playwright child suites are malformed.");
-    for (const child of suite.suites) validateSuite(child);
-  }
-  if (suite.specs !== undefined) {
-    if (!Array.isArray(suite.specs)) throw new Error("Playwright suite specs are malformed.");
-    for (const spec of suite.specs) validateSpec(spec);
-  }
-}
-
-function validateSpec(spec) {
-  if (!isRecord(spec) || typeof spec.title !== "string" || !Array.isArray(spec.tests))
-    throw new Error("Playwright spec is malformed.");
-  for (const test of spec.tests) {
-    if (
-      !isRecord(test) ||
-      !Array.isArray(test.results) ||
-      (test.projectName !== undefined && typeof test.projectName !== "string")
-    )
-      throw new Error("Playwright test is malformed.");
-    for (const result of test.results) {
-      if (
-        !isRecord(result) ||
-        !Number.isInteger(result.retry) ||
-        result.retry < 0 ||
-        !PLAYWRIGHT_RESULT_STATUSES.has(result.status)
-      )
-        throw new Error("Playwright result is malformed.");
-    }
-  }
-}
-
-const PLAYWRIGHT_RESULT_STATUSES = new Set(["passed", "skipped", "failed", "timedOut", "interrupted"]);
-function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return validatePlaywrightPerSpecReport(report);
 }
 function formatMiB(bytes) {
   return `${bytes / (1024 * 1024)} MiB`;
