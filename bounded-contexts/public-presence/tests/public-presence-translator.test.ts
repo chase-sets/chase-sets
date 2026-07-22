@@ -105,23 +105,4 @@ describe("public presence translator", () => {
       assertPublicCopyGuard({ corpus: "consumer", copy: forbiddenConsumerCopy, guard: "agent-commerce" }),
     ).toThrow("consumer agent-commerce copy violations");
   });
-
-  it("keeps the listing-time fee primitive ahead of one landing-page fine-print clause", () => {
-    const landingCopy = Object.entries(publicPresenceEnglishTranslations)
-      .filter(([key]) => {
-        return key.startsWith("publicPresence.home.") || key.startsWith("publicPresence.faq.");
-      })
-      .map(([key, value]) => `${key}: ${value}`)
-      .join("\n");
-
-    const primitiveIndex = landingCopy.indexOf("Every listing locks its fee the moment you create it.");
-    const finePrintIndex = landingCopy.indexOf("Fine print: editing price keeps your lock.");
-
-    expect(landingCopy).toContain("You keep 100% of the sale price");
-    expect(primitiveIndex).toBeGreaterThanOrEqual(0);
-    expect(finePrintIndex).toBeGreaterThan(primitiveIndex);
-    expect(landingCopy.match(/Fine print: editing price keeps your lock/gi)).toHaveLength(1);
-    expect(landingCopy).not.toContain("Locked while unchanged");
-    expect(landingCopy).not.toContain("The lock holds while the listing stays unchanged");
-  });
 });

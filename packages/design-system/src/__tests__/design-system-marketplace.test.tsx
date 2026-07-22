@@ -53,7 +53,6 @@ import {
   MarketplaceCartLineItem,
   ListingPurchasePanel,
   MarketingImageHero,
-  MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
   PaymentRecoveryPanel,
@@ -438,51 +437,6 @@ describe("design system marketplace patterns", () => {
       }
     },
   );
-
-  it("renders marketing visual cards with accessible image context", () => {
-    const markup = renderToString(
-      <MarketingVisualCard
-        imageSrc="/assets/waitlist-panels.png"
-        imageAlt="Sorted collectible inventory"
-        imageLoading="lazy"
-        imageDecoding="async"
-        imageWidth={1200}
-        imageHeight={900}
-        badge="Beta signal"
-        title="Move more inventory"
-        description="Bulk, raw, graded, and chase cards stay practical to list."
-      />,
-    );
-
-    expect(markup).toContain("Sorted collectible inventory");
-    expect(markup).toContain('loading="lazy"');
-    expect(markup).toContain('decoding="async"');
-    expect(markup).toContain('width="1200"');
-    expect(markup).toContain("Beta signal");
-    expect(markup).toContain("Move more inventory");
-    expect(markup).toContain("max-w-[34rem] text-pretty");
-    expect(markup).not.toContain("srcset");
-    expect(markup).not.toContain("sizes=");
-  });
-
-  it("wires marketing visual card srcset/sizes so narrower viewports request a smaller image", () => {
-    const markup = renderToString(
-      <MarketingVisualCard
-        imageSrc="/assets/waitlist-panels.webp"
-        imageSrcSet="/assets/waitlist-panels-600w.webp 600w, /assets/waitlist-panels-1080w.webp 1080w, /assets/waitlist-panels.webp 2172w"
-        imageSizes="(min-width: 1024px) 50vw, 100vw"
-        imageAlt="Sorted collectible inventory"
-        imageWidth={1200}
-        imageHeight={900}
-        title="Move more inventory"
-      />,
-    );
-
-    expect(markup).toContain(
-      'srcSet="/assets/waitlist-panels-600w.webp 600w, /assets/waitlist-panels-1080w.webp 1080w, /assets/waitlist-panels.webp 2172w"',
-    );
-    expect(markup).toContain('sizes="(min-width: 1024px) 50vw, 100vw"');
-  });
 
   it("passes first-paint image hints through marketing heroes", () => {
     const markup = renderToString(

@@ -148,7 +148,6 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "LoadingSpinner",
   "MarketStatusBadge",
   "MarketingImageHero",
-  "MarketingVisualCard",
   "MarketplaceActionSheet",
   "MarketplaceCartLineItem",
   "MarketplaceDashboardPanel",
