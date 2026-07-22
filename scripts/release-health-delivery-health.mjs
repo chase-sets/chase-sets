@@ -348,6 +348,26 @@ export async function collectSourceData({ options, policy, client, queryStart })
     const health = records.find((record) => record.schemaVersion === "release-health/v1");
     if (!health || !isCommitSha(health.releaseCommit)) continue;
     if (!health.staging?.result || health.staging.result === "skipped") continue;
+    // `release-health/v1` predates advisory merge qualification. Only a
+    // release that explicitly opted into the new lineage contract is
+    // eligible for this join; retained records with no marker remain valid
+    // canonical release evidence. Once the marker is present, every missing,
+    // unknown, or contradictory identity still fails closed below.
+    const lineageFields = [
+      "candidateArtifactId",
+      "candidateArtifactName",
+      "mergeGroupWorkflowId",
+      "mergeGroupWorkflowPath",
+      "candidateSha",
+      "candidateTreeSha",
+      "candidateImageDigest",
+      "mergeGroupRunId",
+      "mergeGroupRunAttempt",
+    ];
+    const hasEligibilityMarker = health.queue && Object.hasOwn(health.queue, "mergeQualificationLineageVersion");
+    const hasPostRolloutLineageShape =
+      health.queue && lineageFields.some((field) => Object.hasOwn(health.queue, field));
+    if (!hasEligibilityMarker && !hasPostRolloutLineageShape) continue;
     const rootCause = records.find((record) => record.schemaVersion === "platform-deploy-root-cause/v1");
     const release = {
       candidateSha: health.queue?.candidateSha?.toLowerCase() ?? null,
@@ -358,6 +378,7 @@ export async function collectSourceData({ options, policy, client, queryStart })
         (health.releaseState?.transitions ?? []).map((transition) => transition?.imageDigest).find(Boolean) ?? null,
       completedAt: health.staging?.completedAt ?? runTimestamp(run),
       causalBridge: {
+        lineageVersion: health.queue?.mergeQualificationLineageVersion ?? null,
         pullRequestNumber: health.pullRequest?.number ?? health.queue?.pullRequestNumber ?? null,
         candidateArtifactId: health.queue?.candidateArtifactId ?? null,
         candidateArtifactName: health.queue?.candidateArtifactName ?? null,

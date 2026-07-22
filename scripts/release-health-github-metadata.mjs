@@ -7,10 +7,12 @@ import { inflateRawSync } from "node:zlib";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import {
   MERGE_QUALIFICATION_CANDIDATE_SCHEMA_VERSION,
+  RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION,
+  buildMergeQualificationCandidateFromGithubMetadata,
   validateMergeQualificationCandidate,
 } from "./merge-qualification-advisory.mjs";
 
-export const RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION = "release-candidate-linkage/v1";
+export { RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION };
 const PLATFORM_PR_WORKFLOW_PATH = ".github/workflows/platform-pr.yml";
 const ISO_EVENT_NAMES = new Set(["added_to_merge_queue", "ready_for_review", "merged", "removed_from_merge_queue"]);
 const MAX_PAGES = 20;
@@ -231,7 +233,7 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
   lineageReasons.push(...runCollection.reasons);
   const candidates = [];
   for (const run of runCollection.runs) {
-    if (!candidateRunCouldBelong({ run, pull: pullDetails, queueQueuedAt, queueMergedAt })) continue;
+    if (!candidateRunCouldBelong({ run, queueQueuedAt, queueMergedAt })) continue;
     const artifactCollection = await collectRunArtifacts(request, run, { maxPages: MAX_PAGES });
     lineageReasons.push(...artifactCollection.reasons.map((reason) => `run-${run.id}-artifacts:${reason}`));
     const artifactName = `merge-qualification-candidate-${run.id}-${run.run_attempt}`;
@@ -250,9 +252,13 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
       const entries = [...unzipJsonEntries(bytes)].filter(([name]) => basename(name) === "candidate.json");
       if (entries.length !== 1) throw new Error("candidate archive must contain exactly one candidate.json");
       const record = JSON.parse(entries[0][1].toString("utf8"));
+      const associationPage = await request.jsonPage(`/commits/${run.head_sha}/pulls?per_page=100`);
+      if (associationPage.hasNext) throw new Error("candidate commit association exceeds the 100-PR refusal ceiling");
+      const associatedPulls = associationPage.value;
       const recordErrors = validateCandidateArtifact(record, {
         repository: options.repository,
         run,
+        associatedPulls,
         pull: pullDetails,
         releaseTreeSha: releaseCommit?.tree?.sha,
       });
@@ -394,12 +400,11 @@ async function collectTotalAwarePages({ request, maxPages, source, pathForPage, 
   };
 }
 
-function candidateRunCouldBelong({ run, pull, queueQueuedAt, queueMergedAt }) {
+function candidateRunCouldBelong({ run, queueQueuedAt, queueMergedAt }) {
   const created = Date.parse(run?.created_at ?? "");
   const updated = Date.parse(run?.updated_at ?? "");
   const queued = Date.parse(queueQueuedAt ?? "");
   const merged = Date.parse(queueMergedAt ?? "");
-  const pullHead = normalizeCommitSha(pull?.head?.sha);
   return (
     run?.event === "merge_group" &&
     run?.path === PLATFORM_PR_WORKFLOW_PATH &&
@@ -413,18 +418,21 @@ function candidateRunCouldBelong({ run, pull, queueQueuedAt, queueMergedAt }) {
     Number.isFinite(queued) &&
     Number.isFinite(merged) &&
     created >= queued &&
-    updated <= merged &&
-    Array.isArray(run?.pull_requests) &&
-    run.pull_requests.some(
-      (candidatePull) =>
-        candidatePull?.number === pull?.number && normalizeCommitSha(candidatePull?.head?.sha) === pullHead,
-    )
+    updated <= merged
   );
 }
 
-function validateCandidateArtifact(record, { repository, run, pull, releaseTreeSha }) {
+function validateCandidateArtifact(record, { repository, run, associatedPulls, pull, releaseTreeSha }) {
   const errors = validateMergeQualificationCandidate(record);
-  const expectedPulls = normalizePullReferences(run?.pull_requests);
+  const rebuilt = buildMergeQualificationCandidateFromGithubMetadata({
+    repository,
+    run,
+    associatedPullRequestPages: [associatedPulls],
+    queueBaseSha: record?.queueBaseSha,
+    builtImageDigest: record?.builtImageDigest,
+    capturedAt: record?.capturedAt,
+  });
+  errors.push(...rebuilt.errors);
   if (record.schemaVersion !== MERGE_QUALIFICATION_CANDIDATE_SCHEMA_VERSION)
     errors.push("candidate schema is not current.");
   if (
@@ -437,8 +445,8 @@ function validateCandidateArtifact(record, { repository, run, pull, releaseTreeS
   ) {
     errors.push("candidate artifact does not bind its immutable workflow/run/attempt/candidate identity.");
   }
-  if (JSON.stringify(record.pullRequests) !== JSON.stringify(expectedPulls)) {
-    errors.push("candidate artifact pull linkage does not match the exact workflow run association.");
+  if (canonicalJson(record) !== canonicalJson(rebuilt.record)) {
+    errors.push("candidate artifact does not match the authoritative merge-group commit association.");
   }
   if (
     !record.pullRequests.some(
@@ -470,6 +478,7 @@ export function formatGithubOutput(metadata) {
     queue_dequeued_at: metadata.queueDequeuedAt,
     queue_failure_reason: metadata.queueFailureReason,
     queue_batch_size: metadata.queueBatchSize,
+    merge_qualification_lineage_version: metadata.schemaVersion,
     candidate_artifact_id: metadata.candidateArtifactId,
     candidate_artifact_name: metadata.candidateArtifactName,
     merge_group_workflow_id: metadata.mergeGroupWorkflowId,
@@ -525,6 +534,13 @@ function createGitHubRequest({ repository, token, fetchImpl }) {
   };
   return {
     json: async (path) => (await response(path)).json(),
+    jsonPage: async (path) => {
+      const result = await response(path);
+      return {
+        value: await result.json(),
+        hasNext: /<[^>]+>;\s*rel="next"/u.test(result.headers.get("link") ?? ""),
+      };
+    },
     bytes: async (path) => Buffer.from(await (await response(path)).arrayBuffer()),
   };
 }
@@ -579,11 +595,15 @@ function timelineEvents(timeline, eventName) {
     .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
 }
 
-function normalizePullReferences(pulls) {
-  return (Array.isArray(pulls) ? pulls : [])
-    .map((pull) => ({ number: pull?.number, headSha: normalizeCommitSha(pull?.head?.sha) }))
-    .filter((pull) => Number.isSafeInteger(pull.number) && pull.number > 0 && pull.headSha)
-    .sort((left, right) => left.number - right.number);
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function unzipJsonEntries(buffer) {

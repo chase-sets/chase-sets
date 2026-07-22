@@ -69,6 +69,7 @@ describe("release health summary", () => {
       queueMergedAt: "2026-05-31T11:55:00.000Z",
       queueDequeuedAt: "",
       queueFailureReason: "",
+      mergeQualificationLineageVersion: "release-candidate-linkage/v1",
       mergeSha: "e".repeat(40),
       mergeTreeSha: "f".repeat(40),
       releaseCommitCommittedAt: "2026-05-31T11:54:30.000Z",
@@ -130,6 +131,7 @@ describe("release health summary", () => {
       mainToProductionDrift: { commits: 1, seconds: 1080 },
       queue: {
         batchSize: 1,
+        mergeQualificationLineageVersion: "release-candidate-linkage/v1",
         queuedAt: "2026-05-31T11:50:00.000Z",
         mergeGroupStartedAt: "2026-05-31T11:52:00.000Z",
         mergedAt: "2026-05-31T11:55:00.000Z",
@@ -613,6 +615,14 @@ describe("release health summary", () => {
     });
   });
 
+  it("rejects an unknown merge-qualification lineage eligibility version", () => {
+    const result = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      mergeQualificationLineageVersion: "release-candidate-linkage/v2",
+    });
+    expect(result.errors).toContain("mergeQualificationLineageVersion is unsupported.");
+  });
+
   it("parses GitHub workflow environment values", () => {
     const options = parseReleaseHealthArgs([], {
       RELEASE_HEALTH_OUT: "artifacts/release-health/release.json",
@@ -631,6 +641,7 @@ describe("release health summary", () => {
       QUEUE_MERGED_AT: "2026-05-31T11:10:00.000Z",
       QUEUE_DEQUEUED_AT: "2026-05-31T11:09:00.000Z",
       QUEUE_FAILURE_REASON: "required-check-failed",
+      MERGE_QUALIFICATION_LINEAGE_VERSION: "release-candidate-linkage/v1",
       MERGE_SHA: "f".repeat(40),
       RELEASE_COMMIT_COMMITTED_AT: "2026-05-31T11:09:30.000Z",
       RELEASE_CATEGORY: "provider-exposure",
@@ -702,6 +713,7 @@ describe("release health summary", () => {
       queueMergedAt: "2026-05-31T11:10:00.000Z",
       queueDequeuedAt: "2026-05-31T11:09:00.000Z",
       queueFailureReason: "required-check-failed",
+      mergeQualificationLineageVersion: "release-candidate-linkage/v1",
       mergeSha: "f".repeat(40),
       releaseCommitCommittedAt: "2026-05-31T11:09:30.000Z",
       releaseCategory: "provider-exposure",

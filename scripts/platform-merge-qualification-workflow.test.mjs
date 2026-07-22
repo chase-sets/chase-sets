@@ -55,6 +55,15 @@ describe("genuinely advisory workflow topology", () => {
     expect(production).not.toContain("platform-merge-qualification.yml");
     expect(production.indexOf("Deploy Staging")).toBeLessThan(production.indexOf("Deploy Production"));
   });
+
+  it("marks both new staging and production release records with explicit lineage eligibility", () => {
+    expect(production.match(/merge_qualification_lineage_version=release-candidate-linkage\/v1/gu)).toHaveLength(2);
+    expect(
+      production.match(
+        /MERGE_QUALIFICATION_LINEAGE_VERSION: \$\{\{ steps\.release_health_metadata\.outputs\.merge_qualification_lineage_version \}\}/gu,
+      ),
+    ).toHaveLength(2);
+  });
 });
 
 describe("exact candidate image handoff", () => {
@@ -76,10 +85,16 @@ describe("exact candidate image handoff", () => {
     expect(upload).toContain("continue-on-error: true");
     expect(record).toContain("candidate-evidence");
     expect(record).toContain('--queue-base-sha "${{ github.event.merge_group.base_sha }}"');
-    expect(record).toContain("[.pull_requests[] | {number, headSha: .head.sha}] | sort_by(.number)");
+    expect(record).toContain('gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}"');
+    expect(record).toContain("gh api --paginate --slurp");
+    expect(record).toContain("commits/${candidate_sha}/pulls?per_page=100");
+    expect(record).toContain('--run-metadata "$run_metadata"');
+    expect(record).toContain('--associated-pull-pages "$associated_pull_pages"');
+    expect(record).not.toContain(".pull_requests");
+    expect(record).not.toContain("head_branch");
     expect(record).toContain('--built-image-digest "$BUILT_IMAGE_DIGEST"');
     expect(upload).toContain("merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}");
-    expect(docker).toContain("permissions:\n      contents: read\n      actions: read");
+    expect(docker).toContain("permissions:\n      contents: read\n      actions: read\n      pull-requests: read");
   });
 
   it("requires the exact digest at every reusable gate entry and never reads the tree tag", () => {

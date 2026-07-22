@@ -48,7 +48,9 @@ export const MERGE_QUALIFICATION_COMPARISON_SCHEMA_VERSION = "merge-qualificatio
 export const MERGE_QUALIFICATION_SUMMARY_SCHEMA_VERSION = "merge-qualification-summary/v1";
 export const MERGE_QUALIFICATION_CANDIDATE_SCHEMA_VERSION = "merge-qualification-candidate/v2";
 export const MERGE_QUALIFICATION_DECISION_SCHEMA_VERSION = "merge-qualification-decision/v1";
+export const RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION = "release-candidate-linkage/v1";
 export const MERGE_QUALIFICATION_POLICY_PATH = "scripts/merge-qualification-policy.json";
+const PLATFORM_PR_WORKFLOW_PATH = ".github/workflows/platform-pr.yml";
 // Ratified on the advisory-qualification cost wager: an enablement window may
 // never exceed 30 days, and the expiry clock starts at enablement
 // (enabledAt), not at merge.
@@ -410,6 +412,94 @@ export function buildMergeQualificationCandidate(input) {
     capturedAt: normalize(input.capturedAt),
   };
   return { record, errors: validateMergeQualificationCandidate(record) };
+}
+
+// GitHub's Actions run representation does not populate `pull_requests` for
+// real merge_group runs. The commit association endpoint is the authoritative
+// bridge instead: GET /commits/<merge-group SHA>/pulls returns the PRs whose
+// merge_commit_sha is that immutable queue candidate. The workflow saves the
+// run response and every paginated association page, then this boundary
+// derives (rather than accepts) workflow/run/SHA/tree/PR identity from them.
+export function buildMergeQualificationCandidateFromGithubMetadata(input) {
+  const run = input?.run;
+  const repository = normalize(input?.repository);
+  const queueBaseSha = lowerTrim(input?.queueBaseSha);
+  const candidateSha = lowerTrim(run?.head_sha);
+  const candidateTreeSha = lowerTrim(run?.head_commit?.tree_id);
+  const pages = input?.associatedPullRequestPages;
+  const metadataErrors = [];
+
+  if (
+    typeof run !== "object" ||
+    run === null ||
+    Array.isArray(run) ||
+    run.event !== "merge_group" ||
+    run.path !== PLATFORM_PR_WORKFLOW_PATH ||
+    !isBoundedSafeIntegerString(String(run.workflow_id ?? "")) ||
+    !isBoundedSafeIntegerString(String(run.id ?? "")) ||
+    !isBoundedSafeIntegerString(String(run.run_attempt ?? "")) ||
+    !["queued", "in_progress", "completed"].includes(run.status) ||
+    (run.status === "completed" && run.conclusion !== "success")
+  ) {
+    metadataErrors.push("candidate Actions run metadata is not an exact Platform PR merge_group attempt.");
+  }
+  if (run?.repository?.full_name !== repository) {
+    metadataErrors.push("candidate Actions run repository does not match the requested repository.");
+  }
+  if (
+    !isCommitSha(candidateSha) ||
+    !isCommitSha(candidateTreeSha) ||
+    lowerTrim(run?.head_commit?.id) !== candidateSha
+  ) {
+    metadataErrors.push("candidate Actions run does not carry an exact head SHA/tree identity.");
+  }
+  if (!isCommitSha(queueBaseSha)) metadataErrors.push("candidate merge_group base SHA is invalid.");
+  if (!Array.isArray(pages) || pages.length === 0 || pages.some((page) => !Array.isArray(page))) {
+    metadataErrors.push("candidate commit-associated pull request pages are invalid.");
+  }
+
+  const associatedPulls = Array.isArray(pages) && pages.every(Array.isArray) ? pages.flat() : [];
+  const seenNumbers = new Set();
+  const pullRequests = [];
+  if (associatedPulls.length === 0 || associatedPulls.length > 100) {
+    metadataErrors.push("candidate commit association must resolve one to 100 pull requests.");
+  }
+  for (const pull of associatedPulls) {
+    const number = pull?.number;
+    const headSha = lowerTrim(pull?.head?.sha);
+    const mergeCommitSha = lowerTrim(pull?.merge_commit_sha);
+    const baseSha = lowerTrim(pull?.base?.sha);
+    if (
+      !Number.isSafeInteger(number) ||
+      number <= 0 ||
+      seenNumbers.has(number) ||
+      !isCommitSha(headSha) ||
+      mergeCommitSha !== candidateSha ||
+      baseSha !== queueBaseSha
+    ) {
+      metadataErrors.push(
+        "candidate commit association is mismatched or ambiguous for its exact PR/head/base/merge identity.",
+      );
+      continue;
+    }
+    seenNumbers.add(number);
+    pullRequests.push({ number, headSha });
+  }
+
+  const built = buildMergeQualificationCandidate({
+    repository,
+    workflowId: String(run?.workflow_id ?? ""),
+    workflowPath: run?.path,
+    runId: String(run?.id ?? ""),
+    runAttempt: String(run?.run_attempt ?? ""),
+    queueBaseSha,
+    pullRequests,
+    candidateSha,
+    candidateTreeSha,
+    builtImageDigest: input?.builtImageDigest,
+    capturedAt: input?.capturedAt,
+  });
+  return { record: built.record, errors: [...new Set([...metadataErrors, ...built.errors])] };
 }
 
 export function validateMergeQualificationCandidate(record) {
@@ -1278,6 +1368,7 @@ export function validateStagingRelease(release) {
     errors.push("completedAt must be a calendar-valid instant.");
   if (
     !isClosedObject(release.causalBridge, [
+      "lineageVersion",
       "pullRequestNumber",
       "candidateArtifactId",
       "candidateArtifactName",
@@ -1289,6 +1380,7 @@ export function validateStagingRelease(release) {
       "lineageComplete",
       "lineageReasons",
     ]) ||
+    release.causalBridge?.lineageVersion !== RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION ||
     !Number.isSafeInteger(release.causalBridge?.pullRequestNumber) ||
     release.causalBridge.pullRequestNumber <= 0 ||
     !isBoundedSafeIntegerString(release.causalBridge?.candidateArtifactId) ||
@@ -2097,22 +2189,11 @@ async function main(argv, env = process.env) {
   }
 
   if (command === "candidate-evidence") {
-    let pullRequests = [];
-    try {
-      pullRequests = JSON.parse(readOption(argv, "--pull-requests") ?? "[]");
-    } catch {
-      pullRequests = null;
-    }
-    const built = buildMergeQualificationCandidate({
+    const built = buildMergeQualificationCandidateFromGithubMetadata({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
-      workflowId: readOption(argv, "--workflow-id"),
-      workflowPath: readOption(argv, "--workflow-path"),
-      runId: readOption(argv, "--run-id") ?? env.GITHUB_RUN_ID,
-      runAttempt: readOption(argv, "--run-attempt") ?? env.GITHUB_RUN_ATTEMPT,
+      run: readJsonFileOrNull(readOption(argv, "--run-metadata")),
+      associatedPullRequestPages: readJsonFileOrNull(readOption(argv, "--associated-pull-pages")),
       queueBaseSha: readOption(argv, "--queue-base-sha"),
-      pullRequests,
-      candidateSha: readOption(argv, "--candidate-sha"),
-      candidateTreeSha: readOption(argv, "--candidate-tree"),
       builtImageDigest: readOption(argv, "--built-image-digest"),
       capturedAt: readOption(argv, "--captured-at") ?? now().toISOString(),
     });

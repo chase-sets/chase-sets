@@ -308,6 +308,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     needs: change-scope
     if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.docker_image == 'true'
     outputs:
@@ -439,19 +440,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification-candidate
-          run_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
-          workflow_id="$(printf '%s' "$run_json" | jq -r '.workflow_id')"
-          workflow_path="$(printf '%s' "$run_json" | jq -r '.path')"
+          run_metadata="artifacts/merge-qualification-candidate/run.json"
+          associated_pull_pages="artifacts/merge-qualification-candidate/associated-pull-pages.json"
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
+          candidate_sha="$(jq -r '.head_sha' "$run_metadata")"
+          candidate_tree="$(jq -r '.head_commit.tree_id' "$run_metadata")"
+          test "$candidate_sha" = "$(git rev-parse HEAD)"
+          test "$candidate_tree" = "$(git rev-parse 'HEAD^{tree}')"
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/commits/${candidate_sha}/pulls?per_page=100" > "$associated_pull_pages"
           node ./scripts/merge-qualification-advisory.mjs candidate-evidence \
             --repository "${{ github.repository }}" \
-            --workflow-id "$workflow_id" \
-            --workflow-path "$workflow_path" \
-            --run-id "${{ github.run_id }}" \
-            --run-attempt "${{ github.run_attempt }}" \
+            --run-metadata "$run_metadata" \
+            --associated-pull-pages "$associated_pull_pages" \
             --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
-            --pull-requests "$(printf '%s' "$run_json" | jq -c '[.pull_requests[] | {number, headSha: .head.sha}] | sort_by(.number)')" \
-            --candidate-sha "$(git rev-parse HEAD)" \
-            --candidate-tree "$(git rev-parse 'HEAD^{tree}')" \
             --built-image-digest "$BUILT_IMAGE_DIGEST" \
             --out artifacts/merge-qualification-candidate/candidate.json
 

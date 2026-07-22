@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { buildMergeQualificationCandidate } from "./merge-qualification-advisory.mjs";
@@ -7,6 +11,7 @@ import {
   formatGithubOutput,
   validateReleaseCandidateLinkage,
 } from "./release-health-github-metadata.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
 const repository = "chase-sets/chase-sets";
 const releaseCommit = "225e00cb6e3772770b3ae764c30b5d9e6d03aa42";
@@ -27,7 +32,9 @@ function mergeGroupRun(overrides = {}) {
     status: "completed",
     conclusion: "success",
     head_sha: candidateCommit,
-    pull_requests: [{ number: 517, head: { sha: pullHead } }],
+    pull_requests: [],
+    head_commit: { id: candidateCommit, tree_id: sharedTree },
+    repository: { full_name: repository },
     created_at: "2026-06-01T03:18:13Z",
     updated_at: "2026-06-01T03:18:40Z",
     ...overrides,
@@ -42,7 +49,7 @@ function candidateFor(run, overrides = {}) {
     runId: String(run.id),
     runAttempt: String(run.run_attempt),
     queueBaseSha: queueBase,
-    pullRequests: run.pull_requests.map((pull) => ({ number: pull.number, headSha: pull.head.sha })),
+    pullRequests: [{ number: 517, headSha: pullHead }],
     candidateSha: run.head_sha,
     candidateTreeSha: sharedTree,
     builtImageDigest: imageDigest,
@@ -58,6 +65,7 @@ function fixture({
   candidateRecords,
   pulls = [{ number: 517 }],
   pull = {},
+  associatedPullsByRun = new Map(),
   branchRules = [{ type: "merge_queue", parameters: { max_entries_to_merge: 2 } }],
 } = {}) {
   const defaultRun = mergeGroupRun();
@@ -111,6 +119,17 @@ function fixture({
           },
         ],
       });
+      json.set(
+        `/repos/${repository}/commits/${run.head_sha}/pulls?per_page=100`,
+        associatedPullsByRun.get(String(run.id)) ?? [
+          {
+            number: 517,
+            merge_commit_sha: run.head_sha,
+            head: { sha: pullHead },
+            base: { sha: queueBase },
+          },
+        ],
+      );
     }
   }
   return {
@@ -142,6 +161,160 @@ async function collect(setup = fixture()) {
 }
 
 describe("production release candidate linkage", () => {
+  it("drives a real successful empty-pull merge_group shape through the production CLI and release discovery", async () => {
+    const realFixture = JSON.parse(
+      readFileSync(
+        path.join(
+          repoRoot,
+          "scripts/fixtures/merge-qualification/real-successful-merge-group-empty-actions-pulls.json",
+        ),
+        "utf8",
+      ),
+    );
+    // Structural negative control: this assertion must fail if a future test
+    // silently restores the fixture-only Actions pull list that caused the
+    // production outage.
+    expect(realFixture.run.pull_requests).toEqual([]);
+
+    const workDir = mkdtempSync(path.join(tmpdir(), "merge-group-candidate-evidence-"));
+    try {
+      const runPath = path.join(workDir, "run.json");
+      const pullsPath = path.join(workDir, "associated-pulls.json");
+      const candidatePath = path.join(workDir, "candidate.json");
+      writeFileSync(runPath, JSON.stringify(realFixture.run));
+      writeFileSync(pullsPath, JSON.stringify(realFixture.associatedPullRequestPages));
+      execFileSync(
+        process.execPath,
+        [
+          "scripts/merge-qualification-advisory.mjs",
+          "candidate-evidence",
+          "--repository",
+          repository,
+          "--run-metadata",
+          runPath,
+          "--associated-pull-pages",
+          pullsPath,
+          "--queue-base-sha",
+          realFixture.associatedPullRequestPages[0][0].base.sha,
+          "--built-image-digest",
+          imageDigest,
+          "--captured-at",
+          "2026-07-22T01:20:00.000Z",
+          "--out",
+          candidatePath,
+        ],
+        { cwd: repoRoot, encoding: "utf8" },
+      );
+      const candidate = JSON.parse(readFileSync(candidatePath, "utf8"));
+      expect(candidate).toMatchObject({
+        runId: "29882700998",
+        candidateSha: realFixture.run.head_sha,
+        candidateTreeSha: realFixture.run.head_commit.tree_id,
+        pullRequests: [{ number: 5888, headSha: realFixture.associatedPullRequestPages[0][0].head.sha }],
+      });
+
+      const associated = realFixture.associatedPullRequestPages[0][0];
+      const routes = new Map([
+        [`/repos/${repository}/commits/${realFixture.run.head_sha}/pulls`, [{ number: associated.number }]],
+        [
+          `/repos/${repository}/pulls/${associated.number}`,
+          { ...associated, created_at: "2026-07-21T23:39:47Z", draft: false },
+        ],
+        [`/repos/${repository}/pulls/${associated.number}/reviews?per_page=100`, []],
+        [
+          `/repos/${repository}/issues/${associated.number}/timeline?per_page=100`,
+          [{ event: "added_to_merge_queue", created_at: "2026-07-22T01:17:20Z" }],
+        ],
+        [`/repos/${repository}/rules/branches/main?per_page=100`, []],
+        [
+          `/repos/${repository}/git/commits/${realFixture.run.head_sha}`,
+          { tree: { sha: realFixture.run.head_commit.tree_id } },
+        ],
+        [
+          `/repos/${repository}/actions/workflows/platform-pr.yml/runs?event=merge_group&per_page=100&page=1`,
+          { total_count: 1, workflow_runs: [realFixture.run] },
+        ],
+        [
+          `/repos/${repository}/actions/runs/${realFixture.run.id}/artifacts?per_page=100&page=1`,
+          {
+            total_count: 1,
+            artifacts: [
+              {
+                id: 40000000001,
+                name: `merge-qualification-candidate-${realFixture.run.id}-${realFixture.run.run_attempt}`,
+                expired: false,
+                archive_download_url: "https://artifacts.test/real-candidate",
+              },
+            ],
+          },
+        ],
+        [
+          `/repos/${repository}/commits/${realFixture.run.head_sha}/pulls?per_page=100`,
+          realFixture.associatedPullRequestPages[0],
+        ],
+      ]);
+      const metadata = await collectReleaseHealthGithubMetadata(
+        {
+          repository,
+          releaseCommit: realFixture.run.head_sha,
+          sourceWorkflowCreatedAt: "2026-07-22T01:17:00Z",
+          token: "fixture",
+        },
+        {
+          fetchImpl: async (url) => {
+            const parsed = new URL(url);
+            if (parsed.href === "https://artifacts.test/real-candidate") {
+              return new Response(buildZip([["candidate.json", JSON.stringify(candidate), 8]]), { status: 200 });
+            }
+            const key = `${parsed.pathname}${parsed.search}`;
+            if (!routes.has(key)) throw new Error(`Unexpected real-shape request: ${key}`);
+            return new Response(JSON.stringify(routes.get(key)), { status: 200 });
+          },
+        },
+      );
+      expect(metadata).toMatchObject({
+        pullRequestNumber: 5888,
+        candidateSha: realFixture.run.head_sha,
+        candidateTreeSha: realFixture.run.head_commit.tree_id,
+        mergeGroupRunId: String(realFixture.run.id),
+        mergeGroupRunAttempt: String(realFixture.run.run_attempt),
+        lineageComplete: true,
+        lineageReasons: [],
+      });
+
+      for (const associatedPages of [
+        [[{ ...associated, merge_commit_sha: "f".repeat(40) }]],
+        [[associated, { ...associated, head: { sha: "e".repeat(40) } }]],
+      ]) {
+        writeFileSync(pullsPath, JSON.stringify(associatedPages));
+        expect(() =>
+          execFileSync(
+            process.execPath,
+            [
+              "scripts/merge-qualification-advisory.mjs",
+              "candidate-evidence",
+              "--repository",
+              repository,
+              "--run-metadata",
+              runPath,
+              "--associated-pull-pages",
+              pullsPath,
+              "--queue-base-sha",
+              associated.base.sha,
+              "--built-image-digest",
+              imageDigest,
+              "--captured-at",
+              "2026-07-22T01:20:00.000Z",
+            ],
+            { cwd: repoRoot, stdio: "pipe" },
+          ),
+        ).toThrow();
+      }
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
   it("collects the exact candidate artifact, workflow attempt, tree, digest, and final merge identity", async () => {
     const metadata = await collect();
     expect(validateReleaseCandidateLinkage(metadata, { releaseCommit })).toEqual([]);
@@ -171,7 +344,6 @@ describe("production release candidate linkage", () => {
       id: 7999,
       run_attempt: 1,
       head_sha: "8".repeat(40),
-      pull_requests: [{ number: 999, head: { sha: "9".repeat(40) } }],
       created_at: "2026-05-01T03:18:13Z",
       updated_at: "2026-05-01T03:18:40Z",
     });
@@ -208,11 +380,27 @@ describe("production release candidate linkage", () => {
   });
 
   it("does not cross-bind an unrelated same-tree run", async () => {
-    const unrelated = mergeGroupRun({
-      pull_requests: [{ number: 999, head: { sha: pullHead } }],
-    });
+    const unrelated = mergeGroupRun();
     const metadata = await collect(
-      fixture({ pages: [[unrelated]], candidateRecords: new Map([["8000", candidateFor(unrelated)]]) }),
+      fixture({
+        pages: [[unrelated]],
+        candidateRecords: new Map([
+          ["8000", candidateFor(unrelated, { pullRequests: [{ number: 999, headSha: pullHead }] })],
+        ]),
+        associatedPullsByRun: new Map([
+          [
+            "8000",
+            [
+              {
+                number: 999,
+                merge_commit_sha: unrelated.head_sha,
+                head: { sha: pullHead },
+                base: { sha: queueBase },
+              },
+            ],
+          ],
+        ]),
+      }),
     );
     expect(metadata).toMatchObject({ candidateArtifactId: null, candidateTreeSha: null, lineageComplete: false });
   });
@@ -254,6 +442,7 @@ describe("production release candidate linkage", () => {
     }
     const output = formatGithubOutput(metadata);
     expect(output).toContain("candidate_artifact_name=merge-qualification-candidate-8000-2\n");
+    expect(output).toContain("merge_qualification_lineage_version=release-candidate-linkage/v1\n");
     expect(output).toContain("lineage_complete=true\n");
     expect(output).toContain("lineage_reasons_json=[]\n");
   });

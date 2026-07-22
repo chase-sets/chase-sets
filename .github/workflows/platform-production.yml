@@ -1990,6 +1990,7 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "merge_qualification_lineage_version=release-candidate-linkage/v1"
               echo "candidate_artifact_id="
               echo "candidate_artifact_name="
               echo "merge_group_workflow_id="
@@ -2061,6 +2062,7 @@ jobs:
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
           QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
+          MERGE_QUALIFICATION_LINEAGE_VERSION: ${{ steps.release_health_metadata.outputs.merge_qualification_lineage_version }}
           CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
           CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
           CANDIDATE_ARTIFACT_ID: ${{ steps.release_health_metadata.outputs.candidate_artifact_id }}
@@ -3718,6 +3720,7 @@ jobs:
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
               echo "queue_batch_size=1"
+              echo "merge_qualification_lineage_version=release-candidate-linkage/v1"
               echo "candidate_artifact_id="
               echo "candidate_artifact_name="
               echo "merge_group_workflow_id="
@@ -3807,6 +3810,7 @@ jobs:
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
           QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
           QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
+          MERGE_QUALIFICATION_LINEAGE_VERSION: ${{ steps.release_health_metadata.outputs.merge_qualification_lineage_version }}
           CANDIDATE_SHA: ${{ steps.release_health_metadata.outputs.candidate_sha }}
           CANDIDATE_TREE_SHA: ${{ steps.release_health_metadata.outputs.candidate_tree_sha }}
           CANDIDATE_ARTIFACT_ID: ${{ steps.release_health_metadata.outputs.candidate_artifact_id }}

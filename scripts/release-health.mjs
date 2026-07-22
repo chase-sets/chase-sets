@@ -3,8 +3,10 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION } from "./merge-qualification-advisory.mjs";
 
 export const RELEASE_HEALTH_VERSION = "release-health/v1";
+export const RELEASE_HEALTH_MERGE_QUALIFICATION_LINEAGE_VERSION = RELEASE_CANDIDATE_LINKAGE_SCHEMA_VERSION;
 
 export function parseReleaseHealthArgs(argv, env = process.env) {
   const stagingResult = readOption(argv, "--staging-result") ?? readEnv("STAGING_RESULT", env) ?? "unknown";
@@ -32,6 +34,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     queueMergedAt: readOption(argv, "--queue-merged-at") ?? readEnv("QUEUE_MERGED_AT", env) ?? null,
     queueDequeuedAt: readOption(argv, "--queue-dequeued-at") ?? readEnv("QUEUE_DEQUEUED_AT", env) ?? null,
     queueFailureReason: readOption(argv, "--queue-failure-reason") ?? readEnv("QUEUE_FAILURE_REASON", env) ?? null,
+    mergeQualificationLineageVersion:
+      readOption(argv, "--merge-qualification-lineage-version") ??
+      readEnv("MERGE_QUALIFICATION_LINEAGE_VERSION", env) ??
+      null,
     candidateArtifactId: readOption(argv, "--candidate-artifact-id") ?? readEnv("CANDIDATE_ARTIFACT_ID", env) ?? null,
     candidateArtifactName:
       readOption(argv, "--candidate-artifact-name") ?? readEnv("CANDIDATE_ARTIFACT_NAME", env) ?? null,
@@ -260,6 +266,13 @@ export function buildReleaseHealthRecord(input) {
   if (isNonEmptyString(input.mergeSha) && !isCommitSha(input.mergeSha)) {
     errors.push("mergeSha must be a 40-character Git commit SHA when provided.");
   }
+  if (
+    input.mergeQualificationLineageVersion !== null &&
+    input.mergeQualificationLineageVersion !== undefined &&
+    input.mergeQualificationLineageVersion !== RELEASE_HEALTH_MERGE_QUALIFICATION_LINEAGE_VERSION
+  ) {
+    errors.push("mergeQualificationLineageVersion is unsupported.");
+  }
   const finalMergeIdentity = [input.mergeSha, input.mergeTreeSha];
   if (finalMergeIdentity.some((value) => isNonEmptyString(value))) {
     if (!isCommitSha(input.mergeSha) || !isCommitSha(input.mergeTreeSha)) {
@@ -277,6 +290,12 @@ export function buildReleaseHealthRecord(input) {
     input.mergeGroupRunId,
     input.mergeGroupRunAttempt,
   ];
+  if (
+    candidateLineage.some((value) => isNonEmptyString(value)) &&
+    input.mergeQualificationLineageVersion !== RELEASE_HEALTH_MERGE_QUALIFICATION_LINEAGE_VERSION
+  ) {
+    errors.push("queue candidate lineage requires the current merge-qualification lineage version.");
+  }
   if (candidateLineage.some((value) => isNonEmptyString(value))) {
     if (!isCommitSha(input.candidateSha) || !isCommitSha(input.candidateTreeSha)) {
       errors.push("queue candidateSha/candidateTreeSha must be a complete immutable pair.");
@@ -370,6 +389,7 @@ export function buildReleaseHealthRecord(input) {
       mergedAt: emptyToNull(input.queueMergedAt),
       dequeuedAt: emptyToNull(input.queueDequeuedAt),
       failureReason: emptyToNull(input.queueFailureReason),
+      mergeQualificationLineageVersion: emptyToNull(input.mergeQualificationLineageVersion),
       candidateArtifactId: emptyToNull(input.candidateArtifactId),
       candidateArtifactName: emptyToNull(input.candidateArtifactName),
       mergeGroupWorkflowId: emptyToNull(input.mergeGroupWorkflowId),

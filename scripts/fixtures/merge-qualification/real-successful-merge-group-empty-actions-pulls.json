@@ -1,0 +1,45 @@
+{
+  "observedAt": "2026-07-22T01:50:00.000Z",
+  "sources": {
+    "run": "repos/chase-sets/chase-sets/actions/runs/29882700998",
+    "commitPulls": "repos/chase-sets/chase-sets/commits/a22a720b7bf73a38242730d717a05ef335562794/pulls"
+  },
+  "run": {
+    "id": 29882700998,
+    "name": "Platform PR",
+    "head_branch": "gh-readonly-queue/main/pr-5888-b147359d73bd142b0b40e0553184f2e3d4339bc7",
+    "head_sha": "a22a720b7bf73a38242730d717a05ef335562794",
+    "path": ".github/workflows/platform-pr.yml",
+    "event": "merge_group",
+    "status": "completed",
+    "conclusion": "success",
+    "workflow_id": 274293632,
+    "run_attempt": 1,
+    "created_at": "2026-07-22T01:17:34Z",
+    "updated_at": "2026-07-22T01:26:26Z",
+    "pull_requests": [],
+    "head_commit": {
+      "id": "a22a720b7bf73a38242730d717a05ef335562794",
+      "tree_id": "4697e7727ab20b09dd41748ff9e17ae2cb8fd0df"
+    },
+    "repository": {
+      "full_name": "chase-sets/chase-sets"
+    }
+  },
+  "associatedPullRequestPages": [
+    [
+      {
+        "number": 5888,
+        "state": "closed",
+        "merged_at": "2026-07-22T01:26:51Z",
+        "merge_commit_sha": "a22a720b7bf73a38242730d717a05ef335562794",
+        "head": {
+          "sha": "ba6d491d134b3fe137d20cd4ceddd2f0488e4bac"
+        },
+        "base": {
+          "sha": "b147359d73bd142b0b40e0553184f2e3d4339bc7"
+        }
+      }
+    ]
+  ]
+}

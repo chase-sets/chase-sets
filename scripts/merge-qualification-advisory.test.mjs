@@ -441,6 +441,7 @@ function candidateFor(event) {
 
 function causalBridgeForEvent(event, pullRequestNumber = 55, overrides = {}) {
   return {
+    lineageVersion: "release-candidate-linkage/v1",
     pullRequestNumber,
     candidateArtifactId: "7001",
     candidateArtifactName: `merge-qualification-candidate-${event.parentRunId}-${event.parentRunAttempt}`,

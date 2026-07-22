@@ -1,4 +1,6 @@
 import { deflateRawSync } from "node:zlib";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   buildMergeQualificationCandidate,
@@ -22,6 +24,7 @@ import {
   renderSliMarker,
   unzipJsonEntries,
 } from "./release-health-delivery-health.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
 let policy;
 
@@ -669,6 +672,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
     releaseCommit: mainSha,
     pullRequest: { number: 5839 },
     queue: {
+      mergeQualificationLineageVersion: "release-candidate-linkage/v1",
       candidateSha,
       candidateTreeSha: candidateTree,
       candidateArtifactId: "18000",
@@ -945,6 +949,144 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
     });
   });
 
+  it("drives the recorded real empty-pull run identity through the scheduled collector and causal join", async () => {
+    const realFixture = JSON.parse(
+      readFileSync(
+        path.join(
+          repoRoot,
+          "scripts/fixtures/merge-qualification/real-successful-merge-group-empty-actions-pulls.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(realFixture.run.pull_requests).toEqual([]);
+    const associated = realFixture.associatedPullRequestPages[0][0];
+    const eventRunId = 30000000001;
+    const releaseRunId = 30000000002;
+    const event = qualificationEvent({
+      workflowId: "1",
+      parentWorkflowId: String(realFixture.run.workflow_id),
+      parentRunId: String(realFixture.run.id),
+      parentRunAttempt: String(realFixture.run.run_attempt),
+      candidateSha: realFixture.run.head_sha,
+      candidateTreeSha: realFixture.run.head_commit.tree_id,
+      startedAt: "2026-07-22T01:27:00.000Z",
+      completedAt: "2026-07-22T01:30:00.000Z",
+      runId: String(eventRunId),
+      evidenceLinks: [`https://github.com/chase-sets/chase-sets/actions/runs/${eventRunId}/attempts/1`],
+    });
+    const release = {
+      ...stagingHealthRecord,
+      releaseCommit: realFixture.run.head_sha,
+      pullRequest: { number: associated.number },
+      queue: {
+        mergeQualificationLineageVersion: "release-candidate-linkage/v1",
+        candidateSha: realFixture.run.head_sha,
+        candidateTreeSha: realFixture.run.head_commit.tree_id,
+        candidateArtifactId: "40000000001",
+        candidateArtifactName: `merge-qualification-candidate-${realFixture.run.id}-${realFixture.run.run_attempt}`,
+        mergeGroupWorkflowId: String(realFixture.run.workflow_id),
+        mergeGroupWorkflowPath: realFixture.run.path,
+        candidateImageDigest: event.imageDigest,
+        mergeGroupRunId: String(realFixture.run.id),
+        mergeGroupRunAttempt: String(realFixture.run.run_attempt),
+        mergeSha: realFixture.run.head_sha,
+        mergeTreeSha: realFixture.run.head_commit.tree_id,
+        lineageComplete: true,
+        lineageReasons: [],
+      },
+      staging: { ...stagingHealthRecord.staging, completedAt: "2026-07-22T01:40:00.000Z" },
+      releaseState: { transitions: [{ type: "promoted", imageDigest: event.imageDigest }] },
+    };
+    const source = await collectSourceData({
+      options: { repository: options.repository, checkedAt: "2026-07-22T02:00:00.000Z" },
+      policy,
+      client: fakeClient({
+        "/actions/workflows/platform-merge-qualification.yml/runs": () => ({
+          workflow_runs: [
+            {
+              id: eventRunId,
+              workflow_id: 1,
+              path: ".github/workflows/platform-merge-qualification.yml",
+              event: "workflow_run",
+              status: "completed",
+              display_title: `Merge Qualification merge_group ${realFixture.run.id}-${realFixture.run.run_attempt}`,
+              conclusion: "success",
+              head_sha: "d".repeat(40),
+              run_attempt: 1,
+              created_at: "2026-07-22T01:27:00.000Z",
+              run_started_at: "2026-07-22T01:27:00.000Z",
+              updated_at: "2026-07-22T01:31:00.000Z",
+            },
+          ],
+        }),
+        "/actions/workflows/platform-production.yml/runs": () => ({
+          workflow_runs: [
+            {
+              id: releaseRunId,
+              event: "workflow_dispatch",
+              conclusion: "failure",
+              run_attempt: 1,
+              created_at: "2026-07-22T01:32:00.000Z",
+              run_started_at: "2026-07-22T01:32:00.000Z",
+              updated_at: "2026-07-22T01:41:00.000Z",
+            },
+          ],
+        }),
+        [`/actions/runs/${eventRunId}/artifacts`]: () => ({
+          artifacts: [
+            {
+              id: 40000000002,
+              name: `merge-qualification-events-${eventRunId}-1`,
+              archive_download_url: "https://example.test/real-event-zip",
+            },
+          ],
+        }),
+        [`/actions/runs/${releaseRunId}/jobs`]: () => ({ jobs: [] }),
+        [`/actions/runs/${releaseRunId}/artifacts`]: () => ({
+          artifacts: [
+            {
+              id: 40000000003,
+              name: `staging-release-health-${releaseRunId}`,
+              archive_download_url: "https://example.test/real-release-zip",
+            },
+          ],
+        }),
+        "https://example.test/real-event-zip": () => buildZip([["event.json", JSON.stringify(event), 0]]),
+        "https://example.test/real-release-zip": () =>
+          buildZip([
+            ["staging-release.json", JSON.stringify(release), 0],
+            ["staging-deploy-root-cause.json", JSON.stringify(rootCauseRecord), 0],
+          ]),
+      }),
+      queryStart: "2026-07-15T02:00:00.000Z",
+    });
+    expect(source.mergeQualification.failures).toEqual([]);
+    expect(source.mergeQualification.candidates).toEqual([
+      {
+        parentRunId: String(realFixture.run.id),
+        parentRunAttempt: String(realFixture.run.run_attempt),
+        candidateSha: realFixture.run.head_sha,
+        runId: String(eventRunId),
+        runAttempt: "1",
+      },
+    ]);
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-22T02:00:00.000Z",
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(record.mergeQualification).toMatchObject({
+      sampleCount: 1,
+      stagingCatchCount: 1,
+      orphanCount: 0,
+      evidence: { complete: true },
+    });
+  });
+
   it("carries executable early-cancellation terminalization through the observer collector and canonical summary", async () => {
     const resolution = resolveRunTerminalization({
       runEvent: "workflow_run",
@@ -1064,7 +1206,9 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       status: "completed",
       conclusion: "success",
       head_sha: candidateSha,
-      pull_requests: [{ number: 5839, head: { sha: pullHeadSha } }],
+      pull_requests: [],
+      head_commit: { id: candidateSha, tree_id: candidateTree },
+      repository: { full_name: "chase-sets/chase-sets" },
       created_at: "2026-07-18T10:00:00Z",
       updated_at: "2026-07-18T10:20:00Z",
     };
@@ -1121,6 +1265,17 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
           ],
         },
       ],
+      [
+        `/repos/chase-sets/chase-sets/commits/${candidateSha}/pulls?per_page=100`,
+        [
+          {
+            number: 5839,
+            merge_commit_sha: candidateSha,
+            base: { sha: queueBaseSha },
+            head: { sha: pullHeadSha },
+          },
+        ],
+      ],
       [`/repos/chase-sets/chase-sets/git/commits/${mainSha}`, { tree: { sha: candidateTree } }],
       ["/repos/chase-sets/chase-sets/rules/branches/main?per_page=100", []],
     ]);
@@ -1162,6 +1317,7 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
       ...stagingHealthRecord,
       pullRequest: { number: metadata.pullRequestNumber },
       queue: {
+        mergeQualificationLineageVersion: "release-candidate-linkage/v1",
         candidateSha: metadata.candidateSha,
         candidateTreeSha: metadata.candidateTreeSha,
         candidateArtifactId: metadata.candidateArtifactId,
@@ -1450,6 +1606,106 @@ describe("scheduled merge-qualification collection (production wiring)", () => {
     expect(record.completeness.status).toBe("partial");
   });
 
+  it("ratchets merge-lineage only for explicitly eligible release-health records in one mixed rolling window", async () => {
+    const { mergeQualificationLineageVersion: _legacyAbsent, ...legacyQueue } = stagingHealthRecord.queue;
+    const preRollout = {
+      ...stagingHealthRecord,
+      releaseCommit: "2".repeat(40),
+      queue: {
+        batchSize: 1,
+        mergeSha: "2".repeat(40),
+        mergeTreeSha: "6".repeat(40),
+      },
+      staging: { ...stagingHealthRecord.staging, result: "success", completedAt: "2026-07-18T10:45:00.000Z" },
+      releaseState: { transitions: [{ type: "promoted", imageDigest: `sha256:${"6".repeat(64)}` }] },
+    };
+    expect(Object.hasOwn(preRollout.queue, "mergeQualificationLineageVersion")).toBe(false);
+    expect(Object.hasOwn(legacyQueue, "mergeQualificationLineageVersion")).toBe(false);
+
+    const correctlyLinked = stagingHealthRecord;
+    const eligibleMalformed = {
+      ...stagingHealthRecord,
+      releaseCommit: "3".repeat(40),
+      queue: { ...stagingHealthRecord.queue, candidateTreeSha: null, mergeSha: "3".repeat(40) },
+      staging: { ...stagingHealthRecord.staging, completedAt: "2026-07-18T11:15:00.000Z" },
+    };
+    const run = (id, conclusion) => ({
+      id,
+      event: "workflow_dispatch",
+      conclusion,
+      run_attempt: 1,
+      created_at: iso(90),
+      run_started_at: iso(89),
+      updated_at: iso(50),
+    });
+    const releaseRuns = [run(9100, "success"), run(9101, "failure"), run(9102, "failure")];
+    const releaseArtifact = (id, url) => ({
+      artifacts: [{ id, name: `staging-release-health-${id}`, archive_download_url: url }],
+    });
+    const client = fakeClient({
+      "/actions/workflows/platform-production.yml/runs": () => ({ workflow_runs: releaseRuns }),
+      "/actions/runs/9100/jobs": () => ({ jobs: [] }),
+      "/actions/runs/9101/jobs": () => ({ jobs: [] }),
+      "/actions/runs/9102/jobs": () => ({ jobs: [] }),
+      "/actions/runs/9100/artifacts": () => releaseArtifact(10, "https://example.test/pre-rollout-release"),
+      "/actions/runs/9101/artifacts": () => releaseArtifact(11, "https://example.test/linked-release"),
+      "/actions/runs/9102/artifacts": () => releaseArtifact(12, "https://example.test/malformed-release"),
+      "https://example.test/pre-rollout-release": () =>
+        buildZip([["staging-release.json", JSON.stringify(preRollout), 0]]),
+      "https://example.test/linked-release": () =>
+        buildZip([
+          ["staging-release.json", JSON.stringify(correctlyLinked), 0],
+          ["staging-deploy-root-cause.json", JSON.stringify(rootCauseRecord), 0],
+        ]),
+      "https://example.test/malformed-release": () =>
+        buildZip([["staging-release.json", JSON.stringify(eligibleMalformed), 0]]),
+    });
+    const source = await collectSourceData({
+      options,
+      policy,
+      client,
+      queryStart: "2026-07-11T12:00:00.000Z",
+    });
+
+    expect(source.mergeQualification.releases).toHaveLength(1);
+    expect(source.mergeQualification.releases[0]).toMatchObject({
+      mainSha,
+      causalBridge: { lineageVersion: "release-candidate-linkage/v1", lineageComplete: true },
+    });
+    // The legacy release is intentionally absent from both releases and
+    // failures. Only the explicitly eligible malformed release fails closed.
+    expect(source.mergeQualification.failures).toEqual([
+      { source: "release-identity:9102", error: "unusable staging release identity" },
+    ]);
+    const partial = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(partial.completeness.reasons).toContain("merge-qualification:release-identity:9102");
+    expect(partial.completeness.reasons).not.toContain("merge-qualification:release-identity:9100");
+    expect(partial.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+
+    const withoutMalformed = {
+      ...source,
+      deployRuns: source.deployRuns.filter((entry) => entry.id !== 9102),
+      mergeQualification: { ...source.mergeQualification, failures: [] },
+    };
+    const complete = buildDeliveryHealth({
+      checkedAt: options.checkedAt,
+      publicationMode: "hourly",
+      repository: options.repository,
+      policy,
+      source: withoutMalformed,
+      apiStatus: source.apiStatus,
+    }).record;
+    expect(complete.completeness).toMatchObject({ status: "complete", reasons: [] });
+    expect(complete.slis.find((sli) => sli.id === "open-mutation-circuit")?.status).toBe("passing");
+  });
+
   it("negative control: incomplete production lineage excludes the release and degrades completeness", async () => {
     const source = await collectSourceData({
       options,
@@ -1661,6 +1917,7 @@ function candidateFor(event) {
 
 function causalBridgeFor(event, pullRequestNumber = 5839, overrides = {}) {
   return {
+    lineageVersion: "release-candidate-linkage/v1",
     pullRequestNumber,
     candidateArtifactId: "18000",
     candidateArtifactName: `merge-qualification-candidate-${event.parentRunId}-${event.parentRunAttempt}`,
