@@ -506,20 +506,48 @@ async function seedApiModuleForHostBootstrap(
   options: BcSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
-  // A queued twin must not re-enter an active context's seed against events whose
-  // projections the predecessor has not drained yet. Source-only contexts own the
-  // local reconciliation needed by their host ports, so they must still converge.
+  // A queued twin must not re-enter an active context's general seed against
+  // events whose projections the predecessor may not have drained. Event
+  // presence is not semantic readiness, though: contexts with required bootstrap
+  // state may declare a narrow idempotent reconciler. Drain first so it observes
+  // all predecessor events, reconcile, then drain the repair before readiness.
   if (
     lockAcquisition.waited &&
     context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&
     (await countEventsWithPrefix(context.pool, context.module.streamPrefix)) > 0
   ) {
+    if (context.module.reconcileBootstrapState) {
+      console.log(`${context.contextName} events already exist after queued bootstrap. Reconciling required state.`);
+      await reconcileRequiredBootstrapState(context, options);
+      return;
+    }
     console.log(
-      `${context.contextName} events already exist after queued bootstrap. Skipping active seed reconciliation.`,
+      `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
     );
+    await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
     return;
   }
 
   await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+  if (
+    context.mountRole === "active" &&
+    shouldRunContextSeed(context, options) &&
+    context.module.reconcileBootstrapState &&
+    !shouldRunFullBootstrapDrain(options)
+  ) {
+    console.log(`${context.contextName} seed completed. Reconciling required state before readiness.`);
+    await reconcileRequiredBootstrapState(context, options);
+  }
+}
+
+async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEntry, options: BcSeedOptions) {
+  const reconcile = context.module.reconcileBootstrapState;
+  if (!reconcile) {
+    return;
+  }
+
+  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await reconcile(context.pool, context.services, options);
+  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
 }

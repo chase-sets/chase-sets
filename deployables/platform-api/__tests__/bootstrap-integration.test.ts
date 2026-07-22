@@ -474,15 +474,15 @@ describe("platform api bootstrap", () => {
     }
   }, 120_000);
 
-  it("reconciles a queued landing bootstrap after its predecessor fails with legacy source events", async () => {
+  it("reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history", async () => {
     const queuedPools = createPlatformApiPools({
-      runtimeProfile: "landing",
+      runtimeProfile: "public",
       sharedDatabaseUrl: null,
       contextDatabaseUrls: databaseUrls,
       port: 6185,
     });
     const predecessorRuntime = createPlatformApiHost({
-      runtimeProfile: "landing",
+      runtimeProfile: "public",
       pools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
@@ -490,7 +490,7 @@ describe("platform api bootstrap", () => {
       },
     });
     const queuedRuntime = createPlatformApiHost({
-      runtimeProfile: "landing",
+      runtimeProfile: "public",
       pools: queuedPools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
@@ -501,8 +501,9 @@ describe("platform api bootstrap", () => {
       (context) => context.contextName === "commercial-terms",
     );
     if (!commercialTermsContext?.module.seed) {
-      throw new Error("Expected a seeded Commercial Terms source context in the landing runtime.");
+      throw new Error("Expected a seeded active Commercial Terms context in the public runtime.");
     }
+    expect(commercialTermsContext.mountRole).toBe("active");
 
     await bootstrapContextDatabase(commercialTermsContext.module, commercialTermsContext.pool);
     await commercialTermsContext.module.seed(commercialTermsContext.pool, commercialTermsContext.services, {
@@ -551,9 +552,9 @@ describe("platform api bootstrap", () => {
       }),
     } satisfies typeof predecessorRuntime;
     const bootstrapOptions = {
-      enabledDataProfiles: ["critical-bootstrap"],
+      enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
-      runtimeProfile: "landing",
+      runtimeProfile: "public",
       schemaBootstrap: {
         lockAcquisitionTimeoutMs: 120_000,
         lockTimeoutMs: 50,
@@ -601,11 +602,30 @@ describe("platform api bootstrap", () => {
         );
       }
 
-      const app = buildPlatformApiApp(queuedRuntime, { runtimeProfile: "landing" });
+      const app = buildPlatformApiApp(queuedRuntime, { runtimeProfile: "public" });
       const response = await app.request("/api/public-presence/policy-values");
       const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
       expect(response.status).toBe(200);
       expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+
+      await expect(
+        seedApiHostIfEmpty(apiContextRegistry, "platform-api", queuedRuntime, bootstrapOptions),
+      ).resolves.toBeUndefined();
+      const dayAfterPolicies = await queuedPools["commercial-terms"].query<
+        Readonly<{ policy_key: string; count: string }>
+      >(
+        `SELECT policy_key, COUNT(*) AS count
+         FROM platform_policy_documents
+         WHERE policy_key = ANY($1::text[])
+           AND status = 'active'
+         GROUP BY policy_key
+         ORDER BY policy_key`,
+        [["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]],
+      );
+      expect(dayAfterPolicies.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual([
+        ["commercial-terms.checkout-processing-fee", 1],
+        ["commercial-terms.marketplace-sales-fee-schedule", 1],
+      ]);
     } finally {
       failPredecessorSeed();
       await Promise.allSettled([predecessorBootstrap, queuedBootstrap]);

@@ -10,9 +10,13 @@ import {
 
 type PublicPolicyValueType = PublicPolicyValue["type"];
 type UnavailableClassification = PublicPolicyValuesFailureClassification | "missing";
+type PublicPolicyScalarContract =
+  | Readonly<{ primitive: "integer"; minimum: number; maximum: number }>
+  | Readonly<{ primitive: "money"; minimumCents: number }>;
 type ExpectedPublicPolicyValue = Readonly<{
   type: PublicPolicyValueType;
   currency?: string;
+  valueContract: PublicPolicyScalarContract;
 }>;
 
 const unavailablePolicyValues: PublicPolicyValuesResponse = {
@@ -24,11 +28,12 @@ const unavailablePolicyValues: PublicPolicyValuesResponse = {
 
 const expectedPublicPolicyValues = new Map<string, ExpectedPublicPolicyValue>();
 for (const permission of publicPolicyValueWhitelist) {
-  if (!isPublicPolicyValueType(permission.type)) continue;
+  if (!isPublicPolicyValueType(permission.type) || !isPublicPolicyScalarContract(permission.valueContract)) continue;
   const currency =
     "currency" in permission && typeof permission.currency === "string" ? permission.currency : undefined;
   expectedPublicPolicyValues.set(permission.key, {
     type: permission.type,
+    valueContract: permission.valueContract,
     ...(currency ? { currency } : {}),
   });
 }
@@ -87,7 +92,7 @@ function validateReferencedPolicyValues(
     }
 
     const expected = expectedPublicPolicyValues.get(key);
-    const value = expected ? validatePublicPolicyValue(response.values[key], expected) : null;
+    const value = expected ? validatePublicPolicyValue(response.values[key], expected, response.resolvedAt) : null;
     if (!value) {
       malformedKeys.push(key);
       continue;
@@ -107,17 +112,30 @@ function validateReferencedPolicyValues(
   };
 }
 
-function validatePublicPolicyValue(value: unknown, expected: ExpectedPublicPolicyValue): PublicPolicyValue | null {
+function validatePublicPolicyValue(
+  value: unknown,
+  expected: ExpectedPublicPolicyValue,
+  resolvedAt: string,
+): PublicPolicyValue | null {
   if (
     !isRecord(value) ||
+    !hasOnlyKeys(
+      value,
+      expected.type === "money"
+        ? ["type", "value", "currency", "effectiveFrom", "upcoming"]
+        : ["type", "value", "effectiveFrom", "upcoming"],
+    ) ||
     value.type !== expected.type ||
     !isNullableTimestamp(value.effectiveFrom) ||
     !Array.isArray(value.upcoming) ||
-    !isScalar(value.value) ||
-    !isValidPolicyPayload(value.value, expected.type)
+    !isValidPolicyPayload(value.value, expected.valueContract)
   ) {
     return null;
   }
+
+  const resolvedAtMs = parseRfc3339Timestamp(resolvedAt);
+  const effectiveFromMs = value.effectiveFrom === null ? null : parseRfc3339Timestamp(value.effectiveFrom);
+  if (resolvedAtMs === null || (effectiveFromMs !== null && effectiveFromMs > resolvedAtMs)) return null;
 
   if (expected.type === "money") {
     if (!expected.currency || value.currency !== expected.currency) return null;
@@ -126,15 +144,19 @@ function validatePublicPolicyValue(value: unknown, expected: ExpectedPublicPolic
   }
 
   const upcoming: { value: string | number; effectiveFrom: string }[] = [];
+  let previousUpcomingAt = resolvedAtMs;
   for (const candidate of value.upcoming) {
     if (
       !isRecord(candidate) ||
+      !hasOnlyKeys(candidate, ["value", "effectiveFrom"]) ||
       !isTimestamp(candidate.effectiveFrom) ||
-      !isScalar(candidate.value) ||
-      !isValidPolicyPayload(candidate.value, expected.type)
+      !isValidPolicyPayload(candidate.value, expected.valueContract)
     ) {
       return null;
     }
+    const upcomingAt = parseRfc3339Timestamp(candidate.effectiveFrom);
+    if (upcomingAt === null || upcomingAt <= previousUpcomingAt) return null;
+    previousUpcomingAt = upcomingAt;
     upcoming.push({ value: candidate.value, effectiveFrom: candidate.effectiveFrom });
   }
 
@@ -155,6 +177,7 @@ function isValidResponseEnvelope(value: unknown): value is Readonly<{
 }> {
   return (
     isRecord(value) &&
+    hasOnlyKeys(value, ["values", "resolvedAt", "propagationSeconds", "changeCalloutDays"]) &&
     isRecord(value.values) &&
     isTimestamp(value.resolvedAt) &&
     isNonNegativeSafeInteger(value.propagationSeconds) &&
@@ -162,25 +185,17 @@ function isValidResponseEnvelope(value: unknown): value is Readonly<{
   );
 }
 
-function isValidPolicyPayload(value: string | number, type: PublicPolicyValueType): boolean {
-  if (type === "money") {
-    if (typeof value === "string" && !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value)) return false;
-    const numeric = toFiniteNumber(value);
-    if (numeric === null || numeric < 0) return false;
-    const cents = numeric * 100;
-    const roundedCents = Math.round(cents);
-    return Number.isSafeInteger(roundedCents) && Math.abs(cents - roundedCents) < 1e-8;
+function isValidPolicyPayload(value: unknown, contract: PublicPolicyScalarContract): value is string | number {
+  if (contract.primitive === "money") {
+    if (typeof value !== "string" || !/^(?:0|[1-9]\d*)\.\d{2}$/.test(value)) return false;
+    const [whole = "0", fraction = "00"] = value.split(".");
+    const cents = BigInt(whole) * 100n + BigInt(fraction);
+    return cents >= BigInt(contract.minimumCents) && cents <= BigInt(Number.MAX_SAFE_INTEGER);
   }
 
-  const numeric = toFiniteNumber(value);
-  if (numeric === null || !Number.isSafeInteger(numeric) || numeric < 0) return false;
-  return type !== "bps" || numeric <= 10_000;
-}
-
-function toFiniteNumber(value: string | number): number | null {
-  if (typeof value === "string" && !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= contract.minimum && value <= contract.maximum
+  );
 }
 
 function classifyRequestFailure(error: unknown): Readonly<{
@@ -223,16 +238,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isScalar(value: unknown): value is string | number {
-  return typeof value === "string" || typeof value === "number";
-}
-
 function isTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
-    Number.isFinite(Date.parse(value))
-  );
+  return typeof value === "string" && parseRfc3339Timestamp(value) !== null;
 }
 
 function isNullableTimestamp(value: unknown): value is string | null {
@@ -252,4 +259,63 @@ function isPublicPolicyValueType(value: unknown): value is PublicPolicyValueType
     value === "minutes" ||
     value === "number"
   );
+}
+
+function isPublicPolicyScalarContract(value: unknown): value is PublicPolicyScalarContract {
+  if (!isRecord(value)) return false;
+  if (value.primitive === "money") {
+    return hasOnlyKeys(value, ["primitive", "minimumCents"]) && isNonNegativeSafeInteger(value.minimumCents);
+  }
+  return (
+    value.primitive === "integer" &&
+    hasOnlyKeys(value, ["primitive", "minimum", "maximum"]) &&
+    typeof value.minimum === "number" &&
+    typeof value.maximum === "number" &&
+    Number.isSafeInteger(value.minimum) &&
+    Number.isSafeInteger(value.maximum) &&
+    value.minimum <= value.maximum
+  );
+}
+
+function hasOnlyKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys);
+  return Object.keys(value).every((key) => allowed.has(key)) && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function parseRfc3339Timestamp(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[9] === undefined ? 0 : Number(match[9]);
+  const offsetMinute = match[10] === undefined ? 0 : Number(match[10]);
+  if (
+    year < 1 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth(year, month) ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    offsetHour > 23 ||
+    offsetMinute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }

@@ -5,7 +5,7 @@ import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import { normalizeCurrencyCode } from "./common";
-import { createSettlementServices } from "./services";
+import { createSettlementServices, type SettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -47,20 +47,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool, _service
   const context = createSeedContext();
 
   if (shouldSeedCritical) {
-    await seedSettlementPolicyDocumentIfMissing(
-      services,
-      context,
-      settlementClearancePolicy,
-      SETTLEMENT_CLEARANCE_LAUNCH_POLICY_VALUE,
-      "2026-01-01T00:00:00.000Z",
-    );
-    await seedSettlementPolicyDocumentIfMissing(
-      services,
-      context,
-      settlementPayoutBoundsPolicy,
-      payoutAmountPolicy,
-      "2026-01-01T00:00:00.000Z",
-    );
+    await reconcileCriticalSettlementPolicies(services, context);
   }
 
   if (!shouldSeedScenario) {
@@ -241,6 +228,47 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool, _service
       postedAt: "2026-03-24T11:10:00.000Z",
     },
     context,
+  );
+}
+
+export async function reconcileSettlementBootstrapState(
+  pool: PgTransactionalPool,
+  services?: SettlementServices,
+  options?: BcSeedOptions,
+) {
+  if (!profileEnabled(options, "critical-bootstrap")) {
+    return;
+  }
+
+  if (services) {
+    await reconcileCriticalSettlementPolicies(services, createSeedContext());
+    return;
+  }
+
+  const { createFakeMoneyMovementGateway } = await import("@chase-sets/money-movement/test-support");
+  await reconcileCriticalSettlementPolicies(
+    createSettlementServices(pool, { moneyMovementGateway: createFakeMoneyMovementGateway() }),
+    createSeedContext(),
+  );
+}
+
+async function reconcileCriticalSettlementPolicies(
+  services: ReturnType<typeof createSettlementServices>,
+  context: EventStoreContext,
+) {
+  await seedSettlementPolicyDocumentIfMissing(
+    services,
+    context,
+    settlementClearancePolicy,
+    SETTLEMENT_CLEARANCE_LAUNCH_POLICY_VALUE,
+    "2026-01-01T00:00:00.000Z",
+  );
+  await seedSettlementPolicyDocumentIfMissing(
+    services,
+    context,
+    settlementPayoutBoundsPolicy,
+    payoutAmountPolicy,
+    "2026-01-01T00:00:00.000Z",
   );
 }
 
