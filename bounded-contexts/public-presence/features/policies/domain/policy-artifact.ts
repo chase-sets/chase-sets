@@ -283,13 +283,24 @@ export function evaluatePublicPolicyPublicationReadiness(
     errors.push(`${label} publication requires at least one reviewed rollout jurisdiction or product limit.`);
   }
 
+  const requiredSubjectIdSet = new Set(requiredSubjectIds);
   const sectionsById = new Map(artifact.sections.map((section) => [section.id, section]));
   for (const subjectId of requiredSubjectIds) {
-    const section = sectionsById.get(subjectId);
-    if (!section) {
+    if (!sectionsById.has(subjectId)) {
       errors.push(`${label} publication is missing required subject '${subjectId}'.`);
-    } else if (section.reviewStatus !== "counsel-approved") {
-      errors.push(`${label} subject '${subjectId}' requires counsel-approved copy.`);
+    }
+  }
+
+  // Every rendered section is part of the published artifact. Required
+  // subjects must be present, and neither a required subject nor an added
+  // informational section may publish placeholder or unreviewed copy.
+  for (const section of artifact.sections) {
+    const subjectLabel = requiredSubjectIdSet.has(section.id) ? "subject" : "additional subject";
+    if (section.reviewStatus !== "counsel-approved") {
+      errors.push(`${label} ${subjectLabel} '${section.id}' requires counsel-approved copy.`);
+    }
+    if (section.draftText.trim().length === 0) {
+      errors.push(`${label} ${subjectLabel} '${section.id}' requires non-empty operative copy.`);
     }
   }
 

@@ -2,18 +2,33 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
-import { PolicyArtifactPage } from "./policy-artifact-page";
-import { buildPolicyCorpusPageCopy } from "./policy-artifact-route-adapter";
+import type { PublicPolicyArtifact } from "../domain/policy-artifact";
+import { PolicyArtifactRouteAdapter, SellerAgreementRouteAdapter } from "./policy-artifact-route-adapter";
 
 function renderSellerAgreementPage() {
   return render(
     <MemoryRouter>
-      <PolicyArtifactPage
-        artifact={sellerAgreementPolicyArtifact}
-        copy={buildPolicyCorpusPageCopy(sellerAgreementPolicyArtifact, { eyebrow: "Seller agreement" })}
-      />
+      <SellerAgreementRouteAdapter />
     </MemoryRouter>,
   );
+}
+
+function publishedSellerAgreementArtifact(): PublicPolicyArtifact {
+  return {
+    ...sellerAgreementPolicyArtifact,
+    metadata: {
+      ...sellerAgreementPolicyArtifact.metadata,
+      publicationStatus: "published",
+      effectiveAt: "2026-09-01T00:00:00.000Z",
+      counselApprovalReference: "LEGAL-SELLER-TEST-2026-08-15",
+      rolloutJurisdictionsOrProductLimits: ["Test-only reviewed launch scope."],
+    },
+    sections: sellerAgreementPolicyArtifact.sections.map((section) => ({
+      ...section,
+      draftText: "Reviewed operative seller-agreement test copy.",
+      reviewStatus: "counsel-approved" as const,
+    })),
+  };
 }
 
 describe("policy artifact page", () => {
@@ -52,5 +67,19 @@ describe("policy artifact page", () => {
       }
     }
     expect(text).not.toContain("5687");
+  });
+
+  it("renders published posture through the real route adapter and shared page", () => {
+    const artifact = publishedSellerAgreementArtifact();
+    render(
+      <MemoryRouter>
+        <PolicyArtifactRouteAdapter artifact={artifact} eyebrow="Seller agreement" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Counsel review required before this document takes effect")).toBeNull();
+    expect(screen.queryByText("Effective date pending counsel approval")).toBeNull();
+    expect(screen.getByText("Effective date: 2026-09-01T00:00:00.000Z")).toBeTruthy();
+    expect(screen.getByText("Reviewed operative seller-agreement test copy.")).toBeTruthy();
   });
 });

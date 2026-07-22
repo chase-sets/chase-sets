@@ -38,10 +38,11 @@ export type PublicPolicyVersion = `v${number}`;
 /**
  * Generated per-document publication record. Distributes over the policy
  * keys so each member carries its literal key and canonical href — a
- * discriminated union, never a stringly-typed record. `consentActivatable`
- * encodes the publication-to-activation invariant: it is compiled true only
- * for a published, readiness-valid artifact, so consent surfaces can never
- * gate on a placeholder stub.
+ * discriminated union, never a stringly-typed record. `contentFingerprint`
+ * changes when document-owned content changes even without a metadata bump.
+ * `consentActivatable` encodes the publication-to-activation invariant: it is
+ * compiled true only for a published, readiness-valid artifact, so consent
+ * surfaces can never gate on a placeholder stub.
  */
 export type PublicPolicyPublicationRecord<Key extends PublicPolicyKey = PublicPolicyKey> = Key extends PublicPolicyKey
   ? Readonly<{
@@ -54,6 +55,7 @@ export type PublicPolicyPublicationRecord<Key extends PublicPolicyKey = PublicPo
       counselApprovalReference: string | null;
       rolloutJurisdictionsOrProductLimits: readonly string[];
       launchRequired: boolean;
+      contentFingerprint: `sha256:${string}`;
       consentActivatable: boolean;
     }>
   : never;
@@ -64,5 +66,8 @@ export type PublicPolicyPublicationRecord<Key extends PublicPolicyKey = PublicPo
  * compiling with the exact historical field set.
  */
 export type PublicTermsOfServicePublicationMetadata = Readonly<
-  Omit<PublicPolicyPublicationRecord<"terms-of-service">, "launchRequired" | "consentActivatable">
+  Omit<
+    PublicPolicyPublicationRecord<"terms-of-service">,
+    "launchRequired" | "contentFingerprint" | "consentActivatable"
+  >
 >;

@@ -19,6 +19,7 @@ function approvedTermsArtifact(): PublicPolicyArtifact {
     },
     sections: termsOfServicePolicyArtifact.sections.map((section) => ({
       ...section,
+      draftText: `Reviewed operative test copy for ${section.id}.`,
       reviewStatus: "counsel-approved" as const,
     })),
   };
@@ -165,5 +166,49 @@ describe("publication-to-activation invariant", () => {
       metadata: { ...approvedTermsArtifact().metadata, publicationStatus: "counsel-review-required" },
     };
     expect(isConsentActivatable(approvedButUnpublished, requiredTermsOfServiceSubjectIds)).toBe(false);
+  });
+
+  it.each(["", "   \n\t"])("rejects required operative copy containing only %j", (draftText) => {
+    const [firstSection, ...rest] = approvedTermsArtifact().sections;
+    const artifact: PublicPolicyArtifact = {
+      ...approvedTermsArtifact(),
+      sections: [{ ...firstSection, draftText }, ...rest],
+    };
+
+    const readiness = evaluatePublicPolicyPublicationReadiness(artifact, requiredTermsOfServiceSubjectIds);
+    expect(readiness.ready).toBe(false);
+    expect(readiness.errors).toContain(
+      `Terms of Service subject '${firstSection.id}' requires non-empty operative copy.`,
+    );
+    expect(isConsentActivatable(artifact, requiredTermsOfServiceSubjectIds)).toBe(false);
+  });
+
+  it("rejects an unreviewed extra section on an otherwise publication-ready artifact", () => {
+    const artifact: PublicPolicyArtifact = {
+      ...approvedTermsArtifact(),
+      sections: [
+        ...approvedTermsArtifact().sections,
+        {
+          id: "extra-public-section",
+          title: "Extra public section",
+          draftText: "Operative test copy for the extra section.",
+          reviewStatus: "counsel-required",
+          reviewManifest: {
+            scopeNote: "Test-only extra section review scope.",
+            decisionRefs: [],
+            productTruthRefs: [],
+            openQuestions: [],
+            assumptions: [],
+          },
+        },
+      ],
+    };
+
+    const readiness = evaluatePublicPolicyPublicationReadiness(artifact, requiredTermsOfServiceSubjectIds);
+    expect(readiness.ready).toBe(false);
+    expect(readiness.errors).toContain(
+      "Terms of Service additional subject 'extra-public-section' requires counsel-approved copy.",
+    );
+    expect(isConsentActivatable(artifact, requiredTermsOfServiceSubjectIds)).toBe(false);
   });
 });

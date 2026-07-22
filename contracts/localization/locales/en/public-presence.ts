@@ -542,6 +542,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.policies.counselPending.description":
     "The policy structure and version metadata are published for review, but the operative language, effective date, launch jurisdictions, and approval reference remain intentionally unset until qualified counsel signs off.",
   "publicPresence.info.policies.counselPending.title": "Counsel review required before this document takes effect",
+  "publicPresence.info.policies.metadata.effective": "Effective date: {effectiveAt}",
   "publicPresence.info.policies.metadata.effectivePending": "Effective date pending counsel approval",
   "publicPresence.info.policies.metadata.label": "Policy metadata",
   "publicPresence.info.policies.metadata.locale": "Locale {locale}",
