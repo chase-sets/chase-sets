@@ -3,7 +3,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { buildCreatePolicyDocumentCommand } from "@chase-sets/platform-policy/commands";
 import { commercialTermsSeedIds } from "../seed-support/ids";
-import { createCommercialTermsServices } from "./services";
+import { createCommercialTermsServices, type CommercialTermsServices } from "./services";
 import { agreementStreamId } from "./policy-runtime";
 import {
   CHECKOUT_PROCESSING_FEE_LAUNCH_POLICY_VALUE,
@@ -45,23 +45,7 @@ export async function seedCommercialTermsDatabase(
   const effectiveFrom = "2026-01-01T00:00:00.000Z";
 
   if (shouldSeedCritical) {
-    await supersedeLegacyScheduleIfActive(services, context, {
-      scheduleId: commercialTermsSeedIds.schedules.personalDefault,
-      accountType: "personal",
-    });
-
-    await supersedeLegacyScheduleIfActive(services, context, {
-      scheduleId: commercialTermsSeedIds.schedules.businessDefault,
-      accountType: "business",
-    });
-
-    await supersedeLegacyScheduleIfActive(services, context, {
-      scheduleId: commercialTermsSeedIds.schedules.enterpriseDefault,
-      accountType: "enterprise",
-    });
-
-    await seedMarketplaceSalesFeeScheduleIfMissing(services, context, "2026-07-03T00:00:00.000Z");
-    await seedCheckoutProcessingFeePolicyIfMissing(services, context, "2026-05-03T00:00:00.000Z");
+    await reconcileCriticalCommercialTermsPolicies(services, context);
   }
 
   if (
@@ -89,6 +73,41 @@ export async function seedCommercialTermsDatabase(
       context,
     });
   }
+}
+
+export async function reconcileCommercialTermsBootstrapState(
+  pool: PgTransactionalPool,
+  services?: CommercialTermsServices,
+  options?: BcSeedOptions,
+) {
+  if (!profileEnabled(options, "critical-bootstrap")) {
+    return;
+  }
+
+  await reconcileCriticalCommercialTermsPolicies(services ?? createCommercialTermsServices(pool), createSeedContext());
+}
+
+async function reconcileCriticalCommercialTermsPolicies(
+  services: ReturnType<typeof createCommercialTermsServices>,
+  context: ReturnType<typeof createSeedContext>,
+) {
+  await supersedeLegacyScheduleIfActive(services, context, {
+    scheduleId: commercialTermsSeedIds.schedules.personalDefault,
+    accountType: "personal",
+  });
+
+  await supersedeLegacyScheduleIfActive(services, context, {
+    scheduleId: commercialTermsSeedIds.schedules.businessDefault,
+    accountType: "business",
+  });
+
+  await supersedeLegacyScheduleIfActive(services, context, {
+    scheduleId: commercialTermsSeedIds.schedules.enterpriseDefault,
+    accountType: "enterprise",
+  });
+
+  await seedMarketplaceSalesFeeScheduleIfMissing(services, context, "2026-07-03T00:00:00.000Z");
+  await seedCheckoutProcessingFeePolicyIfMissing(services, context, "2026-05-03T00:00:00.000Z");
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {

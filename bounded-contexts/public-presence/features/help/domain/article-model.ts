@@ -13,7 +13,8 @@ export type HelpArticleInline =
   | Readonly<{ type: "strong"; value: string }>
   | Readonly<{ type: "code"; value: string }>
   | Readonly<{ type: "link"; label: string; href: string }>
-  | Readonly<{ type: "policy-value"; key: string }>;
+  | Readonly<{ type: "policy-value"; key: string }>
+  | Readonly<{ type: "policy-value-unavailable"; key: string }>;
 
 export type HelpArticleBlock =
   | Readonly<{ type: "paragraph"; content: readonly HelpArticleInline[] }>

@@ -408,6 +408,16 @@ function platformApiRuntimeContextNames(runtimeProfile) {
     .sort((left, right) => left.localeCompare(right, "en"));
 }
 
+function platformApiExposedContextNames(runtimeProfile) {
+  return listContextManifests()
+    .filter(
+      ({ manifest }) =>
+        manifest.apiDeployables?.includes("platform-api") && manifest.apiRuntimeProfiles?.includes(runtimeProfile),
+    )
+    .map(({ manifest }) => manifest.contextName)
+    .sort((left, right) => left.localeCompare(right, "en"));
+}
+
 describe("DigitalOcean platform configuration", () => {
   it("retires application compute while preserving live DOKS DNS addresses", () => {
     expect(platformMain).not.toMatch(/resource\s+"digitalocean_app"/);
@@ -768,15 +778,25 @@ describe("DigitalOcean platform configuration", () => {
 
   it("separates provisioned database contexts from active runtime and route exposure", () => {
     const landingContexts = terraformStringList(platformLocals, "landing_context_names");
+    const landingExposedRouteContexts = terraformStringList(platformLocals, "landing_exposed_route_context_names");
     const platformContexts = terraformStringList(platformLocals, "platform_context_names");
 
+    expect(landingContexts.filter((contextName) => contextName !== "control").sort()).toEqual(
+      platformApiRuntimeContextNames("landing"),
+    );
+    expect(landingExposedRouteContexts.sort()).toEqual(platformApiExposedContextNames("landing"));
     expect(landingContexts).not.toContain("checkout");
     expect(landingContexts).not.toContain("payments");
+    expect(landingContexts).toEqual(expect.arrayContaining(["commercial-terms", "settlement"]));
+    expect(landingExposedRouteContexts).not.toContain("commercial-terms");
+    expect(landingExposedRouteContexts).not.toContain("settlement");
     expect(platformContexts).toEqual(expect.arrayContaining(["checkout", "payments", "settlement"]));
     expect(platformLocals).toContain(
       "active_runtime_context_names = local.platform_enabled ? local.platform_context_names : local.landing_context_names",
     );
-    expect(platformLocals).toContain("exposed_route_context_names  = local.active_runtime_context_names");
+    expect(platformLocals).toContain(
+      "exposed_route_context_names  = local.platform_enabled ? local.platform_context_names : local.landing_exposed_route_context_names",
+    );
     expect(platformLocals).toContain("context_names = local.active_runtime_context_names");
     expect(platformLocals).toContain(
       "provisioned_context_names = local.is_production ? local.production_provisioned_context_names : local.active_runtime_context_names",

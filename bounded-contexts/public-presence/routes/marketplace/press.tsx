@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { findPublicHelpArticleByPath, resolveArticlePolicyValues } from "../../features/help/ui/help-route-data";
-import { loadPublicPolicyValues } from "../../features/help/integrations/public-policy-values-client";
+import { findPublicHelpArticleByPath } from "../../features/help/ui/help-route-data";
+import { resolvePublicPolicyArticle } from "../../features/help/integrations/resolve-public-policy-article";
 import { HelpArticlePage } from "../../features/help/ui/help-pages";
 import { buildPublicSocialMeta, publicOpenGraphImages } from "../../features/waitlist/ui/social-meta";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
@@ -13,7 +13,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   if (!source) throw new Error("The compiled creator and press fact sheet is unavailable.");
   // The fee facts on the sheet are live policy tokens, resolved exactly like
   // the /sales-fees composition so quoted numbers can never go stale.
-  const article = resolveArticlePolicyValues(source, await loadPublicPolicyValues(request));
+  const article = await resolvePublicPolicyArticle(request, source, PRESS_PATH);
   return {
     article,
     related: [],

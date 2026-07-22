@@ -362,6 +362,7 @@ describe("defineBoundedContextModule", () => {
       projectionHandlerSets: () => [],
       seedProfiles: ["scenario-seed"],
       seed: async () => undefined,
+      reconcileBootstrapState: async () => undefined,
     });
 
     expect(module).toMatchObject({
@@ -387,5 +388,8 @@ describe("defineBoundedContextModule", () => {
       expect.any(Function),
     );
     await expect(module.seed?.({}, services, { enabledDataProfiles: ["scenario-seed"] })).resolves.toBeUndefined();
+    await expect(
+      module.reconcileBootstrapState?.({}, services, { enabledDataProfiles: ["critical-bootstrap"] }),
+    ).resolves.toBeUndefined();
   });
 });

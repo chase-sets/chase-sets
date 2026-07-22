@@ -3,6 +3,7 @@ import {
   countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
+  drainLocalProjectionHandlerSets,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -11,6 +12,7 @@ import {
   syncContextProjectionGroups,
   withSchemaBootstrapLock,
   type MountedContextRuntimeEntry,
+  type SchemaBootstrapLockAcquisition,
   type SchemaBootstrapOptions,
 } from "../bounded-context-runtime/index";
 import type {
@@ -207,8 +209,7 @@ export function createApiHost(
       services: contextServices,
       pool,
       notificationWaiterPool: mountedNotificationWaiterPool,
-      projectionHandlerSets:
-        mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
+      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
     };
   });
 
@@ -266,12 +267,15 @@ export function getApiHostSeedOrder(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtimeProfile?: ApiHostRuntimeProfile,
+  options?: Pick<BcSeedOptions, "enabledDataProfiles" | "environmentName">,
 ): readonly string[] {
   const entries = getApiHostEntries(registry, hostName, runtimeProfile);
-  const activeEntries = entries.filter(
-    (entry) => getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, runtimeProfile) === "active",
+  const seedEntries = entries.filter(
+    (entry) =>
+      getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, runtimeProfile) === "active" ||
+      Boolean(options && entry.module.seedProfiles && seedProfilesOverlap(entry.module.seedProfiles, options)),
   );
-  const activeNames = activeEntries.map((entry) => entry.contextName);
+  const seedNames = seedEntries.map((entry) => entry.contextName);
   const byName = new Map(entries.map((entry) => [entry.contextName, entry]));
   const visited = new Set<string>();
   const inProgress = new Set<string>();
@@ -292,7 +296,7 @@ export function getApiHostSeedOrder(
     }
 
     inProgress.add(contextName);
-    for (const dependencyName of getSeedDependencyNames(entry, activeNames)) {
+    for (const dependencyName of getSeedDependencyNames(entry, seedNames)) {
       visit(dependencyName as ApiHostContextName);
     }
     inProgress.delete(contextName);
@@ -300,7 +304,7 @@ export function getApiHostSeedOrder(
     orderedNames.push(contextName);
   }
 
-  for (const contextName of activeNames) {
+  for (const contextName of seedNames) {
     visit(contextName);
   }
 
@@ -396,9 +400,7 @@ export async function seedApiHostIfEmpty(
   }
 
   await withSchemaBootstrapLock(bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
-    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, {
-      skipExistingSeedReconciliation: lockAcquisition.waited,
-    }),
+    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
   );
 }
 
@@ -407,7 +409,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
   options: ApiHostSeedOptions,
-  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+  lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runFullDrain = shouldRunFullBootstrapDrain(options);
@@ -423,7 +425,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     );
   }
 
-  for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
+  for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile, options)) {
     const context = mountedContextsByName.get(contextName);
     if (!context) {
       throw new Error(`API host '${hostName}' is missing mounted context '${contextName}' during seed.`);
@@ -432,8 +434,20 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     const runContextSeed = shouldRunContextSeed(context, options);
     if (!runContextSeed) {
       await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
+      continue;
+    }
+
+    if (context.mountRole === "source-only") {
+      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
+      );
+      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
+        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
+        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+      });
       continue;
     }
 
@@ -445,13 +459,13 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       );
     }
     await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-      seedApiModuleForHostBootstrap(context, options, bootstrapLock),
+      seedApiModuleForHostBootstrap(context, options, lockAcquisition),
     );
     if (runFullDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
-        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
@@ -464,13 +478,13 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
     // shipments) complete once every context has seeded and drained.
-    for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
+    for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile, options)) {
       const context = mountedContextsByName.get(contextName);
       if (!context || !shouldRunContextSeed(context, options)) {
         continue;
       }
       await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
-        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
@@ -490,17 +504,50 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
 async function seedApiModuleForHostBootstrap(
   context: MountedContextRuntimeEntry,
   options: BcSeedOptions,
-  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+  lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
-  // A queued twin deploy should not reconcile seeds against projections the predecessor has not drained yet.
+  // A queued twin must not re-enter an active context's general seed against
+  // events whose projections the predecessor may not have drained. Event
+  // presence is not semantic readiness, though: contexts with required bootstrap
+  // state may declare a narrow idempotent reconciler. Drain first so it observes
+  // all predecessor events, reconcile, then drain the repair before readiness.
   if (
-    bootstrapLock.skipExistingSeedReconciliation &&
+    lockAcquisition.waited &&
+    context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&
     (await countEventsWithPrefix(context.pool, context.module.streamPrefix)) > 0
   ) {
-    console.log(`${context.contextName} events already exist after queued bootstrap. Skipping seed reconciliation.`);
+    if (context.module.reconcileBootstrapState) {
+      console.log(`${context.contextName} events already exist after queued bootstrap. Reconciling required state.`);
+      await reconcileRequiredBootstrapState(context, options);
+      return;
+    }
+    console.log(
+      `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
+    );
+    await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
     return;
   }
 
   await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+  if (
+    context.mountRole === "active" &&
+    shouldRunContextSeed(context, options) &&
+    context.module.reconcileBootstrapState &&
+    !shouldRunFullBootstrapDrain(options)
+  ) {
+    console.log(`${context.contextName} seed completed. Reconciling required state before readiness.`);
+    await reconcileRequiredBootstrapState(context, options);
+  }
+}
+
+async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEntry, options: BcSeedOptions) {
+  const reconcile = context.module.reconcileBootstrapState;
+  if (!reconcile) {
+    return;
+  }
+
+  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await reconcile(context.pool, context.services, options);
+  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
 }

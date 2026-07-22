@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
+import { resolveApiHostMounts } from "@chase-sets/platform-runtime/api";
 
 describe("platform api database pools", () => {
   it("binds the shared pool factory to the platform API host registry", async () => {
@@ -83,16 +84,28 @@ describe("platform api database pools", () => {
       expect(mountedContextNames).toEqual([
         "auth",
         "catalog",
+        "commercial-terms",
         "fulfillment",
         "identity",
         "marketplace",
         "ordering",
         "platform-operations",
         "public-presence",
+        "settlement",
       ]);
       expect(mountedContextNames).not.toContain("checkout");
       expect(mountedContextNames).not.toContain("payments");
-      expect(mountedContextNames).not.toContain("settlement");
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "commercial-terms")?.mountRole).toBe(
+        "source-only",
+      );
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "settlement")?.mountRole).toBe(
+        "source-only",
+      );
+      const mountedApiPaths = resolveApiHostMounts(runtime).map((mount) => mount.mountPath);
+      expect(mountedApiPaths).not.toContain("/api/commercial-terms");
+      expect(mountedApiPaths).not.toContain("/api/public/commercial-terms");
+      expect(mountedApiPaths).not.toContain("/api/settlement");
+      expect(mountedApiPaths).not.toContain("/api/settlement/provider");
     } finally {
       await closePlatformApiPools(pools);
     }

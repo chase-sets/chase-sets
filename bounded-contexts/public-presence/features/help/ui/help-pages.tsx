@@ -269,6 +269,13 @@ function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
     if (inline.type === "strong") return <strong key={key}>{inline.value}</strong>;
     if (inline.type === "emphasis") return <em key={key}>{inline.value}</em>;
     if (inline.type === "code") return <code key={key}>{inline.value}</code>;
+    if (inline.type === "policy-value-unavailable") {
+      return (
+        <Text key={key} element="span" size="sm" tone="secondary" weight="semibold">
+          {t("publicPresence.help.policyValueUnavailable")}
+        </Text>
+      );
+    }
     if (inline.type === "policy-value") {
       throw new Error(`Article policy value '${inline.key}' reached rendering without resolution.`);
     }

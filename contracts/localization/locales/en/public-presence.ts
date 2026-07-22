@@ -459,6 +459,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.help.meta.description": "Reviewed guidance for buying and selling on Chase Sets.",
   "publicPresence.help.meta.title": "Help Center | Chase Sets",
   "publicPresence.help.notFound": "Help article not found",
+  "publicPresence.help.policyValueUnavailable": "Temporarily unavailable",
   "publicPresence.help.readArticle": "Read article",
   "publicPresence.help.related.description": "Continue with guidance for the same audience or topic.",
   "publicPresence.help.related.title": "Related articles",

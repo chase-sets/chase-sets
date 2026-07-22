@@ -79,6 +79,10 @@ function createModule(
       ownedTables: readonly string[];
       requiredDuringBootstrap: boolean;
     }[];
+    projectionHandlerSets?: readonly {
+      projectionName: string;
+      handlers: Readonly<Record<string, never>>;
+    }[];
     projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
     seedProfiles?: readonly (
       | "critical-bootstrap"
@@ -99,6 +103,7 @@ function createModule(
     buildApis: () => options.apiRouters ?? [],
     buildSubscriptions: () => options.subscriptions ?? [],
     buildProjectionGroups: () => options.projectionGroups ?? [],
+    projectionHandlerSets: () => options.projectionHandlerSets ?? [],
     projectors: () => options.projectors ?? [],
     seedProfiles: options.seedProfiles,
     seed: options.seed,
@@ -371,7 +376,8 @@ describe("platform host api registry", () => {
     ).toThrow(/missing a pool for context 'auth'/);
   });
 
-  it("mounts source runtime contexts without activating their APIs or subscriptions", () => {
+  it("mounts and explicitly seeds source runtime contexts without activating their APIs or subscriptions", async () => {
+    const policySourceSeed = vi.fn(async () => undefined);
     const registry = [
       {
         contextName: "support",
@@ -384,11 +390,13 @@ describe("platform host api registry", () => {
         module: createModule("support", {
           apiMounts: [{ mountPath: "/api/support", kind: "primary", requiresAuth: true }],
           apiRouters: ["support-router"],
-          subscriptions: [createSubscription("support.order-source-projection", "ordering", "support-orders", 10)],
+          subscriptions: [
+            createSubscription("support.policy-source-projection", "policy-source", "support-policies", 10),
+          ],
           projectionGroups: [
             {
-              projectionName: "support-orders",
-              sourceContextNames: ["ordering"],
+              projectionName: "support-policies",
+              sourceContextNames: ["policy-source"],
               ownedTables: [],
               requiredDuringBootstrap: false,
             },
@@ -396,19 +404,22 @@ describe("platform host api registry", () => {
         }),
       },
       {
-        contextName: "ordering",
-        packageName: "@test/ordering",
+        contextName: "policy-source",
+        packageName: "@test/policy-source",
         manifest: {
-          contextName: "ordering",
+          contextName: "policy-source",
           apiDeployables: ["platform-api"],
           apiRuntimeProfiles: ["proof", "public"],
           sourceRuntimeDeployables: ["platform-api"],
           sourceRuntimeProfiles: ["landing"],
         },
-        module: createModule("ordering", {
-          apiMounts: [{ mountPath: "/api/orders", kind: "primary", requiresAuth: true }],
-          apiRouters: ["ordering-router"],
-          subscriptions: [createSubscription("ordering.marketplace-source-projection", "marketplace", "orders", 20)],
+        module: createModule("policy-source", {
+          apiMounts: [{ mountPath: "/api/private-policies", kind: "primary", requiresAuth: true }],
+          apiRouters: ["policy-source-router"],
+          subscriptions: [createSubscription("policy-source.private-projection", "support", "private-policies", 20)],
+          projectionHandlerSets: [{ projectionName: "policy-source-documents", handlers: {} }],
+          seedProfiles: ["critical-bootstrap"],
+          seed: policySourceSeed,
         }),
       },
     ] as const satisfies ApiContextRegistry;
@@ -416,17 +427,36 @@ describe("platform host api registry", () => {
     const runtime = createApiHost(registry, "platform-api", {
       pools: {
         support: createPool() as never,
-        ordering: createPool() as never,
+        "policy-source": createPool() as never,
       },
       runtimeProfile: "landing",
     });
 
     expect(runtime.mountedContexts.map((entry) => [entry.contextName, entry.mountRole])).toEqual([
       ["support", "active"],
-      ["ordering", "source-only"],
+      ["policy-source", "source-only"],
     ]);
-    expect(runtime.subscriptionRunners).toHaveLength(1);
+    expect(runtime.subscriptionRunners.map(({ checkpointKey }) => checkpointKey)).toEqual([
+      "support-policies:policy-source:v1",
+    ]);
+    expect(
+      runtime.mountedContexts.find(({ contextName }) => contextName === "policy-source")?.projectionHandlerSets,
+    ).toHaveLength(1);
     expect(resolveApiHostMounts(runtime).map((mount) => mount.mountPath)).toEqual(["/api/support"]);
+    expect(
+      getApiHostSeedOrder(registry, "platform-api", "landing", {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "production",
+      }),
+    ).toEqual(["support", "policy-source"]);
+
+    await seedApiHostIfEmpty(registry, "platform-api", runtime, {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "production",
+      runtimeProfile: "landing",
+    });
+
+    expect(policySourceSeed).toHaveBeenCalledTimes(2);
   });
 
   it("keeps production-like bootstrap out of host-level projection drains", async () => {

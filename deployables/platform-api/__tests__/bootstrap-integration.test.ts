@@ -25,6 +25,7 @@ import {
 } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -405,7 +406,234 @@ describe("platform api bootstrap", () => {
     expect(migrationsAfterThirdBoot.rows.map((row) => row.migration_id)).toEqual(migrationIds);
   }, 120_000);
 
-  it("serializes two concurrent API host bootstraps with a database advisory lock", async () => {
+  it("bootstraps and reconciles every whitelisted public policy value in the production landing profile", async () => {
+    const landingPools = createPlatformApiPools({
+      runtimeProfile: "landing",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6184,
+    });
+
+    try {
+      const runtime = createPlatformApiHost({
+        runtimeProfile: "landing",
+        pools: landingPools,
+        hostPorts: {
+          processorGateway: createFakePaymentProcessorGateway(),
+          listingPhotoStorage,
+        },
+      });
+      const bootstrapOptions = {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "production",
+        runtimeProfile: "landing",
+      } as const;
+
+      expect(runtime.mountedContexts.map(({ contextName, mountRole }) => [contextName, mountRole])).toEqual(
+        expect.arrayContaining([
+          ["commercial-terms", "source-only"],
+          ["settlement", "source-only"],
+        ]),
+      );
+
+      await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
+      await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        ...bootstrapOptions,
+        enabledDataProfiles: ["critical-bootstrap"],
+      });
+
+      const app = buildPlatformApiApp(runtime, { runtimeProfile: "landing" });
+      const response = await app.request("/api/public-presence/policy-values");
+      const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
+
+      expect(response.status).toBe(200);
+      expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+
+      for (const [contextName, policyKeys] of [
+        [
+          "commercial-terms",
+          ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+        ],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+      ] as const) {
+        const result = await landingPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
+          `SELECT policy_key, COUNT(*) AS count
+             FROM platform_policy_documents
+            WHERE policy_key = ANY($1::text[])
+              AND status = 'active'
+            GROUP BY policy_key
+            ORDER BY policy_key`,
+          [policyKeys],
+        );
+        expect(result.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual(
+          [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
+        );
+      }
+    } finally {
+      await closePlatformApiPools(landingPools);
+    }
+  }, 120_000);
+
+  it("reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history", async () => {
+    const queuedPools = createPlatformApiPools({
+      runtimeProfile: "public",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6185,
+    });
+    const predecessorRuntime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const queuedRuntime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools: queuedPools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const commercialTermsContext = predecessorRuntime.mountedContexts.find(
+      (context) => context.contextName === "commercial-terms",
+    );
+    if (!commercialTermsContext?.module.seed) {
+      throw new Error("Expected a seeded active Commercial Terms context in the public runtime.");
+    }
+    expect(commercialTermsContext.mountRole).toBe("active");
+
+    await bootstrapContextDatabase(commercialTermsContext.module, commercialTermsContext.pool);
+    await commercialTermsContext.module.seed(commercialTermsContext.pool, commercialTermsContext.services, {
+      enabledDataProfiles: ["scenario-seed"],
+      environmentName: "test",
+    });
+
+    const legacyEventsBeforeBootstrap = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE stream_id LIKE 'commercial-terms.%'`,
+    );
+    const criticalPoliciesBeforeBootstrap = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM platform_policy_documents
+       WHERE policy_key = ANY($1::text[])
+         AND status = 'active'`,
+      [["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]],
+    );
+    expect(Number(legacyEventsBeforeBootstrap.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(criticalPoliciesBeforeBootstrap.rows[0]?.count ?? 0)).toBe(0);
+
+    let signalPredecessorSeedReached: () => void = () => undefined;
+    const predecessorSeedReached = new Promise<void>((resolve) => {
+      signalPredecessorSeedReached = resolve;
+    });
+    let failPredecessorSeed: () => void = () => undefined;
+    const predecessorMayFail = new Promise<void>((resolve) => {
+      failPredecessorSeed = resolve;
+    });
+    const failingPredecessorRuntime = {
+      ...predecessorRuntime,
+      mountedContexts: predecessorRuntime.mountedContexts.map((context) => {
+        if (context.contextName !== "commercial-terms") return context;
+        return {
+          ...context,
+          module: {
+            ...context.module,
+            seed: async () => {
+              signalPredecessorSeedReached();
+              await predecessorMayFail;
+              throw new Error("test-only predecessor failed before critical policy convergence");
+            },
+          },
+        };
+      }),
+    } satisfies typeof predecessorRuntime;
+    const bootstrapOptions = {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "production",
+      runtimeProfile: "public",
+      schemaBootstrap: {
+        lockAcquisitionTimeoutMs: 120_000,
+        lockTimeoutMs: 50,
+        lockTimeoutRetryBudgetMs: 1_000,
+        lockTimeoutRetryBaseDelayMs: 25,
+        lockTimeoutRetryMaxDelayMs: 50,
+        lockTimeoutRetryJitterMs: 0,
+      },
+    } as const;
+    const predecessorBootstrap = seedApiHostIfEmpty(
+      apiContextRegistry,
+      "platform-api",
+      failingPredecessorRuntime,
+      bootstrapOptions,
+    );
+    await predecessorSeedReached;
+    const queuedBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", queuedRuntime, bootstrapOptions);
+
+    try {
+      await expect(hasSettledWithin(queuedBootstrap, 100)).resolves.toBe(false);
+      failPredecessorSeed();
+      await expect(predecessorBootstrap).rejects.toThrow(
+        "test-only predecessor failed before critical policy convergence",
+      );
+      await expect(queuedBootstrap).resolves.toBeUndefined();
+
+      for (const [contextName, policyKeys] of [
+        [
+          "commercial-terms",
+          ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+        ],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+      ] as const) {
+        const result = await queuedPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
+          `SELECT policy_key, COUNT(*) AS count
+           FROM platform_policy_documents
+           WHERE policy_key = ANY($1::text[])
+             AND status = 'active'
+           GROUP BY policy_key
+           ORDER BY policy_key`,
+          [policyKeys],
+        );
+        expect(result.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual(
+          [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
+        );
+      }
+
+      const app = buildPlatformApiApp(queuedRuntime, { runtimeProfile: "public" });
+      const response = await app.request("/api/public-presence/policy-values");
+      const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
+      expect(response.status).toBe(200);
+      expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+
+      await expect(
+        seedApiHostIfEmpty(apiContextRegistry, "platform-api", queuedRuntime, bootstrapOptions),
+      ).resolves.toBeUndefined();
+      const dayAfterPolicies = await queuedPools["commercial-terms"].query<
+        Readonly<{ policy_key: string; count: string }>
+      >(
+        `SELECT policy_key, COUNT(*) AS count
+         FROM platform_policy_documents
+         WHERE policy_key = ANY($1::text[])
+           AND status = 'active'
+         GROUP BY policy_key
+         ORDER BY policy_key`,
+        [["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]],
+      );
+      expect(dayAfterPolicies.rows.map(({ policy_key, count }) => [policy_key, Number(count)])).toEqual([
+        ["commercial-terms.checkout-processing-fee", 1],
+        ["commercial-terms.marketplace-sales-fee-schedule", 1],
+      ]);
+    } finally {
+      failPredecessorSeed();
+      await Promise.allSettled([predecessorBootstrap, queuedBootstrap]);
+      await closePlatformApiPools(queuedPools);
+    }
+  }, 240_000);
+
+  it("serializes two concurrent full production-like API host bootstraps with a database advisory lock", async () => {
     const secondPools = createPlatformApiPools({
       runtimeProfile: "public",
       sharedDatabaseUrl: null,

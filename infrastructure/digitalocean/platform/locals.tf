@@ -171,10 +171,21 @@ locals {
   landing_context_names = [
     "auth",
     "catalog",
+    "commercial-terms",
     "control",
     "fulfillment",
     "identity",
+    "marketplace",
     "ordering",
+    "platform-operations",
+    "public-presence",
+    "settlement",
+  ]
+
+  landing_exposed_route_context_names = [
+    "auth",
+    "catalog",
+    "identity",
     "platform-operations",
     "public-presence",
   ]
@@ -203,7 +214,7 @@ locals {
   ]
 
   active_runtime_context_names = local.platform_enabled ? local.platform_context_names : local.landing_context_names
-  exposed_route_context_names  = local.active_runtime_context_names
+  exposed_route_context_names  = local.platform_enabled ? local.platform_context_names : local.landing_exposed_route_context_names
 
   # Compatibility alias for existing runtime env maps and pools.
   context_names = local.active_runtime_context_names

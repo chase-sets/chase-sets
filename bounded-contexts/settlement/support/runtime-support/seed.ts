@@ -1,10 +1,11 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import { normalizeCurrencyCode } from "./common";
-import { createSettlementServices } from "./services";
+import { createSettlementServices, type SettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -30,11 +31,28 @@ function createSeedContext(): EventStoreContext {
   };
 }
 
-export async function seedSettlementDatabase(pool: PgTransactionalPool) {
+export async function seedSettlementDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const { createFakeMoneyMovementGateway } = await import("@chase-sets/money-movement/test-support");
   const services = createSettlementServices(pool, {
     moneyMovementGateway: createFakeMoneyMovementGateway(),
   });
+  const shouldSeedCritical = profileEnabled(options, "critical-bootstrap");
+  const shouldSeedScenario = profileEnabled(options, "scenario-seed");
+
+  if (!shouldSeedCritical && !shouldSeedScenario) {
+    console.log("Settlement seed skipped for selected data profiles.");
+    return;
+  }
+
+  const context = createSeedContext();
+
+  if (shouldSeedCritical) {
+    await reconcileCriticalSettlementPolicies(services, context);
+  }
+
+  if (!shouldSeedScenario) {
+    return;
+  }
 
   try {
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM settlement_payout_pages");
@@ -44,37 +62,6 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
     }
   } catch {
     // Table may not exist yet. Proceed with seeding.
-  }
-
-  const context = createSeedContext();
-
-  // Seed the clearance-window and payout-bounds policies with the launch
-  // values before any payment-readiness gating below -- these are the
-  // platform's cash-flow dials and must exist regardless of whether the
-  // payout/wallet seed activity below can proceed yet. Failures here are
-  // non-fatal to the rest of the seed pass (matching the resilience of the
-  // "table may not exist yet" guard above): a fresh bootstrap where the
-  // platform-policy tables have not landed yet must not block the payout
-  // seed data that later passes depend on.
-  try {
-    await seedSettlementPolicyDocumentIfMissing(
-      services,
-      context,
-      settlementClearancePolicy,
-      SETTLEMENT_CLEARANCE_LAUNCH_POLICY_VALUE,
-      "2026-01-01T00:00:00.000Z",
-    );
-    await seedSettlementPolicyDocumentIfMissing(
-      services,
-      context,
-      settlementPayoutBoundsPolicy,
-      payoutAmountPolicy,
-      "2026-01-01T00:00:00.000Z",
-    );
-  } catch (error) {
-    console.log(
-      `Settlement policy seed skipped for this pass: ${error instanceof Error ? error.message : String(error)}`,
-    );
   }
 
   const sellerAccountId = identitySeedIds.demo.accountId;
@@ -242,6 +229,57 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
     },
     context,
   );
+}
+
+export async function reconcileSettlementBootstrapState(
+  pool: PgTransactionalPool,
+  services?: SettlementServices,
+  options?: BcSeedOptions,
+) {
+  if (!profileEnabled(options, "critical-bootstrap")) {
+    return;
+  }
+
+  if (services) {
+    await reconcileCriticalSettlementPolicies(services, createSeedContext());
+    return;
+  }
+
+  const { createFakeMoneyMovementGateway } = await import("@chase-sets/money-movement/test-support");
+  await reconcileCriticalSettlementPolicies(
+    createSettlementServices(pool, { moneyMovementGateway: createFakeMoneyMovementGateway() }),
+    createSeedContext(),
+  );
+}
+
+async function reconcileCriticalSettlementPolicies(
+  services: ReturnType<typeof createSettlementServices>,
+  context: EventStoreContext,
+) {
+  await seedSettlementPolicyDocumentIfMissing(
+    services,
+    context,
+    settlementClearancePolicy,
+    SETTLEMENT_CLEARANCE_LAUNCH_POLICY_VALUE,
+    "2026-01-01T00:00:00.000Z",
+  );
+  await seedSettlementPolicyDocumentIfMissing(
+    services,
+    context,
+    settlementPayoutBoundsPolicy,
+    payoutAmountPolicy,
+    "2026-01-01T00:00:00.000Z",
+  );
+}
+
+function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {
+  const defaultProfiles: readonly EnvironmentDataProfile[] = [
+    "critical-bootstrap",
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+  ];
+
+  return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
 }
 
 /**

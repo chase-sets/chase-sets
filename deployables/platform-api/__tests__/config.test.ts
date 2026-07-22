@@ -301,7 +301,8 @@ describe("platform api config", () => {
     expect(config.runtimeProfile).toBe("landing");
     expect(config.contextDatabaseUrls.checkout).toBeUndefined();
     expect(config.contextDatabaseUrls.payments).toBeUndefined();
-    expect(config.contextDatabaseUrls.settlement).toBeUndefined();
+    expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");
+    expect(config.contextDatabaseUrls.settlement).toBe("postgresql://localhost/settlement");
     expect(config.contextDatabaseUrls["public-presence"]).toBe("postgresql://localhost/public_presence");
   });
 
@@ -329,6 +330,8 @@ describe("platform api config", () => {
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
     expect(config.contextDatabaseUrls.catalog).toBe("postgresql://localhost/catalog");
     expect(config.contextDatabaseUrls.ordering).toBe("postgresql://localhost/ordering");
+    expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");
+    expect(config.contextDatabaseUrls.settlement).toBe("postgresql://localhost/settlement");
     expect(config.contextDatabaseUrls.checkout).toBeUndefined();
     expect(config.contextDatabaseUrls.payments).toBeUndefined();
   });

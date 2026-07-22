@@ -12,7 +12,7 @@ import { buildCommercialTermsApi, buildCommercialTermsPublicApi } from "./api";
 import { buildCommercialTermsAccountProjectionHandlers } from "./features/resolutions/integrations/account-source/account-projection";
 import { commercialTermsSchemaSql } from "./support/runtime-support/schema";
 import { commercialTermsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedCommercialTermsDatabase } from "./support/runtime-support/seed";
+import { reconcileCommercialTermsBootstrapState, seedCommercialTermsDatabase } from "./support/runtime-support/seed";
 import type { CommercialTermsServices } from "./support/runtime-support/services";
 import { createCommercialTermsServices } from "./support/runtime-support/services";
 import { buildFoundersWindowReactionHandlers } from "./features/agreements/integrations/identity/founders-window-reaction";
@@ -48,4 +48,5 @@ export const module = defineBoundedContextModule<CommercialTermsServices, PgTran
   ],
   seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: seedCommercialTermsDatabase,
+  reconcileBootstrapState: reconcileCommercialTermsBootstrapState,
 });

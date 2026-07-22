@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publicHelpArticles } from "../domain/article-catalog";
@@ -28,7 +28,10 @@ describe("public help pages", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }));
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it("groups help categories by audience", () => {
     render(<HelpHubPage />, { wrapper: MemoryRouter });
@@ -77,5 +80,24 @@ describe("public help pages", () => {
       { wrapper: MemoryRouter },
     );
     expect(screen.getByText("Changing on July 20, 2026")).toBeTruthy();
+  });
+
+  it("renders an explicit marker for policy values that could not be resolved", () => {
+    const source = publicHelpArticles.find((article) => article.slug === "order-protection")!;
+    const article = resolveArticlePolicyValues(
+      source,
+      {
+        values: {},
+        resolvedAt: "2026-07-12T00:00:00.000Z",
+        propagationSeconds: 0,
+        changeCalloutDays: 0,
+      },
+      { unavailableKeys: source.policyValueKeys },
+    );
+
+    render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
+
+    expect(screen.getAllByText("Temporarily unavailable").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("48 hours");
   });
 });

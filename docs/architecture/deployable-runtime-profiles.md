@@ -43,7 +43,7 @@ Each profile declares:
 - required secret posture;
 - smoke expectation.
 
-`landing` mounts only the landing admin/support surface. `proof` mounts the full platform for private provider/live-money evidence while public marketplace promotion remains disabled. `public` mounts and exposes the full marketplace after launch approval gates pass.
+`landing` exposes only the landing admin/support surface. Contexts whose data is required by those public surfaces may be mounted source-only: they receive pools and production bootstrap reconciliation, but their API routes, subscriptions, workers, and private behavior stay unmounted. `proof` mounts the full platform for private provider/live-money evidence while public marketplace promotion remains disabled. `public` mounts and exposes the full marketplace after launch approval gates pass.
 
 ## Database Lifecycle
 

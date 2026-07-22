@@ -550,6 +550,13 @@ export interface BcApiModule<
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
   seedProfiles?: readonly EnvironmentDataProfile[];
   seed?(pool: TPool, services?: TServices, options?: BcSeedOptions): Promise<void>;
+  /**
+   * Context-owned, idempotent reconciliation for required bootstrap state.
+   * Platform hosts may invoke this after waiting for another bootstrap that
+   * failed, once local projections have drained. It must not replay scenario
+   * or other non-idempotent seed behavior.
+   */
+  reconcileBootstrapState?(pool: TPool, services?: TServices, options?: BcSeedOptions): Promise<void>;
 }
 
 export type DefineBoundedContextModuleInput<
@@ -584,6 +591,13 @@ export type DefineBoundedContextModuleInput<
   >["buildProjectionGroups"];
   seedProfiles?: readonly EnvironmentDataProfile[];
   seed?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["seed"];
+  reconcileBootstrapState?: BcApiModule<
+    TServices,
+    TPool,
+    THostPorts,
+    TRouter,
+    TProjectionHandlerSet
+  >["reconcileBootstrapState"];
 }>;
 
 export function defineBoundedContextModule<
@@ -617,6 +631,7 @@ export function defineBoundedContextModule<
     ...(input.buildProjectionGroups ? { buildProjectionGroups: input.buildProjectionGroups } : {}),
     ...(input.seedProfiles ? { seedProfiles: input.seedProfiles } : {}),
     ...(input.seed ? { seed: input.seed } : {}),
+    ...(input.reconcileBootstrapState ? { reconcileBootstrapState: input.reconcileBootstrapState } : {}),
   };
 }
 
