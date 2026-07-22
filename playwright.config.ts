@@ -39,6 +39,7 @@ export default defineConfig({
   reporter: [
     ["list"],
     [retryTelemetryReporterPath],
+    ["json", { outputFile: "artifacts/playwright/results/playwright-results.json" }],
     ["html", { open: "never", outputFolder: "artifacts/playwright/report" }],
   ],
   use: {

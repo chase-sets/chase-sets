@@ -5,9 +5,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildDigestWindows,
   buildFlakeDigest,
+  collectPerSpecFlakeTelemetry,
   collectReleaseHealthFlakeDigest,
+  collapsePerSpecTelemetry,
   parseReleaseHealthFlakeDigestArgs,
+  runProducesPerSpecTelemetry,
+  workflowProducesPerSpecTelemetry,
   summarizeDeliverySignatureFlakes,
+  summarizePerSpecFlakes,
   summarizeWorkflowRuns,
   writeReleaseHealthFlakeDigest,
 } from "./release-health-flake-digest.mjs";
@@ -28,6 +33,15 @@ describe("release health flake digest", () => {
     expect(issueStep).not.toContain("--milestone");
     expect(uploadIndex).toBeGreaterThan(-1);
     expect(issueIndex).toBeGreaterThan(uploadIndex);
+  });
+
+  it("always uploads one uniquely named machine-readable report from every E2E matrix job", async () => {
+    const workflow = await readFile(new URL("../.github/workflows/platform-pr.yml", import.meta.url), "utf8");
+    const e2e = workflow.slice(workflow.indexOf("  e2e-tests:"), workflow.indexOf("\n  build:"));
+    expect(e2e).toContain("if: always()");
+    expect(e2e).toContain("name: playwright-e2e-results-${{ github.run_id }}-${{ strategy.job-index }}");
+    expect(e2e).toContain("artifacts/playwright/results/playwright-results.json");
+    expect(e2e).toContain("if-no-files-found: error");
   });
 
   it("includes retry-pass delivery signature recovery without classifying deterministic holds as flakes", () => {
@@ -61,6 +75,134 @@ describe("release health flake digest", () => {
     expect(summary.retryCount).toBe(3);
     expect(summary.flakyFailureCount).toBe(2);
     expect([...summary.jobs.values()]).toEqual([{ name: "Platform PR", retryCount: 3, flakyFailureCount: 2 }]);
+  });
+
+  it("ranks terminal per-spec retry recovery and failed jobs without double-counting retries", () => {
+    const telemetry = collapsePerSpecTelemetry([
+      {
+        occurrenceId: "1:0:checkout",
+        name: "checkout",
+        terminalStatus: "passed",
+        terminalRetry: 2,
+        runUrl: "https://run/1",
+      },
+      {
+        occurrenceId: "1:0:checkout",
+        name: "checkout",
+        terminalStatus: "passed",
+        terminalRetry: 2,
+        runUrl: "https://run/1",
+      },
+      {
+        occurrenceId: "2:0:checkout",
+        name: "checkout",
+        terminalStatus: "failed",
+        terminalRetry: 2,
+        runUrl: "https://run/2",
+      },
+    ]);
+    expect(summarizePerSpecFlakes(telemetry)).toEqual([
+      { name: "checkout", passedOnRetryCount: 1, failedJobCount: 1, runUrl: "https://run/1" },
+    ]);
+    expect(() =>
+      collapsePerSpecTelemetry([
+        { occurrenceId: "1:0:checkout", terminalStatus: "passed", terminalRetry: 1 },
+        { occurrenceId: "1:0:checkout", terminalStatus: "failed", terminalRetry: 1 },
+      ]),
+    ).toThrow("Conflicting terminal Playwright outcomes");
+  });
+
+  it("collects real Actions-shaped artifacts, rejects eligible missing or malformed payloads, and keeps old heads readable", async () => {
+    const report = JSON.stringify({
+      suites: [
+        {
+          title: "marketplace",
+          specs: [
+            {
+              title: "can buy",
+              tests: [
+                {
+                  projectName: "chromium",
+                  results: [
+                    { retry: 0, status: "failed" },
+                    { retry: 1, status: "passed" },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const workflow = Buffer.from(
+      `name: x\n- name: Upload Playwright artifacts\n  if: always()\n  name: playwright-e2e-results-${"${{ github.run_id }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/results/playwright-results.json`,
+    ).toString("base64");
+    const response = (body, status = 200) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => null },
+      json: async () => body,
+      arrayBuffer: async () => body,
+    });
+    const run = { id: 12, head_sha: "new", html_url: "https://run/12" };
+    const calls = [];
+    const fetchImpl = async (url) => {
+      const value = String(url);
+      calls.push(value);
+      if (value.includes("contents"))
+        return response({
+          content: value.includes("ref=old") ? Buffer.from("name: old").toString("base64") : workflow,
+        });
+      if (value.includes("/jobs")) return response({ jobs: [{ name: "E2E Tests (catalog)" }] });
+      if (value.includes("/artifacts"))
+        return response({
+          artifacts: [{ id: 99, name: "playwright-e2e-results-12-0", archive_download_url: "https://artifact/99" }],
+        });
+      return response(buildStoredZip([["nested/playwright-results.json", report]]));
+    };
+    const options = { repository: "chase-sets/chase-sets", fetchImpl };
+    expect(Buffer.from(workflow, "base64").toString("utf8")).toContain(
+      "artifacts/playwright/results/playwright-results.json",
+    );
+    expect(workflowProducesPerSpecTelemetry(Buffer.from(workflow, "base64").toString("utf8"))).toBe(true);
+    const producer = await runProducesPerSpecTelemetry(options, run);
+    expect(calls).toEqual([expect.stringContaining("contents")]);
+    expect(producer).toBe(true);
+    await expect(collectPerSpecFlakeTelemetry(options, [run])).resolves.toEqual([
+      expect.objectContaining({ name: "marketplace › can buy › chromium", terminalStatus: "passed", terminalRetry: 1 }),
+    ]);
+    await expect(
+      collectPerSpecFlakeTelemetry(
+        {
+          ...options,
+          fetchImpl: async (url) => (String(url).includes("/artifacts") ? response({ artifacts: [] }) : fetchImpl(url)),
+        },
+        [run],
+      ),
+    ).rejects.toThrow("1 E2E jobs but 0 per-spec report artifacts");
+    await expect(
+      collectPerSpecFlakeTelemetry(
+        {
+          ...options,
+          fetchImpl: async (url) =>
+            String(url) === "https://artifact/99" ? response(buildStoredZip([["notes.json", "{}"]])) : fetchImpl(url),
+        },
+        [run],
+      ),
+    ).rejects.toThrow("exactly one playwright-results.json");
+    await expect(
+      collectPerSpecFlakeTelemetry(
+        {
+          ...options,
+          fetchImpl: async (url) =>
+            String(url) === "https://artifact/99"
+              ? response(buildStoredZip([["playwright-results.json", "not json"]]))
+              : fetchImpl(url),
+        },
+        [run],
+      ),
+    ).rejects.toThrow("malformed playwright-results.json");
+    await expect(collectPerSpecFlakeTelemetry(options, [{ ...run, id: 13, head_sha: "old" }])).resolves.toEqual([]);
   });
 
   it("builds a weekly digest with previous-window trends and breaches", () => {
@@ -126,7 +268,7 @@ describe("release health flake digest", () => {
       },
     });
 
-    expect(seen).toHaveLength(3);
+    expect(seen).toHaveLength(4);
     expect(seen[0].options.headers.Authorization).toBe("Bearer token");
     expect(
       seen
@@ -196,3 +338,41 @@ describe("release health flake digest", () => {
     });
   });
 });
+
+function buildStoredZip(entries) {
+  const locals = [];
+  const directories = [];
+  let offset = 0;
+  for (const [name, text] of entries) {
+    const nameBytes = Buffer.from(name);
+    const contents = Buffer.from(text);
+    const local = Buffer.alloc(30 + nameBytes.length + contents.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(contents.length, 18);
+    local.writeUInt32LE(contents.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    nameBytes.copy(local, 30);
+    contents.copy(local, 30 + nameBytes.length);
+    locals.push(local);
+    const directory = Buffer.alloc(46 + nameBytes.length);
+    directory.writeUInt32LE(0x02014b50, 0);
+    directory.writeUInt16LE(20, 4);
+    directory.writeUInt16LE(20, 6);
+    directory.writeUInt32LE(contents.length, 20);
+    directory.writeUInt32LE(contents.length, 24);
+    directory.writeUInt16LE(nameBytes.length, 28);
+    directory.writeUInt32LE(offset, 42);
+    nameBytes.copy(directory, 46);
+    directories.push(directory);
+    offset += local.length;
+  }
+  const central = Buffer.concat(directories);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, central, end]);
+}

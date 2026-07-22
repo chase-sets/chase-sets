@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { inflateRawSync } from "node:zlib";
+import { basename, dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
@@ -43,6 +44,7 @@ export async function collectReleaseHealthFlakeDigest(options) {
     fetchWorkflowRunsForWindow(options, windows.previous),
     fetchDeliverySignatureFlakes(options, windows.current),
   ]);
+  const perSpecTelemetry = await collectPerSpecFlakeTelemetry(options, currentRuns);
 
   return buildFlakeDigest({
     checkedAt: options.checkedAt,
@@ -55,6 +57,7 @@ export async function collectReleaseHealthFlakeDigest(options) {
     currentRuns,
     previousRuns,
     signatureFlakes,
+    perSpecTelemetry,
   });
 }
 
@@ -103,6 +106,7 @@ export function buildFlakeDigest(input) {
     .slice(0, 10);
 
   const breaches = jobs.filter((job) => job.breached);
+  const topFlakySpecs = summarizePerSpecFlakes(input.perSpecTelemetry ?? []);
   const digest = {
     schemaVersion: RELEASE_HEALTH_FLAKE_DIGEST_VERSION,
     checkedAt: input.checkedAt,
@@ -115,6 +119,7 @@ export function buildFlakeDigest(input) {
     previousFlakyFailureCount: previous.flakyFailureCount,
     breachCount: breaches.length,
     topFlakyJobs: jobs,
+    topFlakySpecs,
     signatureFlakeCount: (input.signatureFlakes ?? []).length,
     deliverySignatureFlakes: input.signatureFlakes ?? [],
     issueTitle: `CI flake digest breach: ${input.windows.current.start.slice(0, 10)} to ${input.windows.current.end.slice(0, 10)}`,
@@ -164,15 +169,24 @@ export function renderFlakeDigestMarkdown(digest) {
 
   if (digest.topFlakyJobs.length === 0) {
     lines.push("Clean: no retried workflow runs in the current or previous window.");
-    return lines.join("\n");
+  } else {
+    lines.push("| Job | Retries | Trend | Flaky successful retries | Trend | Breach |");
+    lines.push("| --- | ---: | ---: | ---: | ---: | --- |");
+    for (const job of digest.topFlakyJobs) {
+      lines.push(
+        `| ${escapeMarkdownCell(job.name)} | ${job.retryCount} | ${formatSignedDelta(job.retryTrend)} | ${job.flakyFailureCount} | ${formatSignedDelta(job.flakyFailureTrend)} | ${job.breached ? "yes" : "no"} |`,
+      );
+    }
   }
 
-  lines.push("| Job | Retries | Trend | Flaky successful retries | Trend | Breach |");
-  lines.push("| --- | ---: | ---: | ---: | ---: | --- |");
-  for (const job of digest.topFlakyJobs) {
-    lines.push(
-      `| ${escapeMarkdownCell(job.name)} | ${job.retryCount} | ${formatSignedDelta(job.retryTrend)} | ${job.flakyFailureCount} | ${formatSignedDelta(job.flakyFailureTrend)} | ${job.breached ? "yes" : "no"} |`,
-    );
+  if (digest.topFlakySpecs.length > 0) {
+    lines.push("", "### Per-spec Playwright telemetry", "", "| Spec | Passed on retry | Failed jobs | Example run |");
+    lines.push("| --- | ---: | ---: | --- |");
+    for (const spec of digest.topFlakySpecs) {
+      lines.push(
+        `| ${escapeMarkdownCell(spec.name)} | ${spec.passedOnRetryCount} | ${spec.failedJobCount} | [run](${spec.runUrl}) |`,
+      );
+    }
   }
 
   if (digest.breachCount > 0) {
@@ -182,6 +196,78 @@ export function renderFlakeDigestMarkdown(digest) {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Reads only reports made eligible by the workflow source at the run's exact head.
+ * That keeps pre-producer retained runs readable while making a missing or malformed
+ * report from a producer-enabled run an explicit collector failure.
+ */
+export async function collectPerSpecFlakeTelemetry(options, runs) {
+  const telemetry = [];
+  for (const run of runs) {
+    const jobs = await fetchRunJobsForFlakeDigest(options, run.id);
+    const e2eJobs = jobs.filter((job) => /^E2E Tests \(/.test(job?.name ?? ""));
+    if (e2eJobs.length === 0) continue;
+    if (!(await runProducesPerSpecTelemetry(options, run))) continue;
+    const artifacts = await fetchRunArtifacts(options, run.id);
+    const expectedPrefix = `playwright-e2e-results-${run.id}-`;
+    const reports = artifacts.filter((artifact) => String(artifact?.name ?? "").startsWith(expectedPrefix));
+    if (reports.length !== e2eJobs.length) {
+      throw new Error(`Run ${run.id} has ${e2eJobs.length} E2E jobs but ${reports.length} per-spec report artifacts.`);
+    }
+    for (const artifact of reports) {
+      const matrixIndex = String(artifact.name).slice(expectedPrefix.length);
+      if (!/^\d+$/.test(matrixIndex)) throw new Error(`Artifact ${artifact.id} has an invalid matrix identity.`);
+      const report = await readPlaywrightReportArtifact(options, artifact);
+      telemetry.push(...extractPlaywrightSpecTelemetry(report, { run, matrixIndex, artifactId: artifact.id }));
+    }
+  }
+  return collapsePerSpecTelemetry(telemetry);
+}
+
+export function extractPlaywrightSpecTelemetry(report, source) {
+  const entries = [];
+  for (const suite of report?.suites ?? []) collectSuiteSpecs(suite, [], entries, source);
+  return entries;
+}
+
+export function collapsePerSpecTelemetry(entries) {
+  const collapsed = new Map();
+  for (const entry of entries) {
+    const prior = collapsed.get(entry.occurrenceId);
+    if (!prior) {
+      collapsed.set(entry.occurrenceId, entry);
+      continue;
+    }
+    if (prior.terminalStatus !== entry.terminalStatus || prior.terminalRetry !== entry.terminalRetry) {
+      throw new Error(`Conflicting terminal Playwright outcomes for ${entry.occurrenceId}.`);
+    }
+  }
+  return [...collapsed.values()];
+}
+
+export function summarizePerSpecFlakes(entries) {
+  const specs = new Map();
+  for (const entry of entries) {
+    const previous = specs.get(entry.name) ?? {
+      name: entry.name,
+      passedOnRetryCount: 0,
+      failedJobCount: 0,
+      runUrl: entry.runUrl,
+    };
+    if (entry.terminalStatus === "passed" && entry.terminalRetry > 0) previous.passedOnRetryCount += 1;
+    if (entry.terminalStatus !== "passed") previous.failedJobCount += 1;
+    specs.set(entry.name, previous);
+  }
+  return [...specs.values()]
+    .filter((spec) => spec.passedOnRetryCount > 0 || spec.failedJobCount > 0)
+    .sort(
+      (a, b) =>
+        b.passedOnRetryCount + b.failedJobCount - (a.passedOnRetryCount + a.failedJobCount) ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, 10);
 }
 
 export function renderFlakeDigestIssueBody(digest) {
@@ -266,6 +352,139 @@ async function fetchWorkflowRunsForWindow(options, window) {
   }
 
   return runs;
+}
+
+async function fetchRunJobsForFlakeDigest(options, runId) {
+  return fetchPaginated(options, `/actions/runs/${runId}/jobs?filter=all&per_page=100`, "jobs");
+}
+
+async function fetchRunArtifacts(options, runId) {
+  return fetchPaginated(options, `/actions/runs/${runId}/artifacts?per_page=100`, "artifacts");
+}
+
+async function fetchPaginated(options, path, field) {
+  const values = [];
+  let url = new URL(`https://api.github.com/repos/${options.repository}${path}`);
+  while (url) {
+    const response = await githubFetch(options, url);
+    if (!response.ok) throw new Error(`GitHub ${field} lookup failed: ${response.status}`);
+    const body = await response.json();
+    values.push(...(Array.isArray(body?.[field]) ? body[field] : []));
+    url = nextLink(response.headers?.get?.("link"));
+  }
+  return values;
+}
+
+export async function runProducesPerSpecTelemetry(options, run) {
+  if (!run?.head_sha) return false;
+  const url = new URL(`https://api.github.com/repos/${options.repository}/contents/.github/workflows/platform-pr.yml`);
+  url.searchParams.set("ref", run.head_sha);
+  const response = await githubFetch(options, url);
+  // A pre-producer commit intentionally has no report contract. It remains readable.
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(`Workflow source lookup for run ${run.id} failed: ${response.status}`);
+  const body = await response.json();
+  const workflow = Buffer.from(String(body?.content ?? "").replaceAll(/\s/g, ""), "base64").toString("utf8");
+  return workflowProducesPerSpecTelemetry(workflow);
+}
+
+export function workflowProducesPerSpecTelemetry(workflow) {
+  const normalized = String(workflow).replaceAll(/\s/g, "");
+  return (
+    normalized.includes("playwright-e2e-results-${{github.run_id}}-${{strategy.job-index}}") &&
+    normalized.includes("artifacts/playwright/results/playwright-results.json") &&
+    normalized.includes("name:UploadPlaywrightartifacts") &&
+    normalized.includes("if:always()")
+  );
+}
+
+async function readPlaywrightReportArtifact(options, artifact) {
+  if (!artifact?.archive_download_url) throw new Error(`Artifact ${artifact?.id ?? "unknown"} has no download URL.`);
+  const response = await githubFetch(options, artifact.archive_download_url);
+  if (!response.ok) throw new Error(`Artifact ${artifact.id} download failed: ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 10 * 1024 * 1024) throw new Error(`Artifact ${artifact.id} exceeds 10 MiB.`);
+  const entries = unzipJsonEntries(bytes);
+  const payloads = [...entries.entries()].filter(([name]) => basename(name) === "playwright-results.json");
+  if (payloads.length !== 1)
+    throw new Error(`Artifact ${artifact.id} must contain exactly one playwright-results.json payload.`);
+  try {
+    return JSON.parse(payloads[0][1].toString("utf8"));
+  } catch {
+    throw new Error(`Artifact ${artifact.id} has malformed playwright-results.json.`);
+  }
+}
+
+async function githubFetch(options, url) {
+  return options.fetchImpl(url, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+}
+
+function collectSuiteSpecs(suite, parents, entries, source) {
+  const path = [...parents, suite?.title].filter(Boolean);
+  for (const spec of suite?.specs ?? []) {
+    for (const test of spec?.tests ?? []) {
+      const results = [...(test?.results ?? [])].filter((result) => Number.isInteger(result?.retry));
+      if (results.length === 0) continue;
+      const terminalRetry = Math.max(...results.map((result) => result.retry));
+      const terminal = results.filter((result) => result.retry === terminalRetry).at(-1);
+      const name = [...path, spec.title, test.projectName].filter(Boolean).join(" › ");
+      entries.push({
+        name,
+        occurrenceId: `${source.run.id}:${source.matrixIndex}:${name}`,
+        terminalStatus: terminal.status,
+        terminalRetry,
+        runUrl:
+          source.run.html_url ??
+          `https://github.com/${source.run.repository?.full_name ?? ""}/actions/runs/${source.run.id}`,
+      });
+    }
+  }
+  for (const child of suite?.suites ?? []) collectSuiteSpecs(child, path, entries, source);
+}
+
+export function unzipJsonEntries(buffer) {
+  const entries = new Map();
+  const eocd = findEndOfCentralDirectory(buffer);
+  if (eocd < 0) throw new Error("Artifact archive is not a supported ZIP file.");
+  const entryCount = buffer.readUInt16LE(eocd + 10);
+  if (entryCount > 1_000) throw new Error("Artifact ZIP contains too many entries.");
+  let offset = buffer.readUInt32LE(eocd + 16);
+  for (let index = 0; index < entryCount; index += 1) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Artifact ZIP central directory is invalid.");
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    if (name.toLowerCase().endsWith(".json")) {
+      if (uncompressedSize > 2 * 1024 * 1024) throw new Error(`Artifact JSON entry ${name} exceeds 2 MiB.`);
+      if (method === 0) entries.set(name, compressed);
+      else if (method === 8) entries.set(name, inflateRawSync(compressed));
+      else throw new Error(`Artifact ZIP uses unsupported compression method ${method}.`);
+    }
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function findEndOfCentralDirectory(buffer) {
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65_557); offset -= 1) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) return offset;
+  }
+  return -1;
 }
 
 async function fetchDeliverySignatureFlakes(options, window) {
