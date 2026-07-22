@@ -128,12 +128,12 @@ jobs:
           active_probe_object=""
           printf 'seed-pack access probe\n' > "${RUNNER_TEMP}/seed-pack-probe.txt"
 
-          cleanup_probe() {
+          cleanup_probe_best_effort() {
             if [ -n "$active_probe_object" ]; then
               aws s3api delete-object --bucket "$bucket" --key "$active_probe_object" --endpoint-url "$endpoint" >/dev/null 2>&1 || true
             fi
           }
-          trap cleanup_probe EXIT
+          trap cleanup_probe_best_effort EXIT
 
           probe_key() {
             audience="$1"
@@ -184,7 +184,10 @@ jobs:
               return 1
             fi
 
-            cleanup_probe
+            aws s3api delete-object \
+              --bucket "$bucket" \
+              --key "$active_probe_object" \
+              --endpoint-url "$endpoint" >/dev/null
             active_probe_object=""
             echo "${audience} scoped key passed read/write, anonymous 403, and cross-bucket denial probes."
           }
