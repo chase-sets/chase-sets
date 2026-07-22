@@ -688,30 +688,38 @@ describe("DigitalOcean platform configuration", () => {
   it("waits for post-deploy projection readiness before production smoke asserts", () => {
     const exportStep = workflowStep(platformProductionWorkflow, "Export production readiness database URLs");
     const readinessStep = workflowStep(platformProductionWorkflow, "Production post-deploy readiness gate");
+    const cleanupStep = workflowStep(platformProductionWorkflow, "Remove managed Postgres CA");
 
     // Ordering: before the smoke check and Stage 1 canary, so projection-
     // dependent production smoke assertions measure steady state (#4012).
     const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
     const exportIndex = platformProductionWorkflow.indexOf("- name: Export production readiness database URLs");
     const readinessIndex = platformProductionWorkflow.indexOf("- name: Production post-deploy readiness gate");
+    const cleanupIndex = platformProductionWorkflow.indexOf("- name: Remove managed Postgres CA", readinessIndex);
     const stage1Index = platformProductionWorkflow.indexOf("- name: Stage 1 production canary");
     expect(exportIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(cleanupIndex);
+    expect(cleanupIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(stage1Index);
 
-    // The export step derives direct production URLs from Terraform state
-    // (staging wake-drills pattern) and masks them.
+    // The export step uses the canonical trust-bearing Terraform-state path.
     expect(exportStep).toContain("terraform state pull");
-    expect(exportStep).toContain("digitalocean_database_cluster");
-    expect(exportStep).toContain("::add-mask::");
-    expect(exportStep).toContain("PLATFORM_CONTROL_DATABASE_URL");
-    expect(exportStep).toContain('[...readinessContexts, "checkout", "public-presence", "control"]');
+    expect(exportStep).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(exportStep).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
+    expect(exportStep).toContain("--environment production");
+    expect(exportStep).toContain('--contexts "${READINESS_GATE_SOURCE_CONTEXTS},checkout,public-presence,control"');
+    expect(exportStep).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
+    expect(exportStep).not.toContain("sslmode=require");
     expect(exportStep).toContain(
       "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}",
     );
     expect(exportStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
     expect(exportStep).not.toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
     expect(exportStep).toContain("continue-on-error: true");
+    expect(cleanupStep).toContain("if: always() && env.SHOULD_DEPLOY != 'false'");
+    expect(cleanupStep).toContain('rm -f -- "$MANAGED_POSTGRES_CA_PATH"');
 
     // The gate records the bounded outcome and fails closed before
     // projection-dependent smoke assertions when the budget expires.
@@ -1781,9 +1789,12 @@ describe("DigitalOcean platform configuration", () => {
       "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
     );
     expect(restoreStep).toContain("STAGING_DATABASE_CLUSTER_ID");
+    expect(restoreStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(restoreStep).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
     expect(restoreStep).toContain("DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT");
     expect(restoreStep).toContain("node ./scripts/digitalocean-database-restore-drill.mjs");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("- name: Remove managed Postgres CA");
     expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(uploadStep).toContain("platform-database-restore-drill-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(uploadStep).toContain("retention-days: 30");

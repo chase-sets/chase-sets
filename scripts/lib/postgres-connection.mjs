@@ -32,7 +32,10 @@ export function resolvePostgresSsl(connectionString, env = process.env, read = r
     throw new Error("Remote PostgreSQL connections cannot disable TLS verification.");
   }
   if (sslMode === "verify-full" || !isLocalDatabaseHost(url.hostname)) {
-    const caPath = url.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
+    // node-postgres reparses sslmode-bearing URLs after the explicit ssl
+    // object, so an environment-only CA is not a reliable trust contract.
+    // Managed connections must carry sslrootcert in the URL itself.
+    const caPath = url.searchParams.get("sslrootcert");
     const ca = caPath ? read(caPath, "utf8") : undefined;
     return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
   }
@@ -73,6 +76,15 @@ export function postgresFailureFields(error) {
     error?.message === "self-signed certificate in certificate chain"
   ) {
     return safeFailureFields("self-signed-certificate-in-certificate-chain", error);
+  }
+  if (error?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
+    return safeFailureFields("certificate-authority-untrusted", error);
+  }
+  if (error?.code === "ERR_TLS_CERT_ALTNAME_INVALID") {
+    return safeFailureFields("certificate-hostname-mismatch", error);
+  }
+  if (error?.code === "ENOENT") {
+    return safeFailureFields("certificate-authority-file-unavailable", error);
   }
   return safeFailureFields("postgres-query-failed", error);
 }

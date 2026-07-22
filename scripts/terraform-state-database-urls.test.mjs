@@ -273,13 +273,15 @@ describe("Terraform state database URL export", () => {
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });
 
-  it("keeps all eight workflow consumers on the explicit trust contract", async () => {
+  it("keeps every shared-exporter workflow consumer on the explicit trust contract", async () => {
     const expectedConsumers = [
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
+      "checkout-order-readiness-trace.yml",
       "marketplace-provider-proof-status.yml",
       "platform-postgres-growth-evidence.yml",
       "platform-postgres-slow-query-digest.yml",
+      "platform-production.yml",
       "platform-staging-admin-qa-actor-fixtures.yml",
       "platform-staging-representative-commerce-state.yml",
       "platform-staging-wake-drills.yml",

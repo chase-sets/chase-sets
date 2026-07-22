@@ -39,6 +39,18 @@ describe("managed PostgreSQL connection trust", () => {
     });
   });
 
+  it("does not treat PGSSLROOTCERT alone as trust for an sslmode-bearing URL", () => {
+    const reads = [];
+    const ssl = resolvePostgresSsl(
+      "postgresql://user:secret@db.example:25060/database?sslmode=verify-full",
+      { PGSSLROOTCERT: "/runner/env-only-ca.pem" },
+      (...args) => reads.push(args),
+    );
+
+    expect(ssl).toEqual({ rejectUnauthorized: true });
+    expect(reads).toEqual([]);
+  });
+
   it("maps the withheld-CA failure to the named bounded certificate class", () => {
     const error = Object.assign(new Error("self-signed certificate in certificate chain"), {
       code: "SELF_SIGNED_CERT_IN_CHAIN",

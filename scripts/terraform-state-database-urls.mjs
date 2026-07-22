@@ -120,16 +120,23 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
     const url =
       `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}` +
       `@${connection.host}:${connection.port}/${encodeURIComponent(databaseName)}`;
-    const connectionUrl = new URL(url);
-    connectionUrl.searchParams.set("sslmode", "verify-full");
-    connectionUrl.searchParams.set("sslrootcert", options.caPath);
-    connectionUrl.searchParams.set("uselibpqcompat", "true");
     return {
       contextName,
       envName: envNameForContext(contextName),
-      url: connectionUrl.toString(),
+      url: managedPostgresConnectionUrl(url, options.caPath),
     };
   });
+}
+
+export function managedPostgresConnectionUrl(connectionString, caPath) {
+  if (!caPath) {
+    throw trustError("managed-postgres-ca-path-missing", "A managed PostgreSQL CA path is required.");
+  }
+  const url = new URL(connectionString);
+  url.searchParams.set("sslmode", "verify-full");
+  url.searchParams.set("sslrootcert", caPath);
+  url.searchParams.set("uselibpqcompat", "true");
+  return url.toString();
 }
 
 export function githubEnvLinesForDatabaseUrls(urls, caPath) {
@@ -260,10 +267,14 @@ function parseContexts(value) {
   if (!value || value === "all") {
     return null;
   }
-  return String(value)
-    .split(",")
-    .map((context) => context.trim())
-    .filter(Boolean);
+  return [
+    ...new Set(
+      String(value)
+        .split(",")
+        .map((context) => context.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function environmentLabel(environmentName) {

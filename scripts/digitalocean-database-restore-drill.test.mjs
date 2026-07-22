@@ -6,15 +6,15 @@ import {
   buildStagingRestoreDrillName,
   databaseUrlForDatabase,
   discoverForkDatabaseChecks,
-  normalizeRestoreDrillDatabaseUrl,
   parseDigitalOceanDatabaseRestoreDrillArgs,
   performDigitalOceanDatabaseRestoreDrill,
-  resolveRestoreDrillDatabaseSsl,
 } from "./digitalocean-database-restore-drill.mjs";
 
 const baseOptions = {
   doctlPath: "doctl",
   sourceClusterId: "db-staging",
+  digitalOceanToken: "token-value",
+  caPath: "/runner/temp/digitalocean-managed-postgres-ca.pem",
   environment: "staging",
   workflowRunId: "987654321",
   workflowRunAttempt: "2",
@@ -26,33 +26,54 @@ const baseOptions = {
   ],
 };
 
+function trustedDependencies(overrides = {}) {
+  return {
+    fetchManagedPostgresCa: async () => "-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----\n",
+    writeManagedPostgresCa: async () => undefined,
+    rm: async () => undefined,
+    ...overrides,
+  };
+}
+
 describe("digitalocean database restore drill", () => {
   it("forks staging, validates expected databases, records timing, and deletes the fork", async () => {
     const calls = [];
-    const result = await performDigitalOceanDatabaseRestoreDrill(baseOptions, {
-      now: clock([0, 185000, 186000, 190000]),
-      execFile: async (command, args) => {
-        calls.push({ command, args });
-        if (args[1] === "fork") {
-          return { stdout: "" };
-        }
-        if (args[1] === "list") {
-          return {
-            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
-          };
-        }
-        if (args[1] === "connection") {
-          return {
-            stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n",
-          };
-        }
-        if (args[1] === "delete") {
-          return { stdout: "" };
-        }
-        throw new Error(`Unexpected doctl command: ${args.join(" ")}`);
-      },
-      Client: fakeClientClass(),
-    });
+    const trustCalls = [];
+    const result = await performDigitalOceanDatabaseRestoreDrill(
+      baseOptions,
+      trustedDependencies({
+        now: clock([0, 185000, 186000, 190000]),
+        execFile: async (command, args) => {
+          calls.push({ command, args });
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+            };
+          }
+          if (args[1] === "connection") {
+            return {
+              stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n",
+            };
+          }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
+          throw new Error(`Unexpected doctl command: ${args.join(" ")}`);
+        },
+        Client: fakeClientClass(),
+        fetchManagedPostgresCa: async (options) => {
+          trustCalls.push({ operation: "fetch", options });
+          return "-----BEGIN CERTIFICATE-----\nca-secret-marker\n-----END CERTIFICATE-----\n";
+        },
+        writeManagedPostgresCa: async (path, certificate) => {
+          trustCalls.push({ operation: "write", path, certificate });
+        },
+        rm: async (path, options) => trustCalls.push({ operation: "remove", path, options }),
+      }),
+    );
 
     expect(result.passesRestoreDrillGate).toBe(true);
     expect(result.record).toMatchObject({
@@ -114,45 +135,63 @@ describe("digitalocean database restore drill", () => {
     ]);
     expect(JSON.stringify(result.record)).not.toContain("super-secret");
     expect(JSON.stringify(result.record)).not.toContain("fork.example.com");
+    expect(JSON.stringify(result.record)).not.toContain("ca-secret-marker");
+    expect(trustCalls).toEqual([
+      {
+        operation: "fetch",
+        options: { clusterId: "db-drill", digitalOceanToken: "token-value" },
+      },
+      {
+        operation: "write",
+        path: "/runner/temp/digitalocean-managed-postgres-ca.pem",
+        certificate: "-----BEGIN CERTIFICATE-----\nca-secret-marker\n-----END CERTIFICATE-----\n",
+      },
+      {
+        operation: "remove",
+        path: "/runner/temp/digitalocean-managed-postgres-ca.pem",
+        options: { force: true },
+      },
+    ]);
   });
 
   it("deletes the fork and fails the gate when validation fails", async () => {
     const calls = [];
-    const result = await performDigitalOceanDatabaseRestoreDrill(baseOptions, {
-      now: clock([0, 1000, 2000, 3000]),
-      execFile: async (_command, args) => {
-        calls.push(args);
-        if (args[1] === "fork") {
-          return { stdout: "" };
-        }
-        if (args[1] === "list") {
-          return {
-            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
-          };
-        }
-        if (args[1] === "connection") {
-          return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
-        }
-        if (args[1] === "delete") {
-          return { stdout: "" };
-        }
-        throw new Error(`Unexpected command: ${args.join(" ")}`);
-      },
-      Client: fakeClientClass({
-        queryOverrides: {
-          "SELECT to_regclass": [{ streams_table: "event_store_streams", events_table: null }],
+    const result = await performDigitalOceanDatabaseRestoreDrill(
+      baseOptions,
+      trustedDependencies({
+        now: clock([0, 1000, 2000, 3000]),
+        execFile: async (_command, args) => {
+          calls.push(args);
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+            };
+          }
+          if (args[1] === "connection") {
+            return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
+          }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
+          throw new Error(`Unexpected command: ${args.join(" ")}`);
         },
+        Client: fakeClientClass({
+          queryOverrides: {
+            "SELECT to_regclass": [{ streams_table: "event_store_streams", events_table: null }],
+          },
+        }),
       }),
-    });
+    );
 
     expect(result.passesRestoreDrillGate).toBe(false);
     expect(result.record.result).toBe("failure");
     expect(result.record.cleanup.status).toBe("deleted");
     expect(calls.at(-1)).toEqual(["databases", "delete", "db-drill", "--force"]);
     expect(result.record.errors).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("catalog: Database validation failed.; Missing expected event-store table(s)"),
-      ]),
+      expect.arrayContaining(['catalog: {"classification":"restore-drill-database-validation-failed"}']),
     );
   });
 
@@ -162,7 +201,7 @@ describe("digitalocean database restore drill", () => {
     let currentMs = 0;
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, forkTimeoutMs: 65_000, forkPollIntervalMs: 30_000 },
-      {
+      trustedDependencies({
         now: () => currentMs,
         sleep: async (ms) => {
           sleeps.push(ms);
@@ -189,7 +228,7 @@ describe("digitalocean database restore drill", () => {
           throw new Error(`Unexpected doctl command: ${args.join(" ")}`);
         },
         Client: fakeClientClass(),
-      },
+      }),
     );
 
     expect(result.passesRestoreDrillGate).toBe(false);
@@ -230,11 +269,11 @@ describe("digitalocean database restore drill", () => {
   it("fails closed before calling doctl outside staging", async () => {
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, environment: "production" },
-      {
+      trustedDependencies({
         execFile: async () => {
           throw new Error("doctl should not be called");
         },
-      },
+      }),
     );
 
     expect(result.passesRestoreDrillGate).toBe(false);
@@ -247,6 +286,8 @@ describe("digitalocean database restore drill", () => {
   it("parses CLI and environment options", () => {
     const options = parseDigitalOceanDatabaseRestoreDrillArgs(["--source-cluster-id", "db-cli"], {
       DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT: "artifacts/database-restore-drill/evidence.json",
+      DIGITALOCEAN_ACCESS_TOKEN: "token-value",
+      MANAGED_POSTGRES_CA_PATH: "/runner/restore-drill-ca.pem",
       DEPLOYMENT_ENVIRONMENT: "staging",
       GITHUB_RUN_ID: "111",
       GITHUB_RUN_ATTEMPT: "1",
@@ -258,6 +299,8 @@ describe("digitalocean database restore drill", () => {
     expect(options).toMatchObject({
       outPath: "artifacts/database-restore-drill/evidence.json",
       sourceClusterId: "db-cli",
+      digitalOceanToken: "token-value",
+      caPath: "/runner/restore-drill-ca.pem",
       environment: "staging",
       workflowRunId: "111",
       workflowRunAttempt: "1",
@@ -271,7 +314,9 @@ describe("digitalocean database restore drill", () => {
 
   it("discovers default restore checks from the fork database catalog", async () => {
     const checks = await discoverForkDatabaseChecks({
-      connectionUri: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require",
+      connectionUri:
+        "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=verify-full&sslrootcert=%2Frunner%2Fca.pem&uselibpqcompat=true",
+      certificate: "test-ca",
       ClientClass: fakeClientClass({
         queryOverrides: {
           "FROM pg_database": [
@@ -303,7 +348,7 @@ describe("digitalocean database restore drill", () => {
   it("uses discovered fork databases for default validation instead of hardcoded topology", async () => {
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, databaseChecks: null },
-      {
+      trustedDependencies({
         now: clock([0, 1000, 2000, 3000]),
         execFile: async (_command, args) => {
           if (args[1] === "fork") {
@@ -330,7 +375,7 @@ describe("digitalocean database restore drill", () => {
             ],
           },
         }),
-      },
+      }),
     );
 
     expect(result.passesRestoreDrillGate).toBe(true);
@@ -386,54 +431,41 @@ describe("digitalocean database restore drill", () => {
 
   it("uses DigitalOcean-compatible TLS settings for restored fork validation", async () => {
     const configs = [];
-    const result = await performDigitalOceanDatabaseRestoreDrill(baseOptions, {
-      now: clock([0, 1000, 2000, 3000]),
-      execFile: async (_command, args) => {
-        if (args[1] === "fork") {
-          return { stdout: "" };
-        }
-        if (args[1] === "list") {
-          return {
-            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
-          };
-        }
-        if (args[1] === "connection") {
-          return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
-        }
-        if (args[1] === "delete") {
-          return { stdout: "" };
-        }
-        throw new Error(`Unexpected command: ${args.join(" ")}`);
-      },
-      Client: fakeClientClass({
-        onConstruct: (config) => configs.push(config),
+    const result = await performDigitalOceanDatabaseRestoreDrill(
+      baseOptions,
+      trustedDependencies({
+        now: clock([0, 1000, 2000, 3000]),
+        execFile: async (_command, args) => {
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+            };
+          }
+          if (args[1] === "connection") {
+            return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
+          }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
+          throw new Error(`Unexpected command: ${args.join(" ")}`);
+        },
+        Client: fakeClientClass({
+          onConstruct: (config) => configs.push(config),
+        }),
       }),
-    });
+    );
 
     expect(result.passesRestoreDrillGate).toBe(true);
     expect(configs).toHaveLength(2);
     for (const config of configs) {
-      expect(config.connectionString).toContain("sslmode=require");
+      expect(config.connectionString).toContain("sslmode=verify-full");
+      expect(config.connectionString).toContain("sslrootcert=%2Frunner%2Ftemp%2Fdigitalocean-managed-postgres-ca.pem");
       expect(config.connectionString).toContain("uselibpqcompat=true");
-      expect(config.ssl).toEqual({ rejectUnauthorized: false });
+      expect(config.ssl).toEqual({ rejectUnauthorized: true, ca: expect.stringContaining("BEGIN CERTIFICATE") });
     }
-  });
-
-  it("normalizes restore-drill TLS URLs without changing explicit compatibility settings", () => {
-    expect(normalizeRestoreDrillDatabaseUrl("postgresql://user:pass@example.com:25060/defaultdb?sslmode=require")).toBe(
-      "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=true",
-    );
-    expect(
-      normalizeRestoreDrillDatabaseUrl(
-        "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=false",
-      ),
-    ).toBe("postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=false");
-    expect(resolveRestoreDrillDatabaseSsl("postgresql://user:pass@example.com/defaultdb?sslmode=require")).toEqual({
-      rejectUnauthorized: false,
-    });
-    expect(resolveRestoreDrillDatabaseSsl("postgresql://user:pass@example.com/defaultdb?sslmode=verify-full")).toBe(
-      undefined,
-    );
   });
 });
 

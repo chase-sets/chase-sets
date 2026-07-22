@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 import { execFile as execFileCallback } from "node:child_process";
+import { rm } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import pg from "pg";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { postgresClientConfig, postgresFailureFields, safeFailureFields } from "./lib/postgres-connection.mjs";
 import {
   createDigitalOceanDatabaseFork,
   waitForDigitalOceanDatabaseForkAvailability,
 } from "./production-db-restore-point.mjs";
+import {
+  fetchDigitalOceanManagedPostgresCa,
+  managedPostgresConnectionUrl,
+  writeManagedPostgresCa,
+} from "./terraform-state-database-urls.mjs";
 
 const execFile = promisify(execFileCallback);
 const { Client } = pg;
@@ -50,6 +57,8 @@ export function parseDigitalOceanDatabaseRestoreDrillArgs(argv, env = process.en
     outPath: readOption(argv, "--out") ?? readEnv("DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT", env),
     doctlPath: readOption(argv, "--doctl") ?? readEnv("DOCTL_PATH", env) ?? "doctl",
     sourceClusterId: readOption(argv, "--source-cluster-id") ?? readEnv("STAGING_DATABASE_CLUSTER_ID", env),
+    digitalOceanToken: readEnv("DIGITALOCEAN_ACCESS_TOKEN", env),
+    caPath: readOption(argv, "--ca-path") ?? readEnv("MANAGED_POSTGRES_CA_PATH", env),
     environment: readOption(argv, "--environment") ?? readEnv("DEPLOYMENT_ENVIRONMENT", env) ?? "staging",
     workflowRunId: readOption(argv, "--workflow-run-id") ?? readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readOption(argv, "--workflow-run-attempt") ?? readEnv("GITHUB_RUN_ATTEMPT", env),
@@ -84,6 +93,9 @@ export async function runDigitalOceanDatabaseRestoreDrill(options, dependencies 
 export async function performDigitalOceanDatabaseRestoreDrill(options, dependencies = {}) {
   const exec = dependencies.execFile ?? execFile;
   const ClientClass = dependencies.Client ?? Client;
+  const fetchCa = dependencies.fetchManagedPostgresCa ?? fetchDigitalOceanManagedPostgresCa;
+  const writeCa = dependencies.writeManagedPostgresCa ?? writeManagedPostgresCa;
+  const removeCa = dependencies.rm ?? rm;
   const now = dependencies.now ?? (() => Date.now());
   const errors = validateOptions(options);
   const baseRecord = createBaseRecord(options, errors);
@@ -155,12 +167,21 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
     } else if (availability.outcome !== "available") {
       record.errors.push(`Staging restore drill fork '${forkName}' did not report an available outcome.`);
     } else {
-      const connectionUri = await readConnectionUri(options.doctlPath, fork.clusterId, exec);
+      const certificate = await fetchCa(
+        { clusterId: fork.clusterId, digitalOceanToken: options.digitalOceanToken },
+        dependencies,
+      );
+      await writeCa(options.caPath, certificate);
+      const connectionUri = managedPostgresConnectionUrl(
+        await readConnectionUri(options.doctlPath, fork.clusterId, exec),
+        options.caPath,
+      );
       const databaseChecks =
         options.databaseChecks ??
         (await discoverForkDatabaseChecks({
           connectionUri,
           ClientClass,
+          certificate,
         }));
       record = {
         ...record,
@@ -168,6 +189,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
           connectionUri,
           databaseChecks,
           ClientClass,
+          certificate,
         }),
       };
     }
@@ -180,9 +202,16 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         name: forkName,
         status: forkClusterId ? "validation-failed" : "create-failed",
       },
-      errors: [...record.errors, ...describeFailure(error, "DigitalOcean restore drill failed.")],
+      errors: [...record.errors, ...describeFailure(error, "digitalocean-restore-drill-failed")],
     };
   } finally {
+    if (options.caPath) {
+      try {
+        await removeCa(options.caPath, { force: true });
+      } catch (error) {
+        record.errors.push(...describeFailure(error, "managed-postgres-ca-cleanup-failed"));
+      }
+    }
     if (forkClusterId) {
       const cleanupStartedMs = now();
       record = {
@@ -236,10 +265,8 @@ export async function validateForkDatabases(options) {
 }
 
 export async function discoverForkDatabaseChecks(options) {
-  const normalizedConnectionString = normalizeRestoreDrillDatabaseUrl(options.connectionUri);
   const client = new options.ClientClass({
-    connectionString: normalizedConnectionString,
-    ssl: resolveRestoreDrillDatabaseSsl(normalizedConnectionString),
+    ...postgresClientConfig(options.connectionUri, {}, () => options.certificate),
     application_name: "chase_sets_restore_drill_discovery",
   });
 
@@ -262,10 +289,8 @@ export async function discoverForkDatabaseChecks(options) {
 async function validateForkDatabase(options) {
   const startedAt = new Date().toISOString();
   const connectionString = databaseUrlForDatabase(options.connectionUri, options.databaseCheck.databaseName);
-  const normalizedConnectionString = normalizeRestoreDrillDatabaseUrl(connectionString);
   const client = new options.ClientClass({
-    connectionString: normalizedConnectionString,
-    ssl: resolveRestoreDrillDatabaseSsl(normalizedConnectionString),
+    ...postgresClientConfig(connectionString, {}, () => options.certificate),
     application_name: "chase_sets_restore_drill",
   });
   const base = {
@@ -302,7 +327,7 @@ async function validateForkDatabase(options) {
     return {
       ...base,
       finishedAt: new Date().toISOString(),
-      errors: describeFailure(error, "Database validation failed."),
+      errors: describeFailure(error, "restore-drill-database-validation-failed"),
     };
   } finally {
     await client.end().catch(() => undefined);
@@ -350,7 +375,7 @@ export async function deleteDatabaseFork(doctlPath, clusterId, exec) {
       attempted: true,
       clusterId,
       status: "delete-failed",
-      errors: describeFailure(error, "doctl database delete failed for the staging restore drill fork."),
+      errors: describeFailure(error, "restore-drill-fork-delete-failed"),
     };
   }
 }
@@ -359,33 +384,6 @@ export function databaseUrlForDatabase(connectionUri, databaseName) {
   const url = new URL(connectionUri);
   url.pathname = `/${encodeURIComponent(databaseName)}`;
   return url.toString();
-}
-
-export function normalizeRestoreDrillDatabaseUrl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
-      url.searchParams.set("uselibpqcompat", "true");
-      return url.toString();
-    }
-  } catch {
-    return databaseUrl;
-  }
-
-  return databaseUrl;
-}
-
-export function resolveRestoreDrillDatabaseSsl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require") {
-      return { rejectUnauthorized: false };
-    }
-  } catch {
-    return undefined;
-  }
-
-  return undefined;
 }
 
 function createBaseRecord(options, errors) {
@@ -450,6 +448,12 @@ function validateOptions(options) {
   if (!isNonEmptyString(options.sourceClusterId)) {
     errors.push("STAGING_DATABASE_CLUSTER_ID is required.");
   }
+  if (!isNonEmptyString(options.digitalOceanToken)) {
+    errors.push("DIGITALOCEAN_ACCESS_TOKEN is required.");
+  }
+  if (!isNonEmptyString(options.caPath)) {
+    errors.push("MANAGED_POSTGRES_CA_PATH or --ca-path is required.");
+  }
   if (!isNonEmptyString(options.workflowRunId)) {
     errors.push("GITHUB_RUN_ID is required.");
   }
@@ -511,20 +515,8 @@ function stagingDatabaseCheckFromName(databaseName) {
   };
 }
 
-function describeFailure(error, fallback) {
-  const details = [fallback];
-  if (error instanceof Error && error.message) {
-    details.push(error.message.replace(/\s+/g, " ").trim().slice(0, 1000));
-  }
-  if (typeof error === "object" && error !== null) {
-    if ("code" in error && error.code !== undefined) {
-      details.push(`exit code: ${String(error.code)}`);
-    }
-    if ("stderr" in error && typeof error.stderr === "string" && error.stderr.trim()) {
-      details.push(`stderr: ${error.stderr.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
-    }
-  }
-  return details;
+function describeFailure(error, classification) {
+  return [JSON.stringify(safeFailureFields(classification, error))];
 }
 
 function isoFromMs(value) {
@@ -554,7 +546,7 @@ async function main(argv, env = process.env) {
     console.log(JSON.stringify(result.record, null, 2));
     return result.passesRestoreDrillGate ? 0 : 1;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(postgresFailureFields(error)));
     return 2;
   }
 }

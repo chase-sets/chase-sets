@@ -3226,60 +3226,20 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DEPLOYMENT_ENVIRONMENT: production
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
           READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}
         run: |
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-production.tfstate.json"
           terraform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const fs = require("node:fs");
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const cluster = resources.find((resource) =>
-            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
-          );
-          const databases = resources.find((resource) =>
-            resource.type === "digitalocean_database_db" && resource.name === "contexts"
-          );
-          const users = resources.find((resource) =>
-            resource.type === "digitalocean_database_user" && resource.name === "contexts"
-          );
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Production Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const databaseByContext = new Map(
-            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const userByContext = new Map(
-            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const readinessContexts = String(process.env.READINESS_GATE_SOURCE_CONTEXTS ?? "checkout,public-presence")
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean);
-          const contextNames = [...new Set([...readinessContexts, "checkout", "public-presence", "control"])].sort();
-
-          const lines = [];
-          for (const contextName of contextNames) {
-            const database = databaseByContext.get(contextName);
-            const user = userByContext.get(contextName);
-            if (!contextName || !database?.name || !user?.name || !user?.password) {
-              throw new Error(`Direct database state is incomplete for context '${contextName ?? "unknown"}'.`);
-            }
-
-            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-            const envName = contextName === "control"
-              ? "PLATFORM_CONTROL_DATABASE_URL"
-              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
-            console.log(`::add-mask::${url}`);
-            lines.push(`${envName}=${url}`);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment production \
+            --contexts "${READINESS_GATE_SOURCE_CONTEXTS},checkout,public-presence,control" \
+            --connection-mode direct \
+            --ca-path "$MANAGED_POSTGRES_CA_PATH"
 
       # Bounded wait for steady state (#1237): poll until the audited contexts'
       # projection checkpoints reach the event-store head or the budget expires
@@ -3310,6 +3270,12 @@ jobs:
             echo "::error::Production post-deploy readiness gate outcome was '${outcome}'; failing closed before projection-dependent smoke assertions."
             exit "$gate_exit"
           fi
+
+      - name: Remove managed Postgres CA
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        env:
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+        run: rm -f -- "$MANAGED_POSTGRES_CA_PATH"
 
       - name: Smoke check
         timeout-minutes: 15
