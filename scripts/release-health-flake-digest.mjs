@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
 import { inflateRawSync } from "node:zlib";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
@@ -11,6 +11,14 @@ export const RELEASE_HEALTH_FLAKE_DIGEST_VERSION = "release-health-flake-digest/
 export const DEFAULT_WINDOW_DAYS = 7;
 export const DEFAULT_RETRY_THRESHOLD = 3;
 export const DEFAULT_FLAKY_FAILURE_THRESHOLD = 1;
+const PER_SPEC_ARTIFACT_PREFIX = "playwright-e2e-results-v1-";
+const PER_SPEC_ARTIFACT_SCHEMA_MARKER = "PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1";
+const PLAYWRIGHT_REPORT_PATH = "results/playwright-results.json";
+// Retained red-run diagnostic bundles are currently as large as 98 MiB. The
+// machine-readable payload is uploaded separately, but retain a bounded reader
+// for historical v1 artifacts rather than trusting a server-provided length.
+const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
+const MAX_REPORT_BYTES = 2 * 1024 * 1024;
 
 export function parseReleaseHealthFlakeDigestArgs(argv, env = process.env) {
   return {
@@ -206,21 +214,31 @@ export function renderFlakeDigestMarkdown(digest) {
 export async function collectPerSpecFlakeTelemetry(options, runs) {
   const telemetry = [];
   for (const run of runs) {
-    const jobs = await fetchRunJobsForFlakeDigest(options, run.id);
-    const e2eJobs = jobs.filter((job) => /^E2E Tests \(/.test(job?.name ?? ""));
-    if (e2eJobs.length === 0) continue;
     if (!(await runProducesPerSpecTelemetry(options, run))) continue;
+    const jobs = await fetchRunJobsForFlakeDigest(options, run.id);
+    const attempt = authoritativeRunAttempt(run);
+    const e2eJobs = jobs.filter((job) => isEligibleE2eJob(job, attempt));
+    // Scope-skipped and in-progress placeholders intentionally publish no report.
+    if (e2eJobs.length === 0) continue;
     const artifacts = await fetchRunArtifacts(options, run.id);
-    const expectedPrefix = `playwright-e2e-results-${run.id}-`;
+    const expectedPrefix = `${PER_SPEC_ARTIFACT_PREFIX}${run.id}-${attempt}-`;
     const reports = artifacts.filter((artifact) => String(artifact?.name ?? "").startsWith(expectedPrefix));
     if (reports.length !== e2eJobs.length) {
-      throw new Error(`Run ${run.id} has ${e2eJobs.length} E2E jobs but ${reports.length} per-spec report artifacts.`);
+      throw new Error(
+        `Run ${run.id} attempt ${attempt} has ${e2eJobs.length} eligible E2E jobs but ${reports.length} per-spec report artifacts.`,
+      );
     }
+    const matrixIndices = new Set();
     for (const artifact of reports) {
       const matrixIndex = String(artifact.name).slice(expectedPrefix.length);
       if (!/^\d+$/.test(matrixIndex)) throw new Error(`Artifact ${artifact.id} has an invalid matrix identity.`);
+      if (matrixIndices.has(matrixIndex))
+        throw new Error(`Run ${run.id} attempt ${attempt} has duplicate matrix artifact ${matrixIndex}.`);
+      matrixIndices.add(matrixIndex);
       const report = await readPlaywrightReportArtifact(options, artifact);
-      telemetry.push(...extractPlaywrightSpecTelemetry(report, { run, matrixIndex, artifactId: artifact.id }));
+      telemetry.push(
+        ...extractPlaywrightSpecTelemetry(report, { run, runAttempt: attempt, matrixIndex, artifactId: artifact.id }),
+      );
     }
   }
   return collapsePerSpecTelemetry(telemetry);
@@ -257,7 +275,7 @@ export function summarizePerSpecFlakes(entries) {
       runUrl: entry.runUrl,
     };
     if (entry.terminalStatus === "passed" && entry.terminalRetry > 0) previous.passedOnRetryCount += 1;
-    if (entry.terminalStatus !== "passed") previous.failedJobCount += 1;
+    if (["failed", "timedOut", "interrupted"].includes(entry.terminalStatus)) previous.failedJobCount += 1;
     specs.set(entry.name, previous);
   }
   return [...specs.values()]
@@ -389,11 +407,15 @@ export async function runProducesPerSpecTelemetry(options, run) {
 }
 
 export function workflowProducesPerSpecTelemetry(workflow) {
-  const normalized = String(workflow).replaceAll(/\s/g, "");
+  const raw = String(workflow);
+  const normalized = raw.replaceAll(/\s/g, "");
   return (
-    normalized.includes("playwright-e2e-results-${{github.run_id}}-${{strategy.job-index}}") &&
-    normalized.includes("artifacts/playwright/results/playwright-results.json") &&
-    normalized.includes("name:UploadPlaywrightartifacts") &&
+    raw.includes(PER_SPEC_ARTIFACT_SCHEMA_MARKER) &&
+    normalized.includes(
+      "playwright-e2e-results-v1-${{github.run_id}}-${{github.run_attempt}}-${{strategy.job-index}}",
+    ) &&
+    normalized.includes("artifacts/playwright/per-spec-flake-telemetry") &&
+    normalized.includes("name:Uploadper-specflaketelemetryv1") &&
     normalized.includes("if:always()")
   );
 }
@@ -402,16 +424,12 @@ async function readPlaywrightReportArtifact(options, artifact) {
   if (!artifact?.archive_download_url) throw new Error(`Artifact ${artifact?.id ?? "unknown"} has no download URL.`);
   const response = await githubFetch(options, artifact.archive_download_url);
   if (!response.ok) throw new Error(`Artifact ${artifact.id} download failed: ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > 10 * 1024 * 1024) throw new Error(`Artifact ${artifact.id} exceeds 10 MiB.`);
-  const entries = unzipJsonEntries(bytes);
-  const payloads = [...entries.entries()].filter(([name]) => basename(name) === "playwright-results.json");
-  if (payloads.length !== 1)
-    throw new Error(`Artifact ${artifact.id} must contain exactly one playwright-results.json payload.`);
+  const bytes = await readBoundedResponseBytes(response, MAX_ARTIFACT_BYTES, `Artifact ${artifact.id}`);
+  const payload = readExactZipEntry(bytes, PLAYWRIGHT_REPORT_PATH, MAX_REPORT_BYTES);
   try {
-    return JSON.parse(payloads[0][1].toString("utf8"));
+    return validatePlaywrightReport(JSON.parse(payload.toString("utf8")));
   } catch {
-    throw new Error(`Artifact ${artifact.id} has malformed playwright-results.json.`);
+    throw new Error(`Artifact ${artifact.id} has malformed ${PLAYWRIGHT_REPORT_PATH}.`);
   }
 }
 
@@ -436,7 +454,7 @@ function collectSuiteSpecs(suite, parents, entries, source) {
       const name = [...path, spec.title, test.projectName].filter(Boolean).join(" › ");
       entries.push({
         name,
-        occurrenceId: `${source.run.id}:${source.matrixIndex}:${name}`,
+        occurrenceId: `${source.run.id}:${source.runAttempt}:${source.matrixIndex}:${name}`,
         terminalStatus: terminal.status,
         terminalRetry,
         runUrl:
@@ -478,6 +496,132 @@ export function unzipJsonEntries(buffer) {
     offset += 46 + fileNameLength + extraLength + commentLength;
   }
   return entries;
+}
+
+function authoritativeRunAttempt(run) {
+  const attempt = positiveInteger(run?.run_attempt, 1);
+  if (attempt < 1) throw new Error(`Run ${run?.id ?? "unknown"} has an invalid authoritative run attempt.`);
+  return attempt;
+}
+
+function isEligibleE2eJob(job, attempt) {
+  return (
+    /^E2E Tests \(/.test(job?.name ?? "") &&
+    positiveInteger(job?.run_attempt, attempt) === attempt &&
+    job?.status === "completed" &&
+    job?.conclusion !== "skipped"
+  );
+}
+
+async function readBoundedResponseBytes(response, maximum, label) {
+  const declared = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > maximum) throw new Error(`${label} exceeds ${formatMiB(maximum)}.`);
+  if (!response.body?.getReader) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maximum) throw new Error(`${label} exceeds ${formatMiB(maximum)}.`);
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximum) {
+        await reader.cancel();
+        throw new Error(`${label} exceeds ${formatMiB(maximum)}.`);
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, size);
+}
+
+function readExactZipEntry(buffer, expectedName, maximum) {
+  const eocd = findEndOfCentralDirectory(buffer);
+  if (eocd < 0) throw new Error("Artifact archive is not a supported ZIP file.");
+  const entryCount = buffer.readUInt16LE(eocd + 10);
+  if (entryCount > 1_000) throw new Error("Artifact ZIP contains too many entries.");
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const matches = [];
+  for (let index = 0; index < entryCount; index += 1) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Artifact ZIP central directory is invalid.");
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+    if (name === expectedName) matches.push({ method, compressedSize, uncompressedSize, localOffset, name });
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+  if (matches.length !== 1) throw new Error(`Artifact must contain exactly one ${expectedName} payload.`);
+  const entry = matches[0];
+  if (entry.uncompressedSize > maximum)
+    throw new Error(`Artifact JSON entry ${entry.name} exceeds ${formatMiB(maximum)}.`);
+  const localNameLength = buffer.readUInt16LE(entry.localOffset + 26);
+  const localExtraLength = buffer.readUInt16LE(entry.localOffset + 28);
+  const dataStart = entry.localOffset + 30 + localNameLength + localExtraLength;
+  const compressed = buffer.subarray(dataStart, dataStart + entry.compressedSize);
+  if (compressed.length !== entry.compressedSize) throw new Error("Artifact ZIP entry is truncated.");
+  if (entry.method === 0) return compressed;
+  if (entry.method === 8) return inflateRawSync(compressed, { maxOutputLength: maximum });
+  throw new Error(`Artifact ZIP uses unsupported compression method ${entry.method}.`);
+}
+
+function validatePlaywrightReport(report) {
+  if (!isRecord(report) || !Array.isArray(report.suites))
+    throw new Error("Playwright report must contain a suites array.");
+  for (const suite of report.suites) validateSuite(suite);
+  return report;
+}
+
+function validateSuite(suite) {
+  if (!isRecord(suite) || typeof suite.title !== "string") throw new Error("Playwright suite is malformed.");
+  if (suite.suites !== undefined) {
+    if (!Array.isArray(suite.suites)) throw new Error("Playwright child suites are malformed.");
+    for (const child of suite.suites) validateSuite(child);
+  }
+  if (suite.specs !== undefined) {
+    if (!Array.isArray(suite.specs)) throw new Error("Playwright suite specs are malformed.");
+    for (const spec of suite.specs) validateSpec(spec);
+  }
+}
+
+function validateSpec(spec) {
+  if (!isRecord(spec) || typeof spec.title !== "string" || !Array.isArray(spec.tests))
+    throw new Error("Playwright spec is malformed.");
+  for (const test of spec.tests) {
+    if (
+      !isRecord(test) ||
+      !Array.isArray(test.results) ||
+      (test.projectName !== undefined && typeof test.projectName !== "string")
+    )
+      throw new Error("Playwright test is malformed.");
+    for (const result of test.results) {
+      if (
+        !isRecord(result) ||
+        !Number.isInteger(result.retry) ||
+        result.retry < 0 ||
+        !PLAYWRIGHT_RESULT_STATUSES.has(result.status)
+      )
+        throw new Error("Playwright result is malformed.");
+    }
+  }
+}
+
+const PLAYWRIGHT_RESULT_STATUSES = new Set(["passed", "skipped", "failed", "timedOut", "interrupted"]);
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function formatMiB(bytes) {
+  return `${bytes / (1024 * 1024)} MiB`;
 }
 
 function findEndOfCentralDirectory(buffer) {

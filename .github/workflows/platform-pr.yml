@@ -278,11 +278,27 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-e2e-results-${{ github.run_id }}-${{ strategy.job-index }}
+          name: playwright-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
           path: |
-            artifacts/playwright/results/playwright-results.json
             artifacts/playwright/report
             artifacts/playwright/test-results
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Prepare per-spec flake telemetry
+        if: always()
+        run: |
+          test -f artifacts/playwright/results/playwright-results.json
+          mkdir -p artifacts/playwright/per-spec-flake-telemetry/results
+          cp artifacts/playwright/results/playwright-results.json artifacts/playwright/per-spec-flake-telemetry/results/playwright-results.json
+
+      - name: Upload per-spec flake telemetry v1
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1
+          name: playwright-e2e-results-v1-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+          path: artifacts/playwright/per-spec-flake-telemetry
           if-no-files-found: error
           retention-days: 7
 

@@ -35,12 +35,16 @@ describe("release health flake digest", () => {
     expect(issueIndex).toBeGreaterThan(uploadIndex);
   });
 
-  it("always uploads one uniquely named machine-readable report from every E2E matrix job", async () => {
+  it("publishes a versioned, attempt-safe machine artifact apart from the diagnostic bundle", async () => {
     const workflow = await readFile(new URL("../.github/workflows/platform-pr.yml", import.meta.url), "utf8");
     const e2e = workflow.slice(workflow.indexOf("  e2e-tests:"), workflow.indexOf("\n  build:"));
     expect(e2e).toContain("if: always()");
-    expect(e2e).toContain("name: playwright-e2e-results-${{ github.run_id }}-${{ strategy.job-index }}");
-    expect(e2e).toContain("artifacts/playwright/results/playwright-results.json");
+    expect(e2e).toContain("PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1");
+    expect(e2e).toContain(
+      "name: playwright-e2e-results-v1-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}",
+    );
+    expect(e2e).toContain("artifacts/playwright/per-spec-flake-telemetry/results/playwright-results.json");
+    expect(e2e).toContain("name: playwright-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-");
     expect(e2e).toContain("if-no-files-found: error");
   });
 
@@ -112,7 +116,7 @@ describe("release health flake digest", () => {
     ).toThrow("Conflicting terminal Playwright outcomes");
   });
 
-  it("collects real Actions-shaped artifacts, rejects eligible missing or malformed payloads, and keeps old heads readable", async () => {
+  it("collects authoritative completed attempts, skips placeholders, and rejects bad producer evidence through the real ZIP path", async () => {
     const report = JSON.stringify({
       suites: [
         {
@@ -135,7 +139,7 @@ describe("release health flake digest", () => {
       ],
     });
     const workflow = Buffer.from(
-      `name: x\n- name: Upload Playwright artifacts\n  if: always()\n  name: playwright-e2e-results-${"${{ github.run_id }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/results/playwright-results.json`,
+      `name: x\n# PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1\n- name: Upload per-spec flake telemetry v1\n  if: always()\n  name: playwright-e2e-results-v1-${"${{ github.run_id }}"}-${"${{ github.run_attempt }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/per-spec-flake-telemetry`,
     ).toString("base64");
     const response = (body, status = 200) => ({
       ok: status >= 200 && status < 300,
@@ -144,7 +148,7 @@ describe("release health flake digest", () => {
       json: async () => body,
       arrayBuffer: async () => body,
     });
-    const run = { id: 12, head_sha: "new", html_url: "https://run/12" };
+    const run = { id: 12, run_attempt: 2, head_sha: "new", html_url: "https://run/12" };
     const calls = [];
     const fetchImpl = async (url) => {
       const value = String(url);
@@ -153,17 +157,30 @@ describe("release health flake digest", () => {
         return response({
           content: value.includes("ref=old") ? Buffer.from("name: old").toString("base64") : workflow,
         });
-      if (value.includes("/jobs")) return response({ jobs: [{ name: "E2E Tests (catalog)" }] });
+      if (value.includes("/jobs"))
+        return response({
+          jobs: [
+            { name: "E2E Tests (catalog)", run_attempt: 1, status: "completed", conclusion: "failure" },
+            { name: "E2E Tests (catalog)", run_attempt: 2, status: "completed", conclusion: "success" },
+            {
+              name: "E2E Tests (${{ matrix.suite_batch }})",
+              run_attempt: 2,
+              status: "completed",
+              conclusion: "skipped",
+            },
+          ],
+        });
       if (value.includes("/artifacts"))
         return response({
-          artifacts: [{ id: 99, name: "playwright-e2e-results-12-0", archive_download_url: "https://artifact/99" }],
+          artifacts: [
+            { id: 98, name: "playwright-e2e-results-v1-12-1-0", archive_download_url: "https://artifact/98" },
+            { id: 99, name: "playwright-e2e-results-v1-12-2-0", archive_download_url: "https://artifact/99" },
+          ],
         });
-      return response(buildStoredZip([["nested/playwright-results.json", report]]));
+      return response(buildStoredZip([["results/playwright-results.json", report]]));
     };
     const options = { repository: "chase-sets/chase-sets", fetchImpl };
-    expect(Buffer.from(workflow, "base64").toString("utf8")).toContain(
-      "artifacts/playwright/results/playwright-results.json",
-    );
+    expect(Buffer.from(workflow, "base64").toString("utf8")).toContain("artifacts/playwright/per-spec-flake-telemetry");
     expect(workflowProducesPerSpecTelemetry(Buffer.from(workflow, "base64").toString("utf8"))).toBe(true);
     const producer = await runProducesPerSpecTelemetry(options, run);
     expect(calls).toEqual([expect.stringContaining("contents")]);
@@ -179,30 +196,136 @@ describe("release health flake digest", () => {
         },
         [run],
       ),
-    ).rejects.toThrow("1 E2E jobs but 0 per-spec report artifacts");
-    await expect(
-      collectPerSpecFlakeTelemetry(
-        {
-          ...options,
-          fetchImpl: async (url) =>
-            String(url) === "https://artifact/99" ? response(buildStoredZip([["notes.json", "{}"]])) : fetchImpl(url),
-        },
-        [run],
-      ),
-    ).rejects.toThrow("exactly one playwright-results.json");
+    ).rejects.toThrow("1 eligible E2E jobs but 0 per-spec report artifacts");
     await expect(
       collectPerSpecFlakeTelemetry(
         {
           ...options,
           fetchImpl: async (url) =>
             String(url) === "https://artifact/99"
-              ? response(buildStoredZip([["playwright-results.json", "not json"]]))
+              ? response(buildStoredZip([["wrong/playwright-results.json", report]]))
               : fetchImpl(url),
         },
         [run],
       ),
-    ).rejects.toThrow("malformed playwright-results.json");
+    ).rejects.toThrow("exactly one results/playwright-results.json");
+    await expect(
+      collectPerSpecFlakeTelemetry(
+        {
+          ...options,
+          fetchImpl: async (url) =>
+            String(url) === "https://artifact/99"
+              ? response(buildStoredZip([["results/playwright-results.json", "not json"]]))
+              : fetchImpl(url),
+        },
+        [run],
+      ),
+    ).rejects.toThrow("malformed results/playwright-results.json");
+    await expect(
+      collectPerSpecFlakeTelemetry(
+        {
+          ...options,
+          fetchImpl: async (url) =>
+            String(url) === "https://artifact/99"
+              ? response(buildStoredZip([["results/playwright-results.json", "{}"]]))
+              : fetchImpl(url),
+        },
+        [run],
+      ),
+    ).rejects.toThrow("malformed results/playwright-results.json");
     await expect(collectPerSpecFlakeTelemetry(options, [{ ...run, id: 13, head_sha: "old" }])).resolves.toEqual([]);
+  });
+
+  it("rejects duplicate, malformed, and oversized canonical payloads while accepting a large diagnostic-shaped archive", async () => {
+    const validReport = JSON.stringify({
+      suites: [
+        {
+          title: "suite",
+          specs: [{ title: "spec", tests: [{ projectName: "chromium", results: [{ retry: 0, status: "passed" }] }] }],
+        },
+      ],
+    });
+    const baseWorkflow = Buffer.from(
+      `# PER_SPEC_FLAKE_TELEMETRY_SCHEMA=playwright-per-spec-flake/v1\n- name: Upload per-spec flake telemetry v1\n  if: always()\n  name: playwright-e2e-results-v1-${"${{ github.run_id }}"}-${"${{ github.run_attempt }}"}-${"${{ strategy.job-index }}"}\n  path: artifacts/playwright/per-spec-flake-telemetry`,
+    ).toString("base64");
+    const response = (body, status = 200) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => null },
+      json: async () => body,
+      arrayBuffer: async () => body,
+    });
+    const run = { id: 15, run_attempt: 1, head_sha: "new", html_url: "https://run/15" };
+    const collect = async (archive) =>
+      collectPerSpecFlakeTelemetry(
+        {
+          repository: "chase-sets/chase-sets",
+          fetchImpl: async (url) => {
+            const value = String(url);
+            if (value.includes("contents")) return response({ content: baseWorkflow });
+            if (value.includes("/jobs"))
+              return response({
+                jobs: [{ name: "E2E Tests (catalog)", run_attempt: 1, status: "completed", conclusion: "failure" }],
+              });
+            if (value.includes("/artifacts"))
+              return response({
+                artifacts: [
+                  { id: 1, name: "playwright-e2e-results-v1-15-1-0", archive_download_url: "https://artifact/1" },
+                ],
+              });
+            return response(archive);
+          },
+        },
+        [run],
+      );
+    await expect(
+      collect(
+        buildStoredZip([
+          ["results/playwright-results.json", validReport],
+          ["trace/video.webm", "x".repeat(11 * 1024 * 1024)],
+        ]),
+      ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      collect(
+        buildStoredZip([
+          ["results/playwright-results.json", validReport],
+          ["results/playwright-results.json", validReport],
+        ]),
+      ),
+    ).rejects.toThrow("exactly one results/playwright-results.json");
+    for (const invalid of [
+      "{}",
+      JSON.stringify({ suites: [{ title: "suite", specs: "wrong" }] }),
+      JSON.stringify({
+        suites: [
+          { title: "suite", specs: [{ title: "spec", tests: [{ results: [{ retry: 0, status: "unknown" }] }] }] },
+        ],
+      }),
+    ]) {
+      await expect(collect(buildStoredZip([["results/playwright-results.json", invalid]]))).rejects.toThrow(
+        "malformed results/playwright-results.json",
+      );
+    }
+    await expect(
+      collect(buildStoredZip([["results/playwright-results.json", `{"suites":[]}${" ".repeat(2 * 1024 * 1024)}`]])),
+    ).rejects.toThrow("exceeds 2 MiB");
+  });
+
+  it("keeps skipped results neutral and recognizes all supported terminal statuses", () => {
+    const entries = ["passed", "skipped", "failed", "timedOut", "interrupted"].map((terminalStatus) => ({
+      occurrenceId: `1:1:0:${terminalStatus}`,
+      name: terminalStatus,
+      terminalStatus,
+      terminalRetry: terminalStatus === "passed" ? 1 : 0,
+      runUrl: "https://run/1",
+    }));
+    expect(summarizePerSpecFlakes(entries)).toEqual([
+      { name: "failed", passedOnRetryCount: 0, failedJobCount: 1, runUrl: "https://run/1" },
+      { name: "interrupted", passedOnRetryCount: 0, failedJobCount: 1, runUrl: "https://run/1" },
+      { name: "passed", passedOnRetryCount: 1, failedJobCount: 0, runUrl: "https://run/1" },
+      { name: "timedOut", passedOnRetryCount: 0, failedJobCount: 1, runUrl: "https://run/1" },
+    ]);
   });
 
   it("builds a weekly digest with previous-window trends and breaches", () => {
@@ -268,7 +391,7 @@ describe("release health flake digest", () => {
       },
     });
 
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(3);
     expect(seen[0].options.headers.Authorization).toBe("Bearer token");
     expect(
       seen
