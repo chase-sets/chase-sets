@@ -265,54 +265,180 @@ function functionParameterAliases(node, parameter) {
 }
 
 function analyzeSpecFile(file, helperSummaries, hits) {
-  const bindings = helperSummaries.get(file.relativeFile) ?? new Map();
-  for (const fn of allFunctions(file.sourceFile)) {
-    analyzeFunction(fn, file, bindings, hits);
+  const helperBindings = helperSummaries.get(file.relativeFile) ?? new Map();
+  const functions = allFunctions(file.sourceFile);
+  const localBindings = new Map();
+  const bindingsFor = (fn) => {
+    if (localBindings.has(fn)) return localBindings.get(fn);
+    const parent = enclosingFunction(fn);
+    const bindings = localFunctionBindings(fn, functions, parent ? bindingsFor(parent) : new Map());
+    localBindings.set(fn, bindings);
+    return bindings;
+  };
+  for (const fn of functions) bindingsFor(fn);
+  const expandedFunctions = new Set();
+
+  for (const fn of functions) {
+    visit(
+      fn.body,
+      (node) => {
+        if (!ts.isCallExpression(node)) return;
+        for (const invoked of nestedFunctionInvocations(node, localBindings.get(fn))) {
+          expandedFunctions.add(invoked);
+        }
+      },
+      true,
+    );
   }
-}
 
-function analyzeFunction(fn, file, helperBindings, hits) {
-  if (!fn.body) return;
-  const env = buildLocatorEnvironment(fn, file);
-  if (env.owners.size === 0 && env.targets.size === 0 && env.inlineTargets.length === 0) return;
-  const stateEvents = disclosureStateEvents(fn, file, env, helperBindings);
-  const interactions = targetInteractions(fn, file, env);
+  const environments = new Map();
+  const environmentFor = (fn) => {
+    if (environments.has(fn)) return environments.get(fn);
+    const parent = enclosingFunction(fn);
+    const environment = buildLocatorEnvironment(fn, file, parent ? environmentFor(parent) : null);
+    environments.set(fn, environment);
+    return environment;
+  };
+  const recordedHits = new Map();
 
-  for (const interaction of interactions) {
-    const target = interaction.target;
-    const contract = disclosureContracts.find((candidate) => candidate.id === target.contractId);
-    if (!contract) continue;
-    const owner = target.owner ?? soleOwner(env, target.contractId);
-    const isOwned = target.controlId === "source-options" || Boolean(owner);
-    let classification = "outside-disclosure-ownership";
-    if (isOwned) {
-      if (interaction.closedAssertion) {
-        classification = "explicit-closed-negative-control";
-      } else {
-        const lastState = stateEvents
-          .filter((event) => event.owner === owner && event.position < interaction.position)
-          .sort((left, right) => right.position - left.position)[0];
-        classification = lastState?.open === true ? "safe-open-owner" : "unsafe-collapsed-owner";
-      }
-    }
-    const location = lineAndColumn(file.sourceFile, interaction.node);
-    hits.push({
-      file: file.relativeFile,
-      line: location.line,
-      column: location.column,
-      owner: contract.id,
-      control: target.controlId,
-      classification,
+  for (const fn of functions.filter((candidate) => !expandedFunctions.has(candidate))) {
+    executeFunction({
+      fn,
+      file,
+      helperBindings,
+      localBindings,
+      environmentFor,
+      state: new Map(),
+      recordedHits,
+      activeFunctions: new Set(),
     });
   }
+
+  hits.push(...recordedHits.values());
 }
 
-function buildLocatorEnvironment(fn, file) {
-  const pages = new Set();
-  const owners = new Map();
-  const triggers = new Map();
-  const targets = new Map();
+function executeFunction({
+  fn,
+  file,
+  helperBindings,
+  localBindings,
+  environmentFor,
+  state,
+  recordedHits,
+  activeFunctions,
+}) {
+  if (!fn.body || activeFunctions.has(fn)) return;
+  const env = environmentFor(fn);
+  const bindings = localBindings.get(fn) ?? new Map();
+  const actions = [
+    ...disclosureStateEvents(fn, file, env, helperBindings, new Set(bindings.keys())),
+    ...targetInteractions(fn, file, env),
+  ];
+  visit(
+    fn.body,
+    (node) => {
+      if (!ts.isCallExpression(node)) return;
+      for (const invoked of nestedFunctionInvocations(node, bindings)) {
+        actions.push({ kind: "invoke", fn: invoked, node, position: node.getStart(file.sourceFile) });
+      }
+    },
+    true,
+  );
+  actions.sort((left, right) => left.position - right.position || actionOrder(left) - actionOrder(right));
+
+  activeFunctions.add(fn);
+  for (const action of actions) {
+    if (action.kind === "state") {
+      state.set(action.owner, action.open);
+      continue;
+    }
+    if (action.kind === "invoke") {
+      executeFunction({
+        fn: action.fn,
+        file,
+        helperBindings,
+        localBindings,
+        environmentFor,
+        state,
+        recordedHits,
+        activeFunctions,
+      });
+      continue;
+    }
+    recordInteraction(action, file, env, state, recordedHits);
+  }
+  activeFunctions.delete(fn);
+}
+
+function actionOrder(action) {
+  if (action.kind === "state") return 0;
+  if (action.kind === "invoke") return 1;
+  return 2;
+}
+
+function recordInteraction(interaction, file, env, state, recordedHits) {
+  const target = interaction.target;
+  const contract = disclosureContracts.find((candidate) => candidate.id === target.contractId);
+  if (!contract) return;
+  const owner = target.owner ?? (target.receiverKind === "page" ? soleOwner(env, target.contractId) : null);
+  const isOwned = target.controlId === "source-options" || Boolean(owner);
+  let classification = "outside-disclosure-ownership";
+  if (isOwned) {
+    if (interaction.closedAssertion) {
+      classification = "explicit-closed-negative-control";
+    } else {
+      classification = state.get(owner) === true ? "safe-open-owner" : "unsafe-collapsed-owner";
+    }
+  }
+
+  const location = lineAndColumn(file.sourceFile, interaction.node);
+  const key = `${interaction.node.getStart(file.sourceFile)}:${target.controlId}`;
+  const hit = {
+    file: file.relativeFile,
+    line: location.line,
+    column: location.column,
+    owner: contract.id,
+    control: target.controlId,
+    classification,
+  };
+  const previous = recordedHits.get(key);
+  if (!previous || classificationRisk(classification) > classificationRisk(previous.classification)) {
+    recordedHits.set(key, hit);
+  }
+}
+
+function classificationRisk(classification) {
+  if (classification === "unsafe-collapsed-owner") return 3;
+  if (classification === "safe-open-owner" || classification === "explicit-closed-negative-control") return 2;
+  return 1;
+}
+
+function buildLocatorEnvironment(fn, file, parentEnvironment = null) {
+  const pages = new Set(parentEnvironment?.pages ?? []);
+  const owners = new Map(parentEnvironment?.owners ?? []);
+  const ownerIdentities = new Map(parentEnvironment?.ownerIdentities ?? []);
+  const triggers = new Map(parentEnvironment?.triggers ?? []);
+  const targets = new Map(parentEnvironment?.targets ?? []);
   const inlineTargets = [];
+
+  const declarations = [];
+  visit(
+    fn.body,
+    (node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) declarations.push(node);
+    },
+    true,
+  );
+
+  const localNames = new Set(declarations.map((declaration) => declaration.name.text));
+  for (const parameter of fn.parameters) collectBindingNames(parameter.name, localNames);
+  for (const name of localNames) {
+    pages.delete(name);
+    owners.delete(name);
+    ownerIdentities.delete(name);
+    triggers.delete(name);
+    targets.delete(name);
+  }
 
   for (const parameter of fn.parameters) {
     if (ts.isIdentifier(parameter.name) && parameter.type?.getText(file.sourceFile).endsWith("Page")) {
@@ -330,15 +456,6 @@ function buildLocatorEnvironment(fn, file) {
     }
   }
 
-  const declarations = [];
-  visit(
-    fn.body,
-    (node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) declarations.push(node);
-    },
-    true,
-  );
-
   let changed = true;
   while (changed) {
     changed = false;
@@ -347,23 +464,30 @@ function buildLocatorEnvironment(fn, file) {
       const initializer = unwrapExpression(declaration.initializer);
       const alias = unwrappedIdentifier(initializer);
       if (alias) {
-        changed = copyClassification(alias, name, pages, owners, triggers, targets) || changed;
+        changed = copyClassification(alias, name, pages, owners, ownerIdentities, triggers, targets) || changed;
         continue;
       }
       const query = locatorQuery(initializer);
       if (!query) {
-        const chainedTarget = targetFromExpression(initializer, { pages, owners, triggers, targets });
+        const chainedTarget = targetFromExpression(initializer, {
+          pages,
+          owners,
+          ownerIdentities,
+          triggers,
+          targets,
+        });
         if (chainedTarget && !targets.has(name)) {
           targets.set(name, chainedTarget);
           changed = true;
         }
         continue;
       }
-      const receiver = classifyReceiver(query.receiver, { pages, owners, triggers, targets });
+      const receiver = classifyReceiver(query.receiver, { pages, owners, ownerIdentities, triggers, targets });
       for (const contract of disclosureContracts) {
         if (query.method === "locator" && selectorOwnsContract(query.selector, contract)) {
           if (!owners.has(name)) {
             owners.set(name, contract.id);
+            ownerIdentities.set(name, `${file.relativeFile}:${declaration.name.getStart(file.sourceFile)}`);
             changed = true;
           }
         }
@@ -393,7 +517,7 @@ function buildLocatorEnvironment(fn, file) {
     (node) => {
       const query = locatorQuery(node);
       if (!query) return;
-      const receiver = classifyReceiver(query.receiver, { pages, owners, triggers, targets });
+      const receiver = classifyReceiver(query.receiver, { pages, owners, ownerIdentities, triggers, targets });
       for (const contract of disclosureContracts) {
         const target = targetFromQuery(query, receiver, contract);
         if (target) inlineTargets.push({ node, target });
@@ -402,16 +526,27 @@ function buildLocatorEnvironment(fn, file) {
     true,
   );
 
-  return { pages, owners, triggers, targets, inlineTargets };
+  return { pages, owners, ownerIdentities, triggers, targets, inlineTargets };
 }
 
-function copyClassification(from, to, pages, owners, triggers, targets) {
+function collectBindingNames(binding, names) {
+  if (ts.isIdentifier(binding)) {
+    names.add(binding.text);
+    return;
+  }
+  for (const element of binding.elements) {
+    if (ts.isBindingElement(element)) collectBindingNames(element.name, names);
+  }
+}
+
+function copyClassification(from, to, pages, owners, ownerIdentities, triggers, targets) {
   if (pages.has(from) && !pages.has(to)) {
     pages.add(to);
     return true;
   }
   if (owners.has(from) && !owners.has(to)) {
     owners.set(to, owners.get(from));
+    ownerIdentities.set(to, ownerIdentities.get(from));
     return true;
   }
   if (triggers.has(from) && !triggers.has(to)) {
@@ -425,35 +560,45 @@ function copyClassification(from, to, pages, owners, triggers, targets) {
   return false;
 }
 
-function disclosureStateEvents(fn, file, env, helperBindings) {
+function disclosureStateEvents(fn, file, env, helperBindings, localFunctionNames = new Set()) {
   const events = [];
   visit(
     fn.body,
     (node) => {
       if (!ts.isCallExpression(node)) return;
       const explicit = explicitExpandedExpectation(node, env);
-      if (explicit) events.push({ ...explicit, position: node.getStart(file.sourceFile) });
+      if (explicit) events.push({ kind: "state", ...explicit, position: node.getStart(file.sourceFile) });
 
       const directMethod = callMethod(node.expression);
       const directlyClickedTrigger =
         directMethod?.name === "click" ? triggerFromExpression(directMethod.receiver, env) : null;
       if (directlyClickedTrigger) {
-        events.push({ owner: directlyClickedTrigger.owner, open: null, position: node.getStart(file.sourceFile) });
+        events.push({
+          kind: "state",
+          owner: directlyClickedTrigger.owner,
+          open: null,
+          position: node.getStart(file.sourceFile),
+        });
       }
 
       const invoked = invokedFunctionName(node.expression);
-      if (!invoked) return;
+      if (!invoked || localFunctionNames.has(invoked)) return;
       const summary = helperBindings.get(invoked);
       if (!summary) return;
       if (summary.kind === "open-owner") {
         const owner = ownerFromExpression(node.arguments[summary.ownerParameterIndex], env);
-        if (owner) events.push({ owner, open: true, position: node.getStart(file.sourceFile) });
+        if (owner) events.push({ kind: "state", owner, open: true, position: node.getStart(file.sourceFile) });
       }
       if (summary.kind === "set-owner-state") {
         const trigger = triggerFromExpression(node.arguments[summary.triggerParameterIndex], env);
         const state = booleanLiteral(node.arguments[summary.stateParameterIndex]);
         if (trigger && state !== null) {
-          events.push({ owner: trigger.owner, open: state, position: node.getStart(file.sourceFile) });
+          events.push({
+            kind: "state",
+            owner: trigger.owner,
+            open: state,
+            position: node.getStart(file.sourceFile),
+          });
         }
       }
     },
@@ -490,6 +635,7 @@ function targetInteractions(fn, file, env) {
             if (!seen.has(key)) {
               seen.add(key);
               interactions.push({
+                kind: "interaction",
                 node,
                 target,
                 position: node.getStart(file.sourceFile),
@@ -510,7 +656,13 @@ function targetInteractions(fn, file, env) {
       const key = `${node.getStart(file.sourceFile)}:${target.controlId}`;
       if (seen.has(key)) return;
       seen.add(key);
-      interactions.push({ node, target, position: node.getStart(file.sourceFile), closedAssertion: false });
+      interactions.push({
+        kind: "interaction",
+        node,
+        target,
+        position: node.getStart(file.sourceFile),
+        closedAssertion: false,
+      });
     },
     true,
   );
@@ -562,13 +714,19 @@ function classifyReceiver(expression, env) {
   const identifier = rootIdentifier(expression);
   if (!identifier) return { kind: "other", name: null };
   if (env.pages.has(identifier)) return { kind: "page", name: identifier };
-  if (env.owners.has(identifier)) return { kind: "owner", name: identifier, contractId: env.owners.get(identifier) };
+  if (env.owners.has(identifier)) {
+    return {
+      kind: "owner",
+      name: env.ownerIdentities.get(identifier),
+      contractId: env.owners.get(identifier),
+    };
+  }
   return { kind: "other", name: identifier };
 }
 
 function ownerFromExpression(expression, env) {
   const identifier = rootIdentifier(expression);
-  return identifier && env.owners.has(identifier) ? identifier : null;
+  return identifier && env.owners.has(identifier) ? env.ownerIdentities.get(identifier) : null;
 }
 
 function triggerFromExpression(expression, env) {
@@ -577,8 +735,12 @@ function triggerFromExpression(expression, env) {
 }
 
 function soleOwner(env, contractId) {
-  const owners = [...env.owners].filter(([, candidateContract]) => candidateContract === contractId);
-  return owners.length === 1 ? owners[0][0] : null;
+  const owners = new Set(
+    [...env.owners]
+      .filter(([, candidateContract]) => candidateContract === contractId)
+      .map(([name]) => env.ownerIdentities.get(name)),
+  );
+  return owners.size === 1 ? [...owners][0] : null;
 }
 
 function locatorQuery(node) {
@@ -704,6 +866,78 @@ function namedFunctions(sourceFile) {
     }
   });
   return functions;
+}
+
+function localFunctionBindings(fn, functions, parentBindings) {
+  const bindings = new Map(parentBindings);
+  const localNames = new Set();
+  for (const parameter of fn.parameters) collectBindingNames(parameter.name, localNames);
+  visit(
+    fn.body,
+    (node) => {
+      if (ts.isVariableDeclaration(node)) collectBindingNames(node.name, localNames);
+      if (ts.isFunctionDeclaration(node) && node.name) localNames.add(node.name.text);
+    },
+    true,
+  );
+  for (const name of localNames) bindings.delete(name);
+
+  for (const candidate of functions) {
+    if (enclosingFunction(candidate) !== fn) continue;
+    const name = functionBindingName(candidate);
+    if (name) bindings.set(name, candidate);
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    visit(
+      fn.body,
+      (node) => {
+        if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
+        const alias = unwrappedIdentifier(node.initializer);
+        const target = alias ? bindings.get(alias) : null;
+        if (target && !bindings.has(node.name.text)) {
+          bindings.set(node.name.text, target);
+          changed = true;
+        }
+      },
+      true,
+    );
+  }
+  return bindings;
+}
+
+function functionBindingName(fn) {
+  if (ts.isFunctionDeclaration(fn) && fn.name) return fn.name.text;
+  const declaration = fn.parent;
+  return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) ? declaration.name.text : null;
+}
+
+function enclosingFunction(node) {
+  let current = node.parent;
+  while (current) {
+    if (ts.isFunctionLike(current) && current.body) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function nestedFunctionInvocations(call, bindings = new Map()) {
+  const invoked = new Set();
+  const directName = invokedFunctionName(call.expression);
+  if (directName && bindings.has(directName)) invoked.add(bindings.get(directName));
+
+  const method = callMethod(call.expression);
+  if (method?.name === "step" && rootIdentifier(method.receiver) === "test") {
+    for (const argument of call.arguments) {
+      const unwrapped = unwrapExpression(argument);
+      if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) invoked.add(unwrapped);
+      const callbackName = unwrappedIdentifier(unwrapped);
+      if (callbackName && bindings.has(callbackName)) invoked.add(bindings.get(callbackName));
+    }
+  }
+  return invoked;
 }
 
 function allFunctions(sourceFile) {
