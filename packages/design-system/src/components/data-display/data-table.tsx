@@ -209,14 +209,16 @@ export function DataTable<T>({
                 <TableRow key={rowId} surface="inset" selected={isSelected} {...rowProps}>
                   {selectable ? (
                     <TableCell control density={density}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
-                        onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
-                        aria-label={selectLabel}
-                        className={cx("rounded border-border accent-accent", controlSquareSizeClasses.md)}
-                      />
+                      <label className={cx("inline-flex items-center justify-center", controlSquareSizeClasses.md)}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
+                          onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
+                          aria-label={selectLabel}
+                          className="h-4 w-4 rounded border-border accent-accent"
+                        />
+                      </label>
                     </TableCell>
                   ) : null}
                   {columns.map((column) => (
@@ -362,15 +364,17 @@ function SelectAllCheckbox({
   }, [indeterminate]);
 
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      disabled={disabled}
-      onChange={onChange}
-      aria-label="Select all rows"
-      aria-checked={indeterminate ? "mixed" : checked}
-      className={cx("rounded border-border accent-accent", controlSquareSizeClasses.md)}
-    />
+    <label className={cx("inline-flex items-center justify-center", controlSquareSizeClasses.md)}>
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        aria-label="Select all rows"
+        aria-checked={indeterminate ? "mixed" : checked}
+        className="h-4 w-4 rounded border-border accent-accent"
+      />
+    </label>
   );
 }

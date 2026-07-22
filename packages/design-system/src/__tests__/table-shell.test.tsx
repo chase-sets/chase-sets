@@ -211,6 +211,30 @@ describe("DataTable selection", () => {
     expect(partial.getAttribute("aria-checked")).toBe("mixed");
   });
 
+  it("toggles row selection when the wrapper is clicked outside the glyph", () => {
+    const onSelectionChange = vi.fn();
+    render(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        mobileMode="scroll"
+        getRowId={(row) => row.name}
+        selectedKeys={new Set<string>()}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    const rowCheckbox = screen.getByLabelText("Select row Alpha") as HTMLInputElement;
+    const rowWrapper = rowCheckbox.closest("label") as HTMLElement;
+    fireEvent.click(rowWrapper);
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(["Alpha"]));
+
+    const selectAllCheckbox = screen.getByLabelText("Select all rows") as HTMLInputElement;
+    const selectAllWrapper = selectAllCheckbox.closest("label") as HTMLElement;
+    fireEvent.click(selectAllWrapper);
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(["Alpha", "Beta"]));
+  });
+
   it("uses a meaningful row name for row selection when getRowId is omitted", () => {
     render(
       <DataTable
