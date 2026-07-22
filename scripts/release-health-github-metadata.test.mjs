@@ -391,7 +391,7 @@ describe("production release candidate linkage", () => {
           "--built-image-digest",
           imageDigest,
           "--captured-at",
-          "2026-07-22T04:20:00.000Z",
+          "2026-07-22T04:24:47.446Z",
           "--out",
           candidatePath,
         ],
@@ -410,7 +410,7 @@ describe("production release candidate linkage", () => {
         candidateSha: fixture.run.head_sha,
         candidateTreeSha: fixture.run.head_commit.tree_id,
         builtImageDigest: imageDigest,
-        capturedAt: "2026-07-22T04:20:00.000Z",
+        capturedAt: "2026-07-22T04:24:47.446Z",
       });
 
       // Post-merge, release discovery independently re-derives the same
