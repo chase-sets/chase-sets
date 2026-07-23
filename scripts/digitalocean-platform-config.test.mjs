@@ -52,6 +52,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const exportManagedPostgresAuthorityAction = readFileSync(
+  resolve(".github/actions/export-managed-postgres-authority/action.yml"),
+  "utf8",
+);
 const platformReleaseCandidateWorkflow = readFileSync(
   resolve(".github/workflows/platform-release-candidate.yml"),
   "utf8",
@@ -703,18 +707,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(stage1Index);
 
-    // The export step uses the canonical trust-bearing Terraform-state path.
-    expect(exportStep).toContain("terraform state pull");
-    expect(exportStep).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    // The export step delegates the canonical trust-bearing Terraform-state path.
+    expect(exportStep).toContain("uses: ./.github/actions/export-managed-postgres-authority");
     expect(exportStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-    expect(exportStep).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
-    expect(exportStep).toContain("--environment production");
-    expect(exportStep).toContain('--contexts "${READINESS_GATE_SOURCE_CONTEXTS},checkout,public-presence,control"');
-    expect(exportStep).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
-    expect(exportStep).not.toContain("sslmode=require");
+    expect(exportStep).toContain("environment: production");
     expect(exportStep).toContain(
-      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}",
+      "contexts: ${{ format('{0},checkout,public-presence,control', vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence') }}",
     );
+    expect(exportStep).not.toContain("sslmode=require");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
     expect(exportStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
     expect(exportStep).not.toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
     expect(exportStep).toContain("continue-on-error: true");
@@ -1441,31 +1444,33 @@ describe("DigitalOcean platform configuration", () => {
     const steps = [wakeDrillsStep, representativeStateStep, providerProofStep];
 
     for (const step of steps) {
-      expect(step).toContain("terraform state pull");
-      expect(step).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
-      expect(step).toContain('--state "$state_path"');
-      expect(step).toContain('--github-env "$GITHUB_ENV"');
+      expect(step).toContain("uses: ./.github/actions/export-managed-postgres-authority");
       expect(step).not.toContain("node <<'NODE'");
       expect(step).not.toContain("digitalocean_database_cluster");
     }
-    expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--state "$state_path"');
+    expect(exportManagedPostgresAuthorityAction).toContain('--github-env "$GITHUB_ENV"');
+    expect(providerProofStep).toContain("contexts: payments,settlement,fulfillment");
   });
 
-  it("defines platform Terraform deployment inputs at job scope and threads them into reset plan/apply steps", () => {
+  it("keeps application deployment inputs at job scope and narrows root provider authority to each step", () => {
     const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const resetJob = workflowJob(platformStagingResetWorkflow, "reset-staging");
 
     for (const job of [stagingJob, productionJob, resetJob]) {
-      expect(job).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(job).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(job).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
       expect(job).toContain("TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
       expect(job).toContain("TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
       expect(job).toContain("TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
       expect(job).toContain("TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}");
       expect(job).toContain("TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}");
       expect(job).toContain("TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}");
+      const jobHeader = job.split("\n    steps:")[0];
+      expect(jobHeader).not.toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(jobHeader).not.toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(jobHeader).not.toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
     }
 
     expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
@@ -1488,7 +1493,9 @@ describe("DigitalOcean platform configuration", () => {
     ];
 
     for (const step of deployPlanApplySteps) {
-      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
     }
 
     const resetPlanApplySteps = [
@@ -1747,10 +1754,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT");
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
     expect(platformRepresentativeWorkflow).toContain('default: "300000"');
-    expect(platformRepresentativeWorkflow).toContain("terraform state pull");
-    expect(platformRepresentativeWorkflow).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
-    expect(platformRepresentativeWorkflow).toContain("--environment staging");
-    expect(platformRepresentativeWorkflow).toContain('--github-env "$GITHUB_ENV"');
+    expect(platformRepresentativeWorkflow).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+    expect(platformRepresentativeWorkflow).toContain("environment: staging");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--github-env "$GITHUB_ENV"');
     expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",

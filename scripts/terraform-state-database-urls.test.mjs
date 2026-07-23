@@ -273,7 +273,7 @@ describe("Terraform state database URL export", () => {
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });
 
-  it("keeps every shared-exporter workflow consumer on the explicit trust contract", async () => {
+  it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
@@ -291,18 +291,26 @@ describe("Terraform state database URL export", () => {
     const workflows = await Promise.all(
       workflowNames.map(async (name) => ({ name, source: await readFile(new URL(name, workflowDirectory), "utf8") })),
     );
+    const actionSource = await readFile(
+      new URL("../.github/actions/export-managed-postgres-authority/action.yml", import.meta.url),
+      "utf8",
+    );
     const consumers = workflows
-      .filter(({ source }) => source.includes("scripts/terraform-state-database-urls.mjs"))
+      .filter(({ source }) => source.includes("uses: ./.github/actions/export-managed-postgres-authority"))
       .sort((left, right) => left.name.localeCompare(right.name));
 
     expect(consumers.map(({ name }) => name)).toEqual(expectedConsumers);
     for (const { source } of consumers) {
       expect(source).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(source).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
-      expect(source).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
       expect(source).toContain("Remove managed Postgres CA");
+      expect(source).not.toContain("scripts/terraform-state-database-urls.mjs");
       expect(source).not.toContain("rejectUnauthorized: false");
       expect(source).not.toContain("NODE_TLS_REJECT_UNAUTHORIZED");
     }
+    expect(actionSource).toContain("terraform state pull");
+    expect(actionSource).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(actionSource).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
+    expect(actionSource).toContain('--github-env "$GITHUB_ENV"');
+    expect(actionSource).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
   });
 });

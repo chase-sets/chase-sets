@@ -36,11 +36,15 @@ afterAll(async () => {
 describe("production readiness managed Postgres trust seam", () => {
   it("reaches the real audit query only with the intended CA and matching DNS", async () => {
     const workflow = await readFile(new URL("../.github/workflows/platform-production.yml", import.meta.url), "utf8");
-    const exportIndex = workflow.indexOf("node ../../../scripts/terraform-state-database-urls.mjs");
+    const action = await readFile(
+      new URL("../.github/actions/export-managed-postgres-authority/action.yml", import.meta.url),
+      "utf8",
+    );
+    const exportIndex = workflow.indexOf("uses: ./.github/actions/export-managed-postgres-authority");
     const gateIndex = workflow.indexOf("node ./scripts/production-readiness-gate.mjs");
     expect(exportIndex).toBeGreaterThan(-1);
     expect(exportIndex).toBeLessThan(gateIndex);
-    expect(workflow.slice(exportIndex, gateIndex)).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
+    expect(action).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
 
     const trustedUrls = urlsFor("localhost", certificatePaths.caCertificate);
     const sample = await sampleProductionReadinessAudit(trustedUrls);

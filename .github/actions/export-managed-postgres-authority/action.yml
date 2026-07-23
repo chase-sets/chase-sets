@@ -1,0 +1,65 @@
+name: Export managed Postgres authority
+description: Export verify-full managed Postgres URLs and their pinned CA from platform Terraform state.
+
+inputs:
+  environment:
+    description: Platform environment whose Terraform state owns the database authority.
+    required: true
+  contexts:
+    description: Comma-separated bounded contexts to export, or all.
+    required: false
+    default: all
+  connection-mode:
+    description: Direct cluster connections or transaction-pooled connections.
+    required: false
+    default: direct
+
+runs:
+  using: composite
+  steps:
+    - name: Initialize platform Terraform state
+      shell: bash
+      working-directory: infrastructure/digitalocean/platform
+      env:
+        AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        case "$AUTHORITY_ENVIRONMENT" in
+          staging|production) ;;
+          *)
+            echo "Unsupported managed Postgres authority environment." >&2
+            exit 1
+            ;;
+        esac
+
+        terraform init \
+          -backend-config=bucket=chase-sets-terraform-state \
+          -backend-config="key=landing/${AUTHORITY_ENVIRONMENT}.tfstate" \
+          -backend-config=region=us-east-1 \
+          -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+          -backend-config=skip_credentials_validation=true \
+          -backend-config=skip_metadata_api_check=true \
+          -backend-config=skip_region_validation=true \
+          -backend-config=skip_requesting_account_id=true \
+          -backend-config=use_path_style=true \
+          -backend-config=use_lockfile=true
+
+    - name: Export bounded database URLs and CA trust
+      shell: bash
+      working-directory: infrastructure/digitalocean/platform
+      env:
+        AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
+        AUTHORITY_CONTEXTS: ${{ inputs.contexts }}
+        AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode }}
+        MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+      run: |
+        set -euo pipefail
+        state_path="${RUNNER_TEMP}/platform-${AUTHORITY_ENVIRONMENT}.tfstate.json"
+        terraform state pull > "$state_path"
+        node ../../../scripts/terraform-state-database-urls.mjs \
+          --state "$state_path" \
+          --environment "$AUTHORITY_ENVIRONMENT" \
+          --contexts "$AUTHORITY_CONTEXTS" \
+          --connection-mode "$AUTHORITY_CONNECTION_MODE" \
+          --ca-path "$MANAGED_POSTGRES_CA_PATH" \
+          --github-env "$GITHUB_ENV"
