@@ -3,6 +3,14 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import {
+  createReadinessTimeline,
+  formatServiceLifecycleEvidence,
+  readJsonIfPresent,
+  resolveBrowserE2eEvidencePaths,
+  writeBrowserE2eReadinessEvidence,
+} from "./browser-e2e-evidence.mjs";
+import { resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
 
 // Playwright permits each web server six hundred seconds to boot. Phase one
@@ -29,6 +37,26 @@ const browserE2eProjectionTargetContexts = new Set([
   "marketplace",
   "platform-operations",
 ]);
+
+export class BrowserE2eReadinessError extends Error {
+  constructor(message, componentNames, { includesLifecycleEvidence = false } = {}) {
+    super(message);
+    this.name = "BrowserE2eReadinessError";
+    this.componentNames = [...new Set(componentNames)].sort((left, right) => left.localeCompare(right, "en"));
+    this.includesLifecycleEvidence = includesLifecycleEvidence;
+  }
+}
+
+function readinessError(message, componentNames, options) {
+  return new BrowserE2eReadinessError(message, componentNames, options);
+}
+
+async function lifecycleReport(componentNames, readLifecycleEvidence) {
+  const lifecycleEvidence = await readLifecycleEvidence();
+  return componentNames
+    .map((componentName) => formatServiceLifecycleEvidence(lifecycleEvidence, componentName))
+    .join("\n");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => {
@@ -91,6 +119,8 @@ export async function waitForBrowserE2eReadiness({
   regressionToleranceMs = defaultRegressionToleranceMs,
   now = Date.now,
   sleepImpl = sleep,
+  onObservations = () => undefined,
+  readLifecycleEvidence = () => null,
 } = {}) {
   if (!Array.isArray(components) || components.length === 0) {
     throw new Error("Browser e2e readiness requires at least one named component.");
@@ -101,6 +131,7 @@ export async function waitForBrowserE2eReadiness({
       component.name,
       {
         everReady: false,
+        ready: false,
         lastObservation: "not checked",
         unavailableSince: null,
       },
@@ -112,9 +143,11 @@ export async function waitForBrowserE2eReadiness({
     const observations = await Promise.all(
       components.map((component) => probeComponent(component, fetchImpl, requestTimeoutMs)),
     );
+    await onObservations(observations);
 
     for (const observation of observations) {
       const state = states.get(observation.name);
+      state.ready = observation.ready;
       state.lastObservation = observation.observation;
 
       if (observation.ready) {
@@ -126,11 +159,30 @@ export async function waitForBrowserE2eReadiness({
       if (state.everReady) {
         state.unavailableSince ??= now();
         if (now() - state.unavailableSince >= regressionToleranceMs) {
-          throw new Error(
+          const evidence = await lifecycleReport([observation.name], readLifecycleEvidence);
+          throw readinessError(
             `Browser e2e boot failed: ${observation.name} became unavailable after reporting ready ` +
-              `(${observation.observation}).`,
+              `(${observation.observation}).\n${evidence}`,
+            [observation.name],
+            { includesLifecycleEvidence: true },
           );
         }
+      }
+    }
+
+    const lifecycleEvidence = await readLifecycleEvidence();
+    for (const observation of observations) {
+      if (observation.ready) {
+        continue;
+      }
+      const lifecycle = lifecycleEvidence?.services?.find((service) => service.name === observation.name);
+      if (lifecycle && lifecycle.status !== "running") {
+        throw readinessError(
+          `Browser e2e boot failed: ${observation.name} exited before reporting ready ` +
+            `(${observation.observation}). ${formatServiceLifecycleEvidence(lifecycleEvidence, observation.name)}`,
+          [observation.name],
+          { includesLifecycleEvidence: true },
+        );
       }
     }
 
@@ -141,11 +193,16 @@ export async function waitForBrowserE2eReadiness({
     await sleepImpl(pollMs);
   }
 
-  const stalled = components
-    .filter((component) => !states.get(component.name).everReady)
-    .map((component) => `${component.name} (${states.get(component.name).lastObservation})`);
-  throw new Error(
-    `Browser e2e boot stalled after ${formatDuration(timeoutMs)}: ${stalled.join(", ") || "readiness regressed"}.`,
+  const stalledComponents = components.filter((component) => !states.get(component.name).ready);
+  const stalled = stalledComponents.map(
+    (component) => `${component.name} (${states.get(component.name).lastObservation})`,
+  );
+  const stalledComponentNames = stalledComponents.map((component) => component.name);
+  const evidence = await lifecycleReport(stalledComponentNames, readLifecycleEvidence);
+  throw readinessError(
+    `Browser e2e boot stalled after ${formatDuration(timeoutMs)}: ${stalled.join(", ") || "readiness regressed"}.\n${evidence}`,
+    stalledComponentNames,
+    { includesLifecycleEvidence: true },
   );
 }
 
@@ -261,6 +318,7 @@ export async function waitForProjectionReadiness({
   pollMs = projectionPollMs,
   now = Date.now,
   sleepImpl = sleep,
+  onObservation = () => undefined,
 } = {}) {
   const startedAt = now();
   let lastProgressAt = startedAt;
@@ -274,6 +332,13 @@ export async function waitForProjectionReadiness({
     const snapshot = normalizeWorkerSnapshot(await readSnapshot());
     lastEvaluation = evaluateProjectionReadiness(snapshot.projectionSamples, {
       activeWakeIntentCount: snapshot.activeWakeIntentCount,
+    });
+    await onObservation({
+      name: "platform-worker",
+      ready: lastEvaluation.ready,
+      observation: lastEvaluation.ready
+        ? `${lastEvaluation.activeCheckpointCount} active projection checkpoints caught up`
+        : summarizeWorkerLag(lastEvaluation),
     });
     if (lastEvaluation.ready) {
       consecutiveReadySamples += 1;
@@ -290,9 +355,10 @@ export async function waitForProjectionReadiness({
     ) {
       lastProgressAt = now();
     } else if (now() - lastProgressAt >= stallTimeoutMs) {
-      throw new Error(
+      throw readinessError(
         `Browser e2e boot failed: platform-worker work stalled for ${formatDuration(stallTimeoutMs)}: ` +
           `${summarizeWorkerLag(lastEvaluation)}.`,
+        ["platform-worker"],
       );
     }
     previousPositions = lastEvaluation.positions;
@@ -300,9 +366,10 @@ export async function waitForProjectionReadiness({
     await sleepImpl(pollMs);
   }
 
-  throw new Error(
+  throw readinessError(
     `Browser e2e boot stalled after ${formatDuration(timeoutMs)}: platform-worker ` +
       `${summarizeWorkerLag(lastEvaluation)}.`,
+    ["platform-worker"],
   );
 }
 
@@ -445,7 +512,23 @@ export async function runBrowserE2eReadinessCoordinator({
   sandbox = resolveWorktreeSandbox(),
   waitForReadiness = waitForBrowserE2eReadiness,
   phaseOneTimeoutMs = resolveBrowserE2ePhaseOneTimeoutMs(),
+  target = resolveBrowserE2eSystemTarget(),
 } = {}) {
+  const evidencePaths = resolveBrowserE2eEvidencePaths(sandbox);
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const timeline = createReadinessTimeline({ startedAtMs });
+  const persistEvidence = (outcome, error = null) =>
+    writeBrowserE2eReadinessEvidence({
+      filePath: evidencePaths.readinessPath,
+      sandboxId: sandbox.id,
+      target,
+      startedAt,
+      outcome,
+      error,
+      timeline: timeline.snapshot(),
+      lifecyclePath: evidencePaths.lifecyclePath,
+    });
   let ready = false;
   const server = http.createServer((request, response) => {
     if (request.url !== "/health/ready") {
@@ -458,6 +541,7 @@ export async function runBrowserE2eReadinessCoordinator({
   });
 
   await listen(server, sandbox.ports.portal);
+  persistEvidence("starting");
   console.log(
     `[browser-e2e-readiness] Awaiting marketplace, platform-api, and platform-worker at ${sandbox.urls.portal}/health/ready.`,
   );
@@ -469,7 +553,15 @@ export async function runBrowserE2eReadinessCoordinator({
   process.once("SIGTERM", stop);
 
   try {
-    await waitForReadiness({ components: browserE2eComponents(sandbox), timeoutMs: phaseOneTimeoutMs });
+    await waitForReadiness({
+      components: browserE2eComponents(sandbox),
+      timeoutMs: phaseOneTimeoutMs,
+      readLifecycleEvidence: () => readJsonIfPresent(evidencePaths.lifecyclePath),
+      onObservations: (observations) => {
+        timeline.record("service-readiness", observations);
+        persistEvidence("starting");
+      },
+    });
     const projectionSnapshots = createProjectionSnapshotReader(sandbox);
     let workerUnavailableSince = null;
     try {
@@ -488,11 +580,16 @@ export async function runBrowserE2eReadinessCoordinator({
 
           workerUnavailableSince ??= Date.now();
           if (Date.now() - workerUnavailableSince >= defaultRegressionToleranceMs) {
-            throw new Error(
+            throw readinessError(
               `Browser e2e boot failed: platform-worker became unavailable while projections were catching up ` +
                 `(${worker.observation}).`,
+              ["platform-worker"],
             );
           }
+        },
+        onObservation: (observation) => {
+          timeline.record("projection-readiness", [observation]);
+          persistEvidence("starting");
         },
       });
       console.log(
@@ -501,10 +598,25 @@ export async function runBrowserE2eReadinessCoordinator({
     } finally {
       await projectionSnapshots.close();
     }
+    persistEvidence("ready");
     ready = true;
     console.log("[browser-e2e-readiness] marketplace, platform-api, and platform-worker are ready.");
   } catch (error) {
-    console.error(`[browser-e2e-readiness] ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    const componentNames =
+      error instanceof BrowserE2eReadinessError
+        ? error.componentNames
+        : browserE2eComponents(sandbox).map((component) => component.name);
+    const lifecycleEvidence = readJsonIfPresent(evidencePaths.lifecyclePath);
+    const lifecycleReport =
+      error instanceof BrowserE2eReadinessError && error.includesLifecycleEvidence
+        ? ""
+        : componentNames
+            .map((componentName) => formatServiceLifecycleEvidence(lifecycleEvidence, componentName))
+            .join("\n");
+    const report = [message, lifecycleReport].filter(Boolean).join("\n");
+    persistEvidence("failed", report);
+    console.error(`[browser-e2e-readiness] ${report}`);
     await stop();
     throw error;
   }

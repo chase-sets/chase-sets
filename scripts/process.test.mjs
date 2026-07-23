@@ -1,7 +1,12 @@
 import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildMinimalProcessEnvironment, buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
+import {
+  buildMinimalProcessEnvironment,
+  buildPackageManagerInvocation,
+  runCommand,
+  terminateProcessTree,
+} from "./lib/process.mjs";
 
 describe("process helpers", () => {
   afterEach(() => {
@@ -79,6 +84,29 @@ describe("process helpers", () => {
     ).rejects.toThrow("exited with code 1");
 
     expect(consoleLog).toHaveBeenCalledWith("[child] buffered failure");
+  });
+
+  it("terminates the complete Windows child tree through taskkill", () => {
+    const calls = [];
+    const child = { pid: 6034, exitCode: null, signalCode: null, kill: vi.fn() };
+
+    expect(
+      terminateProcessTree(child, "SIGTERM", {
+        platform: "win32",
+        spawnSyncImpl: (command, args, options) => {
+          calls.push({ command, args, options });
+          return { status: 0 };
+        },
+      }),
+    ).toBe(true);
+    expect(calls).toEqual([
+      {
+        command: "taskkill.exe",
+        args: ["/PID", "6034", "/T", "/F"],
+        options: { stdio: "ignore", windowsHide: true },
+      },
+    ]);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
   it("fails a hung child with a clear timeout error", async () => {

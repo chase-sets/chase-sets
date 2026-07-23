@@ -154,6 +154,34 @@ describe("browser e2e readiness", () => {
       }),
     ).rejects.toThrow(/Browser e2e boot stalled after 100ms: platform-api \(HTTP 503\), platform-worker \(HTTP 503\)/);
   });
+
+  it("names a currently regressed component when services never become ready together", async () => {
+    let now = 0;
+    let calls = 0;
+
+    await expect(
+      waitForBrowserE2eReadiness({
+        components: [
+          { name: "platform-api", url: "http://platform-api/health/ready" },
+          { name: "platform-worker", url: "http://platform-worker/health/ready" },
+        ],
+        fetchImpl: async (url) => {
+          const cycle = Math.floor(calls++ / 2);
+          const apiReady = cycle % 2 === 0;
+          return { status: url.includes("platform-api") === apiReady ? 200 : 503 };
+        },
+        timeoutMs: 100,
+        pollMs: 25,
+        regressionToleranceMs: 1_000,
+        now: () => now,
+        sleepImpl: async (ms) => {
+          now += ms;
+        },
+      }),
+    ).rejects.toThrow(
+      /Browser e2e boot stalled after 100ms: platform-api \(HTTP 503\).*platform-api: lifecycle evidence unavailable/s,
+    );
+  });
 });
 
 describe("browser e2e projection readiness", () => {

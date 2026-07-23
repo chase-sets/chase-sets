@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } from "./browser-e2e-evidence.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
   applyDevTargetEnvOverrides,
@@ -17,7 +18,7 @@ import {
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
-import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
+import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import {
   applySandboxEnv,
   buildDockerComposeArgs,
@@ -48,6 +49,7 @@ const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api"
 const stripeReadyTimeoutMs = 20_000;
 const postgresReadyTimeoutMs = 90_000;
 const postgresReadyPollMs = 1_000;
+const isolatedBrowserE2eProbe = process.env.CHASE_SETS_BROWSER_E2E_PROBE === "true";
 
 function createAdminCandidateUrls(databaseName = "postgres") {
   return [localAdminDatabaseUrl].map((baseAdminUrl) => {
@@ -273,6 +275,10 @@ function prefixedConsole(prefix, message) {
 }
 
 function resolveMarketplaceStripeConfig() {
+  if (isolatedBrowserE2eProbe) {
+    return { secretKey: "", publishableKey: "" };
+  }
+
   const envExample = readEnvFile(platformApiEnvExamplePath);
   const envLocal = readEnvFile(platformApiEnvLocalPath);
 
@@ -477,9 +483,13 @@ async function ensureDevDatabase() {
 }
 
 async function runBootstrap(targetName = "all") {
-  await runCommand("node", [localEnvScript, "sync"], {
-    prefix: "env",
-  });
+  if (isolatedBrowserE2eProbe) {
+    prefixedConsole("env", "Skipping local secret-file sync for the isolated browser-e2e probe.");
+  } else {
+    await runCommand("node", [localEnvScript, "sync"], {
+      prefix: "env",
+    });
+  }
   ensureWorktreeSandboxEnvironment({ rootDir });
   await ensureDevDatabase();
 
@@ -516,6 +526,13 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 }
 
 async function runDev(targetName = "all") {
+  const lifecycleRecorder = isBrowserE2eTarget(targetName)
+    ? createBrowserE2eLifecycleRecorder({
+        filePath: resolveBrowserE2eEvidencePaths(sandbox).lifecyclePath,
+        sandboxId: sandbox.id,
+        target: targetName,
+      })
+    : null;
   await runBootstrap(targetName);
   if (isBrowserE2eTarget(targetName) && Boolean(process.env.CI)) {
     const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
@@ -548,21 +565,6 @@ async function runDev(targetName = "all") {
   const children = [];
   let shuttingDown = false;
 
-  const terminateChild = (child, signal) => {
-    if (process.platform === "win32" && child.pid) {
-      // Node's child.kill() only terminates the immediate process on Windows.
-      // The package-manager and dev-server descendants would otherwise survive
-      // Playwright teardown and retain ports and database connections.
-      spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      return;
-    }
-
-    child.kill(signal);
-  };
-
   const shutdown = (signal, exitCode = 0) => {
     if (shuttingDown) {
       return;
@@ -572,16 +574,12 @@ async function runDev(targetName = "all") {
     prefixedConsole("dev", `Stopping child processes${signal ? ` after ${signal}` : ""}...`);
 
     for (const child of children) {
-      if (!child.killed) {
-        terminateChild(child, "SIGTERM");
-      }
+      terminateProcessTree(child, "SIGTERM");
     }
 
     setTimeout(() => {
       for (const child of children) {
-        if (!child.killed) {
-          terminateChild(child, "SIGKILL");
-        }
+        terminateProcessTree(child, "SIGKILL");
       }
     }, 3_000).unref();
 
@@ -590,6 +588,11 @@ async function runDev(targetName = "all") {
 
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
+  process.once("message", (message) => {
+    if (message && typeof message === "object" && message.type === "browser-e2e-probe-shutdown") {
+      shutdown("probe", 0);
+    }
+  });
 
   const platformApiDefinition = selectedProcesses.find((definition) => definition.name === "platform-api");
 
@@ -674,6 +677,7 @@ async function runDev(targetName = "all") {
       inheritEnv: false,
       prefix: definition.name,
     });
+    lifecycleRecorder?.observe(definition.name, child);
 
     child.on("error", (error) => {
       if (!shuttingDown) {

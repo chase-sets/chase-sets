@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -151,6 +151,29 @@ export function spawnCommand(command, args, options = {}) {
   }
 
   return child;
+}
+
+export function terminateProcessTree(
+  child,
+  signal = "SIGTERM",
+  { platform = process.platform, spawnSyncImpl = spawnSync } = {},
+) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return false;
+  }
+
+  if (platform === "win32" && child.pid) {
+    const result = spawnSyncImpl("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    if (result.error && result.error.code !== "ENOENT") {
+      throw result.error;
+    }
+    return result.status === 0;
+  }
+
+  return child.kill(signal);
 }
 
 function formatTimeout(timeoutMs) {
