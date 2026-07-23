@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRevalidator } from "react-router";
 import { CatalogProviderDetailPage } from "../../features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page";
 import { loadProviderDetail } from "../../support/route-support/admin-integrations/provider-detail-loader";
 
@@ -23,11 +23,14 @@ export const meta: MetaFunction = () => [
 // lifecycle-recovery workspace.
 export default function CatalogProviderDetailRoute() {
   const routeData = useLoaderData<typeof loader>();
+  const revalidator = useRevalidator();
   return (
     <CatalogProviderDetailPage
       readModel={routeData.readModel}
       commandFeedback={routeData.commandFeedback}
       providerRefreshSchedules={routeData.providerRefreshSchedules}
+      onRevalidate={() => revalidator.revalidate()}
+      revalidating={revalidator.state !== "idle"}
     />
   );
 }

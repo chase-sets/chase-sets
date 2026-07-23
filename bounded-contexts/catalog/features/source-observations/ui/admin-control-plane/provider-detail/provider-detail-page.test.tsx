@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "../../primary-workbench-test-fixtures";
 import { CatalogProviderDetailPage } from "./provider-detail-page";
@@ -134,6 +134,68 @@ describe("CatalogProviderDetailPage", () => {
     expect(screen.getByText("Provider transport readiness")).toBeTruthy();
     expect(screen.getAllByText("Freshness").length).toBeGreaterThan(0);
     expect(screen.queryByText(/health-triage/i)).toBeNull();
+  });
+
+  it("does not offer a revalidate affordance when the health-triage projection is fresh", () => {
+    const profile = profileReview({ providerKey: "tcgdex", active: true, lifecycle: "active" });
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+    expect(readModel.healthTriage.freshness).toBe("fresh");
+
+    render(<CatalogProviderDetailPage readModel={readModel} onRevalidate={() => undefined} />);
+
+    expect(screen.getAllByText("Fresh").length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-catalog-provider-detail-revalidate="true"]')).toBeNull();
+  });
+
+  it("surfaces a revalidate affordance next to the freshness badge when the projection is lagged, and calls onRevalidate when clicked", () => {
+    const profile = profileReview({ providerKey: "tcgdex", active: true, lifecycle: "active" });
+    // A null control-plane overview is the fixture's documented lagged/unavailable
+    // shape (buildCatalogPrimaryWorkbenchHealthTriage falls back to "partial" —
+    // one of the projection-lag states — when the overview never resolved).
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    expect(readModel.healthTriage.freshness).toBe("partial");
+
+    const onRevalidate = vi.fn();
+    render(<CatalogProviderDetailPage readModel={readModel} onRevalidate={onRevalidate} />);
+
+    const revalidateButton = document.querySelector<HTMLButtonElement>(
+      '[data-catalog-provider-detail-revalidate="true"]',
+    );
+    expect(revalidateButton).toBeTruthy();
+    expect(revalidateButton?.textContent).toBe("Refresh");
+    revalidateButton?.click();
+    expect(onRevalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the revalidate affordance and relabels it while a revalidation is already in flight", () => {
+    const profile = profileReview({ providerKey: "tcgdex", active: true, lifecycle: "active" });
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogProviderDetailPage readModel={readModel} onRevalidate={() => undefined} revalidating />);
+
+    const revalidateButton = document.querySelector<HTMLButtonElement>(
+      '[data-catalog-provider-detail-revalidate="true"]',
+    );
+    expect(revalidateButton?.disabled).toBe(true);
+    expect(revalidateButton?.textContent).toBe("Refreshing…");
   });
 
   it("shows an empty state when no provider is selected", () => {

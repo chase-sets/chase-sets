@@ -83,6 +83,26 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
 }
 
+const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+const TABLET_VIEWPORT = { width: 820, height: 1180 } as const;
+const DESKTOP_VIEWPORT = { width: 1280, height: 900 } as const;
+// The design system's "md" breakpoint (packages/design-system/src/theme/tokens.ts)
+// is the table<->card collapse boundary DataTable uses (`hidden md:block` /
+// `md:hidden`), so the mobile/tablet fixtures above straddle it deliberately:
+// mobile is well below 768px (cards), tablet is comfortably above it (table).
+const MIN_TOUCH_TARGET_PX = 44;
+
+async function expectMinimumTouchTarget(locator: Locator, label: string) {
+  const box = await locator.boundingBox();
+  expect(box, `${label} should have a measurable layout box`).not.toBeNull();
+  expect(box!.width, `${label} width should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
+    MIN_TOUCH_TARGET_PX,
+  );
+  expect(box!.height, `${label} height should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
+    MIN_TOUCH_TARGET_PX,
+  );
+}
+
 async function expectAliasReviewWorkspace(page: Page) {
   const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" }).first();
   const aliasReviewRendered = await aliasReviewHeading.isVisible({ timeout: 30_000 }).catch(() => false);
@@ -906,5 +926,158 @@ test.describe.serial("catalog admin integrations", () => {
     );
     await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
+  });
+
+  test("daily import-to-promotion route is usable at mobile and tablet widths @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await expectPageOk(page, "/catalog/integrations");
+    const heading = page.getByRole("heading", {
+      name: "Pull provider data, review Source Observations, promote Catalog facts",
+    });
+    await expect(heading).toBeVisible();
+    await expectAdminWebHydrated(page);
+
+    // Drive the exact changed state before measuring it: the metric strip and
+    // Run sync stage are the always-present skeleton-to-populated content this
+    // route claims to render at mobile width, so open the stage rather than
+    // screenshotting the collapsed default.
+    const runSyncStageTrigger = page.getByRole("button", { name: "Run sync" }).first();
+    await clickUntilDisclosureExpanded(runSyncStageTrigger, true);
+    const catalogSyncButton = page
+      .locator('form[data-catalog-primary-workbench-command="scope.sync"]')
+      .getByRole("button", { name: "Start Catalog sync" });
+    await expect(catalogSyncButton).toBeVisible();
+    await expectMinimumTouchTarget(catalogSyncButton, "mobile Start Catalog sync button");
+    await expectMinimumTouchTarget(runSyncStageTrigger, "mobile Run sync stage trigger");
+
+    // The import-jobs table on this stage is the row-shaped evidence: at mobile
+    // width DataTable collapses every table it renders into `role="listitem"`
+    // cards (`md:hidden`) and hides the tabular `<table>` (`hidden md:block`).
+    const importJobsTable = page.getByRole("table", { name: "Durable import job detail" });
+    if (await importJobsTable.count()) {
+      await expect(importJobsTable.first()).toBeHidden();
+    }
+    await expect(page.getByRole("listitem").first()).toBeVisible();
+    await page.screenshot({ path: "test-results/catalog-integrations-daily-mobile.png", fullPage: true });
+
+    await page.setViewportSize(TABLET_VIEWPORT);
+    await expect(heading).toBeVisible();
+    await expect(catalogSyncButton).toBeVisible();
+    await expectMinimumTouchTarget(catalogSyncButton, "tablet Start Catalog sync button");
+    if (await importJobsTable.count()) {
+      await expect(importJobsTable.first()).toBeVisible();
+    }
+    await page.screenshot({ path: "test-results/catalog-integrations-daily-tablet.png", fullPage: true });
+
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+  });
+
+  test("provider detail route is usable at mobile/tablet widths and surfaces a revalidate affordance when the health-triage projection is lagged @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await authenticateAdmin(page, "/catalog/providers/tcgdex", "/access/sign-in");
+    await expectPageOk(page, "/catalog/providers/tcgdex");
+    const providerDetailPage = page.locator("[data-catalog-provider-detail='true']");
+    await expect(providerDetailPage).toBeVisible();
+    await expectAdminWebHydrated(page);
+
+    // Freshness/generated-at is always rendered (fresh or lagged); the
+    // revalidate button next to it is conditional on the health-triage
+    // projection actually being lagged, which depends on how recently the
+    // merge-group seed's control-plane overview projected — assert the
+    // always-present fact unconditionally and log the conditional one instead
+    // of asserting seed-dependent volume (mirrors this suite's existing
+    // logSeedContractGap convention).
+    const freshnessRow = providerDetailPage.locator("[data-catalog-provider-detail-freshness]");
+    await expect(freshnessRow.first()).toBeVisible();
+    const revalidateButton = providerDetailPage.locator('[data-catalog-provider-detail-revalidate="true"]');
+    if (await revalidateButton.count()) {
+      await expect(revalidateButton.first()).toBeVisible();
+      await expectMinimumTouchTarget(revalidateButton.first(), "mobile provider-detail revalidate button");
+    } else {
+      logSeedContractGap(
+        "No provider-detail revalidate button rendered: the health-triage projection read as fresh for this " +
+          "run, so the lagged-state revalidate affordance legitimately did not render.",
+      );
+    }
+
+    const cloneForm = providerDetailPage.locator(
+      'form[data-catalog-primary-workbench-command="provider-profile.clone"]',
+    );
+    const cloneSubmit = cloneForm.getByRole("button", { name: "Create draft" });
+    await expect(cloneSubmit).toBeVisible();
+    await expectMinimumTouchTarget(cloneSubmit, "mobile provider-detail clone submit button");
+
+    const versionHistoryTable = page.getByRole("table", { name: "Profile candidates" });
+    if (await versionHistoryTable.count()) {
+      await expect(versionHistoryTable.first()).toBeHidden();
+    }
+    await expect(page.getByRole("listitem").first()).toBeVisible();
+    await page.screenshot({ path: "test-results/catalog-provider-detail-mobile.png", fullPage: true });
+
+    await page.setViewportSize(TABLET_VIEWPORT);
+    await expect(providerDetailPage).toBeVisible();
+    await expect(cloneSubmit).toBeVisible();
+    if (await versionHistoryTable.count()) {
+      await expect(versionHistoryTable.first()).toBeVisible();
+    }
+    await page.screenshot({ path: "test-results/catalog-provider-detail-tablet.png", fullPage: true });
+
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+  });
+
+  test("governance route is usable at mobile/tablet widths @catalog-admin-integrations", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await authenticateAdmin(page, "/catalog/integrations/governance", "/access/sign-in");
+    await expectPageOk(
+      page,
+      "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&section=controls",
+    );
+    await expectAdminWebHydrated(page);
+    await expectVisibleText(page, "Governance controls");
+
+    const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
+    await expect(governanceControls).toBeVisible();
+    const rbacMatrixTable = page.getByRole("table", { name: "RBAC action matrix" });
+    if (await rbacMatrixTable.count()) {
+      await expect(rbacMatrixTable.first()).toBeHidden();
+    }
+    await expect(page.getByRole("listitem").first()).toBeVisible();
+
+    const governanceBackLink = page.getByRole("link", { name: "Back to import workbench" }).first();
+    await expect(governanceBackLink).toBeVisible();
+    await expectMinimumTouchTarget(governanceBackLink, "mobile governance back-to-workbench link");
+    await page.screenshot({ path: "test-results/catalog-governance-mobile.png", fullPage: true });
+
+    await page.setViewportSize(TABLET_VIEWPORT);
+    await expect(governanceControls).toBeVisible();
+    if (await rbacMatrixTable.count()) {
+      await expect(rbacMatrixTable.first()).toBeVisible();
+    }
+    await page.screenshot({ path: "test-results/catalog-governance-tablet.png", fullPage: true });
+
+    await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 });

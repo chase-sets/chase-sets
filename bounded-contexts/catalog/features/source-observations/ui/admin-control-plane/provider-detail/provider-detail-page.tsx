@@ -54,10 +54,17 @@ export function CatalogProviderDetailPage({
   readModel,
   commandFeedback = null,
   providerRefreshSchedules = null,
+  onRevalidate = null,
+  revalidating = false,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   providerRefreshSchedules?: readonly ProviderRefreshSchedulePanelItem[] | null;
+  // Supplied by the route composition root so the health-triage freshness
+  // signal in ProviderDetailHeader can offer a revalidate affordance when
+  // lagged, without this presentational page depending on a data router.
+  onRevalidate?: (() => void) | null;
+  revalidating?: boolean;
 }>) {
   const authoring = readModel.profileAuthoring;
   const selectedProfile = authoring.selectedProfile;
@@ -80,7 +87,12 @@ export function CatalogProviderDetailPage({
 
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
-      <ProviderDetailHeader readModel={readModel} providerKey={providerKey} />
+      <ProviderDetailHeader
+        readModel={readModel}
+        providerKey={providerKey}
+        onRevalidate={onRevalidate}
+        revalidating={revalidating}
+      />
 
       {providerRefreshSchedules ? (
         <ProviderRefreshSchedulePanel

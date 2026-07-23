@@ -11,6 +11,8 @@ export const catalogSourceObservationsWorkbenchProviderDetailEnglishTranslations
   "catalog.features.sourceObservations.ui.providerDetail.header.missing.title": "No provider selected",
   "catalog.features.sourceObservations.ui.providerDetail.header.missing.description":
     "Open this page from a scope or provider list with a providerKey to see readiness for one provider.",
+  "catalog.features.sourceObservations.ui.providerDetail.header.freshness.refresh": "Refresh",
+  "catalog.features.sourceObservations.ui.providerDetail.header.freshness.refreshing": "Refreshing…",
   "catalog.features.sourceObservations.ui.providerDetail.units.title": "Participating units",
   "catalog.features.sourceObservations.ui.providerDetail.units.description":
     "Ingestion units this provider participates in, with their mapped import scopes.",

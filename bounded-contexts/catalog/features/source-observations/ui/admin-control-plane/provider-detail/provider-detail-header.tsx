@@ -1,6 +1,7 @@
 import {
   Badge,
   BadgeCluster,
+  Button,
   KeyValueList,
   OperationalStatusBanner,
   WorkbenchStack,
@@ -9,6 +10,12 @@ import {
 import { formatDateTime, t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { stateLabel } from "../import-to-promotion/workbench-formatting";
+
+// Freshness states the health-triage projection can report besides "fresh".
+// Lagged/stale/partial/unavailable all mean the operator is looking at a
+// projection that has not caught up, so each one earns the same inline
+// revalidate affordance rather than only the exact "lagging" string.
+const LAGGED_FRESHNESS_STATES = new Set(["lagging", "stale", "partial", "unavailable"]);
 
 type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
@@ -20,15 +27,24 @@ type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent
 export function ProviderDetailHeader({
   readModel,
   providerKey,
+  onRevalidate = null,
+  revalidating = false,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   providerKey: string | null;
+  // The route composition root owns the actual revalidation mechanism
+  // (useRevalidator needs a data router context this presentational component
+  // is unit-tested without); absent in a bare render, so the affordance below
+  // only appears when the route supplies it.
+  onRevalidate?: (() => void) | null;
+  revalidating?: boolean;
 }>) {
   const providerRow = providerKey
     ? readModel.healthTriage.providers.find((provider) => provider.providerKey === providerKey)
     : null;
   const units = providerKey ? readModel.healthTriage.units.filter((unit) => unit.providerKey === providerKey) : [];
   const blockedUnits = units.filter((unit) => unit.status === "blocked").length;
+  const isLagged = LAGGED_FRESHNESS_STATES.has(readModel.healthTriage.freshness);
 
   if (!providerKey) {
     return (
@@ -103,7 +119,25 @@ export function ProviderDetailHeader({
             },
             {
               key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
-              value: stateLabel(readModel.healthTriage.freshness),
+              value: (
+                <WorkbenchStack gap="sm" data-catalog-provider-detail-freshness={readModel.healthTriage.freshness}>
+                  <Badge tone={isLagged ? "warning" : "success"}>{stateLabel(readModel.healthTriage.freshness)}</Badge>
+                  {isLagged && onRevalidate ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      tone="secondary"
+                      disabled={revalidating}
+                      onClick={onRevalidate}
+                      data-catalog-provider-detail-revalidate="true"
+                    >
+                      {revalidating
+                        ? t("catalog.features.sourceObservations.ui.providerDetail.header.freshness.refreshing")
+                        : t("catalog.features.sourceObservations.ui.providerDetail.header.freshness.refresh")}
+                    </Button>
+                  ) : null}
+                </WorkbenchStack>
+              ),
             },
             {
               key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
