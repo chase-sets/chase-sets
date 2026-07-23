@@ -290,6 +290,100 @@ describe("projection operations routes", () => {
     });
   });
 
+  it("refreshes projection status but returns only the requested authoritative checkpoint", async () => {
+    const lastGlobalPosition = "9223372036854775807" as never;
+    const status = {
+      targetContextName: "auth",
+      projectionName: "auth-identity-invitation-projection",
+      projectionRevision: 1,
+      storedProjectionRevision: 1,
+      revisionStale: false,
+      sourceContextNames: ["identity"],
+      ownedTables: ["auth_identity_invitations"],
+      requiredDuringBootstrap: true,
+      initialized: true,
+      caughtUp: true,
+      state: "caught-up",
+      lastError: null,
+      outstandingEventCount: "0",
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+      updatedAt: "2026-07-22T00:00:00.000Z",
+      subscriptions: [
+        {
+          checkpointKey: "auth-identity-invitation-projection:identity:v1",
+          subscriptionName: "auth-identity-invitation-projection",
+          projectionName: "auth-identity-invitation-projection",
+          sourceContextName: "identity",
+          targetContextName: "auth",
+          subscriptionVersion: 1,
+          initialized: true,
+          lastGlobalPosition,
+          sourceHeadGlobalPosition: lastGlobalPosition,
+          outstandingEventCount: "0",
+          processedEvents: 0,
+          state: "caught-up",
+          lastError: null,
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: "2026-07-22T00:00:00.000Z",
+        },
+      ],
+    } as const;
+    const refreshStatus = vi.fn(async () => status);
+    const runtime = createRuntime([
+      {
+        targetContextName: status.targetContextName,
+        projectionName: status.projectionName,
+        requiredDuringBootstrap: true,
+        subscriptionRunners: [],
+        refreshStatus,
+        getStatus: () => status,
+      },
+    ] as unknown as ApiHostRuntime["projectionGroups"]);
+    const app = createRouteApp(platformActor, runtime);
+
+    const response = await app.request("/refresh-checkpoint", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        targetContextName: "auth",
+        projectionName: "auth-identity-invitation-projection",
+        sourceContextName: "identity",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({ lastGlobalPosition });
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps checkpoint refresh authorization and request matching fail closed", async () => {
+    const viewOnlyApp = createRouteApp({ ...platformActor, permissions: ["projection-operations.view"] });
+    const operatorApp = createRouteApp(platformActor);
+    const request = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        targetContextName: "auth",
+        projectionName: "auth-identity-invitation-projection",
+        sourceContextName: "identity",
+      }),
+    } as const;
+
+    expect((await viewOnlyApp.request("/refresh-checkpoint", request)).status).toBe(403);
+    expect(
+      (
+        await operatorApp.request("/refresh-checkpoint", {
+          ...request,
+          body: JSON.stringify({ targetContextName: "auth" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect((await operatorApp.request("/refresh-checkpoint", request)).status).toBe(404);
+  });
+
   it("preserves dotted projection names when enqueueing blocked-stream retries", async () => {
     const enqueueProjectionOperation = vi.fn(async () => projectionOperation("op_retry"));
     const app = createRouteApp(platformActor, createRuntime(), {

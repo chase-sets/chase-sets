@@ -5,6 +5,16 @@ import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-se
 const privilegedRequestTimeoutMs = 15_000;
 const privilegedResponseBodyLimitBytes = 64 * 1024;
 const privilegedSessionTokenLimitCharacters = 8 * 1024;
+// Event-store global positions are non-negative PostgreSQL bigint values. The
+// endpoint emits exactly this object, so the largest valid body is the 19-digit
+// signed-bigint maximum; 64 additional bytes leave explicit encoding headroom.
+const maximumProjectionPosition = "9223372036854775807";
+const projectionCheckpointSchemaMaxBytes = new TextEncoder().encode(
+  JSON.stringify({ lastGlobalPosition: maximumProjectionPosition }),
+).byteLength;
+const projectionCheckpointResponseHeadroomBytes = 64;
+export const projectionCheckpointResponseBodyLimitBytes =
+  projectionCheckpointSchemaMaxBytes + projectionCheckpointResponseHeadroomBytes;
 
 export type MarketplaceE2EAccount = {
   email: string;
@@ -119,14 +129,11 @@ async function provisionSyntheticAccountInvitation(origin: string, email: string
     return;
   }
 
-  const accountIdentifier = createHash("sha256").update(adminEmail.trim().toLowerCase()).digest("hex").slice(0, 12);
   const adminSessionResponse = await privilegedRequest(origin, "/api/auth/password-sign-in", {
     method: "POST",
     data: { email: adminEmail, password: adminPassword },
     expectedStatus: 200,
     operation: "platform-admin password sign-in",
-    failureMessage: (status) =>
-      `platform-admin password sign-in should start a session (account=sha256:${accountIdentifier}, status=${status})`,
   });
   const adminCookie = `chase_sets_session=${readPrivilegedSessionToken(adminSessionResponse.body)}`;
   const actor = await getCurrentActorDisplay(origin, adminCookie);
@@ -135,7 +142,6 @@ async function provisionSyntheticAccountInvitation(origin: string, email: string
     headers: { Cookie: adminCookie },
     expectedStatus: 201,
     operation: "platform admin invitation",
-    failureMessage: () => "platform admin should create a smoke account invitation",
     discardResponseBody: true,
     data: {
       invitationId: createSmokeInvitationId(),
@@ -155,7 +161,6 @@ async function getCurrentActorDisplay(origin: string, adminCookie: string) {
     headers: { Cookie: adminCookie },
     expectedStatus: 200,
     operation: "platform admin current actor",
-    failureMessage: () => "platform admin current actor should be readable",
   });
   const body = response.body;
   if (!isRecord(body) || !isRecord(body.account) || typeof body.account.account_id !== "string") {
@@ -177,19 +182,19 @@ async function waitForAuthInvitationProjection(origin: string, adminCookie: stri
   await expect
     .poll(
       async () => {
-        const refreshResponse = await privilegedRequest(origin, "/api/platform/projections/refresh", {
+        const refreshResponse = await privilegedRequest(origin, "/api/platform/projections/refresh-checkpoint", {
           method: "POST",
           headers: { Cookie: adminCookie },
+          data: {
+            targetContextName: "auth",
+            projectionName: "auth-identity-invitation-projection",
+            sourceContextName: "identity",
+          },
           expectedStatus: 200,
           operation: "platform admin projection refresh",
-          failureMessage: () => "platform admin should refresh projection status",
+          responseBodyLimitBytes: projectionCheckpointResponseBodyLimitBytes,
         });
-        const body = refreshResponse.body as ProjectionRefreshResponse;
-        const authInvitationProjection = body.projectionGroups?.find(
-          (group) =>
-            group.targetContextName === "auth" && group.projectionName === "auth-identity-invitation-projection",
-        );
-        lastObservedPosition = maxObservedPosition(authInvitationProjection, "identity") ?? lastObservedPosition;
+        lastObservedPosition = readProjectionCheckpoint(refreshResponse.body);
         return BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition);
       },
       { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
@@ -202,14 +207,21 @@ type PrivilegedRequestOptions = {
   headers?: Readonly<Record<string, string>>;
   data?: unknown;
   expectedStatus: number;
-  operation: string;
-  failureMessage: (status: number) => string;
+  operation: PrivilegedOperation;
   discardResponseBody?: boolean;
+  responseBodyLimitBytes?: number;
+  timeoutMs?: number;
 };
 
-async function privilegedRequest(origin: string, path: string, options: PrivilegedRequestOptions) {
+type PrivilegedOperation =
+  | "platform-admin password sign-in"
+  | "platform admin current actor"
+  | "platform admin invitation"
+  | "platform admin projection refresh";
+
+export async function privilegedRequest(origin: string, path: string, options: PrivilegedRequestOptions) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), privilegedRequestTimeoutMs);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? privilegedRequestTimeoutMs);
   let response: Response;
   try {
     response = await fetch(new URL(path, origin), {
@@ -227,7 +239,7 @@ async function privilegedRequest(origin: string, path: string, options: Privileg
   } catch {
     clearTimeout(timeout);
     const classification = controller.signal.aborted ? "timeout" : "network";
-    throw new Error(`platform admin setup failed (${classification})`);
+    throw new Error(`${options.operation} failed (${classification})`);
   }
 
   try {
@@ -237,18 +249,23 @@ async function privilegedRequest(origin: string, path: string, options: Privileg
       } catch {
         // The fixed status classification remains authoritative when cleanup fails.
       }
-      throw new Error(options.failureMessage(response.status));
+      throw new Error(`${options.operation} failed (unexpected-status)`);
     }
     const body = options.discardResponseBody
       ? await discardPrivilegedBody(response, options.operation, controller.signal)
-      : await readPrivilegedJson(response, options.operation, controller.signal);
+      : await readPrivilegedJson(
+          response,
+          options.operation,
+          controller.signal,
+          options.responseBodyLimitBytes ?? privilegedResponseBodyLimitBytes,
+        );
     return { body, headers: response.headers };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function discardPrivilegedBody(response: Response, operation: string, signal: AbortSignal) {
+async function discardPrivilegedBody(response: Response, operation: PrivilegedOperation, signal: AbortSignal) {
   try {
     await response.body?.cancel();
     return undefined;
@@ -258,7 +275,21 @@ async function discardPrivilegedBody(response: Response, operation: string, sign
   }
 }
 
-async function readPrivilegedJson(response: Response, operation: string, signal: AbortSignal): Promise<unknown> {
+async function readPrivilegedJson(
+  response: Response,
+  operation: PrivilegedOperation,
+  signal: AbortSignal,
+  responseBodyLimitBytes: number,
+): Promise<unknown> {
+  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The bounded content-type classification remains authoritative when cleanup fails.
+    }
+    throw new Error(`${operation} failed (unexpected-content-type)`);
+  }
+
   const reader = response.body?.getReader();
   if (!reader) {
     throw new Error(`${operation} failed (empty-response)`);
@@ -273,7 +304,7 @@ async function readPrivilegedJson(response: Response, operation: string, signal:
         break;
       }
       totalBytes += value.byteLength;
-      if (totalBytes > privilegedResponseBodyLimitBytes) {
+      if (totalBytes > responseBodyLimitBytes) {
         await reader.cancel();
         throw new Error(`${operation} failed (response-too-large)`);
       }
@@ -318,29 +349,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-type ProjectionRefreshResponse = {
-  projectionGroups?: readonly ProjectionGroupStatus[];
-};
+function readProjectionCheckpoint(body: unknown) {
+  const position = isRecord(body) ? body.lastGlobalPosition : undefined;
+  if (
+    typeof position !== "string" ||
+    !/^(0|[1-9]\d{0,18})$/.test(position) ||
+    BigInt(position) > BigInt(maximumProjectionPosition)
+  ) {
+    throw new Error("platform admin projection refresh failed (invalid-response)");
+  }
 
-type ProjectionGroupStatus = {
-  targetContextName?: string;
-  projectionName?: string;
-  subscriptions?: readonly ProjectionSubscriptionStatus[];
-};
-
-type ProjectionSubscriptionStatus = {
-  sourceContextName?: string;
-  lastGlobalPosition?: string;
-};
-
-function maxObservedPosition(group: ProjectionGroupStatus | undefined, sourceContextName: string) {
-  const positions =
-    group?.subscriptions
-      ?.filter((subscription) => subscription.sourceContextName === sourceContextName)
-      .map((subscription) => subscription.lastGlobalPosition)
-      .filter((position): position is string => typeof position === "string" && /^(0|[1-9]\d*)$/.test(position)) ?? [];
-
-  return positions.reduce((max, position) => (BigInt(position) > BigInt(max) ? position : max), "0");
+  return position;
 }
 
 function createSmokeInvitationId() {
