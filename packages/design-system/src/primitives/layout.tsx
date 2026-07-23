@@ -17,6 +17,7 @@ import {
   resolveColumnsClass,
   resolveDirectionClass,
   resolveJustifyClass,
+  resolveResponsiveClass,
   resolveSpaceClass,
   resolveSystemProps,
   type AlignValue,
@@ -355,33 +356,85 @@ export function FormRow({ children, columns = 2, gap = 4, align = "start", ...re
   );
 }
 
+export type AutoGridMinItemWidth = "sm" | "md" | "lg";
+
 export interface AutoGridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
-  minItemWidth?: "sm" | "md" | "lg";
+  minItemWidth?: ResponsiveValue<AutoGridMinItemWidth>;
   gap?: ResponsiveValue<SpaceToken>;
 }
 
-const autoGridWidthClasses: Record<NonNullable<AutoGridProps["minItemWidth"]>, string> = {
-  sm: "grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
-  md: "grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
-  lg: "grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+const autoGridWidthClasses: Record<AutoGridMinItemWidth, Record<"base" | "sm" | "md" | "lg" | "xl" | "2xl", string>> = {
+  sm: {
+    base: "grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+    sm: "sm:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+    md: "md:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+    lg: "lg:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+    xl: "xl:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+    "2xl": "2xl:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+  },
+  md: {
+    base: "grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+    sm: "sm:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+    md: "md:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+    lg: "lg:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+    xl: "xl:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+    "2xl": "2xl:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+  },
+  lg: {
+    base: "grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+    sm: "sm:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+    md: "md:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+    lg: "lg:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+    xl: "xl:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+    "2xl": "2xl:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+  },
 };
+
+function resolveAutoGridWidthClass(value: ResponsiveValue<AutoGridMinItemWidth>): string {
+  return resolveResponsiveClass(value, autoGridWidthClasses);
+}
 
 export function AutoGrid({ children, minItemWidth = "md", gap = 4, ...rest }: AutoGridProps) {
   return (
-    <div {...rest} className={cx("grid", autoGridWidthClasses[minItemWidth], resolveSystemProps({ gap }))}>
+    <div {...rest} className={cx("grid", resolveAutoGridWidthClass(minItemWidth), resolveSystemProps({ gap }))}>
       {children}
     </div>
   );
 }
 
+export type FlexItemMinWidth = "control" | "none";
+
 export interface FlexItemProps extends PropsWithChildren, Omit<FrameProps, "children"> {
-  minWidth?: "control" | "none";
+  minWidth?: ResponsiveValue<FlexItemMinWidth>;
   grow?: boolean;
+}
+
+const flexItemMinWidthClasses: Record<FlexItemMinWidth, Record<"base" | "sm" | "md" | "lg" | "xl" | "2xl", string>> = {
+  control: {
+    base: "min-w-[14rem]",
+    sm: "sm:min-w-[14rem]",
+    md: "md:min-w-[14rem]",
+    lg: "lg:min-w-[14rem]",
+    xl: "xl:min-w-[14rem]",
+    "2xl": "2xl:min-w-[14rem]",
+  },
+  none: {
+    base: "",
+    sm: "",
+    md: "",
+    lg: "",
+    xl: "",
+    "2xl": "",
+  },
+};
+
+function resolveFlexItemMinWidthClass(value: ResponsiveValue<FlexItemMinWidth>): string {
+  return resolveResponsiveClass(value, flexItemMinWidthClasses);
 }
 
 export function FlexItem({ children, minWidth = "none", grow = false, ...rest }: FlexItemProps) {
   return (
-    <div {...rest} className={cx("max-w-full", grow && "flex-1", minWidth === "control" && "min-w-[14rem]")}>
+    <div {...rest} className={cx("max-w-full", grow && "flex-1", resolveFlexItemMinWidthClass(minWidth))}>
       {children}
     </div>
   );

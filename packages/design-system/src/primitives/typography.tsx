@@ -9,8 +9,9 @@ import {
   type Ref,
 } from "react";
 import { Icon, type IconName } from "../icons";
+import type { ResponsiveValue } from "../theme/tokens";
 import { cx } from "../utils/cx";
-import { resolveTextAlignClass, type TextAlignValue } from "../utils/system";
+import { resolveResponsiveClass, resolveTextAlignClass, type TextAlignValue } from "../utils/system";
 import { AspectRatio, Center, Surface } from "./layout";
 import type { PolymorphicPrimitive, PolymorphicProps } from "./polymorphic";
 import type { Tone } from "../components/feedback/shared";
@@ -28,6 +29,63 @@ const textSizeClasses = {
   md: "text-base",
   lg: "text-lg",
 } as const;
+
+type TextSize = keyof typeof textSizeClasses;
+
+const responsiveTextSizeClasses: Record<TextSize, Record<"base" | "sm" | "md" | "lg" | "xl" | "2xl", string>> = {
+  "3xs": {
+    base: "text-3xs",
+    sm: "sm:text-3xs",
+    md: "md:text-3xs",
+    lg: "lg:text-3xs",
+    xl: "xl:text-3xs",
+    "2xl": "2xl:text-3xs",
+  },
+  "2xs": {
+    base: "text-2xs",
+    sm: "sm:text-2xs",
+    md: "md:text-2xs",
+    lg: "lg:text-2xs",
+    xl: "xl:text-2xs",
+    "2xl": "2xl:text-2xs",
+  },
+  xs: {
+    base: "text-xs",
+    sm: "sm:text-xs",
+    md: "md:text-xs",
+    lg: "lg:text-xs",
+    xl: "xl:text-xs",
+    "2xl": "2xl:text-xs",
+  },
+  sm: {
+    base: "text-sm",
+    sm: "sm:text-sm",
+    md: "md:text-sm",
+    lg: "lg:text-sm",
+    xl: "xl:text-sm",
+    "2xl": "2xl:text-sm",
+  },
+  md: {
+    base: "text-base",
+    sm: "sm:text-base",
+    md: "md:text-base",
+    lg: "lg:text-base",
+    xl: "xl:text-base",
+    "2xl": "2xl:text-base",
+  },
+  lg: {
+    base: "text-lg",
+    sm: "sm:text-lg",
+    md: "md:text-lg",
+    lg: "lg:text-lg",
+    xl: "xl:text-lg",
+    "2xl": "2xl:text-lg",
+  },
+};
+
+function resolveTextSizeClass(value: ResponsiveValue<TextSize>): string {
+  return resolveResponsiveClass(value, responsiveTextSizeClasses);
+}
 
 const textWeightClasses = {
   regular: "font-normal",
@@ -59,7 +117,7 @@ const lineClampClasses = {
 export interface TextOwnProps {
   children?: ReactNode;
   element?: TextElement;
-  size?: keyof typeof textSizeClasses;
+  size?: ResponsiveValue<TextSize>;
   tone?: keyof typeof textToneClasses;
   weight?: keyof typeof textWeightClasses;
   align?: TextAlignValue;
@@ -96,7 +154,7 @@ export const Text = forwardRef(function Text(
       ref={ref}
       className={cx(
         "leading-relaxed",
-        textSizeClasses[size],
+        resolveTextSizeClass(size),
         textToneClasses[tone],
         textWeightClasses[weight],
         resolveTextAlignClass(align),

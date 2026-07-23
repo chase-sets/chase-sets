@@ -77,7 +77,8 @@ import {
   TokenSwatch,
   Wizard,
 } from "../patterns/app-shells";
-import { Box, Container, SkipLink, Stack, Surface } from "../primitives/layout";
+import { AutoGrid, Box, Container, FlexItem, SkipLink, Stack, Surface } from "../primitives/layout";
+import { Text } from "../primitives/typography";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
@@ -1313,6 +1314,60 @@ describe("design system components", () => {
     expect(markup).toContain("p-4");
     expect(markup).toContain("md:p-8");
     expect(markup).toContain("lg:gap-6");
+  });
+
+  it("renders Text size as a responsive prop with breakpoint-prefixed classes", () => {
+    const markup = renderToString(
+      <Text size={{ base: "sm", sm: "md", md: "lg", lg: "2xs", xl: "xs", "2xl": "3xs" }}>Responsive text</Text>,
+    );
+
+    expect(markup).toContain("text-sm");
+    expect(markup).toContain("sm:text-base");
+    expect(markup).toContain("md:text-lg");
+    expect(markup).toContain("lg:text-2xs");
+    expect(markup).toContain("xl:text-xs");
+    expect(markup).toContain("2xl:text-3xs");
+  });
+
+  it("preserves scalar Text size class output", () => {
+    const scalarMarkup = renderToString(<Text size="lg">Scalar text</Text>);
+    expect(scalarMarkup).toContain('class="leading-relaxed text-lg text-foreground font-normal"');
+    expect(scalarMarkup).not.toContain("sm:text-lg");
+
+    const defaultMarkup = renderToString(<Text>Default text</Text>);
+    expect(defaultMarkup).toContain('class="leading-relaxed text-base text-foreground font-normal"');
+  });
+
+  it("renders FlexItem minWidth as a responsive prop with breakpoint-prefixed classes", () => {
+    const markup = renderToString(<FlexItem minWidth={{ base: "none", md: "control" }}>Item</FlexItem>);
+
+    expect(markup).toContain("md:min-w-[14rem]");
+  });
+
+  it("preserves scalar FlexItem minWidth class output", () => {
+    const controlMarkup = renderToString(<FlexItem minWidth="control">Item</FlexItem>);
+    expect(controlMarkup).toContain('class="max-w-full min-w-[14rem]"');
+
+    const noneMarkup = renderToString(<FlexItem minWidth="none">Item</FlexItem>);
+    expect(noneMarkup).toContain('class="max-w-full"');
+
+    const defaultMarkup = renderToString(<FlexItem>Item</FlexItem>);
+    expect(defaultMarkup).toContain('class="max-w-full"');
+  });
+
+  it("renders AutoGrid minItemWidth as a responsive prop with breakpoint-prefixed classes", () => {
+    const markup = renderToString(<AutoGrid minItemWidth={{ base: "sm", md: "lg" }}>Grid</AutoGrid>);
+
+    expect(markup).toContain("grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]");
+    expect(markup).toContain("md:grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]");
+  });
+
+  it("preserves scalar AutoGrid minItemWidth class output", () => {
+    const mdMarkup = renderToString(<AutoGrid minItemWidth="md">Grid</AutoGrid>);
+    expect(mdMarkup).toContain('class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-4"');
+
+    const defaultMarkup = renderToString(<AutoGrid>Grid</AutoGrid>);
+    expect(defaultMarkup).toContain('class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-4"');
   });
 
   it("maps Container system props to classes without leaking DOM attributes", () => {
