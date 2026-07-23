@@ -2,9 +2,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  buildCatalogPrimaryWorkbenchReadModelForSurface,
-} from "../../features/source-observations/ui/primary-workbench-read-model";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../features/source-observations/ui/primary-workbench-read-model";
 import {
   controlPlaneOverview,
   profileReview,
@@ -93,9 +91,11 @@ describe("CatalogProviderDetailRoute revalidation", () => {
     secondLoaderCall.resolve();
 
     await waitFor(() => {
-      expect(document.querySelector("[data-catalog-provider-detail-freshness]")?.getAttribute(
-        "data-catalog-provider-detail-freshness",
-      )).toBe("fresh");
+      expect(
+        document
+          .querySelector("[data-catalog-provider-detail-freshness]")
+          ?.getAttribute("data-catalog-provider-detail-freshness"),
+      ).toBe("fresh");
       expect(document.querySelector('[data-catalog-provider-detail-revalidate="true"]')).toBeNull();
     });
   }, 20_000);
