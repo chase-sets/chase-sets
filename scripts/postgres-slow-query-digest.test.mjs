@@ -11,6 +11,54 @@ import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/pos
 
 const checkedAt = "2026-07-03T15:30:00.000Z";
 
+function insufficientPrivilegeError(message) {
+  return Object.assign(new Error(message), { code: "42501" });
+}
+
+function selfSignedCertificateError() {
+  return Object.assign(new Error("self-signed certificate in certificate chain"), {
+    code: "SELF_SIGNED_CERT_IN_CHAIN",
+  });
+}
+
+function createFakeExtensionStatusClient({
+  extensionInstalled,
+  extensionSchema = "public",
+  postureValues = {},
+  deniedSettings = [],
+  digestRows = [],
+}) {
+  const queries = [];
+  return {
+    queries,
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (sql.includes("pg_extension e ON e.extname = 'pg_stat_statements'")) {
+        return {
+          rows: [
+            {
+              database_name: "checkout",
+              extension_installed: extensionInstalled,
+              extension_schema: extensionInstalled ? extensionSchema : null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("current_setting($1, true)")) {
+        const settingName = params[0];
+        if (deniedSettings.includes(settingName)) {
+          throw insufficientPrivilegeError(`permission denied for parameter "${settingName}"`);
+        }
+        return { rows: [{ value: postureValues[settingName] ?? null }] };
+      }
+      if (sql.includes(`FROM "${extensionSchema}".pg_stat_statements s`)) {
+        return { rows: digestRows };
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+}
+
 describe("postgres slow-query digest", () => {
   it("preserves full certificate verification for managed PostgreSQL URLs", () => {
     const connectionString = normalizePostgresConnectionString(
@@ -128,9 +176,11 @@ describe("postgres slow-query digest", () => {
       schemaVersion: POSTGRES_SLOW_QUERY_DIGEST_VERSION,
       result: "warning",
       summary: {
-        databaseCount: 1,
-        collectionErrorCount: 1,
+        attemptedDatabaseCount: 2,
+        collectedDatabaseCount: 1,
+        extensionAbsentDatabaseCount: 0,
         extensionInstalledDatabaseCount: 1,
+        collectionErrorCount: 1,
         digestCount: 1,
         totalCalls: 5,
         largestTotalExecTimeMs: 125.457,
@@ -161,48 +211,63 @@ describe("postgres slow-query digest", () => {
     expect(serialized).not.toContain("password@");
   });
 
+  it("preserves a null (undetermined) optional posture setting through sanitization", () => {
+    const evidence = buildPostgresSlowQueryDigest({
+      environment: "staging",
+      checkedAt,
+      topQueryLimit: 25,
+      databases: [
+        {
+          contextName: "checkout",
+          databaseName: "chase_sets_checkout",
+          pgStatStatements: {
+            extensionInstalled: true,
+            viewAccessible: true,
+            sharedPreloadLibraryEnabled: null,
+            trackSetting: null,
+            computeQueryIdSetting: "auto",
+          },
+          slowQueryDigests: [],
+        },
+      ],
+      errors: [],
+    });
+
+    expect(evidence.result).toBe("success");
+    expect(evidence.databases[0].pgStatStatements).toMatchObject({
+      extensionInstalled: true,
+      viewAccessible: true,
+      sharedPreloadLibraryEnabled: null,
+      trackSetting: null,
+      computeQueryIdSetting: "auto",
+    });
+  });
+
   it("collects pg_stat_statements through a bounded aggregate query surface", async () => {
-    const queries = [];
-    const client = {
-      async query(sql, params = []) {
-        queries.push({ sql, params });
-        if (sql.includes("pg_extension e ON e.extname = 'pg_stat_statements'")) {
-          return {
-            rows: [
-              {
-                database_name: "checkout",
-                extension_installed: true,
-                extension_schema: "public",
-                shared_preload_library_enabled: true,
-                track_setting: "top",
-                compute_query_id_setting: "auto",
-              },
-            ],
-          };
-        }
-        if (sql.includes('FROM "public".pg_stat_statements s')) {
-          return {
-            rows: [
-              {
-                query_id: "847261",
-                calls: "7",
-                total_exec_time_ms: "320.5",
-                mean_exec_time_ms: "45.8",
-                max_exec_time_ms: "90.1",
-                stddev_exec_time_ms: "8.4",
-                rows_returned: "42",
-                shared_block_hits: "1000",
-                shared_block_reads: "25",
-                temp_block_reads: "0",
-                temp_block_writes: "2",
-                wal_bytes: "2048",
-              },
-            ],
-          };
-        }
-        throw new Error(`unexpected query: ${sql}`);
+    const client = createFakeExtensionStatusClient({
+      extensionInstalled: true,
+      postureValues: {
+        shared_preload_libraries: "pg_stat_statements",
+        "pg_stat_statements.track": "top",
+        compute_query_id: "auto",
       },
-    };
+      digestRows: [
+        {
+          query_id: "847261",
+          calls: "7",
+          total_exec_time_ms: "320.5",
+          mean_exec_time_ms: "45.8",
+          max_exec_time_ms: "90.1",
+          stddev_exec_time_ms: "8.4",
+          rows_returned: "42",
+          shared_block_hits: "1000",
+          shared_block_reads: "25",
+          temp_block_reads: "0",
+          temp_block_writes: "2",
+          wal_bytes: "2048",
+        },
+      ],
+    });
 
     const evidence = await collectPostgresSlowQueryDigestWithClient(
       client,
@@ -216,6 +281,9 @@ describe("postgres slow-query digest", () => {
       pgStatStatements: {
         extensionInstalled: true,
         viewAccessible: true,
+        sharedPreloadLibraryEnabled: true,
+        trackSetting: "top",
+        computeQueryIdSetting: "auto",
       },
       slowQueryDigests: [
         {
@@ -226,29 +294,67 @@ describe("postgres slow-query digest", () => {
     });
     expect(evidence.slowQueryDigests[0].fingerprint).toMatch(/^pgss-[a-f0-9]{16}$/);
     expect(evidence.slowQueryDigests[0].fingerprint).not.toContain("847261");
-    expect(queries.find((query) => query.sql.includes("pg_stat_statements s"))?.sql).not.toContain("s.query ");
-    expect(queries.find((query) => query.sql.includes("pg_stat_statements s"))?.params).toEqual([5]);
+    expect(client.queries).toHaveLength(5);
+    expect(
+      client.queries.filter((query) => query.sql.includes("current_setting($1, true)")).map((q) => q.params[0]),
+    ).toEqual(["shared_preload_libraries", "pg_stat_statements.track", "compute_query_id"]);
+    const digestQuery = client.queries.find((query) => query.sql.includes("pg_stat_statements s"));
+    expect(digestQuery.sql).not.toContain("s.query ");
+    expect(digestQuery.params).toEqual([5]);
   });
 
-  it("records extension absence without attempting DDL", async () => {
-    const queries = [];
-    const client = {
-      async query(sql) {
-        queries.push(sql);
-        return {
-          rows: [
-            {
-              database_name: "catalog",
-              extension_installed: false,
-              extension_schema: null,
-              shared_preload_library_enabled: false,
-              track_setting: null,
-              compute_query_id_setting: "auto",
-            },
-          ],
-        };
+  it("collects accessible extension/view/digest evidence when a role is denied an optional posture setting", async () => {
+    const client = createFakeExtensionStatusClient({
+      extensionInstalled: true,
+      deniedSettings: ["shared_preload_libraries"],
+      postureValues: {
+        "pg_stat_statements.track": "top",
+        compute_query_id: "auto",
       },
-    };
+      digestRows: [
+        {
+          query_id: "1",
+          calls: "3",
+          total_exec_time_ms: "10",
+          mean_exec_time_ms: "3.3",
+          max_exec_time_ms: "5",
+          stddev_exec_time_ms: "1",
+          rows_returned: "1",
+          shared_block_hits: "1",
+          shared_block_reads: "0",
+          temp_block_reads: "0",
+          temp_block_writes: "0",
+          wal_bytes: "0",
+        },
+      ],
+    });
+
+    const evidence = await collectPostgresSlowQueryDigestWithClient(
+      client,
+      { contextName: "checkout", url: "postgresql://checkout:secret@example/checkout" },
+      { topQueryLimit: 5 },
+    );
+
+    expect(evidence.pgStatStatements).toEqual({
+      extensionInstalled: true,
+      viewAccessible: true,
+      sharedPreloadLibraryEnabled: null,
+      trackSetting: "top",
+      computeQueryIdSetting: "auto",
+    });
+    expect(evidence.slowQueryDigests).toHaveLength(1);
+    expect(JSON.stringify(evidence)).not.toMatch(/permission denied|42501/);
+  });
+
+  it("records extension absence without attempting DDL and without a digest query", async () => {
+    const client = createFakeExtensionStatusClient({
+      extensionInstalled: false,
+      postureValues: {
+        shared_preload_libraries: "",
+        "pg_stat_statements.track": null,
+        compute_query_id: "auto",
+      },
+    });
 
     const evidence = await collectPostgresSlowQueryDigestWithClient(
       client,
@@ -260,14 +366,16 @@ describe("postgres slow-query digest", () => {
       pgStatStatements: {
         extensionInstalled: false,
         viewAccessible: false,
+        sharedPreloadLibraryEnabled: false,
+        computeQueryIdSetting: "auto",
       },
       slowQueryDigests: [],
     });
-    expect(queries).toHaveLength(1);
-    expect(queries.join("\n")).not.toMatch(/CREATE EXTENSION|ALTER SYSTEM/i);
+    expect(client.queries).toHaveLength(4);
+    expect(client.queries.map((query) => query.sql).join("\n")).not.toMatch(/CREATE EXTENSION|ALTER SYSTEM/i);
   });
 
-  it("keeps collection failures support-safe and returns a warning record", async () => {
+  it("keeps a genuine mixed run's collection failures support-safe and returns an advisory warning", async () => {
     const evidence = await runPostgresSlowQueryDigest(
       {
         environment: "staging",
@@ -302,6 +410,12 @@ describe("postgres slow-query digest", () => {
     );
 
     expect(evidence.result).toBe("warning");
+    expect(evidence.summary).toMatchObject({
+      attemptedDatabaseCount: 2,
+      collectedDatabaseCount: 1,
+      extensionAbsentDatabaseCount: 1,
+      collectionErrorCount: 1,
+    });
     expect(evidence.errors).toEqual([
       {
         contextName: "payments",
@@ -311,5 +425,78 @@ describe("postgres slow-query digest", () => {
     ]);
     expect(JSON.stringify(evidence)).not.toContain("CERTIFICATE");
     expect(JSON.stringify(evidence)).not.toContain("ca-marker");
+  });
+
+  it("fails closed when every attempted database fails to collect (zero coverage)", async () => {
+    const contexts = ["checkout", "payments", "catalog"];
+    const evidence = await runPostgresSlowQueryDigest(
+      {
+        environment: "staging",
+        checkedAt,
+        topQueryLimit: 25,
+        databaseUrls: contexts.map((contextName) => ({
+          contextName,
+          url: `postgresql://${contextName}:secret@example/${contextName}`,
+        })),
+      },
+      {
+        async collectDatabase() {
+          throw selfSignedCertificateError();
+        },
+      },
+    );
+
+    expect(evidence.result).toBe("failure");
+    expect(evidence.summary).toMatchObject({
+      attemptedDatabaseCount: 3,
+      collectedDatabaseCount: 0,
+      extensionAbsentDatabaseCount: 0,
+      collectionErrorCount: 3,
+      digestCount: 0,
+      totalCalls: 0,
+      largestTotalExecTimeMs: 0,
+      largestMaxExecTimeMs: 0,
+    });
+    expect(evidence.errors).toHaveLength(3);
+    for (const error of evidence.errors) {
+      expect(error).toEqual({
+        contextName: error.contextName,
+        category: "collection-error",
+        classification: "self-signed-certificate-in-certificate-chain",
+        code: "SELF_SIGNED_CERT_IN_CHAIN",
+      });
+    }
+  });
+
+  it("keeps a genuine PostgreSQL insufficient-privilege collection failure bounded and support-safe", async () => {
+    const evidence = await runPostgresSlowQueryDigest(
+      {
+        environment: "staging",
+        checkedAt,
+        topQueryLimit: 25,
+        databaseUrls: [{ contextName: "checkout", url: "postgresql://checkout:secret@example/checkout" }],
+      },
+      {
+        async collectDatabase() {
+          throw insufficientPrivilegeError(
+            'permission denied for parameter "shared_preload_libraries" -- secret@example.com https://internal.example/leak',
+          );
+        },
+      },
+    );
+
+    expect(evidence.result).toBe("failure");
+    expect(evidence.errors).toEqual([
+      {
+        contextName: "checkout",
+        category: "collection-error",
+        classification: "postgres-query-failed",
+        code: "42501",
+      },
+    ]);
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain("permission denied");
+    expect(serialized).not.toContain("secret@example.com");
+    expect(serialized).not.toContain("https://internal.example/leak");
   });
 });

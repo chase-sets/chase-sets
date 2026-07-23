@@ -1,8 +1,8 @@
 # Postgres Slow Query Digest
 
-`Platform Postgres Slow Query Digest` records support-safe slow-query evidence from managed Postgres `pg_stat_statements` aggregate counters. The workflow is read-only: it pulls context database URLs from Terraform state, checks whether `pg_stat_statements` is already installed, and uploads `postgres-slow-query-digest/v1` under `artifacts/release-health/postgres-slow-query-digest.json`.
+`Platform Postgres Slow Query Digest` records support-safe slow-query evidence from managed Postgres `pg_stat_statements` aggregate counters. The workflow is read-only: it pulls context database URLs from Terraform state, checks whether `pg_stat_statements` is already installed, and uploads `postgres-slow-query-digest/v2` under `artifacts/release-health/postgres-slow-query-digest.json`.
 
-The digest never creates or enables the extension. If a database does not already expose `pg_stat_statements`, the artifact records `extensionInstalled: false` and an empty digest for that context.
+The digest never creates or enables the extension. If a database does not already expose `pg_stat_statements`, the artifact records `extensionInstalled: false` and an empty digest for that context — that is collected, valid evidence, not a collection failure.
 
 ## Run It
 
@@ -33,7 +33,7 @@ The artifact includes:
 - context/database labels;
 - `pg_stat_statements` posture: extension installed, view accessible, shared-preload posture, track setting, and compute-query-id setting;
 - per-fingerprint aggregate counters: calls, total/mean/max/stddev execution time, rows returned, shared/temp block counters, and WAL bytes when available;
-- collection warnings with support-safe messages.
+- collection errors with bounded classification/code fields (never raw messages).
 
 The artifact deliberately excludes:
 
@@ -45,7 +45,28 @@ The artifact deliberately excludes:
 
 Fingerprints are repo-owned hashes of Postgres `queryid` values (`pgss-<16 hex chars>`). They are useful for comparing repeated runs, but they are not a query catalog and should not be treated as a stable cross-cluster API.
 
+### Least-Privilege Posture Fields
+
+`sharedPreloadLibraryEnabled`, `trackSetting`, and `computeQueryIdSetting` are each probed independently. When the runtime role is denied access to one of those optional settings (for example a managed-Postgres role without a `GRANT ... ON PARAMETER shared_preload_libraries`), that field is `null` — undetermined, not false. A denied optional setting never discards the rest of the database record: extension presence, view accessibility, and digest evidence are collected from unrestricted catalog relations (`pg_extension`, `pg_namespace`) and the `pg_stat_statements` view itself, independently of the posture probes.
+
+## Coverage And Result Semantics
+
+`summary` reports explicit coverage so a run can't be misread:
+
+- `attemptedDatabaseCount`: every configured/selected database the run tried to inspect.
+- `collectedDatabaseCount`: databases where a record was obtained, whether the extension is installed or absent — extension absence is valid evidence, not a failure.
+- `extensionAbsentDatabaseCount` / `extensionInstalledDatabaseCount`: split of the collected databases.
+- `collectionErrorCount`: databases that failed entirely (connection, TLS, or catalog-query failure) before any evidence could be recorded for them.
+
+`result` follows from those counts:
+
+- `success`: every attempted database was collected (posture-setting denials inside a collected record do not count against this).
+- `warning`: a genuine mixed run — at least one database collected and at least one failed. Advisory only.
+- `failure`: attempted databases but zero collected records. This is a terminal, nonzero-exit outcome; it must never be read as "observed zero slow-query time," because no database was actually inspected.
+
 ## Interpretation
+
+Check `result` first. A `failure` means zero databases were actually collected — treat every other `summary` field as uninformative for that run, investigate `errors[].classification`/`code`, and do not read the run as "no slow queries." Only once `result` is `success` or `warning` should you read the timing fields below for the databases that were collected.
 
 Start with `summary.largestTotalExecTimeMs`, `summary.largestMaxExecTimeMs`, and the top rows in each database's `slowQueryDigests`.
 

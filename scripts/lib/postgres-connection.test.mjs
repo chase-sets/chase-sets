@@ -62,6 +62,18 @@ describe("managed PostgreSQL connection trust", () => {
     });
   });
 
+  it("maps a PostgreSQL insufficient-privilege denial to a bounded classification and code without its message", () => {
+    const error = Object.assign(new Error('permission denied for parameter "shared_preload_libraries"'), {
+      code: "42501",
+    });
+
+    const fields = postgresFailureFields(error);
+
+    expect(fields).toEqual({ classification: "postgres-query-failed", code: "42501" });
+    expect(JSON.stringify(fields)).not.toContain("permission denied");
+    expect(JSON.stringify(fields)).not.toContain("shared_preload_libraries");
+  });
+
   it("never copies adversarial messages or secret-like status fields into structured logs", () => {
     const error = Object.assign(
       new Error("postgresql://user:secret@db.example/database -----BEGIN CERTIFICATE----- ca-marker"),
