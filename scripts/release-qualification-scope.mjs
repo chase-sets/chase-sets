@@ -244,6 +244,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-observability-state-migration.yml": "release",
     "platform-postgres-growth-evidence.yml": "ci",
     "platform-postgres-slow-query-digest.yml": "ci",
+    "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
     "platform-production-restore-point-cleanup.yml": "release",

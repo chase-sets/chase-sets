@@ -1,0 +1,191 @@
+import { classifyRisk, DOCUMENTATION_OR_TEST, EXECUTABLE_SAFETY_FIXTURE, GENERATED_PATH } from "./risk-policy-v1.mjs";
+
+export const PR_SCOPE_POLICY_VERSION = "pr-scope-policy/v1";
+
+// "More than" is a strict greater-than test, so a PR sitting exactly on a
+// threshold does not trip it.
+export const ADVISORY_THRESHOLD = Object.freeze({ lines: 1000, files: 20 });
+export const LARGE_THRESHOLD = Object.freeze({ lines: 2500, files: 35 });
+
+const LOCKFILE_PATHS = new Set(["pnpm-lock.yaml"]);
+const SNAPSHOT_PATH = /(?:^|\/)__snapshots__\/|\.snap$/;
+const COMPOSITION_ROOTS = ["deployables", "infrastructure", "packages", "contracts"];
+
+function normalizePath(value) {
+  if (typeof value !== "string") return "";
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").trim();
+}
+
+function nonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function rootSegment(path, root) {
+  const match = path.match(new RegExp(`^${root}/([^/]+)(?:/|$)`));
+  return match ? match[1] : null;
+}
+
+function boundedContextFor(path) {
+  return rootSegment(path, "bounded-contexts");
+}
+
+function compositionRootFor(path) {
+  for (const root of COMPOSITION_ROOTS) {
+    const segment = rootSegment(path, root);
+    if (segment) return `${root}/${segment}`;
+  }
+  return null;
+}
+
+function isAlwaysCounted(path) {
+  return DOCUMENTATION_OR_TEST.test(path) || EXECUTABLE_SAFETY_FIXTURE.test(path);
+}
+
+// GitHub omits `patch` both for genuinely binary files and for oversized
+// text diffs it declines to render; only the former must ever be excluded,
+// so a truncated-but-real text diff cannot be mistaken for binary and have
+// its raw size hidden. GitHub can never count lines in binary content, so a
+// missing patch with additions and deletions both exactly zero is the only
+// diff-metadata-provable binary signal (a pure rename/copy has the same
+// zero/zero shape without being binary, so those statuses are excluded).
+function isVendoredOrBinary(file) {
+  if (file.status === "renamed" || file.status === "copied") return false;
+  return file.patch == null && file.additions === 0 && file.deletions === 0;
+}
+
+function parsePatchLineCounts(patch) {
+  let added = 0;
+  let removed = 0;
+  const addedContent = [];
+  const removedContent = [];
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) continue;
+    if (line.startsWith("+")) {
+      added += 1;
+      addedContent.push(line.slice(1).trim());
+    } else if (line.startsWith("-")) {
+      removed += 1;
+      removedContent.push(line.slice(1).trim());
+    }
+  }
+  return { added, removed, addedContent, removedContent };
+}
+
+// Formatting-only is provable only when the counted patch lines exactly match
+// the file's reported additions/deletions (GitHub truncates long patches
+// without flagging it, so an undercount means the proof is incomplete and
+// must not be treated as formatting-only).
+function isFormattingOnly(file) {
+  if (file.status !== "modified" || typeof file.patch !== "string") return false;
+  const counted = parsePatchLineCounts(file.patch);
+  if (counted.added !== file.additions || counted.removed !== file.deletions) return false;
+  if (counted.addedContent.length !== counted.removedContent.length) return false;
+  const sortedAdded = [...counted.addedContent].sort();
+  const sortedRemoved = [...counted.removedContent].sort();
+  return sortedAdded.every((line, index) => line === sortedRemoved[index]);
+}
+
+function classifyExclusion(file) {
+  if (LOCKFILE_PATHS.has(file.filename)) return "lockfile-mechanical-churn";
+  if (SNAPSHOT_PATH.test(file.filename)) return "generated-snapshot";
+  if (isAlwaysCounted(file.filename) || (file.previousFilename && isAlwaysCounted(file.previousFilename))) {
+    return null;
+  }
+  if (GENERATED_PATH.test(file.filename)) return "generated-registry-metadata";
+  if (isVendoredOrBinary(file)) return "vendored-or-binary";
+  if (isFormattingOnly(file)) return "formatting-only";
+  return null;
+}
+
+function normalizeFile(file, index) {
+  if (!file || typeof file !== "object") throw new TypeError(`changedFiles[${index}] must be an object`);
+  const filename = normalizePath(file.filename);
+  if (!filename) throw new TypeError(`changedFiles[${index}].filename must be a non-empty string`);
+  return {
+    filename,
+    status: typeof file.status === "string" ? file.status : "modified",
+    previousFilename: file.previousFilename == null ? null : normalizePath(file.previousFilename),
+    additions: nonNegativeInteger(file.additions),
+    deletions: nonNegativeInteger(file.deletions),
+    patch: typeof file.patch === "string" ? file.patch : null,
+  };
+}
+
+export function classifyPrScope({ changedFiles, labels = [] }) {
+  if (!Array.isArray(changedFiles)) throw new TypeError("changedFiles must be an array");
+  const normalizedFiles = changedFiles.map(normalizeFile);
+
+  const boundedContexts = new Set();
+  const compositionRoots = new Set();
+  const excludedEntries = [];
+  const excludedTotals = {};
+  let rawAdditions = 0;
+  let rawDeletions = 0;
+  let normalizedAdditions = 0;
+  let normalizedDeletions = 0;
+  let normalizedFileCount = 0;
+
+  for (const file of normalizedFiles) {
+    rawAdditions += file.additions;
+    rawDeletions += file.deletions;
+    for (const path of [file.filename, file.previousFilename].filter(Boolean)) {
+      const boundedContext = boundedContextFor(path);
+      if (boundedContext) boundedContexts.add(boundedContext);
+      const compositionRoot = compositionRootFor(path);
+      if (compositionRoot) compositionRoots.add(compositionRoot);
+    }
+
+    const reason = classifyExclusion(file);
+    if (reason) {
+      excludedEntries.push({
+        filename: file.filename,
+        status: file.status,
+        reason,
+        additions: file.additions,
+        deletions: file.deletions,
+      });
+      const bucket = excludedTotals[reason] ?? { files: 0, additions: 0, deletions: 0 };
+      bucket.files += 1;
+      bucket.additions += file.additions;
+      bucket.deletions += file.deletions;
+      excludedTotals[reason] = bucket;
+    } else {
+      normalizedAdditions += file.additions;
+      normalizedDeletions += file.deletions;
+      normalizedFileCount += 1;
+    }
+  }
+
+  const normalizedLines = normalizedAdditions + normalizedDeletions;
+  const risk = classifyRisk({ changedFiles, labels });
+  const large = normalizedLines > LARGE_THRESHOLD.lines || normalizedFileCount > LARGE_THRESHOLD.files;
+  const advisory =
+    !large && (normalizedLines > ADVISORY_THRESHOLD.lines || normalizedFileCount > ADVISORY_THRESHOLD.files);
+  const sortedBoundedContexts = [...boundedContexts].sort();
+
+  return {
+    schemaVersion: PR_SCOPE_POLICY_VERSION,
+    raw: {
+      additions: rawAdditions,
+      deletions: rawDeletions,
+      lines: rawAdditions + rawDeletions,
+      files: normalizedFiles.length,
+    },
+    normalized: {
+      additions: normalizedAdditions,
+      deletions: normalizedDeletions,
+      lines: normalizedLines,
+      files: normalizedFileCount,
+    },
+    excluded: { entries: excludedEntries, totals: excludedTotals },
+    boundedContexts: sortedBoundedContexts,
+    compositionRoots: [...compositionRoots].sort(),
+    risk: { categories: risk.categories, reasons: risk.reasons, classification: risk.classification },
+    thresholds: { advisory: ADVISORY_THRESHOLD, large: LARGE_THRESHOLD },
+    status: large ? "large" : advisory ? "advisory" : "normal",
+    splitSuggestion:
+      sortedBoundedContexts.length > 1
+        ? { reason: "Multiple bounded contexts changed in one PR", boundaries: sortedBoundedContexts }
+        : null,
+  };
+}

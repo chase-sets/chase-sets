@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "pr-scope-rollout/v1",
+  "mode": "advisory",
+  "mechanicalMigrationEscapeLabel": "scope:mechanical-migration-reviewed"
+}

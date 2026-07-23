@@ -1,0 +1,161 @@
+name: PR Scope Advisory
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to re-evaluate
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: pr-scope-advisory-${{ github.event.pull_request.number || github.event.merge_group.head_sha || inputs.pull_request }}
+  cancel-in-progress: true
+
+jobs:
+  # Posts/updates the stable scope comment. This job must never turn red: it
+  # is pure information during the mandated advisory rollout (rollout mode
+  # lives in scripts/pr-scope-rollout-v1.json, not in this workflow).
+  advisory:
+    name: PR Scope (Advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate trusted-base PR scope and post advisory comment
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_SCOPE_PULL_REQUEST: ${{ inputs.pull_request }}
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+
+            // Elevated review events never fetch or execute pull-request head
+            // code. These modules are read from the repository's trusted
+            // default branch.
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "pr-scope-trusted-base");
+            const sourcePaths = [
+              "scripts/lib/risk-policy-v1.mjs",
+              "scripts/lib/pr-scope-policy-v1.mjs",
+              "scripts/platform-risk-review.mjs",
+              "scripts/platform-pr-scope.mjs",
+              "scripts/pr-scope-rollout-v1.json",
+            ];
+            for (const sourcePath of sourcePaths) {
+              const response = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: sourcePath,
+                ref: context.payload.repository.default_branch,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                throw new Error("trusted-base-source-unavailable");
+              }
+              const target = path.join(trustedRoot, sourcePath);
+              await mkdir(path.dirname(target), { recursive: true });
+              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            }
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
+              env: {
+                ...process.env,
+                GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+                PR_SCOPE_OUTPUT: path.join(process.env.RUNNER_TEMP, "pr-scope-evaluation.json"),
+              },
+              stdio: "inherit",
+            });
+
+      - name: Preserve advisory workflow boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ "${{ steps.evaluate.outcome }}" != "success" ]; then
+            {
+              echo "## PR Scope — advisory"
+              echo
+              echo "Evaluation state: **unknown** (safe code: \`workflow-boundary-failure\`)."
+              echo
+              echo "The advisory workflow remains non-enforcing."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload PR scope evaluation record
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-scope-evaluation-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr-scope-evaluation.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The lightweight scope-policy check: read-only, no label/comment mutation
+  # (PR_SCOPE_CHECK_ONLY skips both — the `advisory` job above owns mutation
+  # so the two jobs never race on the same PR). Its own exit code is the
+  # job's real conclusion (no continue-on-error here) because it is the one
+  # thing this feature is allowed to fail — but only when
+  # scripts/pr-scope-rollout-v1.json is "enforcing" and the computed scope is
+  # genuinely large with a missing rationale; see scopePolicyExitCode in
+  # scripts/platform-pr-scope.mjs. It is not wired into any required-status
+  # ruleset, so it cannot block merges on its own even once enforcing.
+  scope-policy:
+    name: Scope Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Evaluate trusted-base PR scope policy
+        id: evaluate
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_SCOPE_PULL_REQUEST: ${{ inputs.pull_request }}
+          PR_SCOPE_CHECK_ONLY: "true"
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "pr-scope-policy-trusted-base");
+            const sourcePaths = [
+              "scripts/lib/risk-policy-v1.mjs",
+              "scripts/lib/pr-scope-policy-v1.mjs",
+              "scripts/platform-risk-review.mjs",
+              "scripts/platform-pr-scope.mjs",
+              "scripts/pr-scope-rollout-v1.json",
+            ];
+            for (const sourcePath of sourcePaths) {
+              const response = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: sourcePath,
+                ref: context.payload.repository.default_branch,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                throw new Error("trusted-base-source-unavailable");
+              }
+              const target = path.join(trustedRoot, sourcePath);
+              await mkdir(path.dirname(target), { recursive: true });
+              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            }
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
+              env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN },
+              stdio: "inherit",
+            });

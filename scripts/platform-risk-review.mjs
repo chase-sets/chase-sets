@@ -9,7 +9,7 @@ const API_VERSION = "2022-11-28";
 const REVIEW_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"]);
 const USER_TYPES = new Set(["User", "Bot"]);
 const HEX_SHA = /^[a-f0-9]{40}$/;
-const MAX_PULL_REQUEST_FILES = 3_000;
+export const MAX_PULL_REQUEST_FILES = 3_000;
 
 export class RiskReviewBoundaryError extends Error {
   constructor(code) {
@@ -252,6 +252,7 @@ export function createGithubClient({ repository, token, fetchImpl = fetch }) {
     }
     if (allowNotFound && response.status === 404) return null;
     if (!response.ok) fail(`api-http-${Number.isInteger(response.status) ? response.status : "unknown"}`);
+    if (response.status === 204) return { data: null, link: null };
     try {
       return { data: await response.json(), link: response.headers?.get?.("link") ?? null };
     } catch {
@@ -434,7 +435,13 @@ export function renderComment(result) {
   ].join("\n");
 }
 
-export async function upsertStableComment({ client, pullRequestNumber, body, createWhenMissing }) {
+export async function upsertStableComment({
+  client,
+  pullRequestNumber,
+  body,
+  createWhenMissing,
+  marker = COMMENT_MARKER,
+}) {
   const comments = await client.paginate(`/issues/${pullRequestNumber}/comments`);
   const existing = comments
     .filter(
@@ -443,7 +450,7 @@ export async function upsertStableComment({ client, pullRequestNumber, body, cre
         comment.user?.login === "github-actions[bot]" &&
         comment.user?.type === "Bot" &&
         typeof comment.body === "string" &&
-        comment.body.includes(COMMENT_MARKER),
+        comment.body.includes(marker),
     )
     .sort((left, right) => left.id - right.id)[0];
   if (existing) {
