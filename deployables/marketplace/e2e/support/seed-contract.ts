@@ -1,4 +1,4 @@
-import { supportSeedIds } from "@chase-sets/platform-operations/seed-support/ids";
+import { supportSeedIds } from "@chase-sets/platform-operations/server";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 
 export const marketplaceBrowserE2eSeedContract = {

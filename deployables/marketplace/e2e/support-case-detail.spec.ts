@@ -268,7 +268,7 @@ test.describe("marketplace support case detail @marketplace-account @browser-e2e
       contentType: "application/json",
     });
     console.log(
-      `[support-case-route-action-trace] admin-web interactions=0; marketplace support actions=${supportRouteActions.length}; seller-offer=${sellerOfferSubmitted}; buyer-acceptance=${buyerOfferAccepted}`,
+      `[support-case-route-action-trace] admin-web interactions=0; marketplace support actions=${supportRouteActions.length}; offer-submitted=${sellerOfferSubmitted}; buyer-acceptance=${buyerOfferAccepted}`,
     );
   });
 });

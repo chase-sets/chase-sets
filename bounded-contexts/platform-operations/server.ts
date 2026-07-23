@@ -69,3 +69,4 @@ export type {
   OfferEconomicsStandardScheduleTerms,
 } from "./features/offer-economics/api/offer-economics-contracts";
 export type { OfferEconomicsSnapshot } from "./features/offer-economics/read-model/offer-economics-policy";
+export { supportSeedIds } from "./support/seed-support/ids";

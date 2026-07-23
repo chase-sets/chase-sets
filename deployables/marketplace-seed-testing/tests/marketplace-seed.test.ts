@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
-import { supportSeedIds } from "@chase-sets/platform-operations/seed-support/ids";
+import { supportSeedIds } from "@chase-sets/platform-operations/server";
 import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {

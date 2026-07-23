@@ -124,6 +124,16 @@ Notes:
 - Returned shipments, fulfillment exceptions, active support holds, manual payout review, untrusted account state, and high-dollar seller exposure can extend or prevent release.
 - Settlement owns the release decision even when Stripe payment risk checks pass.
 
+## Support Hold
+
+A **Support Hold** is the Settlement-owned lifecycle that keeps an order's held funds from being paid to the seller while a support case is active. Settlement places it once when the case opens and records exactly one terminal outcome: released when the case ends without applying the funds to a refund, or consumed when a refund resolution applies the funds to the buyer's refund.
+
+Notes:
+
+- A Support Hold is correlated to one support request and order and carries the durable buyer and seller transaction-party identifiers needed for support-safe routing.
+- Released and consumed are mutually exclusive terminal outcomes; replayed case facts do not place or terminate the hold twice.
+- Provider-risk holds and their payout-internal details are not Support Holds and do not publish the `settlement.support-hold.{placed,released,consumed}.v1` facts.
+
 ## Chargeback Clawback
 
 A **Chargeback Clawback** is the Settlement-owned ledger adjustment that recovers seller exposure after Payments reports a processor dispute or chargeback.
