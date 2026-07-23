@@ -34,7 +34,6 @@ jobs:
       actions: read
       issues: write
     env:
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}
       DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
@@ -138,6 +137,8 @@ jobs:
 
       - name: Cleanup registry tags
         if: steps.deploy_lane.outputs.deferred != 'true'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -150,6 +151,12 @@ jobs:
             --dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}" \
             --out artifacts/release-health/digitalocean-registry-cleanup.json
 
+      - name: Validate canonical registry cleanup record
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          node ./scripts/digitalocean-registry-cleanup-record.mjs --record=artifacts/release-health/digitalocean-registry-cleanup.json
+
       - name: Summarize registry cleanup
         if: ${{ always() }}
         run: |
@@ -157,7 +164,7 @@ jobs:
           record="artifacts/release-health/digitalocean-registry-cleanup.json"
           if [ ! -f "$record" ]; then
             echo "No registry cleanup record was written." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
 
           node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
@@ -167,14 +174,13 @@ jobs:
           console.log("");
           console.log(`- Result: ${record.result}`);
           console.log(`- Mode: ${record.mode}`);
-          console.log(`- Repository: ${record.repository}`);
           console.log(`- Retained SHA/tree tags: ${record.retainedRecentShaTreeTags?.length ?? 0}/${record.retainRecentShaTreeTags ?? "unknown"}`);
           console.log(`- Explicitly protected tags: ${record.protectedTags?.length ?? 0}`);
           console.log(`- Explicitly protected digests: ${record.protectedDigests?.length ?? 0}`);
           console.log(`- Cleanup candidates: ${record.selectedDeletionTags?.length ?? 0}`);
           console.log(`- Deleted tags: ${record.deletedTags?.length ?? 0}`);
           console.log(`- Failed deletes: ${record.failedTags?.length ?? 0}`);
-          console.log(`- Garbage collection: ${record.garbageCollection?.status ?? "unknown"}`);
+          console.log(`- Garbage collection: ${record.garbageCollection?.status ?? "unknown"}/${record.garbageCollection?.reason ?? "unknown"}`);
           if (record.deployLaneBlockers?.length) {
             console.log("");
             console.log("### Deploy lane blockers");
@@ -197,7 +203,7 @@ jobs:
         with:
           name: platform-registry-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release-health/digitalocean-registry-cleanup.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30
 
       - name: Report registry cleanup alert
@@ -207,7 +213,7 @@ jobs:
           github-token: ${{ github.token }}
           workflow-name: Platform Registry Cleanup
           alert-status: failure
-          alert-summary: Platform registry cleanup failed. See the cleanup summary and uploaded artifact when present.
+          alert-summary: Platform registry cleanup failed. See the cleanup summary and canonical artifact validation.
 
       - name: Report registry cleanup recovery
         if: ${{ success() }}

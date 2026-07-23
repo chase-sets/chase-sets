@@ -13,6 +13,8 @@ const workflowFile = ".github/workflows/platform-staging-reset.yml";
 const workflow = readFileSync(resolve(workflowFile), "utf8");
 const seedPacksWorkflowFile = ".github/workflows/platform-seed-packs-apply.yml";
 const seedPacksWorkflow = readFileSync(resolve(seedPacksWorkflowFile), "utf8");
+const registryCleanupWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
+const registryCleanupWorkflow = readFileSync(resolve(registryCleanupWorkflowFile), "utf8");
 
 function stripStepEnvKey(source, stepName, envKey) {
   const stepStart = source.indexOf(`      - name: ${stepName}`);
@@ -23,6 +25,13 @@ function stripStepEnvKey(source, stepName, envKey) {
   const strippedStep = step.replace(new RegExp(`^ {10}${envKey}:.*\\r?\\n`, "m"), "");
   expect(strippedStep, `expected '${envKey}' in workflow step '${stepName}'`).not.toBe(step);
   return source.slice(0, stepStart) + strippedStep + source.slice(stepEnd);
+}
+
+function workflowStepSource(source, stepName) {
+  const stepStart = source.indexOf(`      - name: ${stepName}`);
+  expect(stepStart, `expected workflow step '${stepName}'`).toBeGreaterThanOrEqual(0);
+  const nextStep = source.indexOf("\n      - ", stepStart + 1);
+  return source.slice(stepStart, nextStep >= 0 ? nextStep : source.length);
 }
 
 describe("platform staging reset provider credential contract", () => {
@@ -56,6 +65,52 @@ describe("platform staging reset provider credential contract", () => {
     expect(checkWorkflowProviderCredentials(inlineWorkflow).violations).toEqual([
       expect.stringContaining("provider-touching step 'unnamed step' invokes aws but does not declare step env"),
     ]);
+  });
+});
+
+describe("registry cleanup provider credential contract (#5952)", () => {
+  it("discovers the provider call through the invoked script and narrows the credential to that step", () => {
+    const result = checkWorkflowProviderCredentials(registryCleanupWorkflow, {
+      workflowFile: registryCleanupWorkflowFile,
+    });
+
+    expect(result.violations).toEqual([]);
+    expect(result.checkedSteps).toEqual([
+      expect.objectContaining({
+        name: "Cleanup registry tags",
+        tools: ["doctl"],
+        requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
+        scripts: ["scripts/digitalocean-registry-cleanup.mjs"],
+      }),
+    ]);
+    expect(workflowStepSource(registryCleanupWorkflow, "Cleanup registry tags")).toContain(
+      "DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}",
+    );
+    expect(workflowStepSource(registryCleanupWorkflow, "Validate canonical registry cleanup record")).not.toContain(
+      "DIGITALOCEAN_ACCESS_TOKEN",
+    );
+    expect(registryCleanupWorkflow).not.toMatch(/^ {6}DIGITALOCEAN_ACCESS_TOKEN:/m);
+  });
+
+  it("withheld-credential negative names the one true provider-touching step and fails safely", () => {
+    const stripped = stripStepEnvKey(registryCleanupWorkflow, "Cleanup registry tags", "DIGITALOCEAN_ACCESS_TOKEN");
+    const result = checkWorkflowProviderCredentials(stripped, { workflowFile: registryCleanupWorkflowFile });
+
+    expect(result.passed).toBe(false);
+    expect(result.checkedSteps).toEqual([
+      expect.objectContaining({
+        name: "Cleanup registry tags",
+        tools: ["doctl"],
+        requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
+      }),
+    ]);
+    expect(result.violations).toEqual([
+      expect.stringContaining(
+        "provider-touching step 'Cleanup registry tags' invokes doctl but does not declare step env: DIGITALOCEAN_ACCESS_TOKEN",
+      ),
+    ]);
+    expect(result.violations.join("\n")).not.toContain("DIGITALOCEAN_REGISTRY_TOKEN");
+    expect(result.violations.join("\n")).not.toContain("Validate canonical registry cleanup record");
   });
 });
 

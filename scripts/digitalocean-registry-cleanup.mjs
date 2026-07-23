@@ -7,13 +7,16 @@ export const DIGITALOCEAN_REGISTRY_CLEANUP_VERSION = "digitalocean-registry-clea
 const DEFAULT_RETAIN_RECENT_SHA_TREE_TAGS = 25;
 const SHA_TAG_PATTERN = /^[0-9a-f]{40}$/i;
 const TREE_TAG_PATTERN = /^tree-[0-9a-f]{40}$/i;
+const PROVIDER_MANAGED_GC_REFUSAL =
+  "manual garbage collection is not available while automated garbage collection is enabled for this registry";
+const GODO_REQUEST_ID_PREFIX =
+  /^\(request "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"\) /i;
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
-        const message = stderr.trim() || stdout.trim() || error.message;
-        reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+        reject(sanitizeCommandFailure(error, stdout, stderr));
         return;
       }
 
@@ -92,15 +95,28 @@ function resolveProtectedDigests(tags, protectedTags, protectedDigests) {
 
 function readRepeatedOption(argv, name) {
   const prefix = `${name}=`;
-  return argv
-    .filter((arg) => arg.startsWith(prefix))
-    .map((arg) => arg.slice(prefix.length))
-    .filter(Boolean);
+  const values = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg.startsWith(prefix)) {
+      const value = arg.slice(prefix.length);
+      if (!value) throw new Error(`${name} requires a value.`);
+      values.push(value);
+      continue;
+    }
+    if (arg !== name) continue;
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--")) throw new Error(`${name} requires a value.`);
+    values.push(value);
+    index += 1;
+  }
+  return values;
 }
 
 function readOption(argv, name, defaultValue) {
-  const prefix = `${name}=`;
-  return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
+  const values = readRepeatedOption(argv, name);
+  if (values.length > 1) throw new Error(`${name} may be provided only once.`);
+  return values[0] ?? defaultValue;
 }
 
 export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
@@ -176,7 +192,17 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
   }
 
   const protectedTags = options.protectedTags ?? [];
-  const tags = await json("doctl", ["registry", "repository", "list-tags", options.repository, "--output", "json"]);
+  let tags;
+  try {
+    tags = await json("doctl", ["registry", "repository", "list-tags", options.repository, "--output", "json"]);
+  } catch (error) {
+    baseRecord.errors = ["DigitalOcean registry tags could not be listed.", ...describeCommandFailure(error)];
+    baseRecord.garbageCollection = {
+      status: "skipped",
+      reason: "registry-read-failed",
+    };
+    return { record: baseRecord, passesCleanupGate: false };
+  }
   const protectedDigests = resolveProtectedDigests(tags, protectedTags, [...(options.protectedDigests ?? [])]);
   const retainedRecentShaTreeTags = selectRetainedRecentShaTreeTags(tags, options.retainRecentShaTreeTags);
   const selectedTags = selectTagDeletionCandidates(tags, {
@@ -231,6 +257,14 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
       reason: selectedTags.length > 0 ? "cleanup-applied" : "no-deletions",
     };
   } catch (error) {
+    if (isProviderManagedGarbageCollectionRefusal(error)) {
+      record.garbageCollection = {
+        status: "skipped",
+        reason: "provider-managed",
+      };
+      return { record, passesCleanupGate: true };
+    }
+
     record.result = "failure";
     record.errors = ["DigitalOcean registry garbage collection could not be started."];
     record.garbageCollection = {
@@ -280,19 +314,123 @@ function toTagSummary(tag) {
 }
 
 function describeCommandFailure(error) {
-  const details = ["doctl registry cleanup command failed."];
-  if (typeof error === "object" && error !== null) {
-    if ("code" in error && error.code !== undefined) {
-      details.push(`exit code: ${String(error.code)}`);
+  const failure = classifyCommandFailure(error);
+  const details = [`failure classification: ${failure.classification}`];
+  if (failure.providerStatus !== null) details.push(`provider status: ${failure.providerStatus}`);
+  return details;
+}
+
+function sanitizeCommandFailure(error, stdout, stderr) {
+  const safeError = new Error("DigitalOcean registry command failed.");
+  safeError.name = "DigitalOceanRegistryCommandError";
+  safeError.commandFailure = classifyCommandFailure(error, stdout, stderr);
+  return safeError;
+}
+
+export function classifyCommandFailure(error, stdout = "", stderr = "") {
+  if (typeof error === "object" && error !== null && "commandFailure" in error) {
+    return error.commandFailure;
+  }
+
+  const rawOutput = [stderr, stdout, typeof error?.stderr === "string" ? error.stderr : ""]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+  const httpFailure = rawOutput.match(/(?:^|\s)(\d{3})\s+(.+)$/);
+  const providerStatus = httpFailure ? Number.parseInt(httpFailure[1], 10) : null;
+  const providerMessage = httpFailure?.[2]?.trim() ?? null;
+  const normalizedProviderMessage = providerMessage?.match(GODO_REQUEST_ID_PREFIX)
+    ? providerMessage.replace(GODO_REQUEST_ID_PREFIX, "")
+    : null;
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+  const classification =
+    providerStatus !== null
+      ? "provider-http"
+      : error instanceof SyntaxError
+        ? "invalid-response"
+        : typeof code === "string"
+          ? "transport"
+          : typeof code === "number"
+            ? "command-exit"
+            : "unexpected";
+
+  return {
+    classification,
+    providerStatus,
+    providerManagedGarbageCollection:
+      providerStatus === 412 && normalizedProviderMessage === PROVIDER_MANAGED_GC_REFUSAL,
+  };
+}
+
+function isProviderManagedGarbageCollectionRefusal(error) {
+  return classifyCommandFailure(error).providerManagedGarbageCollection === true;
+}
+
+export function validateDigitalOceanRegistryCleanupRecord(record) {
+  const errors = [];
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return ["cleanup record must be a JSON object"];
+  }
+  if (record.schemaVersion !== DIGITALOCEAN_REGISTRY_CLEANUP_VERSION) {
+    errors.push(`schemaVersion must be ${DIGITALOCEAN_REGISTRY_CLEANUP_VERSION}`);
+  }
+  if (!isNonEmptyString(record.checkedAt) || !Number.isFinite(Date.parse(record.checkedAt))) {
+    errors.push("checkedAt must be an ISO-8601 timestamp");
+  }
+  if (!["apply", "dry-run"].includes(record.mode)) errors.push("mode must be apply or dry-run");
+  if (!["apply", "dry-run"].includes(record.requestedMode)) errors.push("requestedMode must be apply or dry-run");
+  if (!["success", "failure", "deferred"].includes(record.result)) errors.push("result is invalid");
+  if (!isNonEmptyString(record.repository)) errors.push("repository is required");
+  for (const field of ["retentionDays", "retainRecentShaTreeTags"]) {
+    if (!Number.isInteger(record[field]) || record[field] < 0) errors.push(`${field} must be a non-negative integer`);
+  }
+  for (const field of ["protectedTags", "protectedDigests", "errors"]) {
+    if (!isStringArray(record[field])) errors.push(`${field} must be an array of strings`);
+  }
+  for (const field of ["retainedRecentShaTreeTags", "selectedDeletionTags", "deletedTags", "failedTags"]) {
+    if (!Array.isArray(record[field])) {
+      errors.push(`${field} must be an array`);
+      continue;
     }
-    if ("stderr" in error && typeof error.stderr === "string" && error.stderr.trim()) {
-      details.push(`stderr: ${error.stderr.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    record[field].forEach((tag, index) => {
+      if (!isTagSummary(tag)) errors.push(`${field}[${index}] must be a cleanup tag summary`);
+      if (field === "failedTags" && !isStringArray(tag?.errors)) {
+        errors.push(`${field}[${index}].errors must be an array of strings`);
+      }
+    });
+  }
+  if (
+    !record.garbageCollection ||
+    typeof record.garbageCollection !== "object" ||
+    Array.isArray(record.garbageCollection)
+  ) {
+    errors.push("garbageCollection must be an object");
+  } else {
+    if (!["failed", "skipped", "started"].includes(record.garbageCollection.status)) {
+      errors.push("garbageCollection.status is invalid");
     }
-    if ("message" in error && typeof error.message === "string" && error.message.trim()) {
-      details.push(`message: ${error.message.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    if (!isNonEmptyString(record.garbageCollection.reason)) errors.push("garbageCollection.reason is required");
+    if (record.garbageCollection.errors !== undefined && !isStringArray(record.garbageCollection.errors)) {
+      errors.push("garbageCollection.errors must be an array of strings");
     }
   }
-  return details;
+  return errors;
+}
+
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((entry) => isNonEmptyString(entry));
+}
+
+function isTagSummary(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    isNonEmptyString(value.name) &&
+    (value.digest === null || isNonEmptyString(value.digest)) &&
+    (value.updatedAt === null || (isNonEmptyString(value.updatedAt) && Number.isFinite(Date.parse(value.updatedAt))))
+  );
 }
 
 function parseBoolean(value, name) {
@@ -316,12 +454,14 @@ async function main(argv) {
   const [command, ...args] = argv;
   if (command === "cleanup") {
     const result = await runDigitalOceanRegistryCleanup(parseDigitalOceanRegistryCleanupArgs(args));
-    console.log(JSON.stringify(result.record, null, 2));
+    console.log(
+      `Registry cleanup terminal status: result=${result.record.result}; mode=${result.record.mode}; selected=${result.record.selectedDeletionTags.length}; deleted=${result.record.deletedTags.length}; failed=${result.record.failedTags.length}; garbage-collection=${result.record.garbageCollection.status}/${result.record.garbageCollection.reason}.`,
+    );
     return result.passesCleanupGate ? 0 : 1;
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>|--out <path>]",
   );
 }
 
@@ -330,8 +470,8 @@ if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
     .then((exitCode) => {
       process.exitCode = exitCode;
     })
-    .catch((error) => {
-      console.error(error instanceof Error ? error.message : String(error));
+    .catch(() => {
+      console.error("Registry cleanup command failed before reaching a terminal status.");
       process.exitCode = 1;
     });
 }
