@@ -11,13 +11,18 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { PublicPolicyArtifact } from "../domain/policy-artifact";
+import {
+  evaluatePublicPolicyPublicationReadiness,
+  isPublicPolicyEffectiveAt,
+  type PublicPolicyArtifact,
+} from "../domain/policy-artifact";
+import { getPublicPolicyRegistryEntry } from "../domain/policy-registry";
 import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 
 export type PolicyArtifactPageCopyProfile = "corpus" | "terms-of-service";
 
-export type PolicyArtifactPageCopy = Readonly<{
+type PolicyArtifactPageCopy = Readonly<{
   eyebrow: string;
   printLabel: string;
   counselPendingTitle: string;
@@ -46,12 +51,11 @@ type PolicyArtifactPublicationPosture =
 export function resolvePolicyArtifactPublicationPosture(
   artifact: PublicPolicyArtifact,
 ): PolicyArtifactPublicationPosture {
-  const { publicationStatus, effectiveAt } = artifact.metadata;
-  if (publicationStatus !== "published") {
+  const registryEntry = getPublicPolicyRegistryEntry(artifact.metadata.policyKey);
+  const readiness = evaluatePublicPolicyPublicationReadiness(artifact, registryEntry.requiredSubjectIds);
+  const { effectiveAt } = artifact.metadata;
+  if (!readiness.ready || !isPublicPolicyEffectiveAt(effectiveAt)) {
     return { kind: "counsel-pending" };
-  }
-  if (effectiveAt === null) {
-    throw new Error(`Published policy artifact '${artifact.metadata.policyKey}' requires an effectiveAt timestamp.`);
   }
   return { kind: "published", effectiveAt };
 }
@@ -61,7 +65,7 @@ export function resolvePolicyArtifactPublicationPosture(
  * Pending posture keys live here so route adapters cannot pin a page to the
  * pre-publication state independently of the artifact.
  */
-export function buildPolicyArtifactPageCopy(
+function buildPolicyArtifactPageCopy(
   artifact: PublicPolicyArtifact,
   profile: PolicyArtifactPageCopyProfile,
   eyebrow: string,
@@ -109,21 +113,22 @@ export function buildPolicyArtifactPageCopy(
 }
 
 /**
- * Shared page for every Public Policy Artifact route. A section renders its
- * operative `draftText` once drafted; until then it renders the review
- * manifest's scope note as the explicit counsel-pending placeholder. The
- * remaining review-manifest fields (decision refs, product truth refs, open
- * questions, assumptions) are counsel-packet data and are never rendered.
+ * Shared page for every Public Policy Artifact route. Only operative
+ * `draftText` renders. The complete review manifest remains packet-only.
  */
 export function PolicyArtifactPage({
   artifact,
-  copy,
+  copyProfile,
+  eyebrow,
 }: {
   artifact: PublicPolicyArtifact;
-  copy: PolicyArtifactPageCopy;
+  copyProfile: PolicyArtifactPageCopyProfile;
+  eyebrow: string;
 }) {
   const { metadata } = artifact;
   const publicationPosture = resolvePolicyArtifactPublicationPosture(artifact);
+  const copy = buildPolicyArtifactPageCopy(artifact, copyProfile, eyebrow);
+  const publicPublicationStatus = publicationPosture.kind === "published" ? "published" : "counsel-review-required";
 
   return (
     <PublicPresencePageShell>
@@ -131,8 +136,8 @@ export function PolicyArtifactPage({
         width="wide"
         data-policy-key={metadata.policyKey}
         data-policy-version={metadata.version}
-        data-policy-publication-status={metadata.publicationStatus}
-        data-policy-effective-at={metadata.effectiveAt ?? ""}
+        data-policy-publication-status={publicPublicationStatus}
+        data-policy-effective-at={publicationPosture.kind === "published" ? publicationPosture.effectiveAt : ""}
       >
         <PageHeader
           eyebrow={copy.eyebrow}
@@ -189,11 +194,7 @@ export function PolicyArtifactPage({
                 {section.reviewStatus === "counsel-required" ? (
                   <Badge tone="warning">{copy.counselRequiredBadge}</Badge>
                 ) : null}
-                {section.draftText.length > 0 ? (
-                  <Text>{section.draftText}</Text>
-                ) : (
-                  <Text tone="secondary">{section.reviewManifest.scopeNote}</Text>
-                )}
+                {section.draftText.trim().length > 0 ? <Text>{section.draftText}</Text> : null}
               </Stack>
             </Surface>
           ))}

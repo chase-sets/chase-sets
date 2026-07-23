@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluatePublicPolicyPublicationReadiness,
   isConsentActivatable,
+  isPublicPolicyEffectiveAt,
   validatePublicPolicyArtifactStructure,
   type PublicPolicyArtifact,
 } from "./policy-artifact";
@@ -26,6 +27,21 @@ function approvedTermsArtifact(): PublicPolicyArtifact {
 }
 
 describe("public policy artifact closed schema", () => {
+  it("accepts only real UTC instants in the canonical effective-at format", () => {
+    expect(isPublicPolicyEffectiveAt("2026-09-01T00:00:00Z")).toBe(true);
+    expect(isPublicPolicyEffectiveAt("2026-09-01T00:00:00.000Z")).toBe(true);
+
+    for (const value of [
+      "not-a-date",
+      "2026-09-01",
+      "2026-09-01T00:00:00",
+      "2026-09-01T00:00:00+00:00",
+      "2026-02-31T00:00:00.000Z",
+    ]) {
+      expect(isPublicPolicyEffectiveAt(value)).toBe(false);
+    }
+  });
+
   it("accepts the checked-in artifacts and the fully approved shape", () => {
     expect(validatePublicPolicyArtifactStructure(termsOfServicePolicyArtifact)).toEqual([]);
     expect(validatePublicPolicyArtifactStructure(approvedTermsArtifact())).toEqual([]);

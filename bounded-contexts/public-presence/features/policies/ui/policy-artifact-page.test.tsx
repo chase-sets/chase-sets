@@ -10,13 +10,18 @@ import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from 
 import {
   AgentTermsRouteAdapter,
   AuthenticityTermsRouteAdapter,
+  buildPolicyArtifactMeta,
   PaymentsTermsRouteAdapter,
   SellerAgreementRouteAdapter,
 } from "./policy-artifact-route-adapter";
-import { resolvePolicyArtifactPublicationPosture } from "./policy-artifact-page";
+import { PolicyArtifactPage, resolvePolicyArtifactPublicationPosture } from "./policy-artifact-page";
 import { TermsOfServiceRouteAdapter } from "./terms-of-service-route-adapter";
 
 const publishedEffectiveAt = "2026-09-01T00:00:00.000Z";
+const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", "2026-02-31T00:00:00.000Z"] as const;
+
+type PolicyArtifactPageProps = Parameters<typeof PolicyArtifactPage>[0];
+const pageCopyIsNotInjectable: "copy" extends keyof PolicyArtifactPageProps ? false : true = true;
 
 const policyRouteAdapters = [
   {
@@ -114,24 +119,49 @@ describe("policy artifact page", () => {
     });
   }
 
-  it("fails closed when published posture has no effective timestamp", () => {
-    expect(() =>
-      resolvePolicyArtifactPublicationPosture({
-        ...sellerAgreementPolicyArtifact,
-        metadata: {
-          ...sellerAgreementPolicyArtifact.metadata,
-          publicationStatus: "published",
-          effectiveAt: null,
-        },
-      }),
-    ).toThrow("requires an effectiveAt timestamp");
+  it("does not expose a page-copy prop that lets route adapters pre-decide publication posture", () => {
+    expect(pageCopyIsNotInjectable).toBe(true);
   });
+
+  for (const route of policyRouteAdapters) {
+    it(`fails closed on invalid effective timestamps through the real ${route.path} adapter and metadata builder`, () => {
+      for (const effectiveAt of invalidEffectiveAts) {
+        const artifact = {
+          ...publishedArtifact(route.artifact),
+          metadata: {
+            ...publishedArtifact(route.artifact).metadata,
+            effectiveAt,
+          },
+        } as PublicPolicyArtifact;
+        const posture = resolvePolicyArtifactPublicationPosture(artifact);
+        expect(posture).toEqual({ kind: "counsel-pending" });
+
+        const { container } = renderRouteAdapter(route.render, artifact);
+        expect(screen.getByText(route.pendingTitle)).toBeTruthy();
+        const page = container.querySelector(`[data-policy-key="${route.artifact.metadata.policyKey}"]`);
+        expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
+        expect(page?.getAttribute("data-policy-effective-at")).toBe("");
+
+        const metadata = buildPolicyArtifactMeta(artifact, { title: "Test policy", description: "Test policy." });
+        expect(metadata).toEqual(
+          expect.arrayContaining([
+            { name: "chase-sets:policy-publication-status", content: "counsel-review-required" },
+          ]),
+        );
+        expect(metadata).not.toEqual(
+          expect.arrayContaining([expect.objectContaining({ name: "chase-sets:policy-effective-at" })]),
+        );
+        cleanup();
+      }
+    });
+  }
 
   it("never renders packet-only review-manifest fields on the public page", () => {
     const { container } = renderRouteAdapter(policyRouteAdapters[1].render);
     const text = container.textContent ?? "";
 
     for (const section of sellerAgreementPolicyArtifact.sections) {
+      expect(text).not.toContain(section.reviewManifest.scopeNote);
       for (const openQuestion of section.reviewManifest.openQuestions) {
         expect(text).not.toContain(openQuestion);
       }

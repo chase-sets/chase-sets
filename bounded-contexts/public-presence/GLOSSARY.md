@@ -52,7 +52,7 @@ Notes:
 - A Public Policy Artifact awaiting required counsel review is linkable for review but is explicitly marked non-effective and cannot satisfy the production launch-copy gate.
 - Identity consumes generated publication metadata through `@chase-sets/public-docs` while remaining the sole owner of acceptance facts and active required consent versions.
 - Every artifact in the launch legal corpus is enumerated by the public policy registry (`features/policies/domain/policy-registry.ts`); the corpus compiler emits one generated metadata module per document plus a content-insensitive index, so parallel document drafting cannot collide.
-- Each artifact section carries a review manifest (scope note, decision refs, product truth refs, open questions, assumptions) that feeds the counsel review packet; apart from the scope note shown as the counsel-pending placeholder, manifest fields are never rendered on the public page.
+- Each artifact section carries a review manifest (scope note, decision refs, product truth refs, open questions, assumptions) that feeds the counsel review packet; every manifest field is packet-only and never rendered on the public page.
 - A document can be required by a consent bundle only when published and readiness-valid; the compiled `consentActivatable` flag carries that invariant to Identity, so a placeholder stub can never produce represented acceptance.
 
 ## Waitlist Signup

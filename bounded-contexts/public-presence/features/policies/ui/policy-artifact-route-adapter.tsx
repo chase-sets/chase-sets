@@ -6,9 +6,9 @@ import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 import {
-  buildPolicyArtifactPageCopy,
   PolicyArtifactPage,
   type PolicyArtifactPageCopyProfile,
+  resolvePolicyArtifactPublicationPosture,
 } from "./policy-artifact-page";
 
 /**
@@ -20,16 +20,23 @@ import {
 export function buildPolicyArtifactMeta(
   artifact: PublicPolicyArtifact,
   copy: Readonly<{ title: string; description: string }>,
+  options: Readonly<{ noindexWhilePending?: boolean }> = {},
 ): MetaDescriptor[] {
   const { metadata } = artifact;
+  const publicationPosture = resolvePolicyArtifactPublicationPosture(artifact);
+  const publicPublicationStatus = publicationPosture.kind === "published" ? "published" : "counsel-review-required";
   return [
     { title: copy.title },
     { name: "description", content: copy.description },
-    ...(metadata.publicationStatus !== "published" ? [{ name: "robots", content: "noindex, nofollow" }] : []),
+    ...(publicationPosture.kind !== "published" && options.noindexWhilePending !== false
+      ? [{ name: "robots", content: "noindex, nofollow" }]
+      : []),
     { name: "chase-sets:policy-key", content: metadata.policyKey },
     { name: "chase-sets:policy-version", content: metadata.version },
-    { name: "chase-sets:policy-publication-status", content: metadata.publicationStatus },
-    ...(metadata.effectiveAt ? [{ name: "chase-sets:policy-effective-at", content: metadata.effectiveAt }] : []),
+    { name: "chase-sets:policy-publication-status", content: publicPublicationStatus },
+    ...(publicationPosture.kind === "published"
+      ? [{ name: "chase-sets:policy-effective-at", content: publicationPosture.effectiveAt }]
+      : []),
   ];
 }
 
@@ -42,7 +49,7 @@ export function PolicyArtifactRouteAdapter({
   eyebrow: string;
   copyProfile?: PolicyArtifactPageCopyProfile;
 }) {
-  return <PolicyArtifactPage artifact={artifact} copy={buildPolicyArtifactPageCopy(artifact, copyProfile, eyebrow)} />;
+  return <PolicyArtifactPage artifact={artifact} copyProfile={copyProfile} eyebrow={eyebrow} />;
 }
 
 export const sellerAgreementMeta: MetaFunction = () =>

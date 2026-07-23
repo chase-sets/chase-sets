@@ -21,9 +21,8 @@ export type PublicPolicyReviewAssumption = Readonly<{
 
 /**
  * Per-section counsel review manifest. This is checked-in drafting metadata
- * for the counsel review packet only: `scopeNote` doubles as the public
- * counsel-pending placeholder shown while `draftText` is empty, and every
- * other field is packet-only and never rendered on the public page.
+ * for the counsel review packet only. None of these fields render on the
+ * public page; only `draftText` is operative public prose.
  */
 export type PublicPolicySectionReviewManifest = Readonly<{
   scopeNote: string;
@@ -149,7 +148,7 @@ export function validatePublicPolicyArtifactStructure(artifact: PublicPolicyArti
     ) {
       errors.push(`${label} artifact publication status must be one of ${publicPolicyPublicationStatuses.join(", ")}.`);
     }
-    if (metadata.effectiveAt !== null && !isIsoTimestamp(metadata.effectiveAt as string | null)) {
+    if (metadata.effectiveAt !== null && !isPublicPolicyEffectiveAt(metadata.effectiveAt)) {
       errors.push(`${label} artifact effectiveAt must be null or an ISO timestamp.`);
     }
     if (metadata.counselApprovalReference !== null && typeof metadata.counselApprovalReference !== "string") {
@@ -273,7 +272,7 @@ export function evaluatePublicPolicyPublicationReadiness(
   if (metadata.publicationStatus !== "published") {
     errors.push(`${label} publication status must be published.`);
   }
-  if (!isIsoTimestamp(metadata.effectiveAt)) {
+  if (!isPublicPolicyEffectiveAt(metadata.effectiveAt)) {
     errors.push(`${label} publication requires an effective ISO timestamp.`);
   }
   if (!isApprovalReference(metadata.counselApprovalReference)) {
@@ -347,11 +346,22 @@ function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
 }
 
-function isIsoTimestamp(value: unknown): value is string {
+/**
+ * The canonical Public Policy Artifact instant validator. Consumers use this
+ * same predicate for readiness, visible posture, and machine metadata so an
+ * invalid timestamp cannot appear published at one seam and pending at
+ * another.
+ */
+export function isPublicPolicyEffectiveAt(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
     return false;
   }
-  return !Number.isNaN(new Date(value).valueOf());
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) {
+    return false;
+  }
+  const normalized = value.includes(".") ? value : value.replace(/Z$/, ".000Z");
+  return parsed.toISOString() === normalized;
 }
 
 function isApprovalReference(value: string | null): value is string {

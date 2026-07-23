@@ -1,80 +1,190 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 
 const productionSurfaceRoots = [
   "bounded-contexts/public-presence/features/policies/ui",
   "bounded-contexts/public-presence/routes/marketplace",
 ];
 
-const policySurfaceShape =
-  /\b(?:[A-Za-z][A-Za-z0-9]*PolicyArtifact|PolicyArtifactPage|PolicyArtifactRouteAdapter|TermsOfServicePage)\b|chase-sets:policy-publication-status|features\/policies\/ui\/[^"']+/;
+const canonicalFunctionNames = new Set([
+  "resolvePolicyArtifactPublicationPosture",
+  "buildPolicyArtifactPageCopy",
+  "PolicyArtifactPage",
+]);
 
-const forbiddenPendingPostureShapes = [
-  {
-    name: "pending effective-date localization key",
-    pattern: /publicPresence\.info\.[A-Za-z0-9-]+\.metadata\.effectivePending/g,
-  },
-  {
-    name: "pending counsel-banner localization key",
-    pattern: /publicPresence\.info\.[A-Za-z0-9-]+\.counselPending\.[A-Za-z0-9-]+/g,
-  },
-  {
-    name: "pending effective-date literal",
-    pattern: /Effective date pending counsel approval/g,
-  },
+const expectedCanonicalPendingValues = [
+  "publicPresence.info.terms.metadata.effectivePending",
+  "publicPresence.info.policies.metadata.effectivePending",
+  "publicPresence.info.terms.counselPending.title",
+  "publicPresence.info.terms.counselPending.description",
+  "publicPresence.info.policies.counselPending.title",
+  "publicPresence.info.policies.counselPending.description",
 ];
+
+const postureDecidingPageProps = new Set([
+  "copy",
+  "effectivePendingText",
+  "formatEffectiveText",
+  "counselPendingTitle",
+  "counselPendingDescription",
+]);
 
 function isProductionSource(relativePath) {
   return /\.(?:ts|tsx)$/.test(relativePath) && !/\.test\.(?:ts|tsx)$/.test(relativePath);
 }
 
-function isCanonicalPublicationPostureMapper(source) {
-  return (
-    source.includes("export function resolvePolicyArtifactPublicationPosture") &&
-    source.includes("export function buildPolicyArtifactPageCopy") &&
-    source.includes('publicationStatus !== "published"') &&
-    source.includes("effectiveAt === null") &&
-    source.includes("copy.effectivePendingText") &&
-    source.includes("copy.formatEffectiveText")
+function sourceKindFor(relativePath) {
+  return relativePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
+function topLevelFunctionNames(sourceFile) {
+  return new Set(
+    sourceFile.statements
+      .filter((statement) => ts.isFunctionDeclaration(statement) && statement.name !== undefined)
+      .map((statement) => statement.name.text),
   );
 }
 
-function pendingPostureMatches(source) {
-  return forbiddenPendingPostureShapes.flatMap(({ name, pattern }) =>
-    [...source.matchAll(pattern)].map((match) => ({ name, value: match[0], index: match.index ?? 0 })),
+function containingFunctionName(node) {
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isFunctionDeclaration(current)) {
+      return current.name?.text;
+    }
+    if (
+      (ts.isFunctionExpression(current) || ts.isArrowFunction(current)) &&
+      ts.isVariableDeclaration(current.parent) &&
+      ts.isIdentifier(current.parent.name)
+    ) {
+      return current.parent.name.text;
+    }
+  }
+  return undefined;
+}
+
+function isPendingPostureValue(value) {
+  return (
+    /^publicPresence\.info\.[A-Za-z0-9-]+\.metadata\.effectivePending$/.test(value) ||
+    /^publicPresence\.info\.[A-Za-z0-9-]+\.counselPending\.[A-Za-z0-9-]+$/.test(value) ||
+    value === "Effective date pending counsel approval"
   );
+}
+
+function pageElementName(tagName) {
+  return ts.isIdentifier(tagName) ? tagName.text : tagName.getText();
+}
+
+function lineFor(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function propertyNameText(name) {
+  if (name === undefined) {
+    return undefined;
+  }
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : name.getText();
 }
 
 /**
- * Shape-based guard for the complete artifact-backed policy production
- * surface. Adapter and route filenames are deliberately not enumerated: any
- * current or future source matching an artifact/page/meta/import shape is
- * enrolled automatically.
+ * AST guard for every production module in the policy UI and marketplace
+ * route ownership roots. Pending copy is permitted only as the exact finite
+ * set of localization keys inside the canonical copy builder. The public page
+ * API cannot accept posture-deciding copy or spread props.
  */
 export function findPublicPolicyPostureViolations(sourceRecords) {
-  const guardedRecords = sourceRecords.filter(
-    ({ relativePath, source }) =>
-      isProductionSource(relativePath) && (policySurfaceShape.test(source) || pendingPostureMatches(source).length > 0),
-  );
-  const canonicalMappers = guardedRecords.filter(({ source }) => isCanonicalPublicationPostureMapper(source));
+  const guardedRecords = sourceRecords
+    .filter(({ relativePath }) => isProductionSource(relativePath))
+    .map((record) => ({
+      ...record,
+      sourceFile: ts.createSourceFile(
+        record.relativePath,
+        record.source,
+        ts.ScriptTarget.Latest,
+        true,
+        sourceKindFor(record.relativePath),
+      ),
+    }));
+
+  const canonicalMappers = guardedRecords.filter(({ sourceFile }) => {
+    const functionNames = topLevelFunctionNames(sourceFile);
+    return [...canonicalFunctionNames].every((name) => functionNames.has(name));
+  });
+  const canonicalMapper = canonicalMappers.length === 1 ? canonicalMappers[0] : undefined;
+  const canonicalPendingCounts = new Map(expectedCanonicalPendingValues.map((value) => [value, 0]));
   const violations = [];
 
   if (canonicalMappers.length !== 1) {
     violations.push(
-      `bounded-contexts/public-presence/features/policies/ui: expected exactly one canonical publication-state mapper/builder; found ${canonicalMappers.length}`,
+      `bounded-contexts/public-presence/features/policies/ui: expected exactly one canonical publication-state mapper/builder/page module; found ${canonicalMappers.length}`,
     );
   }
 
   for (const record of guardedRecords) {
-    if (canonicalMappers.includes(record)) {
-      continue;
+    const { relativePath, sourceFile } = record;
+
+    function report(node, message) {
+      violations.push(`${relativePath}:${lineFor(sourceFile, node)}: ${message}`);
     }
 
-    for (const match of pendingPostureMatches(record.source)) {
-      const line = record.source.slice(0, match.index).split("\n").length;
-      violations.push(
-        `${record.relativePath}:${line}: ${match.name} '${match.value}' must be derived by the canonical publication-state mapper/builder`,
-      );
+    function visit(node) {
+      if (ts.isStringLiteralLike(node) && isPendingPostureValue(node.text)) {
+        const inCanonicalBuilder =
+          record === canonicalMapper && containingFunctionName(node) === "buildPolicyArtifactPageCopy";
+        if (!inCanonicalBuilder || !canonicalPendingCounts.has(node.text)) {
+          report(node, `pending publication copy '${node.text}' must be selected only by the canonical copy builder`);
+        } else {
+          canonicalPendingCounts.set(node.text, (canonicalPendingCounts.get(node.text) ?? 0) + 1);
+        }
+      }
+
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        pageElementName(node.tagName) === "PolicyArtifactPage"
+      ) {
+        for (const attribute of node.attributes.properties) {
+          if (ts.isJsxSpreadAttribute(attribute)) {
+            report(attribute, "PolicyArtifactPage forbids spread props that could inject publication posture");
+            continue;
+          }
+          const propName = propertyNameText(attribute.name);
+          if (propName !== undefined && postureDecidingPageProps.has(propName)) {
+            report(attribute, `PolicyArtifactPage posture-deciding prop '${propName}' is forbidden`);
+          }
+        }
+      }
+
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "PolicyArtifactPage" &&
+        node.arguments.length > 0 &&
+        ts.isObjectLiteralExpression(node.arguments[0])
+      ) {
+        for (const property of node.arguments[0].properties) {
+          if (ts.isSpreadAssignment(property)) {
+            report(property, "PolicyArtifactPage forbids spread arguments that could inject publication posture");
+            continue;
+          }
+          const propName = propertyNameText(property.name);
+          if (propName !== undefined && postureDecidingPageProps.has(propName)) {
+            report(property, `PolicyArtifactPage posture-deciding property '${propName}' is forbidden`);
+          }
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+  }
+
+  if (canonicalMapper !== undefined) {
+    for (const [value, count] of canonicalPendingCounts) {
+      if (count !== 1) {
+        violations.push(
+          `${canonicalMapper.relativePath}: canonical copy builder must contain '${value}' exactly once; found ${count}`,
+        );
+      }
     }
   }
 

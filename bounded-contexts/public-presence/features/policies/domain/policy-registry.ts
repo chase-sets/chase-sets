@@ -5,7 +5,7 @@ import {
 } from "./authenticity-service-terms";
 import { foundersOfferTermsPolicyArtifact, requiredFoundersOfferTermsSubjectIds } from "./founders-offer-terms";
 import { paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds } from "./payments-terms";
-import type { PublicPolicyArtifact } from "./policy-artifact";
+import type { PublicPolicyArtifact, PublicPolicyKey } from "./policy-artifact";
 import { privacyPolicyArtifact, requiredPrivacyPolicySubjectIds } from "./privacy-policy";
 import { requiredSellerAgreementSubjectIds, sellerAgreementPolicyArtifact } from "./seller-agreement";
 import { requiredTermsOfServiceSubjectIds, termsOfServicePolicyArtifact } from "./terms-of-service";
@@ -31,3 +31,11 @@ export const publicPolicyRegistry: readonly PublicPolicyRegistryEntry[] = [
   { artifact: authenticityServiceTermsPolicyArtifact, requiredSubjectIds: requiredAuthenticityServiceTermsSubjectIds },
   { artifact: foundersOfferTermsPolicyArtifact, requiredSubjectIds: requiredFoundersOfferTermsSubjectIds },
 ];
+
+export function getPublicPolicyRegistryEntry(policyKey: PublicPolicyKey): PublicPolicyRegistryEntry {
+  const entry = publicPolicyRegistry.find((candidate) => candidate.artifact.metadata.policyKey === policyKey);
+  if (entry === undefined) {
+    throw new Error(`Public Policy Artifact registry is missing '${policyKey}'.`);
+  }
+  return entry;
+}
