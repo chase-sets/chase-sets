@@ -12,7 +12,9 @@ import {
   transitionStatus,
   updateRow,
   upsertRow,
+  withPgTransaction,
   type PgQueryable,
+  type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
@@ -45,6 +47,9 @@ const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
 const SEARCH_REFERENCE_RECORDS_TABLE = "discovery_search_catalog_reference_records";
 const SEARCH_CATALOG_ITEMS_TABLE = "discovery_search_catalog_items";
 const SEARCH_PRODUCT_CONTENTS_TABLE = "discovery_search_product_contents";
+const SEARCH_INDEX_TABLE = "discovery_search_items";
+const SEARCH_INDEX_REBUILD_TABLE = "discovery_search_items_rebuild";
+type SearchIndexTable = typeof SEARCH_INDEX_TABLE | typeof SEARCH_INDEX_REBUILD_TABLE;
 const SEARCH_CATALOG_ITEM_CREATED_COLUMNS = [
   "catalog_item_id",
   "slug",
@@ -364,19 +369,56 @@ async function upsertSearchDimensionOption(
 
 async function upsertSearchCategory(
   db: PgQueryable,
-  input: Readonly<{ categoryId: string; slug: string; name: string; updatedAt: string }>,
-): Promise<void> {
-  await upsertRow(db, {
-    table: "discovery_search_catalog_categories",
-    insertColumns: ["category_id", "slug", "name", "updated_at"],
-    conflictColumns: ["category_id"],
-    values: {
-      category_id: input.categoryId,
-      slug: input.slug,
-      name: input.name,
-      updated_at: input.updatedAt,
-    },
-  });
+  input: Readonly<{
+    categoryId: string;
+    slug: string;
+    name: string;
+    status?: string;
+    globalPosition: string;
+    updatedAt: string;
+  }>,
+): Promise<boolean> {
+  const result = await db.query(
+    `INSERT INTO discovery_search_catalog_categories (
+       category_id,
+       slug,
+       name,
+       status,
+       last_global_position,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5::bigint, $6)
+     ON CONFLICT (category_id) DO UPDATE SET
+       slug = EXCLUDED.slug,
+       name = EXCLUDED.name,
+       last_global_position = EXCLUDED.last_global_position,
+       updated_at = EXCLUDED.updated_at
+     WHERE discovery_search_catalog_categories.last_global_position <= EXCLUDED.last_global_position`,
+    [input.categoryId, input.slug, input.name, input.status ?? "draft", input.globalPosition, input.updatedAt],
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
+async function transitionSearchCategoryStatus(
+  db: PgQueryable,
+  input: Readonly<{
+    categoryId: string;
+    status: "active" | "deprecated" | "archived";
+    globalPosition: string;
+    updatedAt: string;
+  }>,
+): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE discovery_search_catalog_categories
+     SET status = $2,
+         last_global_position = $3::bigint,
+         updated_at = $4
+     WHERE category_id = $1
+       AND last_global_position <= $3::bigint`,
+    [input.categoryId, input.status, input.globalPosition, input.updatedAt],
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }
 
 async function loadCategoryMap(
@@ -390,7 +432,8 @@ async function loadCategoryMap(
   const result = await db.query<{ category_id: string; name: string; slug: string }>(
     `SELECT category_id, name, slug
      FROM discovery_search_catalog_categories
-     WHERE category_id = ANY($1)`,
+     WHERE category_id = ANY($1)
+       AND status = 'active'`,
     [ids],
   );
 
@@ -660,8 +703,13 @@ async function refreshSearchProductContentsForContainedItem(
 async function refreshDiscoverySearchItem(
   db: PgQueryable,
   itemId: string,
-  options: Readonly<{ refreshProductContentText?: boolean; cascadeContainerContents?: boolean }> = {},
+  options: Readonly<{
+    refreshProductContentText?: boolean;
+    cascadeContainerContents?: boolean;
+    targetTable?: SearchIndexTable;
+  }> = {},
 ): Promise<void> {
+  const targetTable = options.targetTable ?? SEARCH_INDEX_TABLE;
   const result = await db.query<SearchCatalogItemRow>(
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
     [itemId],
@@ -670,9 +718,39 @@ async function refreshDiscoverySearchItem(
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
+    await db.query(
+      `DELETE FROM ${targetTable} AS search_item
+       WHERE search_item.catalog_item_id = $1
+         AND NOT EXISTS (
+           SELECT 1
+           FROM ${SEARCH_CATALOG_ITEMS_TABLE} AS source_item
+           WHERE source_item.catalog_item_id = search_item.catalog_item_id
+         )`,
+      [itemId],
+    );
     if (options.refreshProductContentText) {
       await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString(), {
+        cascadeContainers: options.cascadeContainerContents,
+      });
+    }
+    return;
+  }
+
+  if (item.status === "archived") {
+    await db.query(
+      `DELETE FROM ${targetTable} AS search_item
+       WHERE search_item.catalog_item_id = $1
+         AND EXISTS (
+           SELECT 1
+           FROM ${SEARCH_CATALOG_ITEMS_TABLE} AS source_item
+           WHERE source_item.catalog_item_id = search_item.catalog_item_id
+             AND source_item.status = 'archived'
+             AND source_item.updated_at = $2
+         )`,
+      [itemId, item.updated_at],
+    );
+    if (options.refreshProductContentText) {
+      await refreshSearchProductContentsForContainedItem(db, itemId, item.updated_at, {
         cascadeContainers: options.cascadeContainerContents,
       });
     }
@@ -748,8 +826,9 @@ async function refreshDiscoverySearchItem(
     await db.query(
       `UPDATE discovery_search_catalog_items
        SET category_ids = $2
-       WHERE catalog_item_id = $1`,
-      [itemId, JSON.stringify(categoryIds)],
+       WHERE catalog_item_id = $1
+         AND updated_at = $3`,
+      [itemId, JSON.stringify(categoryIds), item.updated_at],
     );
   }
 
@@ -759,8 +838,14 @@ async function refreshDiscoverySearchItem(
   const categoryRefs = await loadCategoryMap(db, categoryIds);
 
   const blueprintName = item.blueprint_id ? (blueprintNames.get(item.blueprint_id) ?? null) : null;
-  const categoryNameList = categoryIds.map((id) => categoryRefs.get(id)?.name ?? id);
-  const categorySlugList = categoryIds.map((id) => categoryRefs.get(id)?.slug ?? id);
+  const categoryNameList = categoryIds.flatMap((id) => {
+    const category = categoryRefs.get(id);
+    return category ? [category.name] : [];
+  });
+  const categorySlugList = categoryIds.flatMap((id) => {
+    const category = categoryRefs.get(id);
+    return category ? [category.slug] : [];
+  });
 
   const fieldValuesText = fieldValues
     .flatMap((fieldValue) =>
@@ -817,7 +902,7 @@ async function refreshDiscoverySearchItem(
   });
 
   await db.query(
-    `INSERT INTO discovery_search_items (
+    `INSERT INTO ${targetTable} (
       catalog_item_id,
       slug,
       language_code,
@@ -886,12 +971,19 @@ async function refreshDiscoverySearchItem(
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
       embedding_updated_at = CASE
-        WHEN discovery_search_items.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
-          THEN discovery_search_items.embedding_updated_at
+        WHEN ${targetTable}.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
+          THEN ${targetTable}.embedding_updated_at
         ELSE NULL
       END,
       embedded_text_hash = EXCLUDED.embedded_text_hash,
-      updated_at = EXCLUDED.updated_at`,
+      updated_at = EXCLUDED.updated_at
+    WHERE EXISTS (
+      SELECT 1
+      FROM ${SEARCH_CATALOG_ITEMS_TABLE} AS source_item
+      WHERE source_item.catalog_item_id = EXCLUDED.catalog_item_id
+        AND date_trunc('milliseconds', source_item.updated_at)
+          = date_trunc('milliseconds', EXCLUDED.updated_at)
+    )`,
     [
       item.catalog_item_id,
       item.slug,
@@ -1118,23 +1210,55 @@ async function refreshItemsByReferenceRecord(
   await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
-export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
-  await db.query(`TRUNCATE discovery_search_items`);
+export type DiscoverySearchIndexRebuildOptions = Readonly<{
+  onShadowReady?: () => Promise<void>;
+}>;
 
-  await refreshAffectedRows(db, {
-    select: { column: "catalog_item_id" },
-    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
-    orderBy: [{ column: "catalog_item_id" }],
-    refresh: (itemId) =>
-      refreshDiscoverySearchItem(db, itemId, {
-        refreshProductContentText: true,
-        // The walk folds every container directly from the mirror, so the
-        // per-contained-item container cascade would be redundant re-work.
-        cascadeContainerContents: false,
-      }),
+export async function rebuildDiscoverySearchIndex(
+  pool: PgTransactionalPool,
+  options: DiscoverySearchIndexRebuildOptions = {},
+): Promise<void> {
+  await withPgTransaction(pool, async (db) => {
+    await db.query(`DROP TABLE IF EXISTS ${SEARCH_INDEX_REBUILD_TABLE}`);
+    await db.query(`CREATE TABLE ${SEARCH_INDEX_REBUILD_TABLE} (LIKE ${SEARCH_INDEX_TABLE} INCLUDING ALL)`);
+
+    await refreshAffectedRows(db, {
+      select: { column: "catalog_item_id" },
+      from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+      orderBy: [{ column: "catalog_item_id" }],
+      refresh: (itemId) =>
+        refreshDiscoverySearchItem(db, itemId, {
+          refreshProductContentText: true,
+          // The walk folds every container directly from the mirror, so the
+          // per-contained-item container cascade would be redundant re-work.
+          cascadeContainerContents: false,
+          targetTable: SEARCH_INDEX_REBUILD_TABLE,
+        }),
+    });
+
+    await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
+    await options.onShadowReady?.();
+
+    // The long build never locks the serving table. Take the exclusive lock only
+    // for the final preservation + rename transaction, after the projection
+    // operation has leased this group, so every enrichment commit visible at
+    // cutover is included in the hash-matched copy.
+    await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE} IN ACCESS EXCLUSIVE MODE`);
+    await db.query(
+      `UPDATE ${SEARCH_INDEX_REBUILD_TABLE} AS shadow
+       SET search_embedding = active.search_embedding,
+           embedding_model = active.embedding_model,
+           embedding_updated_at = active.embedding_updated_at
+       FROM ${SEARCH_INDEX_TABLE} AS active
+       WHERE shadow.catalog_item_id = active.catalog_item_id
+         AND shadow.embedded_text_hash IS NOT DISTINCT FROM active.embedded_text_hash`,
+    );
+    await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
+
+    await db.query(`ALTER TABLE ${SEARCH_INDEX_TABLE} RENAME TO discovery_search_items_previous`);
+    await db.query(`ALTER TABLE ${SEARCH_INDEX_REBUILD_TABLE} RENAME TO ${SEARCH_INDEX_TABLE}`);
+    await db.query(`ALTER TABLE discovery_search_items_previous RENAME TO ${SEARCH_INDEX_REBUILD_TABLE}`);
   });
-
-  await refreshAllSearchIndexMarketSignals(db);
 }
 
 async function refreshItemsByBlueprint(
@@ -1545,8 +1669,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
-      await refreshSearchProductContentsForContainedItem(db, itemId, event.timing.recordedAt);
+      await refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true });
     },
 
     "catalog.blueprint.created": async (event) => {
@@ -1874,6 +1997,8 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         categoryId,
         slug,
         name: resolvedName,
+        status: "draft",
+        globalPosition: event.globalPosition,
         updatedAt: event.timing.recordedAt,
       });
     },
@@ -1887,20 +2012,53 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         [categoryId],
       );
 
-      await upsertSearchCategory(db, {
+      const applied = await upsertSearchCategory(db, {
         categoryId,
         slug,
         name: resolvedName,
+        globalPosition: event.globalPosition,
         updatedAt: event.timing.recordedAt,
       });
-      await rememberSlugRedirect(db, {
-        entityKind: "category",
-        entityId: categoryId,
-        previousSlug: current.rows[0]?.slug,
-        nextSlug: slug,
-        updatedAt: event.timing.recordedAt,
-      });
+      if (applied) {
+        await rememberSlugRedirect(db, {
+          entityKind: "category",
+          entityId: categoryId,
+          previousSlug: current.rows[0]?.slug,
+          nextSlug: slug,
+          updatedAt: event.timing.recordedAt,
+        });
+      }
 
+      await refreshItemsByCategory(db, categoryId, context?.throwIfLeaseLost);
+    },
+    "catalog.category.published": async (event, context) => {
+      const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
+      await transitionSearchCategoryStatus(db, {
+        categoryId,
+        status: "active",
+        globalPosition: event.globalPosition,
+        updatedAt: event.timing.recordedAt,
+      });
+      await refreshItemsByCategory(db, categoryId, context?.throwIfLeaseLost);
+    },
+    "catalog.category.deprecated": async (event, context) => {
+      const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
+      await transitionSearchCategoryStatus(db, {
+        categoryId,
+        status: "deprecated",
+        globalPosition: event.globalPosition,
+        updatedAt: event.timing.recordedAt,
+      });
+      await refreshItemsByCategory(db, categoryId, context?.throwIfLeaseLost);
+    },
+    "catalog.category.archived": async (event, context) => {
+      const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
+      await transitionSearchCategoryStatus(db, {
+        categoryId,
+        status: "archived",
+        globalPosition: event.globalPosition,
+        updatedAt: event.timing.recordedAt,
+      });
       await refreshItemsByCategory(db, categoryId, context?.throwIfLeaseLost);
     },
   };

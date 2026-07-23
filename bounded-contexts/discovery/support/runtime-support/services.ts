@@ -87,7 +87,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const deps = { eventStore, checkpointStore, db } as const;
+  const deps = { eventStore, checkpointStore, db, pool } as const;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const browse = createDiscoveryBrowseRuntime(deps);
   const categories = createDiscoveryCategoryRuntime(deps);

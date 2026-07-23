@@ -56,7 +56,12 @@ export function createDiscoveryItemSearchRuntime(
       return result;
     },
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
-    rebuildSearchIndex: () => rebuildDiscoverySearchIndex(deps.db),
+    rebuildSearchIndex: () => {
+      if (!deps.pool) {
+        throw new Error("Discovery Search Index rebuild requires a transactional pool.");
+      }
+      return rebuildDiscoverySearchIndex(deps.pool);
+    },
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
       await publishDiscoveryCsatOutcomeFact(deps.eventStore, context, {
         outcomeCode: "discovery.search-completed",

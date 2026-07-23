@@ -10,7 +10,9 @@ import { module as orderingModule } from "@chase-sets/ordering";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
   bootstrapContextDatabase,
+  createProjectionAwarePool,
   drainContextProcesses,
+  rebuildContextProjectionGroup,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
 } from "@chase-sets/bounded-context-runtime";
@@ -65,6 +67,7 @@ const context: EventStoreContext = {
 let catalogServices: ReturnType<typeof catalogModule.createServices>;
 let discoveryServices: ReturnType<typeof createDiscoveryServices>;
 let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
+let projectionGroups: ReturnType<typeof resolveModuleProjectionGroups>;
 let app: Hono;
 let pools: Readonly<Record<(typeof discoveryContextNames)[number], PgTransactionalPool>>;
 
@@ -116,7 +119,7 @@ describe("marketplace search", () => {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
     const orderingServices = orderingModule.createServices(pools.ordering, {});
-    discoveryServices = createDiscoveryServices(pools.discovery);
+    discoveryServices = createDiscoveryServices(createProjectionAwarePool(pools.discovery));
     const mountedContexts = [
       {
         contextName: "catalog",
@@ -182,8 +185,7 @@ describe("marketplace search", () => {
       },
     ] as const;
     subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
-    const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
-    void projectionGroups;
+    projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
     app = new Hono();
     app.route("/api/marketplace", buildDiscoveryApi(discoveryServices));
   });
@@ -1019,7 +1021,9 @@ describe("marketplace search", () => {
     );
 
     await rebuildDiscoverySearchIndex(pools.discovery);
+    const firstBuild = await loadSearchIndexRow("cat_test");
     await rebuildDiscoverySearchIndex(pools.discovery);
+    const secondBuild = await loadSearchIndexRow("cat_test");
 
     const result = await pools.discovery.query<{ count: string; display_badges: unknown }>(
       `SELECT display_badges, COUNT(*) OVER()::text AS count
@@ -1031,6 +1035,158 @@ describe("marketplace search", () => {
       { kind: "rarity", label: "Rare" },
       { kind: "number", label: "7/100" },
     ]);
+    expect(secondBuild).toEqual(firstBuild);
+  });
+
+  it("keeps serving the active Search Index while a complete shadow waits for cutover", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES ('cat_serving', 'Serving Card', 'active', '2026-07-23T01:00:00.000Z')`,
+    );
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES ('cat_shadow', 'Shadow Card', 'active', '2026-07-23T01:01:00.000Z')`,
+    );
+
+    let announceShadowReady!: () => void;
+    const shadowReady = new Promise<void>((resolve) => {
+      announceShadowReady = resolve;
+    });
+    let releaseCutover!: () => void;
+    const cutoverReleased = new Promise<void>((resolve) => {
+      releaseCutover = resolve;
+    });
+    const rebuild = rebuildDiscoverySearchIndex(pools.discovery, {
+      onShadowReady: async () => {
+        announceShadowReady();
+        await cutoverReleased;
+      },
+    });
+
+    await shadowReady;
+    try {
+      const response = await app.request("/api/marketplace/items?search=Serving");
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toContain("cat_serving");
+    } finally {
+      releaseCutover();
+    }
+    await rebuild;
+
+    const response = await app.request("/api/marketplace/items?search=Shadow");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toContain("cat_shadow");
+  });
+
+  it("converges incremental projection and rebuild to the same Search Index row", async () => {
+    const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+    await handlers["catalog.catalog-item.created"]?.(
+      projectionEvent(
+        "catalog.catalog-item.created",
+        {
+          itemId: "cat_converges",
+          title: l10n("Convergent Card"),
+          subtitle: null,
+          description: l10n("Built incrementally first"),
+        },
+        "catalog.item-cat_converges",
+        1,
+      ),
+    );
+    await handlers["catalog.catalog-item.published"]?.(
+      projectionEvent("catalog.catalog-item.published", { blueprintId: null }, "catalog.item-cat_converges", 2),
+    );
+
+    const incremental = await loadSearchIndexRow("cat_converges");
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    expect(await loadSearchIndexRow("cat_converges")).toEqual(incremental);
+  });
+
+  it("invalidates category facets in event order and preserves the result through rebuild", async () => {
+    const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+    const categoryStream = "catalog.category-cat_lifecycle";
+    const itemStream = "catalog.item-cat_lifecycle_item";
+
+    await handlers["catalog.category.created"]?.(
+      projectionEvent(
+        "catalog.category.created",
+        { categoryId: "cat_lifecycle", name: l10n("Trading Cards") },
+        categoryStream,
+        1,
+      ),
+    );
+    await handlers["catalog.category.published"]?.(
+      projectionEvent("catalog.category.published", {}, categoryStream, 2),
+    );
+    await handlers["catalog.catalog-item.created"]?.(
+      projectionEvent(
+        "catalog.catalog-item.created",
+        {
+          itemId: "cat_lifecycle_item",
+          title: l10n("Lifecycle Card"),
+          subtitle: null,
+          description: l10n("Category lifecycle fixture"),
+        },
+        itemStream,
+        3,
+      ),
+    );
+    await handlers["catalog.catalog-item.published"]?.(
+      projectionEvent("catalog.catalog-item.published", { blueprintId: null }, itemStream, 4),
+    );
+    await handlers["catalog.catalog-item.category-assigned"]?.(
+      projectionEvent("catalog.catalog-item.category-assigned", { categoryId: "cat_lifecycle" }, itemStream, 5),
+    );
+    expect((await loadSearchIndexRow("cat_lifecycle_item"))?.category_names).toEqual(["Trading Cards"]);
+
+    await handlers["catalog.category.revised"]?.(
+      projectionEvent("catalog.category.revised", { name: l10n("Collectible Cards") }, categoryStream, 6),
+    );
+    expect((await loadSearchIndexRow("cat_lifecycle_item"))?.category_names).toEqual(["Collectible Cards"]);
+
+    await handlers["catalog.category.deprecated"]?.(
+      projectionEvent("catalog.category.deprecated", {}, categoryStream, 7),
+    );
+    expect((await loadSearchIndexRow("cat_lifecycle_item"))?.category_names).toEqual([]);
+
+    await handlers["catalog.category.revised"]?.(
+      projectionEvent("catalog.category.revised", { name: l10n("Stale Name") }, categoryStream, 6),
+    );
+    const category = await pools.discovery.query<{ name: string; status: string; last_global_position: string }>(
+      `SELECT name, status, last_global_position::text
+       FROM discovery_search_catalog_categories
+       WHERE category_id = 'cat_lifecycle'`,
+    );
+    expect(category.rows[0]).toEqual({
+      name: "Collectible Cards",
+      status: "deprecated",
+      last_global_position: "7",
+    });
+
+    await handlers["catalog.category.archived"]?.(projectionEvent("catalog.category.archived", {}, categoryStream, 8));
+    const incremental = await loadSearchIndexRow("cat_lifecycle_item");
+    expect(incremental?.category_names).toEqual([]);
+    expect(incremental?.category_slugs).toEqual([]);
+
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    expect(await loadSearchIndexRow("cat_lifecycle_item")).toEqual(incremental);
+  });
+
+  it("invokes the Search Index rebuild through the existing projection operation", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES ('cat_operation', 'Operation Card', 'active', '2026-07-23T02:00:00.000Z')`,
+    );
+
+    await rebuildContextProjectionGroup({ projectionGroups }, "discovery", "discovery-search-item-projection");
+
+    expect(await loadSearchIndexRow("cat_operation")).toMatchObject({
+      catalog_item_id: "cat_operation",
+      title: "Operation Card",
+    });
   });
 
   it("matches Latin diacritics symmetrically for titles and aliases", async () => {
@@ -1712,6 +1868,34 @@ describe("marketplace search", () => {
     });
   });
 });
+
+async function loadSearchIndexRow(catalogItemId: string): Promise<Record<string, unknown> | undefined> {
+  const result = await pools.discovery.query<{ row: Record<string, unknown> }>(
+    `SELECT to_jsonb(item) AS row
+     FROM discovery_search_items AS item
+     WHERE catalog_item_id = $1`,
+    [catalogItemId],
+  );
+  return result.rows[0]?.row;
+}
+
+function projectionEvent(
+  type: string,
+  data: Record<string, unknown>,
+  streamId: string,
+  globalPosition: number,
+): TransportEvent {
+  const recordedAt = `2026-07-23T03:00:${String(globalPosition).padStart(2, "0")}.000Z`;
+  return buildTransportEvent(type, data, {
+    id: `evt_search_index_${globalPosition}_${type.replaceAll(".", "_")}`,
+    streamId,
+    streamVersion: globalPosition,
+    globalPosition: String(globalPosition),
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
+}
 
 function productContentsResolvedEvent(input: {
   containerCatalogItemId: string;

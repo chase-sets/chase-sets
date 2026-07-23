@@ -4,9 +4,15 @@ import {
   buyerVisibleListingQuantitySql,
 } from "../../../support/market-support/listing-visibility";
 
-export async function refreshSearchIndexMarketSignals(db: PgQueryable, catalogItemId: string): Promise<void> {
+export type SearchIndexMarketSignalTable = "discovery_search_items" | "discovery_search_items_rebuild";
+
+export async function refreshSearchIndexMarketSignals(
+  db: PgQueryable,
+  catalogItemId: string,
+  targetTable: SearchIndexMarketSignalTable = "discovery_search_items",
+): Promise<void> {
   await db.query(
-    `UPDATE discovery_search_items AS item
+    `UPDATE ${targetTable} AS item
      SET lowest_price_amount = market.lowest_price_amount,
          visible_quantity = market.visible_quantity
      FROM (
@@ -24,9 +30,12 @@ export async function refreshSearchIndexMarketSignals(db: PgQueryable, catalogIt
   );
 }
 
-export async function refreshAllSearchIndexMarketSignals(db: PgQueryable): Promise<void> {
+export async function refreshAllSearchIndexMarketSignals(
+  db: PgQueryable,
+  targetTable: SearchIndexMarketSignalTable = "discovery_search_items",
+): Promise<void> {
   await db.query(
-    `UPDATE discovery_search_items AS item
+    `UPDATE ${targetTable} AS item
      SET lowest_price_amount = market.lowest_price_amount,
          visible_quantity = market.visible_quantity
      FROM (

@@ -72,12 +72,15 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_categories (
   category_id text PRIMARY KEY,
   slug text NOT NULL DEFAULT '',
   name text NOT NULL,
+  status text NOT NULL DEFAULT 'active',
+  last_global_position bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE discovery_search_catalog_categories
-  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
-
+  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS last_global_position bigint NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_fields (
   field_id text PRIMARY KEY,
@@ -342,6 +345,18 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
   ON discovery_search_items (status, lowest_price_amount ASC NULLS LAST, catalog_item_id ASC);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_price_desc_idx
   ON discovery_search_items (status, lowest_price_amount DESC NULLS LAST, catalog_item_id DESC);`,
+    ],
+  },
+  {
+    migrationId: "20260723_discovery_search_category_lifecycle",
+    description:
+      "Track Search Index category lifecycle and source revision so deprecated or archived categories stop contributing filters without stale-event overwrite.",
+    statements: [
+      `ALTER TABLE discovery_search_catalog_categories
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS last_global_position bigint NOT NULL DEFAULT 0;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_categories_status_idx
+  ON discovery_search_catalog_categories (status);`,
     ],
   },
 ];
