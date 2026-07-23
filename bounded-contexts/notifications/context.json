@@ -43,8 +43,13 @@
       "sourceContextName": "settlement",
       "sourceContextMount": "when-mounted",
       "projectionName": "notifications-source-facts-outbox-projection",
-      "subscriptionVersion": 1,
-      "eventTypes": ["settlement.payout-readiness.recorded"],
+      "subscriptionVersion": 2,
+      "eventTypes": [
+        "settlement.payout-readiness.recorded",
+        "settlement.support-hold.placed.v1",
+        "settlement.support-hold.released.v1",
+        "settlement.support-hold.consumed.v1"
+      ],
       "order": 50,
       "projectionHandlerSetNames": ["notifications-settlement-facts-projection"]
     },

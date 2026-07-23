@@ -1,13 +1,10 @@
 import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
+import { supportSeedIds } from "@chase-sets/platform-operations/seed-support/ids";
 import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
   demoAccountId: "acc_seed_demo_account",
-  supportRequests: {
-    activeProductNotReceived: "sup_seed_active_product_not_received",
-    resolvedPartialRefund: "sup_seed_resolved_partial_refund",
-  },
 } as const;
 
 describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
@@ -128,10 +125,31 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
        FROM support_request_pages
        WHERE support_request_id = ANY($1::text[])
        ORDER BY support_request_id ASC`,
-      [[seedIds.supportRequests.activeProductNotReceived, seedIds.supportRequests.resolvedPartialRefund]],
+      [
+        [
+          supportSeedIds.supportRequests.activeProductNotReceived,
+          supportSeedIds.supportRequests.selfServiceProductDamaged,
+          supportSeedIds.supportRequests.resolvedPartialRefund,
+        ],
+      ],
     );
-    expect(supportRequests.rows).toHaveLength(2);
-    expect(new Set(supportRequests.rows.map((row) => row.status))).toEqual(new Set(["waiting-on-seller", "resolved"]));
+    expect(supportRequests.rows).toEqual([
+      {
+        support_request_id: supportSeedIds.supportRequests.activeProductNotReceived,
+        status: "waiting-on-seller",
+        flow_type: "product-not-received",
+      },
+      {
+        support_request_id: supportSeedIds.supportRequests.resolvedPartialRefund,
+        status: "resolved",
+        flow_type: "product-damaged",
+      },
+      {
+        support_request_id: supportSeedIds.supportRequests.selfServiceProductDamaged,
+        status: "waiting-on-seller",
+        flow_type: "product-damaged",
+      },
+    ]);
 
     const refundEffect = await pools.payments.query<{
       status: string;
@@ -140,7 +158,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       `SELECT status, requested_amount::text AS requested_amount
        FROM payments_support_refund_effects
        WHERE support_request_id = $1`,
-      [seedIds.supportRequests.resolvedPartialRefund],
+      [supportSeedIds.supportRequests.resolvedPartialRefund],
     );
     expect(refundEffect.rows[0]).toMatchObject({
       status: "refund-requested",
@@ -152,9 +170,15 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
        FROM settlement_support_holds
        WHERE support_request_id = ANY($1::text[])
          AND active = TRUE`,
-      [[seedIds.supportRequests.activeProductNotReceived, seedIds.supportRequests.resolvedPartialRefund]],
+      [
+        [
+          supportSeedIds.supportRequests.activeProductNotReceived,
+          supportSeedIds.supportRequests.selfServiceProductDamaged,
+          supportSeedIds.supportRequests.resolvedPartialRefund,
+        ],
+      ],
     );
-    expect(Number(activeHolds.rows[0]?.count ?? 0)).toBe(2);
+    expect(Number(activeHolds.rows[0]?.count ?? 0)).toBe(3);
 
     const eventCountsBefore = await readSeedEventCounts(pools);
     await seedRuntime.seed();

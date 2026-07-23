@@ -20,6 +20,11 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
+// Keep the shared browser journey in its seller-response phase across reusable
+// local sandboxes. Deadline behavior is exercised by the support domain tests;
+// this fixture owns the separate self-service agreement path.
+const selfServiceJourneySellerResponseHours = 24 * 365 * 10;
+
 export async function seedPlatformOperationsDatabase(
   pool: PgTransactionalPool,
   services: PlatformOperationsServices = createPlatformOperationsServices(pool),
@@ -382,6 +387,7 @@ export async function seedSupportDatabase(
           openedByAccountId: order.buyer_account_id as AccountId,
           openedByRole: "buyer",
           openedAt: "2026-07-15T09:00:00.000Z",
+          sellerResponseHours: selfServiceJourneySellerResponseHours,
         },
         context: buyerContext,
       });

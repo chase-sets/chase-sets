@@ -1,3 +1,6 @@
+import { supportSeedIds } from "@chase-sets/platform-operations/seed-support/ids";
+import { centsToMoneyAmount } from "@chase-sets/primitives/money";
+
 export const marketplaceBrowserE2eSeedContract = {
   buyer: {
     email: "collector@chasesets.test",
@@ -46,6 +49,13 @@ export const marketplaceBrowserE2eSeedContract = {
   itemDetailWithoutListings: {
     catalogItemId: "cat_seed_bulbasaur_base_set",
     routePath: "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju",
+  },
+  support: {
+    damagedItemAgreement: {
+      supportRequestId: supportSeedIds.supportRequests.selfServiceProductDamaged,
+      partialRefundAmount: centsToMoneyAmount(500),
+      currencyCode: "USD",
+    },
   },
 } as const;
 
