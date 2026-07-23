@@ -9,6 +9,7 @@ const API_VERSION = "2022-11-28";
 const REVIEW_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"]);
 const USER_TYPES = new Set(["User", "Bot"]);
 const HEX_SHA = /^[a-f0-9]{40}$/;
+const MAX_PULL_REQUEST_FILES = 3_000;
 
 export class RiskReviewBoundaryError extends Error {
   constructor(code) {
@@ -81,7 +82,14 @@ export function projectPullRequest(value) {
   const user = assertObject(raw.user, "pull-request-user-shape");
   const head = assertObject(raw.head, "pull-request-head-shape");
   const base = assertObject(raw.base, "pull-request-base-shape");
-  if (!Number.isInteger(raw.number) || raw.number < 1 || !Array.isArray(raw.labels)) fail("pull-request-shape");
+  if (
+    !Number.isInteger(raw.number) ||
+    raw.number < 1 ||
+    (raw.changed_files != null && (!Number.isInteger(raw.changed_files) || raw.changed_files < 0)) ||
+    !Array.isArray(raw.labels)
+  ) {
+    fail("pull-request-shape");
+  }
   return assertClosed(
     {
       number: raw.number,
@@ -90,11 +98,12 @@ export function projectPullRequest(value) {
       headSha: assertSha(head.sha, "pull-request-head-shape"),
       baseRef: assertString(base.ref, "pull-request-base-shape"),
       mergeCommitSha: raw.merge_commit_sha == null ? null : assertSha(raw.merge_commit_sha, "pull-request-merge-shape"),
+      changedFilesCount: raw.changed_files ?? null,
       labels: raw.labels.map((label) =>
         assertString(assertObject(label, "pull-request-label-shape").name, "pull-request-label-shape"),
       ),
     },
-    ["number", "state", "author", "headSha", "baseRef", "mergeCommitSha", "labels"],
+    ["number", "state", "author", "headSha", "baseRef", "mergeCommitSha", "changedFilesCount", "labels"],
     "pull-request-projection",
   );
 }
@@ -165,7 +174,7 @@ function principalEligibility(config, actor, actorType) {
 export function evaluateApprovalState({ pullRequest, reviews, config, teamEligibleActors = [] }) {
   assertClosed(
     pullRequest,
-    ["number", "state", "author", "headSha", "baseRef", "mergeCommitSha", "labels"],
+    ["number", "state", "author", "headSha", "baseRef", "mergeCommitSha", "changedFilesCount", "labels"],
     "pull-request-projection",
   );
   validateEligibilityConfig(config);
@@ -301,30 +310,77 @@ async function resolveTeamActors({ client, config, reviews }) {
   return eligible;
 }
 
+function unknownPullRequestResult({ pullRequest, files, code }) {
+  const pathsScanned = files.reduce((count, file) => count + 1 + Number(file.previousFilename != null), 0);
+  return {
+    pullRequest,
+    classification: {
+      schemaVersion: "risk-policy/v1",
+      classification: "unknown",
+      categories: [],
+      reasons: [],
+      findings: [],
+      scan: {
+        filesScanned: files.length,
+        filesTotal: pullRequest.changedFilesCount,
+        pathsScanned,
+        uniquePathsScanned: new Set(files.flatMap((file) => [file.filename, file.previousFilename].filter(Boolean)))
+          .size,
+        totalSurface: (pullRequest.changedFilesCount ?? files.length) + pullRequest.labels.length,
+        complete: false,
+      },
+    },
+    approval: { state: "not-evaluated" },
+    advisoryState: "unknown",
+    code,
+  };
+}
+
 export async function evaluatePullRequest({ client, pullRequestNumber, config }) {
   const pullRequest = projectPullRequest((await client.request(`/pulls/${pullRequestNumber}`)).data);
-  const files = (await client.paginate(`/pulls/${pullRequest.number}/files`)).map(projectChangedFile);
-  const classification = classifyRisk({ changedFiles: files, labels: pullRequest.labels });
-  if (classification.classification === "low") {
-    return { pullRequest, classification, approval: { state: "not-required" }, advisoryState: "low-risk" };
-  }
-  if (config.eligiblePrincipals.length === 0 && config.eligibleTeams.length === 0) {
+  let files = [];
+  try {
+    if (!Number.isInteger(pullRequest.changedFilesCount)) fail("pull-request-files-count-shape");
+    files = (await client.paginate(`/pulls/${pullRequest.number}/files`)).map(projectChangedFile);
+    if (pullRequest.changedFilesCount >= MAX_PULL_REQUEST_FILES || files.length !== pullRequest.changedFilesCount) {
+      fail("api-files-truncated");
+    }
+    const risk = classifyRisk({ changedFiles: files, labels: pullRequest.labels });
+    const classification = {
+      ...risk,
+      scan: {
+        ...risk.scan,
+        filesTotal: pullRequest.changedFilesCount,
+        complete: true,
+      },
+    };
+    if (classification.classification === "low") {
+      return { pullRequest, classification, approval: { state: "not-required" }, advisoryState: "low-risk" };
+    }
+    if (config.eligiblePrincipals.length === 0 && config.eligibleTeams.length === 0) {
+      return {
+        pullRequest,
+        classification,
+        approval: { state: "configuration-required" },
+        advisoryState: "configuration-required",
+      };
+    }
+    const reviews = (await client.paginate(`/pulls/${pullRequest.number}/reviews`)).map(projectReview);
+    const teamEligibleActors = await resolveTeamActors({ client, config, reviews });
+    const approval = evaluateApprovalState({ pullRequest, reviews, config, teamEligibleActors });
     return {
       pullRequest,
       classification,
-      approval: { state: "configuration-required" },
-      advisoryState: "configuration-required",
+      approval,
+      advisoryState: approval.state === "approved" ? "approved" : "approval-required",
     };
+  } catch (error) {
+    return unknownPullRequestResult({
+      pullRequest,
+      files,
+      code: error instanceof RiskReviewBoundaryError ? error.code : "internal-failure",
+    });
   }
-  const reviews = (await client.paginate(`/pulls/${pullRequest.number}/reviews`)).map(projectReview);
-  const teamEligibleActors = await resolveTeamActors({ client, config, reviews });
-  const approval = evaluateApprovalState({ pullRequest, reviews, config, teamEligibleActors });
-  return {
-    pullRequest,
-    classification,
-    approval,
-    advisoryState: approval.state === "approved" ? "approved" : "approval-required",
-  };
 }
 
 export async function resolveMergeGroupPullRequests({ client, mergeGroup }) {
@@ -365,10 +421,12 @@ export function renderComment(result) {
     COMMENT_MARKER,
     "### Risk Review — advisory",
     "",
-    `Classification: **${result.classification.classification}-risk**  `,
+    `Classification: **${result.classification.classification}${result.classification.classification === "unknown" ? "" : "-risk"}**  `,
     `Evaluation: **${result.advisoryState}**  `,
+    `Head: \`${result.pullRequest?.headSha ?? "unavailable"}\`  `,
+    ...(result.code ? [`Safe code: \`${result.code}\`  `] : []),
     `Categories: ${categories}  `,
-    `Scanned: ${result.classification.scan.pathsScanned}/${result.classification.scan.totalSurface} path/label surfaces (${result.classification.scan.filesScanned} files).`,
+    `Scanned: ${result.classification.scan.filesScanned}/${result.classification.scan.filesTotal ?? result.classification.scan.filesScanned} files (complete: ${result.classification.scan.complete ?? "unknown"}); ${result.classification.scan.pathsScanned}/${result.classification.scan.totalSurface} path/label surfaces.`,
     "",
     paths || "No high-risk paths detected.",
     "",
@@ -414,7 +472,7 @@ export async function runRiskReview({ event, repository, token, config, fetchImp
       client,
       pullRequestNumber: number,
       body: renderComment(result),
-      createWhenMissing: result.classification.classification === "high",
+      createWhenMissing: result.classification.classification === "high" || result.advisoryState === "unknown",
     });
     results.push({ ...result, comment });
   }
@@ -444,7 +502,7 @@ export function projectEvent(eventName, payload, dispatchPullRequestNumber) {
   return { eventName, pullRequestNumber: pullRequest.number };
 }
 
-function summaryMarkdown(record) {
+export function summaryMarkdown(record) {
   if (record.status === "unknown") {
     return `## Risk Review — advisory\n\nEvaluation state: **unknown** (safe code: \`${record.code}\`).\n\nThis advisory workflow remains non-enforcing.`;
   }
@@ -453,7 +511,7 @@ function summaryMarkdown(record) {
     "",
     ...record.results.map(
       (result) =>
-        `- PR #${result.pullRequest.number}: ${result.classification.classification}-risk / ${result.advisoryState}; scanned ${result.classification.scan.pathsScanned}/${result.classification.scan.totalSurface} surfaces.`,
+        `- PR #${result.pullRequest.number}: ${result.classification.classification}${result.classification.classification === "unknown" ? "" : "-risk"} / ${result.advisoryState}${result.code ? ` (safe code: \`${result.code}\`)` : ""}; scanned ${result.classification.scan.pathsScanned}/${result.classification.scan.totalSurface} surfaces.`,
     ),
     "",
     "`Risk Review` is not required by the live ruleset and does not feed `PR Required` during calibration.",

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { RISK_POLICY_V1, classifyRisk } from "./risk-policy-v1.mjs";
 
@@ -31,6 +31,90 @@ const highRiskCases = [
 ];
 
 describe("risk-policy/v1", () => {
+  it("discovers executable money-provider territory by dependency and operation shape", async () => {
+    const infrastructureRoot = new URL("../../infrastructure/", import.meta.url);
+    const entries = await readdir(infrastructureRoot, { withFileTypes: true });
+    const moneyContractDependencies = new Set(["@chase-sets/money-movement", "@chase-sets/payment-processing"]);
+    const discoveredGateways = [];
+
+    for (const entry of entries.filter((candidate) => candidate.isDirectory())) {
+      let manifest;
+      try {
+        manifest = JSON.parse(await readFile(new URL(`${entry.name}/package.json`, infrastructureRoot), "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") continue;
+        throw error;
+      }
+      const runtimeDependencies = Object.keys(manifest.dependencies ?? {});
+      if (runtimeDependencies.some((dependency) => moneyContractDependencies.has(dependency))) {
+        discoveredGateways.push(`infrastructure/${entry.name}/index.ts`);
+      }
+    }
+
+    expect(discoveredGateways.sort()).toEqual([
+      "infrastructure/stripe-connect/index.ts",
+      "infrastructure/stripe-payments/index.ts",
+    ]);
+    for (const filename of discoveredGateways) {
+      expect(classifyRisk({ changedFiles: [{ filename, status: "modified" }] })).toMatchObject({
+        classification: "high",
+        categories: expect.arrayContaining(["money-movement"]),
+      });
+    }
+  });
+
+  it.each([
+    [
+      "payment authorization, capture, and refund adapter",
+      "infrastructure/stripe-payments/index.ts",
+      ["/v1/payment_intents", "/v1/refunds", '"authorized"', '"captured"'],
+    ],
+    [
+      "payout and transfer adapter",
+      "infrastructure/stripe-connect/index.ts",
+      ["/v1/transfers", "/v1/payouts", "createConnectedAccountPayout"],
+    ],
+    [
+      "money webhook configuration",
+      "infrastructure/stripe-config/webhook-events.json",
+      ["payment_intent.amount_capturable_updated", "charge.refunded", "payout.paid"],
+    ],
+  ])("classifies the real %s file after proving its executable operation shape", async (_label, filename, evidence) => {
+    const source = await readFile(new URL(`../../${filename}`, import.meta.url), "utf8");
+    for (const operation of evidence) expect(source).toContain(operation);
+
+    expect(classifyRisk({ changedFiles: [{ filename, status: "modified" }] })).toMatchObject({
+      classification: "high",
+      categories: expect.arrayContaining(["money-movement"]),
+    });
+  });
+
+  it("classifies the provider webhook inbox from its executable payment and payout consumers", async () => {
+    const filename = "infrastructure/provider-webhook-inbox/index.ts";
+    const [inbox, paymentConsumer, payoutConsumer] = await Promise.all([
+      readFile(new URL(`../../${filename}`, import.meta.url), "utf8"),
+      readFile(new URL("../../bounded-contexts/payments/features/payments/api/runtime.ts", import.meta.url), "utf8"),
+      readFile(new URL("../../bounded-contexts/settlement/features/payouts/api/runtime.ts", import.meta.url), "utf8"),
+    ]);
+    expect(inbox).toContain("recordProviderWebhookEvent");
+    expect(paymentConsumer).toContain('from "@chase-sets/provider-webhook-inbox"');
+    expect(payoutConsumer).toContain('from "@chase-sets/provider-webhook-inbox"');
+
+    expect(classifyRisk({ changedFiles: [{ filename, status: "modified" }] })).toMatchObject({
+      classification: "high",
+      categories: expect.arrayContaining(["money-movement"]),
+    });
+  });
+
+  it.each([
+    "infrastructure/stripe-payments/index.test.ts",
+    "infrastructure/local-email-capture/index.ts",
+    "infrastructure/easypost-postage/index.ts",
+    "infrastructure/arbitrary-provider/index.ts",
+  ])("does not infer money risk from the infrastructure parent or provider-like vocabulary: %s", (filename) => {
+    expect(classifyRisk({ changedFiles: [{ filename, status: "modified" }] }).classification).toBe("low");
+  });
+
   it.each(highRiskCases)("classifies %s through canonical semantics", (_label, filename, category) => {
     const result = classifyRisk({ changedFiles: [{ filename, status: "modified" }] });
 

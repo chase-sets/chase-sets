@@ -14,6 +14,7 @@
     "head": { "sha": "df1fb1b7a1d398762f60c45f083744186d405d21" },
     "base": { "ref": "main" },
     "merge_commit_sha": "0be59f79fd2bce973bd82e9b576951e362205c77",
+    "changed_files": 56,
     "labels": []
   },
   "file": {

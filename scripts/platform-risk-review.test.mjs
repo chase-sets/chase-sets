@@ -11,6 +11,7 @@ import {
   projectReview,
   renderComment,
   resolveMergeGroupPullRequests,
+  summaryMarkdown,
   upsertStableComment,
   validateEligibilityConfig,
 } from "./platform-risk-review.mjs";
@@ -37,6 +38,7 @@ function pullRequest(overrides = {}) {
     headSha,
     baseRef: "main",
     mergeCommitSha: null,
+    changedFilesCount: 1,
     labels: [],
     ...overrides,
   };
@@ -62,6 +64,7 @@ function rawPull(number = 5503, overrides = {}) {
     head: { sha: headSha },
     base: { ref: "main" },
     merge_commit_sha: null,
+    changed_files: 1,
     labels: [],
     ...overrides,
   };
@@ -113,6 +116,13 @@ describe("platform risk review API projections", () => {
     });
   });
 
+  it("allows commit-associated PR summaries to omit the detail-only changed_files count", () => {
+    const summary = rawPull();
+    delete summary.changed_files;
+
+    expect(projectPullRequest(summary)).toMatchObject({ number: 5503, changedFilesCount: null });
+  });
+
   it("adapts arbitrary paths and rename/delete metadata through the real GitHub file projection", () => {
     expect(projectChangedFile(rawFile("arbitrary/new/place.ts"))).toMatchObject({
       filename: "arbitrary/new/place.ts",
@@ -136,6 +146,7 @@ describe("platform risk review API projections", () => {
     () => projectReview(rawReview({ user: { login: "reviewer", type: "Organization" } })),
     () => projectChangedFile(rawFile("x.ts", { changes: "1" })),
     () => projectPullRequest(rawPull(1, { head: { sha: "short" } })),
+    () => projectPullRequest(rawPull(1, { changed_files: "1" })),
   ])("fails malformed authoritative API shapes explicitly", (operation) => {
     expect(operation).toThrow(RiskReviewBoundaryError);
   });
@@ -262,6 +273,108 @@ describe("approval lifecycle", () => {
 });
 
 describe("GitHub boundary and convergence", () => {
+  it.each([
+    [2_999, "low-risk", undefined],
+    [3_000, "unknown", "api-files-truncated"],
+    [3_001, "unknown", "api-files-truncated"],
+  ])(
+    "reconciles authoritative changed_files at the provider cap boundary: %i",
+    async (changedFilesCount, expectedState, expectedCode) => {
+      const completeFiles = Array.from({ length: changedFilesCount }, (_entry, index) =>
+        rawFile(
+          index === 3_000
+            ? "infrastructure/stripe-payments/index.ts"
+            : `arbitrary/safe/file-${String(index).padStart(4, "0")}.ts`,
+        ),
+      );
+      const collectedFiles = completeFiles.slice(0, 3_000);
+      const requests = [];
+      const client = {
+        request: async () => ({ data: rawPull(5503, { changed_files: changedFilesCount }) }),
+        paginate: async (pathname) => {
+          if (pathname.endsWith("/files")) return collectedFiles;
+          if (pathname.endsWith("/comments")) {
+            return [
+              {
+                id: 99,
+                user: { login: "github-actions[bot]", type: "Bot" },
+                body: `${COMMENT_MARKER}\nClassification: **low-risk**`,
+              },
+            ];
+          }
+          throw new Error(`unexpected pagination path ${pathname}`);
+        },
+      };
+      const result = await evaluatePullRequest({ client, pullRequestNumber: 5503, config: config() });
+      client.request = async (pathname, options) => requests.push({ pathname, options });
+      await upsertStableComment({
+        client,
+        pullRequestNumber: 5503,
+        body: renderComment(result),
+        createWhenMissing: result.classification.classification === "high" || result.advisoryState === "unknown",
+      });
+
+      expect(completeFiles.at(-1)?.filename).toBe(
+        changedFilesCount === 3_001
+          ? "infrastructure/stripe-payments/index.ts"
+          : `arbitrary/safe/file-${String(changedFilesCount - 1).padStart(4, "0")}.ts`,
+      );
+      expect(result).toMatchObject({ advisoryState: expectedState, ...(expectedCode ? { code: expectedCode } : {}) });
+      expect(requests).toHaveLength(1);
+      expect(requests[0].options.body.body).toContain(`Evaluation: **${expectedState}**`);
+      if (expectedCode) {
+        expect(requests[0].options.body.body).toContain(`Safe code: \`${expectedCode}\``);
+        expect(requests[0].options.body.body).not.toContain("Classification: **low-risk**");
+      }
+    },
+  );
+
+  it("bounds a collected-count mismatch below the provider cap", async () => {
+    const client = {
+      request: async () => ({ data: rawPull(5503, { changed_files: 2 }) }),
+      paginate: async () => [rawFile("arbitrary/safe.ts")],
+    };
+
+    await expect(evaluatePullRequest({ client, pullRequestNumber: 5503, config: config() })).resolves.toMatchObject({
+      advisoryState: "unknown",
+      code: "api-files-truncated",
+    });
+  });
+
+  it("maps adversarial API exceptions to safe advisory output everywhere", async () => {
+    const adversarial = "Authorization: Bearer super-secret-token REVIEW_BODY_SENTINEL <!-- injected-review-marker -->";
+    const client = {
+      request: async () => ({ data: rawPull() }),
+      paginate: async () => {
+        throw new Error(adversarial);
+      },
+    };
+
+    const result = await evaluatePullRequest({ client, pullRequestNumber: 5503, config: config() });
+    const record = { schemaVersion: "risk-review-evaluation/v1", mode: "advisory", results: [result] };
+    for (const output of [JSON.stringify(result), renderComment(result), summaryMarkdown(record)]) {
+      expect(output).not.toContain("super-secret-token");
+      expect(output).not.toContain("REVIEW_BODY_SENTINEL");
+      expect(output).not.toContain("injected-review-marker");
+    }
+    expect(result).toMatchObject({ advisoryState: "unknown", code: "internal-failure" });
+  });
+
+  it("bounds an authoritative PR detail response that omits changed_files", async () => {
+    const detail = rawPull();
+    delete detail.changed_files;
+    const client = {
+      request: async () => ({ data: detail }),
+      paginate: vi.fn(),
+    };
+
+    await expect(evaluatePullRequest({ client, pullRequestNumber: 5503, config: config() })).resolves.toMatchObject({
+      advisoryState: "unknown",
+      code: "pull-request-files-count-shape",
+    });
+    expect(client.paginate).not.toHaveBeenCalled();
+  });
+
   it("follows every API page and rejects unsafe or malformed next links", async () => {
     const fetchImpl = vi
       .fn()
@@ -324,7 +437,7 @@ describe("GitHub boundary and convergence", () => {
     expect(calls).toEqual(["/pulls/5503", "/pulls/5503/files"]);
   });
 
-  it("fails explicitly when team eligibility cannot be read completely", async () => {
+  it("keeps unreadable team eligibility bounded and advisory", async () => {
     const teamConfig = config([], [{ organization: "chase-sets", slug: "reviewers" }]);
     const client = {
       request: async (pathname) => {
@@ -334,7 +447,8 @@ describe("GitHub boundary and convergence", () => {
       paginate: async (pathname) =>
         pathname.endsWith("/files") ? [rawFile("bounded-contexts/payments/domain/capture.ts")] : [rawReview()],
     };
-    await expect(evaluatePullRequest({ client, pullRequestNumber: 5503, config: teamConfig })).rejects.toMatchObject({
+    await expect(evaluatePullRequest({ client, pullRequestNumber: 5503, config: teamConfig })).resolves.toMatchObject({
+      advisoryState: "unknown",
       code: "api-http-403",
     });
   });

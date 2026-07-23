@@ -20,33 +20,22 @@ export function isDesignSystemNavigationRiskPath(path) {
   ].some((pattern) => pattern.test(normalized));
 }
 
-const rules = [
-  {
-    category: "money-movement",
-    reason: "Money movement, settlement, payout, or tax behavior changed",
-    patterns: [
-      /^bounded-contexts\/(?:checkout|payments|settlement|payouts)(?:\/|$)/,
-      /^bounded-contexts\/ordering\/(?:features\/tax-|[^/]*tax)/,
-      /^contracts\/(?:payments|settlement|payouts|tax)(?:\/|$)/,
-      /^scripts\/(?:stripe-money|marketplace-checkout-fee|marketplace-tax)/,
-    ],
-  },
-  {
-    category: "cross-context-contract",
-    reason: "Cross-context public contract, event schema, subscription, or runtime composition changed",
-    integrationReason: "Cross-context subscription or runtime composition changed",
-    patterns: [
-      /^contracts\//,
-      /^infrastructure\/(?:bounded-context-runtime|platform-runtime)\//,
-      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.[cm]?[jt]s$/,
-      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.[cm]?[jt]s$/,
-    ],
-  },
+const integrationRules = [
   {
     category: "cross-context-contract",
     reason: "Bounded-context metadata, including event subscriptions, changed",
     integrationReason: "Bounded-context metadata, including event subscriptions, changed",
     patterns: [/^bounded-contexts\/[^/]+\/context\.json$/],
+  },
+  {
+    category: "cross-context-contract",
+    reason: "Cross-context subscription or runtime composition changed",
+    integrationReason: "Cross-context subscription or runtime composition changed",
+    patterns: [
+      /^infrastructure\/(?:bounded-context-runtime|platform-runtime)\//,
+      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.[cm]?[jt]s$/,
+      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.[cm]?[jt]s$/,
+    ],
   },
   {
     category: "integration-surface",
@@ -66,6 +55,26 @@ const rules = [
     patterns: [],
     matches: isDesignSystemNavigationRiskPath,
   },
+];
+
+const rules = [
+  {
+    category: "money-movement",
+    reason: "Money movement, settlement, payout, or tax behavior changed",
+    patterns: [
+      /^bounded-contexts\/(?:checkout|payments|settlement|payouts)(?:\/|$)/,
+      /^bounded-contexts\/ordering\/(?:features\/tax-|[^/]*tax)/,
+      /^contracts\/(?:payments|settlement|payouts|tax)(?:\/|$)/,
+      /^infrastructure\/(?:stripe-payments|stripe-connect|stripe-config|provider-webhook-inbox)(?:\/|$)/,
+      /^scripts\/(?:stripe-money|marketplace-checkout-fee|marketplace-tax)/,
+    ],
+  },
+  {
+    category: "cross-context-contract",
+    reason: "Cross-context public contract, event schema, subscription, or runtime composition changed",
+    patterns: [/^contracts\//],
+  },
+  ...integrationRules.map((rule) => ({ ...rule, includesDocumentationAndTests: true })),
   {
     category: "database-change",
     reason: "Database migration, backfill, destructive operation, or retention deletion changed",
@@ -163,11 +172,28 @@ function matchingRules(path) {
   });
 }
 
+function ruleMatchesPath(rule, path) {
+  return rule.matches?.(path) || rule.patterns.some((pattern) => pattern.test(path));
+}
+
 export const RISK_POLICY_V1 = Object.freeze({
   schemaVersion: POLICY_VERSION,
   approvedHighRiskLabels: Object.freeze([...approvedHighRiskLabels]),
   categories: Object.freeze([...new Set(rules.map((rule) => rule.category))]),
 });
+
+export function classifyIntegrationRisk({ changedFiles }) {
+  if (!Array.isArray(changedFiles)) throw new TypeError("changedFiles must be an array");
+  const normalizedFiles = changedFiles.map(normalizeFile);
+  const reasons = [
+    ...new Set(
+      normalizedFiles.flatMap((file) =>
+        integrationRules.filter((rule) => ruleMatchesPath(rule, file.filename)).map((rule) => rule.integrationReason),
+      ),
+    ),
+  ];
+  return { required: reasons.length > 0, reasons };
+}
 
 export function classifyRisk({ changedFiles, labels = [] }) {
   if (!Array.isArray(changedFiles) || !Array.isArray(labels) || labels.some((label) => typeof label !== "string")) {

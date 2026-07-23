@@ -5,7 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { batchE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
-import { classifyRisk } from "./lib/risk-policy-v1.mjs";
+import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -227,8 +227,8 @@ export function classifyChanges({
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
-  const risk = classifyRisk({ changedFiles: normalizedFiles });
-  const integrationRiskReasons = new Set(risk.findings.map((finding) => finding.integrationReason).filter(Boolean));
+  const integrationRisk = classifyIntegrationRisk({ changedFiles: normalizedFiles });
+  const integrationRiskReasons = new Set(integrationRisk.reasons);
   let nonDocumentationChanged = false;
   const platformApiWorkspace = platformApiWorkspaceName(workspaces);
   const platformRuntimeWorkspace = platformRuntimeWorkspaceName(workspaces);
