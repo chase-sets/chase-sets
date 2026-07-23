@@ -22,6 +22,8 @@ export type CatalogPrimaryWorkbenchReadModelFailure =
 
 export type CatalogPrimaryWorkbenchInput = Readonly<{
   requestUrl: string | URL;
+  /** Injectable clock for freshness/age derivations (health triage); defaults to now. */
+  now?: string;
   scopes: ListResponse<SourceObservationIntegrationScope>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
   profileAuthoringModel?: CatalogProviderProfileAuthoringModel | null;

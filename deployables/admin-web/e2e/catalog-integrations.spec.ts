@@ -1,10 +1,15 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   authenticateAdmin,
+  dataTableRoot,
+  DESKTOP_VIEWPORT,
   expectAdminWebHydrated,
+  expectMinimumTouchTarget,
   expectPageOk,
   expectVisibleText,
+  MOBILE_VIEWPORT,
   skipDeployedAdminE2e,
+  TABLET_VIEWPORT,
 } from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
@@ -81,26 +86,6 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
   expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
-}
-
-const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
-const TABLET_VIEWPORT = { width: 820, height: 1180 } as const;
-const DESKTOP_VIEWPORT = { width: 1280, height: 900 } as const;
-// The design system's "md" breakpoint (packages/design-system/src/theme/tokens.ts)
-// is the table<->card collapse boundary DataTable uses (`hidden md:block` /
-// `md:hidden`), so the mobile/tablet fixtures above straddle it deliberately:
-// mobile is well below 768px (cards), tablet is comfortably above it (table).
-const MIN_TOUCH_TARGET_PX = 44;
-
-async function expectMinimumTouchTarget(locator: Locator, label: string) {
-  const box = await locator.boundingBox();
-  expect(box, `${label} should have a measurable layout box`).not.toBeNull();
-  expect(box!.width, `${label} width should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
-    MIN_TOUCH_TARGET_PX,
-  );
-  expect(box!.height, `${label} height should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
-    MIN_TOUCH_TARGET_PX,
-  );
 }
 
 async function expectAliasReviewWorkspace(page: Page) {
@@ -965,8 +950,13 @@ test.describe.serial("catalog admin integrations", () => {
     const importJobsTable = page.getByRole("table", { name: "Durable import job detail" });
     if (await importJobsTable.count()) {
       await expect(importJobsTable.first()).toBeHidden();
+      await expect(dataTableRoot(page, "Durable import job detail").getByRole("listitem").first()).toBeVisible();
+    } else {
+      logSeedContractGap(
+        "No 'Durable import job detail' table rendered: this daily-route stage needs at least one queued/running " +
+          "import job in this run's seed, which is not guaranteed volume for the shared browser-e2e seed.",
+      );
     }
-    await expect(page.getByRole("listitem").first()).toBeVisible();
     await page.screenshot({ path: "test-results/catalog-integrations-daily-mobile.png", fullPage: true });
 
     await page.setViewportSize(TABLET_VIEWPORT);
@@ -1024,19 +1014,23 @@ test.describe.serial("catalog admin integrations", () => {
     await expect(cloneSubmit).toBeVisible();
     await expectMinimumTouchTarget(cloneSubmit, "mobile provider-detail clone submit button");
 
+    // The active profile is always present for a mapped/synced provider like
+    // tcgdex (proven deterministic by the unit-level "renders provider
+    // identity... on one page" coverage), so the Profile candidates table has
+    // at least one row every run — assert its table/card collapse
+    // unconditionally rather than gating it on `count()`, and scope the card
+    // locator to this table's own DataTable root (dataTableRoot), never a
+    // page-wide unscoped `listitem` query.
     const versionHistoryTable = page.getByRole("table", { name: "Profile candidates" });
-    if (await versionHistoryTable.count()) {
-      await expect(versionHistoryTable.first()).toBeHidden();
-    }
-    await expect(page.getByRole("listitem").first()).toBeVisible();
+    const versionHistoryRoot = dataTableRoot(page, "Profile candidates");
+    await expect(versionHistoryTable).toBeHidden();
+    await expect(versionHistoryRoot.getByRole("listitem").first()).toBeVisible();
     await page.screenshot({ path: "test-results/catalog-provider-detail-mobile.png", fullPage: true });
 
     await page.setViewportSize(TABLET_VIEWPORT);
     await expect(providerDetailPage).toBeVisible();
     await expect(cloneSubmit).toBeVisible();
-    if (await versionHistoryTable.count()) {
-      await expect(versionHistoryTable.first()).toBeVisible();
-    }
+    await expect(versionHistoryTable).toBeVisible();
     await page.screenshot({ path: "test-results/catalog-provider-detail-tablet.png", fullPage: true });
 
     await page.setViewportSize(DESKTOP_VIEWPORT);
@@ -1060,11 +1054,14 @@ test.describe.serial("catalog admin integrations", () => {
 
     const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
     await expect(governanceControls).toBeVisible();
+    // The RBAC action matrix is the static command/permission catalog
+    // (governanceRbacMatrixFor), not seed/observation-dependent volume, so it
+    // is deterministically nonempty every run — assert its table/card
+    // collapse unconditionally, scoped to this table's own DataTable root.
     const rbacMatrixTable = page.getByRole("table", { name: "RBAC action matrix" });
-    if (await rbacMatrixTable.count()) {
-      await expect(rbacMatrixTable.first()).toBeHidden();
-    }
-    await expect(page.getByRole("listitem").first()).toBeVisible();
+    const rbacMatrixRoot = dataTableRoot(page, "RBAC action matrix");
+    await expect(rbacMatrixTable).toBeHidden();
+    await expect(rbacMatrixRoot.getByRole("listitem").first()).toBeVisible();
 
     const governanceBackLink = page.getByRole("link", { name: "Back to import workbench" }).first();
     await expect(governanceBackLink).toBeVisible();
@@ -1073,9 +1070,7 @@ test.describe.serial("catalog admin integrations", () => {
 
     await page.setViewportSize(TABLET_VIEWPORT);
     await expect(governanceControls).toBeVisible();
-    if (await rbacMatrixTable.count()) {
-      await expect(rbacMatrixTable.first()).toBeVisible();
-    }
+    await expect(rbacMatrixTable).toBeVisible();
     await page.screenshot({ path: "test-results/catalog-governance-tablet.png", fullPage: true });
 
     await page.setViewportSize(DESKTOP_VIEWPORT);

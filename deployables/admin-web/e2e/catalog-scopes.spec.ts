@@ -1,6 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  dataTableRoot,
+  expectAdminPageReady,
+  expectMinimumTouchTarget,
+  expectPageOk,
+  MOBILE_VIEWPORT,
+  skipDeployedAdminE2e,
+  TABLET_VIEWPORT,
+} from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
 
@@ -94,5 +103,31 @@ test.describe.serial("catalog admin scopes", () => {
     await expectAdminPageReady(page, { heading: "Scopes" });
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-table-tablet" });
+  });
+
+  test("scope landing's table collapses to cards at mobile width and is restored at tablet width, with a 44px row action @catalog-admin-scopes", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(skipDeployedAdminE2e, SKIP_REASON);
+
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await expectPageOk(page, "/catalog/scopes");
+    await expectAdminPageReady(page, { heading: "Scopes" });
+
+    // The scope registry is deterministically nonempty in a freshly
+    // bootstrapped browser-e2e sandbox (the sibling "a scope row opens..."
+    // test above proves rows exist without hitting its empty-registry skip),
+    // so this table/card assertion does not need a count()-gated fallback.
+    const scopeListTable = page.getByRole("table");
+    const scopeListRoot = dataTableRoot(page);
+    await expect(scopeListTable).toBeHidden();
+    const firstRowView = scopeListRoot.getByRole("listitem").first().getByRole("link", { name: "View" });
+    await expect(firstRowView).toBeVisible();
+    await expectMinimumTouchTarget(firstRowView, "mobile scope-landing row View action");
+
+    await page.setViewportSize(TABLET_VIEWPORT);
+    await expect(scopeListTable).toBeVisible();
   });
 });

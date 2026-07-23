@@ -1,4 +1,4 @@
-import { expect, type APIResponse, type Page, type Response as PlaywrightResponse } from "@playwright/test";
+import { expect, type APIResponse, type Locator, type Page, type Response as PlaywrightResponse } from "@playwright/test";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -8,6 +8,46 @@ import {
   readFreshWriteToken,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
+
+export const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+export const TABLET_VIEWPORT = { width: 820, height: 1180 } as const;
+export const DESKTOP_VIEWPORT = { width: 1280, height: 900 } as const;
+// The design system's "md" breakpoint (packages/design-system/src/theme/tokens.ts)
+// is the table<->card collapse boundary DataTable uses (`hidden md:block` /
+// `md:hidden`), so the mobile/tablet fixtures above straddle it deliberately:
+// mobile is well below 768px (cards), tablet is comfortably above it (table).
+const MIN_TOUCH_TARGET_PX = 44;
+
+export async function expectMinimumTouchTarget(locator: Locator, label: string) {
+  const box = await locator.boundingBox();
+  expect(box, `${label} should have a measurable layout box`).not.toBeNull();
+  expect(box!.width, `${label} width should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
+    MIN_TOUCH_TARGET_PX,
+  );
+  expect(box!.height, `${label} height should be >= ${MIN_TOUCH_TARGET_PX}px`).toBeGreaterThanOrEqual(
+    MIN_TOUCH_TARGET_PX,
+  );
+}
+
+// DataTable (packages/design-system/src/components/data-display/data-table.tsx)
+// renders its `<table>` and its `role="list"` mobile-card collapse as siblings
+// under one wrapping div that always carries `aria-busy` (set unconditionally,
+// even when false). Below the "md" breakpoint the table branch is CSS-hidden
+// (`hidden md:block`), which removes it (and its `sr-only` `<caption>`, see
+// table-shell.tsx) from the accessibility tree entirely — so a
+// `getByRole("table", { name })` locator matches nothing at mobile width, and
+// any `.filter({ has: <that locator> })` built from it silently comes up
+// empty even though the mobile card list is right there in the DOM. Locate
+// the table by plain CSS (`table` + a `<caption>` text match), which reads
+// the DOM structure directly and is unaffected by `display: none`, so this
+// resolves the same wrapper whether the table branch is visible or hidden.
+// This scopes the card locator to THIS table's own cards — never a
+// generic/unscoped `listitem` query that could match an unrelated list
+// elsewhere on the page.
+export function dataTableRoot(page: Page, name?: string): Locator {
+  const table = name ? page.locator("table", { has: page.locator("caption", { hasText: name }) }) : page.locator("table");
+  return page.locator("div[aria-busy]").filter({ has: table });
+}
 
 const configuredAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const configuredAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";

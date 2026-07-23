@@ -138,12 +138,16 @@ describe("CatalogProviderDetailPage", () => {
 
   it("does not offer a revalidate affordance when the health-triage projection is fresh", () => {
     const profile = profileReview({ providerKey: "tcgdex", active: true, lifecycle: "active" });
+    // Freshness is now derived from the overview's generatedAt age against the
+    // canonical integration-health-summary SLO, so `now` must be injected close
+    // to the fixture's fixed generatedAt for this to be a genuine fresh reading.
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
       scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
       profileReviews: { items: [profile], total: 1, count: 1 },
       controlPlaneOverview: controlPlaneOverview(),
       canManageCatalog: true,
+      now: "2026-06-09T01:05:05.000Z",
     });
     expect(readModel.healthTriage.freshness).toBe("fresh");
 
@@ -156,8 +160,9 @@ describe("CatalogProviderDetailPage", () => {
   it("surfaces a revalidate affordance next to the freshness badge when the projection is lagged, and calls onRevalidate when clicked", () => {
     const profile = profileReview({ providerKey: "tcgdex", active: true, lifecycle: "active" });
     // A null control-plane overview is the fixture's documented lagged/unavailable
-    // shape (buildCatalogPrimaryWorkbenchHealthTriage falls back to "partial" —
-    // one of the projection-lag states — when the overview never resolved).
+    // shape (buildCatalogPrimaryWorkbenchHealthTriage reports "unavailable" — one
+    // of the projection-lag states — when the overview never resolved, rather
+    // than fabricating a fresh reading for data that was never generated).
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
       scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
@@ -165,7 +170,7 @@ describe("CatalogProviderDetailPage", () => {
       controlPlaneOverview: null,
       canManageCatalog: true,
     });
-    expect(readModel.healthTriage.freshness).toBe("partial");
+    expect(readModel.healthTriage.freshness).toBe("unavailable");
 
     const onRevalidate = vi.fn();
     render(<CatalogProviderDetailPage readModel={readModel} onRevalidate={onRevalidate} />);

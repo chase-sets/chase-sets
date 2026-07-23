@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { getCatalogAdminControlPlaneReadModelSlo } from "../api/admin-control-plane-read-model-slos";
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import type {
   CatalogPrimaryWorkbenchHealthTriageReadModel,
@@ -8,12 +9,42 @@ import type {
 import type { CatalogIntegrationControlPlaneOverview } from "./contracts";
 import { catalogPrimaryWorkbenchReturnPath } from "./primary-workbench-route-context";
 
+// The overview's own generation age, measured against the canonical
+// integration-health-summary SLO (admin-control-plane-read-model-slos.ts),
+// is the projection/SLO age signal the health-triage badge and revalidate
+// affordance must key off of. A present-but-old overview must NOT read as
+// "fresh" just because it is non-null; an absent overview has no data to
+// measure and is always "unavailable" rather than fabricating a fresh clock.
+function healthTriageFreshness(
+  overview: CatalogIntegrationControlPlaneOverview | null,
+  now: string,
+): CatalogPrimaryWorkbenchHealthTriageReadModel["freshness"] {
+  if (!overview) {
+    return "unavailable";
+  }
+
+  const slo = getCatalogAdminControlPlaneReadModelSlo("integration-health-summary").freshness;
+  const ageMs = Date.parse(now) - Date.parse(overview.generatedAt);
+  if (!Number.isFinite(ageMs) || ageMs <= slo.freshWithinSeconds * 1_000) {
+    return "fresh";
+  }
+  if (ageMs <= slo.unavailableAfterSeconds * 1_000) {
+    return "partial";
+  }
+  return "unavailable";
+}
+
 export function healthTriageFor(input: {
   overview: CatalogIntegrationControlPlaneOverview | null;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
+  now: string;
 }): CatalogPrimaryWorkbenchHealthTriageReadModel {
-  const generatedAt = input.overview?.generatedAt ?? new Date().toISOString();
+  // Preserve the overview's own real generated-at provenance whenever one
+  // exists (even a stale one); only fall back to the injected clock when no
+  // overview was ever produced, and the freshness below never reports that
+  // fallback as "fresh".
+  const generatedAt = input.overview?.generatedAt ?? input.now;
   const units = input.overview?.readiness.units ?? [];
   const providerRows = (input.overview?.providerReadiness.providers ?? []).map((provider) => {
     const latestDiagnostic = provider.diagnostics.filter((diagnostic) => diagnostic.severity !== "info").at(-1) ?? null;
@@ -143,7 +174,7 @@ export function healthTriageFor(input: {
 
   return {
     status,
-    freshness: input.overview ? "fresh" : "partial",
+    freshness: healthTriageFreshness(input.overview, input.now),
     generatedAt,
     selectedProviderKey: input.routeContext.providerKey,
     selectedUnitKey: input.routeContext.unitKey,

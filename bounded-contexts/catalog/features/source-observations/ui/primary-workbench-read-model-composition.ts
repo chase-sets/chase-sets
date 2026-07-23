@@ -478,6 +478,7 @@ function healthTriageSlice(
     overview: input.controlPlaneOverview,
     routeContext: core.routeContext,
     importJobs: derived.importJobRows,
+    now: input.now ?? new Date().toISOString(),
   });
 }
 

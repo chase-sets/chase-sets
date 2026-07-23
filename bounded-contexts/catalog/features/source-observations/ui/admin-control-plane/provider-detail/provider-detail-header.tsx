@@ -127,7 +127,7 @@ export function ProviderDetailHeader({
                       type="button"
                       size="sm"
                       tone="secondary"
-                      disabled={revalidating}
+                      loading={revalidating}
                       onClick={onRevalidate}
                       data-catalog-provider-detail-revalidate="true"
                     >

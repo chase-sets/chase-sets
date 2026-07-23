@@ -191,4 +191,50 @@ describe("Catalog primary workbench read model - health triage", () => {
     });
     expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
   });
+
+  it("does not report a present-but-old overview as fresh, and preserves its real generated-at provenance", () => {
+    const overview = controlPlaneOverview({ generatedAt: "2000-01-01T00:00:00.000Z" });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+      now: "2026-06-09T01:05:00.000Z",
+    });
+
+    expect(readModel.healthTriage.freshness).toBe("unavailable");
+    expect(readModel.healthTriage.generatedAt).toBe("2000-01-01T00:00:00.000Z");
+  });
+
+  it("reports an absent overview as unavailable rather than fabricating a fresh reading", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      now: "2026-06-09T01:05:00.000Z",
+    });
+
+    expect(readModel.healthTriage.freshness).toBe("unavailable");
+    expect(readModel.healthTriage.generatedAt).toBe("2026-06-09T01:05:00.000Z");
+  });
+
+  it("reports a genuinely fresh overview as fresh (negative control)", () => {
+    const overview = controlPlaneOverview({ generatedAt: "2026-06-09T01:04:58.000Z" });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+      now: "2026-06-09T01:05:00.000Z",
+    });
+
+    expect(readModel.healthTriage.freshness).toBe("fresh");
+    expect(readModel.healthTriage.generatedAt).toBe("2026-06-09T01:04:58.000Z");
+  });
 });
