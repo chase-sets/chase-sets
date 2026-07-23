@@ -10913,6 +10913,20 @@
       "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/representative-catalog-snapshot.yml",
+      "jobId": "publish",
+      "stepAnchor": "name:Publish representative snapshot set#4",
+      "secretName": "SEED_PACKS_SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/representative-catalog-snapshot.yml",
+      "jobId": "publish",
+      "stepAnchor": "name:Publish representative snapshot set#4",
+      "secretName": "SEED_PACKS_SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
     }
   ]
 }

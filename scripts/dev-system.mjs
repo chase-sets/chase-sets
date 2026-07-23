@@ -21,10 +21,14 @@ import {
   buildDockerComposeArgs,
   ensureWorktreeSandboxEnvironment,
   getContextDatabaseEnvName,
+  listSandboxDatabases,
 } from "./lib/sandbox.mjs";
 
 const mode = process.argv[2] ?? "dev";
-const target = process.argv[3] ?? "all";
+const modeArguments = process.argv.slice(3);
+const representativeRefresh = modeArguments.includes("--representative");
+const replayRepresentativeRefresh = modeArguments.includes("--replay");
+const target = modeArguments.find((argument) => !argument.startsWith("--")) ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
@@ -134,9 +138,7 @@ async function withAdminPool(action, databaseName = "postgres") {
 
 async function preparePlatformDatabase() {
   await withAdminPool(async (adminPool) => {
-    const databaseUrls = [sandbox.controlDatabaseUrl, ...Object.values(sandbox.contextDatabaseUrls)];
-
-    for (const databaseUrl of databaseUrls) {
+    for (const { databaseUrl } of listSandboxDatabases(sandbox)) {
       await ensureOwnedDatabase(adminPool, parseOwnedDatabaseUrl(databaseUrl));
     }
   });
@@ -173,6 +175,10 @@ const commonPlatformEnv = {
   POSTGRES_DEV_DATABASE_URL: devDatabaseUrl,
   PLATFORM_CONTROL_DATABASE_URL: sandbox.controlDatabaseUrl,
   NOTIFICATION_EMAIL_PROVIDER: process.env.NOTIFICATION_EMAIL_PROVIDER ?? "noop",
+  ...(process.env.PLATFORM_DATA_PROFILES ? { PLATFORM_DATA_PROFILES: process.env.PLATFORM_DATA_PROFILES } : {}),
+  ...(process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE
+    ? { REPRESENTATIVE_CATALOG_PACK_SOURCE: process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE }
+    : {}),
   ...contextDatabaseEnv,
 };
 
@@ -691,11 +697,32 @@ async function runDown() {
 }
 
 async function runRefresh(targetName = "all") {
+  if (replayRepresentativeRefresh && !representativeRefresh) {
+    throw new Error("--replay requires --representative.");
+  }
   prefixedConsole("dev", `Destroying sandbox ${sandbox.id} Postgres data...`);
   await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down", "-v"], {
     env: sandboxEnv,
     prefix: "docker",
   });
+
+  if (representativeRefresh) {
+    if (replayRepresentativeRefresh) {
+      process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap,catalog-integration-bootstrap,representative-catalog";
+      await runBootstrap(targetName);
+      return;
+    }
+
+    process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap,catalog-integration-bootstrap";
+    await runBootstrap(targetName);
+    prefixedConsole("dev", "Restoring a compatible representative Catalog snapshot set...");
+    await runCommand("node", [fileURLToPath(new URL("./representative-snapshot.mjs", import.meta.url)), "restore"], {
+      env: sandboxEnv,
+      prefix: "representative-snapshot",
+    });
+    return;
+  }
+
   await runBootstrap(targetName);
 }
 
