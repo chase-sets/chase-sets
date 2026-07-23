@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chasesets.com/schemas/managed-postgres-authority-manifest.schema.json",
+  "title": "Managed Postgres authority grants",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "grants"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "jobId", "stepAnchor", "secretName", "purpose"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stepAnchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "secretName": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "purpose": {
+            "enum": [
+              "alerting",
+              "application-runtime",
+              "digitalocean-ops",
+              "managed-postgres-boundary",
+              "marketplace-ops",
+              "release-evidence",
+              "restore-drill-fork-ca",
+              "spaces-evidence",
+              "terraform-infra",
+              "test-credentials"
+            ]
+          }
+        }
+      }
+    },
+    "dockerConsumers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "jobId", "stepAnchor", "pathMapping"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stepAnchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pathMapping": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

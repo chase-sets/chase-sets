@@ -101,21 +101,34 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           ref: ${{ inputs.release_ref || github.sha }}
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           terraform_wrapper: false
 
       - name: Plan retained diagnostic DNS state
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
@@ -148,6 +161,12 @@ jobs:
           done
 
       - name: Plan retired staging and production applications
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
@@ -195,6 +214,12 @@ jobs:
           done
 
       - name: Summarize and upload decommission plans
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           {
             echo '## App Platform decommission live plans'
@@ -209,6 +234,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           name: app-platform-decommission-live-plans
           path: artifacts/decommission-live-plans/*
@@ -647,9 +678,6 @@ jobs:
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
@@ -707,17 +735,33 @@ jobs:
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Record staging start
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: staging_started
         run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Configure Git defaults
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: git config --global init.defaultBranch main
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           fetch-depth: 0
 
       - name: Check out release commit
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
@@ -731,6 +775,9 @@ jobs:
       - name: Validate staging configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -793,9 +840,17 @@ jobs:
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
 
       - name: Install dependencies
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
@@ -804,16 +859,26 @@ jobs:
         with:
           terraform_wrapper: false
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Package staged doctl binary
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -824,6 +889,10 @@ jobs:
           ./artifacts/deploy-tools/doctl/doctl version
 
       - name: Upload staged doctl binary
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -836,6 +905,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -852,11 +924,19 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format staging environment DNS
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         run: terraform fmt -check -recursive
 
       - name: Terraform validate staging environment DNS
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         run: terraform validate
@@ -868,6 +948,9 @@ jobs:
         id: activate_release
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ needs.build-image.outputs.platform_image_digest }}
           AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
@@ -906,6 +989,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
@@ -917,17 +1003,28 @@ jobs:
             2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: buildx
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Verify immutable active release image
         if: env.SHOULD_DEPLOY != 'false'
         id: image
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           ACTIVE_RELEASE_IMAGE: ${{ needs.build-image.outputs.platform_image }}
           ACTIVE_RELEASE_IMAGE_DIGEST: ${{ steps.activate_release.outputs.active_image_digest }}
         run: |
@@ -953,6 +1050,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -969,6 +1069,10 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
@@ -978,6 +1082,9 @@ jobs:
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -993,6 +1100,10 @@ jobs:
           node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
 
       - name: Upload staging Terraform plan
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1005,6 +1116,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1014,6 +1128,10 @@ jobs:
             2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - name: Capture staging Terraform errored state
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         id: capture_staging_terraform_errored_state
         working-directory: infrastructure/digitalocean/platform
@@ -1035,6 +1153,10 @@ jobs:
           fi
 
       - name: Upload staging Terraform errored state
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_staging_terraform_errored_state.outputs.captured == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1047,6 +1169,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/doks
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -1134,6 +1259,10 @@ jobs:
           echo "Configured staging Kubernetes context: ${current_context}"
 
       - name: Install Argo Rollouts kubectl plugin for staging
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           set -euo pipefail
@@ -1147,6 +1276,10 @@ jobs:
           "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
       - name: Install Argo Rollouts controller and CRDs for staging
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           set -euo pipefail
@@ -1174,6 +1307,9 @@ jobs:
       - name: Export staging Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DEPLOYMENT_ENVIRONMENT: staging
@@ -1187,6 +1323,10 @@ jobs:
             --query-connection-mode pooled
 
       - name: Apply staging Kubernetes runtime secrets
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -1228,6 +1368,10 @@ jobs:
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
       - name: Apply staging Kubernetes registry pull secret
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -1252,6 +1396,9 @@ jobs:
       - name: Deploy staging Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1322,6 +1469,10 @@ jobs:
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Capture staging Kubernetes deploy diagnostics
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -1332,6 +1483,10 @@ jobs:
             --out artifacts/release-health/staging-kubernetes-deploy-diagnostics.json || true
 
       - name: Upload staging Kubernetes deploy diagnostics
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1344,6 +1499,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1395,6 +1553,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           PLATFORM_IMAGE: ${{ steps.image.outputs.image }}
@@ -1414,6 +1575,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
@@ -1477,6 +1641,10 @@ jobs:
           echo "Catalog asset CDN root returned expected protected status 403."
 
       - name: Resolve Playwright Chromium version
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: staging-playwright-chromium
         if: env.SHOULD_DEPLOY != 'false'
         run: |
@@ -1489,6 +1657,10 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright Chromium for staging critical flows
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: staging-playwright-chromium-cache
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -1501,6 +1673,9 @@ jobs:
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
 
@@ -1509,6 +1684,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -1567,6 +1745,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
@@ -1688,6 +1869,10 @@ jobs:
           fi
 
       - name: Upload staging blocking probe Playwright artifacts
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1699,6 +1884,10 @@ jobs:
             artifacts/release-health/account-buy-now-freshness-probe.json
 
       - name: Upload staging Buy Now probe evidence
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1723,6 +1912,9 @@ jobs:
         id: account_cart_canary
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           ACCOUNT_CART_CANARY_OBSERVATION_JSON: ${{ vars.STAGING_ACCOUNT_CART_CANARY_OBSERVATION_JSON || '' }}
         run: |
           set -euo pipefail
@@ -1791,6 +1983,10 @@ jobs:
           fi
 
       - name: Upload staging account-cart canary evidence
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.account_cart_canary.outputs.configured == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1803,6 +1999,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           SMOKE_REGISTER_SELLER: "true"
@@ -1837,6 +2036,10 @@ jobs:
             pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
       - name: Promote staging Argo Rollouts
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           set -euo pipefail
@@ -1847,6 +2050,10 @@ jobs:
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Abort staging Argo Rollouts
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           pnpm run platform:kubernetes-deployment -- abort \
@@ -1855,6 +2062,10 @@ jobs:
             --rollouts-enabled true || true
 
       - name: Classify staging deployment failure
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         id: staging_failure_classification
         run: |
@@ -1873,6 +2084,10 @@ jobs:
             --format github-output >> "$GITHUB_OUTPUT"
 
       - name: Upload staging deployment root cause
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1882,6 +2097,10 @@ jobs:
           retention-days: 30
 
       - name: Mark staging applied
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: staging_applied
         if: env.SHOULD_DEPLOY != 'false'
         run: |
@@ -1889,6 +2108,10 @@ jobs:
           echo "applied=true" >> "$GITHUB_OUTPUT"
 
       - name: Record staging completion
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: staging_completed
         if: env.SHOULD_DEPLOY != 'false'
         run: echo "completed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
@@ -2201,9 +2424,6 @@ jobs:
       TF_VAR_production_launch_supply_measurements_approved: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_launch_supply_measurements_reference: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
@@ -2261,13 +2481,25 @@ jobs:
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
     steps:
       - name: Configure Git defaults
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: git config --global init.defaultBranch main
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           fetch-depth: 0
 
       - name: Check out release commit
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
@@ -2279,6 +2511,10 @@ jobs:
           fi
 
       - name: Record production start
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: production_started
         if: env.SHOULD_DEPLOY != 'false'
         run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
@@ -2287,6 +2523,9 @@ jobs:
         id: release_lock
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_ENVIRONMENT: production
@@ -2298,6 +2537,9 @@ jobs:
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -2466,9 +2708,17 @@ jobs:
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
 
       - name: Install dependencies
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
@@ -2477,9 +2727,16 @@ jobs:
         with:
           terraform_wrapper: false
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
 
       - name: Download staged doctl binary
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -2489,6 +2746,9 @@ jobs:
       - name: Install staged doctl binary
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
@@ -2498,14 +2758,26 @@ jobs:
           "$RUNNER_TEMP/doctl" auth init --access-token "$DIGITALOCEAN_ACCESS_TOKEN"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: buildx
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Verify promoted platform runtime image
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
@@ -2544,6 +2816,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2560,6 +2835,10 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Validate production environment DNS
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         run: |
@@ -2570,6 +2849,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2592,6 +2874,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve production-environment-dns.tfplan
@@ -2600,6 +2885,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2616,6 +2904,10 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
@@ -2625,6 +2917,9 @@ jobs:
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2640,6 +2935,10 @@ jobs:
           node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
 
       - name: Upload production Terraform plan
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -2654,6 +2953,9 @@ jobs:
         # deploys sweep their own expired forks before creating a new one.
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
         run: |
@@ -2669,6 +2971,9 @@ jobs:
         id: production_restore_point
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_MODE: ${{ steps.release_lock.outputs.release_mode || 'normal' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference || '' }}
@@ -2734,6 +3039,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/doks
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -2821,6 +3129,10 @@ jobs:
           echo "Configured production Kubernetes context: ${current_context}"
 
       - name: Install Argo Rollouts kubectl plugin for production
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           set -euo pipefail
@@ -2836,6 +3148,9 @@ jobs:
       - name: Install production DOKS ingress and certificate add-ons
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
@@ -2857,6 +3172,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
@@ -2917,6 +3235,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_readiness
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json
           RECOVERY_MODE: rollback
           ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
@@ -2937,6 +3258,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2946,6 +3270,10 @@ jobs:
             2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)
 
       - name: Capture production Terraform errored state
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         id: capture_production_terraform_errored_state
         working-directory: infrastructure/digitalocean/platform
@@ -2967,6 +3295,10 @@ jobs:
           fi
 
       - name: Upload production Terraform errored state
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_production_terraform_errored_state.outputs.captured == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -2978,6 +3310,9 @@ jobs:
       - name: Export production Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DEPLOYMENT_ENVIRONMENT: production
@@ -2991,6 +3326,10 @@ jobs:
             --query-connection-mode direct
 
       - name: Apply production Kubernetes runtime secrets
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -3032,6 +3371,10 @@ jobs:
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
       - name: Apply production Kubernetes registry pull secret
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -3056,6 +3399,9 @@ jobs:
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3131,6 +3477,10 @@ jobs:
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Capture production Kubernetes deploy diagnostics
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -3141,6 +3491,10 @@ jobs:
             --out artifacts/release-health/production-kubernetes-deploy-diagnostics.json || true
 
       - name: Upload production Kubernetes deploy diagnostics
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always() && env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3150,6 +3504,10 @@ jobs:
           retention-days: 30
 
       - name: Verify production DOKS live hosts and certificate
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_DOKS_INGRESS_TARGET != ''
         run: |
           set -euo pipefail
@@ -3185,6 +3543,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3222,64 +3583,18 @@ jobs:
         # URLs, which it reports as a config error and fails closed before
         # production smoke runs.
         continue-on-error: true
-        working-directory: infrastructure/digitalocean/platform
+        uses: ./.github/actions/export-managed-postgres-authority
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}
-        run: |
-          set -euo pipefail
-          state_path="${RUNNER_TEMP}/platform-production.tfstate.json"
-          terraform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const fs = require("node:fs");
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const cluster = resources.find((resource) =>
-            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
-          );
-          const databases = resources.find((resource) =>
-            resource.type === "digitalocean_database_db" && resource.name === "contexts"
-          );
-          const users = resources.find((resource) =>
-            resource.type === "digitalocean_database_user" && resource.name === "contexts"
-          );
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Production Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const databaseByContext = new Map(
-            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const userByContext = new Map(
-            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const readinessContexts = String(process.env.READINESS_GATE_SOURCE_CONTEXTS ?? "checkout,public-presence")
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean);
-          const contextNames = [...new Set([...readinessContexts, "checkout", "public-presence", "control"])].sort();
-
-          const lines = [];
-          for (const contextName of contextNames) {
-            const database = databaseByContext.get(contextName);
-            const user = userByContext.get(contextName);
-            if (!contextName || !database?.name || !user?.name || !user?.password) {
-              throw new Error(`Direct database state is incomplete for context '${contextName ?? "unknown"}'.`);
-            }
-
-            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-            const envName = contextName === "control"
-              ? "PLATFORM_CONTROL_DATABASE_URL"
-              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
-            console.log(`::add-mask::${url}`);
-            lines.push(`${envName}=${url}`);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: production
+          contexts: ${{ format('{0},checkout,public-presence,control', vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence') }}
+          connection-mode: direct
 
       # Bounded wait for steady state (#1237): poll until the audited contexts'
       # projection checkpoints reach the event-store head or the budget expires
@@ -3291,6 +3606,9 @@ jobs:
         id: readiness_gate
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}
           READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}
         run: |
@@ -3311,11 +3629,23 @@ jobs:
             exit "$gate_exit"
           fi
 
+      - name: Remove managed Postgres CA
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+        run: rm -f -- "$MANAGED_POSTGRES_CA_PATH"
+
       - name: Smoke check
         timeout-minutes: 15
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
@@ -3376,6 +3706,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3404,6 +3737,10 @@ jobs:
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
       - name: Promote production Argo Rollouts
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           set -euo pipefail
@@ -3414,6 +3751,10 @@ jobs:
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Abort production Argo Rollouts
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
           pnpm run platform:kubernetes-deployment -- abort \
@@ -3422,6 +3763,10 @@ jobs:
             --rollouts-enabled true || true
 
       - name: Capture post-cutover production Kubernetes diagnostics
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -3432,6 +3777,10 @@ jobs:
             --out artifacts/release-health/production-kubernetes-deploy-diagnostics.json || true
 
       - name: Roll back production Kubernetes release
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: production_rollback
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
         run: |
@@ -3502,6 +3851,10 @@ jobs:
           fi
 
       - name: Mark production release
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         id: production_marker
         if: env.SHOULD_DEPLOY != 'false'
         run: |
@@ -3581,6 +3934,9 @@ jobs:
       - name: Write promoted release handoff
         if: steps.production_marker.outputs.marker_updated == 'true'
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -3600,6 +3956,10 @@ jobs:
             --promoted-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Upload promoted release handoff
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: steps.production_marker.outputs.marker_updated == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3612,6 +3972,9 @@ jobs:
         id: release_state
         if: always()
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.active_image_digest }}
           RELEASE_STATE_MODE: ${{ inputs.dispatch_source }}
@@ -3659,6 +4022,9 @@ jobs:
         id: release_health_metadata
         if: always()
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           SOURCE_WORKFLOW_CREATED_AT: ${{ needs.resolve-release.outputs.dispatch_created_at }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3710,6 +4076,9 @@ jobs:
         id: ci_metadata
         if: always()
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -3725,6 +4094,10 @@ jobs:
           fi
 
       - name: Classify production deployment failure
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure()
         id: production_failure_classification
         run: |
@@ -3743,6 +4116,9 @@ jobs:
       - name: Write release health summary
         if: always()
         env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           DISPATCH_SOURCE: ${{ inputs.dispatch_source }}
@@ -3815,6 +4191,10 @@ jobs:
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -85,83 +85,28 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - name: Terraform init staging platform state
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          terraform init \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=landing/staging.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-
       - name: Export staging database URLs
-        working-directory: infrastructure/digitalocean/platform
+        uses: ./.github/actions/export-managed-postgres-authority
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
-          terraform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const fs = require("node:fs");
-          const requiredContexts = new Set(["checkout", "ordering", "inventory", "payments", "control"]);
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const cluster = resources.find((resource) =>
-            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
-          );
-          const databases = resources.find((resource) =>
-            resource.type === "digitalocean_database_db" && resource.name === "contexts"
-          );
-          const users = resources.find((resource) =>
-            resource.type === "digitalocean_database_user" && resource.name === "contexts"
-          );
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const databaseByContext = new Map(
-            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const userByContext = new Map(
-            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const lines = [];
-          for (const contextName of [...requiredContexts].sort()) {
-            const database = databaseByContext.get(contextName);
-            const user = userByContext.get(contextName);
-            if (!database?.name || !user?.name || !user?.password) {
-              throw new Error(`Direct staging database state is incomplete for context '${contextName}'.`);
-            }
-
-            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-            const envName = contextName === "control"
-              ? "PLATFORM_CONTROL_DATABASE_URL"
-              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
-            console.log(`::add-mask::${url}`);
-            lines.push(`${envName}=${url}`);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: staging
+          contexts: checkout,ordering,inventory,payments,control
+          connection-mode: direct
 
       - name: Run redacted order-readiness trace
         run: |
           set -euo pipefail
           pnpm run ops checkout:order-readiness-trace -- \
             --out "artifacts/checkout-order-readiness-trace/staging-checkout-order-readiness-trace.json"
+
+      - name: Remove managed Postgres CA
+        if: always()
+        env:
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+        run: rm -f -- "$MANAGED_POSTGRES_CA_PATH"
 
       - name: Upload sanitized trace artifact
         if: always()

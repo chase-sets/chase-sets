@@ -78,11 +78,19 @@ jobs:
       - name: Run staging database restore drill
         env:
           STAGING_DATABASE_CLUSTER_ID: ${{ steps.staging-cluster.outputs.cluster_id }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
           DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT: artifacts/database-restore-drill/staging-database-restore-drill.json
         run: |
           set -euo pipefail
           mkdir -p artifacts/database-restore-drill
           node ./scripts/digitalocean-database-restore-drill.mjs
+
+      - name: Remove managed Postgres CA
+        if: always()
+        env:
+          MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+        run: rm -f -- "$MANAGED_POSTGRES_CA_PATH"
 
       - name: Summarize restore drill
         if: ${{ always() }}

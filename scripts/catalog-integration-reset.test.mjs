@@ -343,7 +343,7 @@ describe("Catalog Integration Staging Reset workflow", () => {
     expect(workflow).toContain("smoke_verification_reference:");
     expect(workflow).toContain("RESET_SMOKE_VERIFICATION_REFERENCE: ${{ inputs.smoke_verification_reference }}");
     expect(workflow).toContain('--smoke-verification-reference "$RESET_SMOKE_VERIFICATION_REFERENCE"');
-    expect(workflow).toContain("--connection-mode pooled");
+    expect(workflow).toContain("connection-mode: pooled");
     expect(workflow).toContain("retention-days: 30");
     expect(workflowFilesWithConcurrencyGroup("platform-staging-mutating-operations")).toEqual(
       [...sharedResetConcurrencyWorkflowFiles].sort(),

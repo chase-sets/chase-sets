@@ -11,6 +11,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { postgresClientConfig, postgresFailureFields } from "./lib/postgres-connection.mjs";
 
 export const CHECKOUT_ORDER_READINESS_TRACE_VERSION = "checkout-order-readiness-trace/v1";
 export const REQUIRED_CONFIRM_TEXT = "collect redacted staging order-readiness trace";
@@ -358,8 +359,7 @@ export async function createTraceDatabaseAdapter(options) {
 
   async function clientFor(url) {
     if (!clients.has(url)) {
-      const normalizedUrl = normalizeDatabaseUrl(url);
-      const client = new pg.Client({ connectionString: normalizedUrl, ssl: resolveDatabaseSsl(normalizedUrl) });
+      const client = new pg.Client(postgresClientConfig(url));
       await client.connect();
       clients.set(url, client);
     }
@@ -1230,31 +1230,6 @@ function formatWakeRuntimeDiagnostics(traces) {
   return summaries.length === 0 ? "none" : summaries.join("; ");
 }
 
-function normalizeDatabaseUrl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
-      url.searchParams.set("uselibpqcompat", "true");
-      return url.toString();
-    }
-  } catch {
-    return databaseUrl;
-  }
-  return databaseUrl;
-}
-
-function resolveDatabaseSsl(databaseUrl) {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.searchParams.get("sslmode") === "require") {
-      return { rejectUnauthorized: false };
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
 async function main(argv, env = process.env) {
   let adapter = null;
   try {
@@ -1283,7 +1258,7 @@ async function main(argv, env = process.env) {
     console.log(`Classified stalled leg: ${rawEvidence.decision.stalledLeg}.`);
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(postgresFailureFields(error)));
     return 2;
   } finally {
     await adapter?.close?.();

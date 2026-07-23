@@ -19,6 +19,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { postgresFailureFields } from "./lib/postgres-connection.mjs";
 import { assertRedactedDrillEvidence, contextDatabaseEnvName, createDatabaseAudit } from "./staging-wake-drills.mjs";
 
 export const PRODUCTION_READINESS_GATE_VERSION = "production-readiness-gate/v1";
@@ -246,17 +247,22 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
-async function main(argv, env = process.env) {
+export async function runProductionReadinessGateCommand(argv, env = process.env, dependencies = {}) {
+  const createAudit = dependencies.createDatabaseAudit ?? createDatabaseAudit;
+  const writeRecord = dependencies.writeJsonRecord ?? writeJsonRecord;
+  const log = dependencies.log ?? console.log;
+  const logError = dependencies.logError ?? console.error;
+  const appendSummary = dependencies.appendFileSync ?? appendFileSync;
   let audit = null;
   try {
     const options = parseProductionReadinessGateArgs(argv, env);
     const errors = validateProductionReadinessGateOptions(options);
     if (errors.length > 0) {
-      console.error(errors.join(" "));
+      logError(errors.join(" "));
       return 2;
     }
 
-    audit = await createDatabaseAudit(options);
+    audit = await createAudit(options);
     const readiness = await pollForReadiness(options, {
       now: () => Date.now(),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -272,16 +278,16 @@ async function main(argv, env = process.env) {
       readiness,
     });
 
-    await writeJsonRecord(options.outPath, evidence);
-    console.log(JSON.stringify(evidence, null, 2));
+    await writeRecord(options.outPath, evidence);
+    log(JSON.stringify(evidence, null, 2));
 
     if (env.GITHUB_STEP_SUMMARY) {
-      appendFileSync(env.GITHUB_STEP_SUMMARY, renderReadinessStepSummary(evidence));
+      appendSummary(env.GITHUB_STEP_SUMMARY, renderReadinessStepSummary(evidence));
     }
 
     return evidence.outcome === "ready" ? 0 : 1;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    logError(JSON.stringify(postgresFailureFields(error)));
     return 2;
   } finally {
     await audit?.close();
@@ -289,5 +295,7 @@ async function main(argv, env = process.env) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = await main(process.argv.slice(2).filter((arg, index) => !(index === 0 && arg === "--")));
+  process.exitCode = await runProductionReadinessGateCommand(
+    process.argv.slice(2).filter((arg, index) => !(index === 0 && arg === "--")),
+  );
 }

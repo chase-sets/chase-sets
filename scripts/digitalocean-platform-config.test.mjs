@@ -52,6 +52,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const exportManagedPostgresAuthorityAction = readFileSync(
+  resolve(".github/actions/export-managed-postgres-authority/action.yml"),
+  "utf8",
+);
 const platformReleaseCandidateWorkflow = readFileSync(
   resolve(".github/workflows/platform-release-candidate.yml"),
   "utf8",
@@ -688,30 +692,37 @@ describe("DigitalOcean platform configuration", () => {
   it("waits for post-deploy projection readiness before production smoke asserts", () => {
     const exportStep = workflowStep(platformProductionWorkflow, "Export production readiness database URLs");
     const readinessStep = workflowStep(platformProductionWorkflow, "Production post-deploy readiness gate");
+    const cleanupStep = workflowStep(platformProductionWorkflow, "Remove managed Postgres CA");
 
     // Ordering: before the smoke check and Stage 1 canary, so projection-
     // dependent production smoke assertions measure steady state (#4012).
     const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
     const exportIndex = platformProductionWorkflow.indexOf("- name: Export production readiness database URLs");
     const readinessIndex = platformProductionWorkflow.indexOf("- name: Production post-deploy readiness gate");
+    const cleanupIndex = platformProductionWorkflow.indexOf("- name: Remove managed Postgres CA", readinessIndex);
     const stage1Index = platformProductionWorkflow.indexOf("- name: Stage 1 production canary");
     expect(exportIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(cleanupIndex);
+    expect(cleanupIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(stage1Index);
 
-    // The export step derives direct production URLs from Terraform state
-    // (staging wake-drills pattern) and masks them.
-    expect(exportStep).toContain("terraform state pull");
-    expect(exportStep).toContain("digitalocean_database_cluster");
-    expect(exportStep).toContain("::add-mask::");
-    expect(exportStep).toContain("PLATFORM_CONTROL_DATABASE_URL");
-    expect(exportStep).toContain('[...readinessContexts, "checkout", "public-presence", "control"]');
+    // The export step delegates the canonical trust-bearing Terraform-state path.
+    expect(exportStep).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+    expect(exportStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(exportStep).toContain("environment: production");
     expect(exportStep).toContain(
-      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}",
+      "contexts: ${{ format('{0},checkout,public-presence,control', vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence') }}",
     );
+    expect(exportStep).not.toContain("sslmode=require");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
     expect(exportStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
     expect(exportStep).not.toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
     expect(exportStep).toContain("continue-on-error: true");
+    expect(cleanupStep).toContain("if: always() && env.SHOULD_DEPLOY != 'false'");
+    expect(cleanupStep).toContain('rm -f -- "$MANAGED_POSTGRES_CA_PATH"');
 
     // The gate records the bounded outcome and fails closed before
     // projection-dependent smoke assertions when the budget expires.
@@ -1433,31 +1444,33 @@ describe("DigitalOcean platform configuration", () => {
     const steps = [wakeDrillsStep, representativeStateStep, providerProofStep];
 
     for (const step of steps) {
-      expect(step).toContain("terraform state pull");
-      expect(step).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
-      expect(step).toContain('--state "$state_path"');
-      expect(step).toContain('--github-env "$GITHUB_ENV"');
+      expect(step).toContain("uses: ./.github/actions/export-managed-postgres-authority");
       expect(step).not.toContain("node <<'NODE'");
       expect(step).not.toContain("digitalocean_database_cluster");
     }
-    expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--state "$state_path"');
+    expect(exportManagedPostgresAuthorityAction).toContain('--github-env "$GITHUB_ENV"');
+    expect(providerProofStep).toContain("contexts: payments,settlement,fulfillment");
   });
 
-  it("defines platform Terraform deployment inputs at job scope and threads them into reset plan/apply steps", () => {
+  it("keeps application deployment inputs at job scope and narrows root provider authority to each step", () => {
     const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const resetJob = workflowJob(platformStagingResetWorkflow, "reset-staging");
 
     for (const job of [stagingJob, productionJob, resetJob]) {
-      expect(job).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(job).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(job).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
       expect(job).toContain("TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
       expect(job).toContain("TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
       expect(job).toContain("TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
       expect(job).toContain("TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}");
       expect(job).toContain("TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}");
       expect(job).toContain("TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}");
+      const jobHeader = job.split("\n    steps:")[0];
+      expect(jobHeader).not.toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(jobHeader).not.toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(jobHeader).not.toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
     }
 
     expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
@@ -1480,7 +1493,9 @@ describe("DigitalOcean platform configuration", () => {
     ];
 
     for (const step of deployPlanApplySteps) {
-      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
     }
 
     const resetPlanApplySteps = [
@@ -1739,10 +1754,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT");
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
     expect(platformRepresentativeWorkflow).toContain('default: "300000"');
-    expect(platformRepresentativeWorkflow).toContain("terraform state pull");
-    expect(platformRepresentativeWorkflow).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
-    expect(platformRepresentativeWorkflow).toContain("--environment staging");
-    expect(platformRepresentativeWorkflow).toContain('--github-env "$GITHUB_ENV"');
+    expect(platformRepresentativeWorkflow).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+    expect(platformRepresentativeWorkflow).toContain("environment: staging");
+    expect(exportManagedPostgresAuthorityAction).toContain("terraform state pull");
+    expect(exportManagedPostgresAuthorityAction).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(exportManagedPostgresAuthorityAction).toContain('--github-env "$GITHUB_ENV"');
     expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
@@ -1781,9 +1797,12 @@ describe("DigitalOcean platform configuration", () => {
       "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
     );
     expect(restoreStep).toContain("STAGING_DATABASE_CLUSTER_ID");
+    expect(restoreStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(restoreStep).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
     expect(restoreStep).toContain("DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT");
     expect(restoreStep).toContain("node ./scripts/digitalocean-database-restore-drill.mjs");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("- name: Remove managed Postgres CA");
     expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(uploadStep).toContain("platform-database-restore-drill-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(uploadStep).toContain("retention-days: 30");

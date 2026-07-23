@@ -1,13 +1,24 @@
 #!/usr/bin/env node
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, open, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { safeFailureFields } from "./lib/postgres-connection.mjs";
+
+const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
 
 export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
   return {
     statePath: readOption(argv, "--state") ?? readEnv("TERRAFORM_STATE_PATH", env),
     githubEnvPath: readOption(argv, "--github-env") ?? readEnv("GITHUB_ENV", env),
+    caPath:
+      readOption(argv, "--ca-path") ??
+      readEnv("MANAGED_POSTGRES_CA_PATH", env) ??
+      (readEnv("RUNNER_TEMP", env)
+        ? join(readEnv("RUNNER_TEMP", env), "digitalocean-managed-postgres-ca.pem")
+        : undefined),
+    digitalOceanToken: readEnv("DIGITALOCEAN_ACCESS_TOKEN", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("DEPLOYMENT_ENVIRONMENT", env) ?? "staging",
     contexts: parseContexts(readOption(argv, "--contexts") ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env)),
     connectionMode:
@@ -18,30 +29,50 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
 export async function exportTerraformStateDatabaseUrls(options, dependencies = {}) {
   const read = dependencies.readFile ?? readFile;
   const append = dependencies.appendFile ?? appendFile;
+  const writeCa = dependencies.writeCa ?? writeManagedPostgresCa;
+  const remove = dependencies.rm ?? rm;
   const log = dependencies.log ?? console.log;
   const errors = validateExportOptions(options);
   if (errors.length > 0) {
     throw new Error(errors.join("\n"));
   }
 
-  const state = JSON.parse(await read(options.statePath, "utf8"));
+  const state = parseTerraformState(await read(options.statePath, "utf8"));
+  const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
+  const certificate = await fetchDigitalOceanManagedPostgresCa(
+    {
+      clusterId,
+      digitalOceanToken: options.digitalOceanToken,
+    },
+    dependencies,
+  );
   const urls = databaseUrlsFromTerraformState(state, {
     contexts: options.contexts,
     environmentName: options.environmentName,
     connectionMode: options.connectionMode,
+    caPath: options.caPath,
   });
-  const lines = githubEnvLinesForDatabaseUrls(urls);
+  const lines = githubEnvLinesForDatabaseUrls(urls, options.caPath);
 
   for (const { url } of urls) {
     log(`::add-mask::${url}`);
   }
-  await append(options.githubEnvPath, `${lines.join("\n")}\n`);
+  try {
+    await writeCa(options.caPath, certificate);
+    await append(options.githubEnvPath, `${lines.join("\n")}\n`);
+  } catch (error) {
+    await remove(options.caPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 
   return urls;
 }
 
 export function databaseUrlsFromTerraformState(state, options = {}) {
   const environmentName = options.environmentName ?? "staging";
+  if (!options.caPath) {
+    throw trustError("managed-postgres-ca-path-missing", "A managed PostgreSQL CA path is required.");
+  }
   const resources = Array.isArray(state?.resources) ? state.resources : [];
   const cluster = resources.find(
     (resource) => resource.type === "digitalocean_database_cluster" && resource.name === "postgres",
@@ -88,17 +119,104 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
 
     const url =
       `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}` +
-      `@${connection.host}:${connection.port}/${encodeURIComponent(databaseName)}?sslmode=require`;
+      `@${connection.host}:${connection.port}/${encodeURIComponent(databaseName)}`;
     return {
       contextName,
       envName: envNameForContext(contextName),
-      url,
+      url: managedPostgresConnectionUrl(url, options.caPath),
     };
   });
 }
 
-export function githubEnvLinesForDatabaseUrls(urls) {
-  return urls.map(({ envName, url }) => `${envName}=${url}`);
+export function managedPostgresConnectionUrl(connectionString, caPath) {
+  if (!caPath) {
+    throw trustError("managed-postgres-ca-path-missing", "A managed PostgreSQL CA path is required.");
+  }
+  const url = new URL(connectionString);
+  url.searchParams.set("sslmode", "verify-full");
+  url.searchParams.set("sslrootcert", caPath);
+  url.searchParams.set("uselibpqcompat", "true");
+  return url.toString();
+}
+
+export function githubEnvLinesForDatabaseUrls(urls, caPath) {
+  return [`PGSSLROOTCERT=${caPath}`, ...urls.map(({ envName, url }) => `${envName}=${url}`)];
+}
+
+export function managedPostgresClusterIdFromTerraformState(state, environmentName = "staging") {
+  const resources = Array.isArray(state?.resources) ? state.resources : [];
+  const cluster = resources.find(
+    (resource) => resource.type === "digitalocean_database_cluster" && resource.name === "postgres",
+  );
+  const clusterId = cluster?.instances?.[0]?.attributes?.id;
+  if (!clusterId) {
+    throw trustError(
+      "terraform-state-missing-cluster-id",
+      `${environmentLabel(environmentName)} Terraform state does not contain a DigitalOcean database cluster ID.`,
+    );
+  }
+  return String(clusterId);
+}
+
+export async function fetchDigitalOceanManagedPostgresCa(options, dependencies = {}) {
+  if (!options.digitalOceanToken) {
+    throw trustError("missing-digitalocean-token", "DIGITALOCEAN_ACCESS_TOKEN is required.");
+  }
+  const request = dependencies.fetch ?? fetch;
+  const apiBaseUrl = dependencies.apiBaseUrl ?? DIGITALOCEAN_API_BASE_URL;
+  let response;
+  try {
+    response = await request(`${apiBaseUrl}/databases/${encodeURIComponent(options.clusterId)}/ca`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${options.digitalOceanToken}`,
+      },
+    });
+  } catch {
+    throw trustError("digitalocean-ca-request-failed", "DigitalOcean database CA request failed.");
+  }
+  if (!response.ok) {
+    throw trustError("digitalocean-ca-request-rejected", "DigitalOcean database CA request was rejected.", {
+      status: response.status,
+    });
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw trustError("digitalocean-ca-response-invalid", "DigitalOcean database CA response was invalid.", {
+      status: response.status,
+    });
+  }
+  const encodedCertificate = payload?.ca?.certificate;
+  if (typeof encodedCertificate !== "string") {
+    throw trustError("digitalocean-ca-response-invalid", "DigitalOcean database CA response omitted the certificate.", {
+      status: response.status,
+    });
+  }
+  const certificate = Buffer.from(encodedCertificate, "base64").toString("utf8");
+  if (!/^-----BEGIN CERTIFICATE-----\r?\n[\s\S]+\r?\n-----END CERTIFICATE-----\r?\n?$/.test(certificate)) {
+    throw trustError(
+      "digitalocean-ca-response-invalid",
+      "DigitalOcean database CA response was not a PEM certificate.",
+      {
+        status: response.status,
+      },
+    );
+  }
+  return certificate;
+}
+
+export async function writeManagedPostgresCa(caPath, certificate) {
+  let handle;
+  try {
+    handle = await open(caPath, "w", 0o600);
+    await handle.chmod(0o600);
+    await handle.writeFile(certificate, { encoding: "utf8" });
+  } finally {
+    await handle?.close();
+  }
 }
 
 function contextNamesForSelection(contexts, databaseByContext, userByContext, environmentName) {
@@ -136,6 +254,12 @@ function validateExportOptions(options) {
   if (!options.githubEnvPath) {
     errors.push("GITHUB_ENV or --github-env is required.");
   }
+  if (!options.caPath) {
+    errors.push("RUNNER_TEMP, MANAGED_POSTGRES_CA_PATH, or --ca-path is required.");
+  }
+  if (!options.digitalOceanToken) {
+    errors.push("DIGITALOCEAN_ACCESS_TOKEN is required.");
+  }
   return errors;
 }
 
@@ -143,10 +267,14 @@ function parseContexts(value) {
   if (!value || value === "all") {
     return null;
   }
-  return String(value)
-    .split(",")
-    .map((context) => context.trim())
-    .filter(Boolean);
+  return [
+    ...new Set(
+      String(value)
+        .split(",")
+        .map((context) => context.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function environmentLabel(environmentName) {
@@ -158,9 +286,23 @@ async function main(argv, env = process.env) {
     await exportTerraformStateDatabaseUrls(parseTerraformStateDatabaseUrlArgs(argv, env));
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(
+      JSON.stringify(safeFailureFields(error?.classification ?? "managed-postgres-trust-export-failed", error)),
+    );
     return 1;
   }
+}
+
+function parseTerraformState(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw trustError("terraform-state-invalid", "Terraform state was not valid JSON.");
+  }
+}
+
+function trustError(classification, message, fields = {}) {
+  return Object.assign(new Error(message), { classification, ...fields });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

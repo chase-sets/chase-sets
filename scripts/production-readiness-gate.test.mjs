@@ -9,6 +9,7 @@ import {
   parseProductionReadinessGateArgs,
   pollForReadiness,
   renderReadinessStepSummary,
+  runProductionReadinessGateCommand,
   validateProductionReadinessGateOptions,
 } from "./production-readiness-gate.mjs";
 
@@ -61,6 +62,42 @@ describe("production readiness gate options", () => {
 
     expect(options.sourceContexts).toEqual(["checkout", "public-presence"]);
     expect(validateProductionReadinessGateOptions(options)).toEqual([]);
+  });
+});
+
+describe("production readiness command failure output", () => {
+  it("never copies an adversarial URL, password, CA, or raw exception into logs, summaries, or artifacts", async () => {
+    const marker = "postgresql://user:password-marker@db.example/database -----BEGIN CERTIFICATE----- ca-marker";
+    const logs = [];
+    const summaries = [];
+    const artifacts = [];
+    const error = Object.assign(new Error(marker), { code: "SELF_SIGNED_CERT_IN_CHAIN" });
+
+    const exitCode = await runProductionReadinessGateCommand(
+      [],
+      { ...baseEnv, GITHUB_STEP_SUMMARY: "summary.md" },
+      {
+        createDatabaseAudit: async () => {
+          throw error;
+        },
+        log: (value) => logs.push(value),
+        logError: (value) => logs.push(value),
+        appendFileSync: (...args) => summaries.push(args),
+        writeJsonRecord: (...args) => artifacts.push(args),
+      },
+    );
+
+    const retainedEvidence = JSON.stringify({ logs, summaries, artifacts });
+    expect(exitCode).toBe(2);
+    expect(logs).toEqual([
+      '{"classification":"self-signed-certificate-in-certificate-chain","code":"SELF_SIGNED_CERT_IN_CHAIN"}',
+    ]);
+    expect(summaries).toEqual([]);
+    expect(artifacts).toEqual([]);
+    expect(retainedEvidence).not.toContain("password-marker");
+    expect(retainedEvidence).not.toContain("CERTIFICATE");
+    expect(retainedEvidence).not.toContain("ca-marker");
+    expect(retainedEvidence).not.toContain("postgresql://");
   });
 });
 

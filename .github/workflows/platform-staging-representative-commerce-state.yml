@@ -72,26 +72,37 @@ jobs:
       CATALOG_ASSET_S3_REGION: nyc3
       CATALOG_ASSET_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
       CATALOG_ASSET_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
-      CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
       MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3
       MARKETPLACE_LISTING_PHOTO_S3_BUCKET: chase-sets-staging-catalog-assets
       MARKETPLACE_LISTING_PHOTO_S3_REGION: nyc3
       MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
       MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
-      MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
     steps:
       - name: Confirm representative refresh
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           echo "Representative commerce refresh confirmed."
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         with:
           fetch-depth: 0
 
       - name: Resolve release commit
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           node ./scripts/resolve-release-commit.mjs \
@@ -99,55 +110,73 @@ jobs:
             --checkout true
 
       - uses: ./.github/actions/setup-pnpm-workspace
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
 
       - name: Install dependencies
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: pnpm install --frozen-lockfile
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
         env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
 
-      - name: Terraform init staging platform state
-        working-directory: infrastructure/digitalocean/platform
+      - name: Export staging database URLs and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
         env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          terraform init \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=landing/staging.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-
-      - name: Export staging database URLs
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
-          terraform state pull > "$state_path"
-          node ../../../scripts/terraform-state-database-urls.mjs \
-            --state "$state_path" \
-            --environment staging \
-            --github-env "$GITHUB_ENV"
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: staging
 
       - name: Run representative commerce state refresh
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/representative-commerce-state
           pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
 
+      - name: Remove managed Postgres CA
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
+
       - name: Upload representative commerce selector evidence
+        env:
+          CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -10,6 +10,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { postgresClientConfig, safeFailureFields } from "./lib/postgres-connection.mjs";
 
 const { Client } = pg;
 
@@ -59,7 +60,6 @@ export function evaluateProviderRefreshSchedules(rows, checkedAt) {
       intervalMs,
       lastRunStatus: row.last_run_status ?? null,
       lastRunCompletedAt: row.last_run_completed_at ? new Date(row.last_run_completed_at).toISOString() : null,
-      lastRunError: row.last_run_error ?? null,
       failed,
       stale: neverRan || overdue,
     };
@@ -90,7 +90,7 @@ export async function runCatalogProviderRefreshStatus(options, ClientCtor = Clie
     throw new Error("CATALOG_DATABASE_URL, DATABASE_URL_CATALOG, or --catalog-database-url is required.");
   }
 
-  const client = new ClientCtor({ connectionString: options.catalogDatabaseUrl });
+  const client = new ClientCtor(postgresClientConfig(options.catalogDatabaseUrl));
   await client.connect();
   try {
     const result = await client.query(`
@@ -101,8 +101,7 @@ export async function runCatalogProviderRefreshStatus(options, ClientCtor = Clie
              interval_ms,
              next_run_at,
              last_run_completed_at,
-             last_run_status,
-             last_run_error
+             last_run_status
       FROM catalog_provider_refresh_schedule
       ORDER BY provider_key
     `);
@@ -131,7 +130,7 @@ async function main() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(JSON.stringify(safeFailureFields("catalog-provider-refresh-status-failed", error)));
     process.exitCode = 1;
   });
 }

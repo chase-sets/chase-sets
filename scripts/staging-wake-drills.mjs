@@ -27,6 +27,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { postgresClientConfig, safeFailureFields } from "./lib/postgres-connection.mjs";
 
 export const STAGING_WAKE_DRILLS_VERSION = "staging-wake-drills/v1";
 export const DRILL_KINDS = Object.freeze(["reconciliation", "load"]);
@@ -570,42 +571,9 @@ export async function createDatabaseAudit(options) {
   const { default: pg } = await import("pg");
   const clients = new Map();
 
-  // pg honors libpq sslmode semantics only with uselibpqcompat; without it the
-  // connection string sslmode overrides the ssl option object (see
-  // marketplace-provider-proof-status.mjs for the same convention).
-  function normalizeDrillDatabaseUrl(databaseUrl) {
-    try {
-      const url = new URL(databaseUrl);
-      if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
-        url.searchParams.set("uselibpqcompat", "true");
-        return url.toString();
-      }
-    } catch {
-      return databaseUrl;
-    }
-
-    return databaseUrl;
-  }
-
-  // DigitalOcean managed Postgres presents a CA outside the default chain;
-  // sslmode=require URLs use encrypted-but-unverified TLS like the other
-  // staging evidence scripts (see marketplace-provider-proof-status.mjs).
-  function resolveDrillDatabaseSsl(databaseUrl) {
-    try {
-      const url = new URL(databaseUrl);
-      if (url.searchParams.get("sslmode") === "require") {
-        return { rejectUnauthorized: false };
-      }
-    } catch {
-      return undefined;
-    }
-    return undefined;
-  }
-
   async function clientFor(url) {
     if (!clients.has(url)) {
-      const normalizedUrl = normalizeDrillDatabaseUrl(url);
-      const client = new pg.Client({ connectionString: normalizedUrl, ssl: resolveDrillDatabaseSsl(normalizedUrl) });
+      const client = new pg.Client(postgresClientConfig(url));
       await client.connect();
       clients.set(url, client);
     }
@@ -1315,7 +1283,7 @@ async function safeWakeStatus(deps, verdictReasons, phase) {
     return await deps.fetchWakeStatus();
   } catch (error) {
     verdictReasons.push(`wake-status-snapshot-${phase}-failed`);
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(safeFailureFields("wake-status-snapshot-failed", error)));
     return null;
   }
 }
@@ -1328,7 +1296,7 @@ async function safeWorkerStatus(deps, verdictReasons, phase) {
     return await deps.fetchWorkerStatus();
   } catch (error) {
     verdictReasons.push(`worker-status-snapshot-${phase}-failed`);
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(safeFailureFields("worker-status-snapshot-failed", error)));
     return null;
   }
 }
@@ -1759,7 +1727,7 @@ async function main(argv, env = process.env) {
 
     return evidence.verdict === "pass" ? 0 : 1;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(JSON.stringify(safeFailureFields("staging-wake-drill-failed", error)));
     return 2;
   } finally {
     await audit?.close();

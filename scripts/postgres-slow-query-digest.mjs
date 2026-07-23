@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
+import { postgresClientConfig, postgresFailureFields } from "./lib/postgres-connection.mjs";
 import { parseDatabaseUrls } from "./postgres-growth-evidence.mjs";
 
 const { Client } = pg;
@@ -67,7 +67,7 @@ export async function runPostgresSlowQueryDigest(options, dependencies = {}) {
       errors.push({
         contextName: database.contextName,
         category: "collection-error",
-        message: supportSafeErrorMessage(error),
+        ...postgresFailureFields(error),
       });
     }
   }
@@ -86,7 +86,7 @@ export function buildPostgresSlowQueryDigest(input) {
   const errors = input.errors.map((error) => ({
     contextName: sanitizeContextName(error.contextName),
     category: "collection-error",
-    message: supportSafeErrorMessage(error.message),
+    ...postgresFailureFields(error),
   }));
   const queryDigests = databases.flatMap((database) => database.slowQueryDigests);
 
@@ -137,8 +137,7 @@ export function buildPostgresSlowQueryDigest(input) {
 }
 
 export async function collectPostgresSlowQueryDigest(database, options) {
-  const connectionString = normalizePostgresConnectionString(database.url);
-  const client = new Client({ connectionString, ssl: resolvePostgresSsl(connectionString) });
+  const client = new Client(postgresClientConfig(database.url));
   try {
     await client.connect();
     return await collectPostgresSlowQueryDigestWithClient(client, database, options);
@@ -302,19 +301,6 @@ function sanitizePostureSetting(value) {
 
 function quoteIdentifier(value) {
   return `"${String(value).replaceAll('"', '""')}"`;
-}
-
-function supportSafeErrorMessage(error) {
-  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-  return message
-    .replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted-postgres-url]")
-    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[redacted-id]")
-    .replace(/password=[^&\s]+/gi, "password=[redacted]")
-    .replace(/token=[^&\s]+/gi, "token=[redacted]")
-    .replace(/bearer\s+[a-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .slice(0, 240);
 }
 
 function nonNegativeInteger(value) {

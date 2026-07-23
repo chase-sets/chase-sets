@@ -308,27 +308,35 @@ jobs:
     needs: change-scope
     if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.docker_image == 'true'
     env:
-      DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN != ''
         env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ env.DIGITALOCEAN_REGISTRY_TOKEN }}
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         id: buildx
         continue-on-error: true
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: steps.buildx.outcome == 'failure'
 
       - name: Build runtime image
+        env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           docker buildx build \
@@ -342,6 +350,7 @@ jobs:
       - name: Boot smoke runtime image
         if: github.event_name == 'merge_group'
         env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           PLATFORM_IMAGE: chase-sets-platform:pr-validation
         run: |
           set -euo pipefail
@@ -388,6 +397,7 @@ jobs:
       - name: Push boot-smoked merge-group image
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN != ''
         env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           PLATFORM_IMAGE: chase-sets-platform:pr-validation
         run: |
           set -euo pipefail
@@ -406,6 +416,8 @@ jobs:
           echo "Pushed boot-smoked merge-group image ${image}@${digest}"
 
       - name: Report skipped merge-group image push
+        env:
+          DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN == ''
         run: |
           echo "DigitalOcean registry credentials are unavailable for this merge_group run; build and boot smoke still validated the image."

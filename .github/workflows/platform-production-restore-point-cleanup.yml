@@ -40,19 +40,23 @@ jobs:
       contents: read
       issues: write
     env:
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_PREFIX: cs-prod-rp-
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ github.event.inputs.hold_names || vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Cleanup restore-point forks
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -72,6 +76,8 @@ jobs:
             ${apply_arg}
 
       - name: Summarize cleanup
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: ${{ always() }}
         run: |
           set -euo pipefail
@@ -107,6 +113,8 @@ jobs:
           NODE
 
       - name: Upload cleanup artifact
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -116,6 +124,8 @@ jobs:
           retention-days: 30
 
       - name: Report restore-point cleanup alert
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: ${{ failure() }}
         uses: ./.github/actions/report-scheduled-workflow-alert
         with:
@@ -125,6 +135,8 @@ jobs:
           alert-summary: Production restore-point cleanup failed. See the cleanup summary and uploaded artifact when present.
 
       - name: Report restore-point cleanup recovery
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: ${{ success() }}
         uses: ./.github/actions/report-scheduled-workflow-alert
         with:

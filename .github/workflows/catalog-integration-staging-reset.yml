@@ -119,39 +119,16 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - name: Terraform init staging platform state
-        working-directory: infrastructure/digitalocean/platform
+      - name: Export staging Catalog database URL and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          terraform init \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=landing/staging.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-
-      - name: Export staging Catalog database URL
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
-          terraform state pull > "$state_path"
-          node ../../../scripts/terraform-state-database-urls.mjs \
-            --state "$state_path" \
-            --environment staging \
-            --contexts catalog \
-            --connection-mode pooled \
-            --github-env "$GITHUB_ENV"
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: staging
+          contexts: catalog
+          connection-mode: pooled
 
       - name: Run Catalog integration reset policy
         env:
@@ -197,6 +174,14 @@ jobs:
             fi
           fi
           pnpm run ops catalog:integration-reset -- "${args[@]}"
+
+      - name: Remove managed Postgres CA
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
 
       - name: Summarize Catalog integration reset
         if: always()
