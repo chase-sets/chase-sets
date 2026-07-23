@@ -26,6 +26,7 @@ import {
   providerFailureCategoryFromText,
   ProviderWebhookError,
 } from "@chase-sets/http/provider-errors";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 
 const STRIPE_METADATA_VALUE_MAX_LENGTH = 500;
@@ -229,15 +230,14 @@ function encodeBasicAuth(secretKey: string) {
 }
 
 function normalizeMoneyAmount(value: string, fieldName: string) {
-  const normalized = value.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+  const cents = tryMoneyToCents(value);
+  if (cents === null) {
     throw new Error(`${fieldName} must be a valid decimal.`);
   }
-  const numeric = Number.parseFloat(normalized);
-  if (numeric <= 0) {
+  if (cents <= 0n) {
     throw new Error(`${fieldName} must be greater than zero.`);
   }
-  return numeric.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 function moneyToMinorUnits(amount: string) {

@@ -1,4 +1,10 @@
 import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
+import {
+  centsToMoneyAmount,
+  compareMoneyAmounts,
+  subtractNonNegativeMoneyAmounts,
+  tryMoneyToCents,
+} from "@chase-sets/primitives/money";
 import type {
   CreatedPayoutAccountManagementSession,
   CreatedPayoutSetupLink,
@@ -22,19 +28,19 @@ export type FakeMoneyMovementGatewayOptions = Readonly<{
 export type FakeMoneyMovementGateway = MoneyMovementGateway & Readonly<{ usedIdempotencyKeys: readonly string[] }>;
 
 function normalizeMoneyAmount(value: string, fieldName: string) {
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  const cents = tryMoneyToCents(value);
+  if (cents === null) {
     throw new Error(`${fieldName} must be a non-negative amount.`);
   }
-  return parsed.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 function compareMoney(left: string, right: string) {
-  return Number.parseFloat(left) - Number.parseFloat(right);
+  return compareMoneyAmounts(left, right);
 }
 
 function subtractMoney(left: string, right: string) {
-  return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
+  return subtractNonNegativeMoneyAmounts(left, right);
 }
 
 function normalizeCurrencyCode(value: string): CurrencyCode {

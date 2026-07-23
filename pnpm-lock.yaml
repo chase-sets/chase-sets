@@ -2180,6 +2180,9 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../stripe-config
