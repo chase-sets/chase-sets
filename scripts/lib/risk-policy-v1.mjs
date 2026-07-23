@@ -1,9 +1,9 @@
 const POLICY_VERSION = "risk-policy/v1";
 
-const GENERATED_PATH = /(?:^|\/)(?:generated|__generated__)(?:\/|$)/;
-const DOCUMENTATION_OR_TEST =
+export const GENERATED_PATH = /(?:^|\/)(?:generated|__generated__)(?:\/|$)/;
+export const DOCUMENTATION_OR_TEST =
   /(?:^|\/)(?:docs?|__tests__|tests?|test-support)(?:\/|$)|\.(?:md|mdx)$|\.(?:test|spec)\.[cm]?[jt]sx?$/;
-const EXECUTABLE_SAFETY_FIXTURE =
+export const EXECUTABLE_SAFETY_FIXTURE =
   /(?:^|\/)(?:migrations?|backfills?|terraform|helm)(?:\/.*)?\.(?:sql|tf|ya?ml|json)$|^\.github\/workflows\//;
 
 function normalizePath(value) {

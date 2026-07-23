@@ -1,0 +1,240 @@
+name: PR Scope Advisory
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to re-evaluate
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: pr-scope-advisory-${{ github.event.pull_request.number || github.event.merge_group.head_sha || inputs.pull_request }}
+  cancel-in-progress: true
+
+jobs:
+  # Posts/updates the stable scope comment. This job must never turn red: it
+  # is pure information during the mandated advisory rollout (rollout mode
+  # lives in scripts/pr-scope-rollout-v1.json, not in this workflow).
+  advisory:
+    name: PR Scope (Advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate trusted-base PR scope and post advisory comment
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_SCOPE_PULL_REQUEST: ${{ inputs.pull_request }}
+        with:
+          script: |
+            const { spawnSync } = require("node:child_process");
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+
+            // Elevated review events never fetch or execute pull-request head
+            // code. These modules are read from the repository's trusted
+            // default branch.
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "pr-scope-trusted-base");
+            const sourcePaths = [
+              "scripts/lib/risk-policy-v1.mjs",
+              "scripts/lib/pr-scope-policy-v1.mjs",
+              "scripts/platform-risk-review.mjs",
+              "scripts/platform-pr-scope.mjs",
+              "scripts/pr-scope-rollout-v1.json",
+            ];
+            // Bootstrap (fetching trusted-base sources) is a separate failure
+            // domain from the CLI's own exit code. A network/API error here
+            // is safe/unknown and must never fail this step: it is caught
+            // and replaced with a fixed, bounded flag rather than thrown,
+            // since the raw error can carry token-shaped or otherwise
+            // sensitive response text that must never reach step output.
+            let bootstrapFailed = false;
+            try {
+              for (const sourcePath of sourcePaths) {
+                const response = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: sourcePath,
+                  ref: context.payload.repository.default_branch,
+                });
+                if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                  throw new Error("trusted-base-source-unavailable");
+                }
+                const target = path.join(trustedRoot, sourcePath);
+                await mkdir(path.dirname(target), { recursive: true });
+                await writeFile(target, Buffer.from(response.data.content, "base64"));
+              }
+            } catch {
+              bootstrapFailed = true;
+            }
+
+            // The CLI's real exit code (only nonzero once rollout mode is
+            // "enforcing" and a large PR is missing its rationale) is
+            // captured via spawnSync's `status` instead of allowed to throw,
+            // so it can be relayed explicitly by the boundary step below
+            // rather than masked by a thrown exception.
+            let cliExitCode = 0;
+            if (!bootstrapFailed) {
+              const result = spawnSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
+                env: {
+                  ...process.env,
+                  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+                  PR_SCOPE_OUTPUT: path.join(process.env.RUNNER_TEMP, "pr-scope-evaluation.json"),
+                },
+                stdio: "inherit",
+              });
+              if (result.error || typeof result.status !== "number") {
+                bootstrapFailed = true;
+              } else {
+                cliExitCode = result.status;
+              }
+            }
+
+            core.setOutput("bootstrap-failed", bootstrapFailed ? "true" : "false");
+            core.setOutput("cli-exit-code", String(cliExitCode));
+
+      - name: Preserve advisory workflow boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ "${{ steps.evaluate.outputs.bootstrap-failed }}" != "false" ]; then
+            {
+              echo "## PR Scope — advisory"
+              echo
+              echo "Evaluation state: **unknown** (safe code: \`workflow-boundary-failure\`)."
+              echo
+              echo "The advisory workflow remains non-enforcing."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload PR scope evaluation record
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-scope-evaluation-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr-scope-evaluation.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The lightweight scope-policy check: read-only, no label/comment mutation
+  # (PR_SCOPE_CHECK_ONLY skips both — the `advisory` job above owns mutation
+  # so the two jobs never race on the same PR). scripts/pr-scope-rollout-v1.json
+  # is mandated advisory-only, and scopePolicyExitCode in
+  # scripts/platform-pr-scope.mjs always returns 0 outside "enforcing" mode
+  # (including on the CLI's own internal-failure path), so under the current
+  # rollout the CLI itself can never exit nonzero. The boundary step relays
+  # the CLI's real exit code from a step output (captured via spawnSync, not
+  # thrown) so a later config-only flip of rollout mode to "enforcing" makes
+  # this job go red on a genuine missing-rationale block, without swallowing
+  # it the way a step-level continue-on-error would; a bootstrap/API failure
+  # (a separate, safe/unknown failure domain) still cannot fail the job. It
+  # is not wired into any required-status ruleset, so it cannot block merges
+  # on its own even once enforcing.
+  scope-policy:
+    name: Scope Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Evaluate trusted-base PR scope policy
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_SCOPE_PULL_REQUEST: ${{ inputs.pull_request }}
+          PR_SCOPE_CHECK_ONLY: "true"
+        with:
+          script: |
+            const { spawnSync } = require("node:child_process");
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "pr-scope-policy-trusted-base");
+            const sourcePaths = [
+              "scripts/lib/risk-policy-v1.mjs",
+              "scripts/lib/pr-scope-policy-v1.mjs",
+              "scripts/platform-risk-review.mjs",
+              "scripts/platform-pr-scope.mjs",
+              "scripts/pr-scope-rollout-v1.json",
+            ];
+            // Same bootstrap boundary as the advisory job above: a
+            // network/API error here is a separate failure domain from the
+            // CLI's own exit code, is safe/unknown, and must never fail this
+            // step; it is caught and replaced with a fixed, bounded flag
+            // rather than thrown (the raw error can carry sensitive text).
+            let bootstrapFailed = false;
+            try {
+              for (const sourcePath of sourcePaths) {
+                const response = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: sourcePath,
+                  ref: context.payload.repository.default_branch,
+                });
+                if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                  throw new Error("trusted-base-source-unavailable");
+                }
+                const target = path.join(trustedRoot, sourcePath);
+                await mkdir(path.dirname(target), { recursive: true });
+                await writeFile(target, Buffer.from(response.data.content, "base64"));
+              }
+            } catch {
+              bootstrapFailed = true;
+            }
+
+            // The CLI's real exit code is the only enforcement signal this
+            // job carries. It is captured via spawnSync's `status` rather
+            // than allowed to throw, and relayed explicitly by the boundary
+            // step below: a config-only flip of rollout mode to "enforcing"
+            // (scripts/pr-scope-rollout-v1.json) is what makes the CLI ever
+            // exit nonzero, so no workflow change is needed to activate it.
+            let cliExitCode = 0;
+            if (!bootstrapFailed) {
+              const result = spawnSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
+                env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN },
+                stdio: "inherit",
+              });
+              if (result.error || typeof result.status !== "number") {
+                bootstrapFailed = true;
+              } else {
+                cliExitCode = result.status;
+              }
+            }
+
+            core.setOutput("bootstrap-failed", bootstrapFailed ? "true" : "false");
+            core.setOutput("cli-exit-code", String(cliExitCode));
+
+      - name: Preserve advisory workflow boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ "${{ steps.evaluate.outputs.bootstrap-failed }}" != "false" ]; then
+            {
+              echo "## PR Scope — advisory"
+              echo
+              echo "Evaluation state: **unknown** (safe code: \`workflow-boundary-failure\`)."
+              echo
+              echo "The advisory workflow remains non-enforcing."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit $((10#${{ steps.evaluate.outputs.cli-exit-code || 0 }}))

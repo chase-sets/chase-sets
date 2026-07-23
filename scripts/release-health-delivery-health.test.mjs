@@ -265,6 +265,59 @@ describe("delivery-health/v1", () => {
     );
   });
 
+  it("feeds normalized PR scope from the production collector's own per-pull file data, not an injected fixture", () => {
+    const smallPull = {
+      number: 9001,
+      state: "OPEN",
+      createdAt: iso(60),
+      updatedAt: iso(50),
+      changedFiles: 1,
+      files: [{ path: "scripts/small-change.mjs", additions: 5, deletions: 2 }],
+    };
+    const largePull = {
+      number: 9002,
+      state: "OPEN",
+      createdAt: iso(70),
+      updatedAt: iso(65),
+      changedFiles: 36,
+      files: Array.from({ length: 36 }, (_, index) => ({
+        path: `bounded-contexts/catalog/domain/f${index}.ts`,
+        additions: 10,
+        deletions: 0,
+      })),
+    };
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source: { pulls: [smallPull, largePull] },
+      apiStatus: {},
+    }).record;
+
+    const prScope = record.windows.rolling24h.prs.prScope;
+    expect(prScope.schemaVersion).toBe("pr-scope-policy/v1");
+    expect(prScope.evaluated).toBe(2);
+    expect(prScope.statusCounts).toEqual({ normal: 1, large: 1 });
+    expect(prScope.normalizedFiles.p90).toBe(36);
+
+    // A truncated pull's files are incomplete (not the real changed-file set)
+    // and must be skipped rather than silently under-scoped.
+    const withTruncation = structuredClone({ pulls: [smallPull, largePull] });
+    withTruncation.pulls[1].filesTruncated = true;
+    const truncatedRecord = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source: withTruncation,
+      apiStatus: {},
+    }).record;
+    const truncatedScope = truncatedRecord.windows.rolling24h.prs.prScope;
+    expect(truncatedScope.evaluated).toBe(1);
+    expect(truncatedScope.skippedIncomplete).toBe(1);
+  });
+
   it("suppresses alerts when API data is truncated or release artifacts are missing", () => {
     const source = representativeSource();
     source.deployRuns.find(

@@ -5,6 +5,7 @@ import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 
 export const DELIVERY_HEALTH_VERSION = "delivery-health/v1";
@@ -397,12 +398,43 @@ function summarizePullRequests(pulls, runs, generatedPaths, window) {
       ),
     ),
     reviews: reviewTotals,
+    prScope: summarizePrScope(created),
     platformPr: {
       pullRequest: pullMetric,
       mergeGroup: mergeMetric,
       combined: summarizeRuns(selectMetricSeries(runs, window, runTimestamp)),
       rootFailures: [],
     },
+  };
+}
+
+// Feeds the pr-scope-policy/v1 calculator (scripts/lib/pr-scope-policy-v1.mjs,
+// shared with scripts/platform-pr-scope.mjs) with the same per-pull file data
+// this collector already fetches for `changedFiles`/`nonGeneratedChurn`,
+// rather than a fixture: production files carry either the GraphQL shape
+// (`path`/`additions`/`deletions` only) or, once truncation is resolved via
+// the REST fallback above, the full REST shape (`filename`/`status`/patch).
+function toScopeChangedFile(file) {
+  return {
+    filename: file.filename ?? file.path,
+    status: file.status ?? "modified",
+    previousFilename: file.previous_filename ?? file.previousFilename ?? null,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch ?? null,
+  };
+}
+
+function summarizePrScope(pulls) {
+  const evaluable = pulls.filter((pull) => Array.isArray(pull.files) && pull.files.length > 0 && !pull.filesTruncated);
+  const scopes = evaluable.map((pull) => classifyPrScope({ changedFiles: pull.files.map(toScopeChangedFile) }));
+  return {
+    schemaVersion: "pr-scope-policy/v1",
+    evaluated: scopes.length,
+    skippedIncomplete: pulls.length - evaluable.length,
+    normalizedLines: percentileSummary(scopes.map((scope) => scope.normalized.lines)),
+    normalizedFiles: percentileSummary(scopes.map((scope) => scope.normalized.files)),
+    statusCounts: countBy(scopes, (scope) => scope.status),
   };
 }
 

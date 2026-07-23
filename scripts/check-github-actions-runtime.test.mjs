@@ -234,6 +234,73 @@ jobs:
     expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
   });
 
+  it("discovers an advisory evaluator by code shape alone, with no risk-review name or file reference present", () => {
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - run: exit 0
+`,
+      "arbitrary-evaluator-surface.yml",
+    );
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it("rejects a code-shape-discovered evaluator that executes head code or propagates advisory failure, with no risk-review name or file reference present", () => {
+    const rootDir = workflowRootWith(
+      `
+name: Some Other Advisory Evaluator
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@${checkoutSha} # v6.0.0
+        with:
+          ref: context.payload.pull_request.head.sha
+      - uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+`,
+      "another-evaluator-name.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must not checkout code"),
+        expect.stringContaining("without continue-on-error: true"),
+      ]),
+    );
+  });
+
   it("rejects semantically discovered risk review that executes head code or propagates advisory failure", () => {
     const rootDir = workflowRootWith(
       `
@@ -265,8 +332,206 @@ jobs:
       expect.arrayContaining([
         expect.stringContaining("must not checkout code"),
         expect.stringContaining("trusted base"),
-        expect.stringContaining("must not make its workflow red"),
+        expect.stringContaining("without continue-on-error: true"),
       ]),
     );
+  });
+
+  it("rejects an advisory job whose action step lacks continue-on-error even when the file elsewhere contains both safe-looking substrings", () => {
+    // Reproduces the real regression: the file already contains
+    // "continue-on-error: true" (on the evaluate step) and "exit 0" (in the
+    // boundary step's run body) *somewhere*, which the old whole-file
+    // substring check accepted. The upload step is still uncontained.
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          exit 0
+      - name: Upload evaluation record
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${cacheSha} # v5.0.0
+`,
+      "regression-uncontained-upload.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("Upload evaluation record")]));
+  });
+
+  it("accepts an advisory job once every action step is individually contained with continue-on-error: true", () => {
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          exit 0
+      - name: Upload evaluation record
+        if: \${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@${cacheSha} # v7.0.0
+`,
+      "regression-contained-upload.yml",
+    );
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it("rejects a check-only enforcement job whose boundary step is a bare 'exit 0' instead of relaying a computed exit code", () => {
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          exit 0
+  scope-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        env:
+          PR_SCOPE_CHECK_ONLY: "true"
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          exit 0
+`,
+      "regression-swallowed-enforcement.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("check-only enforcement job")]));
+  });
+
+  it("accepts a check-only enforcement job whose boundary step relays a normalized computed steps.*.outputs exit code", () => {
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          exit 0
+  scope-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Evaluate
+        id: evaluate
+        continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        env:
+          PR_SCOPE_CHECK_ONLY: "true"
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - name: Preserve advisory workflow boundary
+        if: \${{ always() }}
+        run: |
+          if [ "\${{ steps.evaluate.outputs.bootstrap-failed }}" != "false" ]; then
+            exit 0
+          fi
+          exit $((10#\${{ steps.evaluate.outputs.cli-exit-code || 0 }}))
+`,
+      "regression-relayed-enforcement.yml",
+    );
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
   });
 });
