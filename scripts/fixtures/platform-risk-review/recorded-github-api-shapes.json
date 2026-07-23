@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "recorded-github-risk-review-api/v1",
+  "recordedAt": "2026-07-22T23:15:00Z",
+  "readOnlySources": [
+    "GET /repos/chase-sets/chase-sets/pulls/5916",
+    "GET /repos/chase-sets/chase-sets/pulls/5916/files?per_page=100",
+    "GET /repos/chase-sets/chase-sets/pulls/5916/reviews?per_page=100",
+    "GET /repos/chase-sets/chase-sets/commits/c30f992fab4518dd6ea271413db553e521b65e52/pulls"
+  ],
+  "pullRequest": {
+    "number": 5916,
+    "state": "open",
+    "user": { "login": "todd-skelton", "type": "User" },
+    "head": { "sha": "df1fb1b7a1d398762f60c45f083744186d405d21" },
+    "base": { "ref": "main" },
+    "merge_commit_sha": "0be59f79fd2bce973bd82e9b576951e362205c77",
+    "changed_files": 56,
+    "labels": []
+  },
+  "file": {
+    "sha": "ac4f1d8f1d3ff880f55662290f18d2b9172429e9",
+    "filename": "bounded-contexts/public-presence/context.json",
+    "status": "modified",
+    "previous_filename": null,
+    "additions": 32,
+    "deletions": 0,
+    "changes": 32,
+    "patch": "@@ -414,0 +415,1 @@"
+  },
+  "review": {
+    "id": 4759503271,
+    "user": { "login": "todd-skelton", "type": "User" },
+    "state": "PENDING",
+    "commit_id": "df1fb1b7a1d398762f60c45f083744186d405d21",
+    "submitted_at": null
+  },
+  "mergeGroupAssociatedPullRequest": {
+    "number": 5948,
+    "state": "closed",
+    "user": { "login": "todd-skelton", "type": "User" },
+    "head": { "sha": "11186bb38c5dd384550654e68c8a1b93993c6efe" },
+    "base": { "ref": "main" },
+    "merge_commit_sha": "c30f992fab4518dd6ea271413db553e521b65e52",
+    "labels": []
+  }
+}

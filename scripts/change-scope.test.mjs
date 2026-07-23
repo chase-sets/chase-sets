@@ -2,6 +2,63 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
+
+const priorProductionIntegrationRules = [
+  {
+    reason: "Bounded-context metadata, including event subscriptions, changed",
+    patterns: [/^bounded-contexts\/[^/]+\/context\.json$/],
+  },
+  {
+    reason: "Cross-context subscription or runtime composition changed",
+    patterns: [
+      /^infrastructure\/(?:bounded-context-runtime|platform-runtime)\//,
+      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.ts$/,
+      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.ts$/,
+    ],
+  },
+  {
+    reason: "Shared application shell or router changed",
+    patterns: [
+      /^deployables\/admin-web\/app\/(?:admin-root-shell|host|routes)\.[cm]?[tj]sx?$/,
+      /^deployables\/admin-web\/app\/routes\/[^/]+-layout\.[cm]?[tj]sx?$/,
+      /^deployables\/marketplace\/app\/(?:root|routes)\.[cm]?[tj]sx?$/,
+      /^deployables\/marketplace\/app\/routes\/layout\.[cm]?[tj]sx?$/,
+    ],
+  },
+  {
+    reason: "Design-system navigation changed",
+    patterns: [
+      /^packages\/design-system\/src\/components\/actions\/(?:navigation|navigation-menu|navigation-header|section-navigation)\.[cm]?[jt]sx?$/,
+      /^packages\/design-system\/src\/patterns\/app-shells\/shells\.[cm]?[jt]sx?$/,
+      /^packages\/design-system\/src\/theme\/(?:link-adapter|provider)\.[cm]?[jt]sx?$/,
+    ],
+  },
+];
+
+function priorProductionIntegrationReasons(filename) {
+  return priorProductionIntegrationRules
+    .filter((rule) => rule.patterns.some((pattern) => pattern.test(filename)))
+    .map((rule) => rule.reason);
+}
+
+const lockedIntegrationParityCorpus = [
+  ["modified", "contracts/primitives/typed-ids.ts"],
+  ["added", "contracts/http/client.ts"],
+  ["removed", "infrastructure/platform-runtime/runtime.ts"],
+  ["modified", "infrastructure/platform-runtime/runtime.test.ts"],
+  ["added", "infrastructure/platform-runtime/README.md"],
+  ["removed", "infrastructure/bounded-context-runtime/compose.test.ts"],
+  ["modified", "infrastructure/bounded-context-runtime/docs/composition.md"],
+  ["added", "bounded-contexts/pricing/context.json"],
+  ["modified", "deployables/platform-worker/src/generated/worker-context-registry.ts"],
+  ["modified", "deployables/marketplace/app/generated/web-context-registry.ts"],
+  ["modified", "deployables/admin-web/app/admin-root-shell.tsx"],
+  ["modified", "packages/design-system/src/components/actions/navigation-menu.tsx"],
+  ["modified", "docs/runbooks/integration-risk.md"],
+  ["renamed", "infrastructure/platform-runtime/renamed-runtime.ts", "archive/renamed-runtime.ts"],
+  ["renamed", "archive/legacy-runtime.ts", "infrastructure/platform-runtime/legacy-runtime.ts"],
+];
 
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   return {
@@ -187,6 +244,41 @@ describe("change-scope", () => {
     expect(docsScope.integrationRiskReason).toBe("No integration-risk change detected");
     expect(sliceScope.integrationRiskRequired).toBe(false);
     expect(sliceScope.integrationRiskReason).toBe("No integration-risk change detected");
+  });
+
+  it.each(lockedIntegrationParityCorpus)(
+    "locks the pre-PR integration battery for %s %s",
+    (status, filename, previousFilename) => {
+      const priorReasons = priorProductionIntegrationReasons(filename);
+      const change = {
+        filename,
+        status,
+        ...(status === "renamed" ? { previousFilename } : {}),
+      };
+      const projected = classifyIntegrationRisk({ changedFiles: [change] });
+      const scope = classifyChanges({ changedFiles: [filename] });
+
+      expect(projected.reasons).toEqual(priorReasons);
+      expect(projected.required).toBe(priorReasons.length > 0);
+      expect(scope.integrationRiskRequired).toBe(priorReasons.length > 0);
+      expect(scope.integrationRiskReason).toBe(
+        priorReasons.length > 0 ? priorReasons.join("; ") : "No integration-risk change detected",
+      );
+    },
+  );
+
+  it("keeps the rename-out advisory delta explicit without widening the required battery", () => {
+    const change = {
+      filename: "archive/legacy-runtime.ts",
+      previousFilename: "infrastructure/platform-runtime/legacy-runtime.ts",
+      status: "renamed",
+    };
+
+    expect(classifyIntegrationRisk({ changedFiles: [change] })).toEqual({ required: false, reasons: [] });
+    expect(classifyRisk({ changedFiles: [change] })).toMatchObject({
+      classification: "high",
+      categories: expect.arrayContaining(["cross-context-contract"]),
+    });
   });
 
   it("keeps unrelated bounded-context changes from pulling platform-runtime into scope", () => {

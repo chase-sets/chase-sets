@@ -252,6 +252,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-production.yml": "release",
     "platform-registry-cleanup.yml": "release",
     "platform-release-candidate.yml": "release",
+    "platform-risk-review.yml": "ci",
     "platform-rollback-readiness.yml": "release",
     "platform-staging-admin-qa-actor-fixtures.yml": "release",
     "platform-staging-admin-smoke.yml": "release",

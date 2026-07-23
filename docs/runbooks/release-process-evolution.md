@@ -69,6 +69,40 @@ Emergency release behavior:
 - Emergency release bypass may skip a release lock only when `emergency_release=true` and `emergency_reference` points to an incident, revert, fix-forward PR, or rollback evidence record.
 - Emergency releases still deploy the immutable release commit through staging and production unless the incident owner explicitly documents why the normal staging path would worsen recovery.
 
+## Risk Review Advisory Rollout
+
+`Risk Review Advisory` is currently a separate, non-enforcing workflow. It publishes risk classification and current-head approval state, but it is not a required status check, is not consumed by `PR Required`, and is not present in the checked-in or live `main` ruleset posture. Enforcement is a future operator action only after the calibration and reviewer-independence gates below pass.
+
+The versioned source of truth is `scripts/lib/risk-policy-v1.mjs`. Both `scripts/change-scope.mjs` and `.github/workflows/platform-risk-review.yml` consume that module; do not add a second path or category list in workflow YAML. High risk covers money movement, cross-context public contracts/events/subscriptions, migrations/backfills/destructive retention work, authentication/authorization/security policy, deployment/infrastructure/secret/configuration/emergency controls, existing integration-risk surfaces, and the approved `risk:high` label. Documentation and tests alone remain low risk unless they are executable migration/deployment fixtures, modify the risk-review safety policy, or are inside a pre-existing integration-risk runtime-composition surface. The advisory classifier can cover more territory than `integration_risk_required`; the latter retains its production path corpus and reasons because it gates the DB/E2E battery. Renames scan old and new paths for advisory review, while the battery projection retains the current-path semantics of the production change-scope input. Deletions scan the deleted path, and generated metadata is coupled when a high-risk source changes.
+
+The workflow runs for pull-request changes, submitted or dismissed reviews, merge groups, and manual recovery. Review-event execution reads the evaluator, eligibility configuration, and policy from the trusted default branch through the GitHub Contents API. It never checks out or executes pull-request head code. This keeps forks and head-authored workflow changes outside the elevated `pull_request_target`/review trust boundary. GitHub file and review APIs are paginated, and pull-request files are reconciled against the authoritative `changed_files` count. A count mismatch or the 3,000-file provider cap produces bounded `unknown`, never a low-risk qualification. Malformed projections, unsafe pagination links, permission drift, or partial API results also produce bounded `unknown`. Logs and summaries contain only safe status codes, never exception messages, tokens, review bodies, or raw API bodies.
+
+Eligibility is closed-schema configuration in `scripts/risk-review-eligibility-v1.json`. It is intentionally empty in the advisory implementation. Before any enforcement change, Todd must configure at least two genuinely independent eligible principals or one eligible team. A principal is matched by the exact GitHub login returned by the API; the pull-request author never counts. A bot counts only when that exact principal is configured with `allowBot: true`. Team membership must be confirmed through the GitHub API for the configured organization/team; an unreadable membership is `unknown`, not ineligible. Do not simulate independence with the author's account.
+
+Approval lifecycle and total ordering:
+
+| State | Meaning | Transition or steady state |
+| --- | --- | --- |
+| `low-risk` | No canonical risk finding | Remains low on routine re-evaluation; a risky file/label transitions to configuration or approval evaluation. |
+| `configuration-required` | High risk with no eligible principal/team configured | Remains advisory and visible until operator configuration changes. |
+| `approval-required` | High risk without a qualifying current-head decision | A current-head eligible approval transitions to `approved`. |
+| `approved` | The latest decisive eligible current-head review is `APPROVED` | Routine day-after evaluation remains approved; a commit/head change resets to `approval-required`; dismissal removes that approval; a later eligible `CHANGES_REQUESTED` transitions to `approval-required`. |
+| `unknown` | API, pagination, schema, or eligibility authority was incomplete | A later complete evaluation replaces it; advisory workflow and `PR Required` remain green. |
+
+Submitted reviews are ordered totally by `submitted_at`, numeric review `id`, then actor login. Only reviews whose `commit_id` exactly equals the pull request's current head participate. `PENDING`, `COMMENTED`, and `DISMISSED` records are not decisive. Across eligible independent actors, the latest current-head `APPROVED` or `CHANGES_REQUESTED` decision wins, so a later approval can resolve an earlier request and a later request invalidates an earlier approval. This state is recomputed from current GitHub truth on every event; no retained approval can falsely satisfy a new head or permanently block a later valid state.
+
+Merge-group evaluation never asks for review of the synthetic merge commit. It resolves constituent pull requests from the synthetic commit association, requiring the exact merge SHA and base branch; its compare fallback accepts only pull requests whose current head SHA is an exact constituent commit. Each constituent is then classified and reviewed independently. Missing, incomplete, or unrelated associations yield `unknown` rather than borrowing another pull request's approval.
+
+One pull-request comment is maintained by the hidden `chase-sets:risk-review:v1` marker. Re-evaluation updates that comment instead of posting another; low-risk evaluation updates an existing marker but does not create a new comment. The job summary reports classification, evaluation, and scanned/total surface. Neither surface includes raw exception or review content.
+
+Operator gates before enforcement:
+
+1. Configure the independent reviewer principals/team above and verify normal absence coverage.
+2. Run advisory classification for at least 7 days and at least 50 pull requests, covering each observed high-risk category.
+3. Disposition false positives and false negatives; record review demand and incremental high-risk latency, and confirm median low-risk lead time regresses by no more than 2 minutes.
+4. Decide the emergency-override authority and audit contract. The future override must require an authorized actor, reason, linked incident, and current head; it expires on the next commit and never bypasses `PR Required`. No override is implemented in advisory mode.
+5. Only then make a separate reviewed change that adds `Risk Review` to the ruleset policy/posture and live ruleset. Do not describe that future capability as active before the live mutation is complete.
+
 ## Release Locks
 
 `PRODUCTION_RELEASE_LOCKED=true` pauses production promotion. The production deployment workflow evaluates the lock before production configuration validation, Terraform planning, or DOKS deployment.

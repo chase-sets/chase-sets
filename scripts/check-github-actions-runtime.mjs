@@ -161,6 +161,35 @@ function previewCleanupPolicyViolations(filePath) {
   return violations;
 }
 
+function riskReviewPolicyViolations(filePath) {
+  if (path.basename(path.dirname(filePath)) !== "workflows") return [];
+  const workflowText = readFileSync(filePath, "utf8");
+  if (!workflowText.includes("scripts/platform-risk-review.mjs") && !/^name:\s*Risk Review/m.test(workflowText)) {
+    return [];
+  }
+
+  const violations = [];
+  for (const event of ["pull_request_target:", "pull_request_review:", "merge_group:"]) {
+    if (!workflowText.includes(event)) violations.push(`${relativePath(filePath)}: risk review must handle ${event}`);
+  }
+  if (workflowText.includes("actions/checkout@")) {
+    violations.push(`${relativePath(filePath)}: risk review must not checkout code on elevated review events.`);
+  }
+  if (
+    !workflowText.includes("ref: context.payload.repository.default_branch") ||
+    /pull_request\.head\.(?:sha|ref)/.test(workflowText)
+  ) {
+    violations.push(`${relativePath(filePath)}: risk review must load executable support only from the trusted base.`);
+  }
+  if (!workflowText.includes("continue-on-error: true") || !workflowText.includes("exit 0")) {
+    violations.push(`${relativePath(filePath)}: advisory risk-review child failure must not make its workflow red.`);
+  }
+  if (!workflowText.includes("contents: read") || !workflowText.includes("pull-requests: write")) {
+    violations.push(`${relativePath(filePath)}: risk review permissions must stay explicit and least-privileged.`);
+  }
+  return violations;
+}
+
 function validateActionUse(actionUse) {
   const value = actionUse.value;
   if (value.startsWith("./") || value.startsWith("docker://")) {
@@ -203,7 +232,7 @@ export function checkGithubActionsRuntime({ rootDir = workflowRoot } = {}) {
     actionUsesFromFile(filePath)
       .map(validateActionUse)
       .filter(Boolean)
-      .concat(previewCleanupPolicyViolations(filePath)),
+      .concat(previewCleanupPolicyViolations(filePath), riskReviewPolicyViolations(filePath)),
   );
 
   if (violations.length === 0) {
