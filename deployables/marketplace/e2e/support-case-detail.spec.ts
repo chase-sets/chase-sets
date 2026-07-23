@@ -116,7 +116,9 @@ async function selectSellerResponseAndWaitForSettlement(
 
   await expect(responseSelect.locator("option")).toHaveCount(expectedOptions.length);
   expect(
-    await responseSelect.locator("option").evaluateAll((options) => options.map((option) => option.value)),
+    await responseSelect
+      .locator("option")
+      .evaluateAll((options) => options.map((option) => option.getAttribute("value"))),
   ).toEqual(expectedOptions);
   await responseSelect.selectOption(responseType);
   await expect(responseSelect).toHaveValue(responseType);
