@@ -1,10 +1,13 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { isDeepStrictEqual } from "node:util";
 import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
+import { normalizeShippingAddressSnapshot } from "../../features/shipping-addresses/domain/domain";
+import { IdentityDomainError, normalizeEmail, normalizeLabel } from "./common";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
 const DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID = "ctm_seed_demo_email";
@@ -820,111 +823,266 @@ async function seedRepresentativeIdentityAccounts(
   context: ReturnType<typeof createIdentityBootstrapContext>,
 ) {
   for (const account of representativeAccounts) {
-    if (!(await rowExists(services.db, "identity_accounts", "account_id", account.accountId))) {
-      await services.accounts.commandHandler({
-        streamId: `identity.account-${account.accountId}`,
-        command: {
-          type: "CreateAccount",
-          accountId: account.accountId as AccountId,
-          name: account.name,
-          accountType: account.accountType,
-          displayName: account.displayName,
-        },
-        context,
-      });
-    }
-
-    if (!(await rowExists(services.db, "identity_users", "user_id", account.userId))) {
-      await services.users.commandHandler({
-        streamId: `identity.user-${account.userId}`,
-        command: {
-          type: "CreateUser",
-          userId: account.userId as UserId,
-          displayName: account.name,
-          primaryEmail: account.primaryEmail,
-          givenName: account.givenName,
-          familyName: account.familyName,
-          primaryContactMethod: {
-            contactMethodId: account.contactMethodId,
-            type: "email",
-            value: account.primaryEmail,
-            verifiedAt: REPRESENTATIVE_SEEDED_AT,
-          },
-        },
-        context,
-      });
-      await services.users.commandHandler({
-        streamId: `identity.user-${account.userId}`,
-        command: {
-          type: "EnableAuthMethod",
-          authMethod: "magic-link",
-        },
-        context,
-      });
-    }
-
-    if (!(await rowExists(services.db, "identity_memberships", "membership_id", account.membershipId))) {
-      await services.memberships.commandHandler({
-        streamId: `identity.membership-${account.membershipId}`,
-        command: {
-          type: "GrantMembership",
-          membershipId: account.membershipId as MembershipId,
-          userId: account.userId as UserId,
-          accountId: account.accountId as AccountId,
-          roleKey: account.roleKey,
-          assignmentAuthority: { type: "system" },
-        },
-        context,
-      });
-    }
-
-    if (!(await rowExists(services.db, "identity_consents", "consent_id", account.consentId))) {
-      await services.consents.commandHandler({
-        streamId: `identity.consent-${account.consentId}`,
-        command: {
-          type: "RecordConsent",
-          consentId: account.consentId as ConsentId,
-          subjectType: "user",
-          userId: account.userId as UserId,
-          accountId: account.accountId as AccountId,
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-          recordedAt: REPRESENTATIVE_SEEDED_AT,
-        },
-        context,
-      });
-    }
-
-    if (
-      !(await rowExists(services.db, "identity_shipping_addresses", "shipping_address_id", account.shippingAddressId))
-    ) {
-      await services.shippingAddresses.commandHandler({
-        streamId: `identity.shipping-address-book-${account.accountId}`,
-        command: {
-          type: "AddShippingAddress",
-          accountId: account.accountId as AccountId,
-          shippingAddressId: account.shippingAddressId as ShippingAddressId,
-          label: "Representative staging address",
-          address: account.shippingAddress,
-          makeDefault: true,
-          addedAt: REPRESENTATIVE_SEEDED_AT,
-        },
-        context,
-      });
-    }
+    await reconcileRepresentativeAccount(services, context, account);
+    await reconcileRepresentativeUser(services, context, account);
+    await reconcileRepresentativeMembership(services, context, account);
+    await reconcileRepresentativeConsent(services, context, account);
+    await reconcileRepresentativeShippingAddress(services, context, account);
   }
 }
 
-async function rowExists(
-  db: ReturnType<typeof createIdentityServices>["db"],
-  tableName: string,
-  columnName: string,
-  value: string,
-): Promise<boolean> {
-  try {
-    const existing = await db.query(`SELECT 1 FROM ${tableName} WHERE ${columnName} = $1 LIMIT 1`, [value]);
-    return existing.rows.length > 0;
-  } catch {
-    return false;
+async function reconcileRepresentativeAccount(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existing = await services.accounts.getAccountState(account.accountId);
+  if (!existing) {
+    await services.accounts.commandHandler({
+      streamId: `identity.account-${account.accountId}`,
+      command: {
+        type: "CreateAccount",
+        accountId: account.accountId as AccountId,
+        name: account.name,
+        accountType: account.accountType,
+        displayName: account.displayName,
+      },
+      context,
+    });
+    return;
+  }
+
+  const requestedProfile = {
+    accountId: account.accountId,
+    name: account.name,
+    accountType: account.accountType,
+    displayName: account.displayName,
+  };
+  const existingProfile = {
+    accountId: existing.id,
+    name: existing.name,
+    accountType: existing.accountType,
+    displayName: existing.displayName,
+  };
+  assertMatchingRepresentativeProfile("Account", account.accountId, existingProfile, requestedProfile);
+}
+
+async function reconcileRepresentativeUser(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existing = await services.users.getUserState(account.userId);
+  const requestedProfile = {
+    userId: account.userId,
+    displayName: normalizeLabel(account.name),
+    givenName: normalizeLabel(account.givenName),
+    familyName: normalizeLabel(account.familyName),
+    primaryEmail: normalizeEmail(account.primaryEmail),
+    primaryContactMethod: {
+      contactMethodId: account.contactMethodId,
+      type: "email",
+      value: normalizeEmail(account.primaryEmail),
+      verifiedAt: REPRESENTATIVE_SEEDED_AT,
+    },
+    status: "active",
+  } as const;
+
+  if (!existing) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${account.userId}`,
+      command: {
+        type: "CreateUser",
+        userId: account.userId as UserId,
+        displayName: account.name,
+        primaryEmail: account.primaryEmail,
+        givenName: account.givenName,
+        familyName: account.familyName,
+        primaryContactMethod: {
+          contactMethodId: account.contactMethodId,
+          type: "email",
+          value: account.primaryEmail,
+          verifiedAt: REPRESENTATIVE_SEEDED_AT,
+        },
+      },
+      context,
+    });
+  } else {
+    const existingProfile = {
+      userId: existing.id,
+      displayName: existing.displayName,
+      givenName: existing.givenName,
+      familyName: existing.familyName,
+      primaryEmail: existing.primaryEmail,
+      primaryContactMethod:
+        existing.contactMethods.find((method) => method.contactMethodId === account.contactMethodId) ?? null,
+      status: existing.status,
+    };
+    assertMatchingRepresentativeProfile("User", account.userId, existingProfile, requestedProfile);
+  }
+
+  await services.users.commandHandler({
+    streamId: `identity.user-${account.userId}`,
+    command: {
+      type: "EnableAuthMethod",
+      authMethod: "magic-link",
+    },
+    context,
+  });
+}
+
+async function reconcileRepresentativeMembership(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existing = await services.memberships.getMembershipState(account.membershipId);
+  if (!existing) {
+    await services.memberships.commandHandler({
+      streamId: `identity.membership-${account.membershipId}`,
+      command: {
+        type: "GrantMembership",
+        membershipId: account.membershipId as MembershipId,
+        userId: account.userId as UserId,
+        accountId: account.accountId as AccountId,
+        roleKey: account.roleKey,
+        assignmentAuthority: { type: "system" },
+      },
+      context,
+    });
+    return;
+  }
+
+  const requestedProfile = {
+    membershipId: account.membershipId,
+    userId: account.userId,
+    accountId: account.accountId,
+    roleKey: account.roleKey,
+    status: "active",
+  } as const;
+  const existingProfile = {
+    membershipId: existing.id,
+    userId: existing.userId,
+    accountId: existing.accountId,
+    roleKey: existing.roleKey,
+    status: existing.status,
+  };
+  assertMatchingRepresentativeProfile("Membership", account.membershipId, existingProfile, requestedProfile);
+}
+
+async function reconcileRepresentativeConsent(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existing = await services.consents.getConsentState(account.consentId);
+  if (!existing) {
+    await services.consents.commandHandler({
+      streamId: `identity.consent-${account.consentId}`,
+      command: {
+        type: "RecordConsent",
+        consentId: account.consentId as ConsentId,
+        subjectType: "user",
+        userId: account.userId as UserId,
+        accountId: account.accountId as AccountId,
+        policyKey: "terms-of-service",
+        policyVersion: "v1",
+        recordedAt: REPRESENTATIVE_SEEDED_AT,
+      },
+      context,
+    });
+    return;
+  }
+
+  const requestedProfile = {
+    consentId: account.consentId,
+    subjectType: "user",
+    userId: account.userId,
+    accountId: account.accountId,
+    policyKey: "terms-of-service",
+    policyVersion: "v1",
+    recordedAt: REPRESENTATIVE_SEEDED_AT,
+    status: "recorded",
+  } as const;
+  const existingProfile = {
+    consentId: existing.id,
+    subjectType: existing.subjectType,
+    userId: existing.userId,
+    accountId: existing.accountId,
+    policyKey: existing.policyKey,
+    policyVersion: existing.policyVersion,
+    recordedAt: existing.recordedAt,
+    status: existing.status,
+  };
+  assertMatchingRepresentativeProfile("Consent", account.consentId, existingProfile, requestedProfile);
+}
+
+async function reconcileRepresentativeShippingAddress(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existingBook = await services.shippingAddresses.getShippingAddressBookState(account.accountId);
+  const existing = existingBook?.addresses.find((address) => address.shippingAddressId === account.shippingAddressId);
+  if (!existing) {
+    await services.shippingAddresses.commandHandler({
+      streamId: `identity.shipping-address-book-${account.accountId}`,
+      command: {
+        type: "AddShippingAddress",
+        accountId: account.accountId as AccountId,
+        shippingAddressId: account.shippingAddressId as ShippingAddressId,
+        label: "Representative staging address",
+        address: account.shippingAddress,
+        makeDefault: true,
+        addedAt: REPRESENTATIVE_SEEDED_AT,
+      },
+      context,
+    });
+    return;
+  }
+
+  const requestedProfile = {
+    accountId: account.accountId,
+    shippingAddressId: account.shippingAddressId,
+    label: "Representative staging address",
+    ...normalizeShippingAddressSnapshot(account.shippingAddress),
+    isDefault: true,
+    isArchived: false,
+    createdAt: REPRESENTATIVE_SEEDED_AT,
+    updatedAt: REPRESENTATIVE_SEEDED_AT,
+  };
+  const existingProfile = {
+    accountId: existingBook?.accountId ?? null,
+    shippingAddressId: existing.shippingAddressId,
+    label: existing.label,
+    name: existing.name,
+    company: existing.company,
+    line1: existing.line1,
+    line2: existing.line2,
+    city: existing.city,
+    state: existing.state,
+    postalCode: existing.postalCode,
+    country: existing.country,
+    phone: existing.phone,
+    email: existing.email,
+    verification: existing.verification ?? null,
+    isDefault: existing.isDefault,
+    isArchived: existing.isArchived,
+    createdAt: existing.createdAt,
+    updatedAt: existing.updatedAt,
+  };
+  assertMatchingRepresentativeProfile("Shipping Address", account.shippingAddressId, existingProfile, requestedProfile);
+}
+
+function assertMatchingRepresentativeProfile(
+  aggregateName: string,
+  aggregateId: string,
+  existingProfile: object,
+  requestedProfile: object,
+): void {
+  if (!isDeepStrictEqual(existingProfile, requestedProfile)) {
+    throw new IdentityDomainError(
+      `Representative Identity ${aggregateName} conflict for '${aggregateId}': existing committed profile ${JSON.stringify(existingProfile)} does not match requested deterministic profile ${JSON.stringify(requestedProfile)}. Resolve the conflicting ${aggregateName} stream before resuming representative seeding.`,
+    );
   }
 }
