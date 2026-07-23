@@ -139,7 +139,11 @@ import {
   type TcgdexObservationPayload,
   type TcgdexSeriesOption,
 } from "./tcgdex-client";
-import { extractApprovedLorcanaImageEvidence, normalizeLorcanaImageAsset } from "./product-asset-normalization";
+import {
+  extractApprovedLorcanaImageEvidence,
+  normalizeLorcanaImageAsset,
+  normalizeProductAssetSet,
+} from "./product-asset-normalization";
 import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
@@ -262,6 +266,7 @@ import type {
   ProviderAdapter,
   ProviderImportPlan,
   ProviderOptionAlias,
+  ProviderPayloadEnvelope,
   ProviderTransportDiagnostic,
   ProviderUsageEstimate,
 } from "./provider-adapters/provider-adapter";
@@ -456,6 +461,13 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   setName?: string;
   productId?: string;
   planningFingerprint?: string;
+}>;
+
+export type RepresentativeCatalogProductAssetSource = Readonly<{
+  body: Uint8Array;
+  contentType: string;
+  sourceUrl: string | null;
+  sourceHash: string;
 }>;
 
 type SourceObservationIntegrationJobPayload = Readonly<{
@@ -915,12 +927,31 @@ export type CatalogIntegrationEngineServices = Readonly<{
   getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
   getCatalogIntegrationRolloutControls: () => CatalogIntegrationRolloutControlSnapshot;
   assertCatalogIntegrationRolloutAllowed: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
+  importProviderAdapterForReplay: (input: {
+    adapter: ProviderAdapter;
+    profileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }) => Promise<readonly SourceObservationIntegrationJobOutcome[]>;
+  reconcilePromotedObservationForReplay: (input: {
+    observationId: string;
+    context: EventStoreContext;
+    productAssetSource: RepresentativeCatalogProductAssetSource;
+  }) => Promise<
+    Readonly<{
+      catalogItemId: CatalogItemId;
+      promotionProfileKey: string;
+      promotionProfileVersion: string;
+      promotionPlanFingerprints: readonly string[];
+    }>
+  >;
 }>;
 
 export type SourceObservationReviewServices = Readonly<{
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
+    productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   }) => Promise<SourceObservationPromotionTargetResult>;
   rejectObservation: (input: {
     observationId: string;
@@ -1785,6 +1816,7 @@ export function createSourceObservationRuntime(
   async function promoteObservationFromRow(input: {
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
+    productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   }): Promise<SourceObservationPromotionTargetResult> {
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
@@ -1803,7 +1835,8 @@ export function createSourceObservationRuntime(
   async function promoteCatalogItemObservationFromRow(input: {
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
-  }): Promise<SourceObservationPromotionTargetResult> {
+    productAssetSource?: RepresentativeCatalogProductAssetSource | null;
+  }): Promise<SourceObservationPromotionTargetResult & SourceObservationPromotionProfileEvidence> {
     const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
@@ -1814,7 +1847,7 @@ export function createSourceObservationRuntime(
       normalized,
     );
     const providerProfile = providerProfileVersion.profile;
-    requirePromotionAssetPorts({ deps, normalized });
+    requirePromotionAssetPorts({ deps, normalized, productAssetSource: input.productAssetSource });
 
     const existingCatalogItemId =
       input.observation.status === "changed" || input.observation.status === "promoted"
@@ -1864,6 +1897,7 @@ export function createSourceObservationRuntime(
           catalogMapping,
           sourceUpdatedAt: input.observation.source_updated_at,
           observedAt: input.observation.observed_at,
+          productAssetSource: input.productAssetSource,
           context: input.context,
         })
       : await createCatalogDraftFromObservation({
@@ -1880,6 +1914,7 @@ export function createSourceObservationRuntime(
           catalogMapping,
           sourceUpdatedAt: input.observation.source_updated_at,
           observedAt: input.observation.observed_at,
+          productAssetSource: input.productAssetSource,
           context: input.context,
         });
 
@@ -1907,6 +1942,7 @@ export function createSourceObservationRuntime(
     return {
       observationId: input.observation.observation_id,
       catalogItemId,
+      ...promotionEvidence,
     };
   }
 
@@ -4325,11 +4361,13 @@ export function createSourceObservationRuntime(
     onProgress?: (progress: ProviderAdapterImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
+    adapterOverride?: ProviderAdapter;
+    observedAtForEnvelope?: (envelope: ProviderPayloadEnvelope) => string;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     let providerUsagePlan: ProviderImportPlan | null = null;
     const providerUsageRequestKeys = new Set<string>();
     try {
-      const adapter = providerAdapterForProfileVersion(input.providerProfileVersion);
+      const adapter = input.adapterOverride ?? providerAdapterForProfileVersion(input.providerProfileVersion);
       const unitKey = catalogProviderProfileVersionIngestionUnitKey(input.providerProfileVersion);
       const plan = await adapter.planImport({
         unitKey,
@@ -4338,7 +4376,7 @@ export function createSourceObservationRuntime(
       });
       providerUsagePlan = plan;
       const contract = requireSourceObservationMappingContract(input.providerProfileVersion);
-      const observedAt = new Date().toISOString();
+      const importObservedAt = new Date().toISOString();
       const estimatedPayloads = plan.estimatedPayloads ?? 1;
       let observed = 0;
       const payloadFailures: string[] = [];
@@ -4353,6 +4391,7 @@ export function createSourceObservationRuntime(
             total: progress.total,
           }),
       })) {
+        const observedAt = input.observedAtForEnvelope?.(envelope) ?? importObservedAt;
         const providerRequestKey = envelope.provenance.sourceUrl?.trim();
         if (providerRequestKey) {
           providerUsageRequestKeys.add(providerRequestKey);
@@ -4403,7 +4442,7 @@ export function createSourceObservationRuntime(
         providerProfile: input.providerProfile,
         contract,
         recordedObservations,
-        observedAt,
+        observedAt: importObservedAt,
       });
 
       if (input.syncRunId && recordedObservations.length > 0) {
@@ -4467,52 +4506,6 @@ export function createSourceObservationRuntime(
     }
 
     return providerAdapterRegistry.require(profileVersion.providerKey);
-  }
-
-  function prepareProviderAdapterSourceObservationPayload(input: {
-    payload: JsonValue;
-    providerProfile: CatalogProviderIntegrationProfile;
-  }): Readonly<{ kind: "payload"; payload: JsonValue }> | Readonly<{ kind: "failure"; reason: string }> {
-    if (input.providerProfile.connector.kind === "tcgdex-json") {
-      return {
-        kind: "payload",
-        payload:
-          isJsonRecord(input.payload) && isJsonRecord(input.payload.payload) ? input.payload.payload : input.payload,
-      };
-    }
-
-    if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
-      return { kind: "payload", payload: input.payload };
-    }
-
-    if (!isJsonRecord(input.payload)) {
-      return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
-    }
-
-    if (input.payload.kind === "product-detail-failure") {
-      return {
-        kind: "failure",
-        reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
-      };
-    }
-
-    if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
-      return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
-    }
-
-    const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
-    if (!selectedOptionMapping) {
-      return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
-    }
-
-    return {
-      kind: "payload",
-      payload: buildTcgplayerAutomationSourceObservationPayload({
-        detail: input.payload.detail as TcgplayerAutomationProductDetail,
-        selectedOptionMapping,
-        externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
-      }),
-    };
   }
 
   function payloadFailureReason(failures: readonly string[], observed: number, providerDisplayName: string): string {
@@ -4729,7 +4722,66 @@ export function createSourceObservationRuntime(
     previewDuplicatePreventionCandidates,
     previewReplayReapplyImpact,
     previewProviderProfileLifecycleImpact,
-    promoteObservation: async ({ observationId, context }) => {
+    importProviderAdapterForReplay: async ({ adapter, profileVersion, scope, context }) => {
+      const targets = await resolveProviderAdapterImportTargets(scope, profileVersion);
+      const outcomes: SourceObservationIntegrationJobOutcome[] = [];
+      for (const target of targets) {
+        outcomes.push(
+          await importProviderAdapterIntegrationTarget({
+            target,
+            providerProfile: profileVersion.profile,
+            providerProfileVersion: profileVersion,
+            context,
+            adapterOverride: adapter,
+            observedAtForEnvelope: (envelope) => envelope.provenance.fetchedAt,
+          }),
+        );
+      }
+      return outcomes;
+    },
+    reconcilePromotedObservationForReplay: async ({ observationId, context, productAssetSource }) => {
+      const observation = await getSourceObservationDetail(deps.db, observationId);
+      if (!observation || observation.status !== "promoted" || !observation.promoted_catalog_item_id) {
+        throw new Error("Replay reconciliation requires a promoted Catalog Item observation.");
+      }
+      rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: observation.provider_key });
+      const normalized = requireCatalogItemPromotionObservation(observation.normalized, observation.provider_key);
+      const providerProfileVersion = await requireCatalogPromotionProfileVersion(
+        profileVersions,
+        observation.provider_key,
+        normalized,
+      );
+      const providerProfile = providerProfileVersion.profile;
+      requirePromotionAssetPorts({ deps, normalized, productAssetSource });
+      const catalogItemId = observation.promoted_catalog_item_id as CatalogItemId;
+      const planningInput = {
+        items,
+        referenceData,
+        productContents,
+        deps,
+        catalogItemId,
+        normalized,
+        providerKey: observation.provider_key,
+        externalKey: observation.external_key,
+        providerProfile,
+        providerProfileVersion,
+        catalogMapping: await loadCatalogItemPromotionProfile(deps, providerProfile),
+        sourceUpdatedAt: observation.source_updated_at,
+        observedAt: observation.observed_at,
+        productAssetSource,
+        context,
+        executeCommands: false,
+      } as const;
+      const createEvidence = await createCatalogDraftFromObservation(planningInput);
+      const refreshEvidence = await refreshCatalogItemFromObservation(planningInput);
+      return {
+        catalogItemId,
+        promotionProfileKey: providerProfileVersion.profileKey,
+        promotionProfileVersion: providerProfileVersion.profileVersion,
+        promotionPlanFingerprints: [createEvidence.promotionPlanFingerprint, refreshEvidence.promotionPlanFingerprint],
+      };
+    },
+    promoteObservation: async ({ observationId, context, productAssetSource }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
         throw new Error("Source observation was not found.");
@@ -4748,7 +4800,12 @@ export function createSourceObservationRuntime(
       }
 
       try {
-        return await promoteObservationFromRow({ observation, context });
+        const promoted = await promoteObservationFromRow({ observation, context, productAssetSource });
+        return {
+          observationId: promoted.observationId,
+          catalogItemId: promoted.catalogItemId,
+          ...(promoted.referenceRecordId ? { referenceRecordId: promoted.referenceRecordId } : {}),
+        };
       } catch (error) {
         const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
         if (recovered?.catalogItemId) {
@@ -6770,7 +6827,9 @@ async function createCatalogDraftFromObservation(input: {
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   sourceUpdatedAt: string | null;
   observedAt: string;
+  productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
+  executeCommands?: boolean;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
@@ -6820,13 +6879,15 @@ async function createCatalogDraftFromObservation(input: {
     preflight: { status: "ready" },
   });
 
-  await executeCatalogItemPromotionCommandPlan({
-    items: input.items,
-    productContents: input.productContents,
-    streamId,
-    plan,
-    context: input.context,
-  });
+  if (input.executeCommands !== false) {
+    await executeCatalogItemPromotionCommandPlan({
+      items: input.items,
+      productContents: input.productContents,
+      streamId,
+      plan,
+      context: input.context,
+    });
+  }
 
   return { ...promotionEvidenceFromPlan(plan), referenceRecordIdsByTypeKey };
 }
@@ -6845,7 +6906,9 @@ async function refreshCatalogItemFromObservation(input: {
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   sourceUpdatedAt: string | null;
   observedAt: string;
+  productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
+  executeCommands?: boolean;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
@@ -6895,13 +6958,15 @@ async function refreshCatalogItemFromObservation(input: {
     preflight: { status: "ready" },
   });
 
-  await executeCatalogItemPromotionCommandPlan({
-    items: input.items,
-    productContents: input.productContents,
-    streamId,
-    plan,
-    context: input.context,
-  });
+  if (input.executeCommands !== false) {
+    await executeCatalogItemPromotionCommandPlan({
+      items: input.items,
+      productContents: input.productContents,
+      streamId,
+      plan,
+      context: input.context,
+    });
+  }
 
   return { ...promotionEvidenceFromPlan(plan), referenceRecordIdsByTypeKey };
 }
@@ -7048,8 +7113,9 @@ function isReviewableObservationStatus(status: string): boolean {
 function requirePromotionAssetPorts(input: {
   deps: CatalogRuntimeDeps;
   normalized: CatalogItemPromotableSourceObservationNormalized;
+  productAssetSource?: RepresentativeCatalogProductAssetSource | null;
 }) {
-  if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
+  if (input.productAssetSource || (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl)) {
     requireCatalogAssetStorage(input.deps.assetStorage);
   }
 }
@@ -7062,7 +7128,29 @@ async function normalizePromotionProductAssetSet(input: {
   providerProfile: CatalogProviderIntegrationProfile;
   sourceUpdatedAt: string | null;
   observedAt: string;
+  productAssetSource?: RepresentativeCatalogProductAssetSource | null;
 }): Promise<ProductAssetSet | null> {
+  if (input.productAssetSource) {
+    const existing = await findStoredProductAssetSetBySourceHash(
+      input.deps.db,
+      input.catalogItemId,
+      input.productAssetSource.sourceHash,
+    );
+    if (existing) {
+      return existing;
+    }
+
+    return normalizeProductAssetSet({
+      sourceBody: input.productAssetSource.body,
+      sourceContentType: input.productAssetSource.contentType,
+      sourceProviderKey: input.providerKey,
+      sourceUrl: input.productAssetSource.sourceUrl,
+      storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+      generatedAt: input.observedAt,
+      assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+    });
+  }
+
   if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
     return normalizeTcgdexImageAsset({
       profile: input.providerProfile,
@@ -7097,6 +7185,29 @@ async function normalizePromotionProductAssetSet(input: {
   }
 
   return null;
+}
+
+async function findStoredProductAssetSetBySourceHash(
+  db: PgQueryable,
+  catalogItemId: CatalogItemId,
+  sourceHash: string,
+): Promise<ProductAssetSet | null> {
+  const result = await db.query<Readonly<{ product_asset_sets: unknown }>>(
+    "SELECT product_asset_sets FROM catalog_items WHERE catalog_item_id = $1",
+    [catalogItemId],
+  );
+  const productAssetSets = result.rows[0]?.product_asset_sets;
+  if (!Array.isArray(productAssetSets)) {
+    return null;
+  }
+
+  const normalizedSourceHash = sourceHash.replace(/^sha256:/, "");
+  return (
+    productAssetSets.find(
+      (candidate): candidate is ProductAssetSet =>
+        isJsonRecord(candidate) && candidate.kind === "product-image" && candidate.sourceHash === normalizedSourceHash,
+    ) ?? null
+  );
 }
 
 function requireCatalogItemPromotionObservation(
@@ -7824,7 +7935,7 @@ function isActiveReferenceDataPromotionProfileVersion(
   );
 }
 
-function requireSourceObservationMappingContract(
+export function requireSourceObservationMappingContract(
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): CatalogProviderSourceObservationMappingContract {
   const contract = version.executableMappingContract;
@@ -7835,6 +7946,52 @@ function requireSourceObservationMappingContract(
   }
 
   return contract as CatalogProviderSourceObservationMappingContract;
+}
+
+export function prepareProviderAdapterSourceObservationPayload(input: {
+  payload: JsonValue;
+  providerProfile: CatalogProviderIntegrationProfile;
+}): Readonly<{ kind: "payload"; payload: JsonValue }> | Readonly<{ kind: "failure"; reason: string }> {
+  if (input.providerProfile.connector.kind === "tcgdex-json") {
+    return {
+      kind: "payload",
+      payload:
+        isJsonRecord(input.payload) && isJsonRecord(input.payload.payload) ? input.payload.payload : input.payload,
+    };
+  }
+
+  if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
+    return { kind: "payload", payload: input.payload };
+  }
+
+  if (!isJsonRecord(input.payload)) {
+    return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
+  }
+
+  if (input.payload.kind === "product-detail-failure") {
+    return {
+      kind: "failure",
+      reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
+    };
+  }
+
+  if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
+    return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
+  }
+
+  const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
+  if (!selectedOptionMapping) {
+    return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
+  }
+
+  return {
+    kind: "payload",
+    payload: buildTcgplayerAutomationSourceObservationPayload({
+      detail: input.payload.detail as TcgplayerAutomationProductDetail,
+      selectedOptionMapping,
+      externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
+    }),
+  };
 }
 
 async function defaultSourceObservationImportProviderKey(

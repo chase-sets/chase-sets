@@ -161,6 +161,7 @@ export type PlatformApiAuthSecurityLifetimesConfig = Readonly<{
 
 export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
   Readonly<{
+    catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     platformAdmin: PlatformApiPlatformAdminConfig | null;
     previewPostgresAdminUrl: string | null;
@@ -723,6 +724,7 @@ export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
 
   return {
     ...baseConfig,
+    catalogAssetStorage,
     listingPhotoStorage: loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage),
     platformAdmin: loadPlatformAdminConfig(),
     previewPostgresAdminUrl: loadPreviewPostgresAdminUrl(baseConfig.deploymentEnvironment),

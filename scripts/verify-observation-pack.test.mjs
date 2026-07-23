@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   OBSERVATION_PACK_DECISION_LINK,
@@ -57,6 +57,76 @@ describe("verify-observation-pack real entrypoint", () => {
       exitCode: 0,
       output: { status: "verified", posture: "accepted", replayEligible: true, diagnostics: [] },
     });
+  });
+
+  it("runs bounded post-replay verification only after contract verification succeeds", async () => {
+    const bundle = validBundle();
+    const packDir = await writeBundle(bundle);
+    const accepted = recordObservationPackAcceptance(bundle.manifest, {
+      acceptedBy: "Todd",
+      acceptedAt: "2026-07-22T18:30:00-05:00",
+      decisionLink: OBSERVATION_PACK_DECISION_LINK,
+    });
+    await writeFile(path.join(packDir, "manifest.json"), serializeObservationPackManifest(accepted));
+    const verifyPostReplay = vi.fn(async () => ({
+      externalReferenceDigest: `sha256:${"a".repeat(64)}`,
+      counts: {
+        envelopes: 1,
+        observations: 1,
+        catalogItems: 1,
+        productAssetSets: 1,
+        storedAssetUrls: 7,
+        discoverySearchItems: 1,
+        discoveryItemDetails: 1,
+      },
+      assetRoute: { checked: 7, http200: 7 },
+    }));
+
+    const result = await runVerifier(packDir, true, {
+      args: [
+        "--post-replay",
+        "true",
+        "--catalog-database-url",
+        "postgresql://catalog.invalid/catalog",
+        "--discovery-database-url",
+        "postgresql://discovery.invalid/discovery",
+        "--asset-base-url",
+        "http://127.0.0.1:4173/catalog-assets",
+      ],
+      dependencies: { verifyPostReplay },
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      output: {
+        status: "verified",
+        postReplay: {
+          externalReferenceDigest: `sha256:${"a".repeat(64)}`,
+          counts: { catalogItems: 1, storedAssetUrls: 7 },
+          assetRoute: { checked: 7, http200: 7 },
+        },
+      },
+    });
+    expect(verifyPostReplay).toHaveBeenCalledOnce();
+  });
+
+  it("keeps post-replay failures support-safe even when the provider error contains a secret", async () => {
+    const secret = "provider-secret-value";
+    const packDir = await writeBundle(validBundle());
+    const result = await runVerifier(packDir, false, {
+      args: ["--post-replay", "true"],
+      dependencies: {
+        verifyPostReplay: async () => {
+          throw new Error(`credential=${secret}`);
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output.diagnostics).toEqual([
+      { code: "post-replay-verification-failed", severity: "error", category: "replay" },
+    ]);
+    expect(JSON.stringify(result.output)).not.toContain(secret);
   });
 
   it("fails closed on a tampered payload chunk", async () => {
@@ -248,12 +318,21 @@ async function writeBundle(bundle) {
   return root;
 }
 
-async function runVerifier(packDir, requireAccepted = false) {
+async function runVerifier(packDir, requireAccepted = false, options = {}) {
   let stdout = "";
   const exitCode = await runVerifyObservationPackCli(
-    ["--target", "local", "--pack-dir", packDir, "--require-accepted", String(requireAccepted)],
+    [
+      "--target",
+      "local",
+      "--pack-dir",
+      packDir,
+      "--require-accepted",
+      String(requireAccepted),
+      ...(options.args ?? []),
+    ],
     process.env,
     { write: (value) => void (stdout += value) },
+    options.dependencies,
   );
   return { exitCode, output: JSON.parse(stdout.trim()) };
 }

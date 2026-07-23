@@ -22,6 +22,11 @@ export const module = defineBoundedContextModule<CatalogServices, PgTransactiona
   createServices: (pool, ports) => createCatalogServices(pool, ports),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectionHandlerSets: (services) => services.projectors,
-  seedProfiles: ["catalog-integration-bootstrap", "scenario-seed", "representative-commerce-state"],
+  seedProfiles: [
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+    "representative-commerce-state",
+    "representative-catalog",
+  ],
   seed: seedCatalogDatabase,
 });

@@ -66,6 +66,9 @@ export const marketplaceSeedLifecycleContextOrder = [
   "platform-operations",
 ] as const;
 
+type MarketplaceSeedOptions = NonNullable<Parameters<NonNullable<typeof catalogModule.seed>>[2]>;
+type MarketplaceCatalogPorts = Parameters<typeof catalogModule.createServices>[1];
+
 export type MarketplaceSeedRuntimePools = Readonly<
   Record<(typeof marketplaceSeedContextNames)[number], PgTransactionalPool>
 >;
@@ -84,7 +87,11 @@ function requireMarketplaceSeedDatabaseBaseUrl(testName: string): string {
 
 export function useMarketplaceSeedRuntime(
   testName: string,
-  options: Readonly<{ resetSchemas?: "beforeEach" | "beforeAll" | "manual" }> = {},
+  options: Readonly<{
+    resetSchemas?: "beforeEach" | "beforeAll" | "manual";
+    seedOptions?: MarketplaceSeedOptions;
+    catalogPorts?: MarketplaceCatalogPorts;
+  }> = {},
 ) {
   let pools: MarketplaceSeedRuntimePools | undefined;
   const resetSchemas = options.resetSchemas ?? "beforeEach";
@@ -126,22 +133,25 @@ export function useMarketplaceSeedRuntime(
       return requirePools();
     },
     seed: async () => {
-      const runtime = createMarketplaceSeedRuntime(requirePools());
-      await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceSeedLifecycleContextOrder);
+      const runtime = createMarketplaceSeedRuntime(requirePools(), { catalogPorts: options.catalogPorts });
+      await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceSeedLifecycleContextOrder, options.seedOptions);
 
       return runtime;
     },
   };
 }
 
-export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools) {
+export function createMarketplaceSeedRuntime(
+  pools: MarketplaceSeedRuntimePools,
+  options: Readonly<{ catalogPorts?: MarketplaceCatalogPorts }> = {},
+) {
   const commercialTermsResolver = createCommercialTermsResolver({
     db: pools["commercial-terms"],
   });
   const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
 
   return createMountedContextTestRuntime([
-    { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: undefined },
+    { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: options.catalogPorts },
     {
       contextName: "checkout",
       module: checkoutModule,

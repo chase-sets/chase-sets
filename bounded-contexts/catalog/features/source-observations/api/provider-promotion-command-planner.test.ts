@@ -998,6 +998,48 @@ describe("planCatalogProviderPromotionCommands", () => {
   });
 
   it("keeps Magic promotion fingerprints stable for replay and changes when normalized facts change", () => {
+    const assets = productAssetSet();
+    const reorderedAssets = {
+      variants: assets.variants.map((variant) => ({
+        generatedAt: variant.generatedAt,
+        byteSize: variant.byteSize,
+        publicUrl: variant.publicUrl,
+        storageKey: variant.storageKey,
+        mediaType: variant.mediaType,
+        density: variant.density,
+        height: variant.height,
+        width: variant.width,
+        role: variant.role,
+      })),
+      source: {
+        generatedAt: assets.source.generatedAt,
+        byteSize: assets.source.byteSize,
+        publicUrl: assets.source.publicUrl,
+        storageKey: assets.source.storageKey,
+        mediaType: assets.source.mediaType,
+        density: assets.source.density,
+        height: assets.source.height,
+        width: assets.source.width,
+        role: assets.source.role,
+      },
+      sourcePolicy: {
+        retention: {
+          removalSlaDays: assets.sourcePolicy.retention.removalSlaDays,
+          takedownPath: assets.sourcePolicy.retention.takedownPath,
+          previewRetentionDays: assets.sourcePolicy.retention.previewRetentionDays,
+          retentionKind: assets.sourcePolicy.retention.retentionKind,
+          policyKey: assets.sourcePolicy.retention.policyKey,
+        },
+        rehostingBehavior: assets.sourcePolicy.rehostingBehavior,
+        approval: assets.sourcePolicy.approval,
+        sourceContentType: assets.sourcePolicy.sourceContentType,
+        sourceUrlHash: assets.sourcePolicy.sourceUrlHash,
+        sourceUrlHost: assets.sourcePolicy.sourceUrlHost,
+        sourceProviderKey: assets.sourcePolicy.sourceProviderKey,
+      },
+      sourceHash: assets.sourceHash,
+      kind: assets.kind,
+    } satisfies ProductAssetSet;
     const baseInput = {
       profile: scrydexScryfallCardProviderProfile,
       profileKey: "scryfall-card-fixture",
@@ -1009,11 +1051,15 @@ describe("planCatalogProviderPromotionCommands", () => {
       catalog: magicCardPrintCatalogMapping(),
       setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
       metadata: { title: "Fury Sliver 157", subtitle: "Time Spiral Rare" },
-      productAssetSet: null,
+      productAssetSet: assets,
     };
 
     const first = planCatalogProviderPromotionCommands({ ...baseInput, normalized: magicCardPrintObservation() });
-    const replay = planCatalogProviderPromotionCommands({ ...baseInput, normalized: magicCardPrintObservation() });
+    const replay = planCatalogProviderPromotionCommands({
+      ...baseInput,
+      normalized: magicCardPrintObservation(),
+      productAssetSet: reorderedAssets,
+    });
     const changed = planCatalogProviderPromotionCommands({
       ...baseInput,
       normalized: magicCardPrintObservation({ rarity: "Special" }),

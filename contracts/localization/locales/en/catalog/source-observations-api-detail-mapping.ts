@@ -94,6 +94,8 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "Reference provider uses fixture-backed payloads and does not require live provider transport.",
   "catalog.features.sourceObservations.api.providerAdapters.referenceCards.credential.not.required":
     "Reference fixture payloads do not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.representativeCatalog.credential.not.required":
+    "Accepted Observation Pack replay does not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgdex.json.transport.configured":
     "TCGdex JSON transport is configured for {connectorKind}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgdex.credential.not.required":

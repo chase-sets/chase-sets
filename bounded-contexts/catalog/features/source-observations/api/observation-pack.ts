@@ -546,6 +546,26 @@ export async function readObservationPackManifest(input: {
   return observationPackManifestV1Schema.parse(raw);
 }
 
+export async function readVerifiedObservationPackEnvelopes(input: {
+  storage: Pick<ObservationPackObjectStorage, "getObject">;
+  manifest: ObservationPackManifestV1;
+  manifestKey: string;
+}): Promise<readonly ObservationPackEnvelope[]> {
+  const prefix = objectKeyDirectory(input.manifestKey);
+  const envelopes: ObservationPackEnvelope[] = [];
+
+  for (const entry of input.manifest.entries) {
+    const object = await input.storage.getObject(joinObjectKey(prefix, entry.path));
+    if (!object) {
+      throw new Error("Observation Pack payload is missing.");
+    }
+    const parsed = observationPackChunkSchema.parse(JSON.parse(new TextDecoder().decode(object.body)) as unknown);
+    envelopes.push(...parsed.envelopes);
+  }
+
+  return envelopes;
+}
+
 export function recordObservationPackAcceptance(
   manifest: ObservationPackManifestV1,
   acceptance: z.input<typeof acceptanceSchema>,

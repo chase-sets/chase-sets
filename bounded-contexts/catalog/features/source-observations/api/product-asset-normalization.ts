@@ -87,6 +87,22 @@ export type NormalizeLorcanaImageAssetInput = Readonly<{
   imageProcessor?: CatalogImageProcessor;
 }>;
 
+/**
+ * Fully decodes a retained source image without writing any derived assets.
+ * Observation Pack replay calls this for every declared asset before the first
+ * aggregate write so truncated or otherwise undecodable images fail closed.
+ */
+export async function assertDecodableProductAssetSource(body: Uint8Array): Promise<void> {
+  if (body.byteLength === 0) {
+    throw new Error("Product asset source image is empty.");
+  }
+
+  const { info } = await sharp(body).raw().toBuffer({ resolveWithObject: true });
+  if (!info.width || !info.height || info.channels < 1) {
+    throw new Error("Product asset source image must decode to readable pixels.");
+  }
+}
+
 export async function normalizeProductAssetSet(input: NormalizeProductAssetInput): Promise<ProductAssetSet> {
   const imageProcessor = input.imageProcessor ?? sharpImageProcessor;
   const sourceHash = hashBytes(input.sourceBody);
