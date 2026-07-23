@@ -477,7 +477,7 @@ jobs:
     expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("check-only enforcement job")]));
   });
 
-  it("accepts a check-only enforcement job whose boundary step relays a computed steps.*.outputs exit code", () => {
+  it("accepts a check-only enforcement job whose boundary step relays a normalized computed steps.*.outputs exit code", () => {
     const rootDir = workflowRootWith(
       `
 name: PR Scope Advisory
@@ -527,7 +527,7 @@ jobs:
           if [ "\${{ steps.evaluate.outputs.bootstrap-failed }}" != "false" ]; then
             exit 0
           fi
-          exit "\${{ steps.evaluate.outputs.cli-exit-code || 0 }}"
+          exit $((10#\${{ steps.evaluate.outputs.cli-exit-code || 0 }}))
 `,
       "regression-relayed-enforcement.yml",
     );

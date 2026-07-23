@@ -270,7 +270,9 @@ function jobCompositionViolations(filePath, workflowText) {
     const boundaryStep = [...job.steps].reverse().find((step) => step.isAlwaysStep && step.hasRun);
     const relaysComputedExitCode =
       boundaryStep?.runBodyLastLine != null &&
-      /^exit\s+"?\$\{\{\s*steps\.[\w-]+\.outputs\.[\w-]+/.test(boundaryStep.runBodyLastLine);
+      /^exit\s+(?:"?\$\{\{\s*steps\.[\w-]+\.outputs\.[\w-]+|\$\(\(10#\$\{\{\s*steps\.[\w-]+\.outputs\.[\w-]+)/.test(
+        boundaryStep.runBodyLastLine,
+      );
     if (!relaysComputedExitCode) {
       violations.push(
         `${label}: job '${job.id}' is a check-only enforcement job whose boundary step does not relay a computed steps.*.outputs exit code; an enforcing failure would be swallowed by a bare exit instead of turning the job red.`,

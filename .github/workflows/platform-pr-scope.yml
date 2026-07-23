@@ -237,4 +237,4 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          exit "${{ steps.evaluate.outputs.cli-exit-code || 0 }}"
+          exit $((10#${{ steps.evaluate.outputs.cli-exit-code || 0 }}))
