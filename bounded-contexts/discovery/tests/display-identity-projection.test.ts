@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import type { PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
 import {
   buildDiscoverySearchItemProjectionHandlers,
