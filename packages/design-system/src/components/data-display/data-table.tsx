@@ -21,6 +21,13 @@ export interface DataTableProps<T> extends Omit<HTMLAttributes<HTMLDivElement>, 
   rows: T[];
   columns: DataColumn<T>[];
   caption?: ReactNode;
+  /**
+   * Mobile rendering strategy below the `md` breakpoint. `"stack"` (the default) is the
+   * tenet-compliant mode: rows collapse into cards for touch-friendly scanning. `"scroll"`
+   * is an explicit opt-out of that collapse — it keeps the tabular layout and relies on
+   * `TableShell`'s `overflow-x-auto` to degrade safely. Reserve `"scroll"` for wide,
+   * read-only reference tables where card collapse would lose meaningful structure.
+   */
   mobileMode?: "stack" | "scroll";
   getRowId?: (row: T, index: number) => string;
   getRowProps?: (row: T, index: number) => DataTableRowAttributes;

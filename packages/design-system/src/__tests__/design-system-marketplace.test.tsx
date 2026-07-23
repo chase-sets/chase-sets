@@ -1237,6 +1237,7 @@ describe("design system marketplace patterns", () => {
         filters={<Select label="Language" items={[{ label: "All languages", value: "all" }]} />}
         actions={<Button tone="secondary">Clear filters</Button>}
         filterControlsVisibility="desktop"
+        mobileFilters={<Select label="Language (mobile)" items={[{ label: "All languages", value: "all" }]} />}
         appliedFilters={<AppliedFilterChips filters={[{ id: "q", label: "Search: pikachu" }]} />}
         savedSearch={
           <SavedSearchPrompt title="Save this search" description="Get alerts." action={<Button>Save search</Button>} />
@@ -1248,6 +1249,8 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Clear filters");
     expect(markup).toContain("min-h-[var(--control-md-height)]");
     expect(markup).toContain("hidden lg:block");
+    expect(markup).toContain("lg:hidden");
+    expect(markup).toContain("Language (mobile)");
     expect(markup).toContain("Save this search");
   });
 
