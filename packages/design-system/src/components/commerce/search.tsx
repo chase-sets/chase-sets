@@ -127,27 +127,38 @@ export function SavedSearchPrompt({ title, description, action }: SavedSearchPro
   );
 }
 
-export interface SearchControlBarProps {
+interface SearchControlBarBaseProps {
   search: ReactNode;
   sort?: ReactNode;
   filters?: ReactNode;
   actions?: ReactNode;
-  filterControlsVisibility?: "always" | "desktop";
   appliedFilters?: ReactNode;
   summary?: ReactNode;
   savedSearch?: ReactNode;
 }
 
-export function SearchControlBar({
-  search,
-  sort,
-  filters,
-  actions,
-  filterControlsVisibility = "always",
-  appliedFilters,
-  summary,
-  savedSearch,
-}: SearchControlBarProps) {
+/**
+ * Filter visibility contract for `SearchControlBar`. `"always"` (the default) renders
+ * `filters` at every breakpoint and needs no counterpart. `"desktop"` hides `filters`
+ * below `lg` (`hidden lg:block`), so it requires a `mobileFilters` node — rendered
+ * `lg:hidden` — to avoid making filtering unreachable on mobile; compiling `"desktop"`
+ * without `mobileFilters` is a type error.
+ */
+export type SearchControlBarProps = SearchControlBarBaseProps &
+  ({ filterControlsVisibility?: "always" } | { filterControlsVisibility: "desktop"; mobileFilters: ReactNode });
+
+export function SearchControlBar(props: SearchControlBarProps) {
+  const {
+    search,
+    sort,
+    filters,
+    actions,
+    filterControlsVisibility = "always",
+    appliedFilters,
+    summary,
+    savedSearch,
+  } = props;
+  const mobileFilters = props.filterControlsVisibility === "desktop" ? props.mobileFilters : undefined;
   const hasControls = Boolean(sort || filters || actions);
   const filterControlsClass = filterControlsVisibility === "desktop" ? "hidden lg:block" : "block";
 
@@ -167,6 +178,7 @@ export function SearchControlBar({
           </div>
         ) : null}
       </div>
+      {mobileFilters ? <div className="lg:hidden">{mobileFilters}</div> : null}
       {appliedFilters || summary || savedSearch ? (
         <div className="grid gap-3 border-t border-border pt-3 md:grid-cols-[1fr_auto] md:items-center">
           <div className="grid gap-2">
