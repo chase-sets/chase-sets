@@ -810,6 +810,9 @@
       "@chase-sets/public-docs": [
         "./contracts/public-docs/index.ts"
       ],
+      "@chase-sets/public-docs/policy-corpus": [
+        "./contracts/public-docs/policy-corpus.ts"
+      ],
       "@chase-sets/public-presence": [
         "./bounded-contexts/public-presence/index.ts"
       ],

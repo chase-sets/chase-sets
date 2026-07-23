@@ -501,6 +501,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.developers.notFound": "Developer article not found",
   "publicPresence.developers.readArticle": "Read guide",
   "publicPresence.developers.title": "Build with Chase Sets",
+  "publicPresence.info.agentTerms.eyebrow": "Agent connector terms",
+  "publicPresence.info.authenticityTerms.eyebrow": "Authenticity service terms",
   "publicPresence.info.contact.description":
     "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
@@ -536,6 +538,20 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.founders.faqKeep.body":
     "Of the sale price, yes — 0% seller fees during your window. Shipping allowance and Order Protection come out the same way they do for every seller, and your payout statement itemizes both.",
   "publicPresence.info.founders.faqKeep.title": "Do I really keep 100%?",
+  "publicPresence.info.paymentsTerms.eyebrow": "Payments terms",
+  "publicPresence.info.policies.counselPending.description":
+    "The policy structure and version metadata are published for review, but the operative language, effective date, launch jurisdictions, and approval reference remain intentionally unset until qualified counsel signs off.",
+  "publicPresence.info.policies.counselPending.title": "Counsel review required before this document takes effect",
+  "publicPresence.info.policies.metadata.effective": "Effective date: {effectiveAt}",
+  "publicPresence.info.policies.metadata.effectivePending": "Effective date pending counsel approval",
+  "publicPresence.info.policies.metadata.label": "Policy metadata",
+  "publicPresence.info.policies.metadata.locale": "Locale {locale}",
+  "publicPresence.info.policies.metadata.title": "Policy version",
+  "publicPresence.info.policies.metadata.version": "Version {version}",
+  "publicPresence.info.policies.print": "Print document",
+  "publicPresence.info.policies.section.counselRequired": "Counsel-approved language required",
+  "publicPresence.info.policies.toc.label": "Document sections",
+  "publicPresence.info.policies.toc.title": "On this page",
   "publicPresence.info.privacy.collect.body":
     "Chase Sets collects email, account intent, selected interests, consent timestamp, and basic source attribution such as referrer and UTM values when visitors request early access.",
   "publicPresence.info.privacy.collect.title": "Information collected",
@@ -549,6 +565,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.privacy.use.body":
     "Chase Sets uses waitlist information to understand early demand, prioritize early access, and send product updates when consent is provided.",
   "publicPresence.info.privacy.use.title": "How it is used",
+  "publicPresence.info.sellerAgreement.eyebrow": "Seller agreement",
   "publicPresence.info.sellerFees.description":
     "Chase Sets publishes one standard seller fee schedule for every account, with fee terms confirmed before inventory goes live.",
   "publicPresence.info.sellerFees.eyebrow": "Economics",
@@ -703,6 +720,12 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.admin.promoBar.meta.title": "Promo Bar | Experience Admin",
   "publicPresence.routes.admin.campaignAnalytics.meta.title": "Campaign Analytics | Experience Admin",
   "publicPresence.routes.admin.waitlist.meta.title": "Waitlist | Experience Admin",
+  "publicPresence.routes.agentTerms.meta.description":
+    "The versioned Chase Sets agent connector terms artifact, registered for counsel review before any language takes effect.",
+  "publicPresence.routes.agentTerms.meta.title": "Agent Connector Terms | Chase Sets",
+  "publicPresence.routes.authenticityTerms.meta.description":
+    "The versioned Chase Sets authenticity service terms artifact, registered for counsel review before any language takes effect.",
+  "publicPresence.routes.authenticityTerms.meta.title": "Authenticity Service Terms | Chase Sets",
   "publicPresence.routes.compareEbay.meta.description":
     "Compare eBay trading-card final value fees, per-order fees, protection, payouts, and coverage with Chase Sets — with a live fee calculator and dated, sourced numbers.",
   "publicPresence.routes.compareEbay.meta.title": "eBay Trading Card Seller Fees vs Chase Sets | 2026 Comparison",
@@ -722,9 +745,15 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.home.meta.title": "Chase Sets Early Access | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed":
     "We could not request early access. Please check the form and try again.",
+  "publicPresence.routes.paymentsTerms.meta.description":
+    "The versioned Chase Sets payments terms artifact, registered for counsel review before any language takes effect.",
+  "publicPresence.routes.paymentsTerms.meta.title": "Payments Terms | Chase Sets",
   "publicPresence.routes.privacy.meta.description":
     "Read the Chase Sets privacy policy for public-site and early access data.",
   "publicPresence.routes.privacy.meta.title": "Privacy | Chase Sets",
+  "publicPresence.routes.sellerAgreement.meta.description":
+    "The versioned Chase Sets seller agreement artifact, registered for counsel review before any language takes effect.",
+  "publicPresence.routes.sellerAgreement.meta.title": "Seller Agreement | Chase Sets",
   "publicPresence.routes.sellerFees.meta.description":
     "Review the single Chase Sets standard seller fee schedule, per-item cap, and listing-time fee confirmation.",
   "publicPresence.routes.sellerFees.meta.title": "Marketplace Seller Fees | Chase Sets",

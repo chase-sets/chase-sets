@@ -415,6 +415,38 @@
           "placement": "root"
         },
         {
+          "routeId": "seller-agreement",
+          "routePath": "seller-agreement",
+          "fileExport": "./routes/marketplace/seller-agreement",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "payments-terms",
+          "routePath": "payments-terms",
+          "fileExport": "./routes/marketplace/payments-terms",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "agent-terms",
+          "routePath": "agent-terms",
+          "fileExport": "./routes/marketplace/agent-terms",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "authenticity-terms",
+          "routePath": "authenticity-terms",
+          "fileExport": "./routes/marketplace/authenticity-terms",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
           "routeId": "compare-tcgplayer",
           "routePath": "compare/tcgplayer",
           "fileExport": "./routes/marketplace/compare-tcgplayer",

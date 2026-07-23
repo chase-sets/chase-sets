@@ -42,6 +42,9 @@ describe("Terms of Service policy artifact", () => {
     expect(readiness.errors.filter((error) => error.includes("requires counsel-approved copy"))).toHaveLength(
       requiredTermsOfServiceSubjectIds.length,
     );
+    expect(readiness.errors.filter((error) => error.includes("requires non-empty operative copy"))).toHaveLength(
+      requiredTermsOfServiceSubjectIds.length,
+    );
   });
 
   it("accepts a fully reviewed publication without changing the required subject taxonomy", () => {
@@ -56,6 +59,7 @@ describe("Terms of Service policy artifact", () => {
       },
       sections: termsOfServicePolicyArtifact.sections.map((section) => ({
         ...section,
+        draftText: `Reviewed operative test copy for ${section.id}.`,
         reviewStatus: "counsel-approved" as const,
       })),
     });
