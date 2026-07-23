@@ -40,8 +40,6 @@ function deferred<T>() {
 // hand, so it proves the wiring itself — not just that the presentational
 // page reacts correctly to whatever props it is handed.
 describe("CatalogProviderDetailRoute revalidation", () => {
-  // The real data router's hydration + revalidation cycle spans several
-  // microtask/render turns; give it headroom beyond the default 5s budget.
   it("reruns the loader on Refresh, exposes an accessible busy state during the transition, and clears the affordance once fresh", async () => {
     const laggedReadModel = readModelAt("2000-01-01T00:00:00.000Z", "2000-01-01T01:00:00.000Z");
     const freshReadModel = readModelAt("2026-06-09T01:05:00.000Z", "2026-06-09T01:05:05.000Z");
@@ -49,46 +47,58 @@ describe("CatalogProviderDetailRoute revalidation", () => {
     expect(freshReadModel.healthTriage.freshness).toBe("fresh");
 
     let loaderCallCount = 0;
-    const secondLoaderCall = deferred<void>();
+    const revalidateLoaderCall = deferred<void>();
+    const routeId = "provider-detail";
 
+    // `hydrationData` seeds the router with the lagged read model already
+    // resolved, so the initial render is synchronous — no pending loader
+    // promise for `RouterProvider` to race against Testing Library's default
+    // query wait. The route's real `loader` only runs when `useRevalidator`
+    // actually triggers it (the Refresh click below), which is the transition
+    // this test exists to prove.
     const router = createMemoryRouter(
       [
         {
+          id: routeId,
           path: "/catalog/providers/:providerKey",
           Component: CatalogProviderDetailRoute,
           loader: async () => {
             loaderCallCount += 1;
-            if (loaderCallCount === 1) {
-              return { readModel: laggedReadModel, commandFeedback: null, providerRefreshSchedules: [] };
-            }
-            await secondLoaderCall.promise;
+            await revalidateLoaderCall.promise;
             return { readModel: freshReadModel, commandFeedback: null, providerRefreshSchedules: [] };
           },
         },
       ],
-      { initialEntries: ["/catalog/providers/tcgdex"] },
+      {
+        initialEntries: ["/catalog/providers/tcgdex"],
+        hydrationData: {
+          loaderData: {
+            [routeId]: { readModel: laggedReadModel, commandFeedback: null, providerRefreshSchedules: [] },
+          },
+        },
+      },
     );
 
     render(<RouterProvider router={router} />);
 
     const revalidateButton = await screen.findByRole("button", { name: "Refresh" });
-    expect(loaderCallCount).toBe(1);
+    expect(loaderCallCount).toBe(0);
     expect(revalidateButton.getAttribute("aria-busy")).not.toBe("true");
     expect(revalidateButton.hasAttribute("disabled")).toBe(false);
 
     revalidateButton.click();
 
-    // The second loader invocation is in flight (held open by secondLoaderCall)
-    // — this is the real router transition's busy window, not a manually
-    // constructed `revalidating` prop.
+    // The revalidation loader invocation is in flight (held open by
+    // revalidateLoaderCall) — this is the real router transition's busy
+    // window, not a manually constructed `revalidating` prop.
     await waitFor(() => {
-      expect(loaderCallCount).toBe(2);
+      expect(loaderCallCount).toBe(1);
       expect(revalidateButton.getAttribute("aria-busy")).toBe("true");
       expect(revalidateButton.hasAttribute("disabled")).toBe(true);
     });
     expect(screen.getByRole("button", { name: "Refreshing…" })).toBe(revalidateButton);
 
-    secondLoaderCall.resolve();
+    revalidateLoaderCall.resolve();
 
     await waitFor(() => {
       expect(
@@ -98,5 +108,5 @@ describe("CatalogProviderDetailRoute revalidation", () => {
       ).toBe("fresh");
       expect(document.querySelector('[data-catalog-provider-detail-revalidate="true"]')).toBeNull();
     });
-  }, 20_000);
+  });
 });
