@@ -3,26 +3,33 @@ import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "../lib/files.mjs";
 
-// Guards the scope-first daily boundary (issue #3802): the canonical daily
-// journey (Scope Landing / Scope Detail) renders its scope-picker controls
-// from the provider registry's declared shape, never from a literal branch on
-// a provider-key string. Discovery is by CODE SHAPE, not filename: every .tsx
-// file in the repository is parsed, and any branch construct (if/else-if,
-// switch, ternary, or an object literal indexed by a provider-key-like
-// expression) that (a) compares/keys on an expression whose text mentions
-// "provider" and (b) renders a picker-shaped control (<Select>,
-// <NativeSelect>, <RadioGroup>, <Combobox>, <Autocomplete>) that also
-// references one of the structured scope fields is rejected. Registry-backed
-// compatibility parsers (provider-import-scope-shape.ts and friends) are
-// plain .ts lookup tables with no JSX, so they never enter this scan; a
-// provider-keyed branch that renders operational/mapping content (badges,
-// tables, links) rather than a scope-field picker is likewise unaffected.
+// Guards the scope-first daily boundary: rendered structured-scope pickers must
+// come from the provider registry's declared shape, never from a literal
+// provider-key selection. Discovery is code-shape based across every .tsx file.
+// A candidate surface is the nearest execution container that owns JSX: a
+// function-like node, or a module-level statement when the JSX is initialized
+// outside a function.
 
 const pickerTagPattern = /^(?:Select|NativeSelect|RadioGroup|Combobox|Autocomplete)$/;
-const scopeFieldPattern =
-  /\b(languageCode|productLineId|productLineName|seriesId|seriesName|expansionId|expansionName|importScope)\b/;
-const providerLikePattern = /provider/i;
-const literalPattern = /["']([a-zA-Z][a-zA-Z0-9_-]{1,40})["']/g;
+const structuredScopeFields = new Set([
+  "languageCode",
+  "productLineId",
+  "productLineName",
+  "seriesId",
+  "seriesName",
+  "expansionId",
+  "expansionName",
+  "importScope",
+]);
+const providerKeyIdentifierPattern = /(?:^provider$|provider(?:Key|Id|Slug|Code)$)/i;
+const providerObjectIdentifierPattern = /^provider$/i;
+const providerKeyPropertyPattern = /^(?:key|id|slug|code)$/i;
+const equalityOperators = new Set([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
 
 export async function validateProviderScopePickerShapeGuard({ repoRoot }) {
   const absoluteFiles = await collectFiles(repoRoot, {
@@ -37,15 +44,16 @@ export async function validateProviderScopePickerShapeGuard({ repoRoot }) {
   for (const relativeFile of files) {
     const source = await readFile(path.join(repoRoot, relativeFile), "utf8");
     const sourceFile = ts.createSourceFile(relativeFile, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    candidateSurfaces += countJsxComponents(sourceFile);
-    hits.push(...findProviderKeyedPickerBranches(sourceFile, relativeFile));
+    const sourceFacts = collectSourceFacts(sourceFile);
+    candidateSurfaces += sourceFacts.candidateSurfaces;
+    hits.push(...findProviderKeyedPickerSelections(sourceFile, relativeFile, sourceFacts.declarationsByName));
   }
 
   const violations = hits.map(
     (hit) =>
-      `${hit.file}:${hit.line}: '${hit.discriminant}' branches on provider-key literal(s) (${hit.literals.join(
+      `${hit.file}:${hit.line}: '${hit.discriminant}' selects provider-key literal(s) (${hit.literals.join(
         ", ",
-      )}) to choose which <${hit.tag}> to render for '${hit.field}'; keep the rendered scope-picker driven by the provider registry's declared shape (see provider-import-scope-shape.ts), not literal provider branching in render code.`,
+      )}) to choose <${hit.tag}> for structured scope field '${hit.field}'; keep the rendered scope-picker driven by the provider registry's declared shape (see provider-import-scope-shape.ts), not literal provider selection in render code.`,
   );
 
   return {
@@ -55,155 +63,311 @@ export async function validateProviderScopePickerShapeGuard({ repoRoot }) {
   };
 }
 
-function countJsxComponents(sourceFile) {
-  let count = 0;
+function collectSourceFacts(sourceFile) {
+  const surfaces = new Set();
+  const declarationsByName = new Map();
   visit(sourceFile, (node) => {
-    if (!ts.isFunctionLike(node) || !node.body) return;
-    if (containsJsx(node.body)) count += 1;
-  });
-  return count;
-}
-
-function containsJsx(node) {
-  let found = false;
-  visit(node, (candidate) => {
-    if (found) return;
-    if (ts.isJsxElement(candidate) || ts.isJsxSelfClosingElement(candidate) || ts.isJsxFragment(candidate)) {
-      found = true;
+    if (isJsxNode(node)) {
+      const surface = nearestCandidateSurface(node, sourceFile);
+      if (surface) surfaces.add(surface);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const candidates = declarationsByName.get(node.name.text) ?? [];
+      candidates.push(node);
+      declarationsByName.set(node.name.text, candidates);
     }
   });
-  return found;
+  return { candidateSurfaces: surfaces.size, declarationsByName };
 }
 
-function findProviderKeyedPickerBranches(sourceFile, relativeFile) {
+function nearestCandidateSurface(node, sourceFile) {
+  let current = node.parent;
+  while (current && current !== sourceFile) {
+    if (ts.isFunctionLike(current)) return current;
+    if (current.parent === sourceFile && ts.isStatement(current)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function findProviderKeyedPickerSelections(sourceFile, relativeFile, declarationsByName) {
   const hits = [];
-  const visited = new Set();
-  const objectLiteralsByName = new Map();
-  visit(sourceFile, (node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      ts.isObjectLiteralExpression(node.initializer)
-    ) {
-      objectLiteralsByName.set(node.name.text, node.initializer);
+  const visitedBranches = new Set();
+
+  const record = (selectedNode, selection) => {
+    if (!selectedNode || selection.literals.length === 0) return;
+    for (const picker of findStructuredScopePickers(selectedNode)) {
+      const position = sourceFile.getLineAndCharacterOfPosition(picker.node.getStart(sourceFile));
+      hits.push({
+        file: relativeFile,
+        line: position.line + 1,
+        discriminant: selection.discriminant,
+        literals: [...new Set(selection.literals)],
+        tag: jsxTagName(picker.node),
+        field: picker.field,
+      });
     }
-  });
-
-  const record = (branchNode, discriminant, literals) => {
-    if (!branchNode || literals.length === 0) return;
-    const picker = findPickerElement(branchNode, sourceFile);
-    if (!picker) return;
-    const branchText = branchNode.getText(sourceFile);
-    const fieldMatch = scopeFieldPattern.exec(branchText);
-    if (!fieldMatch) return;
-    const position = sourceFile.getLineAndCharacterOfPosition(picker.getStart(sourceFile));
-    hits.push({
-      file: relativeFile,
-      line: position.line + 1,
-      discriminant,
-      literals: [...new Set(literals)],
-      tag: jsxTagName(picker),
-      field: fieldMatch[1],
-    });
-  };
-
-  const extractLiterals = (node) => {
-    const text = node.getText(sourceFile);
-    if (!providerLikePattern.test(text)) return [];
-    return [...text.matchAll(literalPattern)].map((match) => match[1]);
   };
 
   visit(sourceFile, (node) => {
-    if (visited.has(node)) return;
+    if (visitedBranches.has(node)) return;
 
     if (ts.isSwitchStatement(node)) {
       const discriminant = node.expression.getText(sourceFile);
-      if (!providerLikePattern.test(discriminant)) return;
+      if (!isProviderKeyExpression(node.expression)) return;
       const literals = node.caseBlock.clauses
-        .filter((clause) => ts.isCaseClause(clause) && ts.isStringLiteralLike(clause.expression))
-        .map((clause) => clause.expression.text);
+        .filter((clause) => ts.isCaseClause(clause))
+        .map((clause) => stringLiteralValue(clause.expression))
+        .filter((value) => value !== null);
+      const selection = { discriminant, literals };
       for (const clause of node.caseBlock.clauses) {
-        for (const statement of clause.statements) {
-          record(statement, discriminant, literals);
-        }
+        for (const statement of clause.statements) record(statement, selection);
       }
       return;
     }
 
     if (ts.isIfStatement(node)) {
-      const discriminant = node.expression.getText(sourceFile);
-      const literals = [];
-      const branchNodes = [];
       let current = node;
+      const fallthroughSelections = [];
       while (current) {
-        visited.add(current);
-        literals.push(...extractLiterals(current.expression));
-        branchNodes.push(current.thenStatement);
+        visitedBranches.add(current);
+        const selections = extractProviderLiteralSelections(current.expression, sourceFile, declarationsByName);
+        fallthroughSelections.push(...selections);
+        for (const selection of selections) record(current.thenStatement, selection);
         if (current.elseStatement && ts.isIfStatement(current.elseStatement)) {
           current = current.elseStatement;
         } else {
-          if (current.elseStatement) branchNodes.push(current.elseStatement);
+          if (current.elseStatement) record(current.elseStatement, combineSelections(fallthroughSelections));
           current = null;
         }
       }
-      for (const branch of branchNodes) record(branch, discriminant, literals);
       return;
     }
 
     if (ts.isConditionalExpression(node)) {
-      const discriminant = node.condition.getText(sourceFile);
-      const literals = [];
-      const branchNodes = [];
       let current = node;
+      const fallthroughSelections = [];
       while (current && ts.isConditionalExpression(current)) {
-        visited.add(current);
-        literals.push(...extractLiterals(current.condition));
-        branchNodes.push(current.whenTrue);
+        visitedBranches.add(current);
+        const selections = extractProviderLiteralSelections(current.condition, sourceFile, declarationsByName);
+        fallthroughSelections.push(...selections);
+        for (const selection of selections) record(current.whenTrue, selection);
         if (ts.isConditionalExpression(current.whenFalse)) {
           current = current.whenFalse;
         } else {
-          branchNodes.push(current.whenFalse);
+          record(current.whenFalse, combineSelections(fallthroughSelections));
           current = null;
         }
       }
-      for (const branch of branchNodes) record(branch, discriminant, literals);
       return;
     }
 
     if (ts.isElementAccessExpression(node) && node.argumentExpression) {
-      const unwrapped = unwrapExpression(node.expression);
-      const objectExpression = ts.isObjectLiteralExpression(unwrapped)
-        ? unwrapped
-        : ts.isIdentifier(unwrapped)
-          ? (objectLiteralsByName.get(unwrapped.text) ?? null)
-          : null;
+      if (!isProviderKeyExpression(node.argumentExpression)) return;
+      const objectExpression = resolveObjectLiteral(node.expression, declarationsByName);
       if (!objectExpression) return;
-      const discriminant = node.argumentExpression.getText(sourceFile);
-      if (!providerLikePattern.test(discriminant)) return;
-      const literals = objectExpression.properties
-        .filter((property) => ts.isPropertyAssignment(property))
-        .map((property) => propertyKeyText(property.name))
-        .filter((value) => value !== null);
-      for (const property of objectExpression.properties) {
-        if (ts.isPropertyAssignment(property)) {
-          record(property.initializer, discriminant, literals);
-        }
-      }
+      const entries = objectLiteralEntries(objectExpression);
+      const selection = {
+        discriminant: node.argumentExpression.getText(sourceFile),
+        literals: entries.map((entry) => entry.key),
+      };
+      for (const entry of entries) record(entry.value, selection);
+      return;
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "get" &&
+      node.arguments.length > 0 &&
+      isProviderKeyExpression(node.arguments[0])
+    ) {
+      const entries = resolveMapEntries(node.expression.expression, declarationsByName);
+      if (!entries) return;
+      const selection = {
+        discriminant: node.arguments[0].getText(sourceFile),
+        literals: entries.map((entry) => entry.key),
+      };
+      for (const entry of entries) record(entry.value, selection);
     }
   });
 
   return hits;
 }
 
-function findPickerElement(node, sourceFile) {
-  let found = null;
-  visit(node, (candidate) => {
-    if (found) return;
-    if (!ts.isJsxElement(candidate) && !ts.isJsxSelfClosingElement(candidate)) return;
-    if (pickerTagPattern.test(jsxTagName(candidate))) found = candidate;
+function extractProviderLiteralSelections(expression, sourceFile, declarationsByName) {
+  const selections = [];
+  visit(expression, (node) => {
+    if (ts.isBinaryExpression(node) && equalityOperators.has(node.operatorToken.kind)) {
+      const leftLiteral = stringLiteralValue(node.left);
+      const rightLiteral = stringLiteralValue(node.right);
+      if (leftLiteral !== null && isProviderKeyExpression(node.right)) {
+        selections.push({ discriminant: node.right.getText(sourceFile), literals: [leftLiteral] });
+      } else if (rightLiteral !== null && isProviderKeyExpression(node.left)) {
+        selections.push({ discriminant: node.left.getText(sourceFile), literals: [rightLiteral] });
+      }
+      return;
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "includes" &&
+      node.arguments.length > 0 &&
+      isProviderKeyExpression(node.arguments[0])
+    ) {
+      const literals = resolveStringArray(node.expression.expression, declarationsByName);
+      if (literals.length > 0) {
+        selections.push({ discriminant: node.arguments[0].getText(sourceFile), literals });
+      }
+    }
+  });
+  return selections;
+}
+
+function combineSelections(selections) {
+  return {
+    discriminant: [...new Set(selections.map((selection) => selection.discriminant))].join(" / "),
+    literals: [...new Set(selections.flatMap((selection) => selection.literals))],
+  };
+}
+
+function resolveStringArray(expression, declarationsByName, seenNames = new Set()) {
+  const resolved = resolveExpression(expression, declarationsByName, seenNames);
+  if (!resolved || !ts.isArrayLiteralExpression(resolved)) return [];
+  return resolved.elements.map((element) => stringLiteralValue(element)).filter((value) => value !== null);
+}
+
+function resolveObjectLiteral(expression, declarationsByName, seenNames = new Set()) {
+  const resolved = resolveExpression(expression, declarationsByName, seenNames);
+  return resolved && ts.isObjectLiteralExpression(resolved) ? resolved : null;
+}
+
+function resolveMapEntries(expression, declarationsByName, seenNames = new Set()) {
+  const resolved = resolveExpression(expression, declarationsByName, seenNames);
+  if (
+    !resolved ||
+    !ts.isNewExpression(resolved) ||
+    !ts.isIdentifier(resolved.expression) ||
+    resolved.expression.text !== "Map" ||
+    !resolved.arguments?.[0]
+  ) {
+    return null;
+  }
+  const entryArray = resolveExpression(resolved.arguments[0], declarationsByName, seenNames);
+  if (!entryArray || !ts.isArrayLiteralExpression(entryArray)) return null;
+  return entryArray.elements
+    .map((element) => {
+      const tuple = unwrapExpression(element);
+      if (!tuple || !ts.isArrayLiteralExpression(tuple) || tuple.elements.length < 2) return null;
+      const key = stringLiteralValue(tuple.elements[0]);
+      return key === null ? null : { key, value: tuple.elements[1] };
+    })
+    .filter((entry) => entry !== null);
+}
+
+function resolveExpression(expression, declarationsByName, seenNames = new Set()) {
+  const unwrapped = unwrapExpression(expression);
+  if (!unwrapped || !ts.isIdentifier(unwrapped)) return unwrapped;
+  if (seenNames.has(unwrapped.text)) return null;
+  const declarations = declarationsByName.get(unwrapped.text);
+  if (!declarations || declarations.length === 0) return null;
+  const visibleDeclarations = declarations.filter((candidate) => nodeContains(lexicalScope(candidate), unwrapped));
+  if (visibleDeclarations.length === 0) return null;
+  seenNames.add(unwrapped.text);
+  const declaration =
+    [...visibleDeclarations].reverse().find((candidate) => candidate.getStart() < unwrapped.getStart()) ??
+    visibleDeclarations[0];
+  return resolveExpression(declaration.initializer, declarationsByName, seenNames);
+}
+
+function lexicalScope(node) {
+  let current = node.parent;
+  while (current && !ts.isSourceFile(current) && !ts.isBlock(current) && !ts.isModuleBlock(current)) {
+    current = current.parent;
+  }
+  return current ?? node.getSourceFile();
+}
+
+function nodeContains(ancestor, node) {
+  let current = node;
+  while (current) {
+    if (current === ancestor) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function objectLiteralEntries(objectExpression) {
+  return objectExpression.properties
+    .map((property) => {
+      if (!ts.isPropertyAssignment(property)) return null;
+      const key = propertyKeyText(property.name);
+      return key === null ? null : { key, value: property.initializer };
+    })
+    .filter((entry) => entry !== null);
+}
+
+function isProviderKeyExpression(expression) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) return providerKeyIdentifierPattern.test(node.text);
+  if (ts.isPropertyAccessExpression(node)) {
+    if (providerKeyIdentifierPattern.test(node.name.text)) return true;
+    return providerKeyPropertyPattern.test(node.name.text) && isProviderObjectExpression(node.expression);
+  }
+  if (ts.isElementAccessExpression(node) && node.argumentExpression) {
+    const property = stringLiteralValue(node.argumentExpression);
+    if (property && providerKeyIdentifierPattern.test(property)) return true;
+  }
+  let found = false;
+  node.forEachChild((child) => {
+    if (!found && isProviderKeyExpression(child)) found = true;
   });
   return found;
+}
+
+function isProviderObjectExpression(expression) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) return providerObjectIdentifierPattern.test(node.text);
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return isProviderObjectExpression(node.expression);
+  }
+  return false;
+}
+
+function findStructuredScopePickers(node) {
+  const pickers = [];
+  visit(node, (candidate) => {
+    if (!isJsxElement(candidate) || !pickerTagPattern.test(jsxTagName(candidate))) return;
+    const field = findStructuredScopeField(candidate);
+    if (field) pickers.push({ node: candidate, field });
+  });
+  return pickers;
+}
+
+function findStructuredScopeField(node) {
+  let field = null;
+  visit(node, (candidate) => {
+    if (field) return;
+    if (ts.isIdentifier(candidate) && structuredScopeFields.has(candidate.text)) {
+      field = candidate.text;
+      return;
+    }
+    if (ts.isStringLiteralLike(candidate) && structuredScopeFields.has(candidate.text)) {
+      field = candidate.text;
+    }
+  });
+  return field;
+}
+
+function isJsxNode(node) {
+  return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node);
+}
+
+function isJsxElement(node) {
+  return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node);
 }
 
 function jsxTagName(node) {
@@ -216,11 +380,19 @@ function propertyKeyText(name) {
   return null;
 }
 
+function stringLiteralValue(expression) {
+  const unwrapped = unwrapExpression(expression);
+  return unwrapped && ts.isStringLiteralLike(unwrapped) ? unwrapped.text : null;
+}
+
 function unwrapExpression(expression) {
   let current = expression;
   while (
     current &&
-    (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current))
+    (ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current))
   ) {
     current = current.expression;
   }
@@ -246,7 +418,7 @@ if (process.argv[1]?.endsWith("provider-scope-picker-shape-guard.mjs")) {
     process.exitCode = 1;
   } else if (!process.argv.includes("--inventory")) {
     console.log(
-      `provider scope-picker shape guard: scanned ${result.discovery.scannedFiles} .tsx files, ${result.discovery.candidateSurfaces} JSX-rendering surfaces; no provider-key-keyed scope-picker branching found.`,
+      `provider scope-picker shape guard: scanned ${result.discovery.scannedFiles} .tsx files, ${result.discovery.candidateSurfaces} JSX execution containers; no literal provider-key scope-picker selection found.`,
     );
   }
 }
