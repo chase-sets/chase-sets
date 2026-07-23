@@ -2,7 +2,32 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DenseAdminWorkbenchProof, EvidenceList, WorkbenchGrid, WorkbenchStack, WorkbenchValueList } from "../index";
+import {
+  DenseAdminWorkbenchHeader,
+  DenseAdminWorkbenchLayout,
+  DenseAdminWorkbenchProof,
+  EvidenceList,
+  WorkbenchFormGrid,
+  WorkbenchGrid,
+  WorkbenchGridSpan,
+  WorkbenchStack,
+  WorkbenchValueList,
+} from "../index";
+
+const BREAKPOINT_MIN_WIDTH: Record<string, number> = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+};
+
+function leadingBreakpointMinWidth(className: string): number {
+  const match = /^(sm|md|lg|xl):/.exec(className);
+  if (!match) {
+    throw new Error(`Expected a responsive prefix on class "${className}"`);
+  }
+  return BREAKPOINT_MIN_WIDTH[match[1]!]!;
+}
 
 describe("DenseAdminWorkbenchProof", () => {
   it("keeps provider import to Source Observation promotion as the primary workflow", () => {
@@ -120,7 +145,7 @@ describe("DenseAdminWorkbenchProof", () => {
     const markup = renderToString(<DenseAdminWorkbenchProof />);
 
     expect(markup).toContain('data-proof-artifact="dense-admin-workbench"');
-    expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
+    expect(markup).toContain("md:grid-cols-[18rem_minmax(0,1fr)]");
     expect(markup).toContain("md:hidden");
     expect(markup).toContain("hidden md:block");
     expect(markup).not.toContain("/admin/catalog/integrations");
@@ -152,5 +177,59 @@ describe("DenseAdminWorkbenchProof", () => {
     expect(regularValues).toBe(comfortableValues);
     expect(comfortableValues).toContain("gap-2");
     expect(regularEvidence).toContain("p-3");
+  });
+
+  it("gives WorkbenchGrid two-pane variants tablet parity at lg: while dense three-up variants stay xl:", () => {
+    expect(renderToString(<WorkbenchGrid columns="two">Two</WorkbenchGrid>)).toContain("lg:grid-cols-2");
+    expect(renderToString(<WorkbenchGrid columns="detail">Detail</WorkbenchGrid>)).toContain(
+      "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]",
+    );
+    expect(renderToString(<WorkbenchGrid columns="sidebar">Sidebar</WorkbenchGrid>)).toContain(
+      "lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]",
+    );
+    expect(renderToString(<WorkbenchGrid columns="three">Three</WorkbenchGrid>)).toContain("xl:grid-cols-3");
+    expect(renderToString(<WorkbenchGrid columns="equalDetail">Equal detail</WorkbenchGrid>)).toContain(
+      "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]",
+    );
+  });
+
+  it("keeps the WorkbenchFormGrid column ladder monotonic — three never activates before two", () => {
+    const twoMarkup = renderToString(<WorkbenchFormGrid columns="two">Two</WorkbenchFormGrid>);
+    const threeMarkup = renderToString(<WorkbenchFormGrid columns="three">Three</WorkbenchFormGrid>);
+
+    expect(twoMarkup).toContain("md:grid-cols-2");
+    expect(threeMarkup).toContain("lg:grid-cols-3");
+
+    const twoClass = /md:grid-cols-2/.exec(twoMarkup)![0]!;
+    const threeClass = /lg:grid-cols-3/.exec(threeMarkup)![0]!;
+    expect(leadingBreakpointMinWidth(threeClass)).toBeGreaterThanOrEqual(leadingBreakpointMinWidth(twoClass));
+  });
+
+  it("aligns WorkbenchGridSpan spans with the grid breakpoints they pair with", () => {
+    expect(renderToString(<WorkbenchGridSpan columns={2}>Two-col span</WorkbenchGridSpan>)).toContain("lg:col-span-2");
+    expect(renderToString(<WorkbenchGridSpan columns={3}>Three-col span</WorkbenchGridSpan>)).toContain(
+      "xl:col-span-3",
+    );
+  });
+
+  it("gives the header and layout shells the md: tablet two-column treatment", () => {
+    const headerMarkup = renderToString(
+      <DenseAdminWorkbenchHeader title="Title" actions={<button type="button">Action</button>} />,
+    );
+    expect(headerMarkup).toContain("md:grid-cols-[minmax(0,1fr)_auto]");
+    expect(headerMarkup).toContain("md:items-end");
+
+    const layoutMarkup = renderToString(
+      <DenseAdminWorkbenchLayout
+        navigationGroups={[]}
+        activeNavigationKey="section"
+        navigationLabel="Sections"
+        mobileNavigationLabel="Sections"
+      >
+        Content
+      </DenseAdminWorkbenchLayout>,
+    );
+    expect(layoutMarkup).toContain("md:grid-cols-[18rem_minmax(0,1fr)]");
+    expect(layoutMarkup).toContain("md:items-start");
   });
 });
