@@ -11,6 +11,7 @@ import {
   projectEvent,
   projectPullRequest,
   resolveMergeGroupPullRequests,
+  sanitizeRenderText,
   upsertStableComment,
 } from "./platform-risk-review.mjs";
 
@@ -166,6 +167,33 @@ function formatLines(value) {
   return value == null ? "unknown" : String(value);
 }
 
+// Bounded contexts/composition roots/split-suggestion boundaries are derived
+// from attacker-controlled path segments (fork PR filenames via
+// `pull_request_target`), so every value rendered into the stable comment or
+// step summary must go through the same sanitize-then-backtick-quote
+// treatment `platform-risk-review.mjs` uses for finding paths.
+function sanitizedPathList(values) {
+  return values.map((value) => `\`${sanitizeRenderText(value)}\``);
+}
+
+// The compact raw/normalized/exclusion table shared by the stable PR
+// comment and the always-rendered step summary (both surfaces must display
+// it, per Option A item 3 — including for `normal`-status PRs).
+function compactScopeTableLines(scope) {
+  const excludedRows = Object.entries(scope.excluded.totals)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([reason, totals]) => `- \`${reason}\`: ${totals.files} file(s), ${totals.additions + totals.deletions} line(s)`,
+    );
+  return [
+    `Status: **${scope.status}**  `,
+    `Raw: ${formatLines(scope.raw.lines)} lines / ${formatLines(scope.raw.files)} files  `,
+    `Normalized: ${formatLines(scope.normalized.lines)} lines / ${formatLines(scope.normalized.files)} files  `,
+    "Excluded mechanical totals:",
+    excludedRows.length > 0 ? excludedRows.join("\n") : "- none",
+  ];
+}
+
 export function renderPrScopeComment(result) {
   const { scope } = result;
   if (scope.status === "unknown") {
@@ -181,22 +209,18 @@ export function renderPrScopeComment(result) {
       "This is advisory only. It does not affect `PR Required` or the live main ruleset.",
     ].join("\n");
   }
-  const excludedRows = Object.entries(scope.excluded.totals)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(
-      ([reason, totals]) => `- \`${reason}\`: ${totals.files} file(s), ${totals.additions + totals.deletions} line(s)`,
-    );
+  const [statusLine, rawLine, normalizedLine, excludedHeading, excludedBody] = compactScopeTableLines(scope);
   return [
     COMMENT_MARKER,
     "### PR Scope — advisory",
     "",
-    `Status: **${scope.status}**  `,
+    statusLine,
     `Head: \`${result.pullRequest?.headSha ?? "unavailable"}\`  `,
-    `Raw: ${formatLines(scope.raw.lines)} lines / ${formatLines(scope.raw.files)} files  `,
-    `Normalized: ${formatLines(scope.normalized.lines)} lines / ${formatLines(scope.normalized.files)} files  `,
+    rawLine,
+    normalizedLine,
     `Thresholds (\`pr-scope-policy/v1\`): advisory > ${scope.thresholds.advisory.lines} lines or ${scope.thresholds.advisory.files} files; large > ${scope.thresholds.large.lines} lines or ${scope.thresholds.large.files} files  `,
-    `Bounded contexts: ${scope.boundedContexts.length > 0 ? scope.boundedContexts.join(", ") : "none"}  `,
-    `Composition roots: ${scope.compositionRoots.length > 0 ? scope.compositionRoots.join(", ") : "none"}  `,
+    `Bounded contexts: ${scope.boundedContexts.length > 0 ? sanitizedPathList(scope.boundedContexts).join(", ") : "none"}  `,
+    `Composition roots: ${scope.compositionRoots.length > 0 ? sanitizedPathList(scope.compositionRoots).join(", ") : "none"}  `,
     `Risk categories: ${scope.risk.categories.length > 0 ? scope.risk.categories.join(", ") : "none"}  `,
     ...(result.mechanicalMigrationEscape
       ? [`Mechanical-migration escape: **applied** (raw size and full CI are unaffected)  `]
@@ -205,12 +229,12 @@ export function renderPrScopeComment(result) {
       ? [`Large-change rationale: ${result.rationalePresent ? "present" : "**missing**"}  `]
       : []),
     "",
-    "Excluded mechanical totals:",
-    excludedRows.length > 0 ? excludedRows.join("\n") : "- none",
+    excludedHeading,
+    excludedBody,
     ...(scope.splitSuggestion
       ? [
           "",
-          `Suggested split boundaries (${scope.splitSuggestion.reason}): ${scope.splitSuggestion.boundaries.join(", ")}`,
+          `Suggested split boundaries (${scope.splitSuggestion.reason}): ${sanitizedPathList(scope.splitSuggestion.boundaries).join(", ")}`,
         ]
       : []),
     "",
@@ -274,6 +298,13 @@ export function scopePolicyExitCode(record) {
   return blocked ? 1 : 0;
 }
 
+function indentLines(lines, indent = "  ") {
+  return lines.flatMap((line) => line.split("\n")).map((line) => (line ? `${indent}${line}` : line));
+}
+
+// The step summary must always display the compact raw/normalized/exclusion
+// table — for `normal`-status PRs too, not only oversized/unknown ones — so
+// it is never true that the table "exists only in the artifact/log JSON".
 export function summaryMarkdown(record) {
   if (record.status === "unknown") {
     return `## PR Scope — advisory\n\nEvaluation state: **unknown** (safe code: \`${record.code}\`).\n\nThis advisory workflow remains non-enforcing.`;
@@ -281,11 +312,12 @@ export function summaryMarkdown(record) {
   return [
     "## PR Scope — advisory",
     "",
-    ...record.results.map(
-      (result) =>
-        `- PR #${result.pullRequest.number}: ${result.scope.status}${result.code ? ` (safe code: \`${result.code}\`)` : ""}; rollout: ${record.rolloutMode}${result.labelAction && result.labelAction !== "not-evaluated" ? `; label: ${result.labelAction}` : ""}.`,
-    ),
-    "",
+    ...record.results.flatMap((result) => {
+      const header = `- PR #${result.pullRequest.number}: ${result.scope.status}${result.code ? ` (safe code: \`${result.code}\`)` : ""}; rollout: ${record.rolloutMode}${result.labelAction && result.labelAction !== "not-evaluated" ? `; label: ${result.labelAction}` : ""}.`;
+      if (result.scope.status === "unknown") return [header, ""];
+      const [, rawLine, normalizedLine, excludedHeading, excludedBody] = compactScopeTableLines(result.scope);
+      return [header, "", ...indentLines([rawLine, normalizedLine, excludedHeading, excludedBody]), ""];
+    }),
     "`PR Scope` is not required by the live ruleset and does not feed `PR Required` during calibration.",
   ].join("\n");
 }

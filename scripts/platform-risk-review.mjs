@@ -11,6 +11,21 @@ const USER_TYPES = new Set(["User", "Bot"]);
 const HEX_SHA = /^[a-f0-9]{40}$/;
 export const MAX_PULL_REQUEST_FILES = 3_000;
 
+// Shared by every stable-comment/step-summary renderer that interpolates an
+// attacker-controlled path segment (fork PR filenames/directory names via
+// `pull_request_target`). Strips ASCII/C1 control characters and Unicode
+// format characters (bidi overrides, zero-width joiners - the "invisible
+// content" class), plus backtick/angle-bracket/pipe, so a crafted path can
+// neither break out of the backtick-quoted span, forge HTML/markdown (an
+// unescaped `<!-- marker -->` could otherwise collide with a stable-comment
+// upsert marker), nor inject a Markdown table cell boundary. Bounded to a
+// fixed max length so a single path cannot dominate the rendered diagnostic.
+const UNSAFE_RENDER_CHARS = /[\x00-\x1f\x7f-\x9f\p{Cf}`<>|]/gu;
+
+export function sanitizeRenderText(value, { maxLength = 200 } = {}) {
+  return String(value).replace(UNSAFE_RENDER_CHARS, " ").slice(0, maxLength);
+}
+
 export class RiskReviewBoundaryError extends Error {
   constructor(code) {
     super(code);
@@ -411,12 +426,7 @@ export function renderComment(result) {
     .map((finding) => finding.path)
     .filter(Boolean)
     .slice(0, 10)
-    .map(
-      (value) =>
-        `- \`${String(value)
-          .replace(/[\u0000-\u001f\u007f`]/g, " ")
-          .slice(0, 200)}\``,
-    )
+    .map((value) => `- \`${sanitizeRenderText(value)}\``)
     .join("\n");
   return [
     COMMENT_MARKER,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
 import {
   COMMENT_MARKER,
   evaluatePrScope,
@@ -8,6 +9,7 @@ import {
   renderPrScopeComment,
   runPrScopeEvaluation,
   scopePolicyExitCode,
+  summaryMarkdown,
   validateRolloutConfig,
 } from "./platform-pr-scope.mjs";
 
@@ -439,5 +441,164 @@ describe("renderPrScopeComment", () => {
     expect(rendered.startsWith(COMMENT_MARKER)).toBe(true);
     expect(rendered).toContain("Status: **advisory**");
     expect(rendered).toContain("Normalized: 1100 lines / 21 files");
+  });
+});
+
+describe("adversarial path rendering safety (bounded contexts / composition roots)", () => {
+  it("neutralizes pipes, newlines, carriage returns, backticks, HTML-like marker text, long names, and Unicode controls through the real classifyPrScope entrypoint", () => {
+    const zeroWidthSpace = String.fromCharCode(0x200b);
+    const rtlOverride = String.fromCharCode(0x202e);
+    const adversarialSegment = [
+      "<!-- chase-sets:risk-review:v1 -->",
+      "<!-- chase-sets:pr-scope:v1 -->",
+      "| injected | table | row |",
+      "line-one\nline-two\rline-three",
+      "`escaped`",
+      `${rtlOverride}hidden${zeroWidthSpace}`,
+      "x".repeat(500),
+    ].join("");
+
+    const scope = classifyPrScope({
+      changedFiles: [
+        {
+          filename: `bounded-contexts/${adversarialSegment}/domain/file.ts`,
+          status: "modified",
+          additions: 10,
+          deletions: 5,
+          patch: null,
+        },
+        {
+          filename: `deployables/${adversarialSegment}/app/routes.tsx`,
+          status: "modified",
+          additions: 10,
+          deletions: 5,
+          patch: null,
+        },
+        // A second bounded context forces a splitSuggestion, which also
+        // renders the (sanitized) boundary list.
+        file2(),
+      ],
+    });
+    // The adversarial segment must actually have made it into the
+    // classifier's unsanitized output — otherwise this test would not be
+    // exercising the rendering seam it claims to.
+    expect(scope.boundedContexts.some((value) => value.includes("<!--"))).toBe(true);
+    expect(scope.splitSuggestion).not.toBeNull();
+
+    const result = {
+      pullRequest: { headSha: "1".repeat(40), number: 5966 },
+      code: null,
+      mechanicalMigrationEscape: false,
+      rationalePresent: false,
+      scope,
+    };
+    const comment = renderPrScopeComment(result);
+    const record = {
+      schemaVersion: "pr-scope-evaluation/v1",
+      rolloutMode: "advisory",
+      eventName: "pull_request",
+      results: [{ ...result, labelAction: "not-evaluated" }],
+    };
+    const summary = summaryMarkdown(record);
+
+    for (const output of [comment, summary]) {
+      expect(output).not.toContain("<!-- chase-sets:risk-review:v1 -->");
+      expect(output).not.toMatch(/\|\s*injected\s*\|\s*table\s*\|\s*row\s*\|/);
+      expect(output).not.toContain("\r");
+      expect(output).not.toContain(zeroWidthSpace);
+      expect(output).not.toContain(rtlOverride);
+      expect(output).not.toMatch(/x{201,}/);
+    }
+    // The comment's own marker appears exactly once, at the very start; no
+    // attacker-controlled content injected a second copy anywhere else.
+    expect(comment.indexOf(COMMENT_MARKER)).toBe(0);
+    expect(comment.indexOf(COMMENT_MARKER, 1)).toBe(-1);
+    // No HTML/markdown comment syntax survives anywhere in either surface —
+    // this is what makes the risk-review marker collision impossible, not
+    // just this feature's own marker.
+    expect(comment.slice(COMMENT_MARKER.length)).not.toContain("<!--");
+    expect(comment.slice(COMMENT_MARKER.length)).not.toContain("-->");
+    expect(summary).not.toContain("<!--");
+    expect(summary).not.toContain("-->");
+  });
+
+  function file2() {
+    return {
+      filename: "bounded-contexts/catalog/domain/other.ts",
+      status: "modified",
+      additions: 10,
+      deletions: 5,
+      patch: null,
+    };
+  }
+});
+
+describe("summaryMarkdown always renders the compact scope table", () => {
+  function baseResult(overrides = {}) {
+    return {
+      pullRequest: { number: 5504 },
+      code: null,
+      labelAction: "not-evaluated",
+      scope: {
+        status: "normal",
+        raw: { lines: 400, files: 3 },
+        normalized: { lines: 400, files: 3 },
+        excluded: { totals: {} },
+        ...overrides,
+      },
+    };
+  }
+
+  it("includes the raw/normalized/exclusion table for a normal-status PR, not just oversized/unknown ones", () => {
+    const record = {
+      schemaVersion: "pr-scope-evaluation/v1",
+      rolloutMode: "advisory",
+      eventName: "pull_request",
+      results: [baseResult()],
+    };
+    const summary = summaryMarkdown(record);
+    expect(summary).toContain("- PR #5504: normal; rollout: advisory.");
+    expect(summary).toContain("Raw: 400 lines / 3 files");
+    expect(summary).toContain("Normalized: 400 lines / 3 files");
+    expect(summary).toContain("Excluded mechanical totals:");
+  });
+
+  it("includes the table for a large-status PR alongside the existing bullet line", () => {
+    const record = {
+      schemaVersion: "pr-scope-evaluation/v1",
+      rolloutMode: "advisory",
+      eventName: "pull_request",
+      results: [
+        baseResult({
+          status: "large",
+          raw: { lines: 5200, files: 1 },
+          normalized: { lines: 5200, files: 1 },
+        }),
+      ],
+    };
+    const summary = summaryMarkdown(record);
+    expect(summary).toContain("- PR #5504: large; rollout: advisory.");
+    expect(summary).toContain("Raw: 5200 lines / 1 files");
+    expect(summary).toContain("Normalized: 5200 lines / 1 files");
+  });
+
+  it("does not render a raw/normalized table for a per-PR unknown scope (no complete data to show)", () => {
+    const record = {
+      schemaVersion: "pr-scope-evaluation/v1",
+      rolloutMode: "advisory",
+      eventName: "pull_request",
+      results: [
+        {
+          pullRequest: { number: 5504 },
+          code: "api-files-truncated",
+          labelAction: "not-evaluated",
+          scope: { status: "unknown" },
+        },
+      ],
+    };
+    const summary = summaryMarkdown(record);
+    expect(summary).toContain("- PR #5504: unknown (safe code: `api-files-truncated`); rollout: advisory.");
+    expect(summary).not.toContain("Raw:");
+    expect(summary).not.toContain("Normalized:");
   });
 });

@@ -66,38 +66,6 @@ function isVendoredOrBinary(file) {
   return file.patch == null && file.additions === 0 && file.deletions === 0;
 }
 
-function parsePatchLineCounts(patch) {
-  let added = 0;
-  let removed = 0;
-  const addedContent = [];
-  const removedContent = [];
-  for (const line of patch.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) continue;
-    if (line.startsWith("+")) {
-      added += 1;
-      addedContent.push(line.slice(1).trim());
-    } else if (line.startsWith("-")) {
-      removed += 1;
-      removedContent.push(line.slice(1).trim());
-    }
-  }
-  return { added, removed, addedContent, removedContent };
-}
-
-// Formatting-only is provable only when the counted patch lines exactly match
-// the file's reported additions/deletions (GitHub truncates long patches
-// without flagging it, so an undercount means the proof is incomplete and
-// must not be treated as formatting-only).
-function isFormattingOnly(file) {
-  if (file.status !== "modified" || typeof file.patch !== "string") return false;
-  const counted = parsePatchLineCounts(file.patch);
-  if (counted.added !== file.additions || counted.removed !== file.deletions) return false;
-  if (counted.addedContent.length !== counted.removedContent.length) return false;
-  const sortedAdded = [...counted.addedContent].sort();
-  const sortedRemoved = [...counted.removedContent].sort();
-  return sortedAdded.every((line, index) => line === sortedRemoved[index]);
-}
-
 function hasManifestCompanion(changedPaths) {
   for (const path of changedPaths) {
     if (MANIFEST_COMPANION_PATH.test(path)) return true;
@@ -130,7 +98,6 @@ function classifyExclusion(file, changedPaths) {
     return hasGeneratedProvenance(file, changedPaths) ? "generated-registry-metadata" : null;
   }
   if (isVendoredOrBinary(file)) return "vendored-or-binary";
-  if (isFormattingOnly(file)) return "formatting-only";
   return null;
 }
 

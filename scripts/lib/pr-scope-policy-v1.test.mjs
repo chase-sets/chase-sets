@@ -176,7 +176,12 @@ describe("pr-scope-policy/v1", () => {
     expect(scope.normalized.lines).toBe(5100);
   });
 
-  it("normalizes formatting-only changes proven by GitHub diff metadata", () => {
+  // Option A (decision #5971): the formatting-only exclusion is removed
+  // entirely for the advisory rollout rather than replaced with a narrower
+  // proof rule. Pure reindentation/whitespace changes and any content
+  // permutation now count fully — there is no exclusion branch left to prove
+  // or defeat.
+  it("counts a pure reindentation/whitespace-only change fully (Option A: no formatting-only exclusion)", () => {
     const patch = "@@ -1,2 +1,2 @@\n-const x = 1;\n+const x = 1;\n- const y = 2;\n+  const y = 2;";
     const scope = classifyPrScope({
       changedFiles: [
@@ -189,23 +194,41 @@ describe("pr-scope-policy/v1", () => {
         }),
       ],
     });
-    expect(scope.excluded.totals["formatting-only"]).toEqual({ files: 1, additions: 2, deletions: 2 });
+    expect(scope.excluded.entries).toEqual([]);
+    expect(scope.excluded.totals["formatting-only"]).toBeUndefined();
+    expect(scope.normalized.lines).toBe(2 + 2 + 15);
   });
 
-  it("does not classify formatting-only when the patch is truncated (counted lines undercount reported totals)", () => {
-    const truncatedPatch = "@@ -1,5 +1,5 @@\n-const x = 1;\n+const x = 1;";
+  it("counts a 2,600-statement adjacent-pair permutation fully at large status (reproduces and closes the sorted-comparison false negative)", () => {
+    // 2,600 statements, adjacent pairs swapped (S0,S1 -> S1,S0; S2,S3 ->
+    // S3,S2; ...): the same trimmed-line multiset in a different order — a
+    // semantic reorder, not formatting. 2,600 removed + 2,600 added lines =
+    // 5,200 raw changed lines.
+    const removed = Array.from({ length: 2600 }, (_entry, index) => `step${index}();`);
+    const added = [];
+    for (let index = 0; index < 2600; index += 2) {
+      added.push(`step${index + 1}();`, `step${index}();`);
+    }
+    const patch = [
+      "@@ -1,2600 +1,2600 @@",
+      ...removed.map((line) => `-${line}`),
+      ...added.map((line) => `+${line}`),
+    ].join("\n");
     const scope = classifyPrScope({
       changedFiles: [
-        file({
-          filename: "bounded-contexts/catalog/features/search/domain/big.ts",
-          additions: 40,
-          deletions: 40,
-          patch: truncatedPatch,
-        }),
+        {
+          filename: "bounded-contexts/catalog/features/search/domain/permuted.ts",
+          status: "modified",
+          additions: 2600,
+          deletions: 2600,
+          patch,
+        },
       ],
     });
     expect(scope.excluded.entries).toEqual([]);
-    expect(scope.normalized.lines).toBe(80);
+    expect(scope.raw).toEqual({ additions: 2600, deletions: 2600, lines: 5200, files: 1 });
+    expect(scope.normalized).toEqual({ additions: 2600, deletions: 2600, lines: 5200, files: 1 });
+    expect(scope.status).toBe("large");
   });
 
   it("always counts migrations even though they sit beside normally-excluded shapes", () => {
