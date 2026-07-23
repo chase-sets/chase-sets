@@ -217,6 +217,15 @@ export interface BottomSheetProps extends Omit<ModalPanelProps, "placement"> {
   height?: BottomSheetHeight;
 }
 
+/**
+ * Mobile-band modal panel anchored to the bottom edge. When `modal` is true (the default), the
+ * underlying `ModalPanel` frame renders `lg:hidden` (see `renderDialogFrame` in `dialog.tsx`) and
+ * supplies no `lg:`+ replacement geometry of its own. The consumer is responsible for pairing every
+ * `BottomSheet` with a desktop-visible alternative at `lg:`+ — e.g. an always-visible filter bar,
+ * a `Menu`, or a `SideSheet` — either via a JS media-query branch or a sibling `lg:`-visible surface.
+ * This is a required pairing, not an automatic fallback; a sheet-only consumer with no `lg:`+
+ * surface loses the control entirely on desktop viewports.
+ */
 export function BottomSheet({
   modal = true,
   height = "medium",
