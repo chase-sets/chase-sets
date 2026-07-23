@@ -7,16 +7,21 @@ import { pathToFileURL } from "node:url";
 
 register("./typescript-extension-loader.mjs", import.meta.url);
 
-const [{ createFilesystemObjectStorage, createS3ObjectStorage }, { verifyObservationPack }] = await Promise.all([
+const [
+  { createFilesystemObjectStorage, createS3ObjectStorage },
+  { readVerifiedObservationPackEnvelopes, verifyObservationPack },
+  { readBoundedHttpObject },
+] = await Promise.all([
   import("../infrastructure/object-storage/index.ts"),
   import("../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts"),
+  import("../bounded-contexts/catalog/features/source-observations/api/bounded-http-object.ts"),
 ]);
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   process.exitCode = await runVerifyObservationPackCli(process.argv.slice(2), process.env, process.stdout);
 }
 
-export async function runVerifyObservationPackCli(argv, env, output) {
+export async function runVerifyObservationPackCli(argv, env, output, dependencies = {}) {
   try {
     const options = parseOptions(argv);
     const target =
@@ -27,6 +32,28 @@ export async function runVerifyObservationPackCli(argv, env, output) {
       requireAccepted: options.requireAccepted,
       ...(target.listedRelativePaths ? { listedRelativePaths: target.listedRelativePaths } : {}),
     });
+    if (result.valid && options.postReplay) {
+      if (!result.manifest) {
+        throw new Error("Verified Observation Pack manifest is unavailable.");
+      }
+      const postReplay = await (dependencies.verifyPostReplay ?? verifyPostReplay)({
+        target,
+        manifest: result.manifest,
+        options,
+        env,
+        fetch: dependencies.fetch ?? globalThis.fetch,
+      });
+      writeSafeOutput(output, {
+        command: "verify",
+        status: "verified",
+        posture: result.posture,
+        replayEligible: result.replayEligible,
+        counts: result.counts,
+        diagnostics: [],
+        postReplay,
+      });
+      return 0;
+    }
     writeSafeOutput(output, {
       command: "verify",
       status: result.valid ? "verified" : "blocked",
@@ -37,15 +64,217 @@ export async function runVerifyObservationPackCli(argv, env, output) {
     });
     return result.valid ? 0 : 1;
   } catch {
+    const postReplayRequested = readOption(argv, "--post-replay") === "true";
     writeSafeOutput(output, {
       command: "verify",
       status: "blocked",
       posture: "unknown",
       replayEligible: false,
       counts: { entryChunks: 0, envelopes: 0, assets: 0, payloadBytes: 0, assetBytes: 0 },
-      diagnostics: [{ code: "manifest-schema-invalid", severity: "error", category: "schema" }],
+      diagnostics: [
+        postReplayRequested
+          ? { code: "post-replay-verification-failed", severity: "error", category: "replay" }
+          : { code: "manifest-schema-invalid", severity: "error", category: "schema" },
+      ],
     });
     return 1;
+  }
+}
+
+async function verifyPostReplay({ target, manifest, options, env, fetch }) {
+  const catalogDatabaseUrl =
+    options.catalogDatabaseUrl ?? env.CATALOG_DATABASE_URL?.trim() ?? env.TEST_CATALOG_DATABASE_URL?.trim();
+  const discoveryDatabaseUrl =
+    options.discoveryDatabaseUrl ?? env.DISCOVERY_DATABASE_URL?.trim() ?? env.TEST_DISCOVERY_DATABASE_URL?.trim();
+  if (!catalogDatabaseUrl || !discoveryDatabaseUrl || !options.assetBaseUrl) {
+    throw new Error("Post-replay verification requires bounded database and asset route targets.");
+  }
+  const assetBaseUrl = requireLocalCatalogAssetBaseUrl(options.assetBaseUrl);
+  const [
+    { default: pg },
+    { getActiveCatalogProviderIntegrationProfileVersion },
+    { prepareProviderAdapterSourceObservationPayload, requireSourceObservationMappingContract },
+    { requireCatalogProviderSourceObservation },
+    { representativeCatalogExternalReferenceDigest },
+  ] = await Promise.all([
+    import("pg"),
+    import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts"),
+    import("../bounded-contexts/catalog/features/source-observations/api/runtime.ts"),
+    import("../bounded-contexts/catalog/features/source-observations/api/provider-source-observation-normalizer.ts"),
+    import("../bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts"),
+  ]);
+  const profileVersion = getActiveCatalogProviderIntegrationProfileVersion(manifest.identity.provider.key, {
+    profileKey: manifest.identity.provider.integrationProfileKey,
+    ingestionUnitKey: manifest.identity.provider.ingestionUnit,
+  });
+  if (!profileVersion || profileVersion.profileVersion !== manifest.identity.provider.integrationProfileVersion) {
+    throw new Error("Post-replay verifier profile compatibility failed.");
+  }
+  const envelopes = await readVerifiedObservationPackEnvelopes({
+    storage: target.storage,
+    manifest,
+    manifestKey: target.manifestKey,
+  });
+  const contract = requireSourceObservationMappingContract(profileVersion);
+  const observationIds = envelopes.map((envelope) => {
+    const prepared = prepareProviderAdapterSourceObservationPayload({
+      payload: envelope.payload,
+      providerProfile: profileVersion.profile,
+    });
+    if (prepared.kind !== "payload") {
+      throw new Error("Post-replay verifier mapping input failed.");
+    }
+    return requireCatalogProviderSourceObservation({
+      contract,
+      payload: prepared.payload,
+      observedAt: envelope.provenance.fetchedAt,
+    }).observationId;
+  });
+  const catalog = new pg.Pool({
+    connectionString: catalogDatabaseUrl,
+    max: 1,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 15_000,
+    query_timeout: 20_000,
+  });
+  const discovery = new pg.Pool({
+    connectionString: discoveryDatabaseUrl,
+    max: 1,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 15_000,
+    query_timeout: 20_000,
+  });
+  try {
+    const observations = await catalog.query(
+      `SELECT observation_id, promoted_catalog_item_id
+       FROM catalog_source_observations
+       WHERE observation_id = ANY($1::text[])
+         AND status = 'promoted'
+       ORDER BY observation_id`,
+      [observationIds],
+    );
+    if (observations.rows.length !== new Set(observationIds).size) {
+      throw new Error("Post-replay Source Observation projection count mismatch.");
+    }
+    const catalogItemIds = [
+      ...new Set(observations.rows.map((row) => row.promoted_catalog_item_id).filter(Boolean)),
+    ].sort();
+    const items = await catalog.query(
+      `SELECT
+         item.catalog_item_id,
+         item.status,
+         item.product_asset_sets,
+         COALESCE(
+           (
+             SELECT jsonb_agg(
+               jsonb_build_object(
+                 'providerKey', reference.provider_key,
+                 'externalKey', reference.external_key
+               )
+               ORDER BY reference.provider_key, reference.external_key
+             )
+             FROM catalog_external_catalog_item_references AS reference
+             WHERE reference.catalog_item_id = item.catalog_item_id
+           ),
+           '[]'::jsonb
+         ) AS external_references
+       FROM catalog_items AS item
+       WHERE item.catalog_item_id = ANY($1::text[])
+       ORDER BY item.catalog_item_id`,
+      [catalogItemIds],
+    );
+    const evidence = items.rows.map((row) => ({
+      catalogItemId: row.catalog_item_id,
+      status: row.status,
+      externalReferences: Array.isArray(row.external_references) ? row.external_references : [],
+      productAssetSets: Array.isArray(row.product_asset_sets) ? row.product_asset_sets : [],
+    }));
+    if (
+      evidence.length !== catalogItemIds.length ||
+      evidence.some((item) => item.status !== "active" || item.productAssetSets.length !== 1)
+    ) {
+      throw new Error("Post-replay Catalog Item or Product Asset Set count mismatch.");
+    }
+    const [searchProjection, detailProjection] = await Promise.all([
+      discovery.query(
+        "SELECT COUNT(*)::int AS count FROM discovery_search_catalog_items WHERE catalog_item_id = ANY($1::text[])",
+        [catalogItemIds],
+      ),
+      discovery.query(
+        "SELECT COUNT(*)::int AS count FROM discovery_item_detail_catalog_items WHERE catalog_item_id = ANY($1::text[])",
+        [catalogItemIds],
+      ),
+    ]);
+    if (
+      Number(searchProjection.rows[0]?.count ?? 0) !== catalogItemIds.length ||
+      Number(detailProjection.rows[0]?.count ?? 0) !== catalogItemIds.length
+    ) {
+      throw new Error("Post-replay downstream projection count mismatch.");
+    }
+    const storedAssetUrls = [
+      ...new Set(
+        evidence.flatMap((item) =>
+          item.productAssetSets.flatMap((assetSet) => [
+            assetSet.source?.publicUrl,
+            ...(Array.isArray(assetSet.variants) ? assetSet.variants.map((variant) => variant.publicUrl) : []),
+          ]),
+        ),
+      ),
+    ].filter((value) => typeof value === "string");
+    for (const storedUrl of storedAssetUrls) {
+      await verifyCatalogAssetUrl(fetch, assetBaseUrl, storedUrl);
+    }
+    return {
+      externalReferenceDigest: representativeCatalogExternalReferenceDigest(evidence),
+      counts: {
+        envelopes: envelopes.length,
+        observations: observationIds.length,
+        catalogItems: catalogItemIds.length,
+        productAssetSets: evidence.reduce((sum, item) => sum + item.productAssetSets.length, 0),
+        storedAssetUrls: storedAssetUrls.length,
+        discoverySearchItems: Number(searchProjection.rows[0]?.count ?? 0),
+        discoveryItemDetails: Number(detailProjection.rows[0]?.count ?? 0),
+      },
+      assetRoute: { checked: storedAssetUrls.length, http200: storedAssetUrls.length },
+    };
+  } finally {
+    await Promise.allSettled([catalog.end(), discovery.end()]);
+  }
+}
+
+function requireLocalCatalogAssetBaseUrl(value) {
+  const url = new URL(value);
+  if (
+    url.protocol !== "http:" ||
+    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+    !url.pathname.replace(/\/+$/, "").endsWith("/catalog-assets")
+  ) {
+    throw new Error("Post-replay asset checks must target the local /catalog-assets route.");
+  }
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+async function verifyCatalogAssetUrl(fetcher, assetBaseUrl, storedUrl) {
+  const parsed = new URL(storedUrl);
+  const marker = "/catalog-assets/";
+  const markerIndex = parsed.pathname.indexOf(marker);
+  if (markerIndex < 0 || parsed.username || parsed.password) {
+    throw new Error("Stored Catalog asset URL is not routed through /catalog-assets.");
+  }
+  const relativePath = parsed.pathname.slice(markerIndex + marker.length);
+  const url = new URL(relativePath, assetBaseUrl);
+  const object = await readBoundedHttpObject({
+    fetch: fetcher,
+    url,
+    maxBytes: 50 * 1024 * 1024,
+    deadlineMs: 15_000,
+    accept: "image/*",
+  });
+  if (object.body.byteLength === 0) {
+    throw new Error("Stored Catalog asset route returned an empty body.");
   }
 }
 
@@ -115,7 +344,16 @@ function spaceTarget(manifestKey, env) {
 }
 
 function parseOptions(argv) {
-  const known = ["--target", "--pack-dir", "--manifest-key", "--require-accepted"];
+  const known = [
+    "--target",
+    "--pack-dir",
+    "--manifest-key",
+    "--require-accepted",
+    "--post-replay",
+    "--catalog-database-url",
+    "--discovery-database-url",
+    "--asset-base-url",
+  ];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     const name = argument.split("=", 1)[0] ?? argument;
@@ -137,11 +375,19 @@ function parseOptions(argv) {
   if (requireAccepted !== "true" && requireAccepted !== "false") {
     throw new Error("--require-accepted must be true or false.");
   }
+  const postReplay = readOption(argv, "--post-replay") ?? "false";
+  if (postReplay !== "true" && postReplay !== "false") {
+    throw new Error("--post-replay must be true or false.");
+  }
   return {
     target,
     packDir: readOption(argv, "--pack-dir"),
     manifestKey: readOption(argv, "--manifest-key"),
     requireAccepted: requireAccepted === "true",
+    postReplay: postReplay === "true",
+    catalogDatabaseUrl: readOption(argv, "--catalog-database-url"),
+    discoveryDatabaseUrl: readOption(argv, "--discovery-database-url"),
+    assetBaseUrl: readOption(argv, "--asset-base-url"),
   };
 }
 

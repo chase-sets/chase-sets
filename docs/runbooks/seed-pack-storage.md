@@ -40,7 +40,41 @@ pnpm observation-pack:capture -- accept --target space --manifest-key '<manifest
 pnpm observation-pack:verify -- --target space --manifest-key '<manifestKey>' --require-accepted true
 ```
 
-Run both commands for all four manifest keys. A captured pack is valid retained evidence but is not replay-eligible. Only the accepted posture is replay-eligible; replay itself is owned by #5876 and is not performed by these commands. If any command reports `blocked`, use only its bounded diagnostic codes for support and keep provider bodies, exception text, URLs, manifests, and customer/provider data out of logs and issues.
+Run both commands for all four manifest keys. A captured pack is valid retained evidence but is not replay-eligible. Only the accepted posture is replay-eligible. If any command reports `blocked`, use only its bounded diagnostic codes for support and keep provider bodies, exception text, URLs, manifests, and customer/provider data out of logs and issues.
+
+## Accepted Pack Replay
+
+`representative-catalog` is an explicit seed profile; it is not included in any default profile list. Set `REPRESENTATIVE_CATALOG_PACK_SOURCE` to one of these bounded read-only sources:
+
+- a local directory containing one to four complete accepted pack directories; or
+- a comma- or newline-separated list of one to four HTTPS `manifest.json` object URLs from the private Space or an operator-created read-only cache.
+
+The replay reader refuses redirects, non-HTTPS remote sources, symbolic links, paths outside the local root, more than four manifests, contract/version mismatches, and responses beyond the contract-derived object limits. It actively times out downloads and consumes every response body within its cap. Never put a source URL, signed query string, provider response, or exception body in logs or issue evidence.
+
+Run an explicit local or preview replay with the normal seed host and only the intended profile:
+
+```sh
+REPRESENTATIVE_CATALOG_PACK_SOURCE='<bounded-local-directory-or-https-manifest-list>' \
+PLATFORM_DATA_PROFILES=representative-catalog \
+pnpm --filter @chase-sets/app-platform-api run bootstrap
+```
+
+Replay preflights every declared asset for presence, exact byte count and hash, and full image decoding before it writes any state for that pack. It then uses the active profile-driven import planner, executable mapper, Source Observation recorder, duplicate-prevention and promotion planners, and Product Asset Set normalization/storage. A second boot must report `appendedEventCount: 0`; existing content-addressed source hashes are not written again.
+
+After replay and projection drain, verify each pack against the Catalog and Discovery databases and the running local asset route:
+
+```sh
+pnpm observation-pack:verify -- \
+  --target local \
+  --pack-dir '<one-pack-directory>' \
+  --require-accepted true \
+  --post-replay true \
+  --catalog-database-url '<bounded-catalog-database-url>' \
+  --discovery-database-url '<bounded-discovery-database-url>' \
+  --asset-base-url 'http://127.0.0.1:<port>/catalog-assets'
+```
+
+The post-replay result includes the external-reference digest; fan-out-aware envelope, observation, Catalog Item, Product Asset Set, and Discovery projection counts; and a completed HTTP 200/body check for every stored source and variant URL. The verifier accepts only a localhost `/catalog-assets` base. #5877 and later work may package or schedule additional fixture lifecycle capabilities; those are not part of the current replay command.
 
 The provider constraint is `digitalocean/digitalocean ~> 2.85`; `hashicorp/setup-terraform` is SHA-pinned in the workflow. Review both before an operator window. Never print a secret output or attach Terraform state to an issue or PR.
 

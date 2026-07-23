@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcSeedOptions } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
@@ -384,6 +384,7 @@ export function createMountedContextTestRuntime<const TDefinitions extends reado
 export async function seedMountedContextTestRuntimeIfEmpty(
   runtime: MountedContextTestRuntime,
   lifecycleContextOrder: readonly string[],
+  options?: BcSeedOptions,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
 
@@ -400,7 +401,7 @@ export async function seedMountedContextTestRuntimeIfEmpty(
     await syncContextProjectionGroups(runtime, context.contextName, {
       requiredOnly: true,
     });
-    await seedApiModuleIfEmpty(context.module, context.pool, context.services);
+    await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
     await syncContextProjectionGroups(runtime, context.contextName);
     await drainContextRuntime(runtime);
   }

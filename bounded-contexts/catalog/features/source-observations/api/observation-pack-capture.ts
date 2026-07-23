@@ -7,8 +7,10 @@ import {
   type ObservationPackIdentityInput,
 } from "./observation-pack";
 import type { ProviderAdapter, ProviderImportScope } from "./provider-adapters/provider-adapter";
+import { BoundedHttpObjectError, readBoundedHttpObject } from "./bounded-http-object";
 
 const MAX_CAPTURE_ASSET_BYTES = 50 * 1024 * 1024;
+const CAPTURE_ASSET_DEADLINE_MS = 30_000;
 
 export type ObservationPackCaptureDefinition = Readonly<{
   packId: string;
@@ -80,23 +82,24 @@ export async function captureObservationPack(input: {
   for (const [sourceReference, envelopeContentHashes] of [...imageReferencesByUrl.entries()].sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
-    const response = await (input.fetch ?? globalThis.fetch)(sourceReference, {
-      headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8" },
-    });
-    if (!response.ok) {
+    const object = await readBoundedHttpObject({
+      fetch: input.fetch ?? globalThis.fetch,
+      url: sourceReference,
+      maxBytes: MAX_CAPTURE_ASSET_BYTES,
+      deadlineMs: CAPTURE_ASSET_DEADLINE_MS,
+      accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8",
+    }).catch((error) => {
+      if (error instanceof BoundedHttpObjectError && error.code === "response-too-large") {
+        throw new Error("A provider source image exceeded the per-asset capture bound.");
+      }
       throw new Error("A provider source image request failed.");
-    }
-    const declaredLength = Number(response.headers.get("content-length") ?? 0);
-    if (declaredLength > MAX_CAPTURE_ASSET_BYTES) {
-      throw new Error("A provider source image exceeded the per-asset capture bound.");
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength === 0 || bytes.byteLength > MAX_CAPTURE_ASSET_BYTES) {
+    });
+    if (object.body.byteLength === 0) {
       throw new Error("A provider source image was empty or exceeded the per-asset capture bound.");
     }
     assets.push({
-      bytes,
-      mediaType: response.headers.get("content-type") ?? "application/octet-stream",
+      bytes: object.body,
+      mediaType: object.contentType,
       sourceReference,
       envelopeContentHashes: [...envelopeContentHashes],
     });

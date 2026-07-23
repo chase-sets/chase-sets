@@ -14,7 +14,7 @@ Environment data setup is split by purpose, not by deployable.
 
 `admin-qa-actor-fixtures` is explicit staging Identity fixtures for the m65 Admin Workflows Staging QA actor matrix (issue #3016). It provisions the support-safe `admin-qa-*` staging actor aliases that map to real, whole-role Identity grants (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), each magic-link only and idempotent. It does not attempt to provision the single-permission partial-actor rows because Identity has no scoped single-permission membership grant; those stay proven by local regression guardrails only. It must be run only by an operator-confirmed staging fixture workflow, never as implicit deployment bootstrap.
 
-`representative-catalog` is a reserved, opt-in Catalog profile for dev, local, remote-dev, test, and preview. It is never a default bootstrap profile and is rejected in staging and production; staging continues to use its real provider pipeline. No seed handler currently implements this profile, so it performs no replay. As intended by [ADR 0027](../adr/0027-representative-catalog-observation-packs.md), [#5876](https://github.com/chase-sets/chase-sets/issues/5876) will later add accepted governed Observation Pack replay behind this profile.
+`representative-catalog` is an opt-in Catalog profile for dev, local, remote-dev, test, and preview. It is never a default bootstrap profile and is rejected in staging and production; staging continues to use its real provider pipeline. The profile reads only accepted, contract-valid Observation Packs from the bounded `REPRESENTATIVE_CATALOG_PACK_SOURCE`, replays their envelopes through the active provider profile and normal Catalog import/promotion machinery, stores normalized product assets, publishes the resulting Catalog Items, and converges without new events on later boots. See [ADR 0027](../adr/0027-representative-catalog-observation-packs.md) and the [seed-pack storage runbook](../runbooks/seed-pack-storage.md).
 
 ## Environment Policy
 
@@ -54,3 +54,4 @@ Dev, preview, and tests may auto-create a small provider-backed scenario set so 
 - Representative commerce state must query current active Catalog Items and prefer items with no existing listings or offers.
 - Admin QA actor fixtures must remain blocked in production and must require an explicit staging confirmation phrase.
 - Admin QA actor fixture evidence must never include emails, account ids, user ids, membership ids, or credentials.
+- Representative Catalog replay must remain explicit, require accepted packs whose profile versions match the active executable profiles, and perform no provider network calls.

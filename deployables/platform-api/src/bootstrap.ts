@@ -3,8 +3,8 @@ import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
-import { createFilesystemObjectStorage, createS3ObjectStorage } from "@chase-sets/object-storage";
 import { createPlatformApiHost } from "./app";
+import { createPlatformBootstrapStoragePorts } from "./bootstrap-storage";
 import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 import { ensurePreviewPostgresDatabases } from "./preview-postgres";
@@ -41,33 +41,10 @@ async function bootstrap() {
         pools,
         runtimeProfile: config.runtimeProfile,
         hostPorts: {
+          ...createPlatformBootstrapStoragePorts(config),
           processorGateway: paymentProcessorGateway,
           paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
           moneyMovementGateway: createFakeMoneyMovementGateway(),
-          listingPhotoStorage:
-            config.listingPhotoStorage.kind === "s3"
-              ? createS3ObjectStorage(config.listingPhotoStorage)
-              : createFilesystemObjectStorage(config.listingPhotoStorage),
-          returnIntakeEvidenceStorage:
-            config.listingPhotoStorage.kind === "s3"
-              ? createS3ObjectStorage({
-                  ...config.listingPhotoStorage,
-                  publicBaseUrl: "private://return-intake-evidence",
-                })
-              : createFilesystemObjectStorage({
-                  rootDir: `${config.listingPhotoStorage.rootDir}/private-return-intake`,
-                  publicBaseUrl: "private://return-intake-evidence",
-                }),
-          supportEvidenceAttachmentStorage:
-            config.listingPhotoStorage.kind === "s3"
-              ? createS3ObjectStorage({
-                  ...config.listingPhotoStorage,
-                  publicBaseUrl: "private://support-evidence",
-                })
-              : createFilesystemObjectStorage({
-                  rootDir: `${config.listingPhotoStorage.rootDir}-private-support-evidence`,
-                  publicBaseUrl: "private://support-evidence",
-                }),
           ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
         },
       }),

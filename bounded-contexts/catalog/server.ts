@@ -19,3 +19,15 @@ export {
   type TcgplayerAutomationHttpConfig,
 } from "./features/source-observations/api/tcgplayer-automation-client";
 export { createTcgplayerAutomationCatalogClient } from "./features/source-observations/api/tcgplayer-automation-catalog-client";
+export {
+  OBSERVATION_PACK_DECISION_LINK,
+  buildObservationPack,
+  observationPackEnvelopeContentHash,
+  recordObservationPackAcceptance,
+  serializeObservationPackManifest,
+  type ObservationPackBundle,
+} from "./features/source-observations/api/observation-pack";
+export {
+  replayRepresentativeCatalogPacks,
+  representativeCatalogExternalReferenceDigest,
+} from "./features/source-observations/api/representative-catalog-replay";
