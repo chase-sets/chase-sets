@@ -855,6 +855,8 @@ describe("DigitalOcean platform configuration", () => {
   it("guards scheduled registry cleanup against queued or active platform deploys", () => {
     const deployLaneStep = workflowStep(platformRegistryCleanupWorkflow, "Check deploy lane");
     const cleanupStep = workflowStep(platformRegistryCleanupWorkflow, "Cleanup registry tags");
+    const validateStep = workflowStep(platformRegistryCleanupWorkflow, "Validate canonical registry cleanup record");
+    const uploadStep = workflowStep(platformRegistryCleanupWorkflow, "Upload registry cleanup artifact");
 
     expect(platformRegistryCleanupWorkflow).toContain("actions: read");
     expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
@@ -876,6 +878,15 @@ describe("DigitalOcean platform configuration", () => {
       "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
     );
     expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
+    expect(cleanupStep).toContain("--out artifacts/release-health/digitalocean-registry-cleanup.json");
+    expect(cleanupStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}");
+    expect(validateStep).toContain("if: ${{ always() }}");
+    expect(validateStep).toContain(
+      "digitalocean-registry-cleanup-record.mjs --record=artifacts/release-health/digitalocean-registry-cleanup.json",
+    );
+    expect(uploadStep).toContain("path: artifacts/release-health/digitalocean-registry-cleanup.json");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).not.toContain("if-no-files-found: ignore");
     expect(cleanupStep).not.toContain("dry_run_arg");
     expect(cleanupStep).not.toContain("--retention-days=7");
     expect(digitaloceanPlatformRunbook).toContain(

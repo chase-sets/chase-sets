@@ -10,6 +10,8 @@ const providerToolRequirements = [
   {
     tool: "doctl",
     pattern: /(?:^|[\s;&|$(])doctl(?=\s|$)/m,
+    scriptPattern:
+      /(?:execFile|execFileSync|spawn|spawnSync|commandOutput|commandJson|output|json)\s*\(\s*["']doctl["']/m,
     requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
   },
   {
@@ -193,19 +195,31 @@ export function checkWorkflowSpacesEvidenceCredentials(
   return { passed: violations.length === 0, checkedSteps, violations };
 }
 
-export function checkWorkflowProviderCredentials(source, { workflowFile = "workflow" } = {}) {
+export function checkWorkflowProviderCredentials(
+  source,
+  { workflowFile = "workflow", readScript = defaultReadScript } = {},
+) {
   const checkedSteps = [];
   const violations = [];
+  const indent = stepItemIndent(source);
 
-  for (const step of stepBlocks(source)) {
-    const run = stepRunBlock(step.source);
+  for (const step of stepBlocks(source, indent)) {
+    const run = stepRunBlock(step.source, indent);
     if (run === null) continue;
 
-    const tools = providerToolRequirements.filter(({ pattern }) => pattern.test(run));
+    const scripts = nodeScriptInvocations(run);
+    const invokedScriptSources = scripts
+      .map((scriptPath) => resolveInvokedScript(scriptPath, readScript))
+      .filter((scriptSource) => scriptSource !== null);
+    const tools = providerToolRequirements.filter(
+      ({ pattern, scriptPattern }) =>
+        pattern.test(run) ||
+        (scriptPattern && invokedScriptSources.some((scriptSource) => scriptPattern.test(scriptSource))),
+    );
     if (tools.length === 0) continue;
 
-    const name = stepName(step.source);
-    const envKeys = stepEnvKeys(step.source);
+    const name = stepName(step.source, indent);
+    const envKeys = stepEnvKeys(step.source, indent);
     const requiredEnv = [
       ...new Set([
         ...tools.flatMap((tool) => tool.requiredEnv),
@@ -218,6 +232,7 @@ export function checkWorkflowProviderCredentials(source, { workflowFile = "workf
       line: step.startLine,
       tools: tools.map(({ tool }) => tool),
       requiredEnv,
+      scripts,
     });
 
     if (missingEnv.length > 0) {

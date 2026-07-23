@@ -1,0 +1,273 @@
+{
+  "version": 1,
+  "discovery": {
+    "scannedFiles": 51,
+    "scannedSurfaces": 23
+  },
+  "surfaces": [
+    {
+      "workflowFile": ".github/workflows/catalog-integration-staging-reset.yml",
+      "outPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
+      "uploadPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json"
+    },
+    {
+      "workflowFile": ".github/workflows/catalog-provider-refresh-watch.yml",
+      "outPath": "artifacts/release-health/catalog-provider-refresh-status.json",
+      "uploadPath": "artifacts/release-health/catalog-provider-refresh-status.json"
+    },
+    {
+      "workflowFile": ".github/workflows/checkout-order-readiness-trace.yml",
+      "outPath": "artifacts/checkout-order-readiness-trace/staging-checkout-order-readiness-trace.json",
+      "uploadPath": "artifacts/checkout-order-readiness-trace"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-ci-flake-digest.yml",
+      "outPath": "artifacts/release-health/ci-flake-digest.json",
+      "uploadPath": "artifacts/release-health/ci-flake-digest*"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-delivery-health.yml",
+      "outPath": "artifacts/release-health/delivery-health/delivery-health.json",
+      "uploadPath": "artifacts/release-health/delivery-health/"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-digitalocean-drift-digest.yml",
+      "outPath": "artifacts/release-health/digitalocean-drift-digest.json",
+      "uploadPath": "artifacts/release-health/digitalocean-drift-digest.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/merge-gate-run-record.json",
+      "uploadPath": "artifacts/merge-gate"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/preflight.json",
+      "uploadPath": "artifacts/merge-gate"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/qualification-record-write.json",
+      "uploadPath": "artifacts/merge-gate"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-group-failure-signatures.yml",
+      "outPath": "artifacts/release-health/delivery-failure-signatures.json",
+      "uploadPath": "artifacts/release-health/delivery-failure-signatures.*"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-queue-posture.yml",
+      "outPath": "artifacts/release-health/merge-queue-posture.json",
+      "uploadPath": "artifacts/release-health/merge-queue-posture.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-postgres-growth-evidence.yml",
+      "outPath": "artifacts/release-health/postgres-growth-evidence.json",
+      "uploadPath": "artifacts/release-health/postgres-growth-evidence.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-postgres-slow-query-digest.yml",
+      "outPath": "artifacts/release-health/postgres-slow-query-digest.json",
+      "uploadPath": "artifacts/release-health/postgres-slow-query-digest.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-preview-cleanup.yml",
+      "outPath": "artifacts/release-health/platform-preview-cleanup-sweep.json",
+      "uploadPath": "artifacts/release-health/platform-preview-cleanup-sweep.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-production-restore-point-cleanup.yml",
+      "outPath": "artifacts/release-health/production-db-restore-point-cleanup.json",
+      "uploadPath": "artifacts/release-health/production-db-restore-point-cleanup.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-production.yml",
+      "outPath": "artifacts/release-health/promoted-release.json",
+      "uploadPath": "artifacts/release-health/promoted-release.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-production.yml",
+      "outPath": "artifacts/release-health/staging-deploy-root-cause.json",
+      "uploadPath": "artifacts/release-health/staging-deploy-root-cause.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-registry-cleanup.yml",
+      "outPath": "artifacts/release-health/digitalocean-registry-cleanup.json",
+      "uploadPath": "artifacts/release-health/digitalocean-registry-cleanup.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-reset.yml",
+      "outPath": "artifacts/staging-refresh-preflight.json",
+      "uploadPath": "artifacts/staging-refresh-preflight.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-rollback-drill.yml",
+      "outPath": "artifacts/staging-rollback-drill/roll-forward.json",
+      "uploadPath": "artifacts/staging-rollback-drill"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-rollback-drill.yml",
+      "outPath": "artifacts/staging-rollback-drill/rollback.json",
+      "uploadPath": "artifacts/staging-rollback-drill"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-wake-drills.yml",
+      "outPath": "artifacts/wake-drills/staging-wake-drill-load-evaluation.json",
+      "uploadPath": "artifacts/wake-drills"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "outPath": "artifacts/release-health/digitalocean-terraform-state-snapshot.json",
+      "uploadPath": "artifacts/release-health/digitalocean-terraform-state-snapshot.json"
+    }
+  ],
+  "findings": [
+    {
+      "workflowFile": ".github/workflows/catalog-integration-staging-reset.yml",
+      "outPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
+      "uploadPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
+      "kind": "missing-file-behavior",
+      "observed": "warn"
+    },
+    {
+      "workflowFile": ".github/workflows/catalog-provider-refresh-watch.yml",
+      "outPath": "artifacts/release-health/catalog-provider-refresh-status.json",
+      "uploadPath": "artifacts/release-health/catalog-provider-refresh-status.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/checkout-order-readiness-trace.yml",
+      "outPath": "artifacts/checkout-order-readiness-trace/staging-checkout-order-readiness-trace.json",
+      "uploadPath": "artifacts/checkout-order-readiness-trace",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-ci-flake-digest.yml",
+      "outPath": "artifacts/release-health/ci-flake-digest.json",
+      "uploadPath": "artifacts/release-health/ci-flake-digest*",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-delivery-health.yml",
+      "outPath": "artifacts/release-health/delivery-health/delivery-health.json",
+      "uploadPath": "artifacts/release-health/delivery-health/",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-digitalocean-drift-digest.yml",
+      "outPath": "artifacts/release-health/digitalocean-drift-digest.json",
+      "uploadPath": "artifacts/release-health/digitalocean-drift-digest.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/merge-gate-run-record.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/merge-gate-run-record.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "missing-file-behavior",
+      "observed": "warn"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/preflight.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/preflight.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/qualification-record-write.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-gate-verification.yml",
+      "outPath": "artifacts/merge-gate/qualification-record-write.json",
+      "uploadPath": "artifacts/merge-gate",
+      "kind": "missing-file-behavior",
+      "observed": "warn"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-group-failure-signatures.yml",
+      "outPath": "artifacts/release-health/delivery-failure-signatures.json",
+      "uploadPath": "artifacts/release-health/delivery-failure-signatures.*",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-group-failure-signatures.yml",
+      "outPath": "artifacts/release-health/delivery-failure-signatures.json",
+      "uploadPath": "artifacts/release-health/delivery-failure-signatures.*",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-merge-queue-posture.yml",
+      "outPath": "artifacts/release-health/merge-queue-posture.json",
+      "uploadPath": "artifacts/release-health/merge-queue-posture.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-postgres-growth-evidence.yml",
+      "outPath": "artifacts/release-health/postgres-growth-evidence.json",
+      "uploadPath": "artifacts/release-health/postgres-growth-evidence.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-postgres-slow-query-digest.yml",
+      "outPath": "artifacts/release-health/postgres-slow-query-digest.json",
+      "uploadPath": "artifacts/release-health/postgres-slow-query-digest.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-preview-cleanup.yml",
+      "outPath": "artifacts/release-health/platform-preview-cleanup-sweep.json",
+      "uploadPath": "artifacts/release-health/platform-preview-cleanup-sweep.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-production-restore-point-cleanup.yml",
+      "outPath": "artifacts/release-health/production-db-restore-point-cleanup.json",
+      "uploadPath": "artifacts/release-health/production-db-restore-point-cleanup.json",
+      "kind": "missing-file-behavior",
+      "observed": "ignore"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-reset.yml",
+      "outPath": "artifacts/staging-refresh-preflight.json",
+      "uploadPath": "artifacts/staging-refresh-preflight.json",
+      "kind": "missing-file-behavior",
+      "observed": "warn"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-staging-wake-drills.yml",
+      "outPath": "artifacts/wake-drills/staging-wake-drill-load-evaluation.json",
+      "uploadPath": "artifacts/wake-drills",
+      "kind": "directory-masks-missing-payload",
+      "observed": true
+    }
+  ]
+}
