@@ -41,7 +41,7 @@ export function DenseAdminWorkbenchHeader({
   const Heading = headingLevel === 1 ? "h1" : "h2";
 
   return (
-    <div {...rest} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+    <div {...rest} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
       <div className="min-w-0">
         {eyebrow ? <div className="text-xs font-semibold uppercase tracking-normal text-accent">{eyebrow}</div> : null}
         <Heading className="mt-1 font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">
@@ -75,8 +75,8 @@ export function DenseAdminWorkbenchLayout({
   ...rest
 }: DenseAdminWorkbenchLayoutProps) {
   return (
-    <div {...rest} className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-      <div className="lg:sticky lg:top-20">
+    <div {...rest} className="grid gap-5 md:grid-cols-[18rem_minmax(0,1fr)] md:items-start">
+      <div className="md:sticky md:top-20">
         <SectionNavigation
           groups={navigationGroups}
           activeKey={activeNavigationKey}
@@ -131,10 +131,10 @@ export interface WorkbenchGridProps extends FrameProps<HTMLDivElement> {
 }
 
 const workbenchGridColumnClasses: Record<NonNullable<WorkbenchGridProps["columns"]>, string> = {
-  two: "xl:grid-cols-2",
+  two: "lg:grid-cols-2",
   three: "xl:grid-cols-3",
-  detail: "xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]",
-  sidebar: "xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]",
+  detail: "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]",
+  sidebar: "lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]",
   equalDetail: "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]",
 };
 
@@ -174,7 +174,7 @@ export interface WorkbenchFormGridProps extends FrameProps<HTMLDivElement> {
 const workbenchFormGridColumnClasses: Record<NonNullable<WorkbenchFormGridProps["columns"]>, string> = {
   one: "",
   two: "md:grid-cols-2",
-  three: "sm:grid-cols-3",
+  three: "lg:grid-cols-3",
 };
 
 export function WorkbenchFormGrid({ children, columns = "two", ...rest }: WorkbenchFormGridProps) {
@@ -260,7 +260,7 @@ export interface WorkbenchGridSpanProps extends FrameProps<HTMLDivElement> {
 
 export function WorkbenchGridSpan({ children, columns = 3, ...rest }: WorkbenchGridSpanProps) {
   return (
-    <div {...rest} className={columns === 3 ? "xl:col-span-3" : "xl:col-span-2"}>
+    <div {...rest} className={columns === 3 ? "xl:col-span-3" : "lg:col-span-2"}>
       {children}
     </div>
   );
