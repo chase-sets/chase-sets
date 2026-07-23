@@ -1,4 +1,10 @@
-import { expect, type APIResponse, type Locator, type Page, type Response as PlaywrightResponse } from "@playwright/test";
+import {
+  expect,
+  type APIResponse,
+  type Locator,
+  type Page,
+  type Response as PlaywrightResponse,
+} from "@playwright/test";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -45,7 +51,9 @@ export async function expectMinimumTouchTarget(locator: Locator, label: string) 
 // generic/unscoped `listitem` query that could match an unrelated list
 // elsewhere on the page.
 export function dataTableRoot(page: Page, name?: string): Locator {
-  const table = name ? page.locator("table", { has: page.locator("caption", { hasText: name }) }) : page.locator("table");
+  const table = name
+    ? page.locator("table", { has: page.locator("caption", { hasText: name }) })
+    : page.locator("table");
   return page.locator("div[aria-busy]").filter({ has: table });
 }
 
