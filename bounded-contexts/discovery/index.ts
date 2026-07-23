@@ -1,6 +1,11 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventSubscriptionsFromManifest,
+  defineBcProjectionGroupReset,
+  defineBoundedContextModule,
+  type BcProjectionGroup,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { discoveryRetentionSweeps } from "./support/runtime-support/retention-policy";
@@ -19,7 +24,7 @@ import { discoverySchemaMigrations, discoverySchemaSql } from "./support/runtime
 import { discoveryUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { createDiscoveryItemMcpHandlers } from "./support/item-support/mcp";
 
-export const module = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
+const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
   manifest: contextManifest,
   schemaSql: discoverySchemaSql,
   retentionSweeps: discoveryRetentionSweeps,
@@ -102,3 +107,19 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
     });
   },
 });
+
+function buildDiscoveryProjectionGroups(services: DiscoveryServices): readonly BcProjectionGroup[] {
+  return (baseModule.projectionGroups ?? []).map((group) =>
+    group.projectionName === "discovery-search-item-projection"
+      ? {
+          ...group,
+          reset: defineBcProjectionGroupReset(services.items.search.rebuildSearchIndex),
+        }
+      : group,
+  );
+}
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: buildDiscoveryProjectionGroups,
+};

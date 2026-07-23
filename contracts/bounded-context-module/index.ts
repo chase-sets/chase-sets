@@ -474,9 +474,34 @@ export function selectEventSubscriptionHandlers(
   );
 }
 
+const bcProjectionGroupResetBrand: unique symbol = Symbol("bc-projection-group-reset");
+
+export type BcProjectionGroupReset = Readonly<{
+  readonly [bcProjectionGroupResetBrand]: true;
+  readonly databaseBoundary: "supplied-transaction";
+  readonly execute: (database: unknown, context?: ProjectionRunContext) => Promise<void>;
+}>;
+
+/**
+ * Binds a context-owned projection reset to the transaction supplied by the
+ * projection runtime. The conditional parameter rejects zero-argument (or
+ * entirely optional-argument) callbacks that could silently open and commit a
+ * second transaction.
+ */
+export function defineBcProjectionGroupReset<TOperation extends (...args: never[]) => Promise<void>>(
+  operation: [] extends Parameters<TOperation> ? never : TOperation,
+): BcProjectionGroupReset {
+  return {
+    [bcProjectionGroupResetBrand]: true,
+    databaseBoundary: "supplied-transaction",
+    execute: (database, context) =>
+      (operation as unknown as (database: unknown, context?: ProjectionRunContext) => Promise<void>)(database, context),
+  };
+}
+
 export type BcProjectionGroup = BcProjectionGroupDeclaration &
   Readonly<{
-    readonly reset?: (context?: ProjectionRunContext) => Promise<void>;
+    readonly reset?: BcProjectionGroupReset;
   }>;
 
 export const ENVIRONMENT_DATA_PROFILES = [

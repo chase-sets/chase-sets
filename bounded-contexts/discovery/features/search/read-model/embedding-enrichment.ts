@@ -97,6 +97,8 @@ export function createDiscoverySearchEmbeddingEnrichment(
           const marked = await input.db.query(
             `UPDATE discovery_search_items
              SET embedded_text_hash = $2,
+                 search_embedding = NULL,
+                 embedding_model = NULL,
                  embedding_updated_at = NULL
              WHERE catalog_item_id = $1
                AND embedded_text_hash IS NOT DISTINCT FROM $3`,

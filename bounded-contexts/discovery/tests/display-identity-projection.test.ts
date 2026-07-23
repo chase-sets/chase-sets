@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
 import {
   buildDiscoverySearchItemProjectionHandlers,
   rebuildDiscoverySearchIndex,
 } from "../features/search/read-model/projection";
 
-class DiscoveryProjectionDb implements PgQueryable {
+class DiscoveryProjectionDb implements PgTransactionalPool {
   public readonly searchCatalogItems = new Map<string, Record<string, unknown>>();
   public readonly detailCatalogItems = new Map<string, Record<string, unknown>>();
   public readonly redirectWrites: unknown[][] = [];
@@ -22,11 +22,34 @@ class DiscoveryProjectionDb implements PgQueryable {
     this.detailCatalogItems.set("cat_1", catalogItemRow("old-title-cat-1"));
   }
 
+  async connect() {
+    return {
+      query: this.query.bind(this),
+      release: () => undefined,
+    };
+  }
+
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
     this.queries.push(sql);
+
+    if (
+      sql === "BEGIN" ||
+      sql === "COMMIT" ||
+      sql === "ROLLBACK" ||
+      sql.startsWith("DROP TABLE IF EXISTS discovery_search_items_rebuild") ||
+      sql.startsWith("CREATE TABLE discovery_search_items_rebuild") ||
+      sql.startsWith("LOCK TABLE discovery_search_items") ||
+      sql.startsWith("ALTER TABLE discovery_search_items")
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("UPDATE discovery_search_items_rebuild AS shadow")) {
+      return { rows: [], rowCount: 0 };
+    }
 
     if (sql.includes("SELECT slug FROM discovery_search_catalog_items")) {
       const row = this.searchCatalogItems.get(String(values[0]));
@@ -119,7 +142,7 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
-    if (sql.includes("UPDATE discovery_search_items AS item") && sql.includes("lowest_price_amount")) {
+    if (sql.includes("UPDATE discovery_search_items") && sql.includes("lowest_price_amount")) {
       return { rows: [], rowCount: 0 };
     }
 

@@ -72,7 +72,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -80,32 +80,11 @@
         "catalog.category.deprecated",
         "catalog.category.archived",
         "catalog.catalog-item.created",
-        "catalog.catalog-item.blueprint-assigned",
-        "catalog.catalog-item.field-value-set",
-        "catalog.catalog-item.field-value-cleared",
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed",
         "catalog.catalog-item.published",
-        "catalog.catalog-item.metadata-revised",
-        "catalog.catalog-item.tags-set",
-        "catalog.catalog-item.image-urls-set",
-        "catalog.catalog-item.product-asset-sets-set",
-        "catalog.catalog-item.image-fallback-set",
-        "catalog.catalog-item.image-fallback-cleared",
         "catalog.catalog-item.retired",
-        "catalog.catalog-item.archived",
-        "catalog.blueprint.created",
-        "catalog.blueprint.revised",
-        "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.product-resolution-rules-set",
-        "catalog.blueprint.published",
-        "catalog.field.created",
-        "catalog.field.configured",
-        "catalog.dimension.created",
-        "catalog.dimension.revised",
-        "catalog.dimension.option-added",
-        "catalog.dimension.option-revised",
-        "catalog.dimension.options-reordered"
+        "catalog.catalog-item.archived"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["discovery-category-projection"]
@@ -113,7 +92,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 8,
+      "subscriptionVersion": 9,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -140,8 +119,6 @@
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.product-resolution-rules-set",
-        "catalog.blueprint.published",
         "catalog.field.created",
         "catalog.field.configured",
         "catalog.reference-record.created",
@@ -365,6 +342,7 @@
     },
     {
       "projectionName": "discovery-search-item-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["catalog"],
       "ownedTables": [
         "discovery_search_catalog_items",
@@ -375,7 +353,7 @@
         "discovery_search_items"
       ],
       "requiredDuringBootstrap": true,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "generation-cutover"
     },
     {
       "projectionName": "discovery-item-detail-projection",

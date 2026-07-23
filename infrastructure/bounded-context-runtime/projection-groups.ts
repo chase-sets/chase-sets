@@ -400,6 +400,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
     };
     const revisionStale = () =>
       revisionState.storedProjectionRevision !== null && revisionState.storedProjectionRevision !== projectionRevision;
+    const customReset = group.reset;
 
     return {
       projectionName: group.projectionName,
@@ -415,15 +416,22 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
       subscriptionRunners: [],
       targetPool: entry.pool,
-      reset:
-        group.reset ??
-        createDefaultProjectionGroupReset(
-          entry.pool,
-          ownedTables,
-          group.resetStrategy,
-          entry.contextName,
-          group.projectionName,
-        ),
+      reset: customReset
+        ? async (context, options) => {
+            if (!options?.db) {
+              throw new Error(
+                `Projection group '${entry.contextName}.${group.projectionName}' requires the runtime-supplied transaction database.`,
+              );
+            }
+            await customReset.execute(options.db, context);
+          }
+        : createDefaultProjectionGroupReset(
+            entry.pool,
+            ownedTables,
+            group.resetStrategy,
+            entry.contextName,
+            group.projectionName,
+          ),
       getStatus: () => ({
         projectionName: group.projectionName,
         handlerKind,

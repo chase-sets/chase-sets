@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BcApiModule, BcProjectionGroupDeclaration } from "@chase-sets/bounded-context-module";
+import {
+  defineBcProjectionGroupReset,
+  type BcApiModule,
+  type BcProjectionGroup,
+} from "@chase-sets/bounded-context-module";
 import {
   createEventCoreMock,
   createEventCorePostgresMock,
@@ -324,9 +328,9 @@ describe("bounded context projection groups", () => {
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
           resetStrategy: "generation-cutover",
-          reset: async () => undefined,
+          reset: defineBcProjectionGroupReset(async (_database: unknown) => undefined),
           requiredDuringBootstrap: true,
-        } as BcProjectionGroupDeclaration,
+        } as BcProjectionGroup,
       ],
       [runner],
     );
@@ -375,9 +379,9 @@ describe("bounded context projection groups", () => {
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
           resetStrategy: "generation-cutover",
-          reset: async () => undefined,
+          reset: defineBcProjectionGroupReset(async (_database: unknown) => undefined),
           requiredDuringBootstrap: true,
-        } as BcProjectionGroupDeclaration,
+        } as BcProjectionGroup,
       ],
       [runner],
     );
@@ -438,9 +442,9 @@ describe("bounded context projection groups", () => {
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
           resetStrategy: "generation-cutover",
-          reset: async () => undefined,
+          reset: defineBcProjectionGroupReset(async (_database: unknown) => undefined),
           requiredDuringBootstrap: true,
-        } as BcProjectionGroupDeclaration,
+        } as BcProjectionGroup,
       ],
       [runner],
     );

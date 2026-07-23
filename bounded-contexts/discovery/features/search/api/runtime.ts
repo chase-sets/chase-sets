@@ -13,12 +13,13 @@ import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex
 import { publishDiscoveryCsatOutcomeFact } from "../../../support/request-support/csat-outcome-facts";
 import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
 import { suggestDiscoveryItems } from "../read-model/suggestions";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type DiscoveryItemSearchServices = Readonly<{
   suggestItems: (query: string, limit?: number) => Promise<DiscoverySearchSuggestion[]>;
   searchItems: (params?: DiscoverySearchParams) => Promise<DiscoverySearchResult>;
   previewBulkAdd: (params?: DiscoverySearchParams) => Promise<DiscoveryBulkCartPreview>;
-  rebuildSearchIndex: () => Promise<void>;
+  rebuildSearchIndex: (db: PgQueryable) => Promise<void>;
   publishSearchOutcome?: (
     input: Readonly<{ accountId: string; sessionId: string; context: EventStoreContext }>,
   ) => Promise<void>;
@@ -56,7 +57,7 @@ export function createDiscoveryItemSearchRuntime(
       return result;
     },
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
-    rebuildSearchIndex: () => rebuildDiscoverySearchIndex(deps.db),
+    rebuildSearchIndex: (db) => rebuildDiscoverySearchIndex(db),
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
       await publishDiscoveryCsatOutcomeFact(deps.eventStore, context, {
         outcomeCode: "discovery.search-completed",

@@ -768,44 +768,52 @@
     "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts:98 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts:135:UPDATE:discovery_search_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts:135 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts:137:UPDATE:discovery_search_items",
+    "reason": "The embedding write is conditionally applied only while embedded_text_hash still matches the exact document sent to the provider; the guard vocabulary intentionally remains bounded to shared projection-position fields."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:9:UPDATE:discovery_search_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/market-signals.ts:9 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:10:UPDATE:discovery_search_items",
+    "reason": "The active-table single-item market signal is a total recomputation from the current visible-listing read state and does not derive its value from the prior search row."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:29:UPDATE:discovery_search_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/market-signals.ts:29 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:24:UPDATE:discovery_search_items_rebuild",
+    "reason": "The shadow-table single-item market signal is a total recomputation from the current visible-listing read state and does not derive its value from the prior search row."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:673:DELETE:discovery_search_items",
-    "reason": "DELETE at bounded-contexts/discovery/features/search/read-model/projection.ts:673 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:41:UPDATE:discovery_search_items",
+    "reason": "The active-table all-item market refresh is a total recomputation from current visible-listing read state, including clearing aggregates that no longer exist."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:749:UPDATE:discovery_search_catalog_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/projection.ts:749 directly synchronizes discovery_search_catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:52:UPDATE:discovery_search_items_rebuild",
+    "reason": "The shadow-table all-item market refresh is a total recomputation from current visible-listing read state, including clearing aggregates that no longer exist."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1221:UPDATE:discovery_search_catalog_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/projection.ts:1221 directly synchronizes discovery_search_catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:52:DELETE:discovery_search_items",
+    "reason": "The active-table delete is conditional on the canonical source row remaining absent; no prior search-row state decides the write."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1271:UPDATE:discovery_search_catalog_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/projection.ts:1271 directly synchronizes discovery_search_catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:59:DELETE:discovery_search_items_rebuild",
+    "reason": "The shadow-table delete is conditional on the canonical source row remaining absent; no prior search-row state decides the write."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1279:UPDATE:discovery_search_catalog_items",
-    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/projection.ts:1279 directly synchronizes discovery_search_catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1271:UPDATE:discovery_search_items_rebuild",
+    "reason": "The cutover freshness copy preserves a vector only when active and shadow embedded-text hashes are identical and the active vector has complete freshness metadata."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1548:DELETE:discovery_search_items",
-    "reason": "DELETE at bounded-contexts/discovery/features/search/read-model/projection.ts:1548 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1370:UPDATE:discovery_search_catalog_items",
+    "reason": "The display-identity projection writes the incoming event fact directly; no prior row state decides the write."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1586:DELETE:discovery_search_catalog_blueprint_dimensions",
-    "reason": "DELETE at bounded-contexts/discovery/features/search/read-model/projection.ts:1586 directly synchronizes discovery_search_catalog_blueprint_dimensions from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1420:UPDATE:discovery_search_catalog_items",
+    "reason": "The alias projection writes the incoming event fact directly under strict per-stream ordering; no prior row state decides this write."
+  },
+  {
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1428:UPDATE:discovery_search_catalog_items",
+    "reason": "The alias projection writes the incoming event fact directly under strict per-stream ordering; no prior row state decides this write."
+  },
+  {
+    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1734:DELETE:discovery_search_catalog_blueprint_dimensions",
+    "reason": "The blueprint-dimension projection replaces the complete incoming rule set under strict per-stream ordering; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/discovery/support/market-support/projection.ts:482:UPDATE:discovery_market_supply_holds",

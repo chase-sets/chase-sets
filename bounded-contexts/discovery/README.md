@@ -99,6 +99,18 @@ directions, with catalog item identity as the deterministic keyset tie-breaker; 
 Listing count is intentionally not a secondary Relevance key. Commercial intent is expressed through explicit price,
 availability, and market-activity Filters or Sort Orders while lexical and semantic match quality remains stable.
 
+## Search Index Rebuild
+
+Projection Operations invokes the Search Index rebuild through Discovery's projection-group reset adapter. Discovery
+builds a complete shadow table while queries continue reading the current Search Index, preserves Search Embeddings
+whose deterministic text hash is unchanged, and atomically swaps the shadow into service. The Catalog subscription then
+replays through the same incremental handlers, so rebuild and incremental projection converge.
+
+Blueprint name and dimension facts shape Search Results and Facets, so Search subscribes to their created, revised, and
+dimensions-set facts. Blueprint publication and product-resolution-rule facts do not shape the Search Index and are
+intentionally absent from the subscription. The Category projection similarly subscribes only to category lifecycle and
+item-category/status facts; it does not silently checkpoint unrelated blueprint, field, dimension, or item metadata.
+
 ## Item Detail Rail Analytics
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.

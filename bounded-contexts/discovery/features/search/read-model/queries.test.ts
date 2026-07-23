@@ -267,7 +267,9 @@ describe("searchDiscoveryItems cursor paging", () => {
       (candidate) => candidate.migrationId === "20260710_discovery_search_voyage_embeddings",
     );
 
+    expect(discoverySearchSchemaSql).toContain("CREATE EXTENSION IF NOT EXISTS vector");
     expect(discoverySearchSchemaSql).toContain("search_embedding halfvec(1024)");
+    expect(discoverySearchSchemaSql).not.toContain("search_embedding vector(1536)");
     expect(discoverySearchSchemaSql).toContain("embedding_model text NULL");
     expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_embedding_hnsw_idx");
     expect(migration?.statements[0]).toBe("SET lock_timeout = '5s';");
@@ -282,6 +284,24 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(activeIndexMigration?.statements[2]).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS");
     expect(activeIndexMigration?.statements[2]).toContain("halfvec_ip_ops");
     expect(activeIndexMigration?.statements[2]).toContain("WHERE status = 'active' AND search_embedding IS NOT NULL");
+  });
+
+  it("ledgers category lifecycle state used to invalidate Search Index facets", () => {
+    const migration = discoverySearchSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260723_discovery_search_category_lifecycle",
+    );
+
+    expect(discoverySearchSchemaSql).toContain("status text NOT NULL DEFAULT 'active'");
+    expect(discoverySearchSchemaSql).toContain("last_global_position bigint NOT NULL DEFAULT 0");
+    expect(migration?.statements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'"),
+        expect.stringContaining("ADD COLUMN IF NOT EXISTS last_global_position bigint NOT NULL DEFAULT 0"),
+        expect.stringContaining(
+          "CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_categories_status_idx",
+        ),
+      ]),
+    );
   });
 
   it("uses the inner-product HNSW order and preserves every active filter for semantic candidates", async () => {
