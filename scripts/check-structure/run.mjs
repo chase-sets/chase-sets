@@ -29,6 +29,7 @@ import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
+import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -190,6 +191,8 @@ const violations = [];
 const warnings = [];
 const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
+const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
+violations.push(...providerScopePickerShapeGuard.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
