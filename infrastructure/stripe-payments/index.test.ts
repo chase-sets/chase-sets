@@ -1676,4 +1676,106 @@ describe("Stripe payment processor gateway", () => {
       }),
     ).rejects.toThrow("Stripe webhook signature verification failed.");
   });
+
+  describe("payment amount validation", () => {
+    function gatewayForAmountValidation() {
+      const fetchMock = vi.fn(async () => Response.json({ id: "cs_amount", status: "open", payment_status: "unpaid" }));
+      vi.stubGlobal("fetch", fetchMock);
+      return {
+        fetchMock,
+        gateway: createStripePaymentProcessorGateway({
+          secretKey: "sk_test",
+          publishableKey: "pk_test",
+          webhookSecret: "whsec_test",
+          apiBaseUrl: "https://stripe.test",
+        }),
+      };
+    }
+
+    function paymentSessionInput(amount: string) {
+      return {
+        paymentId: "pay_amount" as never,
+        buyerAccountId: "acc_buyer" as never,
+        orderIds: ["ord_amount" as never],
+        amount,
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        description: "Amount validation test payment",
+        providerCustomerReference: "cus_amount",
+        returnUrl: "https://marketplace.test/account/payments/pay_amount",
+      } as const;
+    }
+
+    it("rejects a zero payment amount", async () => {
+      const { gateway } = gatewayForAmountValidation();
+      await expect(gateway.createPaymentSession(paymentSessionInput("0.00"))).rejects.toThrow(
+        "Payment amount must be greater than zero.",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects a negative payment amount", async () => {
+      const { gateway } = gatewayForAmountValidation();
+      await expect(gateway.createPaymentSession(paymentSessionInput("-5.00"))).rejects.toThrow(
+        "Payment amount must be a valid decimal.",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects a payment amount with more than two decimal places", async () => {
+      const { gateway } = gatewayForAmountValidation();
+      await expect(gateway.createPaymentSession(paymentSessionInput("12.999"))).rejects.toThrow(
+        "Payment amount must be a valid decimal.",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects a malformed payment amount", async () => {
+      const { gateway } = gatewayForAmountValidation();
+      await expect(gateway.createPaymentSession(paymentSessionInput("abc"))).rejects.toThrow(
+        "Payment amount must be a valid decimal.",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects a payment amount above the canonical money bound", async () => {
+      const { gateway } = gatewayForAmountValidation();
+      await expect(gateway.createPaymentSession(paymentSessionInput("10000000000.00"))).rejects.toThrow(
+        "Payment amount must be a valid decimal.",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("normalizes a payment amount with a trailing single decimal digit to minor units", async () => {
+      const { gateway, fetchMock } = gatewayForAmountValidation();
+      await gateway.createPaymentSession(paymentSessionInput("12.3"));
+      const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(formSnapshot(init.body)).toMatchObject({ "line_items[0][price_data][unit_amount]": "1230" });
+      vi.unstubAllGlobals();
+    });
+
+    it("rejects a zero refund amount", async () => {
+      const fetchMock = vi.fn(async () => Response.json({ id: "re_amount", status: "succeeded" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+
+      await expect(
+        gateway.createRefund({
+          refundId: "rfd_amount",
+          paymentId: "pay_amount" as never,
+          processorPaymentReference: "pi_amount",
+          orderIds: ["ord_amount" as never],
+          amount: "0.00",
+          currencyCode: "usd",
+          reason: "Zero amount refund",
+        }),
+      ).rejects.toThrow("Refund amount must be greater than zero.");
+      vi.unstubAllGlobals();
+    });
+  });
 });
