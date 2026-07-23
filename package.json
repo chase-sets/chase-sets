@@ -44,6 +44,7 @@
     "catalog:real-provider-proof": "node --experimental-strip-types ./scripts/run-catalog-real-provider-proof.mjs",
     "observation-pack:capture": "node --experimental-strip-types ./scripts/run-catalog-observation-pack-capture.mjs",
     "observation-pack:verify": "node --experimental-strip-types ./scripts/verify-observation-pack.mjs",
+    "representative-snapshot": "node ./scripts/representative-snapshot.mjs",
     "marketplace:easypost-refund-event-replay": "node ./scripts/easypost-refund-event-replay.mjs",
     "marketplace:provider-proof-status": "node ./scripts/marketplace-provider-proof-status.mjs",
     "guest-buy-now:freshness-probe": "node ./scripts/guest-buy-now-freshness-probe.mjs",

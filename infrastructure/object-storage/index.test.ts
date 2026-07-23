@@ -1,8 +1,13 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createFilesystemObjectStorage, createS3ObjectStorage, readFilesystemObject } from "./index";
+import {
+  createFilesystemObjectFileStorage,
+  createFilesystemObjectStorage,
+  createS3ObjectStorage,
+  readFilesystemObject,
+} from "./index";
 
 let tempDirs: string[] = [];
 
@@ -57,6 +62,32 @@ describe("object storage adapters", () => {
         contentType: "image/webp",
       }),
     ).rejects.toThrow("Object storage keys must be relative paths without traversal.");
+  });
+
+  it("streams file-backed objects through the filesystem adapter without buffering the payload contract", async () => {
+    const sourceDir = await mkdtemp(path.join(os.tmpdir(), "chase-sets-file-source-"));
+    const storageDir = await mkdtemp(path.join(os.tmpdir(), "chase-sets-file-storage-"));
+    const downloadDir = await mkdtemp(path.join(os.tmpdir(), "chase-sets-file-download-"));
+    tempDirs.push(sourceDir, storageDir, downloadDir);
+    const source = path.join(sourceDir, "catalog.dump");
+    const downloaded = path.join(downloadDir, "catalog.dump");
+    await writeFile(source, Buffer.from("coordinated dump bytes"));
+    const storage = createFilesystemObjectFileStorage({
+      rootDir: storageDir,
+      publicBaseUrl: "https://private.invalid",
+    });
+
+    await storage.putFile({
+      key: "representative-snapshots/set/catalog.dump",
+      filePath: source,
+      contentType: "application/octet-stream",
+      visibility: "private",
+    });
+    await expect(storage.getFile("representative-snapshots/set/catalog.dump", downloaded)).resolves.toMatchObject({
+      byteCount: 22,
+      contentType: "application/octet-stream",
+    });
+    await expect(readFile(downloaded, "utf8")).resolves.toBe("coordinated dump bytes");
   });
 
   it("writes S3-compatible objects and returns the public URL", async () => {

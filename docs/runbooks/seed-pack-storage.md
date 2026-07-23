@@ -74,7 +74,42 @@ pnpm observation-pack:verify -- \
   --asset-base-url 'http://127.0.0.1:<port>/catalog-assets'
 ```
 
-The post-replay result includes the external-reference digest; fan-out-aware envelope, observation, Catalog Item, Product Asset Set, and Discovery projection counts; and a completed HTTP 200/body check for every stored source and variant URL. The verifier accepts only a localhost `/catalog-assets` base. #5877 and later work may package or schedule additional fixture lifecycle capabilities; those are not part of the current replay command.
+The post-replay result includes an equality digest over the external-reference digest, fan-out-aware envelope/observation/Catalog Item/Product Asset Set/Discovery counts, and per-table row counts for Catalog and Discovery read models. It also completes an HTTP 200/body check for every stored source and variant URL. The verifier accepts only a localhost `/catalog-assets` base.
+
+## Representative Snapshot Sets
+
+The snapshot accelerator stores one coordinated set, never a partial database snapshot: one custom-format `pg_dump` for the control database and every bounded-context database discovered by the canonical worktree sandbox inventory, plus one Catalog asset bundle and a closed manifest containing every byte count and SHA-256 digest. Do not hand-maintain a database list in a workflow or runbook.
+
+Snapshot compatibility binds four independently named components:
+
+1. ordered accepted Observation Pack ids, versions, manifest keys, and capture-content hashes;
+2. ordered active Provider Integration Profile keys and versions;
+3. the Observation Pack replay contract version; and
+4. the ordered migration-ledger hash across every snapshotted database.
+
+The publish lifecycle is `replaying -> published` (steady) and then `superseded -> deleted`. Publishing a new set moves the prior published index entry to `superseded`; deletion remains a Todd-only bounded object-prefix operation. The restore lifecycle is `compatible -> restoring -> restored`. A failure after restore starts instead runs `resetting -> reset`; if that bounded cleanup itself fails, the terminal state is truthfully `reset-failed`. The reset destroys only the current worktree's disposable Postgres volume and removes only its artifact-scoped Catalog asset root, so a failed database N cannot leave a mixed old/new coordinated set.
+
+Before mutation, the index's manifest SHA-256 must match the exact manifest bytes. The manifest then cross-binds the full compatibility record, ordered verifier packs, canonical ordered database-to-object mapping, asset bundle, and ordered per-file asset inventory into one recomputable snapshot identity. Reordered, substituted, omitted, extra, corrupt, or stale state refuses before any `pg_restore` or asset replacement. Pack-version, pack-content, profile-version, replay-contract, and migration-ledger mismatches each have a distinct diagnostic. A dump, bundle, or per-asset digest mismatch is also a hard refusal.
+
+Configure the same ordered accepted manifest keys used for replay:
+
+```sh
+REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS='<manifest-key-1>,<manifest-key-2>,<manifest-key-3>,<manifest-key-4>' \
+pnpm run dev:db:refresh --representative
+```
+
+The first compatible restore downloads the immutable set into `artifacts/representative-snapshot-cache`; later restores validate and reuse that cache. `pg_dump`, `pg_restore`, replay, and bootstrap children start from a minimal execution environment: ambient libpq/database selectors and unrelated Space credentials are absent, while canonical local sandbox database URLs are added only by the sandbox bootstrap. After restoring all dumps and assets, the command runs the normal bootstrap with only `critical-bootstrap`, `catalog-integration-bootstrap`, and `representative-catalog`, then recomputes the post-replay verifier digest and requires exact equality with the publish manifest.
+
+When no compatible snapshot exists, full local replay is the routine fallback, not an override of compatibility:
+
+```sh
+REPRESENTATIVE_CATALOG_PACK_SOURCE='<bounded-local-pack-directory>' \
+pnpm run dev:db:refresh --representative --replay
+```
+
+Publishing is never automatic. Todd manually dispatches `Representative Catalog Snapshot`, supplies the ordered accepted manifest keys and exact confirmation `publish representative snapshot`, and reviews the support-safe report. The one provider-touching step receives only `SEED_PACKS_SPACES_ACCESS_ID` and `SEED_PACKS_SPACES_SECRET_KEY` at step scope. Platform API, worker, and bootstrap children receive no `RELEASE_EVIDENCE_SPACES_*` or snapshot Space credential; the snapshot command receives only its scoped pair and storage configuration at the object-storage boundary.
+
+The terminal proving session is Todd-only: first prove the scoped CI secret names exist (never values), manually publish, clear the local snapshot cache, restore once cold, restore once warm, and record both publish/restore verifier digests plus the warm timing and machine. The warm target is under two minutes and is recorded evidence, not a CI timeout. Repository tests use local file storage, fake commands, and synthetic payloads only; they do not dispatch the workflow or read/write a real Space.
 
 The provider constraint is `digitalocean/digitalocean ~> 2.85`; `hashicorp/setup-terraform` is SHA-pinned in the workflow. Review both before an operator window. Never print a secret output or attach Terraform state to an issue or PR.
 

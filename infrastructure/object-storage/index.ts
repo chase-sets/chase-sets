@@ -1,5 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -26,6 +29,14 @@ export type ObjectStorage = Readonly<{
   getObject(key: string): Promise<FilesystemObject | null>;
   deleteObjects(keys: readonly string[]): Promise<void>;
 }>;
+
+export type ObjectFileStorage = ObjectStorage &
+  Readonly<{
+    putFile(
+      input: Omit<ObjectStoragePutInput, "body"> & Readonly<{ filePath: string }>,
+    ): Promise<ObjectStoragePutResult>;
+    getFile(key: string, filePath: string): Promise<Readonly<{ byteCount: number; contentType: string }> | null>;
+  }>;
 
 export type FilesystemObjectStorageOptions = Readonly<{
   rootDir: string;
@@ -70,6 +81,42 @@ export function createFilesystemObjectStorage(options: FilesystemObjectStorageOp
     async deleteObjects(keys) {
       const { rm } = await import("node:fs/promises");
       await Promise.all(keys.map((key) => rm(resolveObjectPath(rootDir, normalizeObjectKey(key)), { force: true })));
+    },
+  };
+}
+
+export function createFilesystemObjectFileStorage(options: FilesystemObjectStorageOptions): ObjectFileStorage {
+  const storage = createFilesystemObjectStorage(options);
+  const rootDir = path.resolve(options.rootDir);
+
+  return {
+    ...storage,
+    async putFile(input) {
+      const safeKey = normalizeObjectKey(input.key);
+      const targetPath = resolveObjectPath(rootDir, safeKey);
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      await copyFile(input.filePath, targetPath);
+      return {
+        key: safeKey,
+        publicUrl: joinPublicUrl(options.publicBaseUrl, safeKey),
+      };
+    },
+    async getFile(key, filePath) {
+      const safeKey = normalizeObjectKey(key);
+      const sourcePath = resolveObjectPath(rootDir, safeKey);
+      try {
+        await mkdir(path.dirname(path.resolve(filePath)), { recursive: true });
+        await copyFile(sourcePath, filePath);
+        return {
+          byteCount: (await stat(filePath)).size,
+          contentType: contentTypeFromKey(safeKey),
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return null;
+        }
+        throw error;
+      }
     },
   };
 }
@@ -140,6 +187,75 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
           Delete: { Objects: keys.map((key) => ({ Key: normalizeObjectKey(key) })), Quiet: true },
         }),
       );
+    },
+  };
+}
+
+export function createS3ObjectFileStorage(options: S3ObjectStorageOptions): ObjectFileStorage {
+  const client =
+    options.client ??
+    new S3Client({
+      ...options.clientConfig,
+      region: options.region,
+      endpoint: options.endpoint,
+      forcePathStyle: options.forcePathStyle,
+      ...(options.accessKeyId && options.secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: options.accessKeyId,
+              secretAccessKey: options.secretAccessKey,
+            },
+          }
+        : {}),
+    });
+  const storage = createS3ObjectStorage({ ...options, client });
+
+  return {
+    ...storage,
+    async putFile(input) {
+      const safeKey = normalizeObjectKey(input.key);
+      const file = await stat(input.filePath);
+      await client.send(
+        new PutObjectCommand({
+          Bucket: options.bucket,
+          Key: safeKey,
+          Body: createReadStream(input.filePath),
+          ContentLength: file.size,
+          ContentType: input.contentType,
+          CacheControl: input.cacheControl,
+          ...(input.visibility === "private" ? {} : { ACL: "public-read" as const }),
+        }),
+      );
+      return {
+        key: safeKey,
+        publicUrl: joinPublicUrl(options.publicBaseUrl, safeKey),
+      };
+    },
+    async getFile(key, filePath) {
+      const safeKey = normalizeObjectKey(key);
+      let response;
+      try {
+        response = await client.send(new GetObjectCommand({ Bucket: options.bucket, Key: safeKey }));
+      } catch (error) {
+        const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (status === 404) {
+          return null;
+        }
+        throw error;
+      }
+      if (!response.Body) {
+        return null;
+      }
+      const target = path.resolve(filePath);
+      await mkdir(path.dirname(target), { recursive: true });
+      await pipeline(
+        Readable.from(response.Body as AsyncIterable<Uint8Array>),
+        createWriteStream(target, { flags: "wx" }),
+      );
+      return {
+        byteCount: (await stat(target)).size,
+        contentType: response.ContentType ?? contentTypeFromKey(safeKey),
+      };
     },
   };
 }

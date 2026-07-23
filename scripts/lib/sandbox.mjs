@@ -250,6 +250,15 @@ export function getContextDatabaseEnvName(contextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
 
+export function listSandboxDatabases(sandbox) {
+  return [
+    { key: "control", databaseUrl: sandbox.controlDatabaseUrl },
+    ...Object.entries(sandbox.contextDatabaseUrls)
+      .sort(([left], [right]) => left.localeCompare(right, "en"))
+      .map(([key, databaseUrl]) => ({ key, databaseUrl })),
+  ];
+}
+
 export function buildSandboxEnv(sandbox) {
   const values = {
     CHASE_SETS_SANDBOX_ID: sandbox.id,
