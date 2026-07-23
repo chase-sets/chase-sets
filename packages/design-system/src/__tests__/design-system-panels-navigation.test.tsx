@@ -129,6 +129,28 @@ describe("design system panels, navigation, and shells", () => {
     expect(screen.getByText("Confirm delete")).toBeTruthy();
   });
 
+  it("pins the bottom-sheet placement's per-breakpoint geometry, including the lg:hidden desktop cutoff", () => {
+    render(
+      <ChaseRoot>
+        <BottomSheet open title="Mobile filters">
+          Filter controls
+        </BottomSheet>
+      </ChaseRoot>,
+    );
+
+    const sheet = screen.getByRole("dialog", { name: "Mobile filters" });
+
+    // Mobile-band placement: anchored to the bottom edge with a 3-unit inset.
+    expect(sheet.className).toContain("inset-x-3");
+    expect(sheet.className).toContain("bottom-3");
+    // Tablet-band placement widens the inset but keeps the sheet anchored to the bottom.
+    expect(sheet.className).toContain("md:inset-x-6");
+    expect(sheet.className).toContain("md:bottom-6");
+    // The frame carries no lg:+ replacement geometry of its own — BottomSheet consumers
+    // must pair every sheet with a desktop-visible alternative (see BottomSheet's JSDoc).
+    expect(sheet.className).toContain("lg:hidden");
+  });
+
   it("renders responsive marketplace sheet wrappers", async () => {
     const user = userEvent.setup();
 

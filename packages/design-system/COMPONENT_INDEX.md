@@ -39,7 +39,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Banner` | `packages/design-system/src/components/feedback/banner.tsx` | Purpose not documented; symbol name suggests: Banner. | `bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx` |
 | `Bleed` | `packages/design-system/src/primitives/layout.tsx` | Negative-margin primitive that lets edge-to-edge media break out of a padded `Container`/`Surface`/`Page`. | `No production consumer yet.` |
 | `BottomNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Bottom Nav. | `No production consumer yet.` |
-| `BottomSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Bottom Sheet. | `No production consumer yet.` |
+| `BottomSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Mobile-band modal panel anchored to the bottom edge. | `No production consumer yet.` |
 | `Box` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name only: Box. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/section-dirty-summary.tsx` |
 | `BrandLink` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Brand Link. | `bounded-contexts/discovery/support/shell-support/layout.tsx` |
 | `Breadcrumbs` | `packages/design-system/src/components/actions/breadcrumbs.tsx` | Purpose not documented; symbol name suggests: Breadcrumbs. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
