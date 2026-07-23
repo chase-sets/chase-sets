@@ -309,6 +309,37 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
 });
 
 describe("registration contract drift (fail-closed registration)", () => {
+  it("classifies the managed Postgres authority action and a real consumer as persistent release surfaces", () => {
+    const actionPath = ".github/actions/export-managed-postgres-authority/action.yml";
+    const workflowPath = ".github/workflows/catalog-provider-refresh-watch.yml";
+    const readFileAt = (ref, filePath) => {
+      try {
+        return readFileSync(path.join(repoRoot, filePath), "utf8");
+      } catch {
+        return null;
+      }
+    };
+
+    expect(readFileAt("candidate", actionPath)).toContain("using: composite");
+    expect(readFileAt("candidate", workflowPath)).toContain(
+      "uses: ./.github/actions/export-managed-postgres-authority",
+    );
+
+    for (const filePath of [actionPath, workflowPath]) {
+      const record = classifyReleaseQualificationScope({
+        base: DUMMY_BASE,
+        candidate: DUMMY_CANDIDATE,
+        changedFiles: [{ path: filePath, status: "modified" }],
+        readFileAt,
+        releaseWorkflowScriptReferences: new Set(),
+        now: () => 1753100000000,
+      });
+
+      expect(record.class).toBe("persistent_required");
+      expect(record.reasonCodes).toEqual(["deployment_release_workflow"]);
+    }
+  });
+
   it("registers every workflow, action, deployable, and infrastructure directory", () => {
     const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
       .split(/\r?\n/)

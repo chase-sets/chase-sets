@@ -273,6 +273,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
 
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
+    "export-managed-postgres-authority": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
   }),
