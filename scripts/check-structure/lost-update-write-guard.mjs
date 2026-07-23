@@ -3,7 +3,7 @@ import path from "node:path";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const guardedPredicate =
-  /\b(?:generation|revision|version|updated_at|state|status|lease(?:_id|_until)?|expires_at|fresh_until|display_identity_hash)\b/i;
+  /\b(?:generation|revision|version|(?:last_)?global_position|updated_at|state|status|lease(?:_id|_until)?|expires_at|fresh_until|display_identity_hash)\b/i;
 
 export async function validateLostUpdateWriteGuard({
   repoRoot,

@@ -12,9 +12,7 @@ import {
   transitionStatus,
   updateRow,
   upsertRow,
-  withPgTransaction,
   type PgQueryable,
-  type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
@@ -50,6 +48,42 @@ const SEARCH_PRODUCT_CONTENTS_TABLE = "discovery_search_product_contents";
 const SEARCH_INDEX_TABLE = "discovery_search_items";
 const SEARCH_INDEX_REBUILD_TABLE = "discovery_search_items_rebuild";
 type SearchIndexTable = typeof SEARCH_INDEX_TABLE | typeof SEARCH_INDEX_REBUILD_TABLE;
+const DELETE_MISSING_SEARCH_ITEM_SQL: Readonly<Record<SearchIndexTable, string>> = {
+  discovery_search_items: `DELETE FROM discovery_search_items AS search_item
+    WHERE search_item.catalog_item_id = $1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM discovery_search_catalog_items AS source_item
+        WHERE source_item.catalog_item_id = search_item.catalog_item_id
+      )`,
+  discovery_search_items_rebuild: `DELETE FROM discovery_search_items_rebuild AS search_item
+    WHERE search_item.catalog_item_id = $1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM discovery_search_catalog_items AS source_item
+        WHERE source_item.catalog_item_id = search_item.catalog_item_id
+      )`,
+};
+const DELETE_ARCHIVED_SEARCH_ITEM_SQL: Readonly<Record<SearchIndexTable, string>> = {
+  discovery_search_items: `DELETE FROM discovery_search_items AS search_item
+    WHERE search_item.catalog_item_id = $1
+      AND EXISTS (
+        SELECT 1
+        FROM discovery_search_catalog_items AS source_item
+        WHERE source_item.catalog_item_id = search_item.catalog_item_id
+          AND source_item.status = 'archived'
+          AND source_item.updated_at = $2
+      )`,
+  discovery_search_items_rebuild: `DELETE FROM discovery_search_items_rebuild AS search_item
+    WHERE search_item.catalog_item_id = $1
+      AND EXISTS (
+        SELECT 1
+        FROM discovery_search_catalog_items AS source_item
+        WHERE source_item.catalog_item_id = search_item.catalog_item_id
+          AND source_item.status = 'archived'
+          AND source_item.updated_at = $2
+      )`,
+};
 const SEARCH_CATALOG_ITEM_CREATED_COLUMNS = [
   "catalog_item_id",
   "slug",
@@ -718,16 +752,7 @@ async function refreshDiscoverySearchItem(
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(
-      `DELETE FROM ${targetTable} AS search_item
-       WHERE search_item.catalog_item_id = $1
-         AND NOT EXISTS (
-           SELECT 1
-           FROM ${SEARCH_CATALOG_ITEMS_TABLE} AS source_item
-           WHERE source_item.catalog_item_id = search_item.catalog_item_id
-         )`,
-      [itemId],
-    );
+    await db.query(DELETE_MISSING_SEARCH_ITEM_SQL[targetTable], [itemId]);
     if (options.refreshProductContentText) {
       await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString(), {
         cascadeContainers: options.cascadeContainerContents,
@@ -737,18 +762,7 @@ async function refreshDiscoverySearchItem(
   }
 
   if (item.status === "archived") {
-    await db.query(
-      `DELETE FROM ${targetTable} AS search_item
-       WHERE search_item.catalog_item_id = $1
-         AND EXISTS (
-           SELECT 1
-           FROM ${SEARCH_CATALOG_ITEMS_TABLE} AS source_item
-           WHERE source_item.catalog_item_id = search_item.catalog_item_id
-             AND source_item.status = 'archived'
-             AND source_item.updated_at = $2
-         )`,
-      [itemId, item.updated_at],
-    );
+    await db.query(DELETE_ARCHIVED_SEARCH_ITEM_SQL[targetTable], [itemId, item.updated_at]);
     if (options.refreshProductContentText) {
       await refreshSearchProductContentsForContainedItem(db, itemId, item.updated_at, {
         cascadeContainers: options.cascadeContainerContents,
@@ -970,6 +984,16 @@ async function refreshDiscoverySearchItem(
       card_number = EXCLUDED.card_number,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
+      search_embedding = CASE
+        WHEN ${targetTable}.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
+          THEN ${targetTable}.search_embedding
+        ELSE NULL
+      END,
+      embedding_model = CASE
+        WHEN ${targetTable}.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
+          THEN ${targetTable}.embedding_model
+        ELSE NULL
+      END,
       embedding_updated_at = CASE
         WHEN ${targetTable}.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
           THEN ${targetTable}.embedding_updated_at
@@ -1211,54 +1235,55 @@ async function refreshItemsByReferenceRecord(
 }
 
 export type DiscoverySearchIndexRebuildOptions = Readonly<{
-  onShadowReady?: () => Promise<void>;
+  onShadowReady?: (db: PgQueryable) => Promise<void>;
 }>;
 
 export async function rebuildDiscoverySearchIndex(
-  pool: PgTransactionalPool,
+  db: PgQueryable,
   options: DiscoverySearchIndexRebuildOptions = {},
 ): Promise<void> {
-  await withPgTransaction(pool, async (db) => {
-    await db.query(`DROP TABLE IF EXISTS ${SEARCH_INDEX_REBUILD_TABLE}`);
-    await db.query(`CREATE TABLE ${SEARCH_INDEX_REBUILD_TABLE} (LIKE ${SEARCH_INDEX_TABLE} INCLUDING ALL)`);
+  await db.query(`DROP TABLE IF EXISTS ${SEARCH_INDEX_REBUILD_TABLE}`);
+  await db.query(`CREATE TABLE ${SEARCH_INDEX_REBUILD_TABLE} (LIKE ${SEARCH_INDEX_TABLE} INCLUDING ALL)`);
 
-    await refreshAffectedRows(db, {
-      select: { column: "catalog_item_id" },
-      from: { table: SEARCH_CATALOG_ITEMS_TABLE },
-      orderBy: [{ column: "catalog_item_id" }],
-      refresh: (itemId) =>
-        refreshDiscoverySearchItem(db, itemId, {
-          refreshProductContentText: true,
-          // The walk folds every container directly from the mirror, so the
-          // per-contained-item container cascade would be redundant re-work.
-          cascadeContainerContents: false,
-          targetTable: SEARCH_INDEX_REBUILD_TABLE,
-        }),
-    });
-
-    await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
-    await options.onShadowReady?.();
-
-    // The long build never locks the serving table. Take the exclusive lock only
-    // for the final preservation + rename transaction, after the projection
-    // operation has leased this group, so every enrichment commit visible at
-    // cutover is included in the hash-matched copy.
-    await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE} IN ACCESS EXCLUSIVE MODE`);
-    await db.query(
-      `UPDATE ${SEARCH_INDEX_REBUILD_TABLE} AS shadow
-       SET search_embedding = active.search_embedding,
-           embedding_model = active.embedding_model,
-           embedding_updated_at = active.embedding_updated_at
-       FROM ${SEARCH_INDEX_TABLE} AS active
-       WHERE shadow.catalog_item_id = active.catalog_item_id
-         AND shadow.embedded_text_hash IS NOT DISTINCT FROM active.embedded_text_hash`,
-    );
-    await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
-
-    await db.query(`ALTER TABLE ${SEARCH_INDEX_TABLE} RENAME TO discovery_search_items_previous`);
-    await db.query(`ALTER TABLE ${SEARCH_INDEX_REBUILD_TABLE} RENAME TO ${SEARCH_INDEX_TABLE}`);
-    await db.query(`ALTER TABLE discovery_search_items_previous RENAME TO ${SEARCH_INDEX_REBUILD_TABLE}`);
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+    orderBy: [{ column: "catalog_item_id" }],
+    refresh: (itemId) =>
+      refreshDiscoverySearchItem(db, itemId, {
+        refreshProductContentText: true,
+        // The walk folds every container directly from the mirror, so the
+        // per-contained-item container cascade would be redundant re-work.
+        cascadeContainerContents: false,
+        targetTable: SEARCH_INDEX_REBUILD_TABLE,
+      }),
   });
+
+  await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
+  await options.onShadowReady?.(db);
+
+  // The long build never locks the serving table. Take the exclusive lock only
+  // for final freshness preservation + cutover inside the projection runtime's
+  // supplied reset transaction, so the swap and checkpoint reset commit or roll
+  // back as one boundary.
+  await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE} IN ACCESS EXCLUSIVE MODE`);
+  await db.query(
+    `UPDATE discovery_search_items_rebuild AS shadow
+     SET search_embedding = active.search_embedding,
+         embedding_model = active.embedding_model,
+         embedding_updated_at = active.embedding_updated_at
+     FROM discovery_search_items AS active
+     WHERE shadow.catalog_item_id = active.catalog_item_id
+       AND shadow.embedded_text_hash IS NOT DISTINCT FROM active.embedded_text_hash
+       AND active.search_embedding IS NOT NULL
+       AND active.embedding_model IS NOT NULL
+       AND active.embedding_updated_at IS NOT NULL`,
+  );
+  await refreshAllSearchIndexMarketSignals(db, SEARCH_INDEX_REBUILD_TABLE);
+
+  await db.query(`ALTER TABLE ${SEARCH_INDEX_TABLE} RENAME TO discovery_search_items_previous`);
+  await db.query(`ALTER TABLE ${SEARCH_INDEX_REBUILD_TABLE} RENAME TO ${SEARCH_INDEX_TABLE}`);
+  await db.query(`ALTER TABLE discovery_search_items_previous RENAME TO ${SEARCH_INDEX_REBUILD_TABLE}`);
 }
 
 async function refreshItemsByBlueprint(

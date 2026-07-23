@@ -7,6 +7,7 @@ type Row = Record<string, unknown> & {
   catalog_item_id: string;
   title: string;
   embedded_text_hash: string | null;
+  search_embedding: string | null;
   embedding_model: string | null;
   embedding_updated_at: string | null;
 };
@@ -28,6 +29,7 @@ class EmbeddingDb implements PgQueryable {
       field_values_text: "Rare",
       resolved_aliases: {},
       embedded_text_hash: null,
+      search_embedding: null,
       embedding_model: null,
       embedding_updated_at: null,
     }));
@@ -57,6 +59,8 @@ class EmbeddingDb implements PgQueryable {
       const row = this.rows.find((candidate) => candidate.catalog_item_id === id);
       if (!row || row.embedded_text_hash !== previousHash) return { rows: [], rowCount: 0 };
       row.embedded_text_hash = nextHash;
+      row.search_embedding = null;
+      row.embedding_model = null;
       row.embedding_updated_at = null;
       return { rows: [], rowCount: 1 };
     }
@@ -70,6 +74,7 @@ class EmbeddingDb implements PgQueryable {
       ) {
         return { rows: [], rowCount: 0 };
       }
+      row.search_embedding = String(_vector);
       row.embedding_model = model;
       row.embedding_updated_at = "2026-07-10T00:00:00.000Z";
       this.vectorWrites += 1;
@@ -127,13 +132,24 @@ describe("Discovery search embedding enrichment", () => {
 
     await enrichment.processNextBatch();
     const originalHash = db.rows[0]?.embedded_text_hash;
+    expect(db.rows[0]?.search_embedding).not.toBeNull();
     if (db.rows[0]) {
       db.rows[0].title = "Revised Item";
       db.rows[0].embedding_updated_at = null;
     }
-    await enrichment.processNextBatch();
+    const unavailableProvider = provider({ failOnCall: 1 });
+    const interrupted = createDiscoverySearchEmbeddingEnrichment({ db, provider: unavailableProvider });
+    await expect(interrupted.processNextBatch()).rejects.toThrow("provider unavailable");
 
     expect(db.rows[0]?.embedded_text_hash).not.toBe(originalHash);
+    expect(db.rows[0]).toMatchObject({
+      search_embedding: null,
+      embedding_model: null,
+      embedding_updated_at: null,
+    });
+
+    await enrichment.processNextBatch();
+    expect(db.rows[0]?.search_embedding).not.toBeNull();
     expect(fakeProvider.calls).toHaveLength(2);
     await expect(enrichment.inspectVectorCapabilities()).resolves.toEqual({
       extensionVersion: "0.8.1",

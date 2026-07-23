@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { defineBcProjectionGroupReset } from "@chase-sets/bounded-context-module";
 import { describe, expect, it, vi } from "vitest";
 import contextManifest from "../context.json";
 import { module as discoveryModule } from "../index";
@@ -11,6 +12,14 @@ const db: PgQueryable = {
 };
 
 describe("Discovery Search Index contracts", () => {
+  it("rejects projection resets that can discard the supplied transaction database", () => {
+    if (false) {
+      // @ts-expect-error A projection reset must declare a required database parameter.
+      defineBcProjectionGroupReset(async () => undefined);
+    }
+    expect(true).toBe(true);
+  });
+
   it("subscribes every category and Search Index event to an explicit handler", () => {
     const categorySubscription = contextManifest.eventSubscriptions.find(
       (subscription) => subscription.projectionName === "discovery-category-projection",
@@ -32,7 +41,7 @@ describe("Discovery Search Index contracts", () => {
   });
 
   it("binds the existing projection operation to the Discovery-owned atomic rebuild", async () => {
-    const rebuildSearchIndex = vi.fn(async () => undefined);
+    const rebuildSearchIndex = vi.fn(async (_database: PgQueryable) => undefined);
     const groups =
       discoveryModule.buildProjectionGroups?.({
         items: { search: { rebuildSearchIndex } },
@@ -43,7 +52,8 @@ describe("Discovery Search Index contracts", () => {
       projectionRevision: 2,
       resetStrategy: "generation-cutover",
     });
-    await searchGroup?.reset?.();
+    await searchGroup?.reset?.execute(db);
     expect(rebuildSearchIndex).toHaveBeenCalledOnce();
+    expect(rebuildSearchIndex).toHaveBeenCalledWith(db, undefined);
   });
 });

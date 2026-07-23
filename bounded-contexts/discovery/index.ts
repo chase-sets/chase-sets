@@ -2,6 +2,7 @@ export { default as contextManifest } from "./context.json";
 
 import {
   buildEventSubscriptionsFromManifest,
+  defineBcProjectionGroupReset,
   defineBoundedContextModule,
   type BcProjectionGroup,
 } from "@chase-sets/bounded-context-module";
@@ -112,7 +113,7 @@ function buildDiscoveryProjectionGroups(services: DiscoveryServices): readonly B
     group.projectionName === "discovery-search-item-projection"
       ? {
           ...group,
-          reset: services.items.search.rebuildSearchIndex,
+          reset: defineBcProjectionGroupReset(services.items.search.rebuildSearchIndex),
         }
       : group,
   );

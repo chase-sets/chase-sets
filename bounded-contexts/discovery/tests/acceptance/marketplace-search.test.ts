@@ -25,12 +25,13 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
 import {
   buildDiscoverySearchItemProjectionHandlers,
   rebuildDiscoverySearchIndex,
+  type DiscoverySearchIndexRebuildOptions,
 } from "../../features/search/read-model/projection";
 import { createDiscoveryServices } from "../../support/runtime-support/services";
 import { buildDiscoveryMarketProjectionHandlers } from "../../support/market-support/projection";
@@ -70,6 +71,10 @@ let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 let projectionGroups: ReturnType<typeof resolveModuleProjectionGroups>;
 let app: Hono;
 let pools: Readonly<Record<(typeof discoveryContextNames)[number], PgTransactionalPool>>;
+
+async function rebuildSearchIndex(options: DiscoverySearchIndexRebuildOptions = {}): Promise<void> {
+  await withPgTransaction(pools.discovery, (db) => rebuildDiscoverySearchIndex(db, options));
+}
 
 async function sendCommand<Command>(
   handler: (input: { streamId: string; command: Command; context: EventStoreContext }) => Promise<unknown>,
@@ -1020,9 +1025,9 @@ describe("marketplace search", () => {
        )`,
     );
 
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     const firstBuild = await loadSearchIndexRow("cat_test");
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     const secondBuild = await loadSearchIndexRow("cat_test");
 
     const result = await pools.discovery.query<{ count: string; display_badges: unknown }>(
@@ -1043,7 +1048,7 @@ describe("marketplace search", () => {
       `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
        VALUES ('cat_serving', 'Serving Card', 'active', '2026-07-23T01:00:00.000Z')`,
     );
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     await pools.discovery.query(
       `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
        VALUES ('cat_shadow', 'Shadow Card', 'active', '2026-07-23T01:01:00.000Z')`,
@@ -1057,7 +1062,7 @@ describe("marketplace search", () => {
     const cutoverReleased = new Promise<void>((resolve) => {
       releaseCutover = resolve;
     });
-    const rebuild = rebuildDiscoverySearchIndex(pools.discovery, {
+    const rebuild = rebuildSearchIndex({
       onShadowReady: async () => {
         announceShadowReady();
         await cutoverReleased;
@@ -1101,8 +1106,78 @@ describe("marketplace search", () => {
     );
 
     const incremental = await loadSearchIndexRow("cat_converges");
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     expect(await loadSearchIndexRow("cat_converges")).toEqual(incremental);
+  });
+
+  it("does not carry an old halfvec under a revised embedding content hash", async () => {
+    const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES ('cat_embedding_identity', 'Original Embedded Title', 'active', '2026-07-23T01:30:00.000Z')`,
+    );
+    await rebuildSearchIndex();
+
+    const original = await pools.discovery.query<{ embedded_text_hash: string }>(
+      `SELECT embedded_text_hash
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_embedding_identity'`,
+    );
+    const oldVector = `[1,${Array.from({ length: 1_023 }, () => "0").join(",")}]`;
+    await pools.discovery.query(
+      `UPDATE discovery_search_items
+       SET search_embedding = $2::halfvec(1024),
+           embedding_model = 'old-content-model',
+           embedding_updated_at = '2026-07-23T01:31:00.000Z'
+       WHERE catalog_item_id = $1`,
+      ["cat_embedding_identity", oldVector],
+    );
+
+    await handlers["catalog.catalog-item.display-identity-resolved"]?.(
+      displayIdentityResolvedEvent({
+        catalogItemId: "cat_embedding_identity",
+        title: "Revised Embedded Title",
+        subtitle: null,
+      }),
+    );
+
+    const revised = await pools.discovery.query<{
+      embedded_text_hash: string;
+      search_embedding: string | null;
+      embedding_model: string | null;
+      embedding_updated_at: string | null;
+    }>(
+      `SELECT
+         embedded_text_hash,
+         search_embedding::text,
+         embedding_model,
+         embedding_updated_at::text
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_embedding_identity'`,
+    );
+    expect(revised.rows[0]?.embedded_text_hash).not.toBe(original.rows[0]?.embedded_text_hash);
+    expect(revised.rows[0]).toMatchObject({
+      search_embedding: null,
+      embedding_model: null,
+      embedding_updated_at: null,
+    });
+
+    await rebuildSearchIndex();
+    const rebuilt = await pools.discovery.query<{
+      embedded_text_hash: string;
+      search_embedding: string | null;
+      embedding_model: string | null;
+      embedding_updated_at: string | null;
+    }>(
+      `SELECT
+         embedded_text_hash,
+         search_embedding::text,
+         embedding_model,
+         embedding_updated_at::text
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_embedding_identity'`,
+    );
+    expect(rebuilt.rows[0]).toEqual(revised.rows[0]);
   });
 
   it("invalidates category facets in event order and preserves the result through rebuild", async () => {
@@ -1171,7 +1246,7 @@ describe("marketplace search", () => {
     expect(incremental?.category_names).toEqual([]);
     expect(incremental?.category_slugs).toEqual([]);
 
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     expect(await loadSearchIndexRow("cat_lifecycle_item")).toEqual(incremental);
   });
 
@@ -1186,6 +1261,124 @@ describe("marketplace search", () => {
     expect(await loadSearchIndexRow("cat_operation")).toMatchObject({
       catalog_item_id: "cat_operation",
       title: "Operation Card",
+    });
+  });
+
+  it("rolls back serving cutover and checkpoint resets when the production reset wrapper fails", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES ('cat_atomic_reset', 'Before Failed Reset', 'active', '2026-07-23T02:10:00.000Z')`,
+    );
+    await rebuildSearchIndex();
+    await pools.discovery.query(
+      `UPDATE discovery_search_catalog_items
+       SET title = 'Would Commit Only On Success',
+           updated_at = '2026-07-23T02:11:00.000Z'
+       WHERE catalog_item_id = 'cat_atomic_reset'`,
+    );
+
+    const searchGroup = projectionGroups.find(
+      (group) => group.targetContextName === "discovery" && group.projectionName === "discovery-search-item-projection",
+    );
+    if (!searchGroup) {
+      throw new Error("Discovery Search Index projection group is missing.");
+    }
+    for (const runner of searchGroup.subscriptionRunners) {
+      await pools.discovery.query(
+        `INSERT INTO event_subscription_checkpoints (
+           checkpoint_key,
+           projection_name,
+           source_context_name,
+           subscription_version,
+           last_global_position,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, 77, now())
+         ON CONFLICT (checkpoint_key) DO UPDATE SET
+           last_global_position = EXCLUDED.last_global_position,
+           updated_at = EXCLUDED.updated_at`,
+        [runner.checkpointKey, runner.projectionName, runner.sourceContextName, runner.subscriptionVersion],
+      );
+    }
+
+    const before = await pools.discovery.query<{ table_oid: string; title: string }>(
+      `SELECT
+         'discovery_search_items'::regclass::oid::text AS table_oid,
+         title
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_atomic_reset'`,
+    );
+    let completedRunnerResets = 0;
+    let allRunnerResetsCompleted = false;
+    const failingGroup = {
+      ...searchGroup,
+      subscriptionRunners: searchGroup.subscriptionRunners.map((runner) => ({
+        ...runner,
+        reset: async (...args: Parameters<typeof runner.reset>) => {
+          await runner.reset(...args);
+          completedRunnerResets += 1;
+          allRunnerResetsCompleted = completedRunnerResets === searchGroup.subscriptionRunners.length;
+        },
+      })),
+    };
+
+    await expect(
+      rebuildContextProjectionGroup(
+        { projectionGroups: [failingGroup] },
+        "discovery",
+        "discovery-search-item-projection",
+        {
+          operationId: "op_atomic_reset_failure",
+          throwIfLeaseLost: () => {
+            if (allRunnerResetsCompleted) {
+              throw new Error("injected outer reset failure after cutover and checkpoint resets");
+            }
+          },
+        },
+      ),
+    ).rejects.toThrow("injected outer reset failure after cutover and checkpoint resets");
+
+    const after = await pools.discovery.query<{ table_oid: string; title: string }>(
+      `SELECT
+         'discovery_search_items'::regclass::oid::text AS table_oid,
+         title
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_atomic_reset'`,
+    );
+    expect(after.rows[0]).toEqual(before.rows[0]);
+
+    const checkpoints = await pools.discovery.query<{ checkpoint_key: string; last_global_position: string }>(
+      `SELECT checkpoint_key, last_global_position::text
+       FROM event_subscription_checkpoints
+       WHERE projection_name = 'discovery-search-item-projection'
+       ORDER BY checkpoint_key`,
+    );
+    expect(checkpoints.rows).toEqual(
+      searchGroup.subscriptionRunners.map((runner) => ({
+        checkpoint_key: runner.checkpointKey,
+        last_global_position: "77",
+      })),
+    );
+
+    const generation = await pools.discovery.query<{
+      active_generation: string;
+      rebuilding_generation: string | null;
+      state: string;
+      operation_id: string | null;
+    }>(
+      `SELECT
+         active_generation::text,
+         rebuilding_generation::text,
+         state,
+         operation_id
+       FROM event_projection_group_generations
+       WHERE target_context_name = 'discovery'
+         AND projection_name = 'discovery-search-item-projection'`,
+    );
+    expect(generation.rows[0]).toEqual({
+      active_generation: "1",
+      rebuilding_generation: null,
+      state: "failed",
+      operation_id: "op_atomic_reset_failure",
     });
   });
 
@@ -1204,7 +1397,7 @@ describe("marketplace search", () => {
            now()
          )`,
     );
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
 
     const searchItemIds = async (query: string) => {
       const response = await app.request(`/api/marketplace/items?search=${encodeURIComponent(query)}`);
@@ -1218,7 +1411,7 @@ describe("marketplace search", () => {
     expect(await searchItemIds("Pokemon Legacy")).toContain("cat_alias_pokemon");
   });
 
-  it("keeps Search Index price and availability signals correct through the full listing lifecycle", async () => {
+  it("keeps market signals current through listing lifecycle and an absent-aggregate shadow cutover", async () => {
     const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);
     let eventPosition = 1;
     const project = async (type: string, streamId: string, streamVersion: number, data: Record<string, unknown>) => {
@@ -1255,7 +1448,7 @@ describe("marketplace search", () => {
       `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status)
        VALUES ('cat_market_signal', 'Market Signal Item', 'active')`,
     );
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
     await project("identity.account.created", "identity.account-acc_market_signal", 1, {
       accountId: "acc_market_signal",
       displayName: "Market Signal Account",
@@ -1370,8 +1563,20 @@ describe("marketplace search", () => {
 
     await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_2", 4, {});
     expect(await signals()).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
-    await rebuildDiscoverySearchIndex(pools.discovery);
-    expect(await signals()).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
+    await rebuildSearchIndex({
+      onShadowReady: async (db) => {
+        const shadow = await db.query<{ lowest_price_amount: string | null; visible_quantity: number | null }>(
+          `SELECT lowest_price_amount::text AS lowest_price_amount, visible_quantity
+           FROM discovery_search_items_rebuild
+           WHERE catalog_item_id = 'cat_market_signal'`,
+        );
+        expect(shadow.rows[0]).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
+
+        await project("marketplace.listing.withdrawn", "marketplace.listing-lst_market_signal_2", 5, {});
+        expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
+      },
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
   });
 
   it("keyset-paginates both price sorts without duplicates or gaps and keeps zero-listing items last", async () => {
@@ -1462,7 +1667,7 @@ describe("marketplace search", () => {
          ('cat_private_draft', 'Draft Leak Item', 'draft', now())`,
     );
 
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
 
     const searchResponse = await app.request("/api/marketplace/items?status=draft&includeTotal=true");
     expect(searchResponse.status).toBe(200);
@@ -1496,7 +1701,7 @@ describe("marketplace search", () => {
          ('cat_public_container', 'en', 'Public Booster Box', 'active', now()),
          ('cat_secret_contained', 'ja', 'Secret Contained Leak', 'draft', now())`,
     );
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
 
     await handlers["catalog.product-contents.resolved"]?.(
       productContentsResolvedEvent({
@@ -1535,7 +1740,7 @@ describe("marketplace search", () => {
          ('cat_fold_container', 'en', 'Grandmaster Collector Tin', 'active', now()),
          ('cat_fold_contained', 'en', 'Zephyrquux Alpha Card', 'active', now())`,
     );
-    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildSearchIndex();
 
     await handlers["catalog.product-contents.resolved"]?.(
       productContentsResolvedEvent({
@@ -1857,7 +2062,7 @@ describe("marketplace search", () => {
       expect(await searchItemIds("サボネア")).toEqual([aliasSeed.japaneseItemId]);
 
       // Negative projection on rebuild: rebuilding the index keeps the alias gone.
-      await rebuildDiscoverySearchIndex(pools.discovery);
+      await rebuildSearchIndex();
       expect(await searchItemIds("Cacnea")).not.toContain(aliasSeed.japaneseItemId);
 
       const aliasRow = await pools.discovery.query<{ resolved_aliases: unknown }>(

@@ -35,6 +35,15 @@ describe("lost update write guard", () => {
       expect.objectContaining({ violations: [] }),
     );
   });
+  it("accepts a monotonic global-position predicate", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/categories/read-model/projection.ts",
+      `UPDATE category_rows SET status = $2 WHERE category_id = $1 AND last_global_position <= $3`,
+    );
+    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toEqual(
+      expect.objectContaining({ violations: [] }),
+    );
+  });
 });
 
 async function fixture(relativePath, sql) {

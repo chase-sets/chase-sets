@@ -65,7 +65,7 @@ The schema requires pgvector 0.7 or newer for halfvec; HNSW is available from 0.
 
 ## Rebuild behavior
 
-The Discovery search projection uses replay-only checkpoint reset and upserts existing Search Index rows. The upsert retains the vector and embedding_updated_at when the deterministic text hash is unchanged, and clears only embedding_updated_at when the hash changes. A rebuild therefore preserves valid embeddings while asynchronously refreshing changed documents.
+The Discovery search projection rebuild runs inside the projection runtime's supplied reset transaction. A serving-table swap and its checkpoint reset therefore commit or roll back together. Upserts retain the vector, model, and update time only while the deterministic text hash is unchanged; a hash change atomically clears all three. Shadow cutover likewise preserves only a complete active embedding whose text hash exactly matches the rebuilt row. A rebuild therefore preserves valid embeddings while asynchronously refreshing changed documents without ever recording an old vector under a new content identity.
 
 ## Relevance evaluation harness
 
