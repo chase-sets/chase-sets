@@ -295,11 +295,9 @@ describe("postgres slow-query digest", () => {
     expect(evidence.slowQueryDigests[0].fingerprint).toMatch(/^pgss-[a-f0-9]{16}$/);
     expect(evidence.slowQueryDigests[0].fingerprint).not.toContain("847261");
     expect(client.queries).toHaveLength(5);
-    expect(client.queries.filter((query) => query.sql.includes("current_setting($1, true)")).map((q) => q.params[0])).toEqual([
-      "shared_preload_libraries",
-      "pg_stat_statements.track",
-      "compute_query_id",
-    ]);
+    expect(
+      client.queries.filter((query) => query.sql.includes("current_setting($1, true)")).map((q) => q.params[0]),
+    ).toEqual(["shared_preload_libraries", "pg_stat_statements.track", "compute_query_id"]);
     const digestQuery = client.queries.find((query) => query.sql.includes("pg_stat_statements s"));
     expect(digestQuery.sql).not.toContain("s.query ");
     expect(digestQuery.params).toEqual([5]);

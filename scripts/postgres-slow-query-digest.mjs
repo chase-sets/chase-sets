@@ -89,8 +89,9 @@ export function buildPostgresSlowQueryDigest(input) {
     ...postgresFailureFields(error),
   }));
   const queryDigests = databases.flatMap((database) => database.slowQueryDigests);
-  const extensionAbsentDatabaseCount = databases.filter((database) => !database.pgStatStatements.extensionInstalled)
-    .length;
+  const extensionAbsentDatabaseCount = databases.filter(
+    (database) => !database.pgStatStatements.extensionInstalled,
+  ).length;
 
   return {
     schemaVersion: POSTGRES_SLOW_QUERY_DIGEST_VERSION,
@@ -235,9 +236,8 @@ function sanitizeDatabaseDigest(database) {
       viewAccessible: Boolean(posture.viewAccessible),
       // null means the runtime role could not read this optional GUC; that
       // must stay distinguishable from a determined true/false posture.
-      sharedPreloadLibraryEnabled: posture.sharedPreloadLibraryEnabled === null
-        ? null
-        : Boolean(posture.sharedPreloadLibraryEnabled),
+      sharedPreloadLibraryEnabled:
+        posture.sharedPreloadLibraryEnabled === null ? null : Boolean(posture.sharedPreloadLibraryEnabled),
       trackSetting: sanitizePostureSetting(posture.trackSetting),
       computeQueryIdSetting: sanitizePostureSetting(posture.computeQueryIdSetting),
     },

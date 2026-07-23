@@ -3,10 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "./lib/repo.mjs";
 
-const workflow = readFileSync(
-  path.join(repoRoot, ".github/workflows/platform-postgres-slow-query-digest.yml"),
-  "utf8",
-);
+const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-postgres-slow-query-digest.yml"), "utf8");
 
 function step(name) {
   const marker = `      - name: ${name}\n`;
