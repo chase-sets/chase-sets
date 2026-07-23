@@ -26,6 +26,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
+Governed provider capture, Space read-back, and operator acceptance commands are documented in [Seed Pack Storage](../../docs/runbooks/seed-pack-storage.md#observation-pack-capture-and-acceptance).
 Catalog-owned provider scope planning is documented in [Catalog Sync Scope Planning](./docs/catalog-sync-scope-planning.md).
 Catalog-wide bounded scope synchronization is documented in [Scope Sync Batches](./docs/scope-sync-batches.md).
 Canonical scope records are documented in [Catalog Scope Registry](./docs/scope-registry.md).

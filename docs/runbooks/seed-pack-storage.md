@@ -12,6 +12,36 @@ Use this runbook for the shared non-production Observation Pack Space approved i
 | Dev pack access | Terraform outputs `dev_spaces_access_id`, `dev_spaces_secret_key` | Read/write `cs-dev-seed-packs` only |
 | CI/preview pack access | Terraform outputs `ci_spaces_access_id`, `ci_spaces_secret_key` | Read/write `cs-dev-seed-packs` only |
 
+## Observation Pack Capture and Acceptance
+
+Repository tooling does not use DigitalOcean API or Terraform credentials. TCGdex, Scryfall, and LorcanaJSON are public-provider captures. The Scrydex capture additionally requires the shared `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`. Space writes and reads require the bucket-scoped `SEED_PACKS_SPACES_ACCESS_ID` and `SEED_PACKS_SPACES_SECRET_KEY`; they are not interchangeable with `DIGITALOCEAN_ACCESS_TOKEN`, `SPACES_ACCESS_ID`, or `SPACES_SECRET_KEY`.
+
+Until Todd-only #5951 completes the real apply, provider probes, and scoped-key provisioning, run local captures only. Packs belong under gitignored `artifacts/` and must never be added to git:
+
+```sh
+pnpm observation-pack:capture -- capture --preset pokemon-prismatic-evolutions --target local --output-dir artifacts/observation-packs
+pnpm observation-pack:capture -- capture --preset mtg-time-spiral --target local --output-dir artifacts/observation-packs
+pnpm observation-pack:capture -- capture --preset one-piece-romance-dawn --target local --output-dir artifacts/observation-packs
+pnpm observation-pack:capture -- capture --preset lorcana-the-first-chapter --target local --output-dir artifacts/observation-packs
+```
+
+After #5951 provisions the scoped keys, repeat the four commands with `--target space` and omit `--output-dir`. Each command invokes the configured executable `ProviderAdapter`, sanitizes its returned transport envelopes, strips pricing and market fields, uploads immutable chunks/assets before the manifest, and performs exact read-back and hash verification. Record each support-safe JSON result and its `manifestKey`; do not attach manifests, envelopes, images, provider responses, or credentials to GitHub.
+
+Verify each captured Space pack independently:
+
+```sh
+pnpm observation-pack:verify -- --target space --manifest-key '<manifestKey>' --require-accepted false
+```
+
+Todd reviews the four count summaries, zero privacy/pricing diagnostics, and a bounded local inspection of representative downloaded images. Todd then records acceptance without changing captured payload or asset content:
+
+```sh
+pnpm observation-pack:capture -- accept --target space --manifest-key '<manifestKey>' --accepted-by Todd --decision-link https://github.com/chase-sets/chase-sets/issues/5872
+pnpm observation-pack:verify -- --target space --manifest-key '<manifestKey>' --require-accepted true
+```
+
+Run both commands for all four manifest keys. A captured pack is valid retained evidence but is not replay-eligible. Only the accepted posture is replay-eligible; replay itself is owned by #5876 and is not performed by these commands. If any command reports `blocked`, use only its bounded diagnostic codes for support and keep provider bodies, exception text, URLs, manifests, and customer/provider data out of logs and issues.
+
 The provider constraint is `digitalocean/digitalocean ~> 2.85`; `hashicorp/setup-terraform` is SHA-pinned in the workflow. Review both before an operator window. Never print a secret output or attach Terraform state to an issue or PR.
 
 ## Apply Window
