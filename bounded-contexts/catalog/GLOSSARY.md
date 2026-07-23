@@ -16,6 +16,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Component`
 - `Category`
 - `Source Observation`
+- `Observation Pack`
 - `Catalog Sync Scope`
 - `Catalog Scope Record`
 - `Provider Scope Observation`
@@ -68,6 +69,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
+- `Observation Pack` — a governed, versioned replay corpus of redacted sampled provider transport envelopes and source image bytes for one provider unit and one set, wrapped in a sampled-provider fixture record; distinct from fixture evidence used by provider-profile contract tests
 - `Catalog Sync Scope` — a provider-neutral Catalog sync intent, such as Pokemon TCG / English / Expansion, resolved before provider pulls create Source Observations
 - `Catalog Scope Record` — a canonical Catalog-owned sync identity row derived from a Reference Record for a product line, series, Pokemon Expansion, or set-style product-domain scope
 - `Provider Scope Observation` — hash-deduped evidence that one provider unit currently exposes a product-line, series, expansion, set, or language option in provider vocabulary

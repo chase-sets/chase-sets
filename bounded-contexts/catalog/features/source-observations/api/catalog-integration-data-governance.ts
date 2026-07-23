@@ -330,6 +330,16 @@ export function redactCatalogIntegrationProviderData(value: JsonValue): JsonValu
   return redactValue(value, []);
 }
 
+/**
+ * Produces the retained sampled-provider representation used by Observation
+ * Packs. Sensitive fields follow the canonical redaction policy, while
+ * provider-controlled commerce fields are removed entirely so pricing and
+ * market data cannot become part of the replay corpus.
+ */
+export function sanitizeCatalogIntegrationSampledProviderData(value: JsonValue): JsonValue {
+  return stripProviderControlledCommerceFields(redactCatalogIntegrationProviderData(value));
+}
+
 export function catalogIntegrationProviderDataSignoffChecklist(): readonly string[] {
   return [
     "Name each governed data class and provider key affected by the release.",
@@ -1424,5 +1434,28 @@ function shouldRedactPath(path: readonly string[]): boolean {
   const normalized = path.join(".").toLowerCase();
   return [...sharedSensitivePathPatterns, ...providerControlledCommercePatterns].some((pattern) =>
     normalized.includes(pattern.toLowerCase()),
+  );
+}
+
+function stripProviderControlledCommerceFields(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) {
+    return value.map(stripProviderControlledCommerceFields);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, entry]) =>
+        isProviderControlledCommerceKey(key) ? [] : [[key, stripProviderControlledCommerceFields(entry as JsonValue)]],
+      ),
+    ) as JsonValue;
+  }
+
+  return value;
+}
+
+function isProviderControlledCommerceKey(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return providerControlledCommercePatterns.some((pattern) =>
+    normalized.includes(pattern.replace(/[^a-z0-9]/gi, "").toLowerCase()),
   );
 }
