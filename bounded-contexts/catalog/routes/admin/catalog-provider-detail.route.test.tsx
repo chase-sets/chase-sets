@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../features/source-observations/ui/primary-workbench-read-model";
@@ -32,6 +32,22 @@ function deferred<T>() {
     resolve = res;
   });
   return { promise, resolve };
+}
+
+function waitForCommittedRevalidation(
+  router: ReturnType<typeof createMemoryRouter>,
+  routeId: string,
+  expectedReadModel: unknown,
+) {
+  return new Promise<void>((resolve) => {
+    const unsubscribe = router.subscribe((state) => {
+      const routeData = state.loaderData[routeId] as { readModel?: unknown } | undefined;
+      if (state.revalidation === "idle" && routeData?.readModel === expectedReadModel) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 // This drives the real route composition (react-router's data router, the
@@ -98,15 +114,18 @@ describe("CatalogProviderDetailRoute revalidation", () => {
     });
     expect(screen.getByRole("button", { name: "Refreshing…" })).toBe(revalidateButton);
 
-    revalidateLoaderCall.resolve();
-
-    await waitFor(() => {
-      expect(
-        document
-          .querySelector("[data-catalog-provider-detail-freshness]")
-          ?.getAttribute("data-catalog-provider-detail-freshness"),
-      ).toBe("fresh");
-      expect(document.querySelector('[data-catalog-provider-detail-revalidate="true"]')).toBeNull();
+    const revalidationCommitted = waitForCommittedRevalidation(router, routeId, freshReadModel);
+    await act(async () => {
+      revalidateLoaderCall.resolve();
+      await revalidationCommitted;
     });
+
+    expect(
+      document
+        .querySelector("[data-catalog-provider-detail-freshness]")
+        ?.getAttribute("data-catalog-provider-detail-freshness"),
+    ).toBe("fresh");
+    expect(document.querySelector('[data-catalog-provider-detail-revalidate="true"]')).toBeNull();
+    router.dispose();
   });
 });
