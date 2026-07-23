@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -11,7 +11,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 
 import { readEnvFile } from "./lib/env.mjs";
-import { ensureWorktreeSandboxEnvironment, listSandboxDatabases } from "./lib/sandbox.mjs";
+import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
+import { buildDockerComposeArgs, ensureWorktreeSandboxEnvironment, listSandboxDatabases } from "./lib/sandbox.mjs";
 
 register("./typescript-extension-loader.mjs", import.meta.url);
 
@@ -35,7 +36,14 @@ export const REPRESENTATIVE_SNAPSHOT_PUBLISH_STATES = Object.freeze([
   "superseded",
   "deleted",
 ]);
-export const REPRESENTATIVE_SNAPSHOT_RESTORE_STATES = Object.freeze(["compatible", "restoring", "restored"]);
+export const REPRESENTATIVE_SNAPSHOT_RESTORE_STATES = Object.freeze([
+  "compatible",
+  "restoring",
+  "resetting",
+  "reset",
+  "reset-failed",
+  "restored",
+]);
 export const REPRESENTATIVE_SNAPSHOT_PUBLISH_CONFIRMATION = "publish representative snapshot";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -55,10 +63,11 @@ const snapshotCountKeys = Object.freeze([
 ]);
 
 export class RepresentativeSnapshotError extends Error {
-  constructor(code) {
+  constructor(code, lifecycle = null) {
     super(code);
     this.name = "RepresentativeSnapshotError";
     this.code = code;
+    this.lifecycle = lifecycle;
   }
 }
 
@@ -81,10 +90,11 @@ export async function runRepresentativeSnapshotCli(argv, env, output, dependenci
     return 0;
   } catch (error) {
     const code = error instanceof RepresentativeSnapshotError ? error.code : "representative-snapshot-operation-failed";
+    const lifecycle = error instanceof RepresentativeSnapshotError ? error.lifecycle : null;
     writeSafeOutput(output, {
       command: argv[0] === "publish" ? "publish" : "restore",
-      status: "refused",
-      lifecycle: { state: "refused", transitions: [] },
+      status: lifecycle?.state === "reset" ? "reset" : lifecycle?.state === "reset-failed" ? "reset-failed" : "refused",
+      lifecycle: lifecycle ?? { state: "refused", transitions: [] },
       diagnostics: [{ code }],
     });
     return 1;
@@ -98,7 +108,12 @@ export function buildRepresentativeSnapshotCompatibility({
   migrationsHash,
 }) {
   const components = {
-    acceptedPacks: acceptedPacks.map(({ packId, packVersion }) => ({ packId, packVersion })),
+    acceptedPacks: acceptedPacks.map(({ packId, packVersion, manifestKey, captureContentHash }) => ({
+      packId,
+      packVersion,
+      manifestKey,
+      captureContentHash,
+    })),
     providerProfiles: providerProfiles.map(({ providerKey, profileKey, profileVersion, ingestionUnit }) => ({
       providerKey,
       profileKey,
@@ -122,6 +137,9 @@ export function representativeSnapshotCompatibilityRefusal(expected, actual) {
   const actualPacks = actual.acceptedPacks.map(({ packId, packVersion }) => ({ packId, packVersion }));
   if (stableStringify(expectedPacks) !== stableStringify(actualPacks)) {
     return "representative-snapshot-pack-version-mismatch";
+  }
+  if (stableStringify(expected.acceptedPacks) !== stableStringify(actual.acceptedPacks)) {
+    return "representative-snapshot-pack-content-mismatch";
   }
   if (stableStringify(expected.providerProfiles) !== stableStringify(actual.providerProfiles)) {
     return "representative-snapshot-profile-version-mismatch";
@@ -171,7 +189,7 @@ export async function validateRepresentativeSnapshotFiles({
   ) {
     throw new RepresentativeSnapshotError("representative-snapshot-asset-digest-mismatch");
   }
-  await validateAssetBundle(assetPath);
+  await validateAssetBundle(assetPath, validated.assets.entries);
   files.set(validated.assets.objectKey, assetPath);
   return { manifest: validated, files };
 }
@@ -203,6 +221,9 @@ export function validateRepresentativeSnapshotManifest(value, expectedDatabaseKe
     requireClosedObject(database, ["key", "objectKey", "byteCount", "sha256"]);
     requireSafeKey(database.key);
     requireSafeObjectKey(database.objectKey);
+    if (database.objectKey !== `databases/${database.key}.dump`) {
+      throw new RepresentativeSnapshotError("representative-snapshot-database-object-mapping-mismatch");
+    }
     requirePositiveInteger(database.byteCount);
     requireSha256(database.sha256);
     databaseKeys.push(database.key);
@@ -210,21 +231,34 @@ export function validateRepresentativeSnapshotManifest(value, expectedDatabaseKe
   if (stableStringify(databaseKeys) !== stableStringify(expectedDatabaseKeys)) {
     throw new RepresentativeSnapshotError("representative-snapshot-database-inventory-mismatch");
   }
-  requireClosedObject(value.assets, ["objectKey", "byteCount", "sha256", "fileCount"]);
+  requireClosedObject(value.assets, ["objectKey", "byteCount", "sha256", "fileCount", "entries"]);
   requireSafeObjectKey(value.assets.objectKey);
+  if (value.assets.objectKey !== "assets/catalog-assets.tar.gz") {
+    throw new RepresentativeSnapshotError("representative-snapshot-asset-inventory-mismatch");
+  }
   requirePositiveInteger(value.assets.byteCount);
   requireSha256(value.assets.sha256);
   requireNonNegativeInteger(value.assets.fileCount);
+  validateAssetInventory(value.assets.entries, value.assets.fileCount);
   validateVerifier(value.verifier);
-  const expectedSnapshotId = sha256Text(
-    stableStringify({
-      publishedAt: value.publishedAt,
-      compatibilityKey: value.compatibility.key,
-      verifierDigest: value.verifier.digest,
-      databases: value.databases.map(({ key, sha256 }) => ({ key, sha256 })),
-      assets: value.assets.sha256,
+  const compatibilityPacks = value.compatibility.acceptedPacks.map(
+    ({ packId, packVersion, manifestKey, captureContentHash }) => ({
+      packId,
+      packVersion,
+      manifestKey,
+      captureContentHash,
     }),
   );
+  const verifierPacks = value.verifier.packs.map(({ packId, packVersion, manifestKey, captureContentHash }) => ({
+    packId,
+    packVersion,
+    manifestKey,
+    captureContentHash,
+  }));
+  if (stableStringify(verifierPacks) !== stableStringify(compatibilityPacks)) {
+    throw new RepresentativeSnapshotError("representative-snapshot-pack-structure-mismatch");
+  }
+  const expectedSnapshotId = snapshotIdentity(value);
   if (value.snapshotId !== expectedSnapshotId) {
     throw new RepresentativeSnapshotError("representative-snapshot-identity-mismatch");
   }
@@ -243,20 +277,20 @@ export async function publishSnapshot(options, env, dependencies) {
   try {
     const packSet = await (dependencies.loadAcceptedPackSet ?? loadAcceptedPackSet)(options, storage, workDir);
     const packRoot = commonPackRoot(packSet);
+    const assetRoot = resolveCatalogAssetRoot(options.assetRoot, env);
     await (dependencies.runReplay ?? runProcess)(
       process.execPath,
       [fileURLToPath(new URL("./dev-system.mjs", import.meta.url)), "refresh", "--representative", "--replay"],
       {
         cwd: rootDir,
-        env: {
-          ...withoutSnapshotCredentials(env),
+        env: buildRepresentativeBootstrapEnvironment(env, {
+          CATALOG_ASSET_LOCAL_ROOT: assetRoot,
           PLATFORM_DATA_PROFILES: representativeProfiles,
           REPRESENTATIVE_CATALOG_PACK_SOURCE: packRoot,
-        },
+        }),
         label: "representative-snapshot-replay-failed",
       },
     );
-    const assetRoot = resolveCatalogAssetRoot(options.assetRoot, env);
     const verifier = await computeVerifierEvidence(packSet, databases, assetRoot, dependencies);
     const migrations = await readMigrationsLedger(databases, dependencies);
     const compatibility = compatibilityFromPackSet(packSet, migrations.hash);
@@ -277,26 +311,20 @@ export async function publishSnapshot(options, env, dependencies) {
     const assetObjectKey = "assets/catalog-assets.tar.gz";
     const assetFilePath = path.join(payloadDir, ...assetObjectKey.split("/"));
     await mkdir(path.dirname(assetFilePath), { recursive: true });
-    const assetFileCount = await (dependencies.createAssetBundle ?? createAssetBundle)(assetRoot, assetFilePath);
+    const assetEntries = await (dependencies.createAssetBundle ?? createAssetBundle)(assetRoot, assetFilePath);
+    validateAssetInventory(assetEntries, assetEntries.length);
+    await (dependencies.validateAssetBundle ?? validateAssetBundle)(assetFilePath, assetEntries);
     const assets = {
       objectKey: assetObjectKey,
       byteCount: (await stat(assetFilePath)).size,
       sha256: await sha256File(assetFilePath),
-      fileCount: assetFileCount,
+      fileCount: assetEntries.length,
+      entries: assetEntries,
     };
     const publishedAt = new Date().toISOString();
-    const snapshotId = sha256Text(
-      stableStringify({
-        publishedAt,
-        compatibilityKey: compatibility.key,
-        verifierDigest: verifier.digest,
-        databases: databaseRecords.map(({ key, sha256 }) => ({ key, sha256 })),
-        assets: assets.sha256,
-      }),
-    );
     const manifest = {
       schemaVersion: REPRESENTATIVE_SNAPSHOT_MANIFEST_VERSION,
-      snapshotId,
+      snapshotId: "0".repeat(64),
       publishedAt,
       lifecycle: {
         state: "published",
@@ -308,6 +336,8 @@ export async function publishSnapshot(options, env, dependencies) {
       assets,
       verifier,
     };
+    manifest.snapshotId = snapshotIdentity(manifest);
+    const snapshotId = manifest.snapshotId;
     validateRepresentativeSnapshotManifest(
       manifest,
       databases.map(({ key }) => key),
@@ -322,9 +352,10 @@ export async function publishSnapshot(options, env, dependencies) {
       });
     }
     const manifestKey = `${prefix}/manifest.json`;
+    const manifestBody = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
     await storage.putObject({
       key: manifestKey,
-      body: new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
+      body: manifestBody,
       contentType: "application/json",
       visibility: "private",
     });
@@ -339,6 +370,7 @@ export async function publishSnapshot(options, env, dependencies) {
         {
           snapshotId,
           manifestKey,
+          manifestSha256: sha256Text(manifestBody),
           publishedAt,
           state: "published",
           compatibility,
@@ -407,8 +439,17 @@ export async function restoreSnapshot(options, env, dependencies) {
       cacheMisses += 1;
     }
     const manifest = parseJson(await readFile(manifestPath), "representative-snapshot-manifest-schema-invalid");
+    if ((await sha256File(manifestPath)) !== selected.manifestSha256) {
+      throw new RepresentativeSnapshotError("representative-snapshot-index-manifest-mismatch");
+    }
     if (manifest.snapshotId !== selected.snapshotId) {
       throw new RepresentativeSnapshotError("representative-snapshot-identity-mismatch");
+    }
+    if (
+      manifest.publishedAt !== selected.publishedAt ||
+      stableStringify(manifest.compatibility) !== stableStringify(selected.compatibility)
+    ) {
+      throw new RepresentativeSnapshotError("representative-snapshot-index-manifest-mismatch");
     }
     const prefix = objectKeyDirectory(selected.manifestKey);
     const readFileForObject = async (objectKey) => {
@@ -430,32 +471,58 @@ export async function restoreSnapshot(options, env, dependencies) {
       expectedDatabaseKeys: databases.map(({ key }) => key),
       validateAssetBundle: dependencies.validateAssetBundle ?? validateAssetBundle,
     });
-    for (const database of databases) {
-      const record = validated.manifest.databases.find(({ key }) => key === database.key);
-      await (dependencies.restoreDatabase ?? restoreDatabase)(database, validated.files.get(record.objectKey));
-    }
     const assetRoot = resolveCatalogAssetRoot(options.assetRoot, env);
-    await (dependencies.restoreAssetBundle ?? restoreAssetBundle)(
-      validated.files.get(validated.manifest.assets.objectKey),
-      assetRoot,
-    );
-    const packRoot = commonPackRoot(packSet);
-    await (dependencies.runBootstrap ?? runProcess)(
-      process.execPath,
-      [fileURLToPath(new URL("./dev-system.mjs", import.meta.url)), "bootstrap"],
-      {
-        cwd: rootDir,
-        env: {
-          ...withoutSnapshotCredentials(env),
-          PLATFORM_DATA_PROFILES: representativeProfiles,
-          REPRESENTATIVE_CATALOG_PACK_SOURCE: packRoot,
+    for (const database of databases) {
+      localDatabaseUrl(database.databaseUrl);
+    }
+    let verifier;
+    try {
+      for (const [index, database] of databases.entries()) {
+        const record = validated.manifest.databases[index];
+        await (dependencies.restoreDatabase ?? restoreDatabase)(database, validated.files.get(record.objectKey));
+      }
+      await (dependencies.restoreAssetBundle ?? restoreAssetBundle)(
+        validated.files.get(validated.manifest.assets.objectKey),
+        assetRoot,
+      );
+      const packRoot = commonPackRoot(packSet);
+      await (dependencies.runBootstrap ?? runProcess)(
+        process.execPath,
+        [fileURLToPath(new URL("./dev-system.mjs", import.meta.url)), "bootstrap"],
+        {
+          cwd: rootDir,
+          env: buildRepresentativeBootstrapEnvironment(env, {
+            CATALOG_ASSET_LOCAL_ROOT: assetRoot,
+            PLATFORM_DATA_PROFILES: representativeProfiles,
+            REPRESENTATIVE_CATALOG_PACK_SOURCE: packRoot,
+          }),
+          label: "representative-snapshot-post-restore-bootstrap-failed",
         },
-        label: "representative-snapshot-post-restore-bootstrap-failed",
-      },
-    );
-    const verifier = await computeVerifierEvidence(packSet, databases, assetRoot, dependencies);
-    if (verifier.digest !== validated.manifest.verifier.digest) {
-      throw new RepresentativeSnapshotError("representative-snapshot-verifier-digest-mismatch");
+      );
+      verifier = await computeVerifierEvidence(packSet, databases, assetRoot, dependencies);
+      if (verifier.digest !== validated.manifest.verifier.digest) {
+        throw new RepresentativeSnapshotError("representative-snapshot-verifier-digest-mismatch");
+      }
+    } catch (error) {
+      try {
+        await (dependencies.resetSandboxAfterFailure ?? resetSandboxAfterFailure)({
+          sandbox,
+          assetRoot,
+          env,
+          runProcess: dependencies.runResetProcess ?? runProcess,
+        });
+      } catch {
+        throw new RepresentativeSnapshotError("representative-snapshot-reset-failed", {
+          state: "reset-failed",
+          transitions: ["compatible", "restoring", "resetting", "reset-failed"],
+        });
+      }
+      const code =
+        error instanceof RepresentativeSnapshotError ? error.code : "representative-snapshot-operation-failed";
+      throw new RepresentativeSnapshotError(code, {
+        state: "reset",
+        transitions: ["compatible", "restoring", "resetting", "reset"],
+      });
     }
     return {
       command: "restore",
@@ -580,7 +647,7 @@ async function computeVerifierEvidence(packSet, databases, assetRoot, dependenci
   try {
     const packs = [];
     let perTableRowCounts = null;
-    for (const { manifest, storage, manifestKey } of packSet) {
+    for (const { manifest, storage, manifestKey, sourceManifestKey } of packSet) {
       const result = await verifyPostReplay({
         target: { storage, manifestKey },
         manifest,
@@ -599,6 +666,8 @@ async function computeVerifierEvidence(packSet, databases, assetRoot, dependenci
       packs.push({
         packId: manifest.packId,
         packVersion: manifest.packVersion,
+        manifestKey: sourceManifestKey,
+        captureContentHash: manifest.captureContentHash,
         verifierDigest: result.verifierDigest,
         externalReferenceDigest: result.externalReferenceDigest,
         counts: result.counts,
@@ -663,7 +732,7 @@ async function dumpDatabase(database, filePath) {
       localDatabaseUrl(database.databaseUrl),
     ],
     {
-      env: withoutSnapshotCredentials(process.env),
+      env: buildMinimalProcessEnvironment(process.env),
       cwd: rootDir,
       label: `representative-snapshot-dump-failed:${database.key}`,
     },
@@ -679,12 +748,13 @@ async function restoreDatabase(database, filePath) {
       "--no-owner",
       "--no-acl",
       "--exit-on-error",
+      "--single-transaction",
       "--dbname",
       localDatabaseUrl(database.databaseUrl),
       filePath,
     ],
     {
-      env: withoutSnapshotCredentials(process.env),
+      env: buildMinimalProcessEnvironment(process.env),
       cwd: rootDir,
       label: `representative-snapshot-restore-failed:${database.key}`,
     },
@@ -692,19 +762,19 @@ async function restoreDatabase(database, filePath) {
 }
 
 async function createAssetBundle(assetRoot, archivePath) {
-  const files = await listAssetFiles(assetRoot);
+  const entries = await buildAssetInventory(assetRoot);
   await runProcess("tar", ["-czf", archivePath, "-C", assetRoot, "."], {
     cwd: rootDir,
-    env: withoutSnapshotCredentials(process.env),
+    env: buildMinimalProcessEnvironment(process.env),
     label: "representative-snapshot-asset-bundle-failed",
   });
-  return files.length;
+  return entries;
 }
 
-async function validateAssetBundle(archivePath) {
+async function validateAssetBundle(archivePath, expectedEntries) {
   const entries = await captureProcess("tar", ["-tzf", archivePath], {
     cwd: rootDir,
-    env: withoutSnapshotCredentials(process.env),
+    env: buildMinimalProcessEnvironment(process.env),
     label: "representative-snapshot-asset-bundle-invalid",
   });
   for (const entry of entries.split(/\r?\n/).filter(Boolean)) {
@@ -717,6 +787,19 @@ async function validateAssetBundle(archivePath) {
       throw new RepresentativeSnapshotError("representative-snapshot-asset-bundle-invalid");
     }
   }
+  const validationRoot = `${archivePath}.validated-${randomUUID()}`;
+  await mkdir(validationRoot, { recursive: true });
+  try {
+    await runProcess("tar", ["-xzf", archivePath, "-C", validationRoot], {
+      cwd: rootDir,
+      env: buildMinimalProcessEnvironment(process.env),
+      label: "representative-snapshot-asset-bundle-invalid",
+    });
+    const actualEntries = await buildAssetInventory(validationRoot);
+    validateRepresentativeAssetInventory(expectedEntries, actualEntries);
+  } finally {
+    await rm(validationRoot, { recursive: true, force: true });
+  }
 }
 
 async function restoreAssetBundle(archivePath, assetRoot) {
@@ -727,7 +810,7 @@ async function restoreAssetBundle(archivePath, assetRoot) {
   try {
     await runProcess("tar", ["-xzf", archivePath, "-C", stage], {
       cwd: rootDir,
-      env: withoutSnapshotCredentials(process.env),
+      env: buildMinimalProcessEnvironment(process.env),
       label: "representative-snapshot-asset-restore-failed",
     });
     const hadExisting = await fileExists(assetRoot);
@@ -789,9 +872,17 @@ function validateSnapshotIndex(value) {
     throw new RepresentativeSnapshotError("representative-snapshot-index-invalid");
   }
   for (const entry of value.entries) {
-    requireClosedObject(entry, ["snapshotId", "manifestKey", "publishedAt", "state", "compatibility"]);
+    requireClosedObject(entry, [
+      "snapshotId",
+      "manifestKey",
+      "manifestSha256",
+      "publishedAt",
+      "state",
+      "compatibility",
+    ]);
     requireSha256(entry.snapshotId);
     requireSafeObjectKey(entry.manifestKey);
+    requireSha256(entry.manifestSha256);
     if (entry.manifestKey !== `${snapshotPrefix(entry.snapshotId)}/manifest.json`) {
       throw new RepresentativeSnapshotError("representative-snapshot-index-invalid");
     }
@@ -849,9 +940,19 @@ function validateVerifier(value) {
     throw new RepresentativeSnapshotError("representative-snapshot-manifest-schema-invalid");
   }
   for (const pack of value.packs) {
-    requireClosedObject(pack, ["packId", "packVersion", "verifierDigest", "externalReferenceDigest", "counts"]);
+    requireClosedObject(pack, [
+      "packId",
+      "packVersion",
+      "manifestKey",
+      "captureContentHash",
+      "verifierDigest",
+      "externalReferenceDigest",
+      "counts",
+    ]);
     requireNonEmptyString(pack.packId);
     requireNonEmptyString(pack.packVersion);
+    requireNonEmptyString(pack.manifestKey);
+    requireContentDigest(pack.captureContentHash);
     requireContentDigest(pack.verifierDigest);
     requireContentDigest(pack.externalReferenceDigest);
     requireClosedObject(pack.counts, snapshotCountKeys);
@@ -1017,6 +1118,17 @@ async function listAssetFiles(root) {
   return files.sort((left, right) => left.localeCompare(right, "en"));
 }
 
+async function buildAssetInventory(root) {
+  const files = await listAssetFiles(root);
+  return Promise.all(
+    files.map(async (filePath) => ({
+      path: path.relative(root, filePath).split(path.sep).join("/"),
+      byteCount: (await stat(filePath)).size,
+      sha256: await sha256File(filePath),
+    })),
+  );
+}
+
 async function startAssetServer(assetRoot) {
   const server = http.createServer(async (request, response) => {
     try {
@@ -1110,13 +1222,71 @@ function localDatabaseUrl(databaseUrl) {
   return url.toString();
 }
 
-function withoutSnapshotCredentials(env) {
-  const childEnv = { ...env };
-  for (const name of snapshotCredentialNames) {
-    delete childEnv[name];
+function buildRepresentativeBootstrapEnvironment(env, explicit) {
+  const sandboxSelectors = {};
+  for (const name of ["CHASE_SETS_SANDBOX_BASE_PORT", "CHASE_SETS_SANDBOX_ENV_FILE", "CHASE_SETS_SANDBOX_ID"]) {
+    if (env[name] !== undefined) {
+      sandboxSelectors[name] = env[name];
+    }
   }
-  return childEnv;
+  return buildMinimalProcessEnvironment(env, { ...sandboxSelectors, ...explicit });
 }
+
+function resolveDockerComposeInvocation(sandbox, env) {
+  const commandEnvironment = buildMinimalProcessEnvironment(env);
+  const dockerArgs = buildDockerComposeArgs(sandbox, ["down", "-v"]);
+  if (
+    spawnSync("docker", ["compose", "version"], {
+      env: commandEnvironment,
+      stdio: "ignore",
+      windowsHide: true,
+    }).status === 0
+  ) {
+    return { command: "docker", args: dockerArgs, env: commandEnvironment };
+  }
+  const standaloneArgs = dockerArgs[0] === "compose" ? dockerArgs.slice(1) : dockerArgs;
+  if (
+    spawnSync("docker-compose", ["--version"], {
+      env: commandEnvironment,
+      stdio: "ignore",
+      windowsHide: true,
+    }).status === 0
+  ) {
+    return { command: "docker-compose", args: standaloneArgs, env: commandEnvironment };
+  }
+  throw new RepresentativeSnapshotError("representative-snapshot-reset-failed");
+}
+
+export async function resetRepresentativeSnapshotSandbox({
+  sandbox,
+  assetRoot,
+  env,
+  runProcess,
+  resolveInvocation = resolveDockerComposeInvocation,
+}) {
+  requireArtifactPath(assetRoot);
+  const invocation = resolveInvocation(sandbox, env);
+  let resetFailure = null;
+  try {
+    await runProcess(invocation.command, invocation.args, {
+      cwd: rootDir,
+      env: invocation.env,
+      label: "representative-snapshot-reset-failed",
+    });
+  } catch (error) {
+    resetFailure = error;
+  }
+  try {
+    await rm(assetRoot, { recursive: true, force: true });
+  } catch (error) {
+    resetFailure ??= error;
+  }
+  if (resetFailure) {
+    throw new RepresentativeSnapshotError("representative-snapshot-reset-failed");
+  }
+}
+
+const resetSandboxAfterFailure = resetRepresentativeSnapshotSandbox;
 
 function runProcess(command, args, options) {
   return childProcess(command, args, { ...options, capture: false });
@@ -1161,6 +1331,19 @@ async function sha256File(filePath) {
 
 function sha256Text(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function snapshotIdentity(value) {
+  return sha256Text(
+    stableStringify({
+      schemaVersion: value.schemaVersion,
+      publishedAt: value.publishedAt,
+      compatibility: value.compatibility,
+      databases: value.databases,
+      assets: value.assets,
+      verifier: value.verifier,
+    }),
+  );
 }
 
 async function fileExists(filePath) {
@@ -1241,6 +1424,32 @@ function requireSafeObjectKey(value) {
     value.split("/").some((segment) => !segment || segment === "." || segment === "..")
   ) {
     throw new RepresentativeSnapshotError("representative-snapshot-manifest-schema-invalid");
+  }
+}
+
+function validateAssetInventory(value, fileCount) {
+  if (!Array.isArray(value) || value.length !== fileCount) {
+    throw new RepresentativeSnapshotError("representative-snapshot-asset-inventory-mismatch");
+  }
+  const paths = [];
+  for (const entry of value) {
+    requireClosedObject(entry, ["path", "byteCount", "sha256"]);
+    requireSafeObjectKey(entry.path);
+    requireNonNegativeInteger(entry.byteCount);
+    requireSha256(entry.sha256);
+    paths.push(entry.path);
+  }
+  const orderedUniquePaths = [...new Set(paths)].sort((left, right) => left.localeCompare(right, "en"));
+  if (stableStringify(paths) !== stableStringify(orderedUniquePaths)) {
+    throw new RepresentativeSnapshotError("representative-snapshot-asset-inventory-mismatch");
+  }
+}
+
+export function validateRepresentativeAssetInventory(expected, actual) {
+  validateAssetInventory(expected, expected?.length);
+  validateAssetInventory(actual, actual?.length);
+  if (stableStringify(actual) !== stableStringify(expected)) {
+    throw new RepresentativeSnapshotError("representative-snapshot-asset-inventory-mismatch");
   }
 }
 

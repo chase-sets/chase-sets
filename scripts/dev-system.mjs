@@ -11,6 +11,8 @@ import {
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
   browserE2eProductionTarget,
+  buildPlatformChildEnvironment,
+  buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
@@ -487,7 +489,8 @@ async function runBootstrap(targetName = "all") {
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
     await runCommand(invocation.command, invocation.args, {
-      env: processDefinition?.env ?? {},
+      env: buildPlatformChildEnvironment(process.env, processDefinition?.env ?? {}, { minimalBase: true }),
+      inheritEnv: false,
       prefix: workspace.replace("@chase-sets/", ""),
     });
   }
@@ -526,7 +529,8 @@ async function runDev(targetName = "all") {
       prefixedConsole("build", `Building production ${build.name} artifact...`);
       const invocation = buildPackageManagerInvocation(["--filter", build.workspace, "run", "build"]);
       await runCommand(invocation.command, invocation.args, {
-        env: processDefinition?.env ?? {},
+        env: buildPlatformChildEnvironment(process.env, processDefinition?.env ?? {}),
+        inheritEnv: false,
         prefix: build.name,
       });
     }
@@ -666,7 +670,8 @@ async function runDev(targetName = "all") {
       : buildPackageManagerInvocation(["--filter", definition.workspace, "run", definition.script ?? "dev"]);
     const child = spawnCommand(invocation.command, invocation.args, {
       cwd: definition.cwd ? path.resolve(rootDir, definition.cwd) : undefined,
-      env: definition.env,
+      env: buildPlatformChildEnvironment(process.env, definition.env),
+      inheritEnv: false,
       prefix: definition.name,
     });
 
@@ -717,7 +722,8 @@ async function runRefresh(targetName = "all") {
     await runBootstrap(targetName);
     prefixedConsole("dev", "Restoring a compatible representative Catalog snapshot set...");
     await runCommand("node", [fileURLToPath(new URL("./representative-snapshot.mjs", import.meta.url)), "restore"], {
-      env: sandboxEnv,
+      env: buildRepresentativeSnapshotCommandEnvironment(process.env, sandboxEnv),
+      inheritEnv: false,
       prefix: "representative-snapshot",
     });
     return;

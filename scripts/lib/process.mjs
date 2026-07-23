@@ -4,6 +4,44 @@ import path from "node:path";
 import process from "node:process";
 import { repoRoot } from "./repo.mjs";
 
+const minimalProcessEnvironmentNames = new Set(
+  [
+    "APPDATA",
+    "CI",
+    "COMSPEC",
+    "FORCE_COLOR",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "PNPM_HOME",
+    "SYSTEMROOT",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "WINDIR",
+  ].map((name) => name.toLowerCase()),
+);
+
+export function buildMinimalProcessEnvironment(env = process.env, explicit = {}) {
+  const minimal = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && minimalProcessEnvironmentNames.has(name.toLowerCase())) {
+      minimal[name] = value;
+    }
+  }
+  for (const [name, value] of Object.entries(explicit)) {
+    if (value !== undefined) {
+      minimal[name] = value;
+    }
+  }
+  return minimal;
+}
+
 function activePackageManagerExecPath({ env = process.env, exists = existsSync, platform = process.platform } = {}) {
   const execPath = env.npm_execpath;
   if (!execPath || !/pnpm/i.test(execPath) || !exists(execPath)) {
@@ -95,10 +133,11 @@ function wirePrefixedStream(stream, prefix) {
 }
 
 export function spawnCommand(command, args, options = {}) {
+  const inheritedEnvironment = options.inheritEnv === false ? {} : process.env;
   const child = spawn(command, args, {
     cwd: options.cwd ?? repoRoot,
     env: {
-      ...process.env,
+      ...inheritedEnvironment,
       FORCE_COLOR: process.env.FORCE_COLOR ?? "1",
       ...options.env,
     },
