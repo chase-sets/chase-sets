@@ -88,11 +88,23 @@ export async function evaluatePrScope({ client, pullRequestNumber, rollout }) {
     if (pullRequest.changedFilesCount >= MAX_PULL_REQUEST_FILES || files.length !== pullRequest.changedFilesCount) {
       fail("api-files-truncated");
     }
+    // Pagination can straddle a synchronize: re-read authority immediately
+    // after collecting files and before any comment/label mutation. Any
+    // movement in head SHA or changed-file count means the collected files
+    // are stale/mixed and must never be published as a current-looking
+    // scope; fail closed to unknown instead.
+    const reread = projectPullRequest((await client.request(`/pulls/${pullRequest.number}`)).data);
+    if (reread.headSha !== pullRequest.headSha || reread.changedFilesCount !== pullRequest.changedFilesCount) {
+      fail("pull-request-head-moved");
+    }
     const scope = classifyPrScope({ changedFiles: files, labels: pullRequest.labels });
     const mechanicalMigrationEscape = pullRequest.labels
       .map((label) => label.toLowerCase())
       .includes(rollout.mechanicalMigrationEscapeLabel.toLowerCase());
-    const requiresRationale = scope.status === "large" && !mechanicalMigrationEscape;
+    // Rationale/escape are enforcement semantics: they must stay inactive
+    // while the rollout is advisory so an advisory-mode result never reports
+    // an enforcing-looking "requires rationale" state.
+    const requiresRationale = rollout.mode === "enforcing" && scope.status === "large" && !mechanicalMigrationEscape;
     return {
       pullRequest,
       scope: {
@@ -163,6 +175,7 @@ export function renderPrScopeComment(result) {
       "",
       `Evaluation state: **unknown** (safe code: \`${result.code}\`).`,
       "",
+      `Head: \`${result.pullRequest?.headSha ?? "unavailable"}\`  `,
       `Scanned: ${scope.scan.filesScanned}/${scope.scan.filesTotal ?? scope.scan.filesScanned} files (complete: ${scope.scan.complete}).`,
       "",
       "This is advisory only. It does not affect `PR Required` or the live main ruleset.",
@@ -178,6 +191,7 @@ export function renderPrScopeComment(result) {
     "### PR Scope — advisory",
     "",
     `Status: **${scope.status}**  `,
+    `Head: \`${result.pullRequest?.headSha ?? "unavailable"}\`  `,
     `Raw: ${formatLines(scope.raw.lines)} lines / ${formatLines(scope.raw.files)} files  `,
     `Normalized: ${formatLines(scope.normalized.lines)} lines / ${formatLines(scope.normalized.files)} files  `,
     `Thresholds (\`pr-scope-policy/v1\`): advisory > ${scope.thresholds.advisory.lines} lines or ${scope.thresholds.advisory.files} files; large > ${scope.thresholds.large.lines} lines or ${scope.thresholds.large.files} files  `,

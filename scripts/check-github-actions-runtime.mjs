@@ -161,12 +161,30 @@ function previewCleanupPolicyViolations(filePath) {
   return violations;
 }
 
+// Discovers advisory evaluator workflows two ways: the original literal
+// reference/name checks (kept so an arbitrarily renamed/relocated risk
+// review is still caught), plus the underlying code shape every advisory
+// evaluator actually runs — an actions/github-script step that fetches
+// trusted-base sources from the repository's default branch and
+// execFileSync's one of them out of `trustedRoot`. The shape clause is what
+// lets this guard find platform-pr-scope.yml (and any future advisory
+// evaluator following the same pattern) instead of relying on it
+// incidentally mentioning platform-risk-review.mjs in its trusted-base file
+// list.
+function isAdvisoryEvaluatorWorkflow(workflowText) {
+  if (workflowText.includes("scripts/platform-risk-review.mjs") || /^name:\s*Risk Review/m.test(workflowText)) {
+    return true;
+  }
+  return (
+    /execFileSync\(\s*process\.execPath,\s*\[\s*path\.join\(trustedRoot,/.test(workflowText) &&
+    workflowText.includes("ref: context.payload.repository.default_branch")
+  );
+}
+
 function riskReviewPolicyViolations(filePath) {
   if (path.basename(path.dirname(filePath)) !== "workflows") return [];
   const workflowText = readFileSync(filePath, "utf8");
-  if (!workflowText.includes("scripts/platform-risk-review.mjs") && !/^name:\s*Risk Review/m.test(workflowText)) {
-    return [];
-  }
+  if (!isAdvisoryEvaluatorWorkflow(workflowText)) return [];
 
   const violations = [];
   for (const event of ["pull_request_target:", "pull_request_review:", "merge_group:"]) {

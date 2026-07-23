@@ -56,19 +56,29 @@ jobs:
               "scripts/platform-pr-scope.mjs",
               "scripts/pr-scope-rollout-v1.json",
             ];
-            for (const sourcePath of sourcePaths) {
-              const response = await github.rest.repos.getContent({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                path: sourcePath,
-                ref: context.payload.repository.default_branch,
-              });
-              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
-                throw new Error("trusted-base-source-unavailable");
+            // Bootstrap (fetching trusted-base sources) happens before the
+            // CLI's own safe-coded try/catch ever runs, so a thrown API/
+            // network error here is never covered by it. Catch it here too
+            // and replace it with a fixed, bounded message: the raw error
+            // can carry token-shaped or otherwise sensitive response text
+            // that must never reach step output.
+            try {
+              for (const sourcePath of sourcePaths) {
+                const response = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: sourcePath,
+                  ref: context.payload.repository.default_branch,
+                });
+                if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                  throw new Error("trusted-base-source-unavailable");
+                }
+                const target = path.join(trustedRoot, sourcePath);
+                await mkdir(path.dirname(target), { recursive: true });
+                await writeFile(target, Buffer.from(response.data.content, "base64"));
               }
-              const target = path.join(trustedRoot, sourcePath);
-              await mkdir(path.dirname(target), { recursive: true });
-              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            } catch {
+              throw new Error("pr-scope-bootstrap-failure");
             }
             execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
               env: {
@@ -105,13 +115,15 @@ jobs:
 
   # The lightweight scope-policy check: read-only, no label/comment mutation
   # (PR_SCOPE_CHECK_ONLY skips both — the `advisory` job above owns mutation
-  # so the two jobs never race on the same PR). Its own exit code is the
-  # job's real conclusion (no continue-on-error here) because it is the one
-  # thing this feature is allowed to fail — but only when
-  # scripts/pr-scope-rollout-v1.json is "enforcing" and the computed scope is
-  # genuinely large with a missing rationale; see scopePolicyExitCode in
-  # scripts/platform-pr-scope.mjs. It is not wired into any required-status
-  # ruleset, so it cannot block merges on its own even once enforcing.
+  # so the two jobs never race on the same PR). scripts/pr-scope-rollout-v1.json
+  # is mandated advisory-only, and scopePolicyExitCode in
+  # scripts/platform-pr-scope.mjs always returns 0 outside "enforcing" mode
+  # (including on the CLI's own internal-failure path), so under the current
+  # rollout the CLI itself can never exit nonzero. continue-on-error plus the
+  # boundary step below exist to absorb the one failure mode that predates
+  # the CLI even running: a bootstrap/API failure while fetching trusted-base
+  # sources. It is not wired into any required-status ruleset, so it cannot
+  # block merges on its own even once enforcing.
   scope-policy:
     name: Scope Policy Check
     runs-on: ubuntu-latest
@@ -122,6 +134,7 @@ jobs:
     steps:
       - name: Evaluate trusted-base PR scope policy
         id: evaluate
+        continue-on-error: true
         uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -141,21 +154,44 @@ jobs:
               "scripts/platform-pr-scope.mjs",
               "scripts/pr-scope-rollout-v1.json",
             ];
-            for (const sourcePath of sourcePaths) {
-              const response = await github.rest.repos.getContent({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                path: sourcePath,
-                ref: context.payload.repository.default_branch,
-              });
-              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
-                throw new Error("trusted-base-source-unavailable");
+            // Same bootstrap boundary as the advisory job above: a thrown
+            // API/network error here predates the CLI's own safe-coded
+            // try/catch and can carry sensitive raw text, so it is caught
+            // and replaced with a fixed, bounded message.
+            try {
+              for (const sourcePath of sourcePaths) {
+                const response = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: sourcePath,
+                  ref: context.payload.repository.default_branch,
+                });
+                if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                  throw new Error("trusted-base-source-unavailable");
+                }
+                const target = path.join(trustedRoot, sourcePath);
+                await mkdir(path.dirname(target), { recursive: true });
+                await writeFile(target, Buffer.from(response.data.content, "base64"));
               }
-              const target = path.join(trustedRoot, sourcePath);
-              await mkdir(path.dirname(target), { recursive: true });
-              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            } catch {
+              throw new Error("pr-scope-bootstrap-failure");
             }
             execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {
               env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN },
               stdio: "inherit",
             });
+
+      - name: Preserve advisory workflow boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ "${{ steps.evaluate.outcome }}" != "success" ]; then
+            {
+              echo "## PR Scope — advisory"
+              echo
+              echo "Evaluation state: **unknown** (safe code: \`workflow-boundary-failure\`)."
+              echo
+              echo "The advisory workflow remains non-enforcing."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0

@@ -127,18 +127,29 @@ describe("evaluatePrScope pagination completeness", () => {
 });
 
 describe("evaluatePrScope thresholds and escape", () => {
-  it("computes a large status and requires rationale when the escape label is absent", async () => {
+  it("computes a large status but keeps rationale enforcement inactive while the rollout is advisory", async () => {
     const files = Array.from({ length: 36 }, (_entry, index) =>
       rawFile(`bounded-contexts/catalog/domain/f${index}.ts`),
     );
     const client = fakeClient({ pull: rawPull({ changed_files: 36 }), files });
     const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
     expect(result.scope.status).toBe("large");
+    expect(result.requiresRationale).toBe(false);
+    expect(result.mechanicalMigrationEscape).toBe(false);
+  });
+
+  it("requires rationale for a large PR with no escape only once the rollout is enforcing", async () => {
+    const files = Array.from({ length: 36 }, (_entry, index) =>
+      rawFile(`bounded-contexts/catalog/domain/f${index}.ts`),
+    );
+    const client = fakeClient({ pull: rawPull({ changed_files: 36 }), files });
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: enforcingRollout });
+    expect(result.scope.status).toBe("large");
     expect(result.requiresRationale).toBe(true);
     expect(result.mechanicalMigrationEscape).toBe(false);
   });
 
-  it("keeps full raw size and risk reporting but drops the rationale requirement under the authorized mechanical-migration escape", async () => {
+  it("keeps full raw size and risk reporting but drops the rationale requirement under the authorized mechanical-migration escape (enforcing rollout)", async () => {
     const files = Array.from({ length: 36 }, (_entry, index) =>
       rawFile(`bounded-contexts/catalog/domain/f${index}.ts`),
     );
@@ -146,11 +157,90 @@ describe("evaluatePrScope thresholds and escape", () => {
       pull: rawPull({ changed_files: 36, labels: [{ name: "scope:mechanical-migration-reviewed" }] }),
       files,
     });
-    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: enforcingRollout });
     expect(result.scope.status).toBe("large");
     expect(result.mechanicalMigrationEscape).toBe(true);
     expect(result.requiresRationale).toBe(false);
     expect(result.scope.raw.files).toBe(36);
+  });
+});
+
+describe("evaluatePrScope authoritative re-read", () => {
+  it("returns bounded unknown, not a current-looking status, when the head SHA moves between pagination and re-read", async () => {
+    const originalHead = "1".repeat(40);
+    const movedHead = "2".repeat(40);
+    let pullRequests = 0;
+    const files = [rawFile("bounded-contexts/catalog/domain/a.ts")];
+    const client = {
+      request: async (pathname) => {
+        if (pathname === "/pulls/5504") {
+          pullRequests += 1;
+          return { data: rawPull({ head: { sha: pullRequests === 1 ? originalHead : movedHead } }) };
+        }
+        return { data: null };
+      },
+      paginate: async (pathname) => {
+        if (pathname.endsWith("/files")) return files;
+        throw new Error(`unexpected pagination path ${pathname}`);
+      },
+    };
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
+    expect(pullRequests).toBe(2);
+    expect(result.scope.status).toBe("unknown");
+    expect(result.code).toBe("pull-request-head-moved");
+    const rendered = renderPrScopeComment(result);
+    expect(rendered).toContain(`Head: \`${originalHead}\``);
+    expect(rendered).not.toMatch(/Status: \*\*(?:normal|advisory|large)\*\*/);
+  });
+
+  it("returns bounded unknown when changed_files count moves between pagination and re-read", async () => {
+    let pullRequests = 0;
+    const files = [rawFile("bounded-contexts/catalog/domain/a.ts")];
+    const client = {
+      request: async (pathname) => {
+        if (pathname === "/pulls/5504") {
+          pullRequests += 1;
+          return { data: rawPull({ changed_files: pullRequests === 1 ? 1 : 2 }) };
+        }
+        return { data: null };
+      },
+      paginate: async (pathname) => {
+        if (pathname.endsWith("/files")) return files;
+        throw new Error(`unexpected pagination path ${pathname}`);
+      },
+    };
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
+    expect(result.scope.status).toBe("unknown");
+    expect(result.code).toBe("pull-request-head-moved");
+  });
+
+  it("never mutates the comment or label with a moving head, through the full evaluation/comment state machine", async () => {
+    const originalHead = "1".repeat(40);
+    const movedHead = "2".repeat(40);
+    let pullRequestCalls = 0;
+    const files = [rawFile("bounded-contexts/catalog/domain/a.ts", { additions: 900, deletions: 200 })];
+    const fetchImpl = async (url, options = {}) => {
+      if (url.endsWith("/pulls/5504")) {
+        pullRequestCalls += 1;
+        return jsonResponse(rawPull({ head: { sha: pullRequestCalls === 1 ? originalHead : movedHead } }));
+      }
+      if (url.includes("/pulls/5504/files")) return jsonResponse(files);
+      if (url.includes("/issues/5504/comments") && (options.method ?? "GET") === "GET") return jsonResponse([]);
+      if (url.includes("/issues/5504/comments") && options.method === "POST") return jsonResponse({ id: 1 });
+      throw new Error(`unexpected url ${url} ${options.method ?? "GET"}`);
+    };
+    const record = await runPrScopeEvaluation({
+      event: { eventName: "pull_request", pullRequestNumber: 5504 },
+      repository: "chase-sets/chase-sets",
+      token: "test",
+      rollout: advisoryRollout,
+      fetchImpl,
+    });
+    expect(record.results[0].scope.status).toBe("unknown");
+    // status !== "normal" still creates the advisory comment (unknown state is
+    // never silent), but it must render the bounded-unknown body, not a
+    // current-looking positive scope.
+    expect(record.results[0].comment).toBe("created");
   });
 });
 

@@ -234,6 +234,73 @@ jobs:
     expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
   });
 
+  it("discovers an advisory evaluator by code shape alone, with no risk-review name or file reference present", () => {
+    const rootDir = workflowRootWith(
+      `
+name: PR Scope Advisory
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+permissions: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - continue-on-error: true
+        uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+      - run: exit 0
+`,
+      "arbitrary-evaluator-surface.yml",
+    );
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it("rejects a code-shape-discovered evaluator that executes head code or propagates advisory failure, with no risk-review name or file reference present", () => {
+    const rootDir = workflowRootWith(
+      `
+name: Some Other Advisory Evaluator
+on:
+  pull_request_target: {}
+  pull_request_review: {}
+  merge_group: {}
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@${checkoutSha} # v6.0.0
+        with:
+          ref: context.payload.pull_request.head.sha
+      - uses: actions/github-script@${githubScriptSha} # v8.0.0
+        with:
+          script: |
+            const response = await github.rest.repos.getContent({ ref: context.payload.repository.default_branch });
+            execFileSync(process.execPath, [path.join(trustedRoot, "scripts", "platform-pr-scope.mjs")], {});
+`,
+      "another-evaluator-name.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must not checkout code"),
+        expect.stringContaining("must not make its workflow red"),
+      ]),
+    );
+  });
+
   it("rejects semantically discovered risk review that executes head code or propagates advisory failure", () => {
     const rootDir = workflowRootWith(
       `
