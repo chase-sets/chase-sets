@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildPublicDocsStaleReviewReport,
   DEFAULT_PUBLIC_DOC_REVIEW_MAX_AGE_DAYS,
 } from "./public-docs-stale-review.mjs";
+
+const workflow = readFileSync(new URL("../.github/workflows/public-docs-stale-review.yml", import.meta.url), "utf8");
 
 describe("public docs stale-review report", () => {
   it("lists only articles older than the configured review window", () => {
@@ -20,5 +23,11 @@ describe("public docs stale-review report", () => {
 
   it("keeps the default review window explicit", () => {
     expect(DEFAULT_PUBLIC_DOC_REVIEW_MAX_AGE_DAYS).toBe(90);
+  });
+
+  it("installs checker dependencies before building the stale-review report", () => {
+    expect(workflow).toMatch(
+      /uses: \.\/\.github\/actions\/setup-pnpm-workspace\s+with:\s+install: true\s+- name: Build stale-review report/s,
+    );
   });
 });
