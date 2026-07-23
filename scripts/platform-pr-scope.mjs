@@ -56,7 +56,7 @@ export function hasLargeChangeRationale(body) {
   return content.join("\n").trim().length > 0;
 }
 
-function unknownScopeResult({ pullRequest, files, code }) {
+function unknownScopeResult({ pullRequest, files, code, rolloutMode }) {
   return {
     pullRequest,
     scope: {
@@ -71,7 +71,9 @@ function unknownScopeResult({ pullRequest, files, code }) {
       splitSuggestion: null,
       scan: { filesScanned: files.length, filesTotal: pullRequest.changedFilesCount, complete: false },
     },
-    mechanicalMigrationEscape: false,
+    rolloutMode,
+    mechanicalMigrationLabelPresent: false,
+    mechanicalMigrationEscapeActive: false,
     requiresRationale: false,
     rationalePresent: false,
     code,
@@ -99,20 +101,27 @@ export async function evaluatePrScope({ client, pullRequestNumber, rollout }) {
       fail("pull-request-head-moved");
     }
     const scope = classifyPrScope({ changedFiles: files, labels: pullRequest.labels });
-    const mechanicalMigrationEscape = pullRequest.labels
+    const mechanicalMigrationLabelPresent = pullRequest.labels
       .map((label) => label.toLowerCase())
       .includes(rollout.mechanicalMigrationEscapeLabel.toLowerCase());
-    // Rationale/escape are enforcement semantics: they must stay inactive
-    // while the rollout is advisory so an advisory-mode result never reports
-    // an enforcing-looking "requires rationale" state.
-    const requiresRationale = rollout.mode === "enforcing" && scope.status === "large" && !mechanicalMigrationEscape;
+    // Rationale/escape are enforcement semantics: the escape only ever
+    // waives the rationale requirement once the rollout is "enforcing". The
+    // label may already be present during advisory calibration (an operator
+    // pre-authorizing a future mechanical migration), but the escape itself
+    // must stay inactive and the result must never report an
+    // enforcing-looking "requires rationale" state while advisory.
+    const mechanicalMigrationEscapeActive = rollout.mode === "enforcing" && mechanicalMigrationLabelPresent;
+    const requiresRationale =
+      rollout.mode === "enforcing" && scope.status === "large" && !mechanicalMigrationEscapeActive;
     return {
       pullRequest,
       scope: {
         ...scope,
         scan: { filesScanned: files.length, filesTotal: pullRequest.changedFilesCount, complete: true },
       },
-      mechanicalMigrationEscape,
+      rolloutMode: rollout.mode,
+      mechanicalMigrationLabelPresent,
+      mechanicalMigrationEscapeActive,
       requiresRationale,
       rationalePresent: hasLargeChangeRationale(body),
       code: null,
@@ -121,6 +130,7 @@ export async function evaluatePrScope({ client, pullRequestNumber, rollout }) {
     return unknownScopeResult({
       pullRequest,
       files,
+      rolloutMode: rollout.mode,
       code: error instanceof GithubBoundaryError ? error.code : "internal-failure",
     });
   }
@@ -222,8 +232,17 @@ export function renderPrScopeComment(result) {
     `Bounded contexts: ${scope.boundedContexts.length > 0 ? sanitizedPathList(scope.boundedContexts).join(", ") : "none"}  `,
     `Composition roots: ${scope.compositionRoots.length > 0 ? sanitizedPathList(scope.compositionRoots).join(", ") : "none"}  `,
     `Risk categories: ${scope.risk.categories.length > 0 ? scope.risk.categories.join(", ") : "none"}  `,
-    ...(result.mechanicalMigrationEscape
-      ? [`Mechanical-migration escape: **applied** (raw size and full CI are unaffected)  `]
+    // An escape only ever activates once the rollout is enforcing. During
+    // advisory calibration a present label is real (an operator can already
+    // pre-authorize it) but must render as inactive, not as applied, and
+    // must retain the would-require-rationale rationale rather than
+    // suppressing it.
+    ...(scope.status === "large" && result.mechanicalMigrationLabelPresent
+      ? [
+          result.mechanicalMigrationEscapeActive
+            ? `Mechanical-migration escape: **applied** (raw size and full CI are unaffected)  `
+            : `Mechanical-migration escape: **eligible, currently inactive** (advisory mode never applies escapes; would drop the rationale requirement once enforcing — raw size and full CI remain unaffected)  `,
+        ]
       : []),
     ...(scope.status === "large"
       ? [`Large-change rationale: ${result.rationalePresent ? "present" : "**missing**"}  `]

@@ -137,7 +137,8 @@ describe("evaluatePrScope thresholds and escape", () => {
     const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
     expect(result.scope.status).toBe("large");
     expect(result.requiresRationale).toBe(false);
-    expect(result.mechanicalMigrationEscape).toBe(false);
+    expect(result.mechanicalMigrationLabelPresent).toBe(false);
+    expect(result.mechanicalMigrationEscapeActive).toBe(false);
   });
 
   it("requires rationale for a large PR with no escape only once the rollout is enforcing", async () => {
@@ -148,7 +149,8 @@ describe("evaluatePrScope thresholds and escape", () => {
     const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: enforcingRollout });
     expect(result.scope.status).toBe("large");
     expect(result.requiresRationale).toBe(true);
-    expect(result.mechanicalMigrationEscape).toBe(false);
+    expect(result.mechanicalMigrationLabelPresent).toBe(false);
+    expect(result.mechanicalMigrationEscapeActive).toBe(false);
   });
 
   it("keeps full raw size and risk reporting but drops the rationale requirement under the authorized mechanical-migration escape (enforcing rollout)", async () => {
@@ -161,9 +163,91 @@ describe("evaluatePrScope thresholds and escape", () => {
     });
     const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: enforcingRollout });
     expect(result.scope.status).toBe("large");
-    expect(result.mechanicalMigrationEscape).toBe(true);
+    expect(result.mechanicalMigrationLabelPresent).toBe(true);
+    expect(result.mechanicalMigrationEscapeActive).toBe(true);
     expect(result.requiresRationale).toBe(false);
     expect(result.scope.raw.files).toBe(36);
+  });
+
+  it("carries the label as present but keeps the escape inactive when the rollout is advisory (never a live-looking applied escape during calibration)", async () => {
+    const files = Array.from({ length: 36 }, (_entry, index) =>
+      rawFile(`bounded-contexts/catalog/domain/f${index}.ts`),
+    );
+    const client = fakeClient({
+      pull: rawPull({ changed_files: 36, labels: [{ name: "scope:mechanical-migration-reviewed" }] }),
+      files,
+    });
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout: advisoryRollout });
+    expect(result.scope.status).toBe("large");
+    expect(result.mechanicalMigrationLabelPresent).toBe(true);
+    expect(result.mechanicalMigrationEscapeActive).toBe(false);
+    expect(result.requiresRationale).toBe(false);
+  });
+});
+
+// Closed matrix over mode x size x label x rationale through the public
+// evaluatePrScope + renderPrScopeComment surface. Confirms the escape is
+// only ever "applied" once enforcing, never misstated as active/applied
+// during advisory calibration, and that the rationale line/requirement
+// tracks each axis independently.
+describe("mechanical-migration escape and rationale — mode x size x label x rationale matrix", () => {
+  const largeFiles = Array.from({ length: 36 }, (_entry, index) =>
+    rawFile(`bounded-contexts/catalog/domain/f${index}.ts`),
+  );
+  const normalFiles = [rawFile("bounded-contexts/catalog/domain/a.ts")];
+
+  it.each([
+    ["advisory", "normal", false, false, { requiresRationale: false, escapeLine: "none", rationaleLine: "none" }],
+    ["advisory", "normal", true, false, { requiresRationale: false, escapeLine: "none", rationaleLine: "none" }],
+    ["advisory", "large", false, false, { requiresRationale: false, escapeLine: "none", rationaleLine: "missing" }],
+    ["advisory", "large", false, true, { requiresRationale: false, escapeLine: "none", rationaleLine: "present" }],
+    ["advisory", "large", true, false, { requiresRationale: false, escapeLine: "inactive", rationaleLine: "missing" }],
+    ["advisory", "large", true, true, { requiresRationale: false, escapeLine: "inactive", rationaleLine: "present" }],
+    ["enforcing", "normal", false, false, { requiresRationale: false, escapeLine: "none", rationaleLine: "none" }],
+    ["enforcing", "normal", true, false, { requiresRationale: false, escapeLine: "none", rationaleLine: "none" }],
+    ["enforcing", "large", false, false, { requiresRationale: true, escapeLine: "none", rationaleLine: "missing" }],
+    ["enforcing", "large", false, true, { requiresRationale: true, escapeLine: "none", rationaleLine: "present" }],
+    ["enforcing", "large", true, false, { requiresRationale: false, escapeLine: "applied", rationaleLine: "missing" }],
+    ["enforcing", "large", true, true, { requiresRationale: false, escapeLine: "applied", rationaleLine: "present" }],
+  ])("mode=%s size=%s label=%s rationalePresent=%s", async (mode, size, labelPresent, rationalePresent, expected) => {
+    const rollout = mode === "enforcing" ? enforcingRollout : advisoryRollout;
+    const files = size === "large" ? largeFiles : normalFiles;
+    const labels = labelPresent ? [{ name: "scope:mechanical-migration-reviewed" }] : [];
+    const body = rationalePresent ? "## Large-change rationale\n\nBecause it is one coherent migration." : "";
+    const client = fakeClient({
+      pull: rawPull({ changed_files: files.length, labels, body }),
+      files,
+    });
+
+    const result = await evaluatePrScope({ client, pullRequestNumber: 5504, rollout });
+    expect(result.scope.status).toBe(size);
+    expect(result.requiresRationale).toBe(expected.requiresRationale);
+    expect(result.mechanicalMigrationLabelPresent).toBe(labelPresent);
+    expect(result.mechanicalMigrationEscapeActive).toBe(mode === "enforcing" && labelPresent);
+    expect(result.rationalePresent).toBe(rationalePresent);
+
+    const rendered = renderPrScopeComment(result);
+    if (expected.escapeLine === "applied") {
+      expect(rendered).toContain("Mechanical-migration escape: **applied**");
+      expect(rendered).not.toContain("eligible");
+      expect(rendered).not.toContain("inactive");
+    } else if (expected.escapeLine === "inactive") {
+      expect(rendered).toContain("Mechanical-migration escape: **eligible, currently inactive**");
+      expect(rendered).not.toContain("**applied**");
+      // The would-require rationale must be retained, not suppressed: the
+      // escape line itself explains what it *would* do once enforcing.
+      expect(rendered).toContain("would drop the rationale requirement once enforcing");
+    } else {
+      expect(rendered).not.toContain("Mechanical-migration escape");
+    }
+
+    if (expected.rationaleLine === "missing") {
+      expect(rendered).toContain("Large-change rationale: **missing**");
+    } else if (expected.rationaleLine === "present") {
+      expect(rendered).toContain("Large-change rationale: present");
+    } else {
+      expect(rendered).not.toContain("Large-change rationale");
+    }
   });
 });
 
@@ -424,7 +508,8 @@ describe("renderPrScopeComment", () => {
   it("includes the stable marker so subsequent runs converge on the same comment", () => {
     const rendered = renderPrScopeComment({
       code: null,
-      mechanicalMigrationEscape: false,
+      mechanicalMigrationLabelPresent: false,
+      mechanicalMigrationEscapeActive: false,
       rationalePresent: false,
       scope: {
         status: "advisory",
@@ -488,7 +573,8 @@ describe("adversarial path rendering safety (bounded contexts / composition root
     const result = {
       pullRequest: { headSha: "1".repeat(40), number: 5966 },
       code: null,
-      mechanicalMigrationEscape: false,
+      mechanicalMigrationLabelPresent: false,
+      mechanicalMigrationEscapeActive: false,
       rationalePresent: false,
       scope,
     };
