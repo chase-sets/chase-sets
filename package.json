@@ -35,6 +35,7 @@
     "dev": "node ./scripts/dev-system.mjs dev",
     "dev:bootstrap": "node ./scripts/dev-system.mjs bootstrap",
     "dev:down": "node ./scripts/dev-system.mjs down",
+    "dev:e2e:probe": "node ./scripts/browser-e2e-probe.mjs",
     "dev:db:refresh": "node ./scripts/dev-system.mjs refresh",
     "remote-dev": "node ./scripts/remote-dev.mjs",
     "smoke:platform": "node ./scripts/platform-smoke.mjs",
