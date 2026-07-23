@@ -1,11 +1,12 @@
 import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
+import { buildMinimalProcessEnvironment, buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 
 describe("process helpers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("runs pnpm native executables directly on Windows", () => {
@@ -87,5 +88,39 @@ describe("process helpers", () => {
         timeoutKillGraceMs: 10,
       }),
     ).rejects.toThrow("timed out after 50ms");
+  });
+
+  it("starts an isolated sentinel child without ambient database selectors or Space credentials", async () => {
+    vi.stubEnv("PGHOST", "localhost");
+    vi.stubEnv("PGHOSTADDR", "203.0.113.41");
+    vi.stubEnv("PGDATABASE", "hostile");
+    vi.stubEnv("PGSERVICE", "hostile-service");
+    vi.stubEnv("DATABASE_URL", "postgresql://remote.example/hostile");
+    vi.stubEnv("POSTGRES_DEV_DATABASE_URL", "postgresql://remote.example/hostile");
+    vi.stubEnv("RELEASE_EVIDENCE_SPACES_ACCESS_ID", "release-access");
+    vi.stubEnv("RELEASE_EVIDENCE_SPACES_SECRET_KEY", "release-secret");
+    vi.stubEnv("SEED_PACKS_SPACES_ACCESS_ID", "snapshot-access");
+    vi.stubEnv("SEED_PACKS_SPACES_SECRET_KEY", "snapshot-secret");
+
+    const env = buildMinimalProcessEnvironment(process.env, {
+      DATABASE_URL: "postgresql://localhost:6543/canonical",
+    });
+    const sentinel = [
+      "const forbidden = Object.keys(process.env).filter((name) =>",
+      "  (name.startsWith('PG') || name.startsWith('POSTGRES_') || name.includes('SPACES_')) &&",
+      "  name !== 'DATABASE_URL');",
+      "if (forbidden.length > 0 || process.env.DATABASE_URL !== 'postgresql://localhost:6543/canonical')",
+      "  process.exit(41);",
+    ].join("\n");
+
+    await expect(
+      runCommand(process.execPath, ["--input-type=module", "--eval", sentinel], {
+        env,
+        inheritEnv: false,
+      }),
+    ).resolves.toBeUndefined();
+    expect(env).not.toHaveProperty("PGHOSTADDR");
+    expect(env).not.toHaveProperty("RELEASE_EVIDENCE_SPACES_SECRET_KEY");
+    expect(env).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
   });
 });

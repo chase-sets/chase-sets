@@ -11,7 +11,7 @@ import {
   sanitizeObservationPackEnvelope,
   serializeObservationPackManifest,
 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
-import { runVerifyObservationPackCli } from "./verify-observation-pack.mjs";
+import { buildPostReplayVerifierEvidence, runVerifyObservationPackCli } from "./verify-observation-pack.mjs";
 
 const temporaryRoots = [];
 
@@ -20,6 +20,27 @@ afterEach(async () => {
 });
 
 describe("verify-observation-pack real entrypoint", () => {
+  it("binds Catalog and Discovery per-table row counts into the equality digest", () => {
+    const input = {
+      externalReferenceDigest: "a".repeat(64),
+      counts: { catalogItems: 1, storedAssetUrls: 7 },
+      perTableRowCounts: [
+        { table: "catalog.public.catalog_items", rowCount: "1" },
+        { table: "discovery.public.discovery_search_catalog_items", rowCount: "1" },
+      ],
+    };
+    const original = buildPostReplayVerifierEvidence(input);
+    const changed = buildPostReplayVerifierEvidence({
+      ...input,
+      perTableRowCounts: input.perTableRowCounts.map((row) =>
+        row.table.includes("discovery") ? { ...row, rowCount: "2" } : row,
+      ),
+    });
+
+    expect(original.verifierDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(changed.verifierDigest).not.toBe(original.verifierDigest);
+  });
+
   it("keeps command failures on a bounded support-safe classification", async () => {
     const source = await readFile(path.resolve("scripts/catalog-observation-pack-capture.ts"), "utf8");
     expect(source).toContain('classification: "observation-pack-command-failed"');

@@ -252,6 +252,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-production-stripe-webhook-endpoint-verify.yml": "release",
     "platform-production.yml": "release",
     "platform-registry-cleanup.yml": "release",
+    "representative-catalog-snapshot.yml": "release",
     "platform-release-candidate.yml": "release",
     "platform-risk-review.yml": "ci",
     "platform-rollback-readiness.yml": "release",

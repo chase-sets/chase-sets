@@ -7,6 +7,7 @@ import {
   buildSandboxEnv,
   ensureWorktreeSandboxEnvironment,
   getContextDatabaseEnvName,
+  listSandboxDatabases,
   mergeSandboxEnvFile,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
@@ -74,6 +75,16 @@ describe("worktree sandbox", () => {
     expect(env[getContextDatabaseEnvName("catalog")]).toContain("/cs_abc123_catalog");
     expect(env[getContextDatabaseEnvName("marketplace")]).toContain("/cs_abc123_marketplace");
     expect(env.STRIPE_WEBHOOK_FORWARD_URL).toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");
+  });
+
+  it("exposes the canonical coordinated database inventory as control plus every discovered context", () => {
+    const rootDir = createTempRepo();
+    const sandbox = resolveWorktreeSandbox({
+      rootDir,
+      env: { CHASE_SETS_SANDBOX_ID: "inventory", CHASE_SETS_SANDBOX_BASE_PORT: "7000" },
+    });
+
+    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
   });
 
   it("writes and updates the ignored per-worktree sandbox env file", () => {

@@ -9,7 +9,7 @@ register("./typescript-extension-loader.mjs", import.meta.url);
 
 const [
   { createFilesystemObjectStorage, createS3ObjectStorage },
-  { readVerifiedObservationPackEnvelopes, verifyObservationPack },
+  { readVerifiedObservationPackEnvelopes, sha256, stableStringify, verifyObservationPack },
   { readBoundedHttpObject },
 ] = await Promise.all([
   import("../infrastructure/object-storage/index.ts"),
@@ -81,7 +81,7 @@ export async function runVerifyObservationPackCli(argv, env, output, dependencie
   }
 }
 
-async function verifyPostReplay({ target, manifest, options, env, fetch }) {
+export async function verifyPostReplay({ target, manifest, options, env, fetch }) {
   const catalogDatabaseUrl =
     options.catalogDatabaseUrl ?? env.CATALOG_DATABASE_URL?.trim() ?? env.TEST_CATALOG_DATABASE_URL?.trim();
   const discoveryDatabaseUrl =
@@ -224,22 +224,80 @@ async function verifyPostReplay({ target, manifest, options, env, fetch }) {
     for (const storedUrl of storedAssetUrls) {
       await verifyCatalogAssetUrl(fetch, assetBaseUrl, storedUrl);
     }
+    const counts = {
+      envelopes: envelopes.length,
+      observations: observationIds.length,
+      catalogItems: catalogItemIds.length,
+      productAssetSets: evidence.reduce((sum, item) => sum + item.productAssetSets.length, 0),
+      storedAssetUrls: storedAssetUrls.length,
+      discoverySearchItems: Number(searchProjection.rows[0]?.count ?? 0),
+      discoveryItemDetails: Number(detailProjection.rows[0]?.count ?? 0),
+    };
+    const perTableRowCounts = [
+      ...(await readModelTableRowCounts(catalog, "catalog", "catalog_")),
+      ...(await readModelTableRowCounts(discovery, "discovery", "discovery_")),
+    ].sort((left, right) => left.table.localeCompare(right.table, "en"));
+    const externalReferenceDigest = representativeCatalogExternalReferenceDigest(evidence);
     return {
-      externalReferenceDigest: representativeCatalogExternalReferenceDigest(evidence),
-      counts: {
-        envelopes: envelopes.length,
-        observations: observationIds.length,
-        catalogItems: catalogItemIds.length,
-        productAssetSets: evidence.reduce((sum, item) => sum + item.productAssetSets.length, 0),
-        storedAssetUrls: storedAssetUrls.length,
-        discoverySearchItems: Number(searchProjection.rows[0]?.count ?? 0),
-        discoveryItemDetails: Number(detailProjection.rows[0]?.count ?? 0),
-      },
+      ...buildPostReplayVerifierEvidence({ externalReferenceDigest, counts, perTableRowCounts }),
       assetRoute: { checked: storedAssetUrls.length, http200: storedAssetUrls.length },
     };
   } finally {
     await Promise.allSettled([catalog.end(), discovery.end()]);
   }
+}
+
+export function buildPostReplayVerifierEvidence({ externalReferenceDigest, counts, perTableRowCounts }) {
+  return {
+    verifierDigest: sha256(
+      new TextEncoder().encode(
+        stableStringify({
+          externalReferenceDigest,
+          counts,
+          perTableRowCounts,
+        }),
+      ),
+    ),
+    externalReferenceDigest,
+    counts,
+    perTableRowCounts,
+  };
+}
+
+async function readModelTableRowCounts(pool, databaseKey, tablePrefix) {
+  const tables = await pool.query(
+    `SELECT schemaname, tablename
+     FROM pg_catalog.pg_tables
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+       AND tablename LIKE $1
+     ORDER BY schemaname, tablename`,
+    [`${tablePrefix}%`],
+  );
+  const counts = [];
+  for (const row of tables.rows) {
+    const schema = requireSqlIdentifier(row.schemaname);
+    const table = requireSqlIdentifier(row.tablename);
+    const result = await pool.query(`SELECT COUNT(*)::text AS count FROM "${schema}"."${table}"`);
+    counts.push({
+      table: `${databaseKey}.${schema}.${table}`,
+      rowCount: requireNonNegativeIntegerString(result.rows[0]?.count),
+    });
+  }
+  return counts;
+}
+
+function requireSqlIdentifier(value) {
+  if (typeof value !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error("Post-replay verifier encountered an invalid read-model table identifier.");
+  }
+  return value;
+}
+
+function requireNonNegativeIntegerString(value) {
+  if (typeof value !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(value)) {
+    throw new Error("Post-replay verifier encountered an invalid read-model row count.");
+  }
+  return value;
 }
 
 function requireLocalCatalogAssetBaseUrl(value) {

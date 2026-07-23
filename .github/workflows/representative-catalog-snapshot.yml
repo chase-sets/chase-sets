@@ -1,0 +1,100 @@
+name: Representative Catalog Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact ref containing the snapshot and replay contracts. Defaults to main.
+        required: false
+        default: main
+        type: string
+      pack_manifest_keys:
+        description: Ordered comma/newline-separated accepted Observation Pack manifest keys (one per representative set).
+        required: true
+        type: string
+      confirm:
+        description: Type "publish representative snapshot" to publish one coordinated set.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: representative-catalog-snapshot-publish
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Snapshot Publish
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'publish representative snapshot'
+    steps:
+      - name: Refuse unconfirmed publish
+        run: |
+          echo 'Confirmation text did not match exactly; expected "publish representative snapshot".' >&2
+          exit 1
+
+  publish:
+    name: Publish Coordinated Representative Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: merge-gate
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Publish representative snapshot set
+        env:
+          SEED_PACKS_SPACES_ACCESS_ID: ${{ secrets.SEED_PACKS_SPACES_ACCESS_ID }}
+          SEED_PACKS_SPACES_SECRET_KEY: ${{ secrets.SEED_PACKS_SPACES_SECRET_KEY }}
+          REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS: ${{ inputs.pack_manifest_keys }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/representative-snapshot
+          node ./scripts/representative-snapshot.mjs publish \
+            --confirm "publish representative snapshot" \
+            --report artifacts/representative-snapshot/publish-report.json
+
+      - name: Add support-safe publish summary
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync("artifacts/representative-snapshot/publish-report.json", "utf8"));
+          if (report.status !== "published") throw new Error("canonical publish report is not published");
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              "### Representative Catalog snapshot",
+              "",
+              `- Snapshot: \`${report.snapshotId}\``,
+              `- Compatibility: \`${report.compatibilityKey}\``,
+              `- Verifier: \`${report.verifierDigest}\``,
+              `- Databases: ${report.databaseKeys.join(", ")}`,
+              "",
+            ].join("\n"),
+          );
+          NODE
+
+      - name: Upload canonical publish report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: representative-catalog-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/representative-snapshot/publish-report.json
+          if-no-files-found: error
+          retention-days: 30

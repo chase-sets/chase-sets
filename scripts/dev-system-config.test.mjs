@@ -11,6 +11,8 @@ import {
   browserE2eProductionTarget,
   browserE2eRateLimitEnv,
   browserE2eReadConsistencyEnv,
+  buildPlatformChildEnvironment,
+  buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
@@ -196,5 +198,82 @@ describe("dev system target env overrides", () => {
         { name: "marketplace", env: { PORT: "6173" }, port: 6173 },
       ]),
     ).toThrow(/marketplace requires PLATFORM_API_URL/);
+  });
+
+  it("scrubs ambient database selectors and every Space credential from platform children", () => {
+    const childEnvironment = buildPlatformChildEnvironment(
+      {
+        PATH: "C:\\tools",
+        PGHOSTADDR: "203.0.113.42",
+        DB_HOST: "remote.example",
+        POSTGRES_DB: "hostile",
+        DATABASE_URL: "postgresql://remote.example/hostile",
+        POSTGRES_DEV_DATABASE_URL: "postgresql://remote.example/hostile",
+        RELEASE_EVIDENCE_SPACES_ACCESS_ID: "release-access",
+        RELEASE_EVIDENCE_SPACES_SECRET_KEY: "release-secret",
+        SEED_PACKS_SPACES_ACCESS_ID: "snapshot-access",
+        SEED_PACKS_SPACES_SECRET_KEY: "snapshot-secret",
+        STRIPE_SECRET_KEY: "stripe-local",
+      },
+      {
+        DATABASE_URL: "",
+        POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
+      },
+    );
+
+    expect(childEnvironment).toEqual({
+      PATH: "C:\\tools",
+      STRIPE_SECRET_KEY: "stripe-local",
+      DATABASE_URL: "",
+      POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
+    });
+    expect(
+      buildPlatformChildEnvironment(
+        { PATH: "C:\\tools", STRIPE_SECRET_KEY: "stripe-local" },
+        { POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical" },
+        { minimalBase: true },
+      ),
+    ).toEqual({
+      PATH: "C:\\tools",
+      POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
+    });
+  });
+
+  it("refuses an explicit non-local database selector instead of passing it to a platform child", () => {
+    expect(() =>
+      buildPlatformChildEnvironment(
+        { PATH: "C:\\tools" },
+        { DATABASE_URL_CATALOG: "postgresql://remote.example/catalog" },
+      ),
+    ).toThrow(/DATABASE_URL_CATALOG must be a local sandbox PostgreSQL URL/);
+  });
+
+  it("gives the snapshot command only its scoped object-storage credentials", () => {
+    const childEnvironment = buildRepresentativeSnapshotCommandEnvironment(
+      {
+        PATH: "C:\\tools",
+        PGHOSTADDR: "203.0.113.43",
+        RELEASE_EVIDENCE_SPACES_ACCESS_ID: "release-access",
+        RELEASE_EVIDENCE_SPACES_SECRET_KEY: "release-secret",
+        SEED_PACKS_SPACES_ACCESS_ID: "snapshot-access",
+        SEED_PACKS_SPACES_SECRET_KEY: "snapshot-secret",
+        REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS: "packs/one/manifest.json",
+      },
+      {
+        CHASE_SETS_SANDBOX_ID: "lane-01",
+        POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
+      },
+    );
+
+    expect(childEnvironment).toEqual({
+      PATH: "C:\\tools",
+      CHASE_SETS_SANDBOX_ID: "lane-01",
+      REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS: "packs/one/manifest.json",
+      SEED_PACKS_SPACES_ACCESS_ID: "snapshot-access",
+      SEED_PACKS_SPACES_SECRET_KEY: "snapshot-secret",
+    });
+    expect(childEnvironment).not.toHaveProperty("PGHOSTADDR");
+    expect(childEnvironment).not.toHaveProperty("RELEASE_EVIDENCE_SPACES_ACCESS_ID");
+    expect(childEnvironment).not.toHaveProperty("RELEASE_EVIDENCE_SPACES_SECRET_KEY");
   });
 });
