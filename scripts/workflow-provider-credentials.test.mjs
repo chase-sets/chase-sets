@@ -11,6 +11,8 @@ import {
 
 const workflowFile = ".github/workflows/platform-staging-reset.yml";
 const workflow = readFileSync(resolve(workflowFile), "utf8");
+const seedPacksWorkflowFile = ".github/workflows/platform-seed-packs-apply.yml";
+const seedPacksWorkflow = readFileSync(resolve(seedPacksWorkflowFile), "utf8");
 
 function stripStepEnvKey(source, stepName, envKey) {
   const stepStart = source.indexOf(`      - name: ${stepName}`);
@@ -54,6 +56,83 @@ describe("platform staging reset provider credential contract", () => {
     expect(checkWorkflowProviderCredentials(inlineWorkflow).violations).toEqual([
       expect.stringContaining("provider-touching step 'unnamed step' invokes aws but does not declare step env"),
     ]);
+  });
+});
+
+describe("seed-pack plan/apply provider credential contract (issue #5874)", () => {
+  const candidateFiles = [
+    [workflowFile, workflow],
+    [seedPacksWorkflowFile, seedPacksWorkflow],
+  ];
+
+  it("selects provider-touching steps by command shape and scans every contract candidate file", () => {
+    let scanned = 0;
+    for (const [file, source] of candidateFiles) {
+      const result = checkWorkflowProviderCredentials(source, { workflowFile: file });
+      expect(result.checkedSteps.length, `${file} must contain provider-tool steps`).toBeGreaterThan(0);
+      expect(result.violations, file).toEqual([]);
+      scanned += 1;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`provider credential contract: scanned ${scanned}/${candidateFiles.length} candidate files`);
+    expect(scanned).toBe(candidateFiles.length);
+  });
+
+  it("requires backend and DigitalOcean provider inputs on both plan and apply", () => {
+    const result = checkWorkflowProviderCredentials(seedPacksWorkflow, { workflowFile: seedPacksWorkflowFile });
+    const providerSteps = result.checkedSteps.filter((checked) =>
+      ["Terraform plan and seal seed packs", "Verify and apply exact reviewed seed-packs payload"].includes(
+        checked.name,
+      ),
+    );
+
+    expect(providerSteps).toHaveLength(2);
+    for (const checked of providerSteps) {
+      expect(checked.requiredEnv).toEqual([
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "PLAN_ENCRYPTION_SECRET",
+        "TF_VAR_digitalocean_token",
+        "TF_VAR_spaces_access_id",
+        "TF_VAR_spaces_secret_key",
+      ]);
+    }
+  });
+
+  it.each([
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "PLAN_ENCRYPTION_SECRET",
+    "TF_VAR_digitalocean_token",
+    "TF_VAR_spaces_access_id",
+    "TF_VAR_spaces_secret_key",
+  ])("negative control: plan fails with the withheld credential named: %s", (credential) => {
+    const step = "Terraform plan and seal seed packs";
+    const stripped = stripStepEnvKey(seedPacksWorkflow, step, credential);
+    const result = checkWorkflowProviderCredentials(stripped, { workflowFile: seedPacksWorkflowFile });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain(`provider-touching step '${step}' invokes terraform/reviewed-plan`);
+    expect(result.violations[0]).toContain(`does not declare step env: ${credential}`);
+  });
+
+  it.each([
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "PLAN_ENCRYPTION_SECRET",
+    "TF_VAR_digitalocean_token",
+    "TF_VAR_spaces_access_id",
+    "TF_VAR_spaces_secret_key",
+  ])("negative control: apply fails with the withheld credential named: %s", (credential) => {
+    const step = "Verify and apply exact reviewed seed-packs payload";
+    const stripped = stripStepEnvKey(seedPacksWorkflow, step, credential);
+    const result = checkWorkflowProviderCredentials(stripped, { workflowFile: seedPacksWorkflowFile });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain(`provider-touching step '${step}' invokes terraform/reviewed-plan`);
+    expect(result.violations[0]).toContain(`does not declare step env: ${credential}`);
   });
 });
 

@@ -1443,7 +1443,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
   });
 
-  it("defines platform Terraform deployment inputs once per job instead of per plan/apply step", () => {
+  it("defines platform Terraform deployment inputs at job scope and threads them into reset plan/apply steps", () => {
     const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const resetJob = workflowJob(platformStagingResetWorkflow, "reset-staging");
@@ -1474,15 +1474,23 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
 
-    const platformPlanApplySteps = [
+    const deployPlanApplySteps = [
       ...workflowSteps(platformProductionWorkflow, "Terraform plan"),
       ...workflowSteps(platformProductionWorkflow, "Terraform apply"),
+    ];
+
+    for (const step of deployPlanApplySteps) {
+      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+    }
+
+    const resetPlanApplySteps = [
       ...workflowSteps(platformStagingResetWorkflow, "Terraform plan staging recreate"),
       ...workflowSteps(platformStagingResetWorkflow, "Terraform apply staging recreate"),
     ];
-
-    for (const step of platformPlanApplySteps) {
-      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+    for (const step of resetPlanApplySteps) {
+      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
     }
   });
 
@@ -2322,5 +2330,89 @@ describe("Release qualification evidence root (issue #5836)", () => {
     const recordScript = readFileSync(resolve("scripts/release-qualification-record.mjs"), "utf8");
     expect(recordScript).toContain('RELEASE_QUALIFICATION_EVIDENCE_BUCKET = "chase-sets-release-qualification"');
     expect(recordScript).not.toContain('"chase-sets-terraform-state"');
+  });
+});
+
+describe("Seed Pack storage root (issue #5874)", () => {
+  const rootDir = "infrastructure/digitalocean/seed-packs";
+  const seedMain = readFileSync(resolve(`${rootDir}/main.tf`), "utf8");
+  const seedVersions = readFileSync(resolve(`${rootDir}/versions.tf`), "utf8");
+  const seedVariables = readFileSync(resolve(`${rootDir}/variables.tf`), "utf8");
+  const seedOutputs = readFileSync(resolve(`${rootDir}/outputs.tf`), "utf8");
+  const seedBackendExample = readFileSync(resolve(`${rootDir}/backend.hcl.example`), "utf8");
+  const seedReadme = readFileSync(resolve(`${rootDir}/README.md`), "utf8");
+  const seedRunbook = readFileSync(resolve("docs/runbooks/seed-pack-storage.md"), "utf8");
+  const seedWorkflow = readFileSync(resolve(".github/workflows/platform-seed-packs-apply.yml"), "utf8");
+  const stateSnapshotScript = readFileSync(resolve("scripts/digitalocean-terraform-state-snapshot.mjs"), "utf8");
+  const seedAllTf = [seedMain, seedVersions, seedVariables, seedOutputs].join("\n");
+
+  it("owns exactly the approved private versioned Space and two bucket-scoped keys", () => {
+    expect(seedAllTf.match(/^resource "/gm) ?? []).toHaveLength(3);
+    expect(seedVariables).toContain('default = "cs-dev-seed-packs"');
+    expect(seedMain).toMatch(/resource "digitalocean_spaces_bucket" "seed_packs"/);
+    expect(seedMain).toContain('acl    = "private"');
+    expect(seedMain).toMatch(/versioning\s*{\s*enabled = true\s*}/);
+    expect(seedMain).toContain("force_destroy = false");
+    expect(seedMain).toMatch(/lifecycle\s*{\s*prevent_destroy = true\s*}/);
+    expect(seedAllTf).not.toMatch(/digitalocean_cdn|digitalocean_spaces_bucket_policy|public-read/);
+
+    const keys = seedMain.match(/resource "digitalocean_spaces_key" "(?:dev|ci)"/g) ?? [];
+    expect(keys).toHaveLength(2);
+    expect(seedMain.match(/bucket\s+= digitalocean_spaces_bucket\.seed_packs\.name/g)).toHaveLength(2);
+    expect(seedMain.match(/permission\s+= "readwrite"/g)).toHaveLength(2);
+    expect(seedMain).not.toContain("fullaccess");
+  });
+
+  it("retains accepted current objects and expires deleted payload versions within 30 days", () => {
+    expect(seedMain).toMatch(/expiration\s*{\s*expired_object_delete_marker = true\s*}/);
+    expect(seedMain).toMatch(/noncurrent_version_expiration\s*{\s*days = 30\s*}/);
+    expect(seedMain).not.toMatch(/^\s*expiration\s*{\s*days\s*=/m);
+    expect(seedMain).toContain("abort_incomplete_multipart_upload_days = 7");
+    expect(seedReadme).toContain("Accepted packs have no age-based expiration");
+    expect(seedRunbook).toContain("within 30 days");
+  });
+
+  it("uses the sibling shared-state convention and registers the durable state key", () => {
+    expect(seedVersions).toContain('backend "s3" {}');
+    expect(seedVersions).toContain('source  = "digitalocean/digitalocean"');
+    expect(seedVersions).toContain('version = "~> 2.85"');
+    expect(seedBackendExample).toContain('bucket                      = "chase-sets-terraform-state"');
+    expect(seedBackendExample).toContain('key                         = "seed-packs/shared.tfstate"');
+    expect(stateSnapshotScript).toContain('"seed-packs/shared.tfstate"');
+  });
+
+  it("keeps key material sensitive and names both operator destinations", () => {
+    for (const output of [
+      "dev_spaces_access_id",
+      "dev_spaces_secret_key",
+      "ci_spaces_access_id",
+      "ci_spaces_secret_key",
+    ]) {
+      expect(seedOutputs).toMatch(new RegExp(`output "${output}" \\{[\\s\\S]*?sensitive = true[\\s\\S]*?\\}`));
+    }
+    expect(seedRunbook).toContain("SEED_PACKS_SPACES_ACCESS_ID");
+    expect(seedRunbook).toContain("SEED_PACKS_SPACES_SECRET_KEY");
+    expect(seedRunbook).toContain("`preview` and `merge-gate`");
+    expect(seedRunbook).toContain("Do not add them to `staging` or `production`");
+  });
+
+  it("binds the reviewed encrypted plan payload to apply and wires live privacy/isolation probes", () => {
+    expect(seedWorkflow).toContain('plan -out="$binary_plan"');
+    expect(seedWorkflow).toContain('apply -auto-approve "$decrypted_plan"');
+    expect(seedWorkflow).toContain("reviewed_plan_run_id:");
+    expect(seedWorkflow).toContain("reviewed_plan_run_attempt:");
+    expect(seedWorkflow).toContain("reviewed_plan_artifact_digest:");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs seal");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs verify-source");
+    expect(seedWorkflow).toContain("scripts/terraform-reviewed-plan.mjs open");
+    expect(seedWorkflow).toContain("probe_key dev dev_spaces_access_id dev_spaces_secret_key");
+    expect(seedWorkflow).toContain("probe_key ci ci_spaces_access_id ci_spaces_secret_key");
+    expect(seedWorkflow).toContain('status" != "403"');
+    expect(seedWorkflow).toContain("--bucket chase-sets-terraform-state");
+    expect(seedWorkflow).toContain('grep -qi "AccessDenied"');
+    expect(seedRunbook).toContain("terraform apply -replace=digitalocean_spaces_key.dev");
+    expect(seedRunbook).toContain("terraform apply -replace=digitalocean_spaces_key.ci");
+    expect(seedRunbook).toContain("aws s3api delete-objects");
+    expect(seedRunbook).toContain("Post the terminal operator evidence on #5951 and cross-link it from #5874");
   });
 });

@@ -228,6 +228,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "marketplace-provider-proof-status.yml": "ci",
     "platform-catalog-assets-apply.yml": "release",
     "platform-catalog-assets-state-repair.yml": "release",
+    "platform-seed-packs-apply.yml": "release",
     "platform-ci-flake-digest.yml": "ci",
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",

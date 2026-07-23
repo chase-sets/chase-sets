@@ -1,0 +1,438 @@
+name: Platform Seed Packs Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Produce a plan for review, or apply an explicitly reviewed plan artifact.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      release_ref:
+        description: Exact lowercase 40-character commit SHA to plan or apply. Mutable refs are rejected.
+        required: true
+        type: string
+      reviewed_plan_run_id:
+        description: Apply only - source plan workflow run ID shown in the reviewed plan summary.
+        required: false
+        default: ""
+        type: string
+      reviewed_plan_run_attempt:
+        description: Apply only - source plan workflow run attempt shown in the reviewed plan summary.
+        required: false
+        default: ""
+        type: string
+      reviewed_plan_artifact_digest:
+        description: "Apply only - exact sha256: GitHub artifact digest shown in the reviewed plan summary."
+        required: false
+        default: ""
+        type: string
+      confirm:
+        description: Type "plan seed-packs" or "apply seed-packs".
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: platform-seed-packs
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TERRAFORM_ROOT: infrastructure/digitalocean/seed-packs
+  TERRAFORM_STATE_KEY: seed-packs/shared.tfstate
+  REVIEWED_PLAN_MAX_AGE_SECONDS: "86400"
+
+jobs:
+  plan:
+    if: inputs.mode == 'plan'
+    name: Seed Packs plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Planning uses the existing protected provider secret boundary, but this
+    # job has no apply-capable step. Its immutable artifact must exist and be
+    # reviewed before a separately approved apply run can start.
+    environment: production
+    steps:
+      - name: Confirm seed-packs plan request
+        env:
+          REQUEST_CONFIRM: ${{ inputs.confirm }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$REQUEST_CONFIRM" != "plan seed-packs" ]; then
+            echo "Confirmation text did not match exactly; expected 'plan seed-packs'." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$REQUEST_RELEASE_REF" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "release_ref must be an exact lowercase 40-character commit SHA; mutable refs are rejected." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$GITHUB_SHA" != "$REQUEST_RELEASE_REF" ]; then
+            echo "Plan runs must execute the reviewed workflow from main at the exact release_ref commit." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - name: Verify exact plan checkout
+        env:
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$REQUEST_RELEASE_REF" ]; then
+            echo "Checked-out plan commit did not match release_ref." >&2
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init seed packs for plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform -chdir="$TERRAFORM_ROOT" init -backend-config=backend.hcl.example
+
+      - name: Terraform format seed packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform -chdir="$TERRAFORM_ROOT" fmt -check -recursive
+
+      - name: Terraform validate seed packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: terraform -chdir="$TERRAFORM_ROOT" validate
+
+      - name: Terraform plan and seal seed packs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          PLAN_ENCRYPTION_SECRET: ${{ secrets.SPACES_SECRET_KEY }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+          SOURCE_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          binary_plan="${RUNNER_TEMP}/seed-packs.tfplan"
+          review_text="${RUNNER_TEMP}/seed-packs-plan.txt"
+          artifact_dir="artifacts/seed-packs-reviewed-plan"
+          cleanup_plaintext() {
+            rm -f "$binary_plan" "$review_text"
+          }
+          trap cleanup_plaintext EXIT
+
+          terraform -chdir="$TERRAFORM_ROOT" plan -out="$binary_plan"
+          terraform -chdir="$TERRAFORM_ROOT" show -no-color "$binary_plan" > "$review_text"
+          terraform_version="$(terraform version -json | jq -r .terraform_version)"
+          node scripts/terraform-reviewed-plan.mjs seal \
+            --plan-binary "$binary_plan" \
+            --review-text "$review_text" \
+            --out-dir "$artifact_dir" \
+            --terraform-root-path "$TERRAFORM_ROOT" \
+            --backend-config "$TERRAFORM_ROOT/backend.hcl.example" \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-workflow-path ".github/workflows/platform-seed-packs-apply.yml" \
+            --source-workflow-ref "$SOURCE_WORKFLOW_REF" \
+            --source-run-id "$GITHUB_RUN_ID" \
+            --source-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-workflow-commit "$GITHUB_SHA" \
+            --release-commit "$REQUEST_RELEASE_REF" \
+            --release-ref "$REQUEST_RELEASE_REF" \
+            --approval-environment "production" \
+            --terraform-root "$TERRAFORM_ROOT" \
+            --state-key "$TERRAFORM_STATE_KEY" \
+            --terraform-version "$terraform_version" \
+            --sensitive-env-names "AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TF_VAR_digitalocean_token,TF_VAR_spaces_access_id,TF_VAR_spaces_secret_key,PLAN_ENCRYPTION_SECRET"
+
+      - name: Upload immutable reviewed seed-packs plan
+        id: upload-reviewed-plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seed-packs-reviewed-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/seed-packs-reviewed-plan
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Summarize reviewed seed-packs plan
+        env:
+          ARTIFACT_DIGEST: sha256:${{ steps.upload-reviewed-plan.outputs.artifact-digest }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          {
+            echo "## Seed Packs reviewed Terraform plan"
+            echo ""
+            echo "- Release commit/ref: ${REQUEST_RELEASE_REF}"
+            echo "- Source workflow: .github/workflows/platform-seed-packs-apply.yml"
+            echo "- Source run/attempt: ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}"
+            echo "- Approval environment: production"
+            echo "- Terraform root: ${TERRAFORM_ROOT}"
+            echo "- State key: ${TERRAFORM_STATE_KEY}"
+            echo "- Artifact: seed-packs-reviewed-plan-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "- Artifact digest: ${ARTIFACT_DIGEST}"
+            echo "- Apply payload: authenticated-encrypted; plaintext binary was deleted before upload"
+            echo "- Review file: reviewed-plan.txt"
+            echo "- Valid for apply: 24 hours"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    if: inputs.mode == 'apply'
+    name: Seed Packs apply ${{ inputs.reviewed_plan_run_id }}/${{ inputs.reviewed_plan_run_attempt }} ${{ inputs.reviewed_plan_artifact_digest }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The owner approves only after the named plan run/attempt and exact
+    # artifact digest already exist for review. The sole mutation is below.
+    environment: production
+    steps:
+      - name: Confirm reviewed seed-packs apply request
+        env:
+          REQUEST_CONFIRM: ${{ inputs.confirm }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+          REVIEWED_RUN_ID: ${{ inputs.reviewed_plan_run_id }}
+          REVIEWED_RUN_ATTEMPT: ${{ inputs.reviewed_plan_run_attempt }}
+          REVIEWED_ARTIFACT_DIGEST: ${{ inputs.reviewed_plan_artifact_digest }}
+        run: |
+          set -euo pipefail
+          if [ "$REQUEST_CONFIRM" != "apply seed-packs" ]; then
+            echo "Confirmation text did not match exactly; expected 'apply seed-packs'." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$REQUEST_RELEASE_REF" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "release_ref must be an exact lowercase 40-character commit SHA; mutable refs are rejected." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$REVIEWED_RUN_ID" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "reviewed_plan_run_id is required and must be a positive integer." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$REVIEWED_RUN_ATTEMPT" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "reviewed_plan_run_attempt is required and must be a positive integer." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$REVIEWED_ARTIFACT_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "reviewed_plan_artifact_digest is required and must be an exact sha256: digest." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Apply runs must execute the protected workflow from main." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate reviewed source run and immutable artifact digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+          REVIEWED_RUN_ID: ${{ inputs.reviewed_plan_run_id }}
+          REVIEWED_RUN_ATTEMPT: ${{ inputs.reviewed_plan_run_attempt }}
+          REVIEWED_ARTIFACT_DIGEST: ${{ inputs.reviewed_plan_artifact_digest }}
+        run: |
+          set -euo pipefail
+          artifact_name="seed-packs-reviewed-plan-${REVIEWED_RUN_ID}-${REVIEWED_RUN_ATTEMPT}"
+          run_json="${RUNNER_TEMP}/reviewed-seed-packs-run.json"
+          artifacts_json="${RUNNER_TEMP}/reviewed-seed-packs-artifacts.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REVIEWED_RUN_ID}" > "$run_json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REVIEWED_RUN_ID}/artifacts?name=${artifact_name}" > "$artifacts_json"
+          node scripts/terraform-reviewed-plan.mjs verify-source \
+            --run-json "$run_json" \
+            --artifacts-json "$artifacts_json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-workflow-path ".github/workflows/platform-seed-packs-apply.yml" \
+            --source-run-id "$REVIEWED_RUN_ID" \
+            --source-run-attempt "$REVIEWED_RUN_ATTEMPT" \
+            --release-commit "$REQUEST_RELEASE_REF" \
+            --source-branch "main" \
+            --artifact-name "$artifact_name" \
+            --artifact-digest "$REVIEWED_ARTIFACT_DIGEST" \
+            --max-age-seconds "$REVIEWED_PLAN_MAX_AGE_SECONDS"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - name: Verify exact apply checkout
+        env:
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$REQUEST_RELEASE_REF" ]; then
+            echo "Checked-out apply commit did not match release_ref." >&2
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Download exact reviewed seed-packs plan
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: seed-packs-reviewed-plan-${{ inputs.reviewed_plan_run_id }}-${{ inputs.reviewed_plan_run_attempt }}
+          path: artifacts/downloaded-seed-packs-reviewed-plan
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reviewed_plan_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify and apply exact reviewed seed-packs payload
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          PLAN_ENCRYPTION_SECRET: ${{ secrets.SPACES_SECRET_KEY }}
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+          REVIEWED_RUN_ID: ${{ inputs.reviewed_plan_run_id }}
+          REVIEWED_RUN_ATTEMPT: ${{ inputs.reviewed_plan_run_attempt }}
+        run: |
+          set -euo pipefail
+          decrypted_plan="${RUNNER_TEMP}/reviewed-seed-packs.tfplan"
+          cleanup_plaintext() {
+            rm -f "$decrypted_plan"
+          }
+          trap cleanup_plaintext EXIT
+
+          node scripts/terraform-reviewed-plan.mjs open \
+            --bundle-dir "artifacts/downloaded-seed-packs-reviewed-plan" \
+            --output-plan "$decrypted_plan" \
+            --terraform-root-path "$TERRAFORM_ROOT" \
+            --backend-config "$TERRAFORM_ROOT/backend.hcl.example" \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-workflow-path ".github/workflows/platform-seed-packs-apply.yml" \
+            --source-workflow-ref "${GITHUB_REPOSITORY}/.github/workflows/platform-seed-packs-apply.yml@refs/heads/main" \
+            --source-run-id "$REVIEWED_RUN_ID" \
+            --source-run-attempt "$REVIEWED_RUN_ATTEMPT" \
+            --source-workflow-commit "$REQUEST_RELEASE_REF" \
+            --release-commit "$REQUEST_RELEASE_REF" \
+            --release-ref "$REQUEST_RELEASE_REF" \
+            --approval-environment "production" \
+            --terraform-root "$TERRAFORM_ROOT" \
+            --state-key "$TERRAFORM_STATE_KEY" \
+            --max-age-seconds "$REVIEWED_PLAN_MAX_AGE_SECONDS"
+
+          terraform -chdir="$TERRAFORM_ROOT" init -backend-config=backend.hcl.example
+          terraform -chdir="$TERRAFORM_ROOT" apply -auto-approve "$decrypted_plan"
+
+      - name: Verify seed-pack privacy and key isolation
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          bucket="$(terraform -chdir="$TERRAFORM_ROOT" output -raw seed_packs_bucket_name)"
+          origin="$(terraform -chdir="$TERRAFORM_ROOT" output -raw seed_packs_bucket_origin)"
+          endpoint="https://$(terraform -chdir="$TERRAFORM_ROOT" output -raw seed_packs_bucket_endpoint)"
+          backend_access_id="$AWS_ACCESS_KEY_ID"
+          backend_secret_key="$AWS_SECRET_ACCESS_KEY"
+          active_probe_object=""
+          printf 'seed-pack access probe\n' > "${RUNNER_TEMP}/seed-pack-probe.txt"
+
+          cleanup_probe_best_effort() {
+            if [ -n "$active_probe_object" ]; then
+              aws s3api delete-object --bucket "$bucket" --key "$active_probe_object" --endpoint-url "$endpoint" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_probe_best_effort EXIT
+
+          probe_key() {
+            audience="$1"
+            access_output="$2"
+            secret_output="$3"
+            export AWS_ACCESS_KEY_ID="$backend_access_id"
+            export AWS_SECRET_ACCESS_KEY="$backend_secret_key"
+            access_id="$(terraform -chdir="$TERRAFORM_ROOT" output -raw "$access_output")"
+            secret_key="$(terraform -chdir="$TERRAFORM_ROOT" output -raw "$secret_output")"
+            if [ -z "$access_id" ]; then
+              echo "${access_output} is required for the ${audience} scoped-key probe." >&2
+              return 1
+            fi
+            if [ -z "$secret_key" ]; then
+              echo "${secret_output} is required for the ${audience} scoped-key probe." >&2
+              return 1
+            fi
+            echo "::add-mask::${access_id}"
+            echo "::add-mask::${secret_key}"
+            export AWS_ACCESS_KEY_ID="$access_id"
+            export AWS_SECRET_ACCESS_KEY="$secret_key"
+            active_probe_object="operator-probes/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${audience}.txt"
+
+            aws s3api put-object \
+              --bucket "$bucket" \
+              --key "$active_probe_object" \
+              --body "${RUNNER_TEMP}/seed-pack-probe.txt" \
+              --endpoint-url "$endpoint" >/dev/null
+            aws s3api head-object --bucket "$bucket" --key "$active_probe_object" --endpoint-url "$endpoint" >/dev/null
+
+            anonymous_response="${RUNNER_TEMP}/${audience}-anonymous-response.xml"
+            status="$(curl -sS -o "$anonymous_response" -w '%{http_code}' "https://${origin}/${active_probe_object}")"
+            if [ "$status" != "403" ] || ! grep -qi "AccessDenied" "$anonymous_response"; then
+              echo "${audience} probe object was not private; status=${status}." >&2
+              return 1
+            fi
+
+            cross_bucket_error="${RUNNER_TEMP}/${audience}-cross-bucket-error.txt"
+            if aws s3api list-objects-v2 \
+              --bucket chase-sets-terraform-state \
+              --max-items 1 \
+              --endpoint-url "$endpoint" >/dev/null 2>"$cross_bucket_error"; then
+              echo "${audience} scoped key unexpectedly accessed the Terraform-state bucket." >&2
+              return 1
+            fi
+            if ! grep -qi "AccessDenied" "$cross_bucket_error"; then
+              echo "${audience} cross-bucket probe failed without the required AccessDenied response." >&2
+              return 1
+            fi
+
+            aws s3api delete-object \
+              --bucket "$bucket" \
+              --key "$active_probe_object" \
+              --endpoint-url "$endpoint" >/dev/null
+            active_probe_object=""
+            echo "${audience} scoped key passed read/write, anonymous 403, and cross-bucket denial probes."
+          }
+
+          probe_key dev dev_spaces_access_id dev_spaces_secret_key
+          probe_key ci ci_spaces_access_id ci_spaces_secret_key
+          trap - EXIT
+
+      - name: Summarize applied reviewed seed-packs plan
+        if: always()
+        env:
+          REQUEST_RELEASE_REF: ${{ inputs.release_ref }}
+          REVIEWED_RUN_ID: ${{ inputs.reviewed_plan_run_id }}
+          REVIEWED_RUN_ATTEMPT: ${{ inputs.reviewed_plan_run_attempt }}
+          REVIEWED_ARTIFACT_DIGEST: ${{ inputs.reviewed_plan_artifact_digest }}
+        run: |
+          {
+            echo "## Seed Packs reviewed Terraform apply"
+            echo ""
+            echo "- Release commit/ref: ${REQUEST_RELEASE_REF}"
+            echo "- Reviewed source run/attempt: ${REVIEWED_RUN_ID}/${REVIEWED_RUN_ATTEMPT}"
+            echo "- Reviewed artifact digest: ${REVIEWED_ARTIFACT_DIGEST}"
+            echo "- State key: ${TERRAFORM_STATE_KEY}"
+            echo "- Apply behavior: authenticated payload only; no re-plan"
+            echo "- Provider acceptance and both scoped-key probes: required"
+            echo "- Secret provisioning: operator handoff remains required in #5951"
+          } >> "$GITHUB_STEP_SUMMARY"
