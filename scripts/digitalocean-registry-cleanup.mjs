@@ -9,6 +9,8 @@ const SHA_TAG_PATTERN = /^[0-9a-f]{40}$/i;
 const TREE_TAG_PATTERN = /^tree-[0-9a-f]{40}$/i;
 const PROVIDER_MANAGED_GC_REFUSAL =
   "manual garbage collection is not available while automated garbage collection is enabled for this registry";
+const GODO_REQUEST_ID_PREFIX =
+  /^\(request "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"\) /i;
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
@@ -338,6 +340,9 @@ export function classifyCommandFailure(error, stdout = "", stderr = "") {
   const httpFailure = rawOutput.match(/(?:^|\s)(\d{3})\s+(.+)$/);
   const providerStatus = httpFailure ? Number.parseInt(httpFailure[1], 10) : null;
   const providerMessage = httpFailure?.[2]?.trim() ?? null;
+  const normalizedProviderMessage = providerMessage?.match(GODO_REQUEST_ID_PREFIX)
+    ? providerMessage.replace(GODO_REQUEST_ID_PREFIX, "")
+    : null;
   const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
   const classification =
     providerStatus !== null
@@ -353,7 +358,8 @@ export function classifyCommandFailure(error, stdout = "", stderr = "") {
   return {
     classification,
     providerStatus,
-    providerManagedGarbageCollection: providerStatus === 412 && providerMessage === PROVIDER_MANAGED_GC_REFUSAL,
+    providerManagedGarbageCollection:
+      providerStatus === 412 && normalizedProviderMessage === PROVIDER_MANAGED_GC_REFUSAL,
   };
 }
 

@@ -12,11 +12,21 @@ import {
   validateDigitalOceanRegistryCleanupRecord,
 } from "./digitalocean-registry-cleanup.mjs";
 
-const providerManagedGarbageCollectionRefusal = () => {
-  const error = new Error("raw provider response must not escape");
+const observedProviderManagedGarbageCollectionRefusal = () => {
+  const error = new Error("raw-exception-secret-marker must not escape");
   error.code = 1;
   error.stderr =
-    "Error: POST https://api.digitalocean.com/v2/registries/example/garbage-collection: 412 manual garbage collection is not available while automated garbage collection is enabled for this registry";
+    'Error: POST https://api.digitalocean.com/v2/registry/chase-sets/garbage-collection: 412 (request "00000000-0000-4000-8000-000000000000") manual garbage collection is not available while automated garbage collection is enabled for this registry';
+  return error;
+};
+
+const observedRequestId = "00000000-0000-4000-8000-000000000000";
+const providerManagedMessage =
+  "manual garbage collection is not available while automated garbage collection is enabled for this registry";
+const providerFailure = (status, message, { code = 1 } = {}) => {
+  const error = new Error("raw-exception-secret-marker must not escape");
+  error.code = code;
+  error.stderr = `Error: POST https://api.digitalocean.com/v2/registry/chase-sets/garbage-collection: ${status} ${message}`;
   return error;
 };
 
@@ -327,7 +337,134 @@ describe("digitalocean-registry-cleanup", () => {
     expect(calls).toContainEqual(["registry", "garbage-collection", "start", "--force"]);
   });
 
-  it("treats only the live external-authority-shaped automated-GC 412 as provider-managed success", async () => {
+  it("accepts the sanitized real-run godo 412 shape at the cleanup client seam and writes the canonical record", async () => {
+    const calls = [];
+    const directory = mkdtempSync(join(tmpdir(), "registry-cleanup-provider-managed-"));
+    const outPath = join(directory, "digitalocean-registry-cleanup.json");
+    try {
+      const result = await runDigitalOceanRegistryCleanup(
+        {
+          repository: "chase-sets-platform",
+          retentionDays: 7,
+          dryRun: false,
+          requestedDryRun: false,
+          protectedTags: [],
+          checkedAt: "2026-07-22T12:00:00.000Z",
+          outPath,
+        },
+        {
+          commandOutput: async (_command, args) => {
+            calls.push(args);
+            if (args.slice(0, 3).join(" ") === "registry repository list-tags") {
+              return JSON.stringify([{ tag: "old-main", updated_at: "2026-03-01T00:00:00.000Z" }]);
+            }
+            if (args[2] === "delete-tag") return "";
+            if (args.slice(0, 3).join(" ") === "registry garbage-collection start") {
+              throw observedProviderManagedGarbageCollectionRefusal();
+            }
+            throw new Error("unexpected fixture command");
+          },
+        },
+      );
+
+      expect(result.passesCleanupGate).toBe(true);
+      expect(result.record).toMatchObject({
+        result: "success",
+        selectedDeletionTags: [{ name: "old-main" }],
+        deletedTags: [{ name: "old-main" }],
+        failedTags: [],
+        garbageCollection: { status: "skipped", reason: "provider-managed" },
+        errors: [],
+      });
+      expect(calls.map((args) => args.slice(0, 3))).toEqual([
+        ["registry", "repository", "list-tags"],
+        ["registry", "repository", "delete-tag"],
+        ["registry", "garbage-collection", "start"],
+      ]);
+      const serializedRecord = readFileSync(outPath, "utf8");
+      expect(validateDigitalOceanRegistryCleanupRecord(JSON.parse(serializedRecord))).toEqual([]);
+      expect(serializedRecord.match(/"schemaVersion"/g)).toHaveLength(1);
+      expect(serializedRecord).not.toContain(observedRequestId);
+      expect(serializedRecord).not.toContain("raw-exception-secret-marker");
+      expect(serializedRecord).not.toContain("api.digitalocean.com");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["request-id-free internal fixture", providerFailure(412, providerManagedMessage)],
+    [
+      "wrong message with a request id",
+      providerFailure(412, `(request "${observedRequestId}") another precondition failed secret-body-marker`),
+    ],
+    ["empty request id", providerFailure(412, `(request "") ${providerManagedMessage}`)],
+    ["malformed request id", providerFailure(412, `(request "not-a-uuid") ${providerManagedMessage}`)],
+    [
+      "extra text before the request segment",
+      providerFailure(412, `unexpected-prefix (request "${observedRequestId}") ${providerManagedMessage}`),
+    ],
+    [
+      "extra text after the authoritative message",
+      providerFailure(412, `(request "${observedRequestId}") ${providerManagedMessage} unexpected-suffix`),
+    ],
+    [
+      "duplicate request segments",
+      providerFailure(
+        412,
+        `(request "${observedRequestId}") (request "${observedRequestId}") ${providerManagedMessage}`,
+      ),
+    ],
+    ["another 412", providerFailure(412, `(request "${observedRequestId}") another precondition failed`)],
+    ["401", providerFailure(401, `(request "${observedRequestId}") ${providerManagedMessage}`)],
+    ["403", providerFailure(403, `(request "${observedRequestId}") ${providerManagedMessage}`)],
+    ["429", providerFailure(429, `(request "${observedRequestId}") ${providerManagedMessage}`)],
+    ["500", providerFailure(500, `(request "${observedRequestId}") provider internal failure`)],
+    ["malformed provider output", providerFailure("not-http", "secret-body-marker")],
+    [
+      "timeout transport failure",
+      Object.assign(new Error("raw-exception-secret-marker must not escape"), {
+        code: "ETIMEDOUT",
+        stderr: "secret-body-marker",
+      }),
+    ],
+  ])("keeps every non-authoritative garbage-collection refusal red: %s", async (_name, failure) => {
+    const result = await runDigitalOceanRegistryCleanup(
+      {
+        repository: "chase-sets-platform",
+        retentionDays: 7,
+        dryRun: false,
+        requestedDryRun: false,
+        protectedTags: [],
+        checkedAt: "2026-07-22T12:00:00.000Z",
+      },
+      {
+        commandOutput: async (_command, args) => {
+          if (args.slice(0, 3).join(" ") === "registry repository list-tags") return "[]";
+          throw failure;
+        },
+      },
+    );
+
+    expect(result.passesCleanupGate).toBe(false);
+    expect(result.record).toMatchObject({
+      result: "failure",
+      garbageCollection: { status: "failed", reason: "doctl-failed" },
+      errors: ["DigitalOcean registry garbage collection could not be started."],
+    });
+    const serialized = JSON.stringify(result.record);
+    expect(serialized).not.toContain("raw-exception-secret-marker");
+    expect(serialized).not.toContain("secret-body-marker");
+    expect(serialized).not.toContain("provider internal failure");
+    expect(result.record.garbageCollection.errors).toEqual([
+      expect.stringMatching(/^failure classification: (provider-http|transport|command-exit)$/),
+      ...(typeof failure.stderr === "string" && /(?:^|\s)\d{3}\s+/.test(failure.stderr)
+        ? [expect.stringMatching(/^provider status: \d{3}$/)]
+        : []),
+    ]);
+  });
+
+  it("keeps malformed registry JSON support-safe and fails before any mutation", async () => {
     const calls = [];
     const result = await runDigitalOceanRegistryCleanup(
       {
@@ -341,64 +478,7 @@ describe("digitalocean-registry-cleanup", () => {
       {
         commandOutput: async (_command, args) => {
           calls.push(args);
-          if (args.slice(0, 3).join(" ") === "registry repository list-tags") {
-            return JSON.stringify([{ tag: "old-main", updated_at: "2026-03-01T00:00:00.000Z" }]);
-          }
-          if (args[2] === "delete-tag") return "";
-          if (args.slice(0, 3).join(" ") === "registry garbage-collection start") {
-            throw providerManagedGarbageCollectionRefusal();
-          }
-          throw new Error("unexpected fixture command");
-        },
-      },
-    );
-
-    expect(result.passesCleanupGate).toBe(true);
-    expect(result.record).toMatchObject({
-      result: "success",
-      selectedDeletionTags: [{ name: "old-main" }],
-      deletedTags: [{ name: "old-main" }],
-      failedTags: [],
-      garbageCollection: { status: "skipped", reason: "provider-managed" },
-      errors: [],
-    });
-    expect(calls.map((args) => args.slice(0, 3))).toEqual([
-      ["registry", "repository", "list-tags"],
-      ["registry", "repository", "delete-tag"],
-      ["registry", "garbage-collection", "start"],
-    ]);
-  });
-
-  it.each([
-    [
-      "same body with a different HTTP status",
-      "Error: POST https://api.digitalocean.com/v2/registries/example/garbage-collection: 409 manual garbage collection is not available while automated garbage collection is enabled for this registry",
-    ],
-    [
-      "different 412 body",
-      "Error: POST https://api.digitalocean.com/v2/registries/example/garbage-collection: 412 another precondition failed",
-    ],
-    [
-      "server failure",
-      "Error: POST https://api.digitalocean.com/v2/registries/example/garbage-collection: 500 provider internal failure",
-    ],
-  ])("keeps every non-authoritative garbage-collection refusal red: %s", async (_name, stderr) => {
-    const result = await runDigitalOceanRegistryCleanup(
-      {
-        repository: "chase-sets-platform",
-        retentionDays: 7,
-        dryRun: false,
-        requestedDryRun: false,
-        protectedTags: [],
-        checkedAt: "2026-07-22T12:00:00.000Z",
-      },
-      {
-        commandOutput: async (_command, args) => {
-          if (args.slice(0, 3).join(" ") === "registry repository list-tags") return "[]";
-          const error = new Error("credential-bearing raw exception");
-          error.code = 1;
-          error.stderr = stderr;
-          throw error;
+          return '{"secret-body-marker":';
         },
       },
     );
@@ -406,13 +486,12 @@ describe("digitalocean-registry-cleanup", () => {
     expect(result.passesCleanupGate).toBe(false);
     expect(result.record).toMatchObject({
       result: "failure",
-      garbageCollection: { status: "failed", reason: "doctl-failed" },
-      errors: ["DigitalOcean registry garbage collection could not be started."],
+      deletedTags: [],
+      garbageCollection: { status: "skipped", reason: "registry-read-failed" },
+      errors: ["DigitalOcean registry tags could not be listed.", "failure classification: invalid-response"],
     });
-    const serialized = JSON.stringify(result.record);
-    expect(serialized).not.toContain("credential-bearing");
-    expect(serialized).not.toContain("provider internal failure");
-    expect(result.record.garbageCollection.errors).toContain("failure classification: provider-http");
+    expect(calls).toHaveLength(1);
+    expect(JSON.stringify(result.record)).not.toContain("secret-body-marker");
   });
 
   it("classifies transport failures without copying raw exception messages", () => {
