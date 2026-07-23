@@ -126,8 +126,10 @@ jobs:
           console.log(`- Result: ${record.result}`);
           console.log(`- Environment: ${record.environment}`);
           console.log(`- Mode: ${record.mode}`);
-          console.log(`- Databases: ${summary.databaseCount ?? 0}`);
+          console.log(`- Attempted databases: ${summary.attemptedDatabaseCount ?? 0}`);
+          console.log(`- Collected databases: ${summary.collectedDatabaseCount ?? 0}`);
           console.log(`- Collection errors: ${summary.collectionErrorCount ?? 0}`);
+          console.log(`- Databases with extension absent (valid evidence): ${summary.extensionAbsentDatabaseCount ?? 0}`);
           console.log(`- Databases with extension installed: ${summary.extensionInstalledDatabaseCount ?? 0}`);
           console.log(`- Query digests: ${summary.digestCount ?? 0}`);
           console.log(`- Largest total execution time ms: ${summary.largestTotalExecTimeMs ?? 0}`);

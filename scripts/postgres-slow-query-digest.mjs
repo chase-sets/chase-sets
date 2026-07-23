@@ -10,7 +10,7 @@ import { parseDatabaseUrls } from "./postgres-growth-evidence.mjs";
 
 const { Client } = pg;
 
-export const POSTGRES_SLOW_QUERY_DIGEST_VERSION = "postgres-slow-query-digest/v1";
+export const POSTGRES_SLOW_QUERY_DIGEST_VERSION = "postgres-slow-query-digest/v2";
 export const DEFAULT_TOP_QUERY_LIMIT = 25;
 
 export function parsePostgresSlowQueryDigestArgs(argv, env = process.env) {
@@ -89,6 +89,8 @@ export function buildPostgresSlowQueryDigest(input) {
     ...postgresFailureFields(error),
   }));
   const queryDigests = databases.flatMap((database) => database.slowQueryDigests);
+  const extensionAbsentDatabaseCount = databases.filter((database) => !database.pgStatStatements.extensionInstalled)
+    .length;
 
   return {
     schemaVersion: POSTGRES_SLOW_QUERY_DIGEST_VERSION,
@@ -120,10 +122,11 @@ export function buildPostgresSlowQueryDigest(input) {
       },
     },
     summary: {
-      databaseCount: databases.length,
+      attemptedDatabaseCount: databases.length + errors.length,
+      collectedDatabaseCount: databases.length,
+      extensionAbsentDatabaseCount,
+      extensionInstalledDatabaseCount: databases.length - extensionAbsentDatabaseCount,
       collectionErrorCount: errors.length,
-      extensionInstalledDatabaseCount: databases.filter((database) => database.pgStatStatements.extensionInstalled)
-        .length,
       digestCount: queryDigests.length,
       totalCalls: queryDigests.reduce((sum, query) => sum + query.calls, 0),
       largestTotalExecTimeMs: Math.max(0, ...queryDigests.map((query) => query.totalExecTimeMs)),
@@ -132,8 +135,16 @@ export function buildPostgresSlowQueryDigest(input) {
     },
     databases,
     errors,
-    result: errors.length === 0 ? "success" : "warning",
+    result: resolvePostgresSlowQueryDigestResult(databases.length, errors.length),
   };
+}
+
+function resolvePostgresSlowQueryDigestResult(collectedDatabaseCount, collectionErrorCount) {
+  const attemptedDatabaseCount = collectedDatabaseCount + collectionErrorCount;
+  if (attemptedDatabaseCount > 0 && collectedDatabaseCount === 0) {
+    return "failure";
+  }
+  return collectionErrorCount === 0 ? "success" : "warning";
 }
 
 export async function collectPostgresSlowQueryDigest(database, options) {
@@ -147,37 +158,35 @@ export async function collectPostgresSlowQueryDigest(database, options) {
 }
 
 export async function collectPostgresSlowQueryDigestWithClient(client, database, options) {
-  const statusResult = await client.query(PG_STAT_STATEMENTS_STATUS_SQL);
+  const statusResult = await client.query(PG_STAT_STATEMENTS_EXTENSION_STATUS_SQL);
   const status = statusResult.rows[0] ?? {};
   const extensionSchema = sanitizeIdentifier(status.extension_schema);
+  const extensionInstalled = Boolean(status.extension_installed) && Boolean(extensionSchema);
 
-  if (!status.extension_installed || !extensionSchema) {
+  const pgStatStatements = {
+    extensionInstalled,
+    viewAccessible: false,
+    sharedPreloadLibraryEnabled: await probeSharedPreloadLibraryEnabled(client),
+    trackSetting: await probeOptionalPostureSetting(client, "pg_stat_statements.track"),
+    computeQueryIdSetting: await probeOptionalPostureSetting(client, "compute_query_id"),
+  };
+
+  if (!extensionInstalled) {
     return {
       contextName: database.contextName,
       databaseName: status.database_name,
-      pgStatStatements: {
-        extensionInstalled: false,
-        viewAccessible: false,
-        sharedPreloadLibraryEnabled: Boolean(status.shared_preload_library_enabled),
-        trackSetting: status.track_setting,
-        computeQueryIdSetting: status.compute_query_id_setting,
-      },
+      pgStatStatements,
       slowQueryDigests: [],
     };
   }
 
   const slowQueries = await client.query(pgStatStatementsDigestSql(extensionSchema), [options.topQueryLimit]);
+  pgStatStatements.viewAccessible = true;
 
   return {
     contextName: database.contextName,
     databaseName: status.database_name,
-    pgStatStatements: {
-      extensionInstalled: true,
-      viewAccessible: true,
-      sharedPreloadLibraryEnabled: Boolean(status.shared_preload_library_enabled),
-      trackSetting: status.track_setting,
-      computeQueryIdSetting: status.compute_query_id_setting,
-    },
+    pgStatStatements,
     slowQueryDigests: slowQueries.rows.map((row) => ({
       fingerprint: fingerprintQueryId(row.query_id),
       calls: row.calls,
@@ -195,16 +204,42 @@ export async function collectPostgresSlowQueryDigestWithClient(client, database,
   };
 }
 
+// Each optional posture setting is probed with its own statement so a
+// least-privilege role denied one GUC (commonly shared_preload_libraries on
+// managed Postgres) cannot abort the extension/view/digest evidence that
+// query above already obtained from unrestricted catalog relations.
+async function probeOptionalPostureSetting(client, settingName) {
+  try {
+    const result = await client.query(OPTIONAL_POSTURE_SETTING_SQL, [settingName]);
+    return result.rows[0]?.value ?? null;
+  } catch {
+    // A role denied SELECT on this optional GUC (e.g. shared_preload_libraries
+    // on managed Postgres) reports the setting as undetermined; that must not
+    // abort the extension/view/digest evidence already collected above.
+    return null;
+  }
+}
+
+async function probeSharedPreloadLibraryEnabled(client) {
+  const value = await probeOptionalPostureSetting(client, "shared_preload_libraries");
+  return value === null ? null : value.includes("pg_stat_statements");
+}
+
 function sanitizeDatabaseDigest(database) {
+  const posture = database.pgStatStatements ?? {};
   return {
     contextName: sanitizeContextName(database.contextName),
     databaseName: sanitizeIdentifier(database.databaseName ?? "unknown"),
     pgStatStatements: {
-      extensionInstalled: Boolean(database.pgStatStatements?.extensionInstalled),
-      viewAccessible: Boolean(database.pgStatStatements?.viewAccessible),
-      sharedPreloadLibraryEnabled: Boolean(database.pgStatStatements?.sharedPreloadLibraryEnabled),
-      trackSetting: sanitizePostureSetting(database.pgStatStatements?.trackSetting),
-      computeQueryIdSetting: sanitizePostureSetting(database.pgStatStatements?.computeQueryIdSetting),
+      extensionInstalled: Boolean(posture.extensionInstalled),
+      viewAccessible: Boolean(posture.viewAccessible),
+      // null means the runtime role could not read this optional GUC; that
+      // must stay distinguishable from a determined true/false posture.
+      sharedPreloadLibraryEnabled: posture.sharedPreloadLibraryEnabled === null
+        ? null
+        : Boolean(posture.sharedPreloadLibraryEnabled),
+      trackSetting: sanitizePostureSetting(posture.trackSetting),
+      computeQueryIdSetting: sanitizePostureSetting(posture.computeQueryIdSetting),
     },
     slowQueryDigests: toArray(database.slowQueryDigests).map(sanitizeSlowQueryDigest),
   };
@@ -295,7 +330,13 @@ function sanitizeIdentifier(value) {
 }
 
 function sanitizePostureSetting(value) {
-  const text = sanitizeIdentifier(value ?? "unknown").toLowerCase();
+  // Preserve null (undetermined: denied or genuinely unset) rather than
+  // collapsing it into the same "unknown" text a determined-but-empty
+  // setting would produce.
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const text = sanitizeIdentifier(value).toLowerCase();
   return text || "unknown";
 }
 
@@ -337,19 +378,21 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-const PG_STAT_STATEMENTS_STATUS_SQL = `
+// Reads only pg_extension/pg_namespace, catalog relations readable by any
+// role with CONNECT privilege on the database; it must never reference an
+// optional GUC (those are probed separately and independently below) so a
+// least-privilege role can always determine extension/view coverage.
+const PG_STAT_STATEMENTS_EXTENSION_STATUS_SQL = `
 SELECT
   current_database() AS database_name,
   e.extname IS NOT NULL AS extension_installed,
-  n.nspname AS extension_schema,
-  POSITION('pg_stat_statements' IN current_setting('shared_preload_libraries', true)) > 0
-    AS shared_preload_library_enabled,
-  current_setting('pg_stat_statements.track', true) AS track_setting,
-  current_setting('compute_query_id', true) AS compute_query_id_setting
+  n.nspname AS extension_schema
 FROM (SELECT 1) seed
 LEFT JOIN pg_extension e ON e.extname = 'pg_stat_statements'
 LEFT JOIN pg_namespace n ON n.oid = e.extnamespace
 `;
+
+const OPTIONAL_POSTURE_SETTING_SQL = `SELECT current_setting($1, true) AS value`;
 
 async function main(argv, env = process.env) {
   const options = parsePostgresSlowQueryDigestArgs(argv, env);
@@ -363,7 +406,10 @@ async function main(argv, env = process.env) {
   if (options.outPath) {
     await writeJsonRecord(options.outPath, record);
   }
-  return record.result === "success" ? 0 : 2;
+  if (record.result === "success") {
+    return 0;
+  }
+  return record.result === "warning" ? 2 : 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
