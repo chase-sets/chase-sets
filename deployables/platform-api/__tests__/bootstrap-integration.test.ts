@@ -21,12 +21,14 @@ import {
   getApiHostContextNames,
   getApiHostSeedOrder,
   productionLikeDataProfiles,
+  representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
@@ -34,6 +36,19 @@ import type { PlatformApiContextName } from "../src/config";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "platform-api");
+const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
+const retainedRepresentativeAccount = {
+  accountId: "acc_repr_staging_collector_account" as AccountId,
+  name: "Staging Collector",
+  accountType: "personal",
+  displayName: "Staging Collector",
+} as const;
+type RepresentativeAccountProfile = Readonly<{
+  accountId: AccountId;
+  name: string;
+  accountType: "personal" | "business" | "enterprise";
+  displayName: string;
+}>;
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
 
@@ -74,6 +89,67 @@ function requireCatalogContext() {
   }
 
   return catalogContext;
+}
+
+function createIdentitySeedHost(pools: PlatformApiTestPools) {
+  const runtime = createPlatformApiHost({
+    runtimeProfile: "public",
+    pools,
+    hostPorts: {
+      processorGateway: createFakePaymentProcessorGateway(),
+      listingPhotoStorage,
+    },
+  });
+
+  return {
+    ...runtime,
+    mountedContexts: runtime.mountedContexts.filter((context) => context.contextName === "identity"),
+  };
+}
+
+async function countRepresentativeAccountCreatedEvents(
+  pool: PlatformApiTestPools["identity"],
+  accountId?: string,
+): Promise<number> {
+  const result = await pool.query<Readonly<{ count: string }>>(
+    `SELECT COUNT(*) AS count
+     FROM event_store_events
+     WHERE event_type = 'identity.account.created'
+       AND ($1::text IS NULL OR stream_id = 'identity.account-' || $1)`,
+    [accountId ?? null],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function appendRepresentativeAccountCreatedEvent(
+  runtime: ReturnType<typeof createIdentitySeedHost>,
+  profile: RepresentativeAccountProfile,
+): Promise<void> {
+  const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+  await identityServices.accounts.commandHandler({
+    streamId: `identity.account-${profile.accountId}`,
+    command: {
+      type: "CreateAccount",
+      ...profile,
+    },
+    context: {
+      tenantId: "tnt_identity",
+      audit: {
+        performedByUserId: "usr_identity_bootstrap",
+        forAccountId: "acc_identity_bootstrap",
+      },
+      trace: {},
+    } as never,
+  });
+}
+
+async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createIdentitySeedHost>): Promise<void> {
+  await seedApiHostIfEmpty(identityApiContextRegistry, "platform-api", runtime, {
+    enabledDataProfiles: representativeCommerceStateDataProfiles,
+    environmentName: "test",
+    runtimeProfile: "public",
+  });
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -276,6 +352,80 @@ describe("platform api bootstrap", () => {
     expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 300_000);
+
+  it("resumes representative Identity seeding from retained account events before projections exist", async () => {
+    const runtime = createIdentitySeedHost(pools);
+    const identityContext = runtime.mountedContexts[0];
+    if (!identityContext) {
+      throw new Error("Expected the focused Identity host composition to mount Identity.");
+    }
+
+    await bootstrapContextDatabase(identityModule, pools.identity);
+    await appendRepresentativeAccountCreatedEvent(runtime, retainedRepresentativeAccount);
+
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
+      1,
+    );
+    const projectedAccount = await pools.identity.query(
+      "SELECT account_id FROM identity_accounts WHERE account_id = $1",
+      [retainedRepresentativeAccount.accountId],
+    );
+    expect(projectedAccount.rows).toHaveLength(0);
+
+    await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
+
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
+      1,
+    );
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
+  }, 120_000);
+
+  it("keeps representative AccountCreated event counts stable on an ordinary day-after bootstrap", async () => {
+    const runtime = createIdentitySeedHost(pools);
+    const identityContext = runtime.mountedContexts[0];
+    if (!identityContext) {
+      throw new Error("Expected the focused Identity host composition to mount Identity.");
+    }
+
+    await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
+
+    await drainLocalProjectionHandlerSets(
+      identityContext.contextName,
+      identityContext.pool,
+      identityContext.projectionHandlerSets,
+    );
+    await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
+
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
+      1,
+    );
+  }, 120_000);
+
+  it("rejects a conflicting retained representative Account profile with actionable detail", async () => {
+    const runtime = createIdentitySeedHost(pools);
+    await bootstrapContextDatabase(identityModule, pools.identity);
+    await appendRepresentativeAccountCreatedEvent(runtime, {
+      ...retainedRepresentativeAccount,
+      displayName: "Conflicting Collector",
+    });
+
+    const conflict = await runRepresentativeIdentitySeed(runtime).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(conflict).toBeInstanceOf(Error);
+    expect((conflict as Error).message).toContain(
+      `Representative Identity Account conflict for '${retainedRepresentativeAccount.accountId}': existing committed profile`,
+    );
+    expect((conflict as Error).message).toContain(
+      `"displayName":"Conflicting Collector"} does not match requested deterministic profile`,
+    );
+    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
+      1,
+    );
+  }, 120_000);
 
   it("revokes agent-owned saved instruments through the composed OAuth route with a valid audit context", async () => {
     const runtime = createPlatformApiHost({

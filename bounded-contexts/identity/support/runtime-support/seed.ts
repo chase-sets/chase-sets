@@ -5,6 +5,7 @@ import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
+import { IdentityDomainError } from "./common";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
 const DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID = "ctm_seed_demo_email";
@@ -820,19 +821,7 @@ async function seedRepresentativeIdentityAccounts(
   context: ReturnType<typeof createIdentityBootstrapContext>,
 ) {
   for (const account of representativeAccounts) {
-    if (!(await rowExists(services.db, "identity_accounts", "account_id", account.accountId))) {
-      await services.accounts.commandHandler({
-        streamId: `identity.account-${account.accountId}`,
-        command: {
-          type: "CreateAccount",
-          accountId: account.accountId as AccountId,
-          name: account.name,
-          accountType: account.accountType,
-          displayName: account.displayName,
-        },
-        context,
-      });
-    }
+    await reconcileRepresentativeAccount(services, context, account);
 
     if (!(await rowExists(services.db, "identity_users", "user_id", account.userId))) {
       await services.users.commandHandler({
@@ -912,6 +901,51 @@ async function seedRepresentativeIdentityAccounts(
         context,
       });
     }
+  }
+}
+
+async function reconcileRepresentativeAccount(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  account: (typeof representativeAccounts)[number],
+): Promise<void> {
+  const existing = await services.accounts.getAccountState(account.accountId);
+  if (!existing) {
+    await services.accounts.commandHandler({
+      streamId: `identity.account-${account.accountId}`,
+      command: {
+        type: "CreateAccount",
+        accountId: account.accountId as AccountId,
+        name: account.name,
+        accountType: account.accountType,
+        displayName: account.displayName,
+      },
+      context,
+    });
+    return;
+  }
+
+  const requestedProfile = {
+    accountId: account.accountId,
+    name: account.name,
+    accountType: account.accountType,
+    displayName: account.displayName,
+  };
+  const existingProfile = {
+    accountId: existing.id,
+    name: existing.name,
+    accountType: existing.accountType,
+    displayName: existing.displayName,
+  };
+  if (
+    existingProfile.accountId !== requestedProfile.accountId ||
+    existingProfile.name !== requestedProfile.name ||
+    existingProfile.accountType !== requestedProfile.accountType ||
+    existingProfile.displayName !== requestedProfile.displayName
+  ) {
+    throw new IdentityDomainError(
+      `Representative Identity Account conflict for '${account.accountId}': existing committed profile ${JSON.stringify(existingProfile)} does not match requested deterministic profile ${JSON.stringify(requestedProfile)}. Resolve the conflicting Account stream before resuming representative seeding.`,
+    );
   }
 }
 
