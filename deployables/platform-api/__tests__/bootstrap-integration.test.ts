@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMultiContextTestDatabaseUrls,
   ensureMultiContextTestDatabases,
@@ -14,7 +14,7 @@ import {
   seedProfilesOverlap,
 } from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "@chase-sets/catalog";
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as paymentsModule } from "@chase-sets/payments";
 import {
@@ -32,6 +32,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { runRepresentativeCommerceState } from "../src/representative-commerce-state";
 import type { PlatformApiContextName } from "../src/config";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -39,9 +40,15 @@ const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "plat
 const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
 const retainedRepresentativeAccount = {
   accountId: "acc_repr_staging_collector_account" as AccountId,
+  userId: "usr_repr_staging_collector_user",
+  contactMethodId: "ctm_repr_staging_collector_email",
+  shippingAddressId: "adr_repr_staging_collector_home",
   name: "Staging Collector",
   accountType: "personal",
   displayName: "Staging Collector",
+  primaryEmail: "staging-collector@chasesets.test",
+  givenName: "Staging",
+  familyName: "Collector",
 } as const;
 type RepresentativeAccountProfile = Readonly<{
   accountId: AccountId;
@@ -120,6 +127,89 @@ async function countRepresentativeAccountCreatedEvents(
   );
 
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function countRepresentativeIdentityCreationEvents(
+  pool: PlatformApiTestPools["identity"],
+): Promise<Readonly<Record<string, number>>> {
+  const eventTypes = [
+    "identity.account.created",
+    "identity.user.created",
+    "identity.membership.granted",
+    "identity.consent.recorded",
+    "identity.shipping-address.added",
+  ] as const;
+  const result = await pool.query<Readonly<{ event_type: string; count: string }>>(
+    `SELECT event_type, COUNT(*) AS count
+     FROM event_store_events
+     WHERE event_type = ANY($1::text[])
+     GROUP BY event_type`,
+    [eventTypes],
+  );
+  const counts = Object.fromEntries(eventTypes.map((eventType) => [eventType, 0]));
+  for (const row of result.rows) {
+    counts[row.event_type] = Number(row.count);
+  }
+  return counts;
+}
+
+async function countCreationEvents(
+  pool: PlatformApiTestPools[PlatformApiContextName],
+  eventType: string,
+): Promise<Readonly<{ eventCount: number; streamCount: number }>> {
+  const result = await pool.query<Readonly<{ event_count: string; stream_count: string }>>(
+    `SELECT COUNT(*) AS event_count, COUNT(DISTINCT stream_id) AS stream_count
+     FROM event_store_events
+     WHERE event_type = $1`,
+    [eventType],
+  );
+  return {
+    eventCount: Number(result.rows[0]?.event_count ?? 0),
+    streamCount: Number(result.rows[0]?.stream_count ?? 0),
+  };
+}
+
+async function representativeParticipantIdentities(
+  pools: PlatformApiTestPools,
+): Promise<Readonly<{ sellerAccountIds: readonly string[]; buyerAccountIds: readonly string[] }>> {
+  const [listings, offers] = await Promise.all([
+    pools.marketplace.query<Readonly<{ account_id: string }>>(
+      `SELECT DISTINCT account_id
+       FROM marketplace_listing_pages
+       WHERE listing_id LIKE 'lst$_repr$_%' ESCAPE '$'
+       ORDER BY account_id`,
+    ),
+    pools.marketplace.query<Readonly<{ buyer_account_id: string }>>(
+      `SELECT DISTINCT buyer_account_id
+       FROM marketplace_offer_pages
+       WHERE offer_id LIKE 'off$_repr$_%' ESCAPE '$'
+       ORDER BY buyer_account_id`,
+    ),
+  ]);
+  return {
+    sellerAccountIds: listings.rows.map((row) => row.account_id),
+    buyerAccountIds: offers.rows.map((row) => row.buyer_account_id),
+  };
+}
+
+async function ensureRepresentativeProductContentsTestMeasureProfile(
+  runtime: ReturnType<typeof createPlatformApiHost>,
+): Promise<void> {
+  const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+  await catalogServices.productMeasures.upsertProfile({
+    profileId: "pmp_representative_commerce_resume_test_card",
+    key: "representative-commerce-resume-test-card",
+    name: "Representative commerce resume test card",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+    precedence: 5,
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card", "bendable"],
+    stackBehavior: "stackable-thickness",
+    confidence: "conservative-estimate",
+  });
 }
 
 async function appendRepresentativeAccountCreatedEvent(
@@ -353,34 +443,62 @@ describe("platform api bootstrap", () => {
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 300_000);
 
-  it("resumes representative Identity seeding from retained account events before projections exist", async () => {
+  it("proves the reviewed projection guard fails at User, then resumes a full retained Identity seed", async () => {
     const runtime = createIdentitySeedHost(pools);
     const identityContext = runtime.mountedContexts[0];
     if (!identityContext) {
       throw new Error("Expected the focused Identity host composition to mount Identity.");
     }
 
-    await bootstrapContextDatabase(identityModule, pools.identity);
-    await appendRepresentativeAccountCreatedEvent(runtime, retainedRepresentativeAccount);
+    await runRepresentativeIdentitySeed(runtime);
+    const retainedCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
+    expect(retainedCounts).toEqual({
+      "identity.account.created": 5,
+      "identity.user.created": 5,
+      "identity.membership.granted": 5,
+      "identity.consent.recorded": 5,
+      "identity.shipping-address.added": 5,
+    });
+    const projectedUser = await pools.identity.query("SELECT user_id FROM identity_users WHERE user_id = $1", [
+      retainedRepresentativeAccount.userId,
+    ]);
+    expect(projectedUser.rows).toHaveLength(0);
 
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
-      1,
-    );
-    const projectedAccount = await pools.identity.query(
-      "SELECT account_id FROM identity_accounts WHERE account_id = $1",
-      [retainedRepresentativeAccount.accountId],
-    );
-    expect(projectedAccount.rows).toHaveLength(0);
+    const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+    await expect(
+      identityServices.users.commandHandler({
+        streamId: `identity.user-${retainedRepresentativeAccount.userId}`,
+        command: {
+          type: "CreateUser",
+          userId: retainedRepresentativeAccount.userId as never,
+          displayName: retainedRepresentativeAccount.name,
+          primaryEmail: retainedRepresentativeAccount.primaryEmail,
+          givenName: retainedRepresentativeAccount.givenName,
+          familyName: retainedRepresentativeAccount.familyName,
+          primaryContactMethod: {
+            contactMethodId: retainedRepresentativeAccount.contactMethodId,
+            type: "email",
+            value: retainedRepresentativeAccount.primaryEmail,
+            verifiedAt: "2026-05-27T00:00:00.000Z",
+          },
+        },
+        context: {
+          tenantId: "tnt_identity",
+          audit: {
+            performedByUserId: "usr_identity_bootstrap",
+            forAccountId: "acc_identity_bootstrap",
+          },
+          trace: {},
+        } as never,
+      }),
+    ).rejects.toThrow("User has already been created.");
 
     await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
 
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
-      1,
-    );
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(retainedCounts);
   }, 120_000);
 
-  it("keeps representative AccountCreated event counts stable on an ordinary day-after bootstrap", async () => {
+  it("keeps every representative Identity creation event count stable on an ordinary day-after bootstrap", async () => {
     const runtime = createIdentitySeedHost(pools);
     const identityContext = runtime.mountedContexts[0];
     if (!identityContext) {
@@ -388,7 +506,8 @@ describe("platform api bootstrap", () => {
     }
 
     await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
+    const firstRunCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
+    expect(Object.values(firstRunCounts)).toEqual([5, 5, 5, 5, 5]);
 
     await drainLocalProjectionHandlerSets(
       identityContext.contextName,
@@ -397,10 +516,7 @@ describe("platform api bootstrap", () => {
     );
     await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
 
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity)).toBe(5);
-    expect(await countRepresentativeAccountCreatedEvents(pools.identity, retainedRepresentativeAccount.accountId)).toBe(
-      1,
-    );
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(firstRunCounts);
   }, 120_000);
 
   it("rejects a conflicting retained representative Account profile with actionable detail", async () => {
@@ -426,6 +542,220 @@ describe("platform api bootstrap", () => {
       1,
     );
   }, 120_000);
+
+  it("rejects a conflicting retained representative User profile with actionable detail", async () => {
+    const runtime = createIdentitySeedHost(pools);
+    await runRepresentativeIdentitySeed(runtime);
+    const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+    const beforeCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
+
+    await identityServices.users.commandHandler({
+      streamId: `identity.user-${retainedRepresentativeAccount.userId}`,
+      command: {
+        type: "UpdateUserProfile",
+        displayName: "Conflicting Collector",
+        givenName: retainedRepresentativeAccount.givenName,
+        familyName: retainedRepresentativeAccount.familyName,
+      },
+      context: {
+        tenantId: "tnt_identity",
+        audit: {
+          performedByUserId: "usr_identity_bootstrap",
+          forAccountId: "acc_identity_bootstrap",
+        },
+        trace: {},
+      } as never,
+    });
+
+    const conflict = await runRepresentativeIdentitySeed(runtime).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(conflict).toBeInstanceOf(Error);
+    expect((conflict as Error).message).toContain(
+      `Representative Identity User conflict for '${retainedRepresentativeAccount.userId}': existing committed profile`,
+    );
+    expect((conflict as Error).message).toContain(`"displayName":"Conflicting Collector"`);
+    expect((conflict as Error).message).toContain("does not match requested deterministic profile");
+    expect((conflict as Error).message).toContain(
+      "Resolve the conflicting User stream before resuming representative seeding.",
+    );
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(beforeCounts);
+  }, 120_000);
+
+  it("rejects a conflicting retained representative Shipping Address profile with actionable detail", async () => {
+    const runtime = createIdentitySeedHost(pools);
+    await runRepresentativeIdentitySeed(runtime);
+    const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+    const beforeCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
+    const addressBook = await identityServices.shippingAddresses.getShippingAddressBookState(
+      retainedRepresentativeAccount.accountId,
+    );
+    const existing = addressBook?.addresses.find(
+      (address) => address.shippingAddressId === retainedRepresentativeAccount.shippingAddressId,
+    );
+    if (!existing) {
+      throw new Error("Expected the retained representative Shipping Address.");
+    }
+
+    await identityServices.shippingAddresses.commandHandler({
+      streamId: `identity.shipping-address-book-${retainedRepresentativeAccount.accountId}`,
+      command: {
+        type: "UpdateShippingAddress",
+        shippingAddressId: retainedRepresentativeAccount.shippingAddressId as never,
+        label: existing.label,
+        address: {
+          name: existing.name,
+          company: existing.company,
+          line1: "999 Conflicting Address",
+          line2: existing.line2,
+          city: existing.city,
+          state: existing.state,
+          postalCode: existing.postalCode,
+          country: existing.country,
+          phone: existing.phone,
+          email: existing.email,
+          verification: existing.verification,
+        },
+        makeDefault: true,
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      },
+      context: {
+        tenantId: "tnt_identity",
+        audit: {
+          performedByUserId: "usr_identity_bootstrap",
+          forAccountId: "acc_identity_bootstrap",
+        },
+        trace: {},
+      } as never,
+    });
+
+    const conflict = await runRepresentativeIdentitySeed(runtime).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(conflict).toBeInstanceOf(Error);
+    expect((conflict as Error).message).toContain(
+      `Representative Identity Shipping Address conflict for '${retainedRepresentativeAccount.shippingAddressId}': existing committed profile`,
+    );
+    expect((conflict as Error).message).toContain(`"line1":"999 Conflicting Address"`);
+    expect((conflict as Error).message).toContain("does not match requested deterministic profile");
+    expect((conflict as Error).message).toContain(
+      "Resolve the conflicting Shipping Address stream before resuming representative seeding.",
+    );
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(beforeCounts);
+  }, 120_000);
+
+  it("resumes the real representative commerce command after offer acceptance without duplicate creation events", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const commandOptions = {
+      pools,
+      runtime,
+      execution: {
+        deploymentEnvironment: "test",
+        confirmation: "seed staging commerce",
+      },
+      evidenceOutPath: null,
+      async afterStepCompleted(stepName: string) {
+        if (stepName === "seed data profiles") {
+          const catalogContext = runtime.mountedContexts.find((context) => context.contextName === "catalog");
+          if (!catalogContext) {
+            throw new Error("Expected the representative commerce test host to mount Catalog.");
+          }
+          await drainLocalProjectionHandlerSets(
+            catalogContext.contextName,
+            catalogContext.pool,
+            catalogContext.projectionHandlerSets,
+          );
+        }
+        if (stepName === "sync catalog.catalog-item-projection") {
+          await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
+        }
+      },
+    } as const;
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        runRepresentativeCommerceState({
+          ...commandOptions,
+          async afterStepCompleted(stepName) {
+            await commandOptions.afterStepCompleted(stepName);
+            if (stepName === "accept representative offers") {
+              throw new Error("intentional representative commerce interruption");
+            }
+          },
+        }),
+      ).rejects.toThrow("intentional representative commerce interruption");
+
+      const failureDiagnostic = errorLog.mock.calls
+        .map(([message]) => {
+          try {
+            return JSON.parse(String(message)) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .find((entry) => entry?.type === "representative-commerce-state.failed");
+      expect(failureDiagnostic).toMatchObject({
+        lastCompletedStep: "accept representative offers",
+        failedStep: null,
+        error: "intentional representative commerce interruption",
+      });
+      expect(String(failureDiagnostic?.operatorGuidance)).toContain("Resume this command unchanged once.");
+      expect(String(failureDiagnostic?.operatorGuidance)).toContain("do not loop retries");
+    } finally {
+      errorLog.mockRestore();
+    }
+
+    const retainedIdentityEvents = await countRepresentativeIdentityCreationEvents(pools.identity);
+    const retainedListings = await countCreationEvents(pools.marketplace, "marketplace.listing.created");
+    const retainedOffers = await countCreationEvents(pools.marketplace, "marketplace.offer.submitted");
+    const retainedParticipants = await representativeParticipantIdentities(pools);
+    expect(Object.values(retainedIdentityEvents)).toEqual([5, 5, 5, 5, 5]);
+    expect(retainedListings.eventCount).toBeGreaterThan(0);
+    expect(retainedListings.eventCount).toBe(retainedListings.streamCount);
+    expect(retainedOffers.eventCount).toBeGreaterThan(0);
+    expect(retainedOffers.eventCount).toBe(retainedOffers.streamCount);
+    expect(retainedParticipants.sellerAccountIds.length).toBeGreaterThan(0);
+    expect(retainedParticipants.buyerAccountIds.length).toBeGreaterThan(0);
+
+    await expect(runRepresentativeCommerceState(commandOptions)).resolves.toBeUndefined();
+
+    const completedOrders = await countCreationEvents(pools.ordering, "ordering.order.created");
+    expect(completedOrders.eventCount).toBeGreaterThan(0);
+    expect(completedOrders.eventCount).toBe(retainedOffers.eventCount);
+    expect(completedOrders.eventCount).toBe(completedOrders.streamCount);
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(retainedIdentityEvents);
+    expect(await countCreationEvents(pools.marketplace, "marketplace.listing.created")).toEqual(retainedListings);
+    expect(await countCreationEvents(pools.marketplace, "marketplace.offer.submitted")).toEqual(retainedOffers);
+    expect(await representativeParticipantIdentities(pools)).toEqual(retainedParticipants);
+
+    const cohort = await pools.marketplace.query<Readonly<{ catalog_item_id: string }>>(
+      `SELECT DISTINCT catalog_catalog_item_id AS catalog_item_id
+       FROM marketplace_listing_pages
+       WHERE listing_id LIKE 'lst$_repr$_%' ESCAPE '$'
+         AND catalog_catalog_item_id = ANY($1::text[])`,
+      [representativeProductContentsScenario.requiredCatalogItemIds],
+    );
+    expect(
+      cohort.rows.length / representativeProductContentsScenario.requiredCatalogItemIds.length,
+    ).toBeGreaterThanOrEqual(0.9);
+
+    await expect(runRepresentativeCommerceState(commandOptions)).resolves.toBeUndefined();
+    expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(retainedIdentityEvents);
+    expect(await countCreationEvents(pools.marketplace, "marketplace.listing.created")).toEqual(retainedListings);
+    expect(await countCreationEvents(pools.marketplace, "marketplace.offer.submitted")).toEqual(retainedOffers);
+    expect(await countCreationEvents(pools.ordering, "ordering.order.created")).toEqual(completedOrders);
+    expect(await representativeParticipantIdentities(pools)).toEqual(retainedParticipants);
+  }, 300_000);
 
   it("revokes agent-owned saved instruments through the composed OAuth route with a valid audit context", async () => {
     const runtime = createPlatformApiHost({

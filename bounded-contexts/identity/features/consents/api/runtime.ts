@@ -17,12 +17,13 @@ import { buildConsentCurrentStateProjectionHandlers, buildConsentProjectionHandl
 export type ConsentServices = Readonly<{
   commandHandler: CommandHandler<ConsentCommand, ConsentState, ConsentEvent>;
   getConsent: (consentId: string) => ReturnType<typeof getConsent>;
+  getConsentState: (consentId: string) => Promise<ConsentState | null>;
   listConsents: (params?: ConsentListParams) => ReturnType<typeof listConsents>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<ConsentEvent>(),
     initialState: () => initialConsentState,
@@ -33,6 +34,10 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
   return {
     commandHandler,
     getConsent: (consentId) => getConsent(deps.db, consentId),
+    getConsentState: async (consentId) => {
+      const aggregate = await repository.load(`identity.consent-${consentId}`);
+      return aggregate.state.id ? aggregate.state : null;
+    },
     listConsents: (params) => listConsents(deps.db, params),
     projectors: [
       createProjectionHandlerSet({

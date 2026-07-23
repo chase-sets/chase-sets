@@ -48,6 +48,8 @@ const CONFIRMATION_PHRASE = "seed staging commerce";
 const REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION = "representative-commerce-state.evidence/v1";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
 const MAX_STEP_TIMEOUT_MS = 600_000;
+const REPRESENTATIVE_RESUME_GUIDANCE =
+  "Resume this command unchanged once. If the same step fails again, stop and diagnose or reset the disposable/local sandbox; do not loop retries.";
 const REPRESENTATIVE_EVIDENCE_ACCOUNT_PATTERN = /\bacc_[A-Za-z0-9_-]+\b/g;
 const REPRESENTATIVE_EVIDENCE_USER_PATTERN = /\busr_[A-Za-z0-9_-]+\b/g;
 const REPRESENTATIVE_EVIDENCE_LISTING_PATTERN = /\blst_[A-Za-z0-9_-]+\b/g;
@@ -57,6 +59,26 @@ const REPRESENTATIVE_EVIDENCE_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]
 
 type RepresentativeCatalogServices = CatalogRepresentativeServices &
   Parameters<typeof reconcileRepresentativeProductContentsScenario>[0];
+
+type RepresentativeStepProgress = {
+  lastCompletedStep: string | null;
+  activeStep: string | null;
+  afterStepCompleted?: (stepName: string) => void | Promise<void>;
+};
+
+export type RepresentativeCommerceStateRunOptions = Readonly<{
+  config?: ReturnType<typeof loadConfig>;
+  pools?: ReturnType<typeof createPlatformApiPools>;
+  runtime?: ReturnType<typeof createPlatformApiHost>;
+  execution?: Readonly<{
+    deploymentEnvironment: string | null;
+    confirmation: string;
+    localOverride?: string | null;
+    ephemeralVerificationNamespace?: string | null;
+  }>;
+  evidenceOutPath?: string | null;
+  afterStepCompleted?: (stepName: string) => void | Promise<void>;
+}>;
 
 export const representativeProductContentsProjectionPlan = {
   beforeContents: { contextName: "catalog", projectionName: "catalog-item-projection" },
@@ -210,20 +232,43 @@ export function assertRepresentativeCommerceStateRunAllowed(
   );
 }
 
-export async function runRepresentativeCommerceState(): Promise<void> {
-  const config = loadConfig();
-  assertRepresentativeCommerceStateRunAllowed({
-    deploymentEnvironment: config.deploymentEnvironment,
-    confirmation: process.env.REPRESENTATIVE_COMMERCE_STATE_CONFIRM,
+export async function runRepresentativeCommerceState(
+  options: RepresentativeCommerceStateRunOptions = {},
+): Promise<void> {
+  const config = options.config ?? (options.runtime ? null : loadConfig());
+  const execution = options.execution ?? {
+    deploymentEnvironment: config?.deploymentEnvironment ?? null,
+    confirmation: process.env.REPRESENTATIVE_COMMERCE_STATE_CONFIRM ?? "",
     localOverride: process.env.REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL,
     ephemeralVerificationNamespace: process.env.EPHEMERAL_VERIFICATION_NAMESPACE,
+  };
+  assertRepresentativeCommerceStateRunAllowed({
+    deploymentEnvironment: execution.deploymentEnvironment,
+    confirmation: execution.confirmation,
+    localOverride: execution.localOverride,
+    ephemeralVerificationNamespace: execution.ephemeralVerificationNamespace,
   });
 
-  const pools = createPlatformApiPools(config);
+  if (!options.pools && !config) {
+    throw new Error("Representative commerce state requires configuration when pools are not supplied.");
+  }
+  if (!options.runtime && !config) {
+    throw new Error("Representative commerce state requires configuration when runtime composition is not supplied.");
+  }
+
+  const pools = options.pools ?? createPlatformApiPools(config!);
+  const ownsPools = !options.pools;
+  const progress: RepresentativeStepProgress = {
+    lastCompletedStep: null,
+    activeStep: null,
+    afterStepCompleted: options.afterStepCompleted,
+  };
+  const runStep = <T>(stepName: string, run: () => Promise<T>, stepOptions: Readonly<{ timeoutMs?: number }> = {}) =>
+    runRepresentativeStep(stepName, run, stepOptions, progress);
   try {
     await bootstrapPlatformControlPlane(pools.control);
     const paymentProcessorGateway =
-      config.paymentProcessor.kind === "stripe"
+      config?.paymentProcessor.kind === "stripe"
         ? createStripePaymentProcessorGateway({
             secretKey: config.paymentProcessor.secretKey,
             publishableKey: config.paymentProcessor.publishableKey,
@@ -232,72 +277,78 @@ export async function runRepresentativeCommerceState(): Promise<void> {
             apiBaseUrl: config.paymentProcessor.apiBaseUrl,
           })
         : createFakePaymentProcessorGateway();
-    const runtime = createPlatformApiHost({
-      pools,
-      runtimeProfile: config.runtimeProfile,
-      hostPorts: {
-        processorGateway: paymentProcessorGateway,
-        paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
-        moneyMovementGateway:
-          config.moneyMovement.kind === "stripe"
-            ? createStripeConnectMoneyMovementGateway({
-                secretKey: config.moneyMovement.secretKey,
-                webhookSecret: config.moneyMovement.webhookSecret,
-                previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
-                accountsApi: config.moneyMovement.connectAccountsApi,
-                apiBaseUrl: config.moneyMovement.apiBaseUrl,
-              })
-            : createFakeMoneyMovementGateway(),
-        operationsRecorder: {
-          record(event: Record<string, unknown>) {
-            console.log("Settlement operation recorded.", JSON.stringify(settlementOperationLogFields(event)));
+    const runtime =
+      options.runtime ??
+      createPlatformApiHost({
+        pools,
+        runtimeProfile: config!.runtimeProfile,
+        hostPorts: {
+          processorGateway: paymentProcessorGateway,
+          paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
+          moneyMovementGateway:
+            config!.moneyMovement.kind === "stripe"
+              ? createStripeConnectMoneyMovementGateway({
+                  secretKey: config!.moneyMovement.secretKey,
+                  webhookSecret: config!.moneyMovement.webhookSecret,
+                  previousWebhookSecrets: config!.moneyMovement.previousWebhookSecrets,
+                  accountsApi: config!.moneyMovement.connectAccountsApi,
+                  apiBaseUrl: config!.moneyMovement.apiBaseUrl,
+                })
+              : createFakeMoneyMovementGateway(),
+          operationsRecorder: {
+            record(event: Record<string, unknown>) {
+              console.log("Settlement operation recorded.", JSON.stringify(settlementOperationLogFields(event)));
+            },
           },
+          postageLabelProvider:
+            config!.postage.kind === "easypost"
+              ? createEasyPostPostageLabelProvider({
+                  apiKey: config!.postage.apiKey,
+                  apiBaseUrl: config!.postage.apiBaseUrl,
+                  mode: config!.postage.mode,
+                })
+              : createSandboxPostageLabelProvider(),
+          addressVerificationProvider:
+            config!.postage.kind === "easypost"
+              ? createEasyPostPostageLabelProvider({
+                  apiKey: config!.postage.apiKey,
+                  apiBaseUrl: config!.postage.apiBaseUrl,
+                  mode: config!.postage.mode,
+                })
+              : createSandboxPostageLabelProvider(),
+          catalogAssetStorage: createObjectStorage(config!.catalogAssetStorage),
+          listingPhotoStorage: createObjectStorage(config!.listingPhotoStorage),
         },
-        postageLabelProvider:
-          config.postage.kind === "easypost"
-            ? createEasyPostPostageLabelProvider({
-                apiKey: config.postage.apiKey,
-                apiBaseUrl: config.postage.apiBaseUrl,
-                mode: config.postage.mode,
-              })
-            : createSandboxPostageLabelProvider(),
-        addressVerificationProvider:
-          config.postage.kind === "easypost"
-            ? createEasyPostPostageLabelProvider({
-                apiKey: config.postage.apiKey,
-                apiBaseUrl: config.postage.apiBaseUrl,
-                mode: config.postage.mode,
-              })
-            : createSandboxPostageLabelProvider(),
-        catalogAssetStorage: createObjectStorage(config.catalogAssetStorage),
-        listingPhotoStorage: createObjectStorage(config.listingPhotoStorage),
-      },
-    });
+      });
+    const syncProjection = (
+      contextName: string,
+      projectionName: string,
+      syncOptions: Readonly<{ timeoutMs?: number }> = {},
+    ) => syncRepresentativeProjection(runtime, contextName, projectionName, syncOptions, runStep);
 
-    await runRepresentativeStep("seed data profiles", () =>
+    await runStep("seed data profiles", () =>
       seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
         enabledDataProfiles: representativeCommerceStateDataProfiles,
-        environmentName: config.deploymentEnvironment ?? null,
-        runtimeProfile: config.runtimeProfile,
+        environmentName: execution.deploymentEnvironment,
+        runtimeProfile: config?.runtimeProfile ?? "public",
       }),
     );
     const catalogServices = getCatalogServices(runtime.services);
-    await syncRepresentativeProjection(
-      runtime,
+    await syncProjection(
       representativeProductContentsProjectionPlan.beforeContents.contextName,
       representativeProductContentsProjectionPlan.beforeContents.projectionName,
     );
-    await runRepresentativeStep("reconcile representative Product Contents scenario", async () => {
+    await runStep("reconcile representative Product Contents scenario", async () => {
       const reconciled = await reconcileRepresentativeProductContentsScenario(catalogServices, {
         provenanceSource: "representative-commerce-state",
       });
       assertRepresentativeProductContentsReconciled(reconciled);
     });
     for (const projection of representativeProductContentsProjectionPlan.afterContents) {
-      await syncRepresentativeProjection(runtime, projection.contextName, projection.projectionName);
+      await syncProjection(projection.contextName, projection.projectionName);
     }
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
-    const requiredProductContentsCandidates = await runRepresentativeStep(
+    await syncProjection("marketplace", "marketplace-identity-account-projection");
+    const requiredProductContentsCandidates = await runStep(
       "prepare required Product Contents catalog usage candidates",
       () =>
         prepareRepresentativeCatalogUsageCandidatesByIds(
@@ -306,7 +357,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         ),
       { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
-    const sourceCandidates = await runRepresentativeStep(
+    const sourceCandidates = await runStep(
       "prepare current catalog usage candidates",
       () =>
         prepareRepresentativeCatalogUsageCandidates(catalogServices, {
@@ -318,43 +369,43 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       requiredProductContentsCandidates,
       sourceCandidates,
     );
-    const candidates = await runRepresentativeStep("filter untouched marketplace catalog candidates", () =>
+    const candidates = await runStep("filter untouched marketplace catalog candidates", () =>
       filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), plannedCandidates, {
         limit: readCandidateLimit(),
         priorityCatalogItemIds: representativeProductContentsScenario.requiredCatalogItemIds,
       }),
     );
-    const marketplaceReconciledCount = await runRepresentativeStep("reconcile selected marketplace catalog items", () =>
+    const marketplaceReconciledCount = await runStep("reconcile selected marketplace catalog items", () =>
       reconcileRepresentativeMarketplaceCatalogItems(getMarketplaceDb(runtime.services), candidates),
     );
-    const inventoryReconciledCount = await runRepresentativeStep("reconcile selected inventory catalog items", () =>
+    const inventoryReconciledCount = await runStep("reconcile selected inventory catalog items", () =>
       reconcileRepresentativeInventoryCatalogItems(getInventoryServices(runtime.services), candidates),
     );
-    const inventoryStock = await runRepresentativeStep("ensure representative inventory stock", () =>
+    const inventoryStock = await runStep("ensure representative inventory stock", () =>
       ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
     );
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
-    const listings = await runRepresentativeStep("publish representative listings", () =>
+    await syncProjection("inventory", "inventory-item-projection");
+    await syncProjection("inventory", "inventory-hold-projection");
+    await syncProjection("marketplace", "marketplace-inventory-supply-projection");
+    await syncProjection("ordering", "ordering-inventory-supply-input-projection");
+    const listings = await runStep("publish representative listings", () =>
       publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock),
     );
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
-    const offers = await runRepresentativeStep("submit representative offers", () =>
+    await syncProjection("marketplace", "marketplace-listing-projection");
+    await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
+    const offers = await runStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
-    const acceptedOffers = await runRepresentativeStep("accept representative offers", () =>
+    await syncProjection("marketplace", "marketplace-offer-projection");
+    const acceptedOffers = await runStep("accept representative offers", () =>
       acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-order-reservation-workflow");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-reservation-outcomes");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
-    const orderingSupplyState = await runRepresentativeStep("reconcile representative ordering supply state", () =>
+    await syncProjection("marketplace", "marketplace-offer-projection");
+    await syncProjection("ordering", "ordering-marketplace-offer-acceptance");
+    await syncProjection("inventory", "inventory-order-reservation-workflow");
+    await syncProjection("ordering", "ordering-inventory-reservation-outcomes");
+    await syncProjection("ordering", "ordering-order-projection");
+    const orderingSupplyState = await runStep("reconcile representative ordering supply state", () =>
       reconcileRepresentativeOrderingSupplyState(
         {
           inventoryDb: getInventoryDb(runtime.services),
@@ -367,7 +418,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         },
       ),
     );
-    const discoveryMarketState = await runRepresentativeStep("reconcile representative discovery market state", () =>
+    const discoveryMarketState = await runStep("reconcile representative discovery market state", () =>
       reconcileRepresentativeDiscoveryMarketState(
         {
           discoveryDb: getDiscoveryDb(runtime.services),
@@ -380,7 +431,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         },
       ),
     );
-    const chromeUatSelector = await runRepresentativeStep("select support-safe Chrome UAT persona", () =>
+    const chromeUatSelector = await runStep("select support-safe Chrome UAT persona", () =>
       selectChromeUatRepresentativePersona({
         identityDb: getIdentityDb(runtime.services),
         inventoryDb: getInventoryDb(runtime.services),
@@ -388,7 +439,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         settlementDb: getSettlementDb(runtime.services),
       }),
     );
-    const pendingPaymentSaleSelector = await runRepresentativeStep("select support-safe pending-payment sale", () =>
+    const pendingPaymentSaleSelector = await runStep("select support-safe pending-payment sale", () =>
       selectPendingPaymentSaleRepresentativePersona({
         identityDb: getIdentityDb(runtime.services),
         orderingDb: getOrderingDb(runtime.services),
@@ -399,7 +450,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       schemaVersion: REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION,
       type: "representative-commerce-state.complete",
       checkedAt: new Date().toISOString(),
-      environmentName: config.deploymentEnvironment ?? null,
+      environmentName: execution.deploymentEnvironment,
       dataProfiles: representativeCommerceStateDataProfiles,
       sourceCatalogCandidateCount: sourceCandidates.length,
       untouchedCatalogCandidateCount: candidates.length,
@@ -423,9 +474,25 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     };
 
     console.log(JSON.stringify(evidence));
-    await writeRepresentativeCommerceStateEvidence(process.env.REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT, evidence);
+    await writeRepresentativeCommerceStateEvidence(
+      options.evidenceOutPath ?? process.env.REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT,
+      evidence,
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        type: "representative-commerce-state.failed",
+        lastCompletedStep: progress.lastCompletedStep,
+        failedStep: progress.activeStep,
+        error: error instanceof Error ? error.message : "Unknown representative commerce state failure.",
+        operatorGuidance: REPRESENTATIVE_RESUME_GUIDANCE,
+      }),
+    );
+    throw error;
   } finally {
-    await closePlatformApiPools(pools);
+    if (ownsPools) {
+      await closePlatformApiPools(pools);
+    }
   }
 }
 
@@ -507,12 +574,17 @@ async function runRepresentativeStep<T>(
   stepName: string,
   run: () => Promise<T>,
   options: Readonly<{ timeoutMs?: number }> = {},
+  progress?: RepresentativeStepProgress,
 ): Promise<T> {
   const startedAt = Date.now();
+  if (progress) {
+    progress.activeStep = stepName;
+  }
   console.log(JSON.stringify({ type: "representative-commerce-state.step.started", stepName }));
 
+  let result: T;
   try {
-    const result = await withRepresentativeStepTimeout(stepName, run(), options.timeoutMs);
+    result = await withRepresentativeStepTimeout(stepName, run(), options.timeoutMs);
     console.log(
       JSON.stringify({
         type: "representative-commerce-state.step.completed",
@@ -520,7 +592,6 @@ async function runRepresentativeStep<T>(
         durationMs: Date.now() - startedAt,
       }),
     );
-    return result;
   } catch (error) {
     console.log(
       JSON.stringify({
@@ -532,6 +603,12 @@ async function runRepresentativeStep<T>(
     );
     throw error;
   }
+  if (progress) {
+    progress.lastCompletedStep = stepName;
+    progress.activeStep = null;
+    await progress.afterStepCompleted?.(stepName);
+  }
+  return result;
 }
 
 async function withRepresentativeStepTimeout<T>(
@@ -567,8 +644,9 @@ async function syncRepresentativeProjection(
   contextName: string,
   projectionName: string,
   options: Readonly<{ timeoutMs?: number }> = {},
+  runStep: typeof runRepresentativeStep = runRepresentativeStep,
 ): Promise<void> {
-  await runRepresentativeStep(
+  await runStep(
     `sync ${contextName}.${projectionName}`,
     async () => {
       await syncProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));

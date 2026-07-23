@@ -22,6 +22,7 @@ import {
 
 export type ShippingAddressServices = Readonly<{
   commandHandler: CommandHandler<ShippingAddressCommand, ShippingAddressBookState, ShippingAddressEvent>;
+  getShippingAddressBookState: (accountId: string) => Promise<ShippingAddressBookState | null>;
   listShippingAddresses: (
     accountId: string,
     options?: Parameters<typeof listShippingAddresses>[2],
@@ -35,7 +36,7 @@ export type ShippingAddressServices = Readonly<{
 }>;
 
 export function createShippingAddressRuntime(deps: IdentityRuntimeDeps): ShippingAddressServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<ShippingAddressEvent>(),
     initialState: () => initialShippingAddressBookState,
@@ -45,6 +46,10 @@ export function createShippingAddressRuntime(deps: IdentityRuntimeDeps): Shippin
 
   return {
     commandHandler,
+    getShippingAddressBookState: async (accountId) => {
+      const aggregate = await repository.load(`identity.shipping-address-book-${accountId}`);
+      return aggregate.state.accountId ? aggregate.state : null;
+    },
     listShippingAddresses: (accountId, options) => listShippingAddresses(deps.db, accountId, options),
     getShippingAddress: (accountId, shippingAddressId) => getShippingAddress(deps.db, accountId, shippingAddressId),
     verifyShippingAddress: (address, decision) =>
