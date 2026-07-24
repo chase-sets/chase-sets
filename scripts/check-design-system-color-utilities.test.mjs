@@ -23,4 +23,26 @@ describe("design-system color utility guard", () => {
       "packages/design-system/src/panel.tsx: 'border-border-subtle' uses unknown design-system color 'border-subtle'.",
     ]);
   });
+
+  it("accepts the text-clip text-overflow utility as a non-color utility", () => {
+    const violations = collectDesignSystemColorUtilityViolations({
+      rootDir: "/repo",
+      files: ["/repo/packages/design-system/src/utils/system.ts"],
+      readFile: () => 'const classes = "overflow-visible text-clip whitespace-normal";',
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("still reports unknown text-* colors that merely resemble text-clip", () => {
+    const violations = collectDesignSystemColorUtilityViolations({
+      rootDir: "/repo",
+      files: ["/repo/packages/design-system/src/panel.tsx"],
+      readFile: () => 'const classes = "text-clipboard";',
+    });
+
+    expect(violations).toEqual([
+      "packages/design-system/src/panel.tsx: 'text-clipboard' uses unknown design-system color 'clipboard'.",
+    ]);
+  });
 });
