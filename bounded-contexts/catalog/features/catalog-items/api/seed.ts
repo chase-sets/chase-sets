@@ -71,7 +71,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
-        ["card-number", "4/102"],
+        ["card-number", "4"],
         ["card-name", l10n("Charizard")],
         ["expansion", expansionReference("base-set")],
         ["rarity", "Holo Rare"],
@@ -108,7 +108,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
-        ["card-number", "60/64"],
+        ["card-number", "60"],
         ["card-name", l10n("Pikachu")],
         ["expansion", expansionReference("jungle")],
         ["rarity", "Common"],
@@ -169,7 +169,7 @@ export async function seedCatalogItems(
       description: l10n("A Neo Genesis Lugia single whose raw and graded variants resolve from the same catalog item."),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
-        ["card-number", "9/111"],
+        ["card-number", "9"],
         ["card-name", l10n("Lugia")],
         ["expansion", expansionReference("neo-genesis")],
         ["rarity", "Holo Rare"],
@@ -209,7 +209,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
-        ["card-number", "44/102"],
+        ["card-number", "44"],
         ["card-name", l10n("Bulbasaur")],
         ["expansion", expansionReference("base-set")],
         ["rarity", "Common"],

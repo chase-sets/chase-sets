@@ -81,6 +81,11 @@ describe("planCatalogProviderPromotionCommands", () => {
       title: { defaultLocale: "en", values: { en: "Pikachu" } },
       description: { defaultLocale: "en", values: { en: "Variant artwork uses provider image reference." } },
     });
+    expect(result.plan?.commands).toContainEqual({
+      type: "SetCatalogItemFieldValue",
+      fieldId: "field_card_number",
+      value: "001",
+    });
     expect(result.plan?.commands[10]).toEqual({
       type: "SetCatalogItemTags",
       tags: [

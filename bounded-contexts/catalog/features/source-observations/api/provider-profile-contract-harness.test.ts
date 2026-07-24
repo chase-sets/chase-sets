@@ -106,6 +106,32 @@ describe("Catalog provider profile contract harness", () => {
     }
   });
 
+  it("maps the TCGdex collector number alone through normalization and the executable promotion path", async () => {
+    const result = await dryRunFixture({ providerKey: "tcgdex", profileVersion: "2026.06.03" }, "normal");
+    const cardNumberCommand = result.promotionCommandPlan.commands.find(
+      (command) => command.commandName === "SetCatalogItemFieldValue",
+    );
+
+    expect(result.status).toBe("completed");
+    expect(result.observation?.normalized).toMatchObject({
+      kind: "pokemon-card",
+      cardNumber: "1",
+      expansionCardCount: null,
+    });
+    expect(cardNumberCommand?.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "SetCatalogItemFieldValue.fieldKey",
+          value: "card-number",
+        }),
+        expect.objectContaining({
+          path: "SetCatalogItemFieldValue.value",
+          value: "001",
+        }),
+      ]),
+    );
+  });
+
   it("classifies Magic fixture dry-runs as blocked, changed, ambiguous, promotable, and replay-safe", async () => {
     const [blockedPartial, normalSet, replaySet, changedSet, ambiguousSealed, promotableSealed] = await Promise.all([
       dryRunFixture(

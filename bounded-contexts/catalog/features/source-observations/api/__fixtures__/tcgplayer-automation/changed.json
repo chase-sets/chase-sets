@@ -10,7 +10,7 @@
   "productLineName": "Pokemon",
   "productTypeName": "Cards",
   "customAttributes": {
-    "number": "001/198"
+    "number": "001"
   },
   "productForm": "single",
   "barcode": "0820650853217",
@@ -38,7 +38,7 @@
     "productLineName": "Pokemon",
     "setName": "Scarlet & Violet",
     "productName": "Sprigatito - Reverse Holofoil",
-    "cardNumber": "001/198",
+    "cardNumber": "001",
     "productForm": "single"
   },
   "catalogHashMaterial": {

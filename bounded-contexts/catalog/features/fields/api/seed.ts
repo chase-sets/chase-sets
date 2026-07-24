@@ -18,7 +18,7 @@ const fieldDefs: FieldDef[] = [
     key: "card-number",
     fieldId: catalogSeedIds.fields.cardNumber as FieldId,
     name: l10n("Card Number"),
-    description: l10n("The card number within its expansion (for example 4/102)"),
+    description: l10n("The collector number within its expansion (for example 4)"),
     valueType: "string",
     behavior: { filterable: true, searchable: false, sortable: true },
   },

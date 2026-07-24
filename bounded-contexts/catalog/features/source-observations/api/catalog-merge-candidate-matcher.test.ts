@@ -34,7 +34,7 @@ describe("Catalog Merge Candidate matcher", () => {
       ],
       proposedCatalogItemFacts: {
         name: "Charizard ex",
-        collectorNumber: "054/091",
+        collectorNumber: "54",
       },
       proposedExternalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
       proposedExternalProductReferences: [{ providerKey: "tcgplayer", externalKey: "sku:900054" }],
@@ -81,7 +81,7 @@ describe("Catalog Merge Candidate matcher", () => {
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
       }),
       observationRow("obs_right", "tcgplayer", "product:100054", {
-        cardNumber: "055/091",
+        cardNumber: "55",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
       }),
     ]).candidates;
@@ -98,7 +98,7 @@ describe("Catalog Merge Candidate matcher", () => {
   it("keeps observations split when neither external references nor merge identity align", () => {
     const candidates = match([
       observationRow("obs_054", "tcgdex", "sv2-054"),
-      observationRow("obs_055", "tcgdex", "sv2-055", { cardNumber: "055/091" }),
+      observationRow("obs_055", "tcgdex", "sv2-055", { cardNumber: "55" }),
     ]).candidates;
 
     expect(candidates).toHaveLength(2);
@@ -223,14 +223,14 @@ describe("Catalog Merge Candidate matcher", () => {
           setName: "Paldean Fates",
           expansionId: "sv4pt5",
           expansionName: "Paldean Fates",
-          cardNumber: "001/091",
+          cardNumber: "1",
         }),
         observationRow("obs_tcgplayer_paf", "tcgplayer", "product:555001", {
           setId: "paf-marketplace",
           setName: "SV: Paldean Fates",
           expansionId: "paf-marketplace",
           expansionName: "SV: Paldean Fates",
-          cardNumber: "001/091",
+          cardNumber: "1",
         }),
       ],
       [
@@ -253,7 +253,7 @@ describe("Catalog Merge Candidate matcher", () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.snapshot.identity).toMatchObject({
       scopeRecordId: "scope_paldean_fates",
-      collectorNumber: "001/091",
+      collectorNumber: "1",
     });
     expect(result.candidates[0]?.snapshot.membership.map((member) => member.observationId)).toEqual([
       "obs_tcgdex_paf",
@@ -366,7 +366,7 @@ function observationRow(
 ): SourceObservationListRow {
   const normalized = normalizedObservation({
     name: "Charizard ex",
-    cardNumber: overrides.cardNumber ?? "054/091",
+    cardNumber: overrides.cardNumber ?? "54",
     setId: "sv2",
     setName: "Paldea Evolved",
     expansionId: "sv2",
@@ -393,7 +393,7 @@ function observationRow(
       productLineName: "Pokemon TCG",
       setName: "Paldea Evolved",
       printedProductName: "Charizard ex",
-      collectorNumber: overrides.cardNumber ?? "054/091",
+      collectorNumber: overrides.cardNumber ?? "54",
       languageCode: "en",
       productForm: "pokemon-card",
     },

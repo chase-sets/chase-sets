@@ -330,7 +330,7 @@ function candidateSnapshot(
 ): CatalogMergeCandidateReviewSnapshot {
   const proposedCatalogItemFacts: JsonObject = {
     name: "Charizard ex",
-    collectorNumber: "054/091",
+    collectorNumber: "54",
     expansionName: "Paldea Evolved",
     rarity: "Double Rare",
   };
@@ -340,7 +340,7 @@ function candidateSnapshot(
     syncRunIds: ["job_sync_1"],
     identity: {
       scopeRecordId: "scope_paldea_evolved",
-      collectorNumber: "054/091",
+      collectorNumber: "54",
       languageCode: "en",
       productForm: "pokemon-card",
       variantKey: "standard",
@@ -386,7 +386,7 @@ function candidateSnapshot(
       },
       {
         fieldPath: "catalogItem.collectorNumber",
-        value: "054/091",
+        value: "54",
         observationId: "obs_tcgdex_054",
         providerKey: "tcgdex",
         sourceProfileKey: "tcgdex-pokemon",

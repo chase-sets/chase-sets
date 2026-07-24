@@ -10,7 +10,7 @@
   "productLineName": "Pokemon",
   "productTypeName": "Cards",
   "customAttributes": {
-    "number": "001/198"
+    "number": "001"
   },
   "productForm": "single",
   "skuReferences": ["sku:15500003"],
@@ -37,7 +37,7 @@
     "productLineName": "Pokemon",
     "setName": "Scarlet & Violet",
     "productName": "Sprigatito",
-    "cardNumber": "001/198",
+    "cardNumber": "001",
     "productForm": "single"
   },
   "catalogHashMaterial": {

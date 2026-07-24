@@ -3,6 +3,44 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedCatalogItems } from "./seed";
 
 describe("catalog item seed", () => {
+  it("keeps every seeded card-number value aligned with its product-line collector-number semantics", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      items: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+
+    await seedCatalogItems(
+      services as never,
+      keyBackedIds("bpr") as never,
+      keyBackedIds("fld") as never,
+      keyBackedIds("ctg") as never,
+      referenceIds() as never,
+    );
+
+    const expectedCardNumbers = new Map<string, string>([
+      [catalogSeedIds.items.charizardBaseSet, "4"],
+      [catalogSeedIds.items.pikachuJungle, "60"],
+      [catalogSeedIds.items.japaneseCharizardBaseSet, "No.006"],
+      [catalogSeedIds.items.lugiaNeoGenesis, "9"],
+      [catalogSeedIds.items.mewtwoBlackStarPromo, "3"],
+      [catalogSeedIds.items.bulbasaurBaseSet, "44"],
+      [catalogSeedIds.items.pikachuPrismaticEvolutions, "025"],
+      [catalogSeedIds.items.onePieceLuffyRomanceDawn, "OP01-001"],
+      [catalogSeedIds.items.lorcanaElsaSnowQueen, "41/204"],
+    ]);
+    const seededCardNumbers = commands
+      .filter(
+        (entry) => entry.command.type === "SetCatalogItemFieldValue" && entry.command.fieldId === "fld_card-number",
+      )
+      .map((entry) => [entry.streamId.replace("catalog.item-", ""), String(entry.command.value)] as const);
+
+    expect(new Map(seededCardNumbers)).toEqual(expectedCardNumbers);
+  });
+
   it("can seed only the representative Product Contents Catalog Items", async () => {
     const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
     const services = {

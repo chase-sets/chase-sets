@@ -31,7 +31,7 @@ describe("seedDisplayTemplates", () => {
         streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
         command: expect.objectContaining({
           type: "ReviseDisplayTemplate",
-          titleTemplate: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+          titleTemplate: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
         }),
       }),
     );
@@ -184,7 +184,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       target_kind: "blueprint",
       target_id: catalogSeedIds.blueprints.pokemonCardSingle,
       priority: 10,
-      title_template: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+      title_template: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
       subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
       required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
       status: "active",

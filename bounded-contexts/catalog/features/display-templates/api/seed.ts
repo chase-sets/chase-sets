@@ -13,7 +13,7 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       name: "Pokemon single card",
       target: { kind: "blueprint" as const, id: catalogSeedIds.blueprints.pokemonCardSingle },
       priority: 10,
-      titleTemplate: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+      titleTemplate: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
       subtitleTemplate: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
     },
     {

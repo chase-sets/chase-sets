@@ -847,7 +847,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
               "mergeIdentity.productLineName": "Pokemon",
               "mergeIdentity.setName": "Scarlet & Violet",
               "mergeIdentity.printedProductName": "Sprigatito",
-              "mergeIdentity.collectorNumber": "001/198",
+              "mergeIdentity.collectorNumber": "1",
               "mergeIdentity.languageCode": "en",
               "mergeIdentity.productForm": "single",
             },

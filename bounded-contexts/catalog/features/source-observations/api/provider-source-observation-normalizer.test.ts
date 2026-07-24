@@ -52,7 +52,7 @@ describe("provider Source Observation normalizer", () => {
         providerProductId: "610001",
         providerProductName: "Eevee ex",
         name: "Eevee ex",
-        cardNumber: "167/131",
+        cardNumber: "167",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
       },
     });
@@ -555,7 +555,7 @@ function providerProductPayload(): JsonObject {
     productTypeName: "Cards",
     setName: "Prismatic Evolutions",
     releaseDate: "2025-01-17",
-    customAttributes: { number: "167/131" },
+    customAttributes: { number: "167" },
     sourceUrl: "https://mp-search-api.tcgplayer.com/v2/product/610001/details",
     externalKey: "product:610001",
     observationId: "tcgplayer_en_product_610001",
@@ -563,7 +563,7 @@ function providerProductPayload(): JsonObject {
       productId: 610001,
       productName: "Eevee ex",
       setName: "Prismatic Evolutions",
-      number: "167/131",
+      number: "167",
     },
   };
 }
