@@ -7,10 +7,10 @@ export type AxeRuleExclusion = Readonly<{
   reason: string;
 }>;
 
-export type AxeViolationNode = Readonly<{ target: readonly string[] }>;
+export type AxeViolationNode = Readonly<{ target: readonly (string | readonly string[])[] }>;
 export type AxeViolation = Readonly<{ id: string; nodes: readonly AxeViolationNode[] }>;
 
-function targetKey(target: readonly string[]): string {
+function targetKey(target: readonly (string | readonly string[])[]): string {
   return JSON.stringify(target);
 }
 
