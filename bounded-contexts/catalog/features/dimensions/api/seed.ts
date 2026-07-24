@@ -3,12 +3,7 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
-import {
-  evolveDimension,
-  initialDimensionState,
-  type DimensionEvent,
-  type DimensionState,
-} from "../domain/domain";
+import { evolveDimension, initialDimensionState, type DimensionEvent, type DimensionState } from "../domain/domain";
 
 type DimensionOptionDef = {
   optionId: OptionId;
@@ -345,7 +340,9 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
           existingOption.code !== option.code ||
           existingOption.numericValue !== (option.numericValue ?? null)
         ) {
-          throw new Error(`Catalog integration bootstrap dimension '${def.key}' has conflicting option '${option.code}'.`);
+          throw new Error(
+            `Catalog integration bootstrap dimension '${def.key}' has conflicting option '${option.code}'.`,
+          );
         }
         if (existingOption.status === "deprecated") {
           await sendSeedCommand(services.dimensions.commandHandler, streamId, {
@@ -391,13 +388,10 @@ async function loadDimensionSeedState(services: CatalogServices, streamId: strin
   );
   return existing.rows.reduce(
     (state, event) =>
-      evolveDimension(
-        state,
-        {
-          type: event.event_type,
-          data: event.payload,
-        } as DimensionEvent,
-      ),
+      evolveDimension(state, {
+        type: event.event_type,
+        data: event.payload,
+      } as DimensionEvent),
     initialDimensionState,
   );
 }

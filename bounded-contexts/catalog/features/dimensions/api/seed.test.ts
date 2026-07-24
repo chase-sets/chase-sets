@@ -18,9 +18,7 @@ describe("seedDimensions", () => {
                   dimensionId: form.dimensionId,
                   key: "form",
                   name: localizedTextMapFromEnglish("Form"),
-                  description: localizedTextMapFromEnglish(
-                    "Whether the collectible is raw or professionally graded.",
-                  ),
+                  description: localizedTextMapFromEnglish("Whether the collectible is raw or professionally graded."),
                   valueKind: "unordered",
                 },
               },

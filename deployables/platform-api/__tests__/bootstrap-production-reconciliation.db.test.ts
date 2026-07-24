@@ -567,7 +567,9 @@ describe("platform api bootstrap production reconciliation", () => {
     ).resolves.toBeUndefined();
     const secondRecoveryEventCounts = await countCatalogDimensionStreamEvents(pools.catalog);
 
-    expect(Number(recoveredDimensionProjection.rows[0]?.count ?? 0)).toBe(Object.keys(catalogSeedIds.dimensions).length);
+    expect(Number(recoveredDimensionProjection.rows[0]?.count ?? 0)).toBe(
+      Object.keys(catalogSeedIds.dimensions).length,
+    );
     expect(firstRecoveryEventCounts).toEqual(retainedDimensionEvents);
     expect(secondRecoveryEventCounts).toEqual(firstRecoveryEventCounts);
   }, 120_000);
