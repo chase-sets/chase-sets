@@ -197,7 +197,7 @@ test.describe.serial("catalog admin modeling", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByText("Options").first()).toBeVisible();
     await expect(page.getByText("Value kind").first()).toBeVisible();
-    await expect(page.getByText("Dimensions").first()).toBeVisible();
+    await expect(page.getByRole("main").getByText("Dimensions", { exact: true })).toBeVisible();
   });
 
   test("signed-in catalog operator can inspect remaining modeling surfaces @catalog-admin-modeling", async ({
