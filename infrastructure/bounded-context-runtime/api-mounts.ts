@@ -211,28 +211,31 @@ export type ReadConsistencyMiddlewareOptions = Readonly<{
   nowMs?: () => number;
 }>;
 
+type ProjectionFreshnessTimeoutDetails = Readonly<{
+  targetContextNames: readonly string[];
+  pending: readonly Readonly<{
+    targetContextName: string;
+    projectionName: string;
+    sourceContextName: string;
+    checkpointKey: string | null;
+    requiredGlobalPosition: string;
+    lastGlobalPosition: string;
+    state: string;
+    lastError: string | null;
+  }>[];
+  waitMode: ReadConsistencyWaitMode;
+  dependencies: readonly ResolvedReadConsistencyDependency[];
+  wakeRequestCount: number;
+  workSignalErrorPresent: boolean;
+}>;
+
 export class ProjectionFreshnessTimeoutError extends Error {
-  public constructor(
-    public readonly details: Readonly<{
-      targetContextNames: readonly string[];
-      pending: readonly Readonly<{
-        targetContextName: string;
-        projectionName: string;
-        sourceContextName: string;
-        checkpointKey: string | null;
-        requiredGlobalPosition: string;
-        lastGlobalPosition: string;
-        state: string;
-        lastError: string | null;
-      }>[];
-      waitMode: ReadConsistencyWaitMode;
-      dependencies: readonly ResolvedReadConsistencyDependency[];
-      wakeRequestCount: number;
-      workSignalErrorPresent: boolean;
-    }>,
-  ) {
+  public readonly details: ProjectionFreshnessTimeoutDetails;
+
+  public constructor(details: ProjectionFreshnessTimeoutDetails) {
     super("Projection read model did not catch up to the requested write receipt before the freshness timeout.");
     this.name = "ProjectionFreshnessTimeoutError";
+    this.details = details;
   }
 }
 

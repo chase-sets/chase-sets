@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   OBSERVATION_PACK_DECISION_LINK,
@@ -14,12 +15,57 @@ import {
 import { buildPostReplayVerifierEvidence, runVerifyObservationPackCli } from "./verify-observation-pack.mjs";
 
 const temporaryRoots = [];
+let stripTypesRuntimeProbe;
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
+beforeAll(() => {
+  const source = `
+      import { register } from "node:module";
+      register("./scripts/typescript-extension-loader.mjs", import.meta.url);
+      const { SourceObservationIntegrationJobLifecycleCommandError } =
+        await import("./bounded-contexts/catalog/features/source-observations/api/runtime.ts");
+      const error = new SourceObservationIntegrationJobLifecycleCommandError("unsupported_state", "message");
+      await import("./scripts/verify-observation-pack.mjs");
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts"
+      );
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/provider-source-observation-normalizer.ts"
+      );
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts"
+      );
+      console.log(JSON.stringify({
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        ownEnumerableFields: Object.keys(error).sort(),
+      }));
+    `;
+  stripTypesRuntimeProbe = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", "--input-type=module", "--eval", source],
+    { cwd: path.resolve("."), encoding: "utf8" },
+  );
+});
+
 describe("verify-observation-pack real entrypoint", () => {
+  it("loads the post-replay runtime graph in a real Node strip-types subprocess", () => {
+    const { error, status, stdout, stderr } = stripTypesRuntimeProbe;
+    expect(error).toBeUndefined();
+    expect(stderr, stderr).not.toContain("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX");
+    expect(status, stderr).toBe(0);
+    expect(JSON.parse(stdout.trim())).toEqual({
+      name: "SourceObservationIntegrationJobLifecycleCommandError",
+      message: "message",
+      code: "unsupported_state",
+      ownEnumerableFields: ["code", "name"],
+    });
+  });
+
   it("binds Catalog and Discovery per-table row counts into the equality digest", () => {
     const input = {
       externalReferenceDigest: "a".repeat(64),
