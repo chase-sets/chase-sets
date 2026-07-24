@@ -740,4 +740,59 @@ describe("public waitlist form migration smoke", () => {
     expect(heroSegmentedControl).not.toBeNull();
     expect(heroSegmentedControl?.className).not.toContain("text-base");
   });
+
+  it("#5620: sizes footer/inline links for coarse-pointer touch targets and fits the fee table at 375w", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    // Footer and inline landing links opt into the DS LinkText `touchTarget`
+    // prop, which grows the hit area to >=44px on coarse pointers (touchscreens)
+    // via the `pointer-coarse` CSS media variant — no JS matchMedia check, so
+    // mouse/trackpad presentation is untouched at every pointer type.
+    const footerLinks = Array.from(container.querySelectorAll("footer a"));
+    expect(footerLinks.length).toBeGreaterThan(0);
+    for (const link of footerLinks) {
+      expect(link.className).toContain("pointer-coarse:min-h-11");
+      expect(link.className).toContain("pointer-coarse:min-w-11");
+    }
+
+    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
+    const protectionLinks = Array.from(previewSection?.querySelectorAll('a[href="/order-protection"]') ?? []);
+    const inlineProtectionLink = protectionLinks.find(
+      (link) => link.textContent === t("publicPresence.preview.total.protectionLink"),
+    );
+    if (!inlineProtectionLink) {
+      throw new Error("Expected the inline LinkText order-protection link to render in the product preview section.");
+    }
+    expect(inlineProtectionLink.className).toContain("pointer-coarse:min-h-11");
+    expect(inlineProtectionLink.className).toContain("pointer-coarse:min-w-11");
+
+    // The fee-comparison Table renders at compact density with `wrapFirstColumn`,
+    // which constrains the metric-label column to a narrow max-width and allows
+    // mid-word breaks so the table fits a 375px viewport without the compact
+    // density change alone (~8px/column savings) closing the ~30px overflow.
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    const headCell = feeComparisonSection?.querySelector("th");
+    const bodyCell = feeComparisonSection?.querySelector("td");
+    expect(headCell?.className).toContain("px-3 py-2");
+    expect(bodyCell?.className).toContain("px-3 py-2");
+
+    expect(headCell?.className).toContain("max-w-11");
+    expect(headCell?.className).toContain("hyphens-auto");
+    expect(headCell?.getAttribute("lang")).toBe("en");
+    expect(headCell?.textContent).toBe(t("publicPresence.home.sellerEconomics.comparison.column.metric"));
+
+    // Only the first (label) column wraps — the value columns keep their
+    // default cell treatment.
+    const bodyCells = Array.from(feeComparisonSection?.querySelectorAll("tbody tr:first-child td") ?? []);
+    expect(bodyCells[0]?.className).toContain("max-w-11");
+    expect(bodyCells[1]?.className).not.toContain("max-w-11");
+  });
 });

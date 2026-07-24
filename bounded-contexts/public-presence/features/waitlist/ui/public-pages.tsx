@@ -420,11 +420,13 @@ export function PublicPresencePageShell({
                   <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
                   <Inline gap={3}>
                     {policyLinks.map((link) => (
-                      <LinkText key={link.href} href={link.href}>
+                      <LinkText key={link.href} href={link.href} touchTarget>
                         {link.label}
                       </LinkText>
                     ))}
-                    <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
+                    <LinkText href="/contact" touchTarget>
+                      {t("publicPresence.nav.contact")}
+                    </LinkText>
                   </Inline>
                   <Text size="sm" tone="secondary">
                     {t("publicPresence.footer.description")}
@@ -888,6 +890,8 @@ function FeeComparisonSection() {
     >
       <Stack gap={3}>
         <Table
+          density="compact"
+          wrapFirstColumn
           caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
           columns={[
             t("publicPresence.home.sellerEconomics.comparison.column.metric"),
@@ -1171,7 +1175,9 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
           />
           <Text size="sm" tone="tertiary">
             {t("publicPresence.preview.total.protectionCaption")}{" "}
-            <LinkText href="/order-protection">{t("publicPresence.preview.total.protectionLink")}</LinkText>
+            <LinkText href="/order-protection" touchTarget>
+              {t("publicPresence.preview.total.protectionLink")}
+            </LinkText>
           </Text>
           <Surface tone="subtle">
             <Stack gap={4}>

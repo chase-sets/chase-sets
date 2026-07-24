@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
 import { IconButton, LinkButton } from "../actions/button";
 import { Icon } from "../../icons";
-import { FlexItem, IconRow, Inline, Stack } from "../../primitives/layout";
+import { FlexItem, IconRow, Inline, Show, Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
+import { useReducedMotion } from "../../hooks";
 import { cx } from "../../utils/cx";
 import { type Tone, toneIcon, toneToIconTone } from "./shared";
 
@@ -35,24 +36,6 @@ const toneClasses: Record<PromoBarTone, string> = {
   danger: "border-danger-soft bg-danger-soft text-foreground",
 };
 
-function usePrefersReducedMotion() {
-  const [reducedMotion, setReducedMotion] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return undefined;
-    }
-
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(query.matches);
-    const handleChange = () => setReducedMotion(query.matches);
-    query.addEventListener("change", handleChange);
-    return () => query.removeEventListener("change", handleChange);
-  }, []);
-
-  return reducedMotion;
-}
-
 export function PromoBar({
   messages,
   cycleIntervalMs = 7000,
@@ -64,7 +47,7 @@ export function PromoBar({
   ...rest
 }: PromoBarProps) {
   const visibleMessages = useMemo(() => messages.filter((message) => message.title), [messages]);
-  const reducedMotion = usePrefersReducedMotion();
+  const reducedMotion = useReducedMotion();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const hasMultipleMessages = visibleMessages.length > 1;
@@ -107,27 +90,24 @@ export function PromoBar({
       aria-label={ariaLabel}
       className={cx("rounded-tokenMd border px-3 py-2 md:px-4", toneClasses[tone])}
     >
-      <Stack
-        direction={{ base: "column", md: "row" }}
-        align={{ base: "stretch", md: "center" }}
-        justify={{ base: "start", md: "between" }}
-        gap={3}
-      >
-        <FlexItem grow>
-          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="start" gap={3}>
+      <Stack direction="row" align="center" justify="between" gap={3}>
+        <FlexItem grow minWidth="0">
+          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>
             <Stack gap={1} minWidth="0">
-              <Text size="sm" weight="semibold" tone="inherit">
+              <Text size="sm" weight="semibold" tone="inherit" truncate={{ base: true, md: false }}>
                 {activeMessage.title}
               </Text>
               {activeMessage.description ? (
-                <Text size="sm" tone="secondary">
-                  {activeMessage.description}
-                </Text>
+                <Show above="md">
+                  <Text size="sm" tone="secondary" truncate={{ base: true, md: false }}>
+                    {activeMessage.description}
+                  </Text>
+                </Show>
               ) : null}
             </Stack>
           </IconRow>
         </FlexItem>
-        <Inline gap={2} align="center">
+        <Inline gap={2} align="center" wrap={false}>
           {activeMessage.href && activeMessage.linkLabel ? (
             <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
               {activeMessage.linkLabel}

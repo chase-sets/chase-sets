@@ -106,6 +106,7 @@ const canonicalReserveZeroConsumerExports = [
   "resolveTheme",
   "resolveThemeOverrideStyle",
   "resolveThemeStyle",
+  "resolveTruncateClass",
   "ResponsiveActionMenu",
   "ResponsiveSupportSheet",
   "Reveal",

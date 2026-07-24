@@ -13,6 +13,7 @@ const nonColorUtilityValues = new Set([
   "black",
   "box",
   "center",
+  "clip",
   "collapse",
   "current",
   "currentcolor",

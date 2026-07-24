@@ -352,6 +352,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "resolveTheme",
   "resolveThemeOverrideStyle",
   "resolveThemeStyle",
+  "resolveTruncateClass",
   "selectCheckoutNotice",
   "showToast",
   "sidebarWidthClasses",
