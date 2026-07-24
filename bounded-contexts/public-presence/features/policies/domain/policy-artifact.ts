@@ -6,6 +6,7 @@ import {
   type PublicPolicyPublicationStatus,
   type PublicPolicyVersion,
 } from "@chase-sets/public-docs/policy-corpus";
+import { canonicalClaimIds, type CanonicalClaimId } from "./canonical-claims";
 
 export { publicPolicyHrefsByKey, publicPolicyKeys, publicPolicyPublicationStatuses };
 export type { PublicPolicyKey, PublicPolicyPublicationStatus, PublicPolicyVersion };
@@ -20,6 +21,30 @@ export type PublicPolicyReviewAssumption = Readonly<{
 }>;
 
 /**
+ * A reference from a section to a shared canonical claim. Presence
+ * here declares "this section touches this shared claim"; the claim's
+ * settled/unresolved status itself lives only in canonical-claims.ts, so no
+ * section can locally override it.
+ */
+export type PublicPolicyCanonicalClaimRef = Readonly<{
+  claimId: CanonicalClaimId;
+  /** 'path:line' or 'path:start-end' references; required only when the
+   *  claim's canonical status is settled. */
+  productTruthRefs: readonly string[];
+}>;
+
+/**
+ * A structural, claim-aware public disclosure segment. Its rendered text is
+ * never hand-authored in this file: it is resolved from the referenced
+ * claim's canonical registry entry at render time, so an unresolved claim's
+ * public disclosure can only ever say what the registry says, never what a
+ * section author separately typed into `draftText`.
+ */
+export type PublicPolicyClaimDisclosure = Readonly<{
+  claimId: CanonicalClaimId;
+}>;
+
+/**
  * Per-section counsel review manifest. This is checked-in drafting metadata
  * for the counsel review packet only. None of these fields render on the
  * public page; only `draftText` is operative public prose.
@@ -30,6 +55,7 @@ export type PublicPolicySectionReviewManifest = Readonly<{
   productTruthRefs: readonly string[];
   openQuestions: readonly string[];
   assumptions: readonly PublicPolicyReviewAssumption[];
+  canonicalClaims?: readonly PublicPolicyCanonicalClaimRef[];
 }>;
 
 export type PublicPolicySection<SubjectId extends string = string> = Readonly<{
@@ -39,6 +65,13 @@ export type PublicPolicySection<SubjectId extends string = string> = Readonly<{
   draftText: string;
   reviewStatus: PublicPolicySectionReviewStatus;
   reviewManifest: PublicPolicySectionReviewManifest;
+  /**
+   * Public, rendered claim-disclosure segments. Unlike `reviewManifest`, this
+   * DOES render on the page — it is the structural, claim-aware alternative
+   * to describing an unresolved canonical claim in unconstrained `draftText`
+   * prose. Optional: only sections that reference a canonical claim carry it.
+   */
+  claimDisclosures?: readonly PublicPolicyClaimDisclosure[];
 }>;
 
 export type PublicPolicyPublicationMetadata<Key extends PublicPolicyKey = PublicPolicyKey> = Key extends PublicPolicyKey
@@ -92,11 +125,21 @@ const metadataFields = [
   "rolloutJurisdictionsOrProductLimits",
   "launchRequired",
 ] as const;
-const sectionFields = ["id", "title", "draftText", "reviewStatus", "reviewManifest"] as const;
-const manifestFields = ["scopeNote", "decisionRefs", "productTruthRefs", "openQuestions", "assumptions"] as const;
+const sectionFields = ["id", "title", "draftText", "reviewStatus", "reviewManifest", "claimDisclosures"] as const;
+const manifestFields = [
+  "scopeNote",
+  "decisionRefs",
+  "productTruthRefs",
+  "openQuestions",
+  "assumptions",
+  "canonicalClaims",
+] as const;
 const assumptionFields = ["assertion", "evidenceRef"] as const;
+const canonicalClaimFields = ["claimId", "productTruthRefs"] as const;
+const claimDisclosureFields = ["claimId"] as const;
 
 const policyVersionPattern = /^v[1-9][0-9]*$/;
+const canonicalClaimEvidenceRefPattern = /^[\w./-]+:\d+(-\d+)?$/;
 
 /**
  * Closed-schema structural validation for one Public Policy Artifact. Every
@@ -247,6 +290,72 @@ function validateSection(errors: string[], label: string, section: unknown, seen
       }
       if (typeof assumptionRaw.evidenceRef !== "string" || assumptionRaw.evidenceRef.trim().length === 0) {
         errors.push(`${sectionLabel} review manifest assumptions require a non-empty code or test evidence ref.`);
+      }
+    }
+  }
+
+  if (manifestRaw.canonicalClaims !== undefined) {
+    if (!Array.isArray(manifestRaw.canonicalClaims)) {
+      errors.push(`${sectionLabel} review manifest canonical claims must be an array.`);
+    } else {
+      for (const claimRef of manifestRaw.canonicalClaims as readonly unknown[]) {
+        if (!isPlainObject(claimRef)) {
+          errors.push(`${sectionLabel} review manifest canonical claims must be objects.`);
+          continue;
+        }
+        const claimRaw = claimRef as Record<string, unknown>;
+        pushUnknownFieldErrors(
+          errors,
+          label,
+          claimRaw,
+          canonicalClaimFields,
+          `sections['${id ?? "?"}'].reviewManifest.canonicalClaims[].`,
+        );
+        if (
+          typeof claimRaw.claimId !== "string" ||
+          !(canonicalClaimIds as readonly string[]).includes(claimRaw.claimId)
+        ) {
+          errors.push(
+            `${sectionLabel} review manifest canonical claim id must be one of the registered canonical claim ids.`,
+          );
+        }
+        if (
+          !Array.isArray(claimRaw.productTruthRefs) ||
+          !claimRaw.productTruthRefs.every(
+            (ref) => typeof ref === "string" && canonicalClaimEvidenceRefPattern.test(ref),
+          )
+        ) {
+          errors.push(
+            `${sectionLabel} review manifest canonical claim product truth refs must be an array of 'path:line' or 'path:start-end' references.`,
+          );
+        }
+      }
+    }
+  }
+
+  if (raw.claimDisclosures !== undefined) {
+    if (!Array.isArray(raw.claimDisclosures)) {
+      errors.push(`${sectionLabel} claim disclosures must be an array.`);
+    } else {
+      for (const disclosure of raw.claimDisclosures as readonly unknown[]) {
+        if (!isPlainObject(disclosure)) {
+          errors.push(`${sectionLabel} claim disclosures must be objects.`);
+          continue;
+        }
+        const disclosureRaw = disclosure as Record<string, unknown>;
+        pushUnknownFieldErrors(
+          errors,
+          label,
+          disclosureRaw,
+          claimDisclosureFields,
+          `sections['${id ?? "?"}'].claimDisclosures[].`,
+        );
+        if (
+          typeof disclosureRaw.claimId !== "string" ||
+          !(canonicalClaimIds as readonly string[]).includes(disclosureRaw.claimId)
+        ) {
+          errors.push(`${sectionLabel} claim disclosure id must be one of the registered canonical claim ids.`);
+        }
       }
     }
   }

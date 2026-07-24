@@ -11,6 +11,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
+import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import {
   evaluatePublicPolicyPublicationReadiness,
   isPublicPolicyEffectiveAt,
@@ -114,7 +115,8 @@ function buildPolicyArtifactPageCopy(
 
 /**
  * Shared page for every Public Policy Artifact route. Only operative
- * `draftText` renders. The complete review manifest remains packet-only.
+ * `draftText` and structural `claimDisclosures` render. The complete review
+ * manifest remains packet-only.
  */
 export function PolicyArtifactPage({
   artifact,
@@ -195,6 +197,9 @@ export function PolicyArtifactPage({
                   <Badge tone="warning">{copy.counselRequiredBadge}</Badge>
                 ) : null}
                 {section.draftText.trim().length > 0 ? <Text>{section.draftText}</Text> : null}
+                {(section.claimDisclosures ?? []).map((disclosure) => (
+                  <Text key={disclosure.claimId}>{resolveUnresolvedPublicDisclosureText(disclosure.claimId)}</Text>
+                ))}
               </Stack>
             </Surface>
           ))}

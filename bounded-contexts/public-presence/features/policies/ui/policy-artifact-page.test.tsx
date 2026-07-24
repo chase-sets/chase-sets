@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
+import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
@@ -123,6 +124,18 @@ describe("policy artifact page", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
   });
 
+  it("renders the Wallet's unresolved interest/deposit claim disclosures on the real /terms adapter, not a settled assertion", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = container.textContent ?? "";
+
+    expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-no-interest"));
+    expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-deposit-and-fdic-posture"));
+    expect(text.toLowerCase()).not.toContain("do not earn interest");
+    expect(text.toLowerCase()).not.toContain("insured by the fdic");
+  });
+
   for (const route of policyRouteAdapters) {
     it(`fails closed on invalid effective timestamps through the real ${route.path} adapter and metadata builder`, () => {
       for (const effectiveAt of invalidEffectiveAts) {
@@ -156,22 +169,27 @@ describe("policy artifact page", () => {
     });
   }
 
-  it("never renders packet-only review-manifest fields on the public page", () => {
-    const { container } = renderRouteAdapter(policyRouteAdapters[1].render);
-    const text = container.textContent ?? "";
+  for (const route of policyRouteAdapters) {
+    it(`never renders packet-only review-manifest fields through the real ${route.path} adapter`, () => {
+      const { container } = renderRouteAdapter(route.render);
+      const text = container.textContent ?? "";
 
-    for (const section of sellerAgreementPolicyArtifact.sections) {
-      expect(text).not.toContain(section.reviewManifest.scopeNote);
-      for (const openQuestion of section.reviewManifest.openQuestions) {
-        expect(text).not.toContain(openQuestion);
+      for (const section of route.artifact.sections) {
+        expect(text).not.toContain(section.reviewManifest.scopeNote);
+        for (const openQuestion of section.reviewManifest.openQuestions) {
+          expect(text).not.toContain(openQuestion);
+        }
+        for (const ref of section.reviewManifest.productTruthRefs) {
+          expect(text).not.toContain(ref);
+        }
+        for (const assumption of section.reviewManifest.assumptions) {
+          expect(text).not.toContain(assumption.assertion);
+          expect(text).not.toContain(assumption.evidenceRef);
+        }
+        for (const decisionRef of section.reviewManifest.decisionRefs) {
+          expect(text).not.toContain(String(decisionRef));
+        }
       }
-      for (const ref of section.reviewManifest.productTruthRefs) {
-        expect(text).not.toContain(ref);
-      }
-      for (const assumption of section.reviewManifest.assumptions) {
-        expect(text).not.toContain(assumption.assertion);
-      }
-    }
-    expect(text).not.toContain("5687");
-  });
+    });
+  }
 });

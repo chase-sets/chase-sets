@@ -52,18 +52,16 @@ describe("public policy registry", () => {
   });
 
   it("keeps every counsel-pending artifact explicitly non-operative and non-activatable", () => {
-    // Seller Agreement (#5687) and Terms of Service (#5686) are drafted ahead
-    // of counsel review; all other artifacts remain empty stubs until their
-    // own slice lands. Draft text alone never makes a document operative.
-    const draftedPolicyKeys = new Set(["seller-agreement", "terms-of-service"]);
+    // Non-operative status turns on reviewStatus/publicationStatus/effectiveAt/
+    // counselApprovalReference, not on draftText being empty. Drafted and
+    // placeholder artifacts must stay equally non-activatable until counsel
+    // approval makes them operative.
     for (const entry of publicPolicyRegistry) {
       expect(entry.artifact.metadata.publicationStatus).toBe("counsel-review-required");
       expect(entry.artifact.metadata.effectiveAt).toBeNull();
       expect(entry.artifact.metadata.counselApprovalReference).toBeNull();
       expect(isConsentActivatable(entry.artifact, entry.requiredSubjectIds)).toBe(false);
-      const isDrafted = draftedPolicyKeys.has(entry.artifact.metadata.policyKey);
       for (const section of entry.artifact.sections) {
-        expect(section.draftText.trim().length > 0).toBe(isDrafted);
         expect(section.reviewStatus).toBe("counsel-required");
       }
     }
