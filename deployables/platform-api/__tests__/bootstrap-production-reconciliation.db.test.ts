@@ -10,6 +10,7 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import { module as identityModule } from "@chase-sets/identity";
 import {
+  nonProductionDataProfiles,
   productionLikeDataProfiles,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
@@ -126,6 +127,24 @@ async function countCreationEvents(
     eventCount: Number(result.rows[0]?.event_count ?? 0),
     streamCount: Number(result.rows[0]?.stream_count ?? 0),
   };
+}
+
+async function countCatalogDimensionStreamEvents(
+  pool: PlatformApiTestPools["catalog"],
+): Promise<Readonly<Record<string, number>>> {
+  const streamIds = Object.values(catalogSeedIds.dimensions).map(
+    ({ dimensionId }) => `catalog.dimension-${dimensionId}`,
+  );
+  const result = await pool.query<Readonly<{ stream_id: string; event_count: string }>>(
+    `SELECT stream_id, COUNT(*) AS event_count
+     FROM event_store_events
+     WHERE stream_id = ANY($1::text[])
+     GROUP BY stream_id
+     ORDER BY stream_id`,
+    [streamIds],
+  );
+  const eventCounts = new Map(result.rows.map(({ stream_id, event_count }) => [stream_id, Number(event_count)]));
+  return Object.fromEntries(streamIds.sort().map((streamId) => [streamId, eventCounts.get(streamId) ?? 0]));
 }
 
 async function representativeParticipantIdentities(
@@ -489,6 +508,67 @@ describe("platform api bootstrap production reconciliation", () => {
       `SELECT COUNT(*) AS migration_count FROM ${SCHEMA_MIGRATIONS_TABLE}`,
     );
     expect(Number(migrations.rows[0]?.migration_count ?? 0)).toBeGreaterThan(0);
+  }, 240_000);
+
+  it("recovers two serialized full-drain boots from retained Catalog dimension events without projection state", async () => {
+    const runtime = createPlatformApiHost({
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const catalogContext = runtime.mountedContexts.find((context) => context.contextName === "catalog");
+    const catalogSeed = catalogContext?.module.seed;
+    if (!catalogContext || !catalogSeed) {
+      throw new Error("Expected a seeded Catalog context in the platform API runtime.");
+    }
+    const bootstrapOptions = {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    } as const;
+    const interruptedRuntime = {
+      ...runtime,
+      mountedContexts: runtime.mountedContexts.map((context) =>
+        context.contextName !== "catalog"
+          ? context
+          : {
+              ...context,
+              module: {
+                ...context.module,
+                seed: async (...args: Parameters<typeof catalogSeed>) => {
+                  await catalogSeed(...args);
+                  throw new Error("test-only interruption after Catalog seed and before host projection drain");
+                },
+              },
+            },
+      ),
+    } satisfies typeof runtime;
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", interruptedRuntime, bootstrapOptions),
+    ).rejects.toThrow("test-only interruption after Catalog seed and before host projection drain");
+
+    const retainedDimensionEvents = await countCatalogDimensionStreamEvents(pools.catalog);
+    expect(Object.values(retainedDimensionEvents)).toHaveLength(Object.keys(catalogSeedIds.dimensions).length);
+    expect(Object.values(retainedDimensionEvents).every((count) => count > 0)).toBe(true);
+    const dimensionProjection = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_dimensions",
+    );
+    expect(Number(dimensionProjection.rows[0]?.count ?? 0)).toBe(0);
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
+    ).resolves.toBeUndefined();
+    const firstRecoveryEventCounts = await countCatalogDimensionStreamEvents(pools.catalog);
+
+    await expect(
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
+    ).resolves.toBeUndefined();
+    const secondRecoveryEventCounts = await countCatalogDimensionStreamEvents(pools.catalog);
+
+    expect(firstRecoveryEventCounts).toEqual(retainedDimensionEvents);
+    expect(secondRecoveryEventCounts).toEqual(firstRecoveryEventCounts);
   }, 240_000);
 
   it("limits and reconciles every production-like seed context against current-code state", async () => {
