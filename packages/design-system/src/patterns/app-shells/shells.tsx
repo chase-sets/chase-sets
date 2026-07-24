@@ -1,12 +1,18 @@
 import type { ReactNode } from "react";
-import { BottomNav, SideNav, TopNav, type NavigationItem } from "../../components/actions";
+import { useEffect, useState } from "react";
+import { BottomNav, Breadcrumbs, Button, SideNav, TopNav, type NavigationItem } from "../../components/actions";
+import { NavigationDrawer } from "../../components/feedback";
 import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import { Page } from "./page-layouts";
 
-function shellGeometryClasses(hasBottomNavigation: boolean, hasSearch = false): string {
+function shellGeometryClasses(hasBottomNavigation: boolean, hasSearch = false, hasSectionBar = false): string {
   return cx(
-    hasSearch ? "[--shell-header-height:7.75rem] md:[--shell-header-height:4rem]" : "[--shell-header-height:4rem]",
+    hasSearch
+      ? "[--shell-header-height:7.75rem] md:[--shell-header-height:4rem]"
+      : hasSectionBar
+        ? "[--shell-header-height:7rem] lg:[--shell-header-height:4rem]"
+        : "[--shell-header-height:4rem]",
     hasBottomNavigation
       ? "[--shell-bottom-nav-height:5.25rem] md:[--shell-bottom-nav-height:0px]"
       : "[--shell-bottom-nav-height:0px]",
@@ -83,6 +89,8 @@ export interface AdminShellProps {
   activeKey?: string;
   actions?: ReactNode;
   moreLabel?: string;
+  sectionsLabel?: string;
+  currentSectionLabel?: string;
   children?: ReactNode;
   width?: LayoutWidth;
 }
@@ -122,6 +130,27 @@ function isAdminNavigationItemActive(item: NavigationItem, activeKey?: string): 
   );
 }
 
+function findAdminNavigationTrail(navItems: NavigationItem[], activeKey: string | undefined): NavigationItem[] {
+  if (!activeKey) {
+    return [];
+  }
+
+  for (const item of navItems) {
+    if (item.key === activeKey) {
+      return [item];
+    }
+
+    if (item.children?.length) {
+      const childTrail = findAdminNavigationTrail(item.children, activeKey);
+      if (childTrail.length > 0) {
+        return [item, ...childTrail];
+      }
+    }
+  }
+
+  return [];
+}
+
 export function AdminShell({
   brand,
   topNavItems = [],
@@ -130,14 +159,26 @@ export function AdminShell({
   activeKey,
   actions,
   moreLabel = "More",
+  sectionsLabel = "Sections",
+  currentSectionLabel = "Current section",
   children,
   width = "full",
 }: AdminShellProps) {
   const hasLocalNav = navItems.length > 0;
   const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey, moreLabel);
+  const sectionTrail = findAdminNavigationTrail(navItems, activeKey);
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+
+  // Route selection re-renders the shell with the new activeKey; the modal
+  // drawer's links navigate without firing onOpenChange, so close on that signal.
+  useEffect(() => {
+    setSectionsOpen(false);
+  }, [activeKey]);
 
   return (
-    <div className={cx("min-h-screen bg-background", shellGeometryClasses(mobileNavItems.length > 0))}>
+    <div
+      className={cx("min-h-screen bg-background", shellGeometryClasses(mobileNavItems.length > 0, false, hasLocalNav))}
+    >
       <SkipLink />
       <TopNav
         brand={brand}
@@ -147,11 +188,43 @@ export function AdminShell({
         mobileActionsLabel="Admin menu"
         width={width}
       />
+      {hasLocalNav ? (
+        <div
+          data-admin-section-bar="true"
+          className="sticky top-16 z-sticky border-b border-muted bg-background/overlay px-4 backdrop-blur-xl lg:hidden"
+        >
+          <div className={cx("mx-auto flex h-12 w-full items-center gap-3", layoutWidthClasses[width])}>
+            <div className="hidden md:block">
+              <NavigationDrawer
+                trigger={
+                  <Button tone="secondary" size="sm" leadingIcon="menu">
+                    {sectionsLabel}
+                  </Button>
+                }
+                label={sectionsLabel}
+                items={navItems}
+                activeKey={activeKey}
+                open={sectionsOpen}
+                onOpenChange={setSectionsOpen}
+              />
+            </div>
+            {sectionTrail.length > 0 ? (
+              <Breadcrumbs
+                ariaLabel={currentSectionLabel}
+                items={sectionTrail.map((item, index) => ({
+                  label: item.label,
+                  href: index < sectionTrail.length - 1 ? item.href : undefined,
+                }))}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <main
         id="main-content"
         tabIndex={-1}
         className={cx(
-          "mx-auto min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:py-6 lg:pb-8",
+          "mx-auto min-h-[calc(100vh-var(--shell-header-height,4rem))] w-full gap-6 px-4 py-5 pb-24 lg:py-6 lg:pb-8",
           hasLocalNav && "grid lg:grid-cols-[16rem_minmax(0,1fr)]",
           layoutWidthClasses[width],
         )}

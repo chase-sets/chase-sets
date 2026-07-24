@@ -76,7 +76,9 @@ export function DenseAdminWorkbenchLayout({
 }: DenseAdminWorkbenchLayoutProps) {
   return (
     <div {...rest} className="grid gap-5 md:grid-cols-[18rem_minmax(0,1fr)] md:items-start">
-      <div className="md:sticky md:top-20">
+      {/* Offset tracks the shell header var: below lg the admin shell adds a sticky
+          section bar to the header band, so a fixed top-20 would tuck the rail under it. */}
+      <div className="md:sticky md:top-[calc(var(--shell-header-height,4rem)+1rem)]">
         <SectionNavigation
           groups={navigationGroups}
           activeKey={activeNavigationKey}

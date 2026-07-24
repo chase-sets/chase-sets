@@ -2058,7 +2058,9 @@ describe("design system components", () => {
 
     expect(main.getAttribute("id")).toBe("main-content");
     expect(main.getAttribute("tabindex")).toBe("-1");
-    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:4rem]");
+    // With local navigation the below-lg header band gains the sticky section bar.
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:7rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("lg:[--shell-header-height:4rem]");
     expect(main.parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:5.25rem]");
     expect(main.parentElement?.getAttribute("class")).toContain("md:[--shell-bottom-nav-height:0px]");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
@@ -2074,8 +2076,12 @@ describe("design system components", () => {
     );
 
     expect(screen.getByRole("main").getAttribute("class")).not.toContain("lg:grid-cols-[16rem_minmax(0,1fr)]");
+    expect(screen.getByRole("main").parentElement?.getAttribute("class")).toContain("[--shell-header-height:4rem]");
+    expect(screen.getByRole("main").parentElement?.getAttribute("class")).not.toContain("[--shell-header-height:7rem]");
     expect(screen.getByRole("main").parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:0px]");
     expect(screen.queryByRole("navigation", { name: "Section navigation" })).toBeNull();
+    expect(document.querySelector("[data-admin-section-bar]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sections" })).toBeNull();
     expect(screen.getByText("Root state")).toBeTruthy();
   });
 
@@ -2110,6 +2116,99 @@ describe("design system components", () => {
     );
     expect(within(topNav).getAllByRole("link", { name: "Platform" })[1]?.getAttribute("aria-current")).toBe("page");
     expect(within(topNav).getAllByRole("button", { name: "Sign out" })).toHaveLength(2);
+  });
+
+  const adminSectionNav = [
+    { key: "dimensions", label: "Dimensions", icon: "search" as const, href: "/catalog/dimensions" },
+    {
+      key: "integrations",
+      label: "Integrations",
+      icon: "rocket" as const,
+      children: [
+        { key: "integrations-import", label: "Import", href: "/catalog/integrations" },
+        { key: "integrations-health", label: "Integration health", href: "/catalog/integrations/health" },
+      ],
+    },
+    { key: "scopes", label: "Scopes", href: "/catalog/scopes" },
+    { key: "reference-records", label: "Reference records", href: "/catalog/reference-types" },
+    { key: "settings", label: "Settings", href: "/catalog/settings" },
+  ];
+
+  it("renders the below-lg admin section bar with a tablet drawer trigger and a current-section trail", () => {
+    render(
+      <ChaseRoot>
+        <AdminShell brand={<div>Brand</div>} navItems={adminSectionNav} activeKey="integrations-import">
+          <div>Body</div>
+        </AdminShell>
+      </ChaseRoot>,
+    );
+
+    const bar = document.querySelector("[data-admin-section-bar]");
+    expect(bar).toBeTruthy();
+    // Visible only below lg (desktop keeps the persistent side nav) and pinned
+    // under the 4rem top app bar so orientation survives scrolling.
+    expect(bar?.getAttribute("class")).toContain("lg:hidden");
+    expect(bar?.getAttribute("class")).toContain("sticky top-16");
+
+    // The drawer trigger is a tablet-band affordance: hidden on phones (bottom
+    // nav owns phone navigation) and revealed from md up within the below-lg bar.
+    const trigger = screen.getByRole("button", { name: "Sections" });
+    expect(trigger.parentElement?.getAttribute("class")).toContain("hidden md:block");
+
+    // The current-section trail resolves nested children to a parent > child path
+    // and marks the leaf as the current page.
+    const trail = screen.getByRole("navigation", { name: "Current section" });
+    expect(within(trail).getByText("Integrations")).toBeTruthy();
+    expect(within(trail).getByText("Import").getAttribute("aria-current")).toBe("page");
+
+    // Below-lg header geometry accounts for the section bar; lg restores 4rem.
+    const main = screen.getByRole("main");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:7rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("lg:[--shell-header-height:4rem]");
+
+    // Existing phone and desktop navigation paths stay untouched.
+    const sideNavWrapper = main.firstElementChild;
+    expect(sideNavWrapper?.getAttribute("class")).toContain("hidden lg:block");
+    const bottomNav = document.querySelector("nav.fixed");
+    expect(bottomNav?.getAttribute("class")).toContain("md:hidden");
+    expect(within(bottomNav as HTMLElement).getByText("More")).toBeTruthy();
+  });
+
+  it("opens the tablet sections drawer and closes it when the active section changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ChaseRoot>
+        <AdminShell brand={<div>Brand</div>} navItems={adminSectionNav} activeKey="integrations-import">
+          <div>Body</div>
+        </AdminShell>
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sections" }));
+    const drawer = await screen.findByRole("dialog", { name: "Sections" });
+
+    // The full section tree is reachable inside the drawer: one tap on the
+    // trigger plus one tap on any destination link.
+    expect(within(drawer).getByRole("link", { name: "Import" }).getAttribute("href")).toBe("/catalog/integrations");
+    expect(within(drawer).getByRole("link", { name: "Integration health" }).getAttribute("href")).toBe(
+      "/catalog/integrations/health",
+    );
+    expect(within(drawer).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/catalog/settings");
+
+    // Route selection re-renders the shell with the new activeKey; the drawer
+    // must close on that signal because plain link navigation never fires
+    // onOpenChange.
+    rerender(
+      <ChaseRoot>
+        <AdminShell brand={<div>Brand</div>} navItems={adminSectionNav} activeKey="integrations-health">
+          <div>Body</div>
+        </AdminShell>
+      </ChaseRoot>,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sections" })).toBeNull());
+    expect(
+      within(screen.getByRole("navigation", { name: "Current section" })).getByText("Integration health"),
+    ).toBeTruthy();
   });
 
   it("keeps the default Badge soft tone rendering unchanged for existing tones", () => {

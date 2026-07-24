@@ -231,5 +231,10 @@ describe("DenseAdminWorkbenchProof", () => {
     );
     expect(layoutMarkup).toContain("md:grid-cols-[18rem_minmax(0,1fr)]");
     expect(layoutMarkup).toContain("md:items-start");
+    // The rail offset must track the shell header var: below lg the admin shell
+    // adds a sticky section bar to the header band, so a fixed md:top-20 would
+    // pin the rail underneath it at tablet widths.
+    expect(layoutMarkup).toContain("md:top-[calc(var(--shell-header-height,4rem)+1rem)]");
+    expect(layoutMarkup).not.toContain("md:top-20");
   });
 });

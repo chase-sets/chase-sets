@@ -42,6 +42,8 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
         navItems={resolveAdminWebNavItems(actor, { section: config.section })}
         actions={<AdminAccountMenu actor={actor} actorDisplay={actorDisplay} preferences={preferences} />}
         moreLabel={t("adminWeb.app.adminShell.more")}
+        sectionsLabel={t("adminWeb.app.adminShell.sections")}
+        currentSectionLabel={t("adminWeb.app.adminShell.current.section")}
       >
         <Outlet />
       </AdminShell>
