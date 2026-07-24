@@ -1,0 +1,345 @@
+{
+  "contract": "fail-closed-responsive-evidence",
+  "schemaVersion": 1,
+  "claims": [
+    {
+      "kind": "negative-control",
+      "id": "hidden-accordion-target",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the exact accordion target is hidden @marketplace-browse",
+      "route": {
+        "name": "hidden accordion fixture",
+        "path": "/responsive-evidence/hidden-accordion"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:hidden-accordion:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "changed-grid-inside-accordion",
+        "selector": "[data-evidence-target='changed-grid']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "changed-grid-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "hidden-accordion-target"
+    },
+    {
+      "kind": "negative-control",
+      "id": "zero-table-unrelated-list-item",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the exact table is empty despite an unrelated list item @marketplace-browse",
+      "route": {
+        "name": "empty scoped table fixture",
+        "path": "/responsive-evidence/empty-table"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:empty-table-with-unrelated-list:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "scoped-catalog-table",
+        "selector": "[data-evidence-target='scope-table']",
+        "populatedSelector": ":scope > tbody > tr"
+      },
+      "measurements": [
+        {
+          "identity": "scoped-table-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "zero-table-unrelated-list-item"
+    },
+    {
+      "kind": "claim",
+      "id": "fixture-scope-cards-mobile",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "records exact mobile card evidence at 390px @marketplace-browse",
+      "route": {
+        "name": "populated responsive scope fixture",
+        "path": "/responsive-evidence/scope-transition"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:populated-scope-transition:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "scoped-catalog-cards",
+        "selector": "[data-evidence-target='scope-cards']",
+        "populatedSelector": ":scope > [role='listitem']"
+      },
+      "measurements": [
+        {
+          "identity": "cards-fill-mobile-viewport",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 390,
+            "tolerance": 0.5
+          }
+        },
+        {
+          "identity": "mobile-primary-action-height",
+          "scope": "target",
+          "selector": ":scope [data-primary-action]",
+          "property": "height",
+          "assertion": {
+            "equals": 44,
+            "tolerance": 0.5
+          }
+        },
+        {
+          "identity": "tablet-table-is-hidden",
+          "scope": "page",
+          "selector": "[data-evidence-target='scope-table']",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "mobile-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "fixture-scope-cards-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "fixture-scope-table-tablet",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "records exact tablet table evidence at 820px @marketplace-browse",
+      "route": {
+        "name": "populated responsive scope fixture",
+        "path": "/responsive-evidence/scope-transition"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:populated-scope-transition:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "scoped-catalog-table",
+        "selector": "[data-evidence-target='scope-table']",
+        "populatedSelector": ":scope > tbody > tr"
+      },
+      "measurements": [
+        {
+          "identity": "table-fills-tablet-viewport",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        },
+        {
+          "identity": "tablet-primary-action-height",
+          "scope": "target",
+          "selector": ":scope [data-primary-action]",
+          "property": "height",
+          "assertion": {
+            "equals": 44,
+            "tolerance": 0.5
+          }
+        },
+        {
+          "identity": "mobile-cards-are-hidden",
+          "scope": "page",
+          "selector": "[data-evidence-target='scope-cards']",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "tablet-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "fixture-scope-table-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "catalog-scope-cards-mobile",
+      "file": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
+      "testTitle": "Scope Detail journey starts from populated cards at 390px @catalog-admin-scopes @catalog-admin-integrations",
+      "route": {
+        "name": "catalog scope-first landing",
+        "path": "/catalog/scopes"
+      },
+      "fixture": {
+        "identity": "catalog-integration-bootstrap:scope-records"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "catalog-scope-card-list",
+        "selector": "main div[role='list']",
+        "populatedSelector": ":scope > [role='listitem']"
+      },
+      "measurements": [
+        {
+          "identity": "scope-card-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "scope-table-hidden-on-mobile",
+          "scope": "page",
+          "selector": "main table",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "scope-mobile-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "catalog-scope-cards-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "catalog-scope-table-tablet",
+      "file": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
+      "testTitle": "scope-first landing renders a populated table at 820px @catalog-admin-scopes @catalog-admin-integrations",
+      "route": {
+        "name": "catalog scope-first landing",
+        "path": "/catalog/scopes"
+      },
+      "fixture": {
+        "identity": "catalog-integration-bootstrap:scope-records"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "catalog-scope-table",
+        "selector": "main table",
+        "populatedSelector": ":scope > tbody > tr"
+      },
+      "measurements": [
+        {
+          "identity": "scope-table-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "scope-cards-hidden-on-tablet",
+          "scope": "page",
+          "selector": "main div[role='list']",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "scope-tablet-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "catalog-scope-table-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "admin-shell-mobile-overflow",
+      "file": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
+      "testTitle": "mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting",
+      "route": {
+        "name": "admin account landing",
+        "path": "/access/accounts"
+      },
+      "fixture": {
+        "identity": "critical-bootstrap:admin-account-shell"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "admin-shell-main-content",
+        "selector": "main",
+        "populatedSelector": ":scope > *"
+      },
+      "measurements": [
+        {
+          "identity": "admin-main-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "admin-shell-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "admin-shell-mobile-overflow"
+    }
+  ]
+}

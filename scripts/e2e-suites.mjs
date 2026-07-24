@@ -139,6 +139,7 @@ const browserRuntimePatterns = [
   /^react-router\.config\.[cm]?[tj]s$/,
   /^playwright\.config\.ts$/,
   /^scripts\/e2e-suites\.mjs$/,
+  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
   /^scripts\/run-e2e-suite\.mjs$/,
 ];
 
@@ -197,9 +198,14 @@ const e2eSpecSuiteOwnership = [
       /^deployables\/marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\.spec\.ts$/,
     suites: ["marketplace_checkout"],
   },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/responsive-evidence-contract\.spec\.ts$/,
+    suites: ["marketplace_browse"],
+  },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
   { pattern: /^deployables\/admin-web\/e2e\/auth-shell-rbac\.spec\.ts$/, suites: ["admin_auth"] },
   { pattern: /^deployables\/admin-web\/e2e\/catalog-integrations\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
+  { pattern: /^deployables\/admin-web\/e2e\/catalog-scopes\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
   { pattern: /^deployables\/admin-web\/e2e\/catalog-modeling\.spec\.ts$/, suites: ["catalog_admin_modeling"] },
   { pattern: /^deployables\/admin-web\/e2e\/commerce-/, suites: ["admin_commerce"] },
   { pattern: /^deployables\/admin-web\/e2e\/growth-/, suites: ["admin_growth"] },

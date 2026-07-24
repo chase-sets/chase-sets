@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
@@ -7,10 +8,12 @@ const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are 
 // entry into the catalog control plane. These checks assert the surface renders
 // with its filter controls and that each scope row opens its own Scope Detail
 // journey — without depending on any particular seeded scope, so the test is
-// stable across seed states (an empty registry renders the empty state instead
-// of rows).
+// stable across seed states for ordinary route behavior (an empty registry
+// renders the empty state instead of rows). Manifest-designated responsive
+// evidence below deliberately fails closed unless its named bootstrap fixture
+// has populated the exact card/table target.
 test.describe.serial("catalog admin scopes", () => {
-  test("signed-in catalog operator lands on the scope-first list with domain / language / status filters @catalog-admin-scopes", async ({
+  test("signed-in catalog operator lands on the scope-first list with domain / language / status filters @catalog-admin-scopes @catalog-admin-integrations", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -34,7 +37,9 @@ test.describe.serial("catalog admin scopes", () => {
     await expect(page.locator('a[href="/catalog/scopes"]').first()).toHaveAttribute("aria-current", "page");
   });
 
-  test("a scope row opens that scope's own Scope Detail journey @catalog-admin-scopes", async ({ page }) => {
+  test("a scope row opens that scope's own Scope Detail journey @catalog-admin-scopes @catalog-admin-integrations", async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
@@ -59,24 +64,35 @@ test.describe.serial("catalog admin scopes", () => {
     await expect(page.getByRole("button", { name: /Create \/ update items/ })).toBeVisible();
   });
 
-  test("Scope Detail keeps the whole journey usable at a mobile viewport @catalog-admin-scopes", async ({ page }) => {
+  test("Scope Detail journey starts from populated cards at 390px @catalog-admin-scopes @catalog-admin-integrations", async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
-    await page.setViewportSize({ width: 390, height: 844 });
 
     await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
     await expectAdminPageReady(page, { heading: "Scopes" });
 
-    const viewLinks = page.getByRole("link", { name: "View" });
-    test.skip((await viewLinks.count()) === 0, "No scope records seeded in this environment.");
-    await viewLinks.first().click();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-cards-mobile" });
+
+    const scopeCards = page.locator("main div[role='list']");
+    await scopeCards.locator(":scope > [role='listitem']").first().getByRole("link", { name: "View" }).click();
 
     await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();
     await expect(page.getByText("Catalog scope sync", { exact: true })).toBeVisible();
-    const horizontalOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(horizontalOverflow).toBeLessThanOrEqual(1);
+  });
+
+  test("scope-first landing renders a populated table at 820px @catalog-admin-scopes @catalog-admin-integrations", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+    test.skip(skipDeployedAdminE2e, SKIP_REASON);
+
+    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await expectPageOk(page, "/catalog/scopes");
+    await expectAdminPageReady(page, { heading: "Scopes" });
+
+    await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-table-tablet" });
   });
 });

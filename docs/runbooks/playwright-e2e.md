@@ -47,6 +47,21 @@ pnpm run test:e2e:suite catalog_admin_integrations
 
 Reports and failure artifacts are written under ignored `artifacts/playwright/` folders.
 
+## Responsive evidence
+
+Screenshot-backed responsive claims are registered in
+`infrastructure/playwright-evidence/responsive-evidence-manifest.json` and captured only through
+`captureResponsiveEvidence`. The contract sets the registered viewport, verifies
+the exact route, requires one visible target with populated target-relative
+children, executes the registered layout measurements, and writes paired
+screenshot and runtime-manifest attachments. The runtime manifest binds those
+artifacts to the Playwright test id, project, retry, and trace step.
+
+The structure check applies only to manifest-designated claims. It rejects
+optional locator-count or visibility gates, swallowed assertion failures, and
+direct screenshots in those tests; ordinary conditional Playwright behavior
+outside designated evidence remains valid.
+
 ## Deployed Targets
 
 Playwright can run against an already deployed marketplace without starting the local sandbox server:
