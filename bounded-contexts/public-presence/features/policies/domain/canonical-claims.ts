@@ -4,7 +4,7 @@ export type CanonicalClaimStatus = "settled" | "unresolved";
  * The closed set of shared sensitive money/custody/processor claims that more
  * than one Public Policy Artifact may need to reference. Adding an id here is
  * the one place a claim's settled/unresolved status is decided; no artifact
- * section may assert a different status for the same id (#6055).
+ * section may assert a different status for the same id.
  */
 export const canonicalClaimIds = [
   "payment-charge-timing-and-capture",
@@ -23,7 +23,7 @@ export type CanonicalClaimDefinition = Readonly<{
    * Only enforced when status is "settled": a section citing this claim must
    * cite at least one product-truth evidence reference whose exact cited
    * source lines contain one of these keywords (case-insensitive), so a
-   * citation pointing at unrelated code — the #6052 defect shape — fails
+   * citation pointing at unrelated code fails
    * structurally instead of only on human review.
    */
   requiredEvidenceKeywords: readonly string[];

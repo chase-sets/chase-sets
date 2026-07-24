@@ -40,7 +40,7 @@ function readCitedText(repoRoot: string, path: string, start: number, end: numbe
 }
 
 /**
- * The one canonical-claim cross-artifact consistency check (#6055). The
+ * The one canonical-claim cross-artifact consistency check. The
  * registry in canonical-claims.ts is the sole arbiter of a shared claim's
  * settled/unresolved status, so every section across every artifact that
  * references the same claimId is checked against that single status — no two

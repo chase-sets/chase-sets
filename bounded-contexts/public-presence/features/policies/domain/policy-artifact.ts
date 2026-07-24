@@ -21,7 +21,7 @@ export type PublicPolicyReviewAssumption = Readonly<{
 }>;
 
 /**
- * A reference from a section to a shared canonical claim (#6055). Presence
+ * A reference from a section to a shared canonical claim. Presence
  * here declares "this section touches this shared claim"; the claim's
  * settled/unresolved status itself lives only in canonical-claims.ts, so no
  * section can locally override it.
