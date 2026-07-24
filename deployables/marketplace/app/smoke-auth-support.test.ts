@@ -44,6 +44,14 @@ class FakeResponse {
   }
 }
 
+const emptyRegistrationConsentResolution = {
+  operationId: "cmd_smoke_registration",
+  snapshot: {
+    bundleKey: "registration",
+    requirements: [],
+  },
+} as const;
+
 function createFakePage(route: FakeRoute) {
   const calls: RequestCall[] = [];
   const cookies: { name: string; value: string }[] = [];
@@ -57,6 +65,9 @@ function createFakePage(route: FakeRoute) {
       get: vi.fn(async (url: string, options: { headers?: Record<string, string> } = {}) => {
         const call = { method: "GET", url, headers: options.headers } as const;
         calls.push(call);
+        if (url.endsWith("/api/auth/registration-consent")) {
+          return new FakeResponse(200, emptyRegistrationConsentResolution);
+        }
         return route(call);
       }),
     },
@@ -320,6 +331,10 @@ describe("marketplace smoke auth support", () => {
         expect(call.data).toMatchObject({
           email: account.email,
           password: account.password,
+          registrationConsent: {
+            ...emptyRegistrationConsentResolution,
+            affirmed: false,
+          },
         });
         return new FakeResponse(201, { sessionToken: "synthetic_session" });
       }
@@ -330,7 +345,10 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
     expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
@@ -435,7 +453,10 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
     expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
@@ -456,7 +477,7 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
   });
 
   it("signs in an already-provisioned account when a gated environment lacks admin credentials", async () => {
