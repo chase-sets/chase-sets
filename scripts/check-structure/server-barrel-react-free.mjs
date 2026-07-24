@@ -56,7 +56,7 @@ function parseModule(absPath, content) {
   return ts.createSourceFile(absPath, content, ts.ScriptTarget.Latest, false, scriptKindFor(absPath));
 }
 
-function isValueReachableImport(statement) {
+export function isValueReachableImport(statement) {
   const clause = statement.importClause;
   if (!clause) return true; // `import "./x"` side-effect import
   if (clause.isTypeOnly) return false; // `import type ... from "./x"`
@@ -70,7 +70,7 @@ function isValueReachableImport(statement) {
   return true;
 }
 
-function isValueReachableExport(statement) {
+export function isValueReachableExport(statement) {
   if (statement.isTypeOnly) return false; // `export type { X } from "./x"`
   const clause = statement.exportClause;
   if (!clause) return true; // bare `export * from "./x"`
