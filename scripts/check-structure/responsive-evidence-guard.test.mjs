@@ -1,10 +1,12 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs";
 
 const roots = [];
+const repoRoot = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const designatedFile = "deployables/admin-web/e2e/responsive.spec.ts";
 const designatedTitle = "responsive claim";
 
@@ -126,6 +128,145 @@ describe("responsive evidence structural guard", () => {
   });
 });
 
+describe("responsive evidence real-tree reviewer mutations", () => {
+  it("rejects a claim omitted from the manifest while its capture remains", async () => {
+    const root = await realFixture();
+    await mutateManifest(root, (manifest) => {
+      manifest.claims = manifest.claims.filter((claim) => claim.id !== "fixture-scope-cards-mobile");
+    });
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toEqual([
+      expect.stringContaining(
+        "claim 'fixture-scope-cards-mobile' must have exactly one source-manifest claim (found 0)",
+      ),
+    ]);
+  });
+
+  it("rejects disabled test registration for a real claim", async () => {
+    const root = await realFixture();
+    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+      source.replace(
+        'test("records exact mobile card evidence at 390px @marketplace-browse"',
+        'test.skip("records exact mobile card evidence at 390px @marketplace-browse"',
+      ),
+    );
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("must use an active test(...) registration"));
+  });
+
+  it("rejects weakening the real 44px assertion to 1", async () => {
+    const root = await realFixture();
+    await mutateManifest(root, (manifest) => {
+      const claim = manifest.claims.find((candidate) => candidate.id === "fixture-scope-cards-mobile");
+      const measurement = claim.measurements.find((candidate) => candidate.property === "height");
+      measurement.assertion = { minimum: 1 };
+    });
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("independently guarantee the 44px minimum"));
+  });
+
+  it("rejects capture hidden behind locator all length", async () => {
+    const root = await realFixture();
+    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+      source.replace(
+        '    await captureResponsiveEvidence({ page, testInfo, claimId: "fixture-scope-cards-mobile" });',
+        `    if ((await page.locator("body").all()).length) {
+      await captureResponsiveEvidence({ page, testInfo, claimId: "fixture-scope-cards-mobile" });
+    }`,
+      ),
+    );
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("may not condition capture"));
+  });
+
+  it("rejects a local no-op substituted for the canonical helper", async () => {
+    const root = await realFixture();
+    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+      source
+        .replace(
+          "import { captureResponsiveEvidence, responsiveEvidenceArtifactPaths } from",
+          "import { responsiveEvidenceArtifactPaths } from",
+        )
+        .replace(
+          'test.describe("responsive evidence fail-closed contract"',
+          'const captureResponsiveEvidence = async (_input: unknown) => {};\n\ntest.describe("responsive evidence fail-closed contract"',
+        ),
+    );
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("must call the canonical"));
+    expect(result.violations).toContainEqual(expect.stringContaining("locally shadowed or substituted"));
+  });
+
+  it("rejects duplicate route fixture viewport target identity under another claim and artifact", async () => {
+    const root = await realFixture();
+    await mutateManifest(root, (manifest) => {
+      const duplicate = structuredClone(
+        manifest.claims.find((candidate) => candidate.id === "fixture-scope-cards-mobile"),
+      );
+      duplicate.id = "fixture-scope-cards-mobile-copy";
+      duplicate.artifact = "fixture-scope-cards-mobile-copy";
+      manifest.claims.push(duplicate);
+    });
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(
+      expect.stringContaining("duplicates route+fixture+viewport+target identity"),
+    );
+  });
+
+  it("rejects a top-level unknown source-manifest field", async () => {
+    const root = await realFixture();
+    await mutateManifest(root, (manifest) => {
+      manifest.unknown = true;
+    });
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("closed object"));
+  });
+
+  it("rejects a nested unknown source-manifest field", async () => {
+    const root = await realFixture();
+    await mutateManifest(root, (manifest) => {
+      manifest.claims[0].target.unknown = true;
+    });
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("every nested object must use the closed schema"));
+  });
+
+  it.each([
+    ["package alias", 'import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";'],
+    [
+      "direct infrastructure path",
+      'import { captureResponsiveEvidence } from "../../../../infrastructure/playwright-evidence/index.ts";',
+    ],
+  ])("rejects %s imports from a deployable runtime route", async (_label, source) => {
+    const root = await realFixture();
+    await write(
+      root,
+      "deployables/admin-web/app/routes/review-probe.tsx",
+      `${source}\nexport default function Route() {}`,
+    );
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("runtime source may not import"));
+  });
+});
+
 async function fixture(testBody) {
   const root = await mkdtemp(path.join(os.tmpdir(), "responsive-evidence-guard-"));
   roots.push(root);
@@ -179,4 +320,35 @@ async function write(root, relativePath, contents) {
   const target = path.join(root, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, contents, "utf8");
+}
+
+async function realFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "responsive-evidence-real-"));
+  roots.push(root);
+  const manifest = JSON.parse(
+    await readFile(path.join(repoRoot, "infrastructure/playwright-evidence/responsive-evidence-manifest.json"), "utf8"),
+  );
+  const files = [
+    "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
+    ...new Set(manifest.claims.map((claim) => claim.file)),
+  ];
+  for (const relativeFile of files) {
+    const target = path.join(root, relativeFile);
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(path.join(repoRoot, relativeFile), target);
+  }
+  return root;
+}
+
+async function mutateManifest(root, callback) {
+  const relativeFile = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
+  const file = path.join(root, relativeFile);
+  const manifest = JSON.parse(await readFile(file, "utf8"));
+  callback(manifest);
+  await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+async function mutateFile(root, relativeFile, callback) {
+  const file = path.join(root, relativeFile);
+  await writeFile(file, callback(await readFile(file, "utf8")), "utf8");
 }

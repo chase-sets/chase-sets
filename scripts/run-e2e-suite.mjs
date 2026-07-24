@@ -3,6 +3,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { e2eSuiteById, e2eSuites } from "./e2e-suites.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
+import { validateResponsiveEvidenceArtifacts } from "./validate-responsive-evidence-artifacts.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -49,6 +50,18 @@ async function main() {
       cwd: rootDir,
       stdio: "inherit",
     });
+    const artifactResult = await validateResponsiveEvidenceArtifacts({
+      repoRoot: rootDir,
+      selectedGreps: playwrightSuites.map((suite) => suite.grep),
+    });
+    if (artifactResult.violations.length > 0) {
+      throw new Error(artifactResult.violations.join("\n"));
+    }
+    if (artifactResult.expectedClaimIds.length > 0) {
+      console.log(
+        `Responsive evidence artifacts: ${artifactResult.manifests.length}/${artifactResult.expectedClaimIds.length} required claims validated.`,
+      );
+    }
   }
 
   for (const suite of suites.filter((candidate) => Array.isArray(candidate.command))) {

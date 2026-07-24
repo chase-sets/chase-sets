@@ -116,7 +116,7 @@ test.describe("admin cross-cutting error state", () => {
     });
   }
 
-  test("mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting", async ({
+  test("mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting @admin-platform", async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);

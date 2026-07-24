@@ -54,13 +54,20 @@ Screenshot-backed responsive claims are registered in
 `captureResponsiveEvidence`. The contract sets the registered viewport, verifies
 the exact route, requires one visible target with populated target-relative
 children, executes the registered layout measurements, and writes paired
-screenshot and runtime-manifest attachments. The runtime manifest binds those
-artifacts to the Playwright test id, project, retry, and trace step.
+screenshot and runtime-manifest attachments. The closed runtime manifest binds
+the exact claim, route, fixture, viewport, target, screenshot path/digest,
+source-claim digest, and Playwright-config digest. It does not declare a trace
+unless the configured successful run produces and binds one.
 
 The structure check applies only to manifest-designated claims. It rejects
 optional locator-count or visibility gates, swallowed assertion failures, and
 direct screenshots in those tests; ordinary conditional Playwright behavior
 outside designated evidence remains valid.
+
+After a complete suite run, artifact validation rejects missing, stale,
+substituted, duplicate, cross-claim, and unknown-field payloads. PR CI retains
+the report and test-results directories for successful as well as failed E2E
+jobs.
 
 ## Deployed Targets
 

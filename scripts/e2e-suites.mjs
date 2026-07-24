@@ -140,6 +140,7 @@ const browserRuntimePatterns = [
   /^playwright\.config\.ts$/,
   /^scripts\/e2e-suites\.mjs$/,
   /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
+  /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
 ];
 

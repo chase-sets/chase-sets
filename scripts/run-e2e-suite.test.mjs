@@ -142,6 +142,7 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/responsive-evidence-manifest.json")).toEqual(
       expected,
     );
+    expect(e2eSuiteIdsForChangedFile("scripts/validate-responsive-evidence-artifacts.mjs")).toEqual(expected);
   });
 
   it("routes catalog admin integration routes to admin coverage", () => {

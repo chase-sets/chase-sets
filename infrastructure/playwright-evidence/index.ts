@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import sourceManifest from "./responsive-evidence-manifest.json" with { type: "json" };
@@ -73,9 +74,12 @@ export async function captureResponsiveEvidence(input: {
     const artifactPaths = responsiveEvidenceArtifactPaths(input.testInfo, claim.id);
     await mkdir(path.dirname(artifactPaths.screenshot), { recursive: true });
     await input.page.screenshot({ path: artifactPaths.screenshot, fullPage: true });
+    const screenshotSha256 = await fileSha256(artifactPaths.screenshot);
+    const configPath = path.resolve(process.cwd(), "playwright.config.ts");
 
     const runtimeEntry = {
-      schemaVersion: 1,
+      contract: "responsive-evidence-runtime",
+      schemaVersion: 2,
       claimId: claim.id,
       route: {
         ...claim.route,
@@ -90,15 +94,17 @@ export async function captureResponsiveEvidence(input: {
       },
       assertions,
       artifacts: {
-        screenshot: relativeArtifactPath(artifactPaths.screenshot),
-        manifest: relativeArtifactPath(artifactPaths.manifest),
-        traceBinding: {
-          testId: input.testInfo.testId,
-          project: input.testInfo.project.name,
-          retry: input.testInfo.retry,
-          workerIndex: input.testInfo.workerIndex,
-          step: `responsive evidence: ${claim.id}`,
-          attachments: [`responsive-evidence:${claim.id}:screenshot`, `responsive-evidence:${claim.id}:manifest`],
+        screenshot: {
+          path: relativeArtifactPath(artifactPaths.screenshot),
+          sha256: screenshotSha256,
+        },
+        manifest: {
+          path: relativeArtifactPath(artifactPaths.manifest),
+        },
+        sourceClaimSha256: sha256(JSON.stringify(claim)),
+        playwrightConfig: {
+          path: "playwright.config.ts",
+          sha256: await fileSha256(configPath),
         },
       },
     };
@@ -285,4 +291,12 @@ function routePath(page: Page) {
 
 function relativeArtifactPath(artifactPath: string) {
   return path.relative(process.cwd(), artifactPath).replaceAll("\\", "/");
+}
+
+async function fileSha256(filePath: string) {
+  return sha256(await readFile(filePath));
+}
+
+function sha256(value: string | Uint8Array) {
+  return createHash("sha256").update(value).digest("hex");
 }

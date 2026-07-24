@@ -227,6 +227,15 @@
           }
         },
         {
+          "identity": "scope-card-primary-action-height",
+          "scope": "target",
+          "selector": ":scope > [role='listitem']:first-child a",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
           "identity": "scope-table-hidden-on-mobile",
           "scope": "page",
           "selector": "main table",
@@ -279,6 +288,15 @@
           }
         },
         {
+          "identity": "scope-table-primary-action-height",
+          "scope": "target",
+          "selector": ":scope > tbody > tr:first-child a",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
           "identity": "scope-cards-hidden-on-tablet",
           "scope": "page",
           "selector": "main div[role='list']",
@@ -302,7 +320,7 @@
       "kind": "claim",
       "id": "admin-shell-mobile-overflow",
       "file": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
-      "testTitle": "mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting",
+      "testTitle": "mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting @admin-platform",
       "route": {
         "name": "admin account landing",
         "path": "/access/accounts"
@@ -317,7 +335,7 @@
       "target": {
         "identity": "admin-shell-main-content",
         "selector": "main",
-        "populatedSelector": ":scope > *"
+        "populatedSelector": ":scope h1"
       },
       "measurements": [
         {

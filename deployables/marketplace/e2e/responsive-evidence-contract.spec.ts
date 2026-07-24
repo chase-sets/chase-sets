@@ -69,11 +69,9 @@ test.describe("responsive evidence fail-closed contract", () => {
         expect.objectContaining({ identity: "tablet-table-is-hidden", actual: false }),
       ]),
       artifacts: {
-        traceBinding: expect.objectContaining({
-          testId: testInfo.testId,
-          project: "marketplace-chromium",
-          step: "responsive evidence: fixture-scope-cards-mobile",
-        }),
+        screenshot: expect.objectContaining({ path: expect.stringMatching(/\.png$/), sha256: expect.any(String) }),
+        sourceClaimSha256: expect.any(String),
+        playwrightConfig: expect.objectContaining({ path: "playwright.config.ts", sha256: expect.any(String) }),
       },
     });
   });
@@ -98,11 +96,9 @@ test.describe("responsive evidence fail-closed contract", () => {
         expect.objectContaining({ identity: "mobile-cards-are-hidden", actual: false }),
       ]),
       artifacts: {
-        traceBinding: expect.objectContaining({
-          testId: testInfo.testId,
-          project: "marketplace-chromium",
-          step: "responsive evidence: fixture-scope-table-tablet",
-        }),
+        screenshot: expect.objectContaining({ path: expect.stringMatching(/\.png$/), sha256: expect.any(String) }),
+        sourceClaimSha256: expect.any(String),
+        playwrightConfig: expect.objectContaining({ path: "playwright.config.ts", sha256: expect.any(String) }),
       },
     });
   });
