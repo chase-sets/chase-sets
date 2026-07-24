@@ -28,6 +28,16 @@ beforeAll(() => {
       const { SourceObservationIntegrationJobLifecycleCommandError } =
         await import("./bounded-contexts/catalog/features/source-observations/api/runtime.ts");
       const error = new SourceObservationIntegrationJobLifecycleCommandError("unsupported_state", "message");
+      await import("./scripts/verify-observation-pack.mjs");
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts"
+      );
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/provider-source-observation-normalizer.ts"
+      );
+      await import(
+        "./bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts"
+      );
       console.log(JSON.stringify({
         name: error.name,
         message: error.message,
@@ -46,14 +56,14 @@ describe("verify-observation-pack real entrypoint", () => {
   it("loads the post-replay runtime graph in a real Node strip-types subprocess", () => {
     const { error, status, stdout, stderr } = stripTypesRuntimeProbe;
     expect(error).toBeUndefined();
-    expect(status).toBe(0);
+    expect(stderr, stderr).not.toContain("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX");
+    expect(status, stderr).toBe(0);
     expect(JSON.parse(stdout.trim())).toEqual({
       name: "SourceObservationIntegrationJobLifecycleCommandError",
       message: "message",
       code: "unsupported_state",
       ownEnumerableFields: ["code", "name"],
     });
-    expect(stderr).not.toContain("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX");
   });
 
   it("binds Catalog and Discovery per-table row counts into the equality digest", () => {
