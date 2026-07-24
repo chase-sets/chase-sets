@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 
 const priorProductionIntegrationRules = [
@@ -58,6 +59,13 @@ const lockedIntegrationParityCorpus = [
   ["modified", "docs/runbooks/integration-risk.md"],
   ["renamed", "infrastructure/platform-runtime/renamed-runtime.ts", "archive/renamed-runtime.ts"],
   ["renamed", "archive/legacy-runtime.ts", "infrastructure/platform-runtime/legacy-runtime.ts"],
+];
+
+const schedulerOwnedArtifacts = [
+  "scripts/run-workspaces.mjs",
+  "scripts/run-workspaces.test.mjs",
+  "scripts/workspace-test-duration-hints-v1.json",
+  "scripts/fixtures/workspace-unit-duration-replay-v1.json",
 ];
 
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
@@ -641,6 +649,65 @@ describe("change-scope", () => {
     expect(scope.dockerImageRequired).toBe(false);
     expect(scope.deployRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
+  });
+
+  it.each(schedulerOwnedArtifacts)(
+    "re-runs every workspace's unit tests for scheduler artifact %s without unrelated gate fanout",
+    (schedulerOwnedArtifact) => {
+      const currentWorkspaceNames = listWorkspacePackages({ repoRoot }).map((entry) => entry.name);
+      const scope = classifyChanges({ changedFiles: [schedulerOwnedArtifact] });
+
+      expect(scope.affectedWorkspaces).toEqual(currentWorkspaceNames);
+      expect(scope.unitTestsRequired).toBe(true);
+      expect(scope).toMatchObject({
+        runtimeAffectedWorkspaces: [],
+        devDependencyTestAffectedWorkspaces: [],
+        directlyAffectedWorkspaces: [],
+        directlyRuntimeAffectedWorkspaces: [],
+        directlyTestOnlyAffectedWorkspaces: [],
+        dbTestsRequired: false,
+        e2eSuiteIds: [],
+        e2eTestsRequired: false,
+        integrationRiskRequired: false,
+        buildRequired: false,
+        dockerImageRequired: false,
+        terraformRequired: false,
+        workflowLintRequired: false,
+        deployRequired: false,
+        clusterPreviewRequired: false,
+        composeSmokeRequired: false,
+        exposurePostureChanged: false,
+        exposurePostureCategories: [],
+      });
+    },
+  );
+
+  it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {
+    const scope = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
+
+    expect(scope.localChecksRequired).toBe(true);
+    expect(scope.unitTestsRequired).toBe(false);
+    expect(scope.affectedWorkspaces).toEqual([]);
+    expect(scope).toMatchObject({
+      runtimeAffectedWorkspaces: [],
+      devDependencyTestAffectedWorkspaces: [],
+      directlyAffectedWorkspaces: [],
+      directlyRuntimeAffectedWorkspaces: [],
+      directlyTestOnlyAffectedWorkspaces: [],
+      dbTestsRequired: false,
+      e2eSuiteIds: [],
+      e2eTestsRequired: false,
+      integrationRiskRequired: false,
+      buildRequired: false,
+      dockerImageRequired: false,
+      terraformRequired: false,
+      workflowLintRequired: false,
+      deployRequired: false,
+      clusterPreviewRequired: false,
+      composeSmokeRequired: false,
+      exposurePostureChanged: false,
+      exposurePostureCategories: [],
+    });
   });
 
   it("does not expand bounded-context unit test changes to runtime dependents or E2E", () => {
