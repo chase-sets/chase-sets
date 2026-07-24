@@ -14,10 +14,10 @@ import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/cata
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
-  filterUntouchedMarketplaceCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidatesByIds,
   prioritizeRepresentativeCatalogUsageCandidates,
+  selectRepresentativeCatalogUsageCandidates,
   representativeProductContentsScenario,
   publishRepresentativeListings,
   reconcileRepresentativeMarketplaceCatalogItems,
@@ -326,18 +326,30 @@ export async function runRepresentativeCommerceState(
       syncOptions: Readonly<{ timeoutMs?: number }> = {},
     ) => syncRepresentativeProjection(runtime, contextName, projectionName, syncOptions, runStep);
 
-    await runStep("seed data profiles", () =>
-      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
-        enabledDataProfiles: representativeCommerceStateDataProfiles,
-        environmentName: execution.deploymentEnvironment,
-        runtimeProfile: config?.runtimeProfile ?? "public",
-      }),
+    await runStep(
+      "seed data profiles",
+      () =>
+        seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+          enabledDataProfiles: representativeCommerceStateDataProfiles,
+          environmentName: execution.deploymentEnvironment,
+          runtimeProfile: config?.runtimeProfile ?? "public",
+          // This command runs without projection workers, so retained-state
+          // repeat runs need the full drain for seed reconciliation guards to
+          // observe previously created records.
+          fullBootstrapDrain: true,
+        }),
+      { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
     const catalogServices = getCatalogServices(runtime.services);
     await syncProjection(
       representativeProductContentsProjectionPlan.beforeContents.contextName,
       representativeProductContentsProjectionPlan.beforeContents.projectionName,
     );
+    // Product measure resolution and product-schema loading read the blueprint
+    // and dimension read models; drain them here so the command is
+    // self-sufficient without continuously running projection workers.
+    await syncProjection("catalog", "catalog-blueprint-projection");
+    await syncProjection("catalog", "catalog-dimension-projection");
     await runStep("reconcile representative Product Contents scenario", async () => {
       const reconciled = await reconcileRepresentativeProductContentsScenario(catalogServices, {
         provenanceSource: "representative-commerce-state",
@@ -369,8 +381,8 @@ export async function runRepresentativeCommerceState(
       requiredProductContentsCandidates,
       sourceCandidates,
     );
-    const candidates = await runStep("filter untouched marketplace catalog candidates", () =>
-      filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), plannedCandidates, {
+    const candidates = await runStep("select representative Catalog Item set", async () =>
+      selectRepresentativeCatalogUsageCandidates(plannedCandidates, {
         limit: readCandidateLimit(),
         priorityCatalogItemIds: representativeProductContentsScenario.requiredCatalogItemIds,
       }),
@@ -381,6 +393,9 @@ export async function runRepresentativeCommerceState(
     const inventoryReconciledCount = await runStep("reconcile selected inventory catalog items", () =>
       reconcileRepresentativeInventoryCatalogItems(getInventoryServices(runtime.services), candidates),
     );
+    // Restart safety: drain retained inventory-item events first so a resumed
+    // run recognizes stock created before an interrupted projection sync.
+    await syncProjection("inventory", "inventory-item-projection");
     const inventoryStock = await runStep("ensure representative inventory stock", () =>
       ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
     );
@@ -388,11 +403,17 @@ export async function runRepresentativeCommerceState(
     await syncProjection("inventory", "inventory-hold-projection");
     await syncProjection("marketplace", "marketplace-inventory-supply-projection");
     await syncProjection("ordering", "ordering-inventory-supply-input-projection");
+    // Restart safety: drain retained listing events before publishing so a
+    // resumed run sees listings whose projection sync was interrupted.
+    await syncProjection("marketplace", "marketplace-listing-projection");
     const listings = await runStep("publish representative listings", () =>
       publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock),
     );
     await syncProjection("marketplace", "marketplace-listing-projection");
     await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
+    // Restart safety: drain retained offer events before submitting so a
+    // resumed run recognizes offers whose projection sync was interrupted.
+    await syncProjection("marketplace", "marketplace-offer-projection");
     const offers = await runStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
@@ -401,8 +422,15 @@ export async function runRepresentativeCommerceState(
       acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
     await syncProjection("marketplace", "marketplace-offer-projection");
+    // Project the acceptance side effects (orders, reservation holds, supply
+    // changes, listing offer commitments/pauses) in the same run so first-run
+    // and repeat-run evidence observe identical retained state.
     await syncProjection("ordering", "ordering-marketplace-offer-acceptance");
     await syncProjection("inventory", "inventory-order-reservation-workflow");
+    await syncProjection("inventory", "inventory-hold-projection");
+    await syncProjection("marketplace", "marketplace-inventory-supply-projection");
+    await syncProjection("marketplace", "marketplace-listing-projection");
+    await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
     await syncProjection("ordering", "ordering-inventory-reservation-outcomes");
     await syncProjection("ordering", "ordering-order-projection");
     const orderingSupplyState = await runStep("reconcile representative ordering supply state", () =>

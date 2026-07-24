@@ -104,14 +104,6 @@ export type RepresentativeInventoryServices = Readonly<{
   }>;
 }>;
 
-export type MarketplaceRepresentativeCatalogUsageCandidate = Readonly<{
-  catalogItemId: string;
-  title: string;
-  subtitle: string | null;
-  blueprintId: string | null;
-  updatedAt: string;
-}>;
-
 export type MarketplaceRepresentativeInventoryStock = Readonly<{
   catalogItemId: string;
   accountId: string;
@@ -587,6 +579,19 @@ export function prioritizeRepresentativeCatalogUsageCandidates(
   return [...candidatesById.values()];
 }
 
+export function selectRepresentativeCatalogUsageCandidates(
+  candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+  options: Readonly<{ limit?: number; priorityCatalogItemIds?: readonly string[] }> = {},
+): readonly CatalogRepresentativeCatalogUsageCandidate[] {
+  const limit = normalizeRepresentativeCandidateLimit(options.limit);
+  const priorityCatalogItemIds = new Set(uniqueTextValues(options.priorityCatalogItemIds ?? []));
+  const priorityCandidates = candidates.filter((candidate) => priorityCatalogItemIds.has(candidate.catalogItemId));
+  const currentCandidates = candidates
+    .filter((candidate) => !priorityCatalogItemIds.has(candidate.catalogItemId))
+    .slice(0, limit);
+  return [...priorityCandidates, ...currentCandidates];
+}
+
 export function normalizeRepresentativeCatalogCandidateLimit(value: number | undefined): number {
   return normalizeRepresentativeCandidateLimit(value);
 }
@@ -609,6 +614,29 @@ export async function ensureRepresentativeInventoryStock(
       index % representativeSellingAccounts.length
     ] as RepresentativeSellingAccount;
     const selectedOptions = selectDefaultRepresentativeOptions(catalogItem.product_schema);
+    // Reuse retained listing stock instead of re-ensuring through the domain:
+    // accepted representative offers hold part of the stock, and the domain
+    // ensure path would top the held quantity back up on every repeat run.
+    const retainedStock = await getRetainedRepresentativeListingStock(services.db, {
+      accountId: seller.accountId,
+      catalogItemId: candidate.catalogItemId,
+      productSchema: catalogItem.product_schema,
+      selectedOptions,
+    });
+    if (retainedStock && retainedStock.totalQuantity >= quantityPerItem) {
+      results.push({
+        catalogItemId: candidate.catalogItemId,
+        accountId: seller.accountId,
+        inventoryItemId: retainedStock.inventoryItemId,
+        storageLocationId: retainedStock.storageLocationId,
+        selectedOptions: retainedStock.selectedOptions,
+        totalQuantity: retainedStock.totalQuantity,
+        createdInventoryItem: false,
+        adjustedQuantityBy: 0,
+      });
+      continue;
+    }
+
     const result = await services.items.ensureListingStock(
       {
         accountId: seller.accountId,
@@ -634,6 +662,73 @@ export async function ensureRepresentativeInventoryStock(
   }
 
   return results;
+}
+
+type RetainedRepresentativeListingStock = Readonly<{
+  inventoryItemId: string;
+  storageLocationId: string;
+  selectedOptions: readonly RepresentativeSelectedOptionEntry[];
+  totalQuantity: number;
+}>;
+
+async function getRetainedRepresentativeListingStock(
+  db: RepresentativeQueryable,
+  input: Readonly<{
+    accountId: AccountId;
+    catalogItemId: string;
+    productSchema: CatalogRepresentativeProductSchema | null;
+    selectedOptions: readonly RepresentativeSelectedOptionEntry[];
+  }>,
+): Promise<RetainedRepresentativeListingStock | null> {
+  const product = createRepresentativeProductDescriptor({
+    catalogItemId: input.catalogItemId,
+    productSchema: input.productSchema,
+    selection: input.selectedOptions,
+  });
+  const result = await db.query<{
+    item_id: string;
+    storage_location_id: string;
+    selected_options: unknown;
+    total_quantity: number;
+  }>(
+    `SELECT item_id, storage_location_id, selected_options, total_quantity
+     FROM inventory_items
+     WHERE account_id = $1
+       AND catalog_catalog_item_id = $2
+       AND product_id = $3
+       AND item_id LIKE 'inv$_listing$_stock$_%' ESCAPE '$'
+     ORDER BY created_at ASC, item_id ASC
+     LIMIT 1`,
+    [input.accountId, input.catalogItemId, product.productId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    inventoryItemId: row.item_id,
+    storageLocationId: row.storage_location_id,
+    selectedOptions: parseRetainedSelectedOptions(row.selected_options),
+    totalQuantity: row.total_quantity,
+  };
+}
+
+function parseRetainedSelectedOptions(value: unknown): readonly RepresentativeSelectedOptionEntry[] {
+  return (
+    asArray<RepresentativeSelectedOptionEntry>(value)
+      .filter(
+        (entry) =>
+          entry &&
+          typeof entry === "object" &&
+          typeof entry.dimensionId === "string" &&
+          typeof entry.optionId === "string",
+      )
+      // Rebuild each entry in the domain snapshot's canonical key order: jsonb
+      // storage reorders object keys, and deterministic representative offer ids
+      // hash the serialized selection.
+      .map((entry) => ({ dimensionId: entry.dimensionId, optionId: entry.optionId }))
+  );
 }
 
 export async function reconcileRepresentativeInventoryCatalogItems(
@@ -687,85 +782,6 @@ export function selectDefaultRepresentativeOptions(
     productSchema,
     normalizeSelectedOptionsForSchema(productSchema, selectRepresentativePreferredOptions(productSchema)),
   );
-}
-
-export async function loadUntouchedMarketplaceCatalogUsageCandidates(
-  db: RepresentativeQueryable,
-  options: Readonly<{ limit?: number }> = {},
-): Promise<readonly MarketplaceRepresentativeCatalogUsageCandidate[]> {
-  const limit = normalizeRepresentativeCandidateLimit(options.limit);
-  const result = await db.query<{
-    catalog_item_id: string;
-    title: string;
-    subtitle: string | null;
-    blueprint_id: string | null;
-    updated_at: string | Date;
-  }>(
-    `SELECT
-       item.catalog_item_id,
-       item.title,
-       item.subtitle,
-       item.blueprint_id,
-       item.updated_at
-     FROM marketplace_catalog_items item
-     LEFT JOIN marketplace_listing_pages listing
-       ON listing.catalog_catalog_item_id = item.catalog_item_id
-     LEFT JOIN marketplace_offer_pages offer
-       ON offer.catalog_catalog_item_id = item.catalog_item_id
-     WHERE item.status = 'active'
-       AND COALESCE(jsonb_array_length(item.product_measure_snapshots), 0) > 0
-       AND listing.listing_id IS NULL
-       AND offer.offer_id IS NULL
-     ORDER BY item.updated_at DESC, item.catalog_item_id ASC
-     LIMIT $1`,
-    [limit],
-  );
-
-  return result.rows.map((row) => ({
-    catalogItemId: row.catalog_item_id,
-    title: row.title,
-    subtitle: row.subtitle,
-    blueprintId: row.blueprint_id,
-    updatedAt: new Date(row.updated_at).toISOString(),
-  }));
-}
-
-export async function filterUntouchedMarketplaceCatalogUsageCandidates(
-  db: RepresentativeQueryable,
-  candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
-  options: Readonly<{ limit?: number; priorityCatalogItemIds?: readonly string[] }> = {},
-): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
-  const limit = normalizeRepresentativeCandidateLimit(options.limit);
-  const candidateIds = candidates.map((candidate) => candidate.catalogItemId);
-  if (candidateIds.length === 0) {
-    return [];
-  }
-
-  const touchedResult = await db.query<{ catalog_item_id: string }>(
-    `SELECT DISTINCT touched.catalog_item_id
-     FROM (
-       SELECT listing.catalog_catalog_item_id AS catalog_item_id
-       FROM marketplace_listing_pages listing
-       WHERE listing.catalog_catalog_item_id = ANY($1::text[])
-       UNION
-       SELECT offer.catalog_catalog_item_id AS catalog_item_id
-       FROM marketplace_offer_pages offer
-       WHERE offer.catalog_catalog_item_id = ANY($1::text[])
-     ) touched
-     WHERE touched.catalog_item_id IS NOT NULL`,
-    [candidateIds],
-  );
-  const touchedCatalogItemIds = new Set(touchedResult.rows.map((row) => row.catalog_item_id));
-  const priorityCatalogItemIds = new Set(uniqueTextValues(options.priorityCatalogItemIds ?? []));
-  const priorityCandidates = candidates.filter((candidate) => priorityCatalogItemIds.has(candidate.catalogItemId));
-  const untouchedCandidates = candidates
-    .filter(
-      (candidate) =>
-        !priorityCatalogItemIds.has(candidate.catalogItemId) && !touchedCatalogItemIds.has(candidate.catalogItemId),
-    )
-    .slice(0, limit);
-
-  return [...priorityCandidates, ...untouchedCandidates];
 }
 
 export async function reconcileRepresentativeMarketplaceCatalogItems(
@@ -828,7 +844,9 @@ export async function publishRepresentativeListings(
   for (const [index, stock] of stockItems.entries()) {
     const listingId = createRepresentativeListingId(stock);
     const existing = await getListingStatus(services.db, listingId);
-    if (existing === "active") {
+    if (existing !== null && existing !== "draft") {
+      // Retained representative listings (active or later lifecycle states)
+      // are recognized as-is; a repeat run must not mutate them.
       results.push({
         catalogItemId: stock.catalogItemId,
         accountId: stock.accountId,
@@ -846,21 +864,21 @@ export async function publishRepresentativeListings(
         priceAmount: representativePrice(index),
         quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
         listingIdOverride: listingId as ListingId,
-        listingPhotoUploads: buildRepresentativeListingPhotoUpload(listingId),
+        // A retained draft already carries its creation photo evidence;
+        // re-uploading on resume would append duplicate photo events.
+        listingPhotoUploads: existing === "draft" ? null : buildRepresentativeListingPhotoUpload(listingId),
       },
       representativeSeedContext,
     );
 
-    if (existing !== "active") {
-      await services.listings.publishListing(
-        {
-          accountId: stock.accountId as AccountId,
-          listingId: created.listingId,
-          feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
-        representativeSeedContext,
-      );
-    }
+    await services.listings.publishListing(
+      {
+        accountId: stock.accountId as AccountId,
+        listingId: created.listingId,
+        feeQuoteFingerprint: created.feeQuoteFingerprint,
+      },
+      representativeSeedContext,
+    );
 
     results.push({
       catalogItemId: stock.catalogItemId,
@@ -940,15 +958,42 @@ export async function acceptRepresentativeOffers(
 ): Promise<readonly MarketplaceRepresentativeOfferAcceptanceResult[]> {
   const maxAcceptedOffers = normalizeAcceptedOfferLimit(options.maxAcceptedOffers);
   const results: MarketplaceRepresentativeOfferAcceptanceResult[] = [];
+  const plannedOffers = stockItems.map((stock, index) => ({
+    stock,
+    offerId: createRepresentativeOfferId(stock, representativeBuyerAccountId(index)),
+  }));
+  const offerStatusById = await getPlannedAndRetainedAcceptedOfferStatuses(
+    services.db,
+    plannedOffers.map((planned) => planned.offerId),
+  );
+  const plannedOfferIds = new Set(plannedOffers.map((planned) => planned.offerId));
+  const retainedAcceptedOfferIds = [...offerStatusById.entries()]
+    .filter(([, status]) => status === "accepted")
+    .map(([offerId]) => offerId);
+  const outOfCohortAcceptedOfferIds = retainedAcceptedOfferIds.filter((offerId) => !plannedOfferIds.has(offerId));
+  const retainedStateViolations: string[] = [];
+  if (retainedAcceptedOfferIds.length > maxAcceptedOffers) {
+    retainedStateViolations.push(
+      `${retainedAcceptedOfferIds.length} accepted offers exceed the retained limit of ${maxAcceptedOffers}`,
+    );
+  }
+  if (outOfCohortAcceptedOfferIds.length > 0) {
+    retainedStateViolations.push(
+      `accepted offer ids are outside the current planned cohort: ${outOfCohortAcceptedOfferIds.join(", ")}`,
+    );
+  }
+  if (retainedStateViolations.length > 0) {
+    throw new Error(`Invalid retained representative accepted-offer state: ${retainedStateViolations.join("; ")}.`);
+  }
 
-  for (const [index, stock] of stockItems.entries()) {
-    if (results.filter((result) => result.status === "accepted").length >= maxAcceptedOffers) {
-      break;
-    }
+  // Offers accepted by earlier runs count against the limit, so a repeat run
+  // over retained representative state recognizes them instead of accepting
+  // additional offers on top.
+  const retainedAcceptedCount = retainedAcceptedOfferIds.length;
+  let newlyAcceptedCount = 0;
 
-    const buyerAccountId = representativeBuyerAccountId(index);
-    const offerId = createRepresentativeOfferId(stock, buyerAccountId);
-    const existing = await getOfferStatus(services.db, offerId);
+  for (const { stock, offerId } of plannedOffers) {
+    const existing = offerStatusById.get(offerId) ?? null;
     if (existing === "accepted") {
       results.push({
         catalogItemId: stock.catalogItemId,
@@ -969,6 +1014,16 @@ export async function acceptRepresentativeOffers(
       });
       continue;
     }
+    if (retainedAcceptedCount + newlyAcceptedCount >= maxAcceptedOffers) {
+      results.push({
+        catalogItemId: stock.catalogItemId,
+        sellerAccountId: stock.accountId,
+        offerId,
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      });
+      continue;
+    }
 
     try {
       const listingId = createRepresentativeListingId(stock);
@@ -986,6 +1041,7 @@ export async function acceptRepresentativeOffers(
         },
         representativeSeedContext,
       );
+      newlyAcceptedCount += 1;
       results.push({
         catalogItemId: stock.catalogItemId,
         sellerAccountId: stock.accountId,
@@ -1461,6 +1517,25 @@ async function getOfferStatus(db: RepresentativeQueryable, offerId: string): Pro
   );
 
   return result.rows[0]?.status ?? null;
+}
+
+async function getPlannedAndRetainedAcceptedOfferStatuses(
+  db: RepresentativeQueryable,
+  offerIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  const uniqueOfferIds = uniqueTextValues(offerIds);
+  const result = await db.query<{ offer_id: string; status: string }>(
+    `SELECT offer_id, status
+     FROM marketplace_offer_pages
+     WHERE offer_id = ANY($1::text[])
+        OR (
+          offer_id LIKE 'off$_repr$_%' ESCAPE '$'
+          AND status = 'accepted'
+        )`,
+    [uniqueOfferIds],
+  );
+
+  return new Map(result.rows.map((row) => [row.offer_id, row.status]));
 }
 
 async function getMarketplaceCatalogItem(

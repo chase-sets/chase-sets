@@ -248,9 +248,14 @@ async function replaceProductContents(
   const lastResolved = [...existingEvents]
     .reverse()
     .find((event) => event.eventType === "catalog.product-contents.resolved");
-  if (JSON.stringify(lastResolved?.payload ?? null) === JSON.stringify(fact)) {
-    await replaceResolvedProductContents(deps.db, fact);
-    return fact;
+  const retainedFact = lastResolved ? (lastResolved.payload as unknown as ProductContentsResolvedFact) : null;
+  // Compare stable content only: resolvedAt/resolvedFactHash change on every
+  // rebuild and stored payload key order differs from freshly built facts, so
+  // a raw serialized comparison would append duplicate events on every
+  // retained-state repeat run.
+  if (retainedFact && productContentsContentIdentity(retainedFact) === productContentsContentIdentity(fact)) {
+    await replaceResolvedProductContents(deps.db, retainedFact);
+    return retainedFact;
   }
 
   await deps.eventStore.appendToStream({
@@ -743,6 +748,11 @@ function normalizeProvenance(value: ProductContentProvenance | undefined): Produ
 
 function jsonOrNull(value: unknown): string | null {
   return value === null || value === undefined ? null : JSON.stringify(value);
+}
+
+function productContentsContentIdentity(fact: ProductContentsResolvedFact): string {
+  const { resolvedAt: _resolvedAt, resolvedFactHash: _resolvedFactHash, ...content } = fact;
+  return stableHash(content);
 }
 
 function stableHash(value: unknown): string {

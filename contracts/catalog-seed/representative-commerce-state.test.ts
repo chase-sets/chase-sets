@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptRepresentativeOffers,
-  filterUntouchedMarketplaceCatalogUsageCandidates,
+  ensureRepresentativeInventoryStock,
   loadRepresentativeCatalogUsageCandidates,
-  loadUntouchedMarketplaceCatalogUsageCandidates,
   normalizeRepresentativeCandidateLimit,
   normalizeRepresentativeCatalogCandidateLimit,
   prepareRepresentativeCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidatesByIds,
   prioritizeRepresentativeCatalogUsageCandidates,
+  publishRepresentativeListings,
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
   reconcileRepresentativeOrderingSupplyState,
   selectDefaultRepresentativeOptions,
+  selectRepresentativeCatalogUsageCandidates,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
   type RepresentativeQueryable,
@@ -240,78 +241,37 @@ describe("representative commerce state seed helpers", () => {
     expect(marketplaceQueries[0]?.[1]).toContain(JSON.stringify([{ productId: "cat_real_1::" }]));
   });
 
-  it("loads and filters active Marketplace catalog items that do not already have listings or offers", async () => {
-    const loadQueries: QueryCall[] = [];
-    const rows = [
-      {
-        catalog_item_id: "cat_real_1",
-        title: "Real Imported Card",
-        subtitle: "Provider expansion 12/123",
-        blueprint_id: "bp_card",
-        updated_at: "2026-05-27T00:00:00.000Z",
-      },
-    ];
-    const loadDb: RepresentativeQueryable = {
-      query: async <Row>(sql: string, params?: readonly unknown[]) => {
-        loadQueries.push([sql, params]);
-        return { rows: rows as Row[] };
-      },
-    };
-
-    await expect(loadUntouchedMarketplaceCatalogUsageCandidates(loadDb, { limit: 25 })).resolves.toEqual([
-      {
-        catalogItemId: "cat_real_1",
-        title: "Real Imported Card",
-        subtitle: "Provider expansion 12/123",
-        blueprintId: "bp_card",
-        updatedAt: "2026-05-27T00:00:00.000Z",
-      },
-    ]);
-    expect(String(loadQueries[0]?.[0])).toContain("jsonb_array_length(item.product_measure_snapshots)");
-    expect(String(loadQueries[0]?.[0])).toContain("LEFT JOIN marketplace_listing_pages listing");
-    expect(String(loadQueries[0]?.[0])).toContain("LEFT JOIN marketplace_offer_pages offer");
-    expect(loadQueries[0]?.[1]).toEqual([25]);
-
-    const filterQueries: QueryCall[] = [];
-    const filterDb: RepresentativeQueryable = {
-      query: async <Row>(sql: string, params?: readonly unknown[]) => {
-        filterQueries.push([sql, params]);
-        return { rows: [{ catalog_item_id: "cat_touched_1" }] as Row[] };
-      },
-    };
+  it("selects the ordered representative candidate set independently of marketplace usage state", () => {
     const candidates = [
-      representativeCatalogCandidate("cat_touched_1"),
-      representativeCatalogCandidate("cat_untouched_1"),
-      representativeCatalogCandidate("cat_untouched_2"),
+      representativeCatalogCandidate("cat_current_1"),
+      representativeCatalogCandidate("cat_current_2"),
+      representativeCatalogCandidate("cat_current_3"),
     ];
 
-    await expect(filterUntouchedMarketplaceCatalogUsageCandidates(filterDb, candidates, { limit: 1 })).resolves.toEqual(
-      [representativeCatalogCandidate("cat_untouched_1")],
+    expect(selectRepresentativeCatalogUsageCandidates(candidates, { limit: 2 })).toEqual([
+      representativeCatalogCandidate("cat_current_1"),
+      representativeCatalogCandidate("cat_current_2"),
+    ]);
+    // The same input set selects the same cohort on a retained repeat run.
+    expect(selectRepresentativeCatalogUsageCandidates(candidates, { limit: 2 })).toEqual(
+      selectRepresentativeCatalogUsageCandidates(candidates, { limit: 2 }),
     );
-    expect(String(filterQueries[0]?.[0])).toContain("FROM marketplace_listing_pages listing");
-    expect(String(filterQueries[0]?.[0])).toContain("FROM marketplace_offer_pages offer");
-    expect(filterQueries[0]?.[1]).toEqual([["cat_touched_1", "cat_untouched_1", "cat_untouched_2"]]);
   });
 
-  it("keeps required Product Contents candidates ahead of and outside the untouched-item budget", async () => {
+  it("keeps required Product Contents candidates ahead of and outside the candidate budget", () => {
     const container = representativeCatalogCandidate("cat_product_contents_container");
     const contained = representativeCatalogCandidate("cat_product_contents_contained");
     const plannedCandidates = prioritizeRepresentativeCatalogUsageCandidates(
       [container, contained],
       [representativeCatalogCandidate("cat_current_1"), container, representativeCatalogCandidate("cat_current_2")],
     );
-    const db: RepresentativeQueryable = {
-      query: async <Row>() => ({
-        rows: [{ catalog_item_id: container.catalogItemId }, { catalog_item_id: contained.catalogItemId }] as Row[],
-      }),
-    };
 
-    await expect(
-      filterUntouchedMarketplaceCatalogUsageCandidates(db, plannedCandidates, {
+    expect(
+      selectRepresentativeCatalogUsageCandidates(plannedCandidates, {
         limit: 1,
         priorityCatalogItemIds: [container.catalogItemId, contained.catalogItemId],
       }),
-    ).resolves.toEqual([container, contained, representativeCatalogCandidate("cat_current_1")]);
+    ).toEqual([container, contained, representativeCatalogCandidate("cat_current_1")]);
   });
 
   it("submits and accepts representative offers with stable current-state inputs", async () => {
@@ -363,9 +323,7 @@ describe("representative commerce state seed helpers", () => {
 
     const accepted: unknown[] = [];
     const acceptServices = {
-      db: {
-        query: async <Row>() => ({ rows: [{ status: "submitted" }] as Row[] }),
-      },
+      db: offerStatusDb(["submitted"]),
       offers: {
         previewOfferAcceptanceTerms: async () => ({ fee_quote_fingerprint: "fee_1" }),
         acceptOffer: async (params: unknown) => {
@@ -589,6 +547,336 @@ describe("representative commerce state seed helpers", () => {
     expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
   });
 });
+
+describe("representative offer acceptance retained-state idempotency", () => {
+  it("recognizes retained accepted offers instead of accepting more on a repeat run", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["accepted", "accepted", "submitted", "submitted"], accepted);
+
+    const results = await acceptRepresentativeOffers(services as never, representativeStockItems(4));
+
+    expect(accepted).toEqual([]);
+    expect(results).toEqual([
+      expect.objectContaining({ status: "already-accepted" }),
+      expect.objectContaining({ status: "already-accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+    ]);
+    expect(
+      results.filter((result) => result.status === "accepted" || result.status === "already-accepted"),
+    ).toHaveLength(2);
+  });
+
+  it("resumes a partially accepted run by accepting only up to the retained limit", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["accepted", "submitted", "submitted"], accepted);
+
+    const results = await acceptRepresentativeOffers(services as never, representativeStockItems(3));
+
+    expect(accepted).toHaveLength(1);
+    expect(results).toEqual([
+      expect.objectContaining({ status: "already-accepted" }),
+      expect.objectContaining({ status: "accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+    ]);
+  });
+
+  it("does not overshoot when retained acceptances already satisfy the limit", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["submitted", "accepted", "accepted"], accepted);
+
+    const results = await acceptRepresentativeOffers(services as never, representativeStockItems(3));
+
+    expect(accepted).toEqual([]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+      expect.objectContaining({ status: "already-accepted" }),
+      expect.objectContaining({ status: "already-accepted" }),
+    ]);
+  });
+
+  it("rejects three retained accepted offers within the planned cohort", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["accepted", "accepted", "accepted"], accepted);
+
+    await expect(acceptRepresentativeOffers(services as never, representativeStockItems(3))).rejects.toThrow(
+      "Invalid retained representative accepted-offer state: 3 accepted offers exceed the retained limit of 2.",
+    );
+    expect(accepted).toEqual([]);
+  });
+
+  it("rejects a retained accepted representative offer outside the current planned cohort", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["submitted", "submitted"], accepted, ["off_repr_prior_untouched_cohort"]);
+
+    await expect(acceptRepresentativeOffers(services as never, representativeStockItems(2))).rejects.toThrow(
+      "Invalid retained representative accepted-offer state: accepted offer ids are outside the current planned cohort: off_repr_prior_untouched_cohort.",
+    );
+    expect(accepted).toEqual([]);
+  });
+
+  it("keeps first-run acceptance bounded to the accepted-offer limit", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["submitted", "submitted", "submitted", "submitted"], accepted);
+
+    const results = await acceptRepresentativeOffers(services as never, representativeStockItems(4));
+
+    expect(accepted).toHaveLength(2);
+    expect(results).toEqual([
+      expect.objectContaining({ status: "accepted" }),
+      expect.objectContaining({ status: "accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+    ]);
+  });
+});
+
+describe("representative inventory stock retained-state reuse", () => {
+  it("reuses retained listing stock without re-ensuring through the domain", async () => {
+    const harness = inventoryStockHarness({
+      retainedRow: {
+        item_id: "inv_listing_stock_retained",
+        storage_location_id: "loc_repr_default",
+        selected_options: [{ dimensionId: "dim_form", optionId: "opt_raw" }],
+        total_quantity: 4,
+      },
+    });
+
+    const results = await ensureRepresentativeInventoryStock(harness.services as never, [
+      { catalogItemId: "cat_real_1" },
+    ]);
+
+    expect(harness.ensured).toEqual([]);
+    expect(results).toEqual([
+      {
+        catalogItemId: "cat_real_1",
+        accountId: "acc_repr_card_vault_account",
+        inventoryItemId: "inv_listing_stock_retained",
+        storageLocationId: "loc_repr_default",
+        selectedOptions: [{ dimensionId: "dim_form", optionId: "opt_raw" }],
+        totalQuantity: 4,
+        createdInventoryItem: false,
+        adjustedQuantityBy: 0,
+      },
+    ]);
+    expect(String(harness.queries[0]?.[0])).toContain("FROM inventory_items");
+    expect(String(harness.queries[0]?.[0])).toContain("item_id LIKE 'inv$_listing$_stock$_%' ESCAPE '$'");
+    expect(harness.queries[0]?.[1]).toEqual(["acc_repr_card_vault_account", "cat_real_1", "cat_real_1::"]);
+  });
+
+  it("ensures stock through the domain when no retained listing stock exists", async () => {
+    const harness = inventoryStockHarness({ retainedRow: null });
+
+    const results = await ensureRepresentativeInventoryStock(harness.services as never, [
+      { catalogItemId: "cat_real_1" },
+    ]);
+
+    expect(harness.ensured).toHaveLength(1);
+    expect(results).toEqual([expect.objectContaining({ inventoryItemId: "inv_new", createdInventoryItem: true })]);
+  });
+
+  it("tops up through the domain when retained stock is below the target quantity", async () => {
+    const harness = inventoryStockHarness({
+      retainedRow: {
+        item_id: "inv_listing_stock_retained",
+        storage_location_id: "loc_repr_default",
+        selected_options: [],
+        total_quantity: 2,
+      },
+    });
+
+    await ensureRepresentativeInventoryStock(harness.services as never, [{ catalogItemId: "cat_real_1" }]);
+
+    expect(harness.ensured).toHaveLength(1);
+  });
+});
+
+describe("representative listing publication restart safety", () => {
+  it("creates and publishes with photo evidence on a first run", async () => {
+    const harness = listingHarness(null);
+
+    const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+
+    expect(harness.created).toEqual([
+      expect.objectContaining({
+        listingPhotoUploads: [expect.objectContaining({ contentType: "image/png" })],
+      }),
+    ]);
+    expect(harness.published).toHaveLength(1);
+    expect(results).toEqual([expect.objectContaining({ status: "created" })]);
+  });
+
+  it("publishes a retained draft without re-uploading photo evidence", async () => {
+    const harness = listingHarness("draft");
+
+    const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+
+    expect(harness.created).toEqual([expect.objectContaining({ listingPhotoUploads: null })]);
+    expect(harness.published).toHaveLength(1);
+    expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
+  });
+
+  it("leaves retained non-draft listings untouched on a repeat run", async () => {
+    for (const status of ["active", "paused", "withdrawn"]) {
+      const harness = listingHarness(status);
+
+      const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+
+      expect(harness.created).toEqual([]);
+      expect(harness.published).toEqual([]);
+      expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
+    }
+  });
+});
+
+function acceptanceServices(
+  statusesByIndex: readonly (string | null)[],
+  accepted: unknown[],
+  retainedAcceptedOfferIds: readonly string[] = [],
+) {
+  return {
+    db: offerStatusDb(statusesByIndex, retainedAcceptedOfferIds),
+    offers: {
+      previewOfferAcceptanceTerms: async () => ({ fee_quote_fingerprint: "fee_1" }),
+      acceptOffer: async (params: unknown) => {
+        accepted.push(params);
+        return { offerId: (params as { offerId: string }).offerId, version: 2 };
+      },
+    },
+  };
+}
+
+function offerStatusDb(
+  statusesByIndex: readonly (string | null)[],
+  retainedAcceptedOfferIds: readonly string[] = [],
+): RepresentativeQueryable {
+  return {
+    query: async <Row>(sql: string, params?: readonly unknown[]) => {
+      const offerIds = Array.isArray(params?.[0]) ? (params[0] as readonly string[]) : [];
+
+      return {
+        rows: [
+          ...offerIds.flatMap((offerId, index) => {
+            const status = statusesByIndex[index] ?? null;
+            return status ? [{ offer_id: offerId, status }] : [];
+          }),
+          ...(sql.includes("offer_id LIKE 'off$_repr$_%'")
+            ? retainedAcceptedOfferIds.map((offerId) => ({ offer_id: offerId, status: "accepted" }))
+            : []),
+        ] as Row[],
+      };
+    },
+  };
+}
+
+function representativeStockItems(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    catalogItemId: `cat_real_${index + 1}`,
+    accountId: index % 2 === 0 ? "acc_repr_card_vault_account" : "acc_repr_sealed_stockroom_account",
+    inventoryItemId: `inv_repr_${index + 1}`,
+    selectedOptions: [],
+    totalQuantity: 4,
+  }));
+}
+
+function inventoryStockHarness(
+  options: Readonly<{
+    retainedRow: Readonly<{
+      item_id: string;
+      storage_location_id: string;
+      selected_options: unknown;
+      total_quantity: number;
+    }> | null;
+  }>,
+) {
+  const ensured: unknown[] = [];
+  const queries: QueryCall[] = [];
+
+  return {
+    ensured,
+    queries,
+    services: {
+      db: {
+        query: async <Row>(sql: string, params?: readonly unknown[]) => {
+          queries.push([sql, params]);
+          if (sql.includes("FROM inventory_items") && options.retainedRow) {
+            return { rows: [options.retainedRow] as Row[] };
+          }
+
+          return { rows: [] as Row[] };
+        },
+      },
+      catalogItems: {
+        getCatalogItem: async () => ({ status: "active", product_schema: null }),
+      },
+      items: {
+        ensureListingStock: async (params: unknown) => {
+          ensured.push(params);
+          return {
+            inventoryItemId: "inv_new",
+            storageLocationId: "loc_new",
+            snapshot: { selectedOptions: [], totalQuantity: 4 },
+            createdInventoryItem: true,
+            adjustedQuantityBy: 0,
+          };
+        },
+      },
+    },
+  };
+}
+
+function listingHarness(existingStatus: string | null) {
+  const created: unknown[] = [];
+  const published: unknown[] = [];
+
+  return {
+    created,
+    published,
+    services: {
+      db: {
+        query: async <Row>(sql: string) => {
+          if (sql.includes("FROM marketplace_listing_pages") && existingStatus) {
+            return { rows: [{ status: existingStatus }] as Row[] };
+          }
+
+          return { rows: [] as Row[] };
+        },
+      },
+      listings: {
+        createListing: async (params: unknown) => {
+          created.push(params);
+          return {
+            listingId: (params as { listingIdOverride: string }).listingIdOverride,
+            version: 1,
+            feeQuoteFingerprint: "fee_1",
+          };
+        },
+        publishListing: async (params: unknown) => {
+          published.push(params);
+          return { listingId: (params as { listingId: string }).listingId, version: 2 };
+        },
+      },
+    },
+  };
+}
 
 function queryRecorder(queries: QueryCall[]): RepresentativeQueryable {
   return {

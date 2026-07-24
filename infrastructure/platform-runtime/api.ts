@@ -311,8 +311,8 @@ export function getApiHostSeedOrder(
   return orderedNames;
 }
 
-function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
-  return options.enabledDataProfiles.includes("scenario-seed");
+function shouldRunFullBootstrapDrain(options: BcSeedOptions & Readonly<{ fullBootstrapDrain?: boolean }>): boolean {
+  return options.fullBootstrapDrain === true || options.enabledDataProfiles.includes("scenario-seed");
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {
@@ -329,6 +329,13 @@ export type ApiHostSeedOptions = BcSeedOptions &
      * hanging silently until the deploy quiesce kills the bootstrap job.
      */
     substepTimeoutMs?: number;
+    /**
+     * Opt in to the full post-seed projection drain even when the enabled data
+     * profiles would not trigger it. Worker-less runtimes (for example the
+     * representative commerce state command) need converged read models so a
+     * repeat run's seed reconciliation guards observe what earlier runs created.
+     */
+    fullBootstrapDrain?: boolean;
   }>;
 
 async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
