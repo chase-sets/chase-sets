@@ -274,9 +274,9 @@ function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
 // that alone exceeds the column's fair share of a 375px viewport, forcing
 // the table wrapper's in-container horizontal scroll even at compact density.
 // Constraining the label to a narrow column and allowing mid-word breaks lets
-// it wrap onto two lines instead, per the #5620 fee-table fit fallback ruling
-// (wrap the metric labels before any font-size reduction). Inline style for
-// the same routeLocalClassName reason as CoarsePointerLinkLabel above.
+// it wrap onto two lines instead (wrap the metric labels before any
+// font-size reduction). Inline style for the same routeLocalClassName reason
+// as CoarsePointerLinkLabel above.
 const feeTableMetricLabelStyle: CSSProperties = {
   display: "block",
   maxWidth: "2.75rem",
