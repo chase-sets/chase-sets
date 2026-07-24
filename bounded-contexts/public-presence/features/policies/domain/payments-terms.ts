@@ -36,8 +36,9 @@ const agreementSpecificGateAssumption = {
 /**
  * Generic Stripe-managed payment acceptance and pass-through draft. Every
  * section remains counsel-required and non-operative; agreement-specific
- * Stripe language stays fenced behind #5924/#5923 (see the gate open
- * question on the processor-pass-through and payout-timing subjects).
+ * Stripe language stays fenced behind the evidence gate recorded in the
+ * gate open question on the processor-pass-through and payout-timing
+ * subjects' review manifests.
  */
 export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms", PaymentsTermsSubjectId> = {
   metadata: {
