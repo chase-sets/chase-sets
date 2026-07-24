@@ -481,9 +481,7 @@ describe("design system panels, navigation, and shells", () => {
 
     const rootStyle = document.documentElement.style;
     expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).not.toBe("");
-    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toContain(
-      "--shell-bottom-nav-height",
-    );
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toContain("--shell-bottom-nav-height");
     expect(rootStyle.scrollPaddingBottom).toBe("var(--product-detail-mobile-dock-clearance)");
 
     unmount();

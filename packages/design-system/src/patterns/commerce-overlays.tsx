@@ -467,11 +467,7 @@ export function CommerceActionBar({
         <div
           className={cx(
             "grid flex-1 gap-2 [&>*]:w-full",
-            actionCount === 3
-              ? "grid-cols-[2fr_1fr_1fr]"
-              : actionCount === 2
-                ? "grid-cols-[2fr_1fr]"
-                : "grid-cols-1",
+            actionCount === 3 ? "grid-cols-[2fr_1fr_1fr]" : actionCount === 2 ? "grid-cols-[2fr_1fr]" : "grid-cols-1",
           )}
         >
           {primaryAction}

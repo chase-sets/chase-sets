@@ -16,11 +16,10 @@ function useMobileDockClearance() {
     const root = document.documentElement;
 
     const applyClearance = (heightPx: number) => {
-      const shellBottomNavHeight = getComputedStyle(node).getPropertyValue("--shell-bottom-nav-height").trim() || "0px";
       root.style.setProperty(MOBILE_DOCK_HEIGHT_VAR, `${heightPx}px`);
       root.style.setProperty(
         MOBILE_DOCK_CLEARANCE_VAR,
-        `calc(${shellBottomNavHeight} + ${heightPx}px + env(safe-area-inset-bottom))`,
+        `calc(var(--shell-bottom-nav-height, 0px) + ${heightPx}px + env(safe-area-inset-bottom))`,
       );
       root.style.scrollPaddingBottom = `var(${MOBILE_DOCK_CLEARANCE_VAR})`;
     };
