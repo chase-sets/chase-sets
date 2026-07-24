@@ -114,6 +114,10 @@ describe("Auth marketplace route contributions", () => {
           methods: ["GET", "HEAD"],
         }),
         expect.objectContaining({
+          routePath: "/api/auth/registration-consent",
+          methods: ["GET", "HEAD"],
+        }),
+        expect.objectContaining({
           routePath: "/api/auth/guest-checkout/start",
           methods: ["POST"],
         }),
