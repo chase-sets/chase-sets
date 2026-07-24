@@ -25,7 +25,8 @@ describe("seedDimensions", () => {
             ]
           : [],
     }));
-    const commandHandler = vi.fn(async () => ({ version: 1, state: {} }));
+    type SeedCommandInput = Parameters<CatalogServices["dimensions"]["commandHandler"]>[0];
+    const commandHandler = vi.fn(async (_input: SeedCommandInput) => ({ version: 1, state: {} }));
     const services = {
       db: { query },
       dimensions: { commandHandler },
