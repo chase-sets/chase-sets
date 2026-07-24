@@ -37,6 +37,12 @@ const rootTestTypecheckPatterns = [/^tsconfig\.tests\.json$/, /^test-env\.d\.ts$
 // must re-run every workspace's tests, but it is test-only, so it must not
 // fan out to builds, docker images, or deploys.
 const rootTestConfigPatterns = [/^vitest\.shared\.mjs$/];
+const schedulerOwnedArtifacts = new Set([
+  "scripts/run-workspaces.mjs",
+  "scripts/run-workspaces.test.mjs",
+  "scripts/workspace-test-duration-hints-v1.json",
+  "scripts/fixtures/workspace-unit-duration-replay-v1.json",
+]);
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
   /^scripts\/platform-smoke/,
@@ -221,6 +227,7 @@ export function classifyChanges({
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
   let rootTestConfigChanged = false;
+  let schedulerOwnedArtifactChanged = false;
   let deploymentScriptChanged = false;
   let clusterPreviewScriptChanged = false;
   let clusterPreviewWorkflowChanged = false;
@@ -298,6 +305,7 @@ export function classifyChanges({
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
+    schedulerOwnedArtifactChanged ||= schedulerOwnedArtifacts.has(filePath);
     deploymentScriptChanged ||= matchesAny(filePath, deploymentScriptPatterns);
     clusterPreviewScriptChanged ||= matchesAny(filePath, clusterPreviewScriptPatterns);
     clusterPreviewWorkflowChanged ||= matchesAny(filePath, clusterPreviewWorkflowPatterns);
@@ -339,6 +347,7 @@ export function classifyChanges({
     ...runtimeAffectedWorkspaceSet,
     ...devDependencyTestAffectedWorkspaceSet,
     ...directlyTestOnlyAffectedWorkspaces,
+    ...(schedulerOwnedArtifactChanged ? workspaces.map((workspace) => workspace.name) : []),
   ]);
   const affectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
