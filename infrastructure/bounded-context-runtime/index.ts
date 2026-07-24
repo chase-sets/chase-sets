@@ -42,6 +42,7 @@ export {
   createSubscriptionRunner,
   drainContextProcesses,
   drainLocalProjectionHandlerSets,
+  rebuildLocalProjectionHandlerSets,
   drainContextRuntime,
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,

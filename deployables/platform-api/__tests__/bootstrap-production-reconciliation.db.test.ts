@@ -32,6 +32,7 @@ import {
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
 
 const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
+const catalogApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "catalog");
 const retainedRepresentativeAccount = {
   accountId: "acc_repr_staging_collector_account" as AccountId,
   userId: "usr_repr_staging_collector_user",
@@ -71,6 +72,26 @@ function createIdentitySeedHost(pools: PlatformApiTestPools) {
   return {
     ...runtime,
     mountedContexts: runtime.mountedContexts.filter((context) => context.contextName === "identity"),
+  };
+}
+
+function createCatalogSeedHost(pools: PlatformApiTestPools) {
+  const runtime = createPlatformApiHost({
+    pools,
+    hostPorts: {
+      processorGateway: createFakePaymentProcessorGateway(),
+      listingPhotoStorage,
+    },
+  });
+
+  return {
+    ...runtime,
+    mountedContexts: runtime.mountedContexts.filter((context) => context.contextName === "catalog"),
+    mountedModules: runtime.mountedModules.filter((entry) => entry.module.contextName === "catalog"),
+    projectionGroups: runtime.projectionGroups.filter((group) => group.targetContextName === "catalog"),
+    subscriptionRunners: runtime.subscriptionRunners.filter(
+      (runner) => runner.targetContextName === "catalog" && runner.sourceContextName === "catalog",
+    ),
   };
 }
 
@@ -510,66 +531,46 @@ describe("platform api bootstrap production reconciliation", () => {
     expect(Number(migrations.rows[0]?.migration_count ?? 0)).toBeGreaterThan(0);
   }, 240_000);
 
-  it("recovers two serialized full-drain boots from retained Catalog dimension events without projection state", async () => {
-    const runtime = createPlatformApiHost({
-      pools,
-      hostPorts: {
-        processorGateway: createFakePaymentProcessorGateway(),
-        listingPhotoStorage,
-      },
-    });
-    const catalogContext = runtime.mountedContexts.find((context) => context.contextName === "catalog");
-    const catalogSeed = catalogContext?.module.seed;
-    if (!catalogContext || !catalogSeed) {
-      throw new Error("Expected a seeded Catalog context in the platform API runtime.");
-    }
+  it("recovers two serialized full-drain Catalog boots from retained dimension events after projection loss", async () => {
+    const runtime = createCatalogSeedHost(pools);
     const bootstrapOptions = {
       enabledDataProfiles: nonProductionDataProfiles,
       environmentName: "test",
     } as const;
-    const interruptedRuntime = {
-      ...runtime,
-      mountedContexts: runtime.mountedContexts.map((context) =>
-        context.contextName !== "catalog"
-          ? context
-          : {
-              ...context,
-              module: {
-                ...context.module,
-                seed: async (...args: Parameters<typeof catalogSeed>) => {
-                  await catalogSeed(...args);
-                  throw new Error("test-only interruption after Catalog seed and before host projection drain");
-                },
-              },
-            },
-      ),
-    } satisfies typeof runtime;
 
-    await expect(
-      seedApiHostIfEmpty(apiContextRegistry, "platform-api", interruptedRuntime, bootstrapOptions),
-    ).rejects.toThrow("test-only interruption after Catalog seed and before host projection drain");
+    await seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions);
 
     const retainedDimensionEvents = await countCatalogDimensionStreamEvents(pools.catalog);
     expect(Object.values(retainedDimensionEvents)).toHaveLength(Object.keys(catalogSeedIds.dimensions).length);
     expect(Object.values(retainedDimensionEvents).every((count) => count > 0)).toBe(true);
+
+    // PostgreSQL truncates UNLOGGED projection tables after crash recovery while
+    // retaining event streams, subscription checkpoints, and application ledgers.
+    // The first failed recovery attempt can recreate its marker without replaying
+    // the durable ledger, so retain that masked "caught up" state for the next boot.
+    await pools.catalog.query("TRUNCATE TABLE catalog_dimension_options, catalog_dimensions");
     const dimensionProjection = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_dimensions",
     );
     expect(Number(dimensionProjection.rows[0]?.count ?? 0)).toBe(0);
 
     await expect(
-      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
+      seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
     ).resolves.toBeUndefined();
     const firstRecoveryEventCounts = await countCatalogDimensionStreamEvents(pools.catalog);
+    const recoveredDimensionProjection = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_dimensions",
+    );
 
     await expect(
-      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions),
+      seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
     ).resolves.toBeUndefined();
     const secondRecoveryEventCounts = await countCatalogDimensionStreamEvents(pools.catalog);
 
+    expect(Number(recoveredDimensionProjection.rows[0]?.count ?? 0)).toBe(Object.keys(catalogSeedIds.dimensions).length);
     expect(firstRecoveryEventCounts).toEqual(retainedDimensionEvents);
     expect(secondRecoveryEventCounts).toEqual(firstRecoveryEventCounts);
-  }, 240_000);
+  }, 120_000);
 
   it("limits and reconciles every production-like seed context against current-code state", async () => {
     const runtime = createPlatformApiHost({

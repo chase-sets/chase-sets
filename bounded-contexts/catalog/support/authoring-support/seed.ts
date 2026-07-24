@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
-import { createProjectionAwarePool, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  createProjectionAwarePool,
+  drainLocalProjectionHandlerSets,
+  rebuildLocalProjectionHandlerSets,
+} from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices, type CatalogServices } from "./services";
 import {
@@ -69,6 +73,9 @@ export async function seedCatalogDatabase(
 
   console.log("Starting Catalog integration profile seed...\n");
 
+  if (shouldSeedAuthoring) {
+    await recoverCatalogIntegrationSeedProjections(services);
+  }
   const authoring = shouldSeedAuthoring
     ? await seedCatalogIntegrationProfile(pool, services)
     : staticCatalogIntegrationIds();
@@ -179,9 +186,9 @@ export async function seedTcgdexCatalogIntegrationProfile(
 ): Promise<CatalogIntegrationIds> {
   const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
 
-  if (await tableHasRows(services.db, "catalog_dimensions")) {
+  if (await catalogIntegrationDimensionStreamsComplete(services)) {
     console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
-    const dimensions = staticCatalogIntegrationIds().dimensions;
+    const dimensions = await seedDimensions(services);
     const fields = await seedFields(services);
     await syncDisplayTemplateAuthoringDependencies(pool, services);
     await seedReferenceData(services);
@@ -359,6 +366,61 @@ function profileEnabled(
   ];
 
   return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
+}
+
+const catalogIntegrationSeedProjectionNames = new Set([
+  "catalog-blueprint-projection",
+  "catalog-category-projection",
+  "catalog-component-projection",
+  "catalog-dimension-projection",
+  "catalog-display-template-projection",
+  "catalog-field-projection",
+  "catalog-reference-data-projection",
+]);
+
+async function recoverCatalogIntegrationSeedProjections(services: CatalogServices): Promise<void> {
+  const dimensionIds = Object.values(catalogSeedIds.dimensions).map(({ dimensionId }) => dimensionId);
+  const [streams, projections] = await Promise.all([
+    services.db.query<{ dimension_id: string }>(
+      `SELECT substring(stream_id FROM length('catalog.dimension-') + 1) AS dimension_id
+       FROM event_store_streams
+       WHERE stream_id = ANY($1::text[])`,
+      [dimensionIds.map((dimensionId) => `catalog.dimension-${dimensionId}`)],
+    ),
+    services.db.query<{ dimension_id: string }>(
+      `SELECT dimension_id
+       FROM catalog_dimensions
+       WHERE dimension_id = ANY($1::text[])`,
+      [dimensionIds],
+    ),
+  ]);
+  const projectedIds = new Set(projections.rows.map(({ dimension_id }) => dimension_id));
+  if (streams.rows.length === 0 || streams.rows.every(({ dimension_id }) => projectedIds.has(dimension_id))) {
+    return;
+  }
+
+  const seedProjectors = services.projectors.filter(({ projectionName }) =>
+    catalogIntegrationSeedProjectionNames.has(projectionName),
+  );
+  if (seedProjectors.length !== catalogIntegrationSeedProjectionNames.size) {
+    throw new Error("Catalog integration bootstrap is missing a seed prerequisite projector.");
+  }
+
+  console.log("Catalog integration projections are behind retained seed streams. Rebuilding seed prerequisites.");
+  await rebuildLocalProjectionHandlerSets("catalog", services.pool, seedProjectors);
+}
+
+async function catalogIntegrationDimensionStreamsComplete(services: CatalogServices): Promise<boolean> {
+  const streamIds = Object.values(catalogSeedIds.dimensions).map(
+    ({ dimensionId }) => `catalog.dimension-${dimensionId}`,
+  );
+  const existing = await services.db.query<{ stream_count: string }>(
+    `SELECT COUNT(*) AS stream_count
+     FROM event_store_streams
+     WHERE stream_id = ANY($1::text[])`,
+    [streamIds],
+  );
+  return Number(existing.rows[0]?.stream_count ?? 0) === streamIds.length;
 }
 
 async function tableHasRows(

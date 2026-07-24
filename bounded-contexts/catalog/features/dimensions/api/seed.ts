@@ -3,6 +3,12 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import {
+  evolveDimension,
+  initialDimensionState,
+  type DimensionEvent,
+  type DimensionState,
+} from "../domain/domain";
 
 type DimensionOptionDef = {
   optionId: OptionId;
@@ -311,35 +317,98 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
     const optionIds: Record<string, OptionId> = {};
     const orderedOptionIds: OptionId[] = [];
 
-    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
-      type: "CreateDimension",
-      dimensionId: def.dimensionId,
-      key: def.key,
-      name: localizedTextMapFromEnglish(def.name),
-      description: localizedTextMapFromEnglish(def.description),
-      valueKind: def.valueKind,
-    });
+    const state = await loadDimensionSeedState(services, streamId);
+    const streamExists = state.id !== null;
+    if (streamExists) {
+      assertSeedDimensionMatches(state, def);
+    } else {
+      await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+        type: "CreateDimension",
+        dimensionId: def.dimensionId,
+        key: def.key,
+        name: localizedTextMapFromEnglish(def.name),
+        description: localizedTextMapFromEnglish(def.description),
+        valueKind: def.valueKind,
+      });
+    }
 
     for (const option of def.options) {
       optionIds[option.code] = option.optionId;
       orderedOptionIds.push(option.optionId);
 
+      const existingOption = state.options.find(
+        (candidate) => candidate.id === option.optionId || candidate.code === option.code,
+      );
+      if (existingOption) {
+        if (
+          existingOption.id !== option.optionId ||
+          existingOption.code !== option.code ||
+          existingOption.numericValue !== (option.numericValue ?? null)
+        ) {
+          throw new Error(`Catalog integration bootstrap dimension '${def.key}' has conflicting option '${option.code}'.`);
+        }
+        if (existingOption.status === "deprecated") {
+          await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+            type: "ReactivateOption",
+            optionId: option.optionId,
+          });
+        }
+      } else {
+        await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+          type: "AddOption",
+          optionId: option.optionId,
+          code: option.code,
+          label: localizedTextMapFromEnglish(option.label),
+          numericValue: option.numericValue ?? null,
+        });
+      }
+    }
+
+    if (!streamExists || state.status === "draft") {
       await sendSeedCommand(services.dimensions.commandHandler, streamId, {
-        type: "AddOption",
-        optionId: option.optionId,
-        code: option.code,
-        label: localizedTextMapFromEnglish(option.label),
-        numericValue: option.numericValue ?? null,
+        type: "ActivateDimension",
       });
     }
 
-    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
-      type: "ActivateDimension",
-    });
-
     result[def.key] = { dimensionId: def.dimensionId, optionIds, orderedOptionIds };
-    console.log(`  Dimension "${def.name}" created with ${def.options.length} options`);
+    console.log(
+      streamExists
+        ? `  Dimension "${def.name}" reconciled from its existing stream`
+        : `  Dimension "${def.name}" created with ${def.options.length} options`,
+    );
   }
 
   return result;
+}
+
+async function loadDimensionSeedState(services: CatalogServices, streamId: string): Promise<DimensionState> {
+  const existing = await services.db.query<{ event_type: string; payload: unknown }>(
+    `SELECT event_type, payload
+     FROM event_store_events
+     WHERE stream_id = $1
+     ORDER BY stream_version`,
+    [streamId],
+  );
+  return existing.rows.reduce(
+    (state, event) =>
+      evolveDimension(
+        state,
+        {
+          type: event.event_type,
+          data: event.payload,
+        } as DimensionEvent,
+      ),
+    initialDimensionState,
+  );
+}
+
+function assertSeedDimensionMatches(state: DimensionState, def: (typeof dimensionDefs)[number]): void {
+  if (state.id !== def.dimensionId || state.key !== def.key || state.valueKind !== def.valueKind) {
+    throw new Error(`Catalog integration bootstrap dimension '${def.key}' conflicts with its existing stream.`);
+  }
+  if (state.status !== "draft" && state.status !== "active") {
+    throw new Error(
+      `Catalog integration bootstrap requires dimension '${def.key}' to be draft or active, but found '${state.status}'.`,
+    );
+  }
 }

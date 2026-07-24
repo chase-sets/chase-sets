@@ -19,7 +19,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       "bootstraps and reconciles every whitelisted public policy value in the production landing profile",
       "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
       "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
-      "recovers two serialized full-drain boots from retained Catalog dimension events without projection state",
+      "recovers two serialized full-drain Catalog boots from retained dimension events after projection loss",
       "limits and reconciles every production-like seed context against current-code state",
       "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
       "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
