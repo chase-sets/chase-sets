@@ -177,7 +177,12 @@ describe("social login routes", () => {
     expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_social_login_states"),
-      expect.arrayContaining(["hashed:social_token", "google", "registration", "/account/orders"]),
+      expect.arrayContaining([
+        "hashed:social_token",
+        "google",
+        "registration",
+        "/account/orders?__registrationConsentAffirmed=false",
+      ]),
     );
   });
 
@@ -426,7 +431,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=registration&returnTo=/account");
+    await app.request("/social/google/start?journey=registration&consentAffirmed=true&returnTo=/account");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -436,6 +441,7 @@ describe("social login routes", () => {
       displayName: "Buyer Example",
       givenName: undefined,
       familyName: undefined,
+      consentAffirmed: true,
     });
     expect(mockIdentityMutations.linkSocialLogin).toHaveBeenCalledWith({
       userId: "usr_new",

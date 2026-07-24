@@ -49,6 +49,12 @@ describe("registration page", () => {
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create With Passkey" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(
+      screen.getAllByRole("checkbox", { name: /I agree to the Terms of Service and Privacy Policy/ }),
+    ).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
+    expect(inputNamed("consentAffirmed").value).toBe("false");
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ method: "passkey", stage: "shown", priority: 1 }),
@@ -57,6 +63,21 @@ describe("registration page", () => {
         expect.objectContaining({ method: "password", stage: "shown", priority: 4 }),
       ]),
     );
+  });
+
+  it("carries one explicit affirmation across every registration method", () => {
+    render(<RegisterPage />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /I agree to the Terms of Service and Privacy Policy/ }));
+    expect(inputNamed("consentAffirmed").value).toBe("true");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Phone Code/ }));
+    for (const affirmation of document.querySelectorAll<HTMLInputElement>('input[name="consentAffirmed"]')) {
+      expect(affirmation.value).toBe("true");
+    }
+
+    fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
+    expect(inputNamed("consentAffirmed").value).toBe("true");
   });
 
   it("shows contextual registration copy when the return path needs an account gate", () => {

@@ -1,8 +1,9 @@
-import { definePolicy, type PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
-import type { JsonValue } from "@chase-sets/primitives/json";
 import { publicTermsOfServicePublicationMetadata } from "@chase-sets/public-docs";
-import { IdentityDomainError } from "../../../support/runtime-support/common";
-import { TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN } from "./terms-of-service";
+import {
+  decodeActiveConsentVersionPolicyValue,
+  identityActiveConsentVersionPolicies,
+  type ActiveConsentVersionPolicyValue,
+} from "./active-consent-version-policy";
 
 /**
  * The active-required-version registry for the canonical Terms of Service
@@ -25,35 +26,12 @@ import { TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN } from "./terms-of-service";
  * admin surface both contexts already share covers that operator action, so
  * no bespoke admin route is required here.
  */
-export type TermsOfServicePolicyValue = Readonly<{
-  /** The currently-required consent version. Must match `TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN`. */
-  version: string;
-}>;
+export type TermsOfServicePolicyValue = ActiveConsentVersionPolicyValue;
 
 export const IDENTITY_TERMS_OF_SERVICE_PLACEHOLDER_POLICY_VALUE: TermsOfServicePolicyValue = {
   version: publicTermsOfServicePublicationMetadata.version,
 };
 
-export function decodeTermsOfServicePolicyValue(raw: JsonValue): TermsOfServicePolicyValue {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    throw new IdentityDomainError("Terms of Service policy value must be an object.");
-  }
+export const decodeTermsOfServicePolicyValue = decodeActiveConsentVersionPolicyValue;
 
-  const record = raw as Record<string, unknown>;
-  const version = typeof record.version === "string" ? record.version.trim() : "";
-  if (!TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN.test(version)) {
-    throw new IdentityDomainError(
-      `Terms of Service policy version must match ${TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN}.`,
-    );
-  }
-
-  return { version };
-}
-
-export const identityTermsOfServicePolicy: PolicyDefinition<TermsOfServicePolicyValue> = definePolicy({
-  policyKey: "identity.terms-of-service-active-version",
-  contextName: "identity",
-  schemaSummary: "{ version: string matching /^v[1-9][0-9]*$/ }",
-  defaultValue: IDENTITY_TERMS_OF_SERVICE_PLACEHOLDER_POLICY_VALUE,
-  decodeValue: decodeTermsOfServicePolicyValue,
-});
+export const identityTermsOfServicePolicy = identityActiveConsentVersionPolicies["terms-of-service"];

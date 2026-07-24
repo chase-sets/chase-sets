@@ -16,7 +16,7 @@ import {
   createIdentityMutations,
   getBootstrapContext,
   jsonWithMutationReceipts,
-  readIdentityMutationConflict,
+  readIdentityMutationFailure,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -53,13 +53,13 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         displayName: String(body.displayName ?? ""),
         givenName: body.givenName ? String(body.givenName) : undefined,
         familyName: body.familyName ? String(body.familyName) : undefined,
-        consents: Array.isArray(body.consents) ? body.consents : undefined,
+        consentAffirmed: body.consentAffirmed === true,
         foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
       });
     } catch (error) {
-      const conflict = readIdentityMutationConflict(error);
-      if (conflict) {
-        return c.json(conflict, 409);
+      const failure = readIdentityMutationFailure(error);
+      if (failure) {
+        return c.json(failure.body, failure.status);
       }
 
       throw error;

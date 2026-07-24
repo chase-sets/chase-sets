@@ -5,6 +5,7 @@ import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
 import {
   formatGrantableRoleKeys,
@@ -24,8 +25,11 @@ import { validateInvitationAcceptanceToken } from "./features/invitations/domain
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
-import { isCanonicalTermsOfServiceConsentPolicyKey } from "./features/consents/domain/terms-of-service";
-import { identityTermsOfServicePolicy } from "./features/consents/domain/terms-of-service-policy";
+import {
+  resolveConsentBundleRequirements,
+  type ConsentPublicationRegistry,
+} from "./features/consents/domain/consent-activation";
+import { consentBundles } from "./features/consents/domain/consent-bundle";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
@@ -133,7 +137,7 @@ async function reservePersonalAccountDisplayName(
   }
 }
 
-async function createPersonalIdentityForAuth(
+export async function createPersonalIdentityForAuth(
   services: IdentityServices,
   params: Readonly<{
     email?: string | null;
@@ -141,11 +145,23 @@ async function createPersonalIdentityForAuth(
     displayName: string;
     givenName?: string;
     familyName?: string;
-    consents?: readonly { policyKey: string; policyVersion: string }[];
+    consentAffirmed?: boolean;
     foundersBetaAccessStartedAt?: string;
     context: EventStoreContext;
   }>,
+  consentPublications: ConsentPublicationRegistry = publicPolicyPublicationRecords,
 ) {
+  const consentRequirements = await resolveConsentBundleRequirements(
+    services.policies,
+    "registration",
+    consentPublications,
+  );
+  if (consentRequirements.length > 0 && params.consentAffirmed !== true) {
+    throw new IdentityDomainError(
+      "Registration requires affirmation of the active Terms of Service and Privacy Policy.",
+    );
+  }
+
   const userId = createId("usr") as UserId;
   const accountId = createId("acc") as AccountId;
   const membershipId = createId("mbr") as MembershipId;
@@ -223,30 +239,18 @@ async function createPersonalIdentityForAuth(
   });
   snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
 
-  // The active Terms of Service version is always resolved server-side, not
-  // trusted from the client, so acceptance can never be recorded against a
-  // version the registering client did not actually render.
-  const activeTermsOfServiceVersion = (params.consents ?? []).some((consent) =>
-    isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey),
-  )
-    ? (await services.policies.resolvePolicy(identityTermsOfServicePolicy)).value.version
-    : null;
-
-  for (const consent of params.consents ?? []) {
+  for (const consent of consentRequirements) {
     const consentId = createId("cns");
-    const policyVersion = isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey)
-      ? (activeTermsOfServiceVersion ?? consent.policyVersion)
-      : consent.policyVersion;
     const consentResult = await services.consents.commandHandler({
       streamId: `identity.consent-${consentId}`,
       command: {
         type: "RecordConsent",
         consentId,
-        subjectType: "user",
+        subjectType: consentBundles.registration.subjectType,
         userId,
         accountId,
         policyKey: consent.policyKey,
-        policyVersion,
+        policyVersion: consent.version,
         recordedAt: new Date().toISOString(),
       },
       context: params.context,
@@ -753,7 +757,7 @@ export function buildIdentityApi(services: IdentityServices) {
         displayName: String(body.displayName ?? ""),
         givenName: typeof body.givenName === "string" ? body.givenName : undefined,
         familyName: typeof body.familyName === "string" ? body.familyName : undefined,
-        consents: Array.isArray(body.consents) ? body.consents : undefined,
+        consentAffirmed: body.consentAffirmed === true,
         foundersBetaAccessStartedAt:
           typeof body.foundersBetaAccessStartedAt === "string" ? body.foundersBetaAccessStartedAt : undefined,
         context: getBootstrapContext(c),
@@ -988,6 +992,7 @@ export function buildIdentityApi(services: IdentityServices) {
       db: services.db,
       policies: services.policies,
       consents: services.consents,
+      consentPublications: publicPolicyPublicationRecords,
     }),
   );
   app.route("/preferences", userPreferencesRoutes(services.preferences));

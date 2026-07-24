@@ -294,6 +294,7 @@ describe("passkey route security", () => {
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",
       displayName: "PokeBash TCG",
+      consentAffirmed: false,
     });
     expect(mockRegisterPasskeyCredential).toHaveBeenCalledWith({
       userId: "usr_new",

@@ -1,27 +1,50 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import type { PublicPolicyKey } from "@chase-sets/public-docs";
+import type { ConsentSubjectType } from "../../../support/runtime-support/common";
+import type { ConsentBundleKey } from "../domain/consent-bundle";
+import {
+  resolveConsentBundleAcceptanceStatus,
+  resolvePolicyAcceptanceStatus,
+  type ConsentBundleAcceptanceStatus,
+  type PolicyAcceptanceStatus,
+} from "../read-model/acceptance";
 import { resolveTermsAcceptanceStatus, type TermsAcceptanceStatus } from "../read-model/terms-acceptance";
 
-export type { TermsAcceptanceStatus };
+export type { ConsentBundleAcceptanceStatus, PolicyAcceptanceStatus, TermsAcceptanceStatus };
 
 /**
- * Pool-only cross-context host port factory: builds a
- * `resolveTermsAcceptanceStatus` function backed directly by Identity's own
- * database pool, with no dependency on a running Identity services instance.
- * This mirrors `createSettlementBalanceCreditResolver` and
- * `createCommercialTermsResolver` -- every consuming context declares its
- * own minimal structural interface (see
- * `bounded-contexts/settlement/features/wallets/api/balance-credit-resolver.ts`
- * `TermsAcceptanceResolver`) and receives an object satisfying it via a host
- * port composed once in `deployables/platform-api/src/app.ts` /
- * `deployables/platform-worker/src/main.ts`, so no bounded context imports
- * another context's package to reach this.
+ * Pool-only cross-context host port factory backed directly by Identity's
+ * database. Consumers declare the minimal structural resolver interface they
+ * need; deployable roots compose this implementation without exposing
+ * Identity storage to another bounded context.
  */
-export function createIdentityTermsAcceptanceResolver(db: PgQueryable) {
+export function createIdentityConsentAcceptanceResolver(db: PgQueryable) {
   const policyResolver = createPolicyResolver({ db });
+  const policies = { resolvePolicy: policyResolver.resolvePolicy };
 
   return {
+    resolvePolicyAcceptanceStatus: (
+      policyKey: PublicPolicyKey,
+      subject: Readonly<{
+        subjectType: ConsentSubjectType;
+        userId?: string | null;
+        accountId?: string | null;
+      }>,
+    ) => resolvePolicyAcceptanceStatus(db, policies, { policyKey, subject }),
+    resolveConsentBundleAcceptanceStatus: (
+      bundleKey: ConsentBundleKey,
+      subject: Readonly<{ accountId?: string | null; userId?: string | null }>,
+    ) => resolveConsentBundleAcceptanceStatus(db, policies, bundleKey, subject),
     resolveTermsAcceptanceStatus: (subject: Readonly<{ accountId?: string | null; userId?: string | null }>) =>
-      resolveTermsAcceptanceStatus(db, { resolvePolicy: policyResolver.resolvePolicy }, subject),
+      resolveTermsAcceptanceStatus(db, policies, subject),
+  };
+}
+
+/** Compatibility wrapper preserving the existing Terms-only host port. */
+export function createIdentityTermsAcceptanceResolver(db: PgQueryable) {
+  const resolver = createIdentityConsentAcceptanceResolver(db);
+  return {
+    resolveTermsAcceptanceStatus: resolver.resolveTermsAcceptanceStatus,
   };
 }

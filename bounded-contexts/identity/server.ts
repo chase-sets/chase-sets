@@ -55,13 +55,21 @@ export {
   resolveActorFromIdentityApi,
 } from "./support/route-support/identity-request";
 export {
+  createIdentityConsentAcceptanceResolver,
   createIdentityTermsAcceptanceResolver,
+  type ConsentBundleAcceptanceStatus,
+  type PolicyAcceptanceStatus,
   type TermsAcceptanceStatus,
 } from "./features/consents/api/terms-acceptance-resolver";
+export {
+  identityActiveConsentVersionPolicies,
+  type ActiveConsentVersionPolicyValue,
+} from "./features/consents/domain/active-consent-version-policy";
 export {
   identityTermsOfServicePolicy,
   type TermsOfServicePolicyValue,
 } from "./features/consents/domain/terms-of-service-policy";
+export { consentBundles, type ConsentBundle, type ConsentBundleKey } from "./features/consents/domain/consent-bundle";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
@@ -106,7 +114,7 @@ export type IdentityAuthMutationClient = Readonly<{
       displayName: string;
       givenName?: string;
       familyName?: string;
-      consents?: readonly { policyKey: string; policyVersion: string }[];
+      consentAffirmed?: boolean;
       foundersBetaAccessStartedAt?: string;
     }>,
   ) => Promise<

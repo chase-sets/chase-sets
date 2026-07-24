@@ -13,7 +13,7 @@ import {
   createOwnedUserDisplayName,
   getBootstrapContext,
   jsonWithMutationReceipts,
-  readIdentityMutationConflict,
+  readIdentityMutationFailure,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -144,11 +144,12 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName.trim()
               : createOwnedUserDisplayName(record.phone),
+          consentAffirmed: body.consentAffirmed === true,
         });
       } catch (error) {
-        const conflict = readIdentityMutationConflict(error);
-        if (conflict) {
-          return c.json(conflict, 409);
+        const failure = readIdentityMutationFailure(error);
+        if (failure) {
+          return c.json(failure.body, failure.status);
         }
 
         throw error;

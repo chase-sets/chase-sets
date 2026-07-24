@@ -288,10 +288,7 @@ describe("Identity API mutation snapshots", () => {
       body: JSON.stringify({
         email: "new@example.com",
         displayName: "New Person",
-        // The active version is resolved server-side (see `services.policies`
-        // mock above); the client-supplied version here is intentionally
-        // stale to prove the server ignores it for the canonical key.
-        consents: [{ policyKey: "terms-of-service", policyVersion: "stale-client-supplied-version" }],
+        consentAffirmed: false,
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
@@ -299,18 +296,10 @@ describe("Identity API mutation snapshots", () => {
       expect.arrayContaining([
         expect.objectContaining({ aggregate: "account", version: 11, status: "active" }),
         expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "consent", version: 61, status: "recorded" }),
         expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
       ]),
     );
-    expect(services.consents.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-        }),
-      }),
-    );
+    expect(services.consents.commandHandler).not.toHaveBeenCalled();
 
     for (const path of [
       "/internal/auth/users/usr_1/sms-code",

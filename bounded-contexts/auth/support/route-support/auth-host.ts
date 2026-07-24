@@ -608,6 +608,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               externalCredentialId: formData.get("externalCredentialId"),
               label: formData.get("label"),
               webauthnResponse: formData.get("webauthnResponse"),
+              consentAffirmed: formData.get("consentAffirmed") === "true",
             });
             freshWriteSource = identityFreshWriteSource(passkeyRegistration);
             authResult = passkeyRegistration.authResult;
@@ -617,6 +618,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               displayName: formData.get("displayName"),
               phone: formData.get("phone"),
               code: formData.get("code"),
+              consentAffirmed: formData.get("consentAffirmed") === "true",
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           } else {
@@ -624,6 +626,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               displayName: formData.get("displayName"),
               email: formData.get("email"),
               password: formData.get("password"),
+              consentAffirmed: formData.get("consentAffirmed") === "true",
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           }

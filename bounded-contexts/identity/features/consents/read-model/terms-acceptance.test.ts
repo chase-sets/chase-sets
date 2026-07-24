@@ -84,4 +84,29 @@ describe("resolveTermsAcceptanceStatus", () => {
     expect(status.accepted).toBe(false);
     expect(status.acceptedVersion).toBe("v2");
   });
+
+  it("preserves the Terms host port's existing user-or-account subject lookup", async () => {
+    const db = fakeDb([
+      {
+        consent_id: "cns_1",
+        subject_type: "account",
+        subject_id: "acc_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        policy_key: "terms-of-service",
+        policy_version: "v2",
+        status: "recorded",
+        recorded_at: "2026-03-01T00:00:00.000Z",
+        withdrawn_at: null,
+        updated_at: "2026-03-01T00:00:00.000Z",
+      },
+    ]);
+
+    const status = await resolveTermsAcceptanceStatus(db, fakePolicies("v2"), {
+      userId: "usr_1",
+      accountId: "acc_1",
+    });
+
+    expect(status.accepted).toBe(true);
+  });
 });

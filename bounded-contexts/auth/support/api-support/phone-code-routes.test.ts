@@ -291,6 +291,7 @@ describe("phone code auth routes", () => {
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       phone: "+13125550101",
       displayName: "New Buyer",
+      consentAffirmed: false,
     });
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,

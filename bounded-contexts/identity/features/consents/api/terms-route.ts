@@ -4,8 +4,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import type { IdentityApiEnv } from "../../../api";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
+import { assertConsentAcceptanceIsActivated, type ConsentPublicationRegistry } from "../domain/consent-activation";
 import { resolveTermsAcceptanceStatus } from "../read-model/terms-acceptance";
 import type { ConsentServices } from "./runtime";
 
@@ -26,6 +28,7 @@ export type TermsRouteDeps = Readonly<{
   // `.commandHandler` before a request actually needs it -- mirrors how
   // `consentRoutes(services.consents)` is wired in `./route.ts`.
   consents: Pick<ConsentServices, "commandHandler">;
+  consentPublications?: ConsentPublicationRegistry;
 }>;
 
 /**
@@ -72,6 +75,14 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
     if (before.accepted) {
       return c.json(before, 200);
     }
+    await assertConsentAcceptanceIsActivated(
+      deps.policies,
+      {
+        policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+        version: before.requiredVersion,
+      },
+      deps.consentPublications ?? publicPolicyPublicationRecords,
+    );
 
     const consentId = createId("cns");
     await deps.consents.commandHandler({

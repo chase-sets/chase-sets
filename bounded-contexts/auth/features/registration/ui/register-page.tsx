@@ -6,10 +6,12 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Divider,
   Heading,
   Inline,
   LinkButton,
+  LinkText,
   PasswordInput,
   SegmentedControl,
   Stack,
@@ -82,6 +84,7 @@ type RegistrationFormCardProps = Readonly<{
   hiddenFields?: RegistrationPageProps["hiddenFields"];
   intent: string;
   method: RegistrationMethod;
+  consentAffirmed: boolean;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 }>;
 
@@ -135,6 +138,7 @@ function RegistrationFormCard({
   hiddenFields,
   intent,
   method,
+  consentAffirmed,
   onSubmit,
 }: RegistrationFormCardProps) {
   return (
@@ -145,6 +149,7 @@ function RegistrationFormCard({
           <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
           <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
           <HiddenInput type="hidden" name="intent" value={intent} readOnly />
+          <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
           {children}
         </Stack>
       </Form>
@@ -188,6 +193,7 @@ export function RegisterPage(props: RegistrationPageProps) {
     password: "",
   });
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
+  const [consentAffirmed, setConsentAffirmed] = useState(false);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
@@ -316,6 +322,26 @@ export function RegisterPage(props: RegistrationPageProps) {
         />
       ) : null}
 
+      <Checkbox
+        name="registrationConsentAffirmation"
+        value="affirmed"
+        checked={consentAffirmed}
+        onCheckedChange={(checked) => setConsentAffirmed(checked === true)}
+        label={
+          <Text as="span" size="sm" weight="medium">
+            {t("auth.features.registration.ui.registerPage.consent.affirmation.prefix")}{" "}
+            <LinkText href="/terms" target="_blank" rel="noreferrer">
+              {t("auth.features.registration.ui.registerPage.consent.terms.of.service")}
+            </LinkText>{" "}
+            {t("auth.features.registration.ui.registerPage.consent.and")}{" "}
+            <LinkText href="/privacy" target="_blank" rel="noreferrer">
+              {t("auth.features.registration.ui.registerPage.consent.privacy.policy")}
+            </LinkText>
+            .
+          </Text>
+        }
+      />
+
       <Card glow>
         <Stack gap={3}>
           <Inline>
@@ -326,14 +352,14 @@ export function RegisterPage(props: RegistrationPageProps) {
           </Inline>
           <Inline>
             <LinkButton
-              href={`/api/auth/social/google/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              href={`/api/auth/social/google/start?journey=registration&consentAffirmed=${consentAffirmed}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
               leadingIcon="badgeCheck"
               block
             >
               {t("auth.features.registration.ui.registerPage.continue.with.google")}
             </LinkButton>
             <LinkButton
-              href={`/api/auth/social/facebook/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              href={`/api/auth/social/facebook/start?journey=registration&consentAffirmed=${consentAffirmed}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
               leadingIcon="users"
               block
             >
@@ -363,6 +389,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="passkey-register"
           method="passkey"
+          consentAffirmed={consentAffirmed}
           onSubmit={handlePasskeySubmit}
         >
           <PasskeyHiddenFields payload={passkeyPayload} />
@@ -394,6 +421,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="magic-link-register"
           method="magic-link"
+          consentAffirmed={consentAffirmed}
           onSubmit={() => handleCompleted("magic-link")}
         >
           <Text size="sm" tone="secondary">
@@ -413,6 +441,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-request"
             method="phone-code"
+            consentAffirmed={consentAffirmed}
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
@@ -445,6 +474,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-consume"
             method="phone-code"
+            consentAffirmed={consentAffirmed}
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
@@ -488,6 +518,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="password"
           method="password"
+          consentAffirmed={consentAffirmed}
           onSubmit={() => handleCompleted("password")}
         >
           <Text size="sm" tone="secondary">

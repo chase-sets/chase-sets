@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
+import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import type { IdentityApiEnv } from "../../../api";
+import type { ConsentPublicationRegistry } from "../domain/consent-activation";
 import { termsOfServiceConsentRoutes, type TermsRouteDeps } from "./terms-route";
 
 const actor: ResolvedActor = {
@@ -28,6 +31,7 @@ function buildContext(currentActor: ResolvedActor): EventStoreContext {
 
 function buildApp(deps: TermsRouteDeps, currentActor: ResolvedActor | null = actor) {
   const app = new Hono<IdentityApiEnv>();
+  app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", currentActor);
     if (currentActor) {
@@ -39,7 +43,11 @@ function buildApp(deps: TermsRouteDeps, currentActor: ResolvedActor | null = act
   return app;
 }
 
-function buildDeps(consentRows: readonly Record<string, unknown>[], requiredVersion = "v2") {
+function buildDeps(
+  consentRows: readonly Record<string, unknown>[],
+  requiredVersion: `v${number}` = "v2",
+  options: Readonly<{ source?: "policy" | "fallback"; consentActivatable?: boolean }> = {},
+) {
   const commandHandler = vi.fn(async () => ({
     version: 1,
     state: { id: "cns_new" },
@@ -51,14 +59,29 @@ function buildDeps(consentRows: readonly Record<string, unknown>[], requiredVers
     resolvePolicy: vi.fn(async () => ({
       policyKey: "identity.terms-of-service-active-version",
       value: { version: requiredVersion },
-      source: "policy" as const,
-      documentId: "pol_1",
-      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      source: options.source ?? ("policy" as const),
+      documentId: options.source === "fallback" ? null : "pol_1",
+      effectiveFrom: options.source === "fallback" ? null : "2026-01-01T00:00:00.000Z",
       effectiveUntil: null,
       resolvedAt: "2026-07-01T00:00:00.000Z",
     })),
   };
-  return { consents: { commandHandler }, db, policies, commandHandler } as unknown as TermsRouteDeps & {
+  const consentPublications = {
+    ...publicPolicyPublicationRecords,
+    "terms-of-service": {
+      ...publicPolicyPublicationRecords["terms-of-service"],
+      version: requiredVersion,
+      publicationStatus: options.consentActivatable === false ? "counsel-review-required" : "published",
+      consentActivatable: options.consentActivatable ?? true,
+    },
+  } as ConsentPublicationRegistry;
+  return {
+    consents: { commandHandler },
+    db,
+    policies,
+    consentPublications,
+    commandHandler,
+  } as unknown as TermsRouteDeps & {
     commandHandler: typeof commandHandler;
     db: typeof db;
   };
@@ -116,6 +139,22 @@ describe("terms of service consent route", () => {
         }),
       }),
     );
+  });
+
+  it("rejects acceptance when the version is unpublished or has no active policy document", async () => {
+    const unpublished = buildDeps([], "v2", { consentActivatable: false });
+    const unpublishedResponse = await buildApp(unpublished).request("/consents/terms-of-service/accept", {
+      method: "POST",
+    });
+    expect(unpublishedResponse.status).toBe(400);
+    expect(unpublished.commandHandler).not.toHaveBeenCalled();
+
+    const unactivated = buildDeps([], "v2", { source: "fallback" });
+    const unactivatedResponse = await buildApp(unactivated).request("/consents/terms-of-service/accept", {
+      method: "POST",
+    });
+    expect(unactivatedResponse.status).toBe(400);
+    expect(unactivated.commandHandler).not.toHaveBeenCalled();
   });
 
   it("is idempotent: accepting again when already current does not record a duplicate consent", async () => {

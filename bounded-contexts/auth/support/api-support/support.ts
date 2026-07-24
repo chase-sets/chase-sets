@@ -119,22 +119,45 @@ export function jsonWithMutationReceipts(
   return c.json(body, status, mutationReceiptHeadersFromSources(sources));
 }
 
-export function readIdentityMutationConflict(error: unknown) {
-  if (!error || typeof error !== "object" || !("status" in error) || Number(error.status) !== 409) {
+export function readIdentityMutationFailure(error: unknown) {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return null;
+  }
+
+  const status = Number(error.status);
+  if (status !== 400 && status !== 409) {
     return null;
   }
 
   const body = "body" in error ? error.body : null;
-  const message = error instanceof Error ? error.message : "Identity mutation conflict.";
+  return {
+    status: status as 400 | 409,
+    body:
+      body && typeof body === "object"
+        ? body
+        : {
+            error: {
+              code: status === 400 ? "validation_failed" : "identity_mutation_conflict",
+              message: error instanceof Error ? error.message : "Identity mutation failed.",
+            },
+          },
+  };
+}
 
-  return body && typeof body === "object"
-    ? body
-    : {
-        error: {
-          code: "identity_mutation_conflict",
-          message,
-        },
-      };
+export function identityMutationFailureMessage(body: unknown, fallback: string) {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return fallback;
+  }
+
+  const error = body.error;
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    return String(error.message);
+  }
+
+  return fallback;
 }
 
 export function createPermissionGuard(permission: string): MiddlewareHandler<AuthApiEnv> {

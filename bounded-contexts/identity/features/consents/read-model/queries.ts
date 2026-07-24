@@ -47,7 +47,12 @@ export type ConsentListParams = ListParams &
  */
 export async function findCurrentConsent(
   db: PgQueryable,
-  params: Readonly<{ userId?: string | null; accountId?: string | null; policyKey: string }>,
+  params: Readonly<{
+    subjectType?: "user" | "account";
+    userId?: string | null;
+    accountId?: string | null;
+    policyKey: string;
+  }>,
 ): Promise<CurrentConsentRow | null> {
   if (!params.userId && !params.accountId) {
     return null;
@@ -55,6 +60,10 @@ export async function findCurrentConsent(
 
   const conditions = ["policy_key = $1"];
   const values: unknown[] = [params.policyKey];
+  if (params.subjectType) {
+    values.push(params.subjectType);
+    conditions.push(`subject_type = $${values.length}`);
+  }
   const subjectConditions: string[] = [];
   if (params.userId) {
     values.push(params.userId);

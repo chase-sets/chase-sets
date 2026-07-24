@@ -19,7 +19,8 @@ import {
   createIdentityMutations,
   createOwnedUserDisplayName,
   getBootstrapContext,
-  readIdentityMutationConflict,
+  identityMutationFailureMessage,
+  readIdentityMutationFailure,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -31,6 +32,7 @@ const SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH = "/account/select";
 const ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
 const ADMIN_SUCCESS_PATH = "/";
 const ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
+const REGISTRATION_CONSENT_AFFIRMATION_PARAM = "__registrationConsentAffirmed";
 
 type SocialLoginJourney = "sign-in" | "registration" | "admin" | "link";
 
@@ -101,6 +103,28 @@ function getDefaultSuccessPath(journey: SocialLoginJourney) {
 function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   const returnTo = url.searchParams.get("returnTo");
   return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
+}
+
+function encodeRegistrationConsentAffirmation(returnTo: string, journey: SocialLoginJourney, affirmed: boolean) {
+  if (journey !== "registration") {
+    return returnTo;
+  }
+
+  const url = new URL(returnTo, "https://chase-sets.local");
+  url.searchParams.set(REGISTRATION_CONSENT_AFFIRMATION_PARAM, affirmed ? "true" : "false");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function decodeRegistrationConsentAffirmation(returnTo: string, journey: SocialLoginJourney) {
+  const url = new URL(returnTo, "https://chase-sets.local");
+  const consentAffirmed =
+    journey === "registration" && url.searchParams.get(REGISTRATION_CONSENT_AFFIRMATION_PARAM) === "true";
+  url.searchParams.delete(REGISTRATION_CONSENT_AFFIRMATION_PARAM);
+
+  return {
+    consentAffirmed,
+    returnTo: `${url.pathname}${url.search}${url.hash}`,
+  };
 }
 
 function buildPublicOrigin(request: Request) {
@@ -273,11 +297,16 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     if (isAdminSocialLoginJourney(journey) && getAdminWorkspaceDomains(services).size === 0) {
       return c.json({ error: t("auth.support.apiSupport.socialLoginRoutes.admin.workspace.not.configured") }, 404);
     }
+    const returnTo = getSafeReturnToFromUrl(requestUrl, journey);
     await insertSocialLoginState(services.db, {
       stateHash: services.auth.hashSecret(state),
       providerName,
       journey,
-      returnTo: getSafeReturnToFromUrl(requestUrl, journey),
+      returnTo: encodeRegistrationConsentAffirmation(
+        returnTo,
+        journey,
+        requestUrl.searchParams.get("consentAffirmed") === "true",
+      ),
       expiresAt: createExpiryTimestamp(authSecurityLifetimesOf(services).socialLoginStateTtlMs),
     });
 
@@ -313,6 +342,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     }
 
     const journey = isSocialLoginJourney(stateRecord.journey) ? stateRecord.journey : "sign-in";
+    const registrationConsent = decodeRegistrationConsentAffirmation(stateRecord.return_to, journey);
     let profile: Awaited<ReturnType<typeof provider.exchangeCallback>>;
     try {
       profile = await provider.exchangeCallback({
@@ -339,7 +369,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       return redirectToFallback(
         t("auth.support.apiSupport.support.authentication.required"),
         "sign-in",
-        buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
+        buildSocialLoginLinkStartPath(providerName, registrationConsent.returnTo),
       );
     }
     if (linkActor && linkedUser && linkedUser.user_id !== linkActor.userId) {
@@ -366,7 +396,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
           return redirectToFallback(
             t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"),
             "sign-in",
-            buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
+            buildSocialLoginLinkStartPath(providerName, registrationConsent.returnTo),
           );
         }
 
@@ -391,12 +421,18 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
               displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
               givenName: profile.givenName?.trim() || undefined,
               familyName: profile.familyName?.trim() || undefined,
+              consentAffirmed: registrationConsent.consentAffirmed,
               foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
             });
           } catch (error) {
-            const conflict = readIdentityMutationConflict(error);
-            if (conflict) {
-              return redirectToFallback(t("identity.api.display.name.already.taken"), journey);
+            const failure = readIdentityMutationFailure(error);
+            if (failure) {
+              return redirectToFallback(
+                failure.status === 409
+                  ? t("identity.api.display.name.already.taken")
+                  : identityMutationFailureMessage(failure.body, t("identity.api.display.name.already.taken")),
+                journey,
+              );
             }
 
             throw error;
@@ -436,7 +472,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
 
     const membershipsOverride = isAdminSocialLoginJourney(journey)
       ? (await services.identity.listActiveMembershipsForUser(user.user_id)).filter((membership) =>
-          hasRequiredAdminPermission(membership, journey, stateRecord.return_to),
+          hasRequiredAdminPermission(membership, journey, registrationConsent.returnTo),
         )
       : undefined;
     if (isAdminSocialLoginJourney(journey) && membershipsOverride?.length === 0) {
@@ -452,6 +488,6 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       publishAuthenticationOutcome: true,
     });
 
-    return completeSocialLoginAuthentication(c.req.raw, authResult, stateRecord.return_to, journey);
+    return completeSocialLoginAuthentication(c.req.raw, authResult, registrationConsent.returnTo, journey);
   });
 }

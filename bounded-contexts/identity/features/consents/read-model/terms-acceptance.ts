@@ -1,12 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import { identityTermsOfServicePolicy } from "../domain/terms-of-service-policy";
-import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
-import { findCurrentConsent } from "./queries";
+import type { PublicPolicyVersion } from "@chase-sets/public-docs";
+import { resolvePolicyAcceptanceStatus } from "./acceptance";
 
 export type TermsAcceptanceStatus = Readonly<{
   policyKey: string;
-  requiredVersion: string;
+  requiredVersion: PublicPolicyVersion;
   accepted: boolean;
   acceptedVersion: string | null;
   acceptedAt: string | null;
@@ -31,19 +30,11 @@ export async function resolveTermsAcceptanceStatus(
   policies: Pick<PolicyRuntime, "resolvePolicy">,
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
 ): Promise<TermsAcceptanceStatus> {
-  const resolved = await policies.resolvePolicy(identityTermsOfServicePolicy);
-  const requiredVersion = resolved.value.version;
-  const current = await findCurrentConsent(db, {
-    userId: subject.userId ?? null,
-    accountId: subject.accountId ?? null,
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+  return resolvePolicyAcceptanceStatus(db, policies, {
+    policyKey: "terms-of-service",
+    // Preserve the shipped Terms host-port behavior: when both identifiers
+    // are supplied, either matching subject can provide the current fact.
+    // Consent Bundles always pass their explicit owned subject scope.
+    subject,
   });
-
-  return {
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-    requiredVersion,
-    accepted: current?.status === "recorded" && current.policy_version === requiredVersion,
-    acceptedVersion: current?.policy_version ?? null,
-    acceptedAt: current?.recorded_at ?? null,
-  };
 }

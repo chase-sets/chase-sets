@@ -330,6 +330,19 @@ Notes:
 - Consents must be auditable.
 - A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
+### Consent Bundle
+
+A **Consent Bundle** is the ordered set of policies affirmed together on one product surface while retaining one
+versioned Consent fact per policy.
+
+Notes:
+
+- The Registration Consent Bundle contains the Terms of Service and Privacy Policy and is User-scoped.
+- The Seller Onboarding Consent Bundle contains the Seller Agreement and Payments Terms and is Account-scoped,
+  with the acting User captured on each Consent.
+- A policy becomes a required bundle member only when its public artifact is readiness-valid and published, and
+  Identity has activated that exact published version.
+
 ## Account Address Book
 
 ### Shipping Address

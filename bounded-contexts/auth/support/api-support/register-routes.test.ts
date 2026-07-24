@@ -258,12 +258,13 @@ describe("registration auth routes", () => {
 
   it("lets dev and test profiles use explicit open registration mode", async () => {
     const services = createServices();
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_new",
+      accountId: "acc_new",
+      membershipId: "mbr_new",
+    }));
     mockCreateIdentityAuthRequestClient.mockReturnValue({
-      createPersonalIdentity: vi.fn(async () => ({
-        userId: "usr_new",
-        accountId: "acc_new",
-        membershipId: "mbr_new",
-      })),
+      createPersonalIdentity,
       enablePasswordCredential: vi.fn(),
     });
     mockStartInteractiveAuth.mockResolvedValue({
@@ -282,11 +283,49 @@ describe("registration auth routes", () => {
       body: JSON.stringify({
         email: "new.user@chasesets.test",
         displayName: "New User",
+        consentAffirmed: true,
       }),
     });
 
     expect(response.status).toBe(201);
     expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "new.user@chasesets.test",
+        consentAffirmed: true,
+      }),
+    );
+  });
+
+  it("returns Identity consent validation in the standard error shape without Auth writes", async () => {
+    const services = createServices();
+    const validationBody = {
+      error: {
+        code: "validation_failed",
+        message: "Registration requires affirmation of the active Terms of Service and Privacy Policy.",
+      },
+    };
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw Object.assign(new Error("validation failed"), { status: 400, body: validationBody });
+      }),
+      enablePasswordCredential: vi.fn(),
+    });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.212"),
+      body: JSON.stringify({
+        email: "no-affirmation@chasesets.test",
+        displayName: "No Affirmation",
+        consentAffirmed: false,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual(validationBody);
+    expect(services.db.query).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 
   it("rate limits registration before admission screening", async () => {

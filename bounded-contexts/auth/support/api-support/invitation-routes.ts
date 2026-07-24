@@ -23,7 +23,7 @@ import {
   createOwnedUserDisplayName,
   getBootstrapContext,
   jsonWithMutationReceipts,
-  readIdentityMutationConflict,
+  readIdentityMutationFailure,
   type AuthApiApp,
 } from "./support";
 import { screenRegistrationEmailDomain } from "./registration-gates";
@@ -296,9 +296,9 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           foundersBetaAccessStartedAt: new Date().toISOString(),
         });
       } catch (error) {
-        const conflict = readIdentityMutationConflict(error);
-        if (conflict) {
-          return c.json(conflict, 409);
+        const failure = readIdentityMutationFailure(error);
+        if (failure) {
+          return c.json(failure.body, failure.status);
         }
 
         throw error;
