@@ -9,7 +9,7 @@ export default defineWorkspaceTestConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./app/test-support/setup.ts",
-    include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
+    include: ["app/**/*.test.ts", "app/**/*.test.tsx", "e2e/support/**/*.test.ts"],
     css: true,
   },
 });

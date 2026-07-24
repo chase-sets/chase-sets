@@ -8,21 +8,32 @@ const configuredMarketplaceAccount = {
 };
 
 const browseSearchQuery = "pokemon";
-const browseAxeExclusions: readonly AxeRuleExclusion[] = [
+const browseResultsAxeExclusions: readonly AxeRuleExclusion[] = [
   {
     ruleId: "heading-order",
+    targets: ["#search-results h3"],
     reason: "The canonical ListingCard uses h3 result titles beneath the search-page h1; hierarchy repair is DS-owned.",
   },
   {
     ruleId: "label-title-only",
+    targets: ["#search-facet-min-price", "#search-facet-max-price"],
     reason: "The canonical NumberField price inputs do not expose their visible group labels directly to axe.",
   },
   {
     ruleId: "label",
+    targets: ["#search-facet-min-price", "#search-facet-max-price"],
     reason: "The canonical NumberField price inputs do not expose their visible group labels directly to axe.",
   },
   {
     ruleId: "landmark-unique",
+    targets: ["#search-facet-categories", "#search-facet-tags"],
+    reason: "The canonical Facet accordion regions do not yet have unique accessible names.",
+  },
+] as const;
+const browseZeroResultAxeExclusions: readonly AxeRuleExclusion[] = [
+  {
+    ruleId: "landmark-unique",
+    targets: ["#search-facet-categories", "#search-facet-tags"],
     reason: "The canonical Facet accordion regions do not yet have unique accessible names.",
   },
 ] as const;
@@ -185,7 +196,9 @@ function escapeRegExp(value: string): string {
 }
 
 test.describe("marketplace critical flows", () => {
-  test("signed-out shoppers can browse, refine, and recover @marketplace-browse", async ({ page }, testInfo) => {
+  test("signed-out shoppers can browse marketplace results and pass an accessibility scan @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
     await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
 
     const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
@@ -195,7 +208,16 @@ test.describe("marketplace critical flows", () => {
     await expect(searchBox).toHaveValue(browseSearchQuery);
     const resultLinks = page.getByRole("link", { name: /View details for/i });
     await expect(resultLinks.first()).toBeVisible();
-    await expectAxeScan(page, testInfo, "marketplace-browse-results", browseAxeExclusions);
+    await expectAxeScan(page, testInfo, "marketplace-browse-results", browseResultsAxeExclusions);
+  });
+
+  test("signed-out shoppers can refine browse results by category facet and sort @marketplace-browse", async ({
+    page,
+  }) => {
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const resultLinks = page.getByRole("link", { name: /View details for/i });
+    await expect(resultLinks.first()).toBeVisible();
 
     const categoryFacet = page.locator("#search-facet-categories");
     const initialResultCount = await resultLinks.count();
@@ -242,12 +264,22 @@ test.describe("marketplace critical flows", () => {
     await expect
       .poll(() => resultLinks.evaluateAll((links) => links.map((link) => link.getAttribute("href"))))
       .toEqual([...ascendingResultHrefs].reverse());
+  });
+
+  test("signed-out shoppers can search into a zero-result state and recover @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
+    await expect(searchBox).toBeVisible();
+    await expect(page.getByRole("link", { name: /View details for/i }).first()).toBeVisible();
 
     const missingQuery = `no-result-${syntheticAccountRunId}-${syntheticAccountNonce}`;
     await searchBox.fill(missingQuery);
     await searchBox.press("Enter");
     await expect(page.getByRole("heading", { name: "No items found" })).toBeVisible();
-    await expectAxeScan(page, testInfo, "marketplace-browse-zero-result", browseAxeExclusions);
+    await expectAxeScan(page, testInfo, "marketplace-browse-zero-result", browseZeroResultAxeExclusions);
 
     await page.getByRole("button", { name: "Clear search" }).click();
     await expect(page.getByRole("link", { name: /View details for/i }).first()).toBeVisible();
