@@ -34,6 +34,17 @@ export type PublicPolicyCanonicalClaimRef = Readonly<{
 }>;
 
 /**
+ * A structural, claim-aware public disclosure segment. Its rendered text is
+ * never hand-authored in this file: it is resolved from the referenced
+ * claim's canonical registry entry at render time, so an unresolved claim's
+ * public disclosure can only ever say what the registry says, never what a
+ * section author separately typed into `draftText`.
+ */
+export type PublicPolicyClaimDisclosure = Readonly<{
+  claimId: CanonicalClaimId;
+}>;
+
+/**
  * Per-section counsel review manifest. This is checked-in drafting metadata
  * for the counsel review packet only. None of these fields render on the
  * public page; only `draftText` is operative public prose.
@@ -54,6 +65,13 @@ export type PublicPolicySection<SubjectId extends string = string> = Readonly<{
   draftText: string;
   reviewStatus: PublicPolicySectionReviewStatus;
   reviewManifest: PublicPolicySectionReviewManifest;
+  /**
+   * Public, rendered claim-disclosure segments. Unlike `reviewManifest`, this
+   * DOES render on the page — it is the structural, claim-aware alternative
+   * to describing an unresolved canonical claim in unconstrained `draftText`
+   * prose. Optional: only sections that reference a canonical claim carry it.
+   */
+  claimDisclosures?: readonly PublicPolicyClaimDisclosure[];
 }>;
 
 export type PublicPolicyPublicationMetadata<Key extends PublicPolicyKey = PublicPolicyKey> = Key extends PublicPolicyKey
@@ -107,7 +125,7 @@ const metadataFields = [
   "rolloutJurisdictionsOrProductLimits",
   "launchRequired",
 ] as const;
-const sectionFields = ["id", "title", "draftText", "reviewStatus", "reviewManifest"] as const;
+const sectionFields = ["id", "title", "draftText", "reviewStatus", "reviewManifest", "claimDisclosures"] as const;
 const manifestFields = [
   "scopeNote",
   "decisionRefs",
@@ -118,6 +136,7 @@ const manifestFields = [
 ] as const;
 const assumptionFields = ["assertion", "evidenceRef"] as const;
 const canonicalClaimFields = ["claimId", "productTruthRefs"] as const;
+const claimDisclosureFields = ["claimId"] as const;
 
 const policyVersionPattern = /^v[1-9][0-9]*$/;
 const canonicalClaimEvidenceRefPattern = /^[\w./-]+:\d+(-\d+)?$/;
@@ -309,6 +328,33 @@ function validateSection(errors: string[], label: string, section: unknown, seen
           errors.push(
             `${sectionLabel} review manifest canonical claim product truth refs must be an array of 'path:line' or 'path:start-end' references.`,
           );
+        }
+      }
+    }
+  }
+
+  if (raw.claimDisclosures !== undefined) {
+    if (!Array.isArray(raw.claimDisclosures)) {
+      errors.push(`${sectionLabel} claim disclosures must be an array.`);
+    } else {
+      for (const disclosure of raw.claimDisclosures as readonly unknown[]) {
+        if (!isPlainObject(disclosure)) {
+          errors.push(`${sectionLabel} claim disclosures must be objects.`);
+          continue;
+        }
+        const disclosureRaw = disclosure as Record<string, unknown>;
+        pushUnknownFieldErrors(
+          errors,
+          label,
+          disclosureRaw,
+          claimDisclosureFields,
+          `sections['${id ?? "?"}'].claimDisclosures[].`,
+        );
+        if (
+          typeof disclosureRaw.claimId !== "string" ||
+          !(canonicalClaimIds as readonly string[]).includes(disclosureRaw.claimId)
+        ) {
+          errors.push(`${sectionLabel} claim disclosure id must be one of the registered canonical claim ids.`);
         }
       }
     }

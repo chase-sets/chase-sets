@@ -9,6 +9,15 @@ const walletInterestUnresolvedCanonicalClaims = [
   { claimId: "wallet-deposit-and-fdic-posture", productTruthRefs: [] },
 ] as const;
 
+// The public counterpart of walletInterestUnresolvedCanonicalClaims: renders
+// each claim's canonical-registry disclosure text structurally instead of
+// asserting the unresolved interest/deposit-insurance posture as free-form
+// draftText prose.
+const walletInterestClaimDisclosures = [
+  { claimId: "wallet-deposit-and-fdic-posture" },
+  { claimId: "wallet-no-interest" },
+] as const;
+
 export const requiredTermsOfServiceSubjectIds = [
   // Wallet and balance subjects (ADR 0020). Taxonomy and order preserved unchanged.
   "wallet-nature-custody-interest",
@@ -60,8 +69,9 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "wallet-nature-custody-interest",
       title: "Wallet nature, custody, and interest",
       draftText:
-        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Wallet balances are not insured by the FDIC or any other deposit insurer, are not a general obligation of any bank, and do not earn interest. Chase Sets holds funds corresponding to Wallet balances as an operational matter of running the marketplace, not as a custodian acting on instructions outside the marketplace uses described in these Terms.",
+        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Chase Sets holds funds corresponding to Wallet balances as an operational matter of running the marketplace, not as a custodian acting on instructions outside the marketplace uses described in these Terms.",
       reviewStatus: "counsel-required",
+      claimDisclosures: walletInterestClaimDisclosures,
       reviewManifest: {
         scopeNote:
           "State that the Wallet is a marketplace ledger rather than a bank deposit, and define the reviewed custody and interest posture.",

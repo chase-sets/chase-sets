@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
+import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
@@ -121,6 +122,18 @@ describe("policy artifact page", () => {
 
   it("does not expose a page-copy prop that lets route adapters pre-decide publication posture", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
+  });
+
+  it("renders the Wallet's unresolved interest/deposit claim disclosures on the real /terms adapter, not a settled assertion", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = container.textContent ?? "";
+
+    expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-no-interest"));
+    expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-deposit-and-fdic-posture"));
+    expect(text.toLowerCase()).not.toContain("do not earn interest");
+    expect(text.toLowerCase()).not.toContain("insured by the fdic");
   });
 
   for (const route of policyRouteAdapters) {

@@ -1,12 +1,32 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
 import { evaluateCanonicalClaimConsistency } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
+
+function withTermsOfServiceSectionOverride(
+  sectionId: string,
+  overrides: Readonly<Record<string, unknown>>,
+): readonly PublicPolicyRegistryEntry[] {
+  return publicPolicyRegistry.map((entry) =>
+    entry.artifact.metadata.policyKey === "terms-of-service"
+      ? ({
+          ...entry,
+          artifact: {
+            ...entry.artifact,
+            sections: entry.artifact.sections.map((section) =>
+              section.id === sectionId ? { ...section, ...overrides } : section,
+            ),
+          },
+        } as unknown as PublicPolicyRegistryEntry)
+      : entry,
+  );
+}
 
 function withPaymentsTermsCanonicalClaims(
   sectionId: string,
@@ -66,6 +86,17 @@ describe("canonical claim consistency guard", () => {
       { claimId: "wallet-no-interest", productTruthRefs: [] },
       { claimId: "wallet-deposit-and-fdic-posture", productTruthRefs: [] },
     ]);
+    // The unresolved claims are addressed only through structural
+    // claimDisclosures segments, never through free-form draftText prose.
+    expect(section?.claimDisclosures).toEqual([
+      { claimId: "wallet-deposit-and-fdic-posture" },
+      { claimId: "wallet-no-interest" },
+    ]);
+    expect(section?.draftText.toLowerCase()).not.toContain("interest");
+    expect(section?.draftText.toLowerCase()).not.toContain("fdic");
+    expect(section?.draftText.toLowerCase()).not.toContain("deposit insurer");
+    expect(resolveUnresolvedPublicDisclosureText("wallet-no-interest")).toContain("not yet resolved");
+    expect(resolveUnresolvedPublicDisclosureText("wallet-deposit-and-fdic-posture")).toContain("not yet resolved");
 
     const violations = evaluateCanonicalClaimConsistency(
       [{ artifact: { ...terms!.artifact, sections: [section!] }, requiredSubjectIds: [] }],
@@ -139,5 +170,96 @@ describe("canonical claim consistency guard", () => {
           violation.reason.includes("cites no product-truth evidence"),
       ),
     ).toBe(true);
+  });
+
+  it("negative control: fails closed on the exact historical shape — unresolved claim + valid openQuestion + flat settled-style draftText assertion with no structural disclosure (legal-artifact-draft-text-contradicts-own-open-question)", () => {
+    const registry = withTermsOfServiceSectionOverride("wallet-nature-custody-interest", {
+      draftText:
+        "The Chase Sets Wallet is a marketplace ledger account. Wallet balances are not insured by the FDIC " +
+        "or any other deposit insurer, are not a general obligation of any bank, and do not earn interest.",
+      claimDisclosures: undefined,
+    });
+
+    const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.sectionId === "wallet-nature-custody-interest" &&
+          violation.claimId === "wallet-deposit-and-fdic-posture" &&
+          violation.reason.includes("forbidden settled-style assertion"),
+      ),
+    ).toBe(true);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.sectionId === "wallet-nature-custody-interest" &&
+          violation.claimId === "wallet-no-interest" &&
+          violation.reason.includes("forbidden settled-style assertion"),
+      ),
+    ).toBe(true);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.sectionId === "wallet-nature-custody-interest" &&
+          violation.reason.includes("no structural claimDisclosures segment"),
+      ),
+    ).toBe(true);
+  });
+
+  it("negative control: fails closed when an unresolved claim carries no open question, even with a structural disclosure segment present", () => {
+    const terms = publicPolicyRegistry.find((entry) => entry.artifact.metadata.policyKey === "terms-of-service")!;
+    const section = terms.artifact.sections.find((candidate) => candidate.id === "wallet-nature-custody-interest")!;
+
+    const registry = withTermsOfServiceSectionOverride("wallet-nature-custody-interest", {
+      reviewManifest: { ...section.reviewManifest, openQuestions: [] },
+    });
+
+    const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.sectionId === "wallet-nature-custody-interest" &&
+          violation.reason.includes("no open question reflecting that"),
+      ),
+    ).toBe(true);
+  });
+
+  it("negative control: a synthetic section under an arbitrary policy and section id is not exempt (structural-guard-scoped-by-path-vocabulary)", () => {
+    const registry = publicPolicyRegistry.map((entry) =>
+      entry.artifact.metadata.policyKey === "payments-terms"
+        ? ({
+            ...entry,
+            artifact: {
+              ...entry.artifact,
+              sections: [
+                ...entry.artifact.sections,
+                {
+                  id: "totally-unrelated-synthetic-subject",
+                  title: "Synthetic",
+                  draftText: "Wallet balances do not earn interest and are not insured by the FDIC.",
+                  reviewStatus: "counsel-required",
+                  reviewManifest: {
+                    scopeNote: "Synthetic test-only section.",
+                    decisionRefs: [],
+                    productTruthRefs: [],
+                    openQuestions: ["synthetic open question"],
+                    assumptions: [],
+                  },
+                },
+              ],
+            },
+          } as unknown as PublicPolicyRegistryEntry)
+        : entry,
+    );
+
+    const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+    const syntheticViolations = violations.filter(
+      (violation) =>
+        violation.sectionId === "totally-unrelated-synthetic-subject" &&
+        violation.reason.includes("forbidden settled-style assertion"),
+    );
+    expect(syntheticViolations.length).toBeGreaterThanOrEqual(2);
+    expect(syntheticViolations.some((violation) => violation.claimId === "wallet-no-interest")).toBe(true);
+    expect(syntheticViolations.some((violation) => violation.claimId === "wallet-deposit-and-fdic-posture")).toBe(true);
   });
 });

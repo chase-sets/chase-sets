@@ -78,6 +78,7 @@ function fingerprintArtifactContent(artifact) {
       title: section.title,
       draftText: section.draftText,
       reviewStatus: section.reviewStatus,
+      claimDisclosures: section.claimDisclosures ?? [],
       reviewManifest: {
         scopeNote: section.reviewManifest.scopeNote,
         decisionRefs: section.reviewManifest.decisionRefs,

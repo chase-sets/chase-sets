@@ -48,12 +48,46 @@ function readCitedText(repoRoot: string, path: string, start: number, end: numbe
  * contain the claim's required keywords at the exact cited lines, so a
  * mis-citation (evidence pointing at unrelated code) fails closed instead of
  * only on human review.
+ *
+ * Beyond that manifest bookkeeping, this also evaluates the PUBLIC/rendered
+ * source — `draftText` and the structural `claimDisclosures` segments — not
+ * just the packet-only review manifest: a section that registers a claim as
+ * unresolved must carry a structural claim-disclosure segment for it (the
+ * claim-aware boundary, not free-form prose), and no section's rendered
+ * draft text corpus-wide may contain a claim's narrow, per-claim forbidden
+ * settled-style phrasing while that claim remains unresolved (defense in
+ * depth, independent of section/file naming).
  */
 export function evaluateCanonicalClaimConsistency(
   registry: readonly PublicPolicyRegistryEntry[],
   repoRoot: string,
 ): readonly CanonicalClaimViolation[] {
   const violations: CanonicalClaimViolation[] = [];
+
+  for (const entry of registry) {
+    const policyKey = entry.artifact.metadata.policyKey;
+    for (const section of entry.artifact.sections) {
+      const lowered = section.draftText.toLowerCase();
+      for (const [claimId, definition] of Object.entries(canonicalClaimRegistry)) {
+        if (definition.status !== "unresolved") {
+          continue;
+        }
+        for (const phrase of definition.forbiddenAssertionPhrases ?? []) {
+          if (lowered.includes(phrase.toLowerCase())) {
+            violations.push({
+              policyKey,
+              sectionId: section.id,
+              claimId,
+              reason:
+                `renders a forbidden settled-style assertion ('${phrase}') in its public draft text for the ` +
+                `unresolved canonical claim '${claimId}' — this applies regardless of whether the section ` +
+                "declares that claim in its own canonicalClaims manifest.",
+            });
+          }
+        }
+      }
+    }
+  }
 
   for (const entry of registry) {
     const policyKey = entry.artifact.metadata.policyKey;
@@ -133,6 +167,63 @@ export function evaluateCanonicalClaimConsistency(
               reason: "is registered unresolved but this section carries no open question reflecting that.",
             });
           }
+          const hasDisclosure = (section.claimDisclosures ?? []).some(
+            (disclosure) => disclosure.claimId === claimRef.claimId,
+          );
+          if (!hasDisclosure) {
+            violations.push({
+              policyKey,
+              sectionId: section.id,
+              claimId: claimRef.claimId,
+              reason:
+                "is registered unresolved but this section has no structural claimDisclosures segment for it; an " +
+                "unresolved claim's public disclosure must come from an explicit claim-aware structure, not " +
+                "unconstrained free-form draftText.",
+            });
+          }
+        }
+      }
+
+      for (const disclosure of section.claimDisclosures ?? []) {
+        const definition = (
+          canonicalClaimRegistry as Record<string, (typeof canonicalClaimRegistry)[keyof typeof canonicalClaimRegistry]>
+        )[disclosure.claimId];
+        if (!definition) {
+          violations.push({
+            policyKey,
+            sectionId: section.id,
+            claimId: disclosure.claimId,
+            reason:
+              "renders a claimDisclosures segment for a canonical claim id that is not registered in canonical-claims.ts.",
+          });
+          continue;
+        }
+        if (definition.status !== "unresolved") {
+          violations.push({
+            policyKey,
+            sectionId: section.id,
+            claimId: disclosure.claimId,
+            reason:
+              "renders a claimDisclosures segment for a claim the canonical registry marks settled; use ordinary draftText prose instead.",
+          });
+        } else if (!definition.unresolvedPublicDisclosure) {
+          violations.push({
+            policyKey,
+            sectionId: section.id,
+            claimId: disclosure.claimId,
+            reason:
+              "renders a claimDisclosures segment for an unresolved claim that has no unresolvedPublicDisclosure text configured.",
+          });
+        }
+        const trackedInManifest = claimRefs.some((claimRef) => claimRef.claimId === disclosure.claimId);
+        if (!trackedInManifest) {
+          violations.push({
+            policyKey,
+            sectionId: section.id,
+            claimId: disclosure.claimId,
+            reason:
+              "renders a claimDisclosures segment that is not tracked in this section's reviewManifest.canonicalClaims.",
+          });
         }
       }
     }

@@ -27,6 +27,23 @@ export type CanonicalClaimDefinition = Readonly<{
    * structurally instead of only on human review.
    */
   requiredEvidenceKeywords: readonly string[];
+  /**
+   * Required when status is "unresolved": the single canonical, generated
+   * public disclosure sentence a section renders through a structural
+   * `claimDisclosures` entry instead of hand-authored free-form prose. The
+   * same registry entry that marks a claim unresolved also controls what the
+   * public page says about it, so a section can never render the claim as
+   * settled fact while a disclosure segment is in play.
+   */
+  unresolvedPublicDisclosure?: string;
+  /**
+   * Narrow, per-claim defense in depth: case-insensitive substrings that
+   * would assert this claim as settled fact. Forbidden anywhere in any
+   * section's public draft text corpus-wide while the claim remains
+   * unresolved, independent of whether that section declares the claim in
+   * its own `canonicalClaims` manifest.
+   */
+  forbiddenAssertionPhrases?: readonly string[];
 }>;
 
 export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, CanonicalClaimDefinition>> = {
@@ -57,6 +74,15 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
       "before publication, not a productTruthRef-backed fact.",
     requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "Whether Chase Sets pays interest on Wallet balances is not yet resolved and is not addressed by this " +
+      "document pending qualified counsel review.",
+    forbiddenAssertionPhrases: [
+      "do not earn interest",
+      "does not earn interest",
+      "will not earn interest",
+      "no interest is paid",
+    ],
   },
   "wallet-deposit-and-fdic-posture": {
     status: "unresolved",
@@ -65,5 +91,24 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
       "before publication, not a productTruthRef-backed fact.",
     requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "Whether Wallet balances are treated as a bank deposit or are covered by FDIC or other deposit " +
+      "insurance is not yet resolved and is not addressed by this document pending qualified counsel review.",
+    forbiddenAssertionPhrases: ["insured by the fdic", "fdic insur", "not a deposit", "non-deposit", "deposit insurer"],
   },
 } as const;
+
+/**
+ * The single source of an unresolved claim's public disclosure text. A
+ * section's `claimDisclosures` entries render through this resolver instead
+ * of hand-typed prose, so the same registry entry that marks a claim
+ * unresolved is the only place that can produce what the public page says
+ * about it.
+ */
+export function resolveUnresolvedPublicDisclosureText(claimId: CanonicalClaimId): string {
+  const definition = canonicalClaimRegistry[claimId];
+  if (definition.status !== "unresolved" || !definition.unresolvedPublicDisclosure) {
+    throw new Error(`Canonical claim '${claimId}' has no unresolved public disclosure text to render.`);
+  }
+  return definition.unresolvedPublicDisclosure;
+}
