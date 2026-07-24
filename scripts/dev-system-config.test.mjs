@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eDirectCiCommands,
   browserE2ePlatformAdminEnv,
@@ -236,6 +237,28 @@ describe("dev system target env overrides", () => {
     ).toEqual({
       PATH: "C:\\tools",
       POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
+    });
+  });
+
+  it("threads representative refresh selectors set after process definitions were composed", () => {
+    expect(
+      applyCurrentPlatformBootstrapSelectors(
+        {
+          PLATFORM_DATA_PROFILES: "all",
+          REPRESENTATIVE_CATALOG_PACK_SOURCE: "C:\\stale-pack-root",
+          PORT: "6182",
+        },
+        {
+          PLATFORM_DATA_PROFILES: "critical-bootstrap,catalog-integration-bootstrap,representative-catalog",
+          REPRESENTATIVE_CATALOG_PACK_SOURCE: "C:\\lane-01\\accepted-packs",
+          REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT: "C:\\lane-01\\artifacts\\replay.json",
+        },
+      ),
+    ).toEqual({
+      PLATFORM_DATA_PROFILES: "critical-bootstrap,catalog-integration-bootstrap,representative-catalog",
+      REPRESENTATIVE_CATALOG_PACK_SOURCE: "C:\\lane-01\\accepted-packs",
+      REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT: "C:\\lane-01\\artifacts\\replay.json",
+      PORT: "6182",
     });
   });
 

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,8 +12,18 @@ import {
   recordObservationPackAcceptance,
   sanitizeObservationPackEnvelope,
   serializeObservationPackManifest,
+  stableStringify,
 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
-import { buildPostReplayVerifierEvidence, runVerifyObservationPackCli } from "./verify-observation-pack.mjs";
+import {
+  assertDayAfterCommerceClosure,
+  assertRepresentativeCommerceProjectionClosure,
+  buildCanonicalRepresentativeDatabaseIdentity,
+  buildClosedCommercePackCohortEvidence,
+  buildCommercePackCohortEvidence,
+  buildPostReplayVerifierEvidence,
+  runVerifyObservationPackCli,
+} from "./verify-observation-pack.mjs";
+import { buildRepresentativeCatalogReplayReceipt } from "../bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts";
 
 const temporaryRoots = [];
 let stripTypesRuntimeProbe;
@@ -63,6 +74,252 @@ describe("verify-observation-pack real entrypoint", () => {
       message: "message",
       code: "unsupported_state",
       ownEnumerableFields: ["code", "name"],
+    });
+  });
+
+  it("joins commerce-used items to accepted-pack external references and reports the exact cohort", () => {
+    expect(
+      buildCommercePackCohortEvidence({
+        commerceCatalogItemIds: ["cat_pack_02", "cat_local", "cat_pack_01", "cat_pack_01"],
+        catalogReferences: [
+          { catalogItemId: "cat_pack_01", providerKey: "tcgplayer", externalKey: "product:101" },
+          { catalogItemId: "cat_pack_02", providerKey: "scryfall", externalKey: "card:202" },
+          { catalogItemId: "cat_local", providerKey: "fixture", externalKey: "item:303" },
+        ],
+        acceptedPackReferences: [
+          { providerKey: "tcgplayer", externalKey: "product:101" },
+          { providerKey: "scryfall", externalKey: "card:202" },
+        ],
+        minimumPercentage: 90,
+      }),
+    ).toEqual({
+      command: "verify-commerce-pack-cohort",
+      status: "blocked",
+      numerator: 2,
+      denominator: 3,
+      percentage: 66.67,
+      minimumPercentage: 90,
+      unmatchedSampleCatalogItemIds: ["cat_local"],
+    });
+  });
+
+  it("closes ordered packs, replay/equality, canonical databases, completion, and selected cohort", () => {
+    const fixture = commerceClosureFixture();
+    const result = buildClosedCommercePackCohortEvidence(fixture);
+
+    expect(result).toMatchObject({
+      status: "verified",
+      numerator: 1,
+      denominator: 2,
+      percentage: 50,
+      orderedAcceptedPacks: fixture.acceptedPacks,
+      commerce: {
+        selectedCatalogItemCount: 2,
+        selectedCatalogItemDigest: fixture.commerceCompletion.selectedCatalogItemDigest,
+      },
+    });
+    expect(result.closedIdentity).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(result.replay.receiptIdentity).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(result.postReplay.equalityIdentity).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it.each([
+    ["reordered", (packs) => packs.reverse()],
+    ["omitted", (packs) => packs.slice(0, 1)],
+    ["extra", (packs) => [...packs, { ...packs[1], packId: "pack-extra" }]],
+    ["narrowed subroot", (packs) => [{ ...packs[0], manifestKey: "manifest.json" }, packs[1]]],
+    [
+      "same-version content substitution",
+      (packs) => [{ ...packs[0], captureContentHash: digest("substituted") }, packs[1]],
+    ],
+  ])("rejects a %s replay pack set even when the replay receipt identities are recomputed", (_label, mutate) => {
+    const fixture = commerceClosureFixture();
+    fixture.replayReceipt = buildRepresentativeCatalogReplayReceipt(
+      mutate(structuredClone(fixture.replayReceipt.packs)),
+      fixture.replayReceipt.checkedAt,
+      fixture.replayReceipt.sandbox,
+    );
+
+    expect(() => buildClosedCommercePackCohortEvidence(fixture)).toThrow(/pack|replay/i);
+  });
+
+  it("rejects a stale or substituted replay receipt that the commerce completion did not consume", () => {
+    const fixture = commerceClosureFixture();
+    const substitutedReceipt = buildRepresentativeCatalogReplayReceipt(
+      fixture.replayReceipt.packs,
+      "2026-07-23T12:00:01.000Z",
+      fixture.replayReceipt.sandbox,
+    );
+
+    expect(() => buildClosedCommercePackCohortEvidence({ ...fixture, replayReceipt: substitutedReceipt })).toThrow(
+      /commerce replay receipt binding/i,
+    );
+  });
+
+  it("rejects unexpected credential or mutable-state fields in a replay receipt", () => {
+    const fixture = commerceClosureFixture();
+    expect(() =>
+      buildClosedCommercePackCohortEvidence({
+        ...fixture,
+        replayReceipt: { ...fixture.replayReceipt, secretAccessKey: "must-not-be-retained" },
+      }),
+    ).toThrow(/receipt fields/i);
+  });
+
+  it("rejects denominator narrowing even when the narrowed completion identities are recomputed", () => {
+    const fixture = commerceClosureFixture();
+    const narrowedCompletion = updateCommerceCompletionState(fixture.commerceCompletion, fixture.replayReceipt, {
+      catalogItemLimit: 20,
+    });
+
+    expect(() => buildClosedCommercePackCohortEvidence({ ...fixture, commerceCompletion: narrowedCompletion })).toThrow(
+      /Catalog Item limit|denominator/i,
+    );
+  });
+
+  it.each([
+    ["omitted current-run item", { listingCatalogItemIds: ["cat_pack"] }],
+    ["extra current-run item", { offerCatalogItemIds: ["cat_fixture", "cat_pack", "cat_extra"] }],
+    ["stale prior representative row", { listingCatalogItemIds: ["cat_fixture", "cat_old", "cat_pack"] }],
+    ["duplicate stale representative row", { listingRowCount: 3 }],
+  ])("rejects %s before cohort acceptance", (_label, override) => {
+    expect(() =>
+      assertRepresentativeCommerceProjectionClosure({
+        selectedCatalogItemIds: ["cat_fixture", "cat_pack"],
+        catalogItemIds: ["cat_fixture", "cat_pack"],
+        discoverySearchCatalogItemIds: ["cat_fixture", "cat_pack"],
+        discoveryDetailCatalogItemIds: ["cat_fixture", "cat_pack"],
+        listingCatalogItemIds: ["cat_fixture", "cat_pack"],
+        offerCatalogItemIds: ["cat_fixture", "cat_pack"],
+        listingRowCount: 2,
+        offerRowCount: 2,
+        expectedListingRowCount: 2,
+        expectedOfferRowCount: 2,
+        ...override,
+      }),
+    ).toThrow(/mismatch/);
+  });
+
+  it("rejects mixed sandbox URLs against the canonical worktree database set", () => {
+    const sandbox = canonicalSandboxFixture();
+    expect(() =>
+      buildCanonicalRepresentativeDatabaseIdentity({
+        sandbox,
+        urls: {
+          catalog: sandbox.contextDatabaseUrls.catalog,
+          discovery: sandbox.contextDatabaseUrls.discovery,
+          marketplace: "postgresql://postgres:postgres@localhost:6570/cs_lane_02_marketplace",
+        },
+        observedDatabaseNames: {
+          catalog: "cs_lane_01_catalog",
+          discovery: "cs_lane_01_discovery",
+          marketplace: "cs_lane_02_marketplace",
+        },
+      }),
+    ).toThrow(/canonical current sandbox/);
+  });
+
+  it("rejects a replay receipt produced by another sandbox even when commerce consumed it", () => {
+    const fixture = commerceClosureFixture();
+    const foreignReceipt = buildRepresentativeCatalogReplayReceipt(
+      fixture.replayReceipt.packs,
+      fixture.replayReceipt.checkedAt,
+      {
+        sandboxId: "lane-02",
+        postgresPort: 6570,
+        catalogDatabaseName: "cs_lane_02_catalog",
+      },
+    );
+
+    expect(() =>
+      buildClosedCommercePackCohortEvidence({
+        ...fixture,
+        replayReceipt: foreignReceipt,
+        commerceCompletion: bindCommerceCompletionToReplayReceipt(fixture.commerceCompletion, foreignReceipt),
+      }),
+    ).toThrow(/canonical sandbox/i);
+  });
+
+  it("accepts only a zero-append retained-state replay with the same closed commerce identity", () => {
+    const fixture = commerceClosureFixture();
+    const prior = buildClosedCommercePackCohortEvidence(fixture);
+    const dayAfterReceipt = buildRepresentativeCatalogReplayReceipt(
+      fixture.replayReceipt.packs.map((pack) => ({
+        ...pack,
+        appendedEventCount: 0,
+        appendedAssetSetCount: 0,
+      })),
+      "2026-07-24T12:00:00.000Z",
+      fixture.replayReceipt.sandbox,
+    );
+    const current = buildClosedCommercePackCohortEvidence({
+      ...fixture,
+      replayReceipt: dayAfterReceipt,
+      commerceCompletion: bindCommerceCompletionToReplayReceipt(fixture.commerceCompletion, dayAfterReceipt),
+    });
+
+    expect(() => assertDayAfterCommerceClosure(prior, current, dayAfterReceipt)).not.toThrow();
+    expect(() =>
+      assertDayAfterCommerceClosure(prior, current, {
+        ...dayAfterReceipt,
+        totals: { appendedEventCount: 1, appendedAssetSetCount: 0 },
+      }),
+    ).toThrow(/appended/);
+    expect(() =>
+      assertDayAfterCommerceClosure(prior, { ...current, closedIdentity: digest("changed") }, dayAfterReceipt),
+    ).toThrow(/closedIdentity/);
+    const nonconvergentCurrent = buildClosedCommercePackCohortEvidence({
+      ...fixture,
+      replayReceipt: dayAfterReceipt,
+      commerceCompletion: updateCommerceCompletionState(fixture.commerceCompletion, dayAfterReceipt, {
+        representativeAcceptedOfferSkippedCount: 1,
+      }),
+    });
+    expect(() => assertDayAfterCommerceClosure(prior, nonconvergentCurrent, dayAfterReceipt)).toThrow(
+      /closedIdentity|discriminators/,
+    );
+  });
+
+  it("runs the commerce cohort mode through the existing verifier command", async () => {
+    let stdout = "";
+    const exitCode = await runVerifyObservationPackCli(
+      [
+        "--target",
+        "local",
+        "--pack-dir",
+        "ignored-by-injected-check",
+        "--commerce-cohort",
+        "true",
+        "--catalog-database-url",
+        "postgresql://localhost/catalog",
+        "--marketplace-database-url",
+        "postgresql://localhost/marketplace",
+      ],
+      process.env,
+      { write: (value) => void (stdout += value) },
+      {
+        verifyCommercePackCohort: async () => ({
+          command: "verify-commerce-pack-cohort",
+          status: "verified",
+          numerator: 18,
+          denominator: 20,
+          percentage: 90,
+          minimumPercentage: 90,
+          unmatchedSampleCatalogItemIds: ["cat_fixture_01", "cat_fixture_02"],
+          acceptedPackCount: 4,
+          acceptedPackExternalReferenceCount: 18,
+          diagnostics: [],
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      status: "verified",
+      numerator: 18,
+      denominator: 20,
+      percentage: 90,
+      unmatchedSampleCatalogItemIds: ["cat_fixture_01", "cat_fixture_02"],
     });
   });
 
@@ -325,6 +582,191 @@ describe("verify-observation-pack real entrypoint", () => {
     );
   });
 });
+
+function commerceClosureFixture() {
+  const acceptedPacks = [
+    {
+      packId: "pack-a",
+      packVersion: "2026-07-23.1",
+      manifestKey: "pokemon/manifest.json",
+      captureContentHash: digest("capture-a"),
+    },
+    {
+      packId: "pack-b",
+      packVersion: "2026-07-23.1",
+      manifestKey: "magic/manifest.json",
+      captureContentHash: digest("capture-b"),
+    },
+  ];
+  const replayPacks = acceptedPacks.map((pack, index) => ({
+    ...pack,
+    providerKey: index === 0 ? "tcgdex" : "scryfall",
+    envelopeCount: 1,
+    observationCount: 1,
+    catalogItemCount: 1,
+    assetSetCount: 1,
+    appendedEventCount: 10,
+    appendedAssetSetCount: 1,
+    externalReferenceDigest: digest(`references-${index}`),
+  }));
+  const replayReceipt = buildRepresentativeCatalogReplayReceipt(replayPacks, "2026-07-23T12:00:00.000Z", {
+    sandboxId: "lane-01",
+    postgresPort: 6520,
+    catalogDatabaseName: "cs_lane_01_catalog",
+  });
+  const selectedCatalogItemIds = ["cat_fixture", "cat_pack"];
+  const selectedCatalogItemDigest = identity(selectedCatalogItemIds);
+  const commerceStateMaterial = {
+    environmentName: "dev",
+    dataProfiles: ["critical-bootstrap", "representative-commerce-state"],
+    catalogItemLimit: 50,
+    sourceCatalogCandidateCount: 1,
+    plannedCatalogCandidateCount: 2,
+    priorityCatalogCandidateCount: 0,
+    selectedCatalogItemIds,
+    selectedCatalogItemCount: 2,
+    selectedCatalogItemDigest,
+    marketplaceReconciledCatalogItemCount: 2,
+    inventoryReconciledCatalogItemCount: 2,
+    representativeInventoryStockCount: 2,
+    representativeInventoryStockAccountCount: 2,
+    representativeListingCount: 2,
+    representativeListingAccountCount: 2,
+    representativeOfferCount: 2,
+    representativeOfferBuyerAccountCount: 2,
+    representativeAcceptedOfferCount: 2,
+    representativeAcceptedOfferSkippedCount: 0,
+    representativeOrderingSupplyState: { listingCount: 2, inventoryItemCount: 2 },
+    representativeDiscoveryMarketState: { listingCount: 2, offerCount: 2 },
+    chromeUatSelector: {
+      schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
+      status: "ready",
+    },
+    pendingPaymentSaleSelector: {
+      schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1",
+      status: "ready",
+    },
+    contexts: ["catalog", "discovery", "marketplace"],
+  };
+  const commerceStateIdentity = identity(commerceStateMaterial);
+  const representativeCatalogReplay = replayBinding(replayReceipt);
+  const commerceBindingIdentity = identity({ commerceStateIdentity, representativeCatalogReplay });
+  const databaseMaterial = {
+    sandboxId: "lane-01",
+    postgresPort: 6520,
+    databases: [
+      { contextName: "catalog", databaseName: "cs_lane_01_catalog" },
+      { contextName: "discovery", databaseName: "cs_lane_01_discovery" },
+      { contextName: "marketplace", databaseName: "cs_lane_01_marketplace" },
+    ],
+  };
+  return {
+    acceptedPacks,
+    replayReceipt,
+    postReplayPacks: replayPacks.map((pack) => ({
+      ...acceptedPacks.find((accepted) => accepted.packId === pack.packId),
+      providerKey: pack.providerKey,
+      verifierDigest: digest(`verifier-${pack.packId}`),
+      externalReferenceDigest: pack.externalReferenceDigest,
+      counts: {
+        envelopes: 1,
+        observations: 1,
+        catalogItems: 1,
+        productAssetSets: 1,
+        storedAssetUrls: 7,
+        discoverySearchItems: 1,
+        discoveryItemDetails: 1,
+      },
+    })),
+    equalityRowCounts: [
+      { table: "catalog.public.catalog_items", rowCount: "2" },
+      { table: "discovery.public.discovery_search_catalog_items", rowCount: "2" },
+    ],
+    databaseIdentity: {
+      ...databaseMaterial,
+      databaseSetIdentity: identity(databaseMaterial),
+    },
+    commerceCompletion: {
+      schemaVersion: "representative-commerce-state.evidence/v2",
+      type: "representative-commerce-state.complete",
+      checkedAt: "2026-07-23T12:01:00.000Z",
+      ...commerceStateMaterial,
+      commerceStateIdentity,
+      commerceBindingIdentity,
+      representativeCatalogReplay,
+    },
+    catalogReferences: [
+      { catalogItemId: "cat_pack", providerKey: "tcgdex", externalKey: "card:1" },
+      { catalogItemId: "cat_fixture", providerKey: "fixture", externalKey: "item:1" },
+    ],
+    acceptedPackReferences: [{ providerKey: "tcgdex", externalKey: "card:1" }],
+    minimumPercentage: 50,
+  };
+}
+
+function bindCommerceCompletionToReplayReceipt(completion, replayReceipt) {
+  const representativeCatalogReplay = replayBinding(replayReceipt);
+  return {
+    ...completion,
+    representativeCatalogReplay,
+    commerceBindingIdentity: identity({
+      commerceStateIdentity: completion.commerceStateIdentity,
+      representativeCatalogReplay,
+    }),
+  };
+}
+
+function updateCommerceCompletionState(completion, replayReceipt, changes) {
+  const {
+    schemaVersion,
+    type,
+    checkedAt,
+    commerceStateIdentity: _commerceStateIdentity,
+    commerceBindingIdentity: _commerceBindingIdentity,
+    representativeCatalogReplay: _representativeCatalogReplay,
+    ...currentState
+  } = completion;
+  const state = { ...currentState, ...changes };
+  const commerceStateIdentity = identity(state);
+  const representativeCatalogReplay = replayBinding(replayReceipt);
+  return {
+    schemaVersion,
+    type,
+    checkedAt,
+    ...state,
+    commerceStateIdentity,
+    commerceBindingIdentity: identity({ commerceStateIdentity, representativeCatalogReplay }),
+    representativeCatalogReplay,
+  };
+}
+
+function replayBinding(replayReceipt) {
+  return {
+    replayRunIdentity: replayReceipt.replayRunIdentity,
+    packSetIdentity: replayReceipt.packSetIdentity,
+    replayStateIdentity: replayReceipt.replayStateIdentity,
+  };
+}
+
+function canonicalSandboxFixture() {
+  return {
+    id: "lane-01",
+    ports: { postgres: 6520 },
+    contextDatabaseUrls: {
+      catalog: "postgresql://postgres:postgres@localhost:6520/cs_lane_01_catalog",
+      discovery: "postgresql://postgres:postgres@localhost:6520/cs_lane_01_discovery",
+      marketplace: "postgresql://postgres:postgres@localhost:6520/cs_lane_01_marketplace",
+    },
+  };
+}
+
+function digest(value) {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function identity(value) {
+  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
+}
 
 function validBundle(options = {}) {
   const rawEnvelope = {

@@ -11,6 +11,7 @@ import {
   REPRESENTATIVE_SNAPSHOT_PUBLISH_STATES,
   REPRESENTATIVE_SNAPSHOT_RESTORE_STATES,
   RepresentativeSnapshotError,
+  buildRepresentativeAcceptedPackSetIdentity,
   buildRepresentativeSnapshotCompatibility,
   representativeSnapshotCompatibilityRefusal,
   resetRepresentativeSnapshotSandbox,
@@ -51,6 +52,22 @@ function compatibility(overrides = {}) {
     ...overrides,
   });
 }
+
+it("reuses one ordered immutable accepted-pack identity across snapshot and commerce closure", () => {
+  const packs = [
+    ...compatibility().acceptedPacks,
+    {
+      packId: "pack-lorcana",
+      packVersion: "2026-07-23.1",
+      manifestKey: "observation-packs/lorcana/manifest.json",
+      captureContentHash: hash("lorcana-capture"),
+    },
+  ];
+  expect(buildRepresentativeAcceptedPackSetIdentity(packs)).toBe(hash(stableStringify(packs)));
+  expect(buildRepresentativeAcceptedPackSetIdentity([...packs].reverse())).not.toBe(
+    buildRepresentativeAcceptedPackSetIdentity(packs),
+  );
+});
 
 function manifest(currentCompatibility, databaseBytes, assetBytes) {
   const assetEntries = [

@@ -29,3 +29,5 @@ Chase Sets captures selected provider data once into governed, versioned **Obser
 ## Consequences
 
 Later slices may implement pack capture, replay, promotion, asset ingestion, and snapshot acceleration behind this profile. This ADR creates no pack format, provider call, seed implementation, default-profile enrollment, or staging representative-data behavior by itself.
+
+The accepted implementation and developer workflow are documented in [Local Representative Data](../local-representative-data.md), with governed storage and snapshot operations in [Seed Pack Storage](../runbooks/seed-pack-storage.md).

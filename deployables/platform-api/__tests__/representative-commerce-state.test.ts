@@ -6,6 +6,8 @@ import {
   assertRepresentativeProductContentsReconciled,
   assertRepresentativeCommerceStateRunAllowed,
   assertRepresentativeCommerceStateEvidenceIsSupportSafe,
+  buildRepresentativeCatalogReplayBinding,
+  buildRepresentativeCommerceCatalogSelection,
   selectChromeUatRepresentativePersona,
   selectPendingPaymentSaleRepresentativePersona,
   representativeProductContentsProjectionPlan,
@@ -108,6 +110,32 @@ describe("representative commerce state refresh guardrails", () => {
 });
 
 describe("representative commerce state evidence artifact", () => {
+  it("closes the selected Catalog Item set over a sorted exact digest and count", () => {
+    expect(buildRepresentativeCommerceCatalogSelection(["cat_b", "cat_a", "cat_b"])).toEqual({
+      selectedCatalogItemIds: ["cat_a", "cat_b"],
+      selectedCatalogItemCount: 2,
+      selectedCatalogItemDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    });
+  });
+
+  it("carries only immutable support-safe replay identities into commerce completion", () => {
+    expect(
+      buildRepresentativeCatalogReplayBinding({
+        schemaVersion: "representative-catalog-replay.receipt/v1",
+        type: "representative-catalog-replay.complete",
+        checkedAt: "2026-07-23T12:00:00.000Z",
+        replayRunIdentity: `sha256:${"a".repeat(64)}`,
+        packSetIdentity: `sha256:${"b".repeat(64)}`,
+        replayStateIdentity: `sha256:${"c".repeat(64)}`,
+        packs: [{ mutableProviderPayload: "not-forwarded" }],
+      }),
+    ).toEqual({
+      replayRunIdentity: `sha256:${"a".repeat(64)}`,
+      packSetIdentity: `sha256:${"b".repeat(64)}`,
+      replayStateIdentity: `sha256:${"c".repeat(64)}`,
+    });
+  });
+
   it("writes the support-safe selector evidence payload", async () => {
     const dir = await mkdtemp(join(tmpdir(), "representative-commerce-state-"));
     const outPath = join(dir, "representative-commerce-state-evidence.json");
@@ -116,7 +144,7 @@ describe("representative commerce state evidence artifact", () => {
 
       const evidence = JSON.parse(await readFile(outPath, "utf8"));
       expect(evidence).toMatchObject({
-        schemaVersion: "representative-commerce-state.evidence/v1",
+        schemaVersion: "representative-commerce-state.evidence/v2",
         type: "representative-commerce-state.complete",
         chromeUatSelector: {
           schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
@@ -497,13 +525,21 @@ function personaAliasForUser(userId: string): string {
 
 function supportSafeRepresentativeEvidence(): RepresentativeCommerceStateEvidence {
   return {
-    schemaVersion: "representative-commerce-state.evidence/v1",
+    schemaVersion: "representative-commerce-state.evidence/v2",
     type: "representative-commerce-state.complete",
     checkedAt: "2026-06-30T00:00:00.000Z",
     environmentName: "staging",
     dataProfiles: ["representative-commerce"],
+    catalogItemLimit: 50,
     sourceCatalogCandidateCount: 50,
-    untouchedCatalogCandidateCount: 0,
+    plannedCatalogCandidateCount: 50,
+    priorityCatalogCandidateCount: 0,
+    selectedCatalogItemIds: ["cat_representative_1"],
+    selectedCatalogItemCount: 1,
+    selectedCatalogItemDigest: "sha256:1d94590101dbd8f091f46d7fe7434ee3bfb17c66f9e1ba875cf7964016124100",
+    commerceStateIdentity: "sha256:283f91fee069685c645d62e4616f07098a40b6a5f9ef90ec9e2c2411aa767c46",
+    commerceBindingIdentity: "sha256:529d150e58dce32f5274cf7e8ec666f1ce3f4aa3102087930d11c819b4e23909",
+    representativeCatalogReplay: null,
     marketplaceReconciledCatalogItemCount: 0,
     inventoryReconciledCatalogItemCount: 0,
     representativeInventoryStockCount: 0,

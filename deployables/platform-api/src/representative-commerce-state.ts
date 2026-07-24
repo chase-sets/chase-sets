@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -45,7 +46,7 @@ import {
 } from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
-const REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION = "representative-commerce-state.evidence/v1";
+const REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION = "representative-commerce-state.evidence/v2";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
 const MAX_STEP_TIMEOUT_MS = 600_000;
 const REPRESENTATIVE_RESUME_GUIDANCE =
@@ -161,8 +162,16 @@ export type RepresentativeCommerceStateEvidence = Readonly<{
   checkedAt: string;
   environmentName: string | null;
   dataProfiles: readonly string[];
+  catalogItemLimit: number;
   sourceCatalogCandidateCount: number;
-  untouchedCatalogCandidateCount: number;
+  plannedCatalogCandidateCount: number;
+  priorityCatalogCandidateCount: number;
+  selectedCatalogItemIds: readonly string[];
+  selectedCatalogItemCount: number;
+  selectedCatalogItemDigest: string;
+  commerceStateIdentity: string;
+  commerceBindingIdentity: string;
+  representativeCatalogReplay: RepresentativeCatalogReplayBinding | null;
   marketplaceReconciledCatalogItemCount: number;
   inventoryReconciledCatalogItemCount: number;
   representativeInventoryStockCount: number;
@@ -178,6 +187,12 @@ export type RepresentativeCommerceStateEvidence = Readonly<{
   chromeUatSelector: ChromeUatRepresentativePersonaSelection;
   pendingPaymentSaleSelector: PendingPaymentSaleRepresentativeSelection;
   contexts: readonly string[];
+}>;
+
+export type RepresentativeCatalogReplayBinding = Readonly<{
+  replayRunIdentity: string;
+  packSetIdentity: string;
+  replayStateIdentity: string;
 }>;
 
 const chromeUatPersonaCandidates: readonly ChromeUatPersonaCandidate[] = [
@@ -381,9 +396,14 @@ export async function runRepresentativeCommerceState(
       requiredProductContentsCandidates,
       sourceCandidates,
     );
+    const catalogItemLimit = readCandidateLimit();
+    const requiredCatalogItemIds = new Set<string>(representativeProductContentsScenario.requiredCatalogItemIds);
+    const priorityCatalogCandidateCount = plannedCandidates.filter((candidate) =>
+      requiredCatalogItemIds.has(candidate.catalogItemId),
+    ).length;
     const candidates = await runStep("select representative Catalog Item set", async () =>
       selectRepresentativeCatalogUsageCandidates(plannedCandidates, {
-        limit: readCandidateLimit(),
+        limit: catalogItemLimit,
         priorityCatalogItemIds: representativeProductContentsScenario.requiredCatalogItemIds,
       }),
     );
@@ -474,14 +494,17 @@ export async function runRepresentativeCommerceState(
       }),
     );
 
-    const evidence: RepresentativeCommerceStateEvidence = {
-      schemaVersion: REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION,
-      type: "representative-commerce-state.complete",
-      checkedAt: new Date().toISOString(),
+    const selectedCatalogItems = buildRepresentativeCommerceCatalogSelection(
+      candidates.map((candidate) => candidate.catalogItemId),
+    );
+    const commerceState = {
       environmentName: execution.deploymentEnvironment,
       dataProfiles: representativeCommerceStateDataProfiles,
+      catalogItemLimit,
       sourceCatalogCandidateCount: sourceCandidates.length,
-      untouchedCatalogCandidateCount: candidates.length,
+      plannedCatalogCandidateCount: plannedCandidates.length,
+      priorityCatalogCandidateCount,
+      ...selectedCatalogItems,
       marketplaceReconciledCatalogItemCount: marketplaceReconciledCount,
       inventoryReconciledCatalogItemCount: inventoryReconciledCount,
       representativeInventoryStockCount: inventoryStock.length,
@@ -499,6 +522,31 @@ export async function runRepresentativeCommerceState(
       chromeUatSelector,
       pendingPaymentSaleSelector,
       contexts: runtime.mountedContexts.map((context) => context.contextName),
+    } satisfies Omit<
+      RepresentativeCommerceStateEvidence,
+      | "schemaVersion"
+      | "type"
+      | "checkedAt"
+      | "commerceStateIdentity"
+      | "commerceBindingIdentity"
+      | "representativeCatalogReplay"
+    >;
+    const commerceStateIdentity = representativeCommerceContentIdentity(commerceState);
+    const representativeCatalogReplay = await readRepresentativeCatalogReplayBinding(
+      process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT,
+    );
+    const commerceBindingIdentity = representativeCommerceContentIdentity({
+      commerceStateIdentity,
+      representativeCatalogReplay,
+    });
+    const evidence: RepresentativeCommerceStateEvidence = {
+      schemaVersion: REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION,
+      type: "representative-commerce-state.complete",
+      checkedAt: new Date().toISOString(),
+      ...commerceState,
+      commerceStateIdentity,
+      commerceBindingIdentity,
+      representativeCatalogReplay,
     };
 
     console.log(JSON.stringify(evidence));
@@ -522,6 +570,79 @@ export async function runRepresentativeCommerceState(
       await closePlatformApiPools(pools);
     }
   }
+}
+
+export function buildRepresentativeCommerceCatalogSelection(catalogItemIds: readonly string[]): Readonly<{
+  selectedCatalogItemIds: readonly string[];
+  selectedCatalogItemCount: number;
+  selectedCatalogItemDigest: string;
+}> {
+  const selectedCatalogItemIds = [...new Set(catalogItemIds)].sort(compareCanonicalText);
+  return {
+    selectedCatalogItemIds,
+    selectedCatalogItemCount: selectedCatalogItemIds.length,
+    selectedCatalogItemDigest: representativeCommerceContentIdentity(selectedCatalogItemIds),
+  };
+}
+
+export function buildRepresentativeCatalogReplayBinding(value: unknown): RepresentativeCatalogReplayBinding {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !("schemaVersion" in value) ||
+    value.schemaVersion !== "representative-catalog-replay.receipt/v1" ||
+    !("type" in value) ||
+    value.type !== "representative-catalog-replay.complete"
+  ) {
+    throw new Error("Representative Catalog replay receipt is invalid.");
+  }
+  const replayRunIdentity = readSha256Identity(value, "replayRunIdentity");
+  const packSetIdentity = readSha256Identity(value, "packSetIdentity");
+  const replayStateIdentity = readSha256Identity(value, "replayStateIdentity");
+  return { replayRunIdentity, packSetIdentity, replayStateIdentity };
+}
+
+async function readRepresentativeCatalogReplayBinding(
+  receiptPath: string | null | undefined,
+): Promise<RepresentativeCatalogReplayBinding | null> {
+  const normalizedReceiptPath = receiptPath?.trim();
+  if (!normalizedReceiptPath) {
+    return null;
+  }
+  return buildRepresentativeCatalogReplayBinding(JSON.parse(await readFile(normalizedReceiptPath, "utf8")));
+}
+
+function readSha256Identity(value: object, field: string): string {
+  const identity = Reflect.get(value, field);
+  if (typeof identity !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(identity)) {
+    throw new Error(`Representative Catalog replay ${field} is invalid.`);
+  }
+  return identity;
+}
+
+function representativeCommerceContentIdentity(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(sortRepresentativeIdentityValue(value)))
+    .digest("hex")}`;
+}
+
+function sortRepresentativeIdentityValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortRepresentativeIdentityValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => compareCanonicalText(left, right))
+        .map(([key, entry]) => [key, sortRepresentativeIdentityValue(entry)]),
+    );
+  }
+  return value;
+}
+
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export async function writeRepresentativeCommerceStateEvidence(

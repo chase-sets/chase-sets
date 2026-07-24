@@ -91,7 +91,7 @@ The representative usage layer should reconcile:
 
 After the command runs:
 
-1. Confirm the command reports `sourceCatalogCandidateCount`, `untouchedCatalogCandidateCount`, and non-zero Marketplace/Inventory reconciliation counts.
+1. Confirm the v2 completion reports `catalogItemLimit`, source/planned/priority candidate counts, an exact non-empty `selectedCatalogItemIds` set with matching `selectedCatalogItemCount` and `selectedCatalogItemDigest`, and non-zero Marketplace/Inventory reconciliation counts. `representativeCatalogReplay` is `null` for the staging workflow; the local replay proof is the only workflow that binds a replay receipt.
 2. Confirm marketplace search and at least one product detail page show listings and offers created from current Catalog Items.
 3. Confirm at least one purchasing account has purchases, payments, shipments, reviews, notifications, and support requests.
 4. Confirm at least one selling account has listings, offer matches, sales, shipments, wallet activity, payouts, reviews, and support requests.

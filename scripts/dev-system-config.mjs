@@ -20,6 +20,12 @@ const representativeSandboxEnvironmentNames = Object.freeze([
   "CHASE_SETS_SANDBOX_ID",
 ]);
 
+const platformBootstrapSelectorNames = Object.freeze([
+  "PLATFORM_DATA_PROFILES",
+  "REPRESENTATIVE_CATALOG_PACK_SOURCE",
+  "REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT",
+]);
+
 function isSpaceCredentialName(name) {
   return name.startsWith("RELEASE_EVIDENCE_SPACES_") || name.startsWith("SEED_PACKS_SPACES_");
 }
@@ -75,6 +81,16 @@ export function buildPlatformChildEnvironment(baseEnvironment, explicitEnvironme
     explicit[name] = value;
   }
   return { ...base, ...explicit };
+}
+
+export function applyCurrentPlatformBootstrapSelectors(explicitEnvironment, currentEnvironment) {
+  const result = { ...explicitEnvironment };
+  for (const name of platformBootstrapSelectorNames) {
+    if (currentEnvironment[name] !== undefined) {
+      result[name] = currentEnvironment[name];
+    }
+  }
+  return result;
 }
 
 export function buildRepresentativeSnapshotCommandEnvironment(baseEnvironment, sandboxEnvironment) {

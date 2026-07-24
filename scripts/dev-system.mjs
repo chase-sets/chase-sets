@@ -9,6 +9,7 @@ import pg from "pg";
 import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } from "./browser-e2e-evidence.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
+  applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
   browserE2eProductionTarget,
@@ -499,7 +500,11 @@ async function runBootstrap(targetName = "all") {
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
     await runCommand(invocation.command, invocation.args, {
-      env: buildPlatformChildEnvironment(process.env, processDefinition?.env ?? {}, { minimalBase: true }),
+      env: buildPlatformChildEnvironment(
+        process.env,
+        applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
+        { minimalBase: true },
+      ),
       inheritEnv: false,
       prefix: workspace.replace("@chase-sets/", ""),
     });

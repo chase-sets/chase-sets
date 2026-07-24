@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { createProjectionAwarePool, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -34,7 +36,10 @@ import { seedProductContentConfiguration, seedProductContentScenario } from "../
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
 import { seedPromotedSourceObservationScenario } from "../../features/source-observations/api/seed";
-import { replayRepresentativeCatalogPacks } from "../../features/source-observations/api/representative-catalog-replay";
+import {
+  buildRepresentativeCatalogReplayReceipt,
+  replayRepresentativeCatalogPacks,
+} from "../../features/source-observations/api/representative-catalog-replay";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CatalogItemId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
@@ -81,14 +86,28 @@ export async function seedCatalogDatabase(
           event: "representative-catalog-pack-replayed",
           packId: summary.packId,
           packVersion: summary.packVersion,
+          manifestKey: summary.manifestKey,
+          captureContentHash: summary.captureContentHash,
           providerKey: summary.providerKey,
           envelopeCount: summary.envelopeCount,
           observationCount: summary.observationCount,
           catalogItemCount: summary.catalogItemCount,
           assetSetCount: summary.assetSetCount,
           appendedEventCount: summary.appendedEventCount,
+          appendedAssetSetCount: summary.appendedAssetSetCount,
           externalReferenceDigest: summary.externalReferenceDigest,
         }),
+      );
+    }
+    const replayEvidenceOut = process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT?.trim();
+    if (replayEvidenceOut) {
+      await writeRepresentativeCatalogReplayReceipt(
+        replayEvidenceOut,
+        buildRepresentativeCatalogReplayReceipt(
+          summaries,
+          new Date().toISOString(),
+          representativeCatalogReplaySandboxBinding(process.env),
+        ),
       );
     }
   }
@@ -108,6 +127,42 @@ export async function seedCatalogDatabase(
   }
 
   console.log("\nCatalog seed reconciliation complete!");
+}
+
+async function writeRepresentativeCatalogReplayReceipt(
+  outPath: string | null | undefined,
+  receipt: ReturnType<typeof buildRepresentativeCatalogReplayReceipt>,
+): Promise<void> {
+  const normalizedOutPath = outPath?.trim();
+  if (!normalizedOutPath) {
+    return;
+  }
+  await mkdir(dirname(normalizedOutPath), { recursive: true });
+  await writeFile(normalizedOutPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+}
+
+function representativeCatalogReplaySandboxBinding(env: NodeJS.ProcessEnv): Readonly<{
+  sandboxId: string;
+  postgresPort: number;
+  catalogDatabaseName: string;
+}> {
+  const sandboxId = env.CHASE_SETS_SANDBOX_ID?.trim();
+  const databaseUrl = env.DATABASE_URL_CATALOG?.trim();
+  if (!sandboxId || !databaseUrl) {
+    throw new Error("Representative Catalog replay evidence requires the current sandbox identity.");
+  }
+  const parsed = new URL(databaseUrl);
+  const postgresPort = Number(parsed.port || "5432");
+  const catalogDatabaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ""));
+  if (
+    parsed.protocol !== "postgresql:" ||
+    !Number.isSafeInteger(postgresPort) ||
+    postgresPort <= 0 ||
+    !catalogDatabaseName
+  ) {
+    throw new Error("Representative Catalog replay evidence requires a canonical Catalog database target.");
+  }
+  return { sandboxId, postgresPort, catalogDatabaseName };
 }
 
 async function seedCatalogIntegrationProfile(
