@@ -52,10 +52,10 @@ describe("public policy registry", () => {
   });
 
   it("keeps every counsel-pending artifact explicitly non-operative and non-activatable", () => {
-    // seller-agreement (#5687) is the first document slice to land drafted
-    // content; every other artifact remains an undrafted stub until its own
-    // slice lands, so this is a per-artifact check rather than a blanket one.
-    const draftedPolicyKeys = new Set(["seller-agreement"]);
+    // Seller Agreement (#5687) and Terms of Service (#5686) are drafted ahead
+    // of counsel review; all other artifacts remain empty stubs until their
+    // own slice lands. Draft text alone never makes a document operative.
+    const draftedPolicyKeys = new Set(["seller-agreement", "terms-of-service"]);
     for (const entry of publicPolicyRegistry) {
       expect(entry.artifact.metadata.publicationStatus).toBe("counsel-review-required");
       expect(entry.artifact.metadata.effectiveAt).toBeNull();

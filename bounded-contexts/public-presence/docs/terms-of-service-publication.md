@@ -6,7 +6,7 @@ The Terms of Service is one tenant of the public policy registry (`features/poli
 
 ## Current posture
 
-The checked-in `v1` artifact is intentionally marked `counsel-review-required`. Its required subject taxonomy, stable link, locale, consent key, and version are implemented; its effective timestamp, counsel approval reference, reviewed rollout jurisdictions or product limits, and operative legal wording are intentionally unset. The visible page labels every subject as requiring counsel-approved language and does not represent the placeholder as effective terms.
+The checked-in `v1` artifact is intentionally marked `counsel-review-required`. Its required subject taxonomy, stable link, locale, consent key, version, and original counsel-ready draft wording for every subject (10 wallet subjects plus the full marketplace taxonomy, #5686) are implemented; its effective timestamp, counsel approval reference, and reviewed rollout jurisdictions or product limits are intentionally unset, and every subject remains `counsel-required` rather than `counsel-approved`. The visible page labels every subject as requiring counsel-approved language and does not represent the draft as effective terms.
 
 Qualified counsel must review the actual launch jurisdictions and wallet purchase/payout capabilities, including prepaid access, money transmission, stored value, unclaimed property, consumer notice and error resolution, and state-specific cash-refund implications. Store the resulting non-privileged approval reference in the artifact metadata; do not commit privileged advice.
 
