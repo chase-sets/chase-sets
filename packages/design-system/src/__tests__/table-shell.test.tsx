@@ -75,6 +75,26 @@ describe("TableShell scaffolding", () => {
   });
 });
 
+describe("Table density", () => {
+  it("defaults to comfortable padding and tightens under compact", () => {
+    const { rerender } = render(<Table columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} />);
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-4 py-3");
+
+    rerender(<Table columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} density="compact" />);
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-3 py-2");
+    expect(screen.getByText("Ada").className).toContain("px-3 py-2");
+  });
+
+  it("inherits density from the surrounding ChaseRoot when no prop is set", () => {
+    render(
+      <ChaseRoot density="compact">
+        <Table columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} />
+      </ChaseRoot>,
+    );
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-3 py-2");
+  });
+});
+
 describe("DataTable density", () => {
   it("defaults to comfortable padding and tightens under compact", () => {
     const { rerender } = render(<DataTable rows={baseRows} columns={baseColumns} density="comfortable" />);

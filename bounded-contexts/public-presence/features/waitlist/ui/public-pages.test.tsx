@@ -740,4 +740,56 @@ describe("public waitlist form migration smoke", () => {
     expect(heroSegmentedControl).not.toBeNull();
     expect(heroSegmentedControl?.className).not.toContain("text-base");
   });
+
+  it("#5620: sizes footer/inline links for coarse-pointer touch targets and fits the fee table at 375w", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    // Footer and inline landing links wrap their label in the coarse-pointer
+    // touch-target helper so mobile hit areas grow to >=44px without changing
+    // the visible mouse/trackpad presentation.
+    // LinkText itself wraps children in its own <span>, so the touch-target
+    // helper's span is the nested one, not the immediate child.
+    const footerLinks = Array.from(container.querySelectorAll("footer a"));
+    expect(footerLinks.length).toBeGreaterThan(0);
+    for (const link of footerLinks) {
+      const label = link.querySelector("span span");
+      expect(label?.className).toContain("[@media(pointer:coarse)]:min-h-11");
+      expect(label?.className).toContain("[@media(pointer:coarse)]:min-w-11");
+    }
+
+    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
+    const protectionLinks = Array.from(previewSection?.querySelectorAll('a[href="/order-protection"]') ?? []);
+    const inlineProtectionLink = protectionLinks.find(
+      (link) => link.textContent === t("publicPresence.preview.total.protectionLink"),
+    );
+    if (!inlineProtectionLink) {
+      throw new Error("Expected the inline LinkText order-protection link to render in the product preview section.");
+    }
+    expect(inlineProtectionLink.querySelector("span span")?.className).toContain(
+      "[@media(pointer:coarse)]:min-h-11",
+    );
+
+    // The fee-comparison Table renders at compact density, and its metric
+    // column labels wrap within a narrow, hyphenatable span so the table
+    // fits a 375px viewport without the compact density change alone
+    // (~8px/column savings) closing the ~30px overflow on its own.
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    const headCell = feeComparisonSection?.querySelector("th");
+    const bodyCell = feeComparisonSection?.querySelector("td");
+    expect(headCell?.className).toContain("px-3 py-2");
+    expect(bodyCell?.className).toContain("px-3 py-2");
+
+    const metricLabel = headCell?.querySelector("span");
+    expect(metricLabel?.className).toContain("max-w-[2.75rem]");
+    expect(metricLabel?.className).toContain("hyphens-auto");
+    expect(metricLabel?.textContent).toBe(t("publicPresence.home.sellerEconomics.comparison.column.metric"));
+  });
 });

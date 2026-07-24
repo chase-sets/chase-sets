@@ -234,6 +234,30 @@ function resolveInitialHeroIntent(source: WaitlistPageSource): WaitlistIntent {
   return resolveHeroIntent(resolveLandingIntent({ ...source, intent: pageUrl.searchParams.get("intent") }));
 }
 
+// LinkText renders a bare, unpadded anchor (23-24px tall) that falls short of
+// the 44px touch-target guideline on coarse pointers. Wrapping its label in a
+// padded inline-flex span grows the anchor's own box (inline-flex sizes to its
+// tallest child) without a DS-wide LinkText change or any visible difference
+// for mouse/trackpad pointers.
+function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center justify-center [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:px-2 [@media(pointer:coarse)]:py-2">
+      {children}
+    </span>
+  );
+}
+
+// The fee-comparison Table's metric column ("Marketplace fee", "Per-order and
+// payment fee", ...) contains an 11-character unbreakable word ("Marketplace")
+// that alone exceeds the column's fair share of a 375px viewport, forcing
+// the table wrapper's in-container horizontal scroll even at compact density.
+// Constraining the label to a narrow column and allowing mid-word breaks lets
+// it wrap onto two lines instead, per the #5620 fee-table fit fallback ruling
+// (wrap the metric labels before any font-size reduction).
+function FeeTableMetricLabel({ children }: { children: ReactNode }) {
+  return <span className="block max-w-[2.75rem] hyphens-auto break-words" lang="en">{children}</span>;
+}
+
 const policyLinks = [
   { href: "/help", label: t("publicPresence.nav.help") },
   { href: "/terms", label: t("publicPresence.nav.terms") },
@@ -421,10 +445,12 @@ export function PublicPresencePageShell({
                   <Inline gap={3}>
                     {policyLinks.map((link) => (
                       <LinkText key={link.href} href={link.href}>
-                        {link.label}
+                        <CoarsePointerLinkLabel>{link.label}</CoarsePointerLinkLabel>
                       </LinkText>
                     ))}
-                    <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
+                    <LinkText href="/contact">
+                      <CoarsePointerLinkLabel>{t("publicPresence.nav.contact")}</CoarsePointerLinkLabel>
+                    </LinkText>
                   </Inline>
                   <Text size="sm" tone="secondary">
                     {t("publicPresence.footer.description")}
@@ -888,28 +914,33 @@ function FeeComparisonSection() {
     >
       <Stack gap={3}>
         <Table
+          density="compact"
           caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
           columns={[
-            t("publicPresence.home.sellerEconomics.comparison.column.metric"),
+            <FeeTableMetricLabel>{t("publicPresence.home.sellerEconomics.comparison.column.metric")}</FeeTableMetricLabel>,
             t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
             t("publicPresence.home.sellerEconomics.comparison.column.tcgplayer"),
             t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
           ]}
           rows={[
             [
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label"),
+              <FeeTableMetricLabel>
+                {t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label")}
+              </FeeTableMetricLabel>,
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.tcgplayer"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.ebay"),
             ],
             [
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label"),
+              <FeeTableMetricLabel>
+                {t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label")}
+              </FeeTableMetricLabel>,
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.tcgplayer"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.ebay"),
             ],
             [
-              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
+              <FeeTableMetricLabel>{t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label")}</FeeTableMetricLabel>,
               <Badge tone="success" variant="solid">
                 {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets")}
               </Badge>,
@@ -1171,7 +1202,9 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
           />
           <Text size="sm" tone="tertiary">
             {t("publicPresence.preview.total.protectionCaption")}{" "}
-            <LinkText href="/order-protection">{t("publicPresence.preview.total.protectionLink")}</LinkText>
+            <LinkText href="/order-protection">
+              <CoarsePointerLinkLabel>{t("publicPresence.preview.total.protectionLink")}</CoarsePointerLinkLabel>
+            </LinkText>
           </Text>
           <Surface tone="subtle">
             <Stack gap={4}>

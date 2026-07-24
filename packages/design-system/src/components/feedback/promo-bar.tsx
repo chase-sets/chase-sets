@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
 import { IconButton, LinkButton } from "../actions/button";
 import { Icon } from "../../icons";
-import { FlexItem, IconRow, Inline, Stack } from "../../primitives/layout";
+import { IconRow, Inline, Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 import { type Tone, toneIcon, toneToIconTone } from "./shared";
@@ -107,48 +107,47 @@ export function PromoBar({
       aria-label={ariaLabel}
       className={cx("rounded-tokenMd border px-3 py-2 md:px-4", toneClasses[tone])}
     >
-      <Stack
-        direction={{ base: "column", md: "row" }}
-        align={{ base: "stretch", md: "center" }}
-        justify={{ base: "start", md: "between" }}
-        gap={3}
-      >
-        <FlexItem grow>
-          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="start" gap={3}>
+      <Stack direction="row" align="center" justify="between" gap={3}>
+        <div className="min-w-0 max-w-full flex-1">
+          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>
             <Stack gap={1} minWidth="0">
-              <Text size="sm" weight="semibold" tone="inherit">
+              <Text size="sm" weight="semibold" tone="inherit" truncate>
                 {activeMessage.title}
               </Text>
               {activeMessage.description ? (
-                <Text size="sm" tone="secondary">
-                  {activeMessage.description}
-                </Text>
+                <span className="hidden md:block">
+                  <Text size="sm" tone="secondary" truncate>
+                    {activeMessage.description}
+                  </Text>
+                </span>
               ) : null}
             </Stack>
           </IconRow>
-        </FlexItem>
-        <Inline gap={2} align="center">
+        </div>
+        <Inline gap={2} align="center" wrap={false}>
           {activeMessage.href && activeMessage.linkLabel ? (
             <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
               {activeMessage.linkLabel}
             </LinkButton>
           ) : null}
           {hasMultipleMessages ? (
-            <Inline gap={1} align="center" wrap={false}>
-              <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
-              <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
-                {activeIndex + 1}/{visibleMessages.length}
-              </span>
-              <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
-              {reducedMotion ? null : (
-                <IconButton
-                  label={paused ? resumeLabel : pauseLabel}
-                  icon={paused ? "play" : "pause"}
-                  size="sm"
-                  onClick={() => setPaused((current) => !current)}
-                />
-              )}
-            </Inline>
+            <span className={cx("shrink-0", reducedMotion ? "" : "hidden md:inline-block")}>
+              <Inline gap={1} align="center" wrap={false}>
+                <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
+                <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
+                  {activeIndex + 1}/{visibleMessages.length}
+                </span>
+                <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
+                {reducedMotion ? null : (
+                  <IconButton
+                    label={paused ? resumeLabel : pauseLabel}
+                    icon={paused ? "play" : "pause"}
+                    size="sm"
+                    onClick={() => setPaused((current) => !current)}
+                  />
+                )}
+              </Inline>
+            </span>
           ) : null}
         </Inline>
       </Stack>
