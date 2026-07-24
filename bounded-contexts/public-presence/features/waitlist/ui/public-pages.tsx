@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   Form,
   Banner,
@@ -38,6 +47,7 @@ import {
   Text,
   TextInput,
   ToneIcon,
+  useMediaQuery,
   type PromoBarMessage,
 } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
@@ -238,13 +248,25 @@ function resolveInitialHeroIntent(source: WaitlistPageSource): WaitlistIntent {
 // the 44px touch-target guideline on coarse pointers. Wrapping its label in a
 // padded inline-flex span grows the anchor's own box (inline-flex sizes to its
 // tallest child) without a DS-wide LinkText change or any visible difference
-// for mouse/trackpad pointers.
+// for mouse/trackpad pointers. Sized via inline style gated on the DS
+// useMediaQuery hook rather than a CSS media-query class, since design-system
+// governance (routeLocalClassName) disallows raw Tailwind classes on host
+// elements in bounded-context UI outside the design-system package.
+const coarsePointerTouchTargetStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 44,
+  minWidth: 44,
+  paddingLeft: 8,
+  paddingRight: 8,
+  paddingTop: 8,
+  paddingBottom: 8,
+};
+
 function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center justify-center [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:px-2 [@media(pointer:coarse)]:py-2">
-      {children}
-    </span>
-  );
+  const hasCoarsePointer = useMediaQuery("(pointer: coarse)");
+  return <span style={hasCoarsePointer ? coarsePointerTouchTargetStyle : undefined}>{children}</span>;
 }
 
 // The fee-comparison Table's metric column ("Marketplace fee", "Per-order and
@@ -253,10 +275,18 @@ function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
 // the table wrapper's in-container horizontal scroll even at compact density.
 // Constraining the label to a narrow column and allowing mid-word breaks lets
 // it wrap onto two lines instead, per the #5620 fee-table fit fallback ruling
-// (wrap the metric labels before any font-size reduction).
+// (wrap the metric labels before any font-size reduction). Inline style for
+// the same routeLocalClassName reason as CoarsePointerLinkLabel above.
+const feeTableMetricLabelStyle: CSSProperties = {
+  display: "block",
+  maxWidth: "2.75rem",
+  hyphens: "auto",
+  overflowWrap: "break-word",
+};
+
 function FeeTableMetricLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block max-w-[2.75rem] hyphens-auto break-words" lang="en">
+    <span style={feeTableMetricLabelStyle} lang="en">
       {children}
     </span>
   );

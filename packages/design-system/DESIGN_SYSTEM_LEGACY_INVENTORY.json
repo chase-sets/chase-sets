@@ -4,13 +4,37 @@
   "generatedBy": "pnpm run ops design-system:legacy-inventory --write-ledger",
   "description": "Design-system legacy pattern inventory for milestone #12. Entries are file/category level and must map to a milestone issue with no permanent exceptions.",
   "summary": {
-    "fileCount": 0,
+    "fileCount": 1,
     "gatingFileCount": 0,
-    "warningFileCount": 0,
-    "categories": {},
-    "severity": { "error": 0, "warning": 0 },
-    "owners": {},
-    "issues": {}
+    "warningFileCount": 1,
+    "categories": { "inlineStyle": 2, "rawStructuralElement": 2 },
+    "severity": { "error": 0, "warning": 4 },
+    "owners": { "Public Presence": 1 },
+    "issues": { "#1666": 1 }
   },
-  "entries": []
+  "entries": [
+    {
+      "file": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+      "owner": "Public Presence",
+      "categories": { "inlineStyle": 2, "rawStructuralElement": 2 },
+      "details": [
+        { "category": "inlineStyle", "line": 269, "column": 11, "detail": "span" },
+        { "category": "rawStructuralElement", "line": 269, "column": 11, "detail": "span" },
+        { "category": "inlineStyle", "line": 289, "column": 6, "detail": "span" },
+        { "category": "rawStructuralElement", "line": 289, "column": 6, "detail": "span" }
+      ],
+      "phase": "Phase G3",
+      "issueTargets": ["#1666"],
+      "outcome": "migrate-or-promote-to-design-system",
+      "prerequisites": ["#1665"],
+      "closureEvidence": [
+        "documented exception allow-list",
+        "inline style inventory",
+        "structural element inventory",
+        "warning-tier guardrail"
+      ],
+      "status": "open",
+      "ownerStatus": "unassigned until scheduled by #960"
+    }
+  ]
 }

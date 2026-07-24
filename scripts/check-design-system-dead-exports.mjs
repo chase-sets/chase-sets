@@ -140,7 +140,6 @@ const canonicalReserveZeroConsumerExports = [
   "useDensity",
   "useFormContext",
   "useFormState",
-  "useMediaQuery",
   "usePortalRoots",
   "useReducedMotion",
   "useToast",

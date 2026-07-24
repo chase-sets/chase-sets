@@ -346,7 +346,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `useDensity` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Density. | `No production consumer yet.` |
 | `useFormContext` | `packages/design-system/src/components/forms/form.tsx` | Purpose not documented; symbol name suggests: use Form Context. | `No production consumer yet.` |
 | `useFormState` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: use Form State. | `No production consumer yet.` |
-| `useMediaQuery` | `packages/design-system/src/hooks/use-media-query.ts` | Purpose not documented; symbol name suggests: use Media Query. | `No production consumer yet.` |
+| `useMediaQuery` | `packages/design-system/src/hooks/use-media-query.ts` | Purpose not documented; symbol name suggests: use Media Query. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `usePortalRoots` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Portal Roots. | `No production consumer yet.` |
 | `useReducedMotion` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Reduced Motion. | `No production consumer yet.` |
 | `useToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: use Toast. | `No production consumer yet.` |

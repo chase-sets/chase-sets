@@ -25,11 +25,17 @@
     }
   ],
   "summary": {
-    "governedFileCount": 284,
-    "budgetedFileCount": 1,
+    "governedFileCount": 286,
+    "budgetedFileCount": 2,
     "allowListEntryCount": 2,
     "totalRawClassNameCount": 0,
-    "totalRawElementCount": 1
+    "totalRawElementCount": 3
   },
-  "budgets": { "deployables/admin-web/app/root.tsx": { "rawClassNameCount": 0, "rawElementCount": 1 } }
+  "budgets": {
+    "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx": {
+      "rawClassNameCount": 0,
+      "rawElementCount": 2
+    },
+    "deployables/admin-web/app/root.tsx": { "rawClassNameCount": 0, "rawElementCount": 1 }
+  }
 }
