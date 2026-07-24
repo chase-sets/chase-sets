@@ -90,9 +90,10 @@ describe("payments terms artifact", () => {
     const surfaces = collectRenderedSurfaces(paymentsTermsPolicyArtifact);
 
     for (const surface of surfaces) {
-      expect(numericSlaPattern.test(surface.value), `${surface.path} must not invent a numeric SLA: "${surface.value}"`).toBe(
-        false,
-      );
+      expect(
+        numericSlaPattern.test(surface.value),
+        `${surface.path} must not invent a numeric SLA: "${surface.value}"`,
+      ).toBe(false);
     }
   });
 
