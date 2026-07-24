@@ -962,27 +962,39 @@ export async function acceptRepresentativeOffers(
     stock,
     offerId: createRepresentativeOfferId(stock, representativeBuyerAccountId(index)),
   }));
-  const offerStatusById = await getOfferStatuses(
+  const offerStatusById = await getPlannedAndRetainedAcceptedOfferStatuses(
     services.db,
     plannedOffers.map((planned) => planned.offerId),
   );
+  const plannedOfferIds = new Set(plannedOffers.map((planned) => planned.offerId));
+  const retainedAcceptedOfferIds = [...offerStatusById.entries()]
+    .filter(([, status]) => status === "accepted")
+    .map(([offerId]) => offerId);
+  const outOfCohortAcceptedOfferIds = retainedAcceptedOfferIds.filter((offerId) => !plannedOfferIds.has(offerId));
+  const retainedStateViolations: string[] = [];
+  if (retainedAcceptedOfferIds.length > maxAcceptedOffers) {
+    retainedStateViolations.push(
+      `${retainedAcceptedOfferIds.length} accepted offers exceed the retained limit of ${maxAcceptedOffers}`,
+    );
+  }
+  if (outOfCohortAcceptedOfferIds.length > 0) {
+    retainedStateViolations.push(
+      `accepted offer ids are outside the current planned cohort: ${outOfCohortAcceptedOfferIds.join(", ")}`,
+    );
+  }
+  if (retainedStateViolations.length > 0) {
+    throw new Error(`Invalid retained representative accepted-offer state: ${retainedStateViolations.join("; ")}.`);
+  }
+
   // Offers accepted by earlier runs count against the limit, so a repeat run
   // over retained representative state recognizes them instead of accepting
   // additional offers on top.
-  const retainedAcceptedCount = plannedOffers.filter(
-    (planned) => offerStatusById.get(planned.offerId) === "accepted",
-  ).length;
+  const retainedAcceptedCount = retainedAcceptedOfferIds.length;
   let newlyAcceptedCount = 0;
-  let observedAcceptedCount = 0;
 
   for (const { stock, offerId } of plannedOffers) {
-    if (observedAcceptedCount >= maxAcceptedOffers) {
-      break;
-    }
-
     const existing = offerStatusById.get(offerId) ?? null;
     if (existing === "accepted") {
-      observedAcceptedCount += 1;
       results.push({
         catalogItemId: stock.catalogItemId,
         sellerAccountId: stock.accountId,
@@ -1030,7 +1042,6 @@ export async function acceptRepresentativeOffers(
         representativeSeedContext,
       );
       newlyAcceptedCount += 1;
-      observedAcceptedCount += 1;
       results.push({
         catalogItemId: stock.catalogItemId,
         sellerAccountId: stock.accountId,
@@ -1508,19 +1519,19 @@ async function getOfferStatus(db: RepresentativeQueryable, offerId: string): Pro
   return result.rows[0]?.status ?? null;
 }
 
-async function getOfferStatuses(
+async function getPlannedAndRetainedAcceptedOfferStatuses(
   db: RepresentativeQueryable,
   offerIds: readonly string[],
 ): Promise<ReadonlyMap<string, string>> {
   const uniqueOfferIds = uniqueTextValues(offerIds);
-  if (uniqueOfferIds.length === 0) {
-    return new Map();
-  }
-
   const result = await db.query<{ offer_id: string; status: string }>(
     `SELECT offer_id, status
      FROM marketplace_offer_pages
-     WHERE offer_id = ANY($1::text[])`,
+     WHERE offer_id = ANY($1::text[])
+        OR (
+          offer_id LIKE 'off$_repr$_%' ESCAPE '$'
+          AND status = 'accepted'
+        )`,
     [uniqueOfferIds],
   );
 

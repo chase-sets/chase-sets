@@ -559,6 +559,14 @@ describe("representative offer acceptance retained-state idempotency", () => {
     expect(results).toEqual([
       expect.objectContaining({ status: "already-accepted" }),
       expect.objectContaining({ status: "already-accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
     ]);
     expect(
       results.filter((result) => result.status === "accepted" || result.status === "already-accepted"),
@@ -575,6 +583,10 @@ describe("representative offer acceptance retained-state idempotency", () => {
     expect(results).toEqual([
       expect.objectContaining({ status: "already-accepted" }),
       expect.objectContaining({ status: "accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
     ]);
   });
 
@@ -595,6 +607,26 @@ describe("representative offer acceptance retained-state idempotency", () => {
     ]);
   });
 
+  it("rejects three retained accepted offers within the planned cohort", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["accepted", "accepted", "accepted"], accepted);
+
+    await expect(acceptRepresentativeOffers(services as never, representativeStockItems(3))).rejects.toThrow(
+      "Invalid retained representative accepted-offer state: 3 accepted offers exceed the retained limit of 2.",
+    );
+    expect(accepted).toEqual([]);
+  });
+
+  it("rejects a retained accepted representative offer outside the current planned cohort", async () => {
+    const accepted: unknown[] = [];
+    const services = acceptanceServices(["submitted", "submitted"], accepted, ["off_repr_prior_untouched_cohort"]);
+
+    await expect(acceptRepresentativeOffers(services as never, representativeStockItems(2))).rejects.toThrow(
+      "Invalid retained representative accepted-offer state: accepted offer ids are outside the current planned cohort: off_repr_prior_untouched_cohort.",
+    );
+    expect(accepted).toEqual([]);
+  });
+
   it("keeps first-run acceptance bounded to the accepted-offer limit", async () => {
     const accepted: unknown[] = [];
     const services = acceptanceServices(["submitted", "submitted", "submitted", "submitted"], accepted);
@@ -605,6 +637,14 @@ describe("representative offer acceptance retained-state idempotency", () => {
     expect(results).toEqual([
       expect.objectContaining({ status: "accepted" }),
       expect.objectContaining({ status: "accepted" }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
+      expect.objectContaining({
+        status: "skipped",
+        reason: "Retained accepted-offer limit is already satisfied.",
+      }),
     ]);
   });
 });
@@ -707,9 +747,13 @@ describe("representative listing publication restart safety", () => {
   });
 });
 
-function acceptanceServices(statusesByIndex: readonly (string | null)[], accepted: unknown[]) {
+function acceptanceServices(
+  statusesByIndex: readonly (string | null)[],
+  accepted: unknown[],
+  retainedAcceptedOfferIds: readonly string[] = [],
+) {
   return {
-    db: offerStatusDb(statusesByIndex),
+    db: offerStatusDb(statusesByIndex, retainedAcceptedOfferIds),
     offers: {
       previewOfferAcceptanceTerms: async () => ({ fee_quote_fingerprint: "fee_1" }),
       acceptOffer: async (params: unknown) => {
@@ -720,16 +764,24 @@ function acceptanceServices(statusesByIndex: readonly (string | null)[], accepte
   };
 }
 
-function offerStatusDb(statusesByIndex: readonly (string | null)[]): RepresentativeQueryable {
+function offerStatusDb(
+  statusesByIndex: readonly (string | null)[],
+  retainedAcceptedOfferIds: readonly string[] = [],
+): RepresentativeQueryable {
   return {
-    query: async <Row>(_sql: string, params?: readonly unknown[]) => {
+    query: async <Row>(sql: string, params?: readonly unknown[]) => {
       const offerIds = Array.isArray(params?.[0]) ? (params[0] as readonly string[]) : [];
 
       return {
-        rows: offerIds.flatMap((offerId, index) => {
-          const status = statusesByIndex[index] ?? null;
-          return status ? [{ offer_id: offerId, status }] : [];
-        }) as Row[],
+        rows: [
+          ...offerIds.flatMap((offerId, index) => {
+            const status = statusesByIndex[index] ?? null;
+            return status ? [{ offer_id: offerId, status }] : [];
+          }),
+          ...(sql.includes("offer_id LIKE 'off$_repr$_%'")
+            ? retainedAcceptedOfferIds.map((offerId) => ({ offer_id: offerId, status: "accepted" }))
+            : []),
+        ] as Row[],
       };
     },
   };
