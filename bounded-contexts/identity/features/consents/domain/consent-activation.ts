@@ -196,7 +196,7 @@ export function parseRegistrationConsentSubmission(value: unknown): Registration
 
 export async function assertConsentAcceptanceIsActivated(
   policies: Pick<PolicyRuntime, "resolvePolicy">,
-  acceptance: ActivatedConsentPolicy,
+  acceptance: Pick<ActivatedConsentPolicy, "policyKey" | "version">,
   publications: ConsentPublicationRegistry = publicPolicyPublicationRecords,
 ): Promise<void> {
   const activated = await resolveActivatedConsentPolicy(policies, acceptance.policyKey, publications);
