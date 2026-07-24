@@ -32,6 +32,7 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validateRegistrationConsentCallerInventory } from "./registration-consent-caller-inventory.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -195,6 +196,8 @@ const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
+const registrationConsentCallerGuard = validateRegistrationConsentCallerInventory({ repoRoot });
+violations.push(...registrationConsentCallerGuard.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [

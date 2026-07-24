@@ -789,7 +789,8 @@
           "bounded-contexts/auth/support/api-support/passkey-routes.test.ts",
           "bounded-contexts/auth/support/api-support/phone-code-routes.test.ts",
           "bounded-contexts/auth/support/api-support/register-routes.test.ts",
-          "bounded-contexts/auth/support/request-support/api-client.test.ts"
+          "bounded-contexts/auth/support/request-support/api-client.test.ts",
+          "bounded-contexts/auth/tests/registration-client.test.ts"
         ]
       }
     },
@@ -826,7 +827,7 @@
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /register",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /revoke",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token",
-        "api-client:bounded-contexts/auth/client.ts:PUT Hbc5f03363dca#1",
+        "api-client:bounded-contexts/auth/client.ts:PUT Hd1f6cabee74c#1",
         "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H901edc92b88e#1",
         "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H995cca9e3e33#1",
         "route-action:bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx"

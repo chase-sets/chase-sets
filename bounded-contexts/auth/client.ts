@@ -33,6 +33,25 @@ export interface AuthApiClientOptions {
   credentials?: RequestCredentials;
 }
 
+export type RegistrationConsentRequirement = Readonly<{
+  policyKey: string;
+  version: string;
+  href: string;
+}>;
+
+export type RegistrationConsentResolution = Readonly<{
+  operationId: string;
+  snapshot: Readonly<{
+    bundleKey: "registration";
+    requirements: readonly RegistrationConsentRequirement[];
+  }>;
+}>;
+
+export type RegistrationConsentSubmission = RegistrationConsentResolution &
+  Readonly<{
+    affirmed: boolean;
+  }>;
+
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
@@ -82,6 +101,57 @@ async function putJson<T>(
   );
 }
 
+function requireRegistrationConsentResolution(value: unknown): RegistrationConsentResolution {
+  if (!value || typeof value !== "object") {
+    throw new Error("Registration consent resolution is invalid.");
+  }
+
+  const resolution = value as {
+    operationId?: unknown;
+    snapshot?: {
+      bundleKey?: unknown;
+      requirements?: unknown;
+    };
+  };
+  if (
+    typeof resolution.operationId !== "string" ||
+    !resolution.operationId ||
+    resolution.snapshot?.bundleKey !== "registration" ||
+    !Array.isArray(resolution.snapshot.requirements)
+  ) {
+    throw new Error("Registration consent resolution is invalid.");
+  }
+
+  const requirements = resolution.snapshot.requirements.map((requirement) => {
+    if (
+      !requirement ||
+      typeof requirement !== "object" ||
+      typeof requirement.policyKey !== "string" ||
+      !requirement.policyKey ||
+      typeof requirement.version !== "string" ||
+      !requirement.version ||
+      typeof requirement.href !== "string" ||
+      !requirement.href
+    ) {
+      throw new Error("Registration consent resolution is invalid.");
+    }
+
+    return {
+      policyKey: requirement.policyKey,
+      version: requirement.version,
+      href: requirement.href,
+    };
+  });
+
+  return {
+    operationId: resolution.operationId,
+    snapshot: {
+      bundleKey: "registration",
+      requirements,
+    },
+  };
+}
+
 export function createAuthApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
@@ -96,7 +166,57 @@ export function createAuthApiClient({
   const headers = resolveHeaders(initialHeaders);
   const buildUrl = (path: string) => new URL(path, `${baseUrl}/`).toString();
 
+  async function resolveRegistrationConsent(): Promise<RegistrationConsentResolution> {
+    return requireRegistrationConsentResolution(
+      await parseJsonResponse<unknown>(
+        await configuredFetch(buildUrl("registration-consent"), {
+          headers,
+        }),
+      ),
+    );
+  }
+
+  async function registerWithConsentSubmission<T>(
+    body: Record<string, unknown>,
+    registrationConsent: RegistrationConsentSubmission,
+  ): Promise<T> {
+    const resolution = requireRegistrationConsentResolution(registrationConsent);
+    const affirmed = registrationConsent.affirmed === true;
+    if (resolution.snapshot.requirements.length > 0 && !affirmed) {
+      throw new Error("Registration consent affirmation is required.");
+    }
+
+    return postJson<T>(
+      configuredFetch,
+      buildUrl("register"),
+      {
+        ...body,
+        registrationConsent: {
+          operationId: resolution.operationId,
+          snapshot: resolution.snapshot,
+          affirmed,
+        },
+      },
+      headers,
+    );
+  }
+
+  async function registerWithAuthoritativeConsent<T>(
+    body: Record<string, unknown>,
+    options: Readonly<{ affirmed: boolean }>,
+  ): Promise<T> {
+    const resolution = await resolveRegistrationConsent();
+    return registerWithConsentSubmission<T>(body, {
+      operationId: resolution.operationId,
+      snapshot: resolution.snapshot,
+      affirmed: options.affirmed,
+    });
+  }
+
   return {
+    resolveRegistrationConsent,
+    registerWithConsentSubmission,
+    registerWithAuthoritativeConsent,
     async register<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("register"), body, headers);
     },
