@@ -62,16 +62,18 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "State that the Wallet is a marketplace ledger rather than a bank deposit, and define the reviewed custody and interest posture.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:23-25",
+          "bounded-contexts/settlement/GLOSSARY.md:5-7",
           "bounded-contexts/settlement/features/wallets/domain/domain.ts",
         ],
         openQuestions: [
           "Regulatory classification (money transmission, stored value, prepaid access) requires qualified counsel review per #5004/#4995 before publication; ADR 0020 is ratified product truth, not a counsel opinion.",
+          "The draft's no-interest, non-deposit, and FDIC-noninsurance representations are not yet supported by any ratified product-truth source: ADR 0020 and the Settlement glossary define the Wallet as a marketplace-ledger balance container but say nothing about interest, deposit-insurer status, or banking-regulatory posture. This remains an explicit open question pending qualified counsel confirmation before publication, not a productTruthRef-backed fact.",
         ],
         assumptions: [
           {
-            assertion: "The Wallet does not pay interest and is not modeled as a deposit account.",
-            evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:23-25",
+            assertion:
+              "The Wallet is defined in Settlement's ratified vocabulary as a marketplace-ledger balance container, not a separately modeled bank deposit product.",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:5-7",
           },
         ],
       },
@@ -119,7 +121,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:41-56",
           },
           {
-            assertion: "Self-approval is never permitted; a second, different authorized operator approves every request.",
+            assertion:
+              "Self-approval is never permitted; a second, different authorized operator approves every request.",
             evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:65-66",
           },
         ],
@@ -139,7 +142,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         openQuestions: [],
         assumptions: [
           {
-            assertion: "Corrections are always a new linked opposite-direction entry, never an edit or deletion of the original.",
+            assertion:
+              "Corrections are always a new linked opposite-direction entry, never an edit or deletion of the original.",
             evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:39",
           },
         ],
@@ -162,7 +166,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         openQuestions: [],
         assumptions: [
           {
-            assertion: "Sale proceeds, shipping allowances, and adjustment credits offset a Negative Balance before normal payout release.",
+            assertion:
+              "Sale proceeds, shipping allowances, and adjustment credits offset a Negative Balance before normal payout release.",
             evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25",
           },
         ],
@@ -311,7 +316,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion:
               "Buyer charges are captured to the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
-            evidenceRef: "infrastructure/stripe-payments/index.ts:1464-1494; infrastructure/stripe-connect/index.ts:1039-1094",
+            evidenceRef:
+              "infrastructure/stripe-payments/index.ts:1464-1494; infrastructure/stripe-connect/index.ts:1039-1094",
           },
         ],
       },
@@ -458,7 +464,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion:
               "Agent authorization uses OAuth 2.0 Authorization Code with PKCE; a human authorizes a specific account and scope set before an agent can call the MCP endpoint.",
-            evidenceRef: "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md",
+            evidenceRef:
+              "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md",
           },
         ],
       },
@@ -557,6 +564,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [],
         openQuestions: [
           "This subject is legal drafting sourced from the ratified #5681 decision, not a claim about shipped product behavior; the arbitration mechanics numbers (claim threshold, notice windows, batch-filing count) are the ratified terms themselves, not operational values a policy document tracks, so the two-tier no-prose-number rule does not apply to them.",
+          "The injunctive-relief carveout for intellectual-property and unauthorized-access claims in this subject's draft text is an unratified drafted addition, not part of #5681's ratified mechanics list (AAA Consumer Arbitration Rules, $10,000 fee floor, 30-day opt-out, 45-day informal notice, small-claims carve-out, 25+ batch-filing protocol, jury waiver); no exact ratified evidence for it was located. Confirm with the #5681 decision owner or remove before counsel handoff.",
         ],
         assumptions: [
           {
