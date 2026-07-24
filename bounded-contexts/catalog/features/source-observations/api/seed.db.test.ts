@@ -52,6 +52,35 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
 
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
 
+  it.each([
+    {
+      profile: "catalog-integration-bootstrap",
+      expectedStreamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
+      expectedEventType: "catalog.display-template.published",
+    },
+    {
+      profile: "scenario-seed",
+      expectedStreamId: `catalog.item-${catalogSeedIds.items.pikachuJungle}`,
+      expectedEventType: "catalog.catalog-item.published",
+    },
+    {
+      profile: "representative-commerce-state",
+      expectedStreamId: `catalog.item-${catalogSeedIds.items.pikachuPrismaticEvolutions}`,
+      expectedEventType: "catalog.catalog-item.published",
+    },
+  ] as const)(
+    "exercises the seedCatalogDatabase $profile path through its expected durable stream",
+    async ({ profile, expectedStreamId, expectedEventType }) => {
+      await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: [profile] });
+
+      const events = await pool.query<{ event_type: string }>(
+        `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC`,
+        [expectedStreamId],
+      );
+      expect(events.rows.map((row) => row.event_type)).toContain(expectedEventType);
+    },
+  );
+
   for (const initialHistory of ["empty", "recorded-only"] as const) {
     it(`converges ${initialHistory} history and preserves one record plus one promotion across repeats`, async () => {
       const services = createCatalogServices(pool);

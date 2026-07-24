@@ -23,13 +23,13 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       ],
       templates: [
         {
-          key: "pokemon-card",
+          key: "pokemon-single-card-default",
           target_kind: "blueprint",
           target_id: "bpr_pokemon",
           priority: 10,
-          title_template: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
-          subtitle_template: "{reference.expansion.name} {field.rarity}",
-          required_field_keys: ["card-name", "card-number", "expansion"],
+          title_template: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
+          subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
         },
       ],
     });
@@ -51,7 +51,247 @@ describe("resolveCatalogItemDisplayIdentity", () => {
     ).resolves.toMatchObject({
       title: "Charizard 4/102",
       subtitle: "Base Set Rare Holo",
-      templateKey: "pokemon-card",
+      templateKey: "pokemon-single-card-default",
+    });
+  });
+
+  it("omits the optional Pokemon denominator without leaving a trailing separator", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+        { field_id: "fld_expansion", key: "expansion" },
+        { field_id: "fld_rarity", key: "rarity" },
+      ],
+      references: [
+        {
+          reference_record_id: "ref_base",
+          type_key: "expansion",
+          key: "base-set",
+          name: "Base Set",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "pokemon-single-card-default",
+          target_kind: "blueprint",
+          target_id: "bpr_pokemon",
+          priority: 10,
+          title_template: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
+          subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_bulbasaur",
+        title: "Bulbasaur",
+        subtitle: null,
+        blueprint_id: "bpr_pokemon",
+        category_ids: [],
+        field_values: [
+          { fieldId: "fld_name", value: "Bulbasaur" },
+          { fieldId: "fld_number", value: "44" },
+          { fieldId: "fld_expansion", value: { referenceId: "ref_base" } },
+          { fieldId: "fld_rarity", value: "Common" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      title: "Bulbasaur 44",
+      subtitle: "Base Set Common",
+      templateKey: "pokemon-single-card-default",
+      resolutionStatus: "resolved",
+      missingTokens: [],
+    });
+  });
+
+  it("removes empty-token edge separators while preserving meaningful internal punctuation", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+        { field_id: "fld_expansion", key: "expansion" },
+        { field_id: "fld_rarity", key: "rarity" },
+      ],
+      references: [
+        {
+          reference_record_id: "ref_promos",
+          type_key: "expansion",
+          key: "promos",
+          name: "Promos",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "punctuation-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template:
+            "[{field.card-variant}: ]{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
+          subtitle_template: null,
+          required_field_keys: ["card-name", "card-number", "expansion"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_punctuation",
+        title: "Fallback",
+        subtitle: null,
+        blueprint_id: null,
+        category_ids: [],
+        field_values: [
+          { fieldId: "fld_name", value: "Type: Null" },
+          { fieldId: "fld_number", value: "No.006" },
+          { fieldId: "fld_expansion", value: { referenceId: "ref_promos" } },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      title: "Type: Null No.006",
+      templateKey: "punctuation-card",
+      resolutionStatus: "resolved",
+    });
+  });
+
+  it.each([
+    {
+      templateKey: "magic-card-print-default",
+      blueprintId: "bpr_magic",
+      name: "Fury Sliver",
+      number: "157",
+      setName: "Time Spiral",
+      variant: null,
+      rarity: "Rare",
+      expectedSubtitle: "Time Spiral Rare",
+    },
+    {
+      templateKey: "one-piece-card-print-default",
+      blueprintId: "bpr_one_piece",
+      name: "Monkey.D.Luffy",
+      number: "OP01-001",
+      setName: "Romance Dawn",
+      variant: "Standard Art",
+      rarity: "Leader",
+      expectedSubtitle: "Romance Dawn Standard Art Leader",
+    },
+  ])("renders the seeded $templateKey card template", async (testCase) => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+        { field_id: "fld_set", key: "set" },
+        { field_id: "fld_variant", key: "card-variant" },
+        { field_id: "fld_rarity", key: "rarity" },
+      ],
+      references: [
+        {
+          reference_record_id: "ref_set",
+          type_key: "set",
+          key: "set",
+          name: testCase.setName,
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: testCase.templateKey,
+          target_kind: "blueprint",
+          target_id: testCase.blueprintId,
+          priority: 10,
+          title_template: "{field.card-name} {field.card-number}",
+          subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "rarity", "set"],
+        },
+      ],
+    });
+    const fieldValues: Array<{ fieldId: string; value: unknown }> = [
+      { fieldId: "fld_name", value: testCase.name },
+      { fieldId: "fld_number", value: testCase.number },
+      { fieldId: "fld_set", value: { referenceId: "ref_set" } },
+      { fieldId: "fld_rarity", value: testCase.rarity },
+    ];
+    if (testCase.variant) {
+      fieldValues.push({ fieldId: "fld_variant", value: testCase.variant });
+    }
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: `cat_${testCase.templateKey}`,
+        title: testCase.name,
+        subtitle: null,
+        blueprint_id: testCase.blueprintId,
+        category_ids: [],
+        field_values: fieldValues,
+      }),
+    ).resolves.toMatchObject({
+      title: `${testCase.name} ${testCase.number}`,
+      subtitle: testCase.expectedSubtitle,
+      templateKey: testCase.templateKey,
+      resolutionStatus: "resolved",
+    });
+  });
+
+  it("preserves strict degradation when a seeded card template is missing rarity", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+        { field_id: "fld_set", key: "set" },
+      ],
+      references: [
+        {
+          reference_record_id: "ref_set",
+          type_key: "set",
+          key: "time-spiral",
+          name: "Time Spiral",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "magic-card-print-default",
+          target_kind: "blueprint",
+          target_id: "bpr_magic",
+          priority: 10,
+          title_template: "{field.card-name} {field.card-number}",
+          subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "rarity", "set"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_missing_rarity",
+        title: "Fury Sliver",
+        subtitle: null,
+        blueprint_id: "bpr_magic",
+        category_ids: [],
+        field_values: [
+          { fieldId: "fld_name", value: "Fury Sliver" },
+          { fieldId: "fld_number", value: "157" },
+          { fieldId: "fld_set", value: { referenceId: "ref_set" } },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      title: "Fury Sliver",
+      templateKey: null,
+      resolutionStatus: "degraded",
+      missingTokens: ["rarity"],
     });
   });
 
@@ -84,7 +324,7 @@ describe("resolveCatalogItemDisplayIdentity", () => {
           priority: 10,
           title_template: "{field.card-name} {field.card-number}",
           subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
-          required_field_keys: ["card-name", "card-number", "set"],
+          required_field_keys: ["card-name", "card-number", "ink-color", "rarity", "set"],
         },
       ],
     });
@@ -118,6 +358,7 @@ describe("resolveCatalogItemDisplayIdentity", () => {
         { field_id: "fld_name", key: "card-name" },
         { field_id: "fld_number", key: "card-number" },
         { field_id: "fld_expansion", key: "expansion" },
+        { field_id: "fld_rarity", key: "rarity" },
       ],
       references: [
         {
@@ -132,22 +373,22 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       ],
       templates: [
         {
-          key: "pokemon-card",
+          key: "pokemon-single-card-default",
           target_kind: "blueprint",
           target_id: "bpr_pokemon",
           priority: 10,
-          title_template: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
-          subtitle_template: "{reference.expansion.name}",
-          required_field_keys: ["card-name", "card-number", "expansion"],
+          title_template: "{field.card-name} {field.card-number}[/{reference.expansion.attributes.printed-card-count}]",
+          subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
         },
         {
-          key: "pokemon-promo",
+          key: "pokemon-promo-card",
           target_kind: "reference-record",
           target_id: "ref_promos",
           priority: 100,
           title_template: "{field.card-name} {field.card-number}",
-          subtitle_template: "{reference.expansion.name}",
-          required_field_keys: ["card-name", "card-number", "expansion"],
+          subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+          required_field_keys: ["card-name", "card-number", "expansion", "rarity"],
         },
       ],
     });
@@ -163,12 +404,13 @@ describe("resolveCatalogItemDisplayIdentity", () => {
           { fieldId: "fld_name", value: { defaultLocale: "en", values: { en: "Mewtwo" } } },
           { fieldId: "fld_number", value: "3" },
           { fieldId: "fld_expansion", value: { referenceId: "ref_promos" } },
+          { fieldId: "fld_rarity", value: "Promo" },
         ],
       }),
     ).resolves.toMatchObject({
       title: "Mewtwo 3",
-      subtitle: "Black Star Promo",
-      templateKey: "pokemon-promo",
+      subtitle: "Black Star Promo Promo",
+      templateKey: "pokemon-promo-card",
     });
   });
 

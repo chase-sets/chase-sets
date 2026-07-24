@@ -178,9 +178,14 @@ export function buildTcgplayerAutomationSourceObservationPayload(input: {
     input.selectedOptionMapping,
     input.externalReferenceRules,
   );
+  const collectorNumber = tcgplayerCatalogCollectorNumber(input.detail);
 
   return {
     ...input.detail,
+    customAttributes: {
+      ...input.detail.customAttributes,
+      number: collectorNumber ?? undefined,
+    },
     observationId: `tcgplayer_${languageCode}_product_${input.detail.productId}`,
     externalKey,
     sourceUrl,
@@ -198,7 +203,7 @@ export function buildTcgplayerAutomationSourceObservationPayload(input: {
       productLineName: input.detail.productLineName,
       setName: input.detail.setName,
       printedProductName: input.detail.productName,
-      collectorNumber: input.detail.customAttributes.number ?? null,
+      collectorNumber,
       languageCode,
       productForm: tcgplayerProductForm(input.detail),
       barcode: tcgplayerProductBarcode(input.detail),
@@ -207,6 +212,19 @@ export function buildTcgplayerAutomationSourceObservationPayload(input: {
     externalProductReferences: externalReferences.externalProductReferences,
     skuReferences,
   };
+}
+
+function tcgplayerCatalogCollectorNumber(detail: TcgplayerAutomationProductDetail): string | null {
+  const number = detail.customAttributes.number?.trim();
+  if (!number) {
+    return null;
+  }
+
+  if (normalizeTcgName(detail.productLineName) !== "pokemon") {
+    return number;
+  }
+
+  return number.replace(/\/\d+$/u, "").trim();
 }
 
 export function mapTcgplayerSkuExternalProductReferences(

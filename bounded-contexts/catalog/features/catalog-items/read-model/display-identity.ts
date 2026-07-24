@@ -978,7 +978,8 @@ function collapseDisplayWhitespace(value: string): string {
     .replace(/\s+([,/:])/g, "$1")
     .replace(/([,:])(?=\S)/g, "$1 ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/^[,/:]+\s*|\s*[,/:]+$/g, "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
