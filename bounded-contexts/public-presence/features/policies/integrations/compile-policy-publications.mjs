@@ -25,15 +25,11 @@ registerHooks({
 
 const { isConsentActivatable, validatePublicPolicyArtifactStructure } = await import("../domain/policy-artifact.ts");
 const { publicPolicyRegistry } = await import("../domain/policy-registry.ts");
+const { evaluateCanonicalClaimConsistency } = await import("../domain/canonical-claim-guard.ts");
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
-const generatedContractDirectory = resolve(
-  integrationsDirectory,
-  "../../../../..",
-  "contracts",
-  "public-docs",
-  "generated",
-);
+const repoRoot = resolve(integrationsDirectory, "../../../../..");
+const generatedContractDirectory = resolve(repoRoot, "contracts", "public-docs", "generated");
 
 const generatedBy = "bounded-contexts/public-presence/features/policies/integrations/compile-policy-publications.mjs";
 const compileCommand = "pnpm --filter @chase-sets/public-presence run compile:public-policies";
@@ -62,6 +58,11 @@ function assertValidCorpus(registry) {
       errors.push(`Public policy corpus registers policy key '${key}' more than once.`);
     }
     seenKeys.add(key);
+  }
+  for (const violation of evaluateCanonicalClaimConsistency(registry, repoRoot)) {
+    errors.push(
+      `${violation.policyKey} section '${violation.sectionId}' canonical claim '${violation.claimId}' ${violation.reason}`,
+    );
   }
   if (errors.length > 0) {
     throw new Error(`Public policy corpus failed closed-schema validation:\n${errors.join("\n")}`);

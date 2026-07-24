@@ -4,6 +4,11 @@ import {
   type PublicPolicyPublicationReadiness,
 } from "./policy-artifact";
 
+const walletInterestUnresolvedCanonicalClaims = [
+  { claimId: "wallet-no-interest", productTruthRefs: [] },
+  { claimId: "wallet-deposit-and-fdic-posture", productTruthRefs: [] },
+] as const;
+
 export const requiredTermsOfServiceSubjectIds = [
   // Wallet and balance subjects (ADR 0020). Taxonomy and order preserved unchanged.
   "wallet-nature-custody-interest",
@@ -76,6 +81,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:5-7",
           },
         ],
+        canonicalClaims: walletInterestUnresolvedCanonicalClaims,
       },
     },
     {

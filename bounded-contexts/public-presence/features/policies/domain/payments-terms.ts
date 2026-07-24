@@ -1,5 +1,10 @@
 import type { PublicPolicyArtifact } from "./policy-artifact";
 
+const chargeTimingProductTruthRefs = [
+  "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
+  "infrastructure/stripe-payments/index.ts:1464-1512",
+];
+
 export const requiredPaymentsTermsSubjectIds = [
   "processor-pass-through-and-collection-agent-role",
   "charge-timing-and-statement-descriptor",
@@ -112,14 +117,24 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "Describe when a charge occurs and that the buyer's statement carries a Chase Sets/Stripe-identifying " +
           "descriptor, without inventing exact descriptor text or processing-time numbers.",
         decisionRefs: [5685],
-        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:491-509"],
+        productTruthRefs: chargeTimingProductTruthRefs,
         openQuestions: [],
         assumptions: [
           {
             assertion:
               "Chase Sets charges the buyer's payment method through Stripe at the time a Marketplace purchase " +
-              "completes, and no repository evidence shows a delayed or deferred charge model.",
-            evidenceRef: "bounded-contexts/payments/features/payments/api/runtime.ts:491-509",
+              "completes, and no repository evidence shows a delayed or deferred charge model: the checkout " +
+              "handler synchronously requests a Stripe payment session (immediately confirming a PaymentIntent " +
+              "for a saved instrument, or creating the Checkout Session the buyer completes as part of the same " +
+              "purchase for a new one), carrying the statement descriptor suffix, before the purchase is " +
+              "recorded as created.",
+            evidenceRef: chargeTimingProductTruthRefs.join("; "),
+          },
+        ],
+        canonicalClaims: [
+          {
+            claimId: "payment-charge-timing-and-capture",
+            productTruthRefs: chargeTimingProductTruthRefs,
           },
         ],
       },
@@ -190,6 +205,12 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:117-125",
           },
         ],
+        canonicalClaims: [
+          {
+            claimId: "payout-release-hold-mechanism",
+            productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:117-125"],
+          },
+        ],
       },
     },
     {
@@ -222,6 +243,12 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "and releases the hold with a matching credit if the dispute is won — a mechanism distinct from " +
               "the operator-directed Wallet Adjustment path, which this section therefore does not name.",
             evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:127-135",
+          },
+        ],
+        canonicalClaims: [
+          {
+            claimId: "payment-chargeback-recovery-mechanism",
+            productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135"],
           },
         ],
       },
@@ -264,14 +291,16 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       title: "No interest",
       draftText:
         "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, " +
-        "including amounts pending payout or reflected in your Wallet balance under the Terms of Service. " +
-        "Stripe's own terms, which you accept separately during its onboarding, govern whether any interest " +
-        "applies to funds Stripe processes or holds on Chase Sets' behalf.",
+        "including amounts pending payout. Stripe's own terms, which you accept separately during its " +
+        "onboarding, govern whether any interest applies to funds Stripe processes or holds on Chase Sets' " +
+        "behalf. Any interest posture for amounts reflected in your Wallet balance is addressed by the Terms " +
+        "of Service, not by this document.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
           "State Chase Sets' no-interest position on payment-processing funds and defer any Stripe-side " +
-          "interest question to Stripe's own terms, without restating the sibling Wallet interest posture.",
+          "interest question to Stripe's own terms, without restating or resolving the sibling Wallet " +
+          "interest posture, which the Terms of Service artifact leaves an unresolved open question.",
         decisionRefs: [],
         productTruthRefs: [],
         openQuestions: [],

@@ -153,6 +153,21 @@ describe("payments terms artifact", () => {
     expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
   });
 
+  it("cites real payment-session/capture source for charge timing, not the unrelated refund-proration helper (#6052 finding 1)", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
+    );
+    const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
+    expect(refs).not.toContain("runtime.ts:491-509");
+    expect(refs).toContain("runtime.ts:1890-1943");
+  });
+
+  it("does not assert Wallet-balance no-interest as settled while the sibling Terms artifact leaves it unresolved (#6052 finding 2)", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "no-interest");
+    expect(section?.draftText).not.toContain("reflected in your Wallet balance under the Terms of Service");
+    expect(section?.reviewManifest.canonicalClaims ?? []).toEqual([]);
+  });
+
   it("would pass readiness once every section is counsel-approved and the artifact is published", () => {
     const approved = approvedPaymentsTermsArtifact();
     const readiness = evaluatePublicPolicyPublicationReadiness(approved, requiredPaymentsTermsSubjectIds);
