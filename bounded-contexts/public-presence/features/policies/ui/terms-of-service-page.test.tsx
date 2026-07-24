@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
+import { requiredTermsOfServiceSubjectIds } from "../domain/terms-of-service";
 import { TermsOfServicePage } from "./terms-of-service-page";
 
 function renderPage() {
@@ -23,8 +24,13 @@ describe("Terms of Service publication page", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Terms of service" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Wallet nature, custody, and interest" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Terms sections" })).toBeTruthy();
-    expect(screen.getAllByText("Counsel-approved language required")).toHaveLength(10);
+    expect(screen.getByRole("heading", { level: 2, name: "Marketplace role and limited payments agent" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Governing law and forum" })).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Terms sections" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(requiredTermsOfServiceSubjectIds.length);
+    expect(screen.getAllByText("Counsel-approved language required")).toHaveLength(
+      requiredTermsOfServiceSubjectIds.length,
+    );
     expect(screen.getByText("Version v1")).toBeTruthy();
     expect(screen.getByText("Effective date pending counsel approval")).toBeTruthy();
 
