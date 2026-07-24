@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 // Charter scope: this spec owns the browse -> item-detail composition wiring that
@@ -10,6 +11,7 @@ import { expect, test, type Page } from "@playwright/test";
 // runs it. Playwright auto-discovers this file via the marketplace testMatch glob.
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
+const screenshotDir = path.join("artifacts", "playwright", "mobile-action-dock-screenshots");
 
 async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -98,14 +100,26 @@ test.describe("marketplace item detail", () => {
 // shell-owned geometry (no offset once the nav disappears at tablet width),
 // and leave keyboard-focused Market book controls fully clear of the dock.
 test.describe("marketplace item detail mobile action dock @marketplace-browse", () => {
-  async function gotoFirstItemDetail(page: Page) {
+  // Deterministic seeded item: the English Base Set Charizard
+  // (bounded-contexts/catalog/features/catalog-items/api/seed.ts) is the only
+  // "charizard" search hit seeded with active market listings — the sibling
+  // Japanese Base Set Charizard has none. Match on the full "Charizard — Base
+  // Set" accessible-name substring (not just "charizard") so this never lands
+  // on the listing-less item and silently starves the focus/obscuration proof.
+  async function gotoBaseSetCharizardDetail(page: Page) {
     await expectPageOk(page, "/search");
     const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
     await searchBox.fill(searchQuery);
-    const detailLink = page.getByRole("link", { name: /View details for/i }).first();
+    const detailLink = page.getByRole("link", { name: /View details for Charizard — Base Set/i });
     await expect(detailLink).toBeVisible();
-    await detailLink.click();
-    await expect(page).toHaveURL(/\/items\//);
+
+    // The DS card overlay link is inert until React hydrates; a click that
+    // lands before hydration is silently dropped and the page stays on
+    // /search, so retry the click until the route actually changes.
+    await expect(async () => {
+      await detailLink.click();
+      await expect(page).toHaveURL(/\/items\//, { timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
     await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
   }
 
@@ -117,7 +131,7 @@ test.describe("marketplace item detail mobile action dock @marketplace-browse", 
       page,
     }) => {
       await page.setViewportSize(viewport);
-      await gotoFirstItemDetail(page);
+      await gotoBaseSetCharizardDetail(page);
 
       const dock = page.getByRole("region", { name: "Mobile commerce actions" });
       await expect(dock).toBeVisible();
@@ -133,14 +147,22 @@ test.describe("marketplace item detail mobile action dock @marketplace-browse", 
       });
       expect(dockBox!.height - safeAreaInsetBottom).toBeLessThanOrEqual(76);
 
-      for (const name of ["Buy", "Sell", "Watch"]) {
-        const action = dock.getByRole("button", { name, exact: true });
-        if (await action.count()) {
-          const box = await action.first().boundingBox();
-          expect(box, `${name} action should report a bounding box`).not.toBeNull();
-          expect(box!.width).toBeGreaterThanOrEqual(44);
-          expect(box!.height).toBeGreaterThanOrEqual(44);
-        }
+      // Assert whatever the dock actually rendered instead of probing fixed
+      // "Buy"/"Sell"/"Watch" names and silently skipping when they're absent
+      // (the default, no-product-selected state renders "Select options" /
+      // "Choose to sell" / "Choose to watch" instead).
+      const actions = dock.locator("a, button");
+      const actionCount = await actions.count();
+      expect(actionCount, "dock should render the buy/sell/watch action row").toBe(3);
+      for (let index = 0; index < actionCount; index += 1) {
+        const action = actions.nth(index);
+        await expect(action).toBeVisible();
+        const accessibleName = (await action.textContent())?.trim();
+        expect(accessibleName, `dock action ${index} should keep a visible text label`).toBeTruthy();
+        const box = await action.boundingBox();
+        expect(box, `dock action "${accessibleName}" should report a bounding box`).not.toBeNull();
+        expect(box!.width, `"${accessibleName}" width`).toBeGreaterThanOrEqual(44);
+        expect(box!.height, `"${accessibleName}" height`).toBeGreaterThanOrEqual(44);
       }
 
       const bottomNav = page.locator("nav.fixed.inset-x-0.bottom-0");
@@ -148,12 +170,18 @@ test.describe("marketplace item detail mobile action dock @marketplace-browse", 
       const bottomNavBox = await bottomNav.boundingBox();
       expect(bottomNavBox, "bottom nav should report a bounding box").not.toBeNull();
       expect(dockBox!.y + dockBox!.height).toBeLessThanOrEqual(bottomNavBox!.y + 1);
+
+      await page.screenshot({
+        path: path.join(screenshotDir, `phone-dock-${viewport.width}x${viewport.height}.png`),
+        fullPage: false,
+      });
     });
   }
 
   test("reserves no mobile bottom-nav offset for the dock at the tablet breakpoint", async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });
-    await gotoFirstItemDetail(page);
+    await gotoBaseSetCharizardDetail(page);
+    await expect(page).toHaveURL(/\/items\//);
 
     const dock = page.getByRole("region", { name: "Mobile commerce actions" });
     await expect(dock).toBeVisible();
@@ -161,11 +189,16 @@ test.describe("marketplace item detail mobile action dock @marketplace-browse", 
     expect(dockBox, "dock should report a bounding box").not.toBeNull();
     const viewportHeight = page.viewportSize()?.height ?? 1180;
     expect(viewportHeight - (dockBox!.y + dockBox!.height)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({
+      path: path.join(screenshotDir, "tablet-dock-820x1180.png"),
+      fullPage: false,
+    });
   });
 
   test("keeps a focused Market book control fully clear of the dock at 390x844", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await gotoFirstItemDetail(page);
+    await gotoBaseSetCharizardDetail(page);
 
     const dock = page.getByRole("region", { name: "Mobile commerce actions" });
     await expect(dock).toBeVisible();
@@ -180,5 +213,10 @@ test.describe("marketplace item detail mobile action dock @marketplace-browse", 
     expect(dockBox, "dock should report a bounding box").not.toBeNull();
     expect(controlBox, "focused control should report a bounding box").not.toBeNull();
     expect(controlBox!.y + controlBox!.height).toBeLessThanOrEqual(dockBox!.y + 1);
+
+    await page.screenshot({
+      path: path.join(screenshotDir, "phone-focus-clearance-390x844.png"),
+      fullPage: false,
+    });
   });
 });

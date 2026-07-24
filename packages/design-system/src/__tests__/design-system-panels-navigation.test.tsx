@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, type ReactNode, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -489,6 +489,130 @@ describe("design system panels, navigation, and shells", () => {
     expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).toBe("");
     expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toBe("");
     expect(rootStyle.scrollPaddingBottom).toBe("");
+
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  it("restores pre-existing root inline style values on unmount instead of unconditionally clearing them", () => {
+    class ResizeObserverStub {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = ResizeObserverStub;
+
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--product-detail-mobile-dock-height", "12px");
+    rootStyle.setProperty("--product-detail-mobile-dock-clearance", "12px");
+    rootStyle.scrollPaddingBottom = "12px";
+
+    const { unmount } = render(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <section>Offers list</section>
+      </MarketplaceProductDetailLayout>,
+    );
+
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).not.toBe("12px");
+
+    unmount();
+
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).toBe("12px");
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toBe("12px");
+    expect(rootStyle.scrollPaddingBottom).toBe("12px");
+
+    rootStyle.removeProperty("--product-detail-mobile-dock-height");
+    rootStyle.removeProperty("--product-detail-mobile-dock-clearance");
+    rootStyle.removeProperty("scroll-padding-bottom");
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  it("mirrors a shell ancestor's --shell-bottom-nav-height onto document.documentElement across the 767->768 breakpoint, with a frozen negative control", () => {
+    class ResizeObserverStub {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = ResizeObserverStub;
+
+    // Negative control: mount the dock with no shell ancestor declaring
+    // --shell-bottom-nav-height at all. If root's mirrored copy moved off its
+    // fallback here, the propagation assertion below would be a false positive.
+    const controlRender = render(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <section>Offers list</section>
+      </MarketplaceProductDetailLayout>,
+    );
+    const rootStyle = document.documentElement.style;
+    expect(rootStyle.getPropertyValue("--shell-bottom-nav-height")).toBe("0px");
+    fireEvent(window, new Event("resize"));
+    expect(rootStyle.getPropertyValue("--shell-bottom-nav-height")).toBe("0px");
+    controlRender.unmount();
+
+    // Simulate the shell's own 767px -> 768px breakpoint class flip
+    // ([--shell-bottom-nav-height:5.25rem] md:[--shell-bottom-nav-height:0px]) by
+    // varying an ancestor's inherited custom property, proving the dock's
+    // resolved value (and root's mirrored copy of it) tracks the shell, not root's
+    // own unset fallback.
+    function ShellStub({ belowMd, children }: { belowMd: boolean; children: ReactNode }) {
+      return <div style={{ ["--shell-bottom-nav-height" as string]: belowMd ? "5.25rem" : "0px" }}>{children}</div>;
+    }
+
+    const { rerender, unmount } = render(
+      <ShellStub belowMd>
+        <MarketplaceProductDetailLayout
+          summary={<section>Product summary</section>}
+          media={<section>Product media</section>}
+          market={<section>Market summary</section>}
+          commerce={<section>Desktop commerce panel</section>}
+          mobileActionBar={<section>Mobile buy sell panel</section>}
+        >
+          <section>Offers list</section>
+        </MarketplaceProductDetailLayout>
+      </ShellStub>,
+    );
+
+    expect(rootStyle.getPropertyValue("--shell-bottom-nav-height")).toBe("5.25rem");
+
+    rerender(
+      <ShellStub belowMd={false}>
+        <MarketplaceProductDetailLayout
+          summary={<section>Product summary</section>}
+          media={<section>Product media</section>}
+          market={<section>Market summary</section>}
+          commerce={<section>Desktop commerce panel</section>}
+          mobileActionBar={<section>Mobile buy sell panel</section>}
+        >
+          <section>Offers list</section>
+        </MarketplaceProductDetailLayout>
+      </ShellStub>,
+    );
+    fireEvent(window, new Event("resize"));
+    expect(rootStyle.getPropertyValue("--shell-bottom-nav-height")).toBe("0px");
+
+    unmount();
+    expect(rootStyle.getPropertyValue("--shell-bottom-nav-height")).toBe("");
 
     globalThis.ResizeObserver = originalResizeObserver;
   });

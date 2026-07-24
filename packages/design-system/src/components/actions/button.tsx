@@ -82,7 +82,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {loading ? <ButtonSpinner tone={tone} /> : null}
       <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", loading && "invisible")}>
         {renderLeadingIcon(leadingIcon, tone)}
-        <span className="min-w-0">{children}</span>
+        <span className="min-w-0 truncate">{children}</span>
         {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
       </span>
     </motion.button>
@@ -161,7 +161,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(functio
       className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size], block && "w-full")}
     >
       {renderLeadingIcon(leadingIcon, tone)}
-      <span className="min-w-0">{children}</span>
+      <span className="min-w-0 truncate">{children}</span>
       {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
     </MotionLink>
   );

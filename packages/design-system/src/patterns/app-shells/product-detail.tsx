@@ -3,6 +3,15 @@ import { Sidebar } from "../../components/feedback";
 
 const MOBILE_DOCK_HEIGHT_VAR = "--product-detail-mobile-dock-height";
 const MOBILE_DOCK_CLEARANCE_VAR = "--product-detail-mobile-dock-clearance";
+const SHELL_BOTTOM_NAV_HEIGHT_VAR = "--shell-bottom-nav-height";
+
+function restoreRootProperty(root: HTMLElement, property: string, previousValue: string) {
+  if (previousValue) {
+    root.style.setProperty(property, previousValue);
+  } else {
+    root.style.removeProperty(property);
+  }
+}
 
 function useMobileDockClearance() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -14,30 +23,63 @@ function useMobileDockClearance() {
     }
 
     const root = document.documentElement;
+    const previousDockHeight = root.style.getPropertyValue(MOBILE_DOCK_HEIGHT_VAR);
+    const previousBottomNavHeight = root.style.getPropertyValue(SHELL_BOTTOM_NAV_HEIGHT_VAR);
+    const previousClearance = root.style.getPropertyValue(MOBILE_DOCK_CLEARANCE_VAR);
+    const previousScrollPadding = root.style.scrollPaddingBottom;
+
+    // MarketplaceShell/AdminShell own --shell-bottom-nav-height on their own
+    // subtree (SSR-safe, no literal offset for descendants). document.documentElement
+    // is that subtree's ancestor, never its descendant, so a var() reference set
+    // directly on root always resolves the fallback instead of the shell's real
+    // 5.25rem -> 0px breakpoint value. This dock IS a shell descendant, so it
+    // inherits the real value correctly; mirror that resolved value onto root
+    // instead of letting root guess at its own unset copy.
+    const syncBottomNavHeight = () => {
+      const resolved = getComputedStyle(node).getPropertyValue(SHELL_BOTTOM_NAV_HEIGHT_VAR).trim();
+      root.style.setProperty(SHELL_BOTTOM_NAV_HEIGHT_VAR, resolved || "0px");
+    };
 
     const applyClearance = (heightPx: number) => {
       root.style.setProperty(MOBILE_DOCK_HEIGHT_VAR, `${heightPx}px`);
       root.style.setProperty(
         MOBILE_DOCK_CLEARANCE_VAR,
-        `calc(var(--shell-bottom-nav-height, 0px) + ${heightPx}px + env(safe-area-inset-bottom))`,
+        `calc(var(${SHELL_BOTTOM_NAV_HEIGHT_VAR}, 0px) + ${heightPx}px + env(safe-area-inset-bottom))`,
       );
       root.style.scrollPaddingBottom = `var(${MOBILE_DOCK_CLEARANCE_VAR})`;
     };
 
+    syncBottomNavHeight();
+    applyClearance(node.getBoundingClientRect().height);
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
+        syncBottomNavHeight();
         applyClearance(entry.contentRect.height);
       }
     });
     observer.observe(node);
-    applyClearance(node.getBoundingClientRect().height);
+
+    // The bottom-nav breakpoint can flip (e.g. rotating through md) without the
+    // dock's own rendered height changing, so ResizeObserver alone would miss it.
+    const handleViewportChange = () => {
+      syncBottomNavHeight();
+      applyClearance(node.getBoundingClientRect().height);
+    };
+    window.addEventListener("resize", handleViewportChange);
 
     return () => {
       observer.disconnect();
-      root.style.removeProperty(MOBILE_DOCK_HEIGHT_VAR);
-      root.style.removeProperty(MOBILE_DOCK_CLEARANCE_VAR);
-      root.style.removeProperty("scroll-padding-bottom");
+      window.removeEventListener("resize", handleViewportChange);
+      restoreRootProperty(root, MOBILE_DOCK_HEIGHT_VAR, previousDockHeight);
+      restoreRootProperty(root, SHELL_BOTTOM_NAV_HEIGHT_VAR, previousBottomNavHeight);
+      restoreRootProperty(root, MOBILE_DOCK_CLEARANCE_VAR, previousClearance);
+      if (previousScrollPadding) {
+        root.style.scrollPaddingBottom = previousScrollPadding;
+      } else {
+        root.style.removeProperty("scroll-padding-bottom");
+      }
     };
   }, []);
 
