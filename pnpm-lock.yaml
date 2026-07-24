@@ -1734,6 +1734,9 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.14(hono@4.12.18)

@@ -235,6 +235,47 @@ jobs:
         with:
           install: true
 
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+
+          # The three-file bootstrap DB partition (#6035) runs with bounded
+          # --maxWorkers=3, so up to ~3 x ~20 concurrent multi-context pools
+          # each cascade-drop their schemas in beforeEach. max_locks_per_transaction
+          # is a postmaster-start parameter: ALTER SYSTEM only stages the
+          # change, the shared lock table isn't resized until the postmaster
+          # restarts (a reload/SIGHUP is not sufficient), so this restarts the
+          # service container and confirms the effective setting before any
+          # DB-profile command runs.
+          target_max_locks_per_transaction=512
+
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
+            "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
+          docker restart "$POSTGRES_CONTAINER_ID"
+
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "PostgreSQL did not become ready within 30s after restart." >&2
+            docker logs "$POSTGRES_CONTAINER_ID" >&2 || true
+            exit 1
+          fi
+
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
+          if [ "$effective" != "$target_max_locks_per_transaction" ]; then
+            echo "Expected max_locks_per_transaction=${target_max_locks_per_transaction} but Postgres reports ${effective}." >&2
+            exit 1
+          fi
+          echo "PostgreSQL max_locks_per_transaction is now ${effective}."
+
       - name: Run DB-profile tests
         run: node ./scripts/run-workspaces.mjs test:db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
