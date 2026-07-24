@@ -78,7 +78,7 @@ import {
   Wizard,
 } from "../patterns/app-shells";
 import { AutoGrid, Box, Container, FlexItem, SkipLink, Stack, Surface } from "../primitives/layout";
-import { Text } from "../primitives/typography";
+import { LinkText, Text } from "../primitives/typography";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
@@ -1353,6 +1353,43 @@ describe("design system components", () => {
 
     const defaultMarkup = renderToString(<FlexItem>Item</FlexItem>);
     expect(defaultMarkup).toContain('class="max-w-full"');
+  });
+
+  it("preserves scalar Text truncate class output", () => {
+    const truncatedMarkup = renderToString(<Text truncate>Scalar truncate</Text>);
+    expect(truncatedMarkup).toContain("truncate");
+    expect(truncatedMarkup).not.toContain("md:truncate");
+
+    const untruncatedMarkup = renderToString(<Text truncate={false}>Plain text</Text>);
+    expect(untruncatedMarkup).not.toContain("truncate");
+  });
+
+  it("scopes Text truncate to a breakpoint, undoing all three truncate properties above it", () => {
+    const markup = renderToString(<Text truncate={{ base: true, md: false }}>Breakpoint truncate</Text>);
+
+    expect(markup).toContain("truncate");
+    expect(markup).not.toContain("md:truncate");
+    expect(markup).toContain("md:overflow-visible");
+    expect(markup).toContain("md:text-clip");
+    expect(markup).toContain("md:whitespace-normal");
+  });
+
+  it("renders FlexItem minWidth 0 to let a truncating child shrink past its content size", () => {
+    const markup = renderToString(<FlexItem minWidth="0">Item</FlexItem>);
+    expect(markup).toContain('class="max-w-full min-w-0"');
+  });
+
+  it("grows LinkText's hit area on coarse pointers only when touchTarget is set", () => {
+    const defaultMarkup = renderToString(<LinkText href="/help">Help</LinkText>);
+    expect(defaultMarkup).not.toContain("pointer-coarse:min-h-11");
+
+    const touchTargetMarkup = renderToString(
+      <LinkText href="/help" touchTarget>
+        Help
+      </LinkText>,
+    );
+    expect(touchTargetMarkup).toContain("pointer-coarse:min-h-11");
+    expect(touchTargetMarkup).toContain("pointer-coarse:min-w-11");
   });
 
   it("renders AutoGrid minItemWidth as a responsive prop with breakpoint-prefixed classes", () => {

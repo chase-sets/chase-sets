@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
 import { IconButton, LinkButton } from "../actions/button";
 import { Icon } from "../../icons";
-import { IconRow, Inline, Stack } from "../../primitives/layout";
+import { FlexItem, IconRow, Inline, Show, Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
+import { useReducedMotion } from "../../hooks";
 import { cx } from "../../utils/cx";
 import { type Tone, toneIcon, toneToIconTone } from "./shared";
 
@@ -35,24 +36,6 @@ const toneClasses: Record<PromoBarTone, string> = {
   danger: "border-danger-soft bg-danger-soft text-foreground",
 };
 
-function usePrefersReducedMotion() {
-  const [reducedMotion, setReducedMotion] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return undefined;
-    }
-
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(query.matches);
-    const handleChange = () => setReducedMotion(query.matches);
-    query.addEventListener("change", handleChange);
-    return () => query.removeEventListener("change", handleChange);
-  }, []);
-
-  return reducedMotion;
-}
-
 export function PromoBar({
   messages,
   cycleIntervalMs = 7000,
@@ -64,7 +47,7 @@ export function PromoBar({
   ...rest
 }: PromoBarProps) {
   const visibleMessages = useMemo(() => messages.filter((message) => message.title), [messages]);
-  const reducedMotion = usePrefersReducedMotion();
+  const reducedMotion = useReducedMotion();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const hasMultipleMessages = visibleMessages.length > 1;
@@ -108,22 +91,22 @@ export function PromoBar({
       className={cx("rounded-tokenMd border px-3 py-2 md:px-4", toneClasses[tone])}
     >
       <Stack direction="row" align="center" justify="between" gap={3}>
-        <div className="min-w-0 max-w-full flex-1">
+        <FlexItem grow minWidth="0">
           <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>
             <Stack gap={1} minWidth="0">
-              <Text size="sm" weight="semibold" tone="inherit" truncate>
+              <Text size="sm" weight="semibold" tone="inherit" truncate={{ base: true, md: false }}>
                 {activeMessage.title}
               </Text>
               {activeMessage.description ? (
-                <span className="hidden md:block">
-                  <Text size="sm" tone="secondary" truncate>
+                <Show above="md">
+                  <Text size="sm" tone="secondary" truncate={{ base: true, md: false }}>
                     {activeMessage.description}
                   </Text>
-                </span>
+                </Show>
               ) : null}
             </Stack>
           </IconRow>
-        </div>
+        </FlexItem>
         <Inline gap={2} align="center" wrap={false}>
           {activeMessage.href && activeMessage.linkLabel ? (
             <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
@@ -131,23 +114,21 @@ export function PromoBar({
             </LinkButton>
           ) : null}
           {hasMultipleMessages ? (
-            <span className={cx("shrink-0", reducedMotion ? "" : "hidden md:inline-block")}>
-              <Inline gap={1} align="center" wrap={false}>
-                <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
-                <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
-                  {activeIndex + 1}/{visibleMessages.length}
-                </span>
-                <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
-                {reducedMotion ? null : (
-                  <IconButton
-                    label={paused ? resumeLabel : pauseLabel}
-                    icon={paused ? "play" : "pause"}
-                    size="sm"
-                    onClick={() => setPaused((current) => !current)}
-                  />
-                )}
-              </Inline>
-            </span>
+            <Inline gap={1} align="center" wrap={false}>
+              <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
+              <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
+                {activeIndex + 1}/{visibleMessages.length}
+              </span>
+              <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
+              {reducedMotion ? null : (
+                <IconButton
+                  label={paused ? resumeLabel : pauseLabel}
+                  icon={paused ? "play" : "pause"}
+                  size="sm"
+                  onClick={() => setPaused((current) => !current)}
+                />
+              )}
+            </Inline>
           ) : null}
         </Inline>
       </Stack>

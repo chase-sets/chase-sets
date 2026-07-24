@@ -12,7 +12,7 @@
     "governedFileCount": 116,
     "exemptFileCount": 7,
     "exemptByReason": { "ds-leaf-marker": 3, "primitive": 4 },
-    "totalRawClassNameCount": 639,
+    "totalRawClassNameCount": 636,
     "topBudgets": [
       { "file": "packages/design-system/src/components/checkout/marketplace.tsx", "budget": 41 },
       { "file": "packages/design-system/src/components/checkout/summary.tsx", "budget": 38 },
@@ -108,7 +108,7 @@
     "packages/design-system/src/components/feedback/motion-overlay.ts": 0,
     "packages/design-system/src/components/feedback/panel-interactions.tsx": 11,
     "packages/design-system/src/components/feedback/popover.tsx": 1,
-    "packages/design-system/src/components/feedback/promo-bar.tsx": 5,
+    "packages/design-system/src/components/feedback/promo-bar.tsx": 2,
     "packages/design-system/src/components/feedback/rating.tsx": 2,
     "packages/design-system/src/components/feedback/reference-info.tsx": 2,
     "packages/design-system/src/components/feedback/shared.tsx": 0,

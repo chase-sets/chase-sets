@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
+- Runtime exports indexed: 363
 - Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -262,6 +262,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `resolveTheme` | `packages/design-system/src/theme/tokens.ts` | Purpose not documented; symbol name suggests: resolve Theme. | `No production consumer yet.` |
 | `resolveThemeOverrideStyle` | `packages/design-system/src/theme/tokens.ts` | Purpose not documented; symbol name suggests: resolve Theme Override Style. | `No production consumer yet.` |
 | `resolveThemeStyle` | `packages/design-system/src/theme/tokens.ts` | Purpose not documented; symbol name suggests: resolve Theme Style. | `No production consumer yet.` |
+| `resolveTruncateClass` | `packages/design-system/src/utils/system.ts` | Unlike the other responsive resolvers, truncation is binary per breakpoint (on/off) rather than a value lookup, so it needs its own resolver: turning truncation off at a breakpoint requires explicitly undoing all three `truncate` utility properties, not just omitting a class. | `No production consumer yet.` |
 | `ResponsiveActionMenu` | `packages/design-system/src/components/actions/responsive-action-menu.tsx` | Purpose not documented; symbol name suggests: Responsive Action Menu. | `No production consumer yet.` |
 | `ResponsiveEditSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Responsive Edit Sheet. | `bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx` |
 | `ResponsiveSupportSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Responsive Support Sheet. | `No production consumer yet.` |
@@ -346,7 +347,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `useDensity` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Density. | `No production consumer yet.` |
 | `useFormContext` | `packages/design-system/src/components/forms/form.tsx` | Purpose not documented; symbol name suggests: use Form Context. | `No production consumer yet.` |
 | `useFormState` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: use Form State. | `No production consumer yet.` |
-| `useMediaQuery` | `packages/design-system/src/hooks/use-media-query.ts` | Purpose not documented; symbol name suggests: use Media Query. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
+| `useMediaQuery` | `packages/design-system/src/hooks/use-media-query.ts` | Purpose not documented; symbol name suggests: use Media Query. | `No production consumer yet.` |
 | `usePortalRoots` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Portal Roots. | `No production consumer yet.` |
 | `useReducedMotion` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Reduced Motion. | `No production consumer yet.` |
 | `useToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: use Toast. | `No production consumer yet.` |

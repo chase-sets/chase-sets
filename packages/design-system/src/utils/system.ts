@@ -788,6 +788,52 @@ export function resolveColumnsClass(value?: ResponsiveValue<ColumnCount>): strin
   return resolveResponsiveClass(value, columnsClasses);
 }
 
+const truncateOnClasses: Record<BreakpointKey, string> = {
+  base: "truncate",
+  sm: "sm:truncate",
+  md: "md:truncate",
+  lg: "lg:truncate",
+  xl: "xl:truncate",
+  "2xl": "2xl:truncate",
+};
+
+const truncateOffClasses: Record<BreakpointKey, string> = {
+  base: "overflow-visible text-clip whitespace-normal",
+  sm: "sm:overflow-visible sm:text-clip sm:whitespace-normal",
+  md: "md:overflow-visible md:text-clip md:whitespace-normal",
+  lg: "lg:overflow-visible lg:text-clip lg:whitespace-normal",
+  xl: "xl:overflow-visible xl:text-clip xl:whitespace-normal",
+  "2xl": "2xl:overflow-visible 2xl:text-clip 2xl:whitespace-normal",
+};
+
+/**
+ * Unlike the other responsive resolvers, truncation is binary per breakpoint
+ * (on/off) rather than a value lookup, so it needs its own resolver: turning
+ * truncation off at a breakpoint requires explicitly undoing all three
+ * `truncate` utility properties, not just omitting a class.
+ */
+export function resolveTruncateClass(value?: ResponsiveValue<boolean>): string {
+  if (value === undefined || value === false) {
+    return "";
+  }
+
+  if (value === true) {
+    return truncateOnClasses.base;
+  }
+
+  const output: string[] = [];
+
+  for (const key of breakpoints) {
+    const resolved = value[key];
+
+    if (resolved !== undefined) {
+      output.push(resolved ? truncateOnClasses[key] : truncateOffClasses[key]);
+    }
+  }
+
+  return output.join(" ");
+}
+
 export function resolveSystemProps(props: SystemProps): string {
   return cx(
     resolveResponsiveSpaceClass("p", props.padding),

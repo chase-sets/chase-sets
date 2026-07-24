@@ -32,6 +32,14 @@ function resolveCellPad(density: TableDensity): string {
   return density === "compact" ? "px-3 py-2" : "px-4 py-3";
 }
 
+/**
+ * Constrains a cell to a narrow max-width and lets its label wrap — including
+ * mid-word breaks — instead of forcing the table wider than its container.
+ * Use for label columns with a long unbreakable word (e.g. "Marketplace")
+ * that alone would exceed the column's fair share at narrow viewports.
+ */
+const wrapLabelClasses = "max-w-11 whitespace-normal break-words [overflow-wrap:anywhere] hyphens-auto";
+
 export interface TableShellProps extends FrameProps {
   /** Wrapper surface treatment. Defaults to `inset`. */
   surface?: TableSurface;
@@ -125,6 +133,8 @@ export interface TableHeadCellProps extends Omit<ThHTMLAttributes<HTMLTableCellE
   align?: "left" | "right";
   /** Apply the fixed narrow width used by selection/control columns. */
   control?: boolean;
+  /** Constrain to a narrow max-width and allow the label to wrap (including mid-word breaks) instead of overflowing the table's container. */
+  wrapLabel?: boolean;
   /** Override the density-derived padding. */
   density?: TableDensity;
   children?: ReactNode;
@@ -133,6 +143,7 @@ export interface TableHeadCellProps extends Omit<ThHTMLAttributes<HTMLTableCellE
 export function TableHeadCell({
   align = "left",
   control = false,
+  wrapLabel = false,
   density,
   scope = "col",
   children,
@@ -147,7 +158,12 @@ export function TableHeadCell({
       className={
         control
           ? cx("w-12", resolveCellPad(resolvedDensity))
-          : cx(resolveCellPad(resolvedDensity), "font-semibold text-foreground", align === "right" && "text-right")
+          : cx(
+              resolveCellPad(resolvedDensity),
+              "font-semibold text-foreground",
+              align === "right" && "text-right",
+              wrapLabel && wrapLabelClasses,
+            )
       }
     >
       {children}
@@ -159,12 +175,21 @@ export interface TableCellProps extends Omit<TdHTMLAttributes<HTMLTableCellEleme
   align?: "left" | "right";
   /** Apply the fixed narrow width used by selection/control columns. */
   control?: boolean;
+  /** Constrain to a narrow max-width and allow the label to wrap (including mid-word breaks) instead of overflowing the table's container. */
+  wrapLabel?: boolean;
   /** Override the density-derived padding. */
   density?: TableDensity;
   children?: ReactNode;
 }
 
-export function TableCell({ align = "left", control = false, density, children, ...rest }: TableCellProps) {
+export function TableCell({
+  align = "left",
+  control = false,
+  wrapLabel = false,
+  density,
+  children,
+  ...rest
+}: TableCellProps) {
   const themeDensity = useDensity();
   const resolvedDensity = density ?? themeDensity;
   return (
@@ -173,7 +198,12 @@ export function TableCell({ align = "left", control = false, density, children, 
       className={
         control
           ? cx("w-12", resolveCellPad(resolvedDensity))
-          : cx(resolveCellPad(resolvedDensity), "text-foreground", align === "right" && "text-right")
+          : cx(
+              resolveCellPad(resolvedDensity),
+              "text-foreground",
+              align === "right" && "text-right",
+              wrapLabel && wrapLabelClasses,
+            )
       }
     >
       {children}

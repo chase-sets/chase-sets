@@ -1,13 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Form,
   Banner,
@@ -47,7 +38,6 @@ import {
   Text,
   TextInput,
   ToneIcon,
-  useMediaQuery,
   type PromoBarMessage,
 } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
@@ -244,54 +234,6 @@ function resolveInitialHeroIntent(source: WaitlistPageSource): WaitlistIntent {
   return resolveHeroIntent(resolveLandingIntent({ ...source, intent: pageUrl.searchParams.get("intent") }));
 }
 
-// LinkText renders a bare, unpadded anchor (23-24px tall) that falls short of
-// the 44px touch-target guideline on coarse pointers. Wrapping its label in a
-// padded inline-flex span grows the anchor's own box (inline-flex sizes to its
-// tallest child) without a DS-wide LinkText change or any visible difference
-// for mouse/trackpad pointers. Sized via inline style gated on the DS
-// useMediaQuery hook rather than a CSS media-query class, since design-system
-// governance (routeLocalClassName) disallows raw Tailwind classes on host
-// elements in bounded-context UI outside the design-system package.
-const coarsePointerTouchTargetStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 44,
-  minWidth: 44,
-  paddingLeft: 8,
-  paddingRight: 8,
-  paddingTop: 8,
-  paddingBottom: 8,
-};
-
-function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
-  const hasCoarsePointer = useMediaQuery("(pointer: coarse)");
-  return <span style={hasCoarsePointer ? coarsePointerTouchTargetStyle : undefined}>{children}</span>;
-}
-
-// The fee-comparison Table's metric column ("Marketplace fee", "Per-order and
-// payment fee", ...) contains an 11-character unbreakable word ("Marketplace")
-// that alone exceeds the column's fair share of a 375px viewport, forcing
-// the table wrapper's in-container horizontal scroll even at compact density.
-// Constraining the label to a narrow column and allowing mid-word breaks lets
-// it wrap onto two lines instead (wrap the metric labels before any
-// font-size reduction). Inline style for the same routeLocalClassName reason
-// as CoarsePointerLinkLabel above.
-const feeTableMetricLabelStyle: CSSProperties = {
-  display: "block",
-  maxWidth: "2.75rem",
-  hyphens: "auto",
-  overflowWrap: "break-word",
-};
-
-function FeeTableMetricLabel({ children }: { children: ReactNode }) {
-  return (
-    <span style={feeTableMetricLabelStyle} lang="en">
-      {children}
-    </span>
-  );
-}
-
 const policyLinks = [
   { href: "/help", label: t("publicPresence.nav.help") },
   { href: "/terms", label: t("publicPresence.nav.terms") },
@@ -478,12 +420,12 @@ export function PublicPresencePageShell({
                   <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
                   <Inline gap={3}>
                     {policyLinks.map((link) => (
-                      <LinkText key={link.href} href={link.href}>
-                        <CoarsePointerLinkLabel>{link.label}</CoarsePointerLinkLabel>
+                      <LinkText key={link.href} href={link.href} touchTarget>
+                        {link.label}
                       </LinkText>
                     ))}
-                    <LinkText href="/contact">
-                      <CoarsePointerLinkLabel>{t("publicPresence.nav.contact")}</CoarsePointerLinkLabel>
+                    <LinkText href="/contact" touchTarget>
+                      {t("publicPresence.nav.contact")}
                     </LinkText>
                   </Inline>
                   <Text size="sm" tone="secondary">
@@ -949,36 +891,29 @@ function FeeComparisonSection() {
       <Stack gap={3}>
         <Table
           density="compact"
+          wrapFirstColumn
           caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
           columns={[
-            <FeeTableMetricLabel>
-              {t("publicPresence.home.sellerEconomics.comparison.column.metric")}
-            </FeeTableMetricLabel>,
+            t("publicPresence.home.sellerEconomics.comparison.column.metric"),
             t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
             t("publicPresence.home.sellerEconomics.comparison.column.tcgplayer"),
             t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
           ]}
           rows={[
             [
-              <FeeTableMetricLabel>
-                {t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label")}
-              </FeeTableMetricLabel>,
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.tcgplayer"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.ebay"),
             ],
             [
-              <FeeTableMetricLabel>
-                {t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label")}
-              </FeeTableMetricLabel>,
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.tcgplayer"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.ebay"),
             ],
             [
-              <FeeTableMetricLabel>
-                {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label")}
-              </FeeTableMetricLabel>,
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
               <Badge tone="success" variant="solid">
                 {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets")}
               </Badge>,
@@ -1240,8 +1175,8 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
           />
           <Text size="sm" tone="tertiary">
             {t("publicPresence.preview.total.protectionCaption")}{" "}
-            <LinkText href="/order-protection">
-              <CoarsePointerLinkLabel>{t("publicPresence.preview.total.protectionLink")}</CoarsePointerLinkLabel>
+            <LinkText href="/order-protection" touchTarget>
+              {t("publicPresence.preview.total.protectionLink")}
             </LinkText>
           </Text>
           <Surface tone="subtle">

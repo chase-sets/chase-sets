@@ -402,7 +402,7 @@ export function AutoGrid({ children, minItemWidth = "md", gap = 4, ...rest }: Au
   );
 }
 
-export type FlexItemMinWidth = "control" | "none";
+export type FlexItemMinWidth = "control" | "none" | "0";
 
 export interface FlexItemProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   minWidth?: ResponsiveValue<FlexItemMinWidth>;
@@ -425,6 +425,15 @@ const flexItemMinWidthClasses: Record<FlexItemMinWidth, Record<"base" | "sm" | "
     lg: "",
     xl: "",
     "2xl": "",
+  },
+  /** Allow the flex item to shrink past its content size instead of overflowing — needed for a truncating child. */
+  "0": {
+    base: "min-w-0",
+    sm: "sm:min-w-0",
+    md: "md:min-w-0",
+    lg: "lg:min-w-0",
+    xl: "xl:min-w-0",
+    "2xl": "2xl:min-w-0",
   },
 };
 

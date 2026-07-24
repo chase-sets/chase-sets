@@ -1,48 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { PromoBar } from "../components/feedback";
-import { ChaseRoot } from "../theme/provider";
+import { ChaseRoot, type ChaseRootProps } from "../theme/provider";
 
-function renderPromoBar(messages: Parameters<typeof PromoBar>[0]["messages"]) {
+function renderPromoBar(
+  messages: Parameters<typeof PromoBar>[0]["messages"],
+  reducedMotion: ChaseRootProps["reducedMotion"] = "never",
+) {
   return render(
-    <ChaseRoot reducedMotion="always">
+    <ChaseRoot reducedMotion={reducedMotion}>
       <PromoBar messages={messages} />
     </ChaseRoot>,
   );
-}
-
-function mockReducedMotionPreference(matches: boolean) {
-  const previousMatchMedia = window.matchMedia;
-  const mediaQueryList = {
-    matches,
-    media: "(prefers-reduced-motion: reduce)",
-    onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(() => false),
-  } as MediaQueryList;
-
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    writable: true,
-    value: vi.fn(() => mediaQueryList),
-  });
-
-  return () => {
-    if (previousMatchMedia) {
-      Object.defineProperty(window, "matchMedia", {
-        configurable: true,
-        writable: true,
-        value: previousMatchMedia,
-      });
-      return;
-    }
-
-    Reflect.deleteProperty(window, "matchMedia");
-  };
 }
 
 describe("PromoBar", () => {
@@ -109,14 +80,17 @@ describe("PromoBar", () => {
     expect(row?.className).not.toContain("flex-col");
   });
 
-  it("truncates the headline instead of wrapping so the compact row stays one line", () => {
+  it("truncates the headline below md but preserves wrapping from md up, since mobile compaction shouldn't drop desktop content", () => {
     renderPromoBar([{ id: "shipping-credit", title: "Earn 5% toward shipping on every order." }]);
 
-    expect(screen.getByText("Earn 5% toward shipping on every order.").className).toContain("truncate");
+    const title = screen.getByText("Earn 5% toward shipping on every order.");
+    expect(title.className).toContain("truncate");
+    expect(title.className).toContain("md:whitespace-normal");
+    expect(title.className).not.toContain("md:truncate");
   });
 
-  it("hides the description below the md breakpoint and shows it at md and up", () => {
-    const { container } = renderPromoBar([
+  it("hides the description below the md breakpoint, and truncates it below md but preserves wrapping from md up", () => {
+    renderPromoBar([
       {
         id: "shipping-credit",
         title: "Earn 5% toward shipping.",
@@ -124,35 +98,89 @@ describe("PromoBar", () => {
       },
     ]);
 
-    const descriptionWrapper = screen.getByText("Applies automatically at checkout.").closest("span");
+    const description = screen.getByText("Applies automatically at checkout.");
+    const descriptionWrapper = description.closest("div");
     expect(descriptionWrapper?.className).toContain("hidden");
     expect(descriptionWrapper?.className).toContain("md:block");
+    expect(description.className).toContain("truncate");
+    expect(description.className).toContain("md:whitespace-normal");
+    expect(description.className).not.toContain("md:truncate");
   });
 
-  it("hides manual cycling controls below md when motion is allowed, since auto-rotation covers navigation there", () => {
+  it("keeps manual navigation and pause controls visible at every breakpoint while auto-rotation is active, so mobile users can navigate and pause", () => {
     renderPromoBar([
       { id: "shipping-credit", title: "Earn 5% toward shipping." },
       { id: "listing-fees", title: "0% fees on beta listings." },
     ]);
 
-    const controlsWrapper = screen.getByLabelText("Next announcement").closest("span[class*='shrink-0']");
-    expect(controlsWrapper?.className).toContain("hidden");
-    expect(controlsWrapper?.className).toContain("md:inline-block");
+    const nextButton = screen.getByLabelText("Next announcement");
+    const controlsWrapper = nextButton.parentElement;
+    expect(controlsWrapper?.className).not.toContain("hidden");
+    expect(controlsWrapper?.className).not.toContain("md:inline-block");
+    expect(screen.getByLabelText("Previous announcement")).toBeTruthy();
+    expect(screen.getByLabelText("Pause announcements")).toBeTruthy();
   });
 
-  it("keeps manual cycling controls visible at every breakpoint when the user prefers reduced motion, since auto-rotation is off", () => {
-    const restoreMatchMedia = mockReducedMotionPreference(true);
-
-    try {
-      renderPromoBar([
+  it("keeps manual navigation controls visible but drops the pause control when the user prefers reduced motion, since there is nothing to pause", () => {
+    renderPromoBar(
+      [
         { id: "shipping-credit", title: "Earn 5% toward shipping." },
         { id: "listing-fees", title: "0% fees on beta listings." },
-      ]);
+      ],
+      "always",
+    );
 
-      const controlsWrapper = screen.getByLabelText("Next announcement").closest("span[class*='shrink-0']");
-      expect(controlsWrapper?.className).not.toContain("hidden");
+    expect(screen.getByLabelText("Next announcement")).toBeTruthy();
+    expect(screen.getByLabelText("Previous announcement")).toBeTruthy();
+    expect(screen.queryByLabelText("Pause announcements")).toBeNull();
+  });
+
+  it("auto-rotates through messages on the configured interval when motion is allowed", () => {
+    vi.useFakeTimers();
+
+    try {
+      renderPromoBar(
+        [
+          { id: "shipping-credit", title: "Earn 5% toward shipping." },
+          { id: "listing-fees", title: "0% fees on beta listings." },
+        ],
+        "never",
+      );
+
+      expect(screen.getByText("Earn 5% toward shipping.")).toBeTruthy();
+
+      act(() => {
+        vi.advanceTimersByTime(7000);
+      });
+
+      expect(screen.getByText("0% fees on beta listings.")).toBeTruthy();
     } finally {
-      restoreMatchMedia();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not auto-rotate when the user prefers reduced motion", () => {
+    vi.useFakeTimers();
+
+    try {
+      renderPromoBar(
+        [
+          { id: "shipping-credit", title: "Earn 5% toward shipping." },
+          { id: "listing-fees", title: "0% fees on beta listings." },
+        ],
+        "always",
+      );
+
+      expect(screen.getByText("Earn 5% toward shipping.")).toBeTruthy();
+
+      act(() => {
+        vi.advanceTimersByTime(14000);
+      });
+
+      expect(screen.getByText("Earn 5% toward shipping.")).toBeTruthy();
+      expect(screen.queryByText("0% fees on beta listings.")).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

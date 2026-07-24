@@ -11,7 +11,12 @@ import {
 import { Icon, type IconName } from "../icons";
 import type { ResponsiveValue } from "../theme/tokens";
 import { cx } from "../utils/cx";
-import { resolveResponsiveClass, resolveTextAlignClass, type TextAlignValue } from "../utils/system";
+import {
+  resolveResponsiveClass,
+  resolveTextAlignClass,
+  resolveTruncateClass,
+  type TextAlignValue,
+} from "../utils/system";
 import { AspectRatio, Center, Surface } from "./layout";
 import type { PolymorphicPrimitive, PolymorphicProps } from "./polymorphic";
 import type { Tone } from "../components/feedback/shared";
@@ -121,7 +126,8 @@ export interface TextOwnProps {
   tone?: keyof typeof textToneClasses;
   weight?: keyof typeof textWeightClasses;
   align?: TextAlignValue;
-  truncate?: boolean;
+  /** Truncate to a single line with an ellipsis. Accepts a per-breakpoint object (e.g. `{ base: true, md: false }`) to scope truncation to narrow viewports and preserve wrapping above a breakpoint. */
+  truncate?: ResponsiveValue<boolean>;
   wrap?: "normal" | "break" | "anywhere";
   /** Clamp to a fixed number of lines, adding an ellipsis when content overflows. */
   lineClamp?: keyof typeof lineClampClasses;
@@ -158,7 +164,7 @@ export const Text = forwardRef(function Text(
         textToneClasses[tone],
         textWeightClasses[weight],
         resolveTextAlignClass(align),
-        truncate && "truncate",
+        resolveTruncateClass(truncate),
         wrap === "break" && "break-words",
         wrap === "anywhere" && "break-words [overflow-wrap:anywhere]",
         lineClamp && lineClampClasses[lineClamp],
@@ -307,14 +313,22 @@ type LinkTextTone = Extract<Tone, "accent" | "neutral">;
 export interface LinkTextProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> {
   tone?: LinkTextTone;
   trailingIcon?: IconName;
+  /**
+   * Grow the hit area to the 44px touch-target guideline on coarse pointers
+   * (touchscreens) via the `pointer-coarse` media variant, without affecting
+   * mouse/trackpad sizing or requiring a JS media-query check.
+   */
+  touchTarget?: boolean;
 }
 
-export function LinkText({ children, tone = "accent", trailingIcon, ...rest }: LinkTextProps) {
+export function LinkText({ children, tone = "accent", trailingIcon, touchTarget = false, ...rest }: LinkTextProps) {
   return (
     <a
       {...rest}
       className={cx(
         "focus-ring inline-flex items-center gap-2 rounded-tokenSm font-medium underline-offset-4",
+        touchTarget &&
+          "pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2 pointer-coarse:py-2",
         tone === "accent"
           ? "text-accent hover:text-foreground hover:underline"
           : "text-secondary hover:text-foreground hover:underline",

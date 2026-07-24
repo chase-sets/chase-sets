@@ -95,6 +95,35 @@ describe("Table density", () => {
   });
 });
 
+describe("Table wrapFirstColumn", () => {
+  it("leaves cells untouched by default", () => {
+    render(<Table columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} />);
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).not.toContain("max-w-11");
+    expect(screen.getByText("Ada").className).not.toContain("max-w-11");
+  });
+
+  it("constrains only the first column's header and body cells to the narrow wrap width", () => {
+    render(<Table columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} wrapFirstColumn />);
+
+    const nameHeader = screen.getByRole("columnheader", { name: "Name" });
+    expect(nameHeader.className).toContain("max-w-11");
+    expect(nameHeader.className).toContain("hyphens-auto");
+    expect(nameHeader.getAttribute("lang")).toBe("en");
+
+    const roleHeader = screen.getByRole("columnheader", { name: "Role" });
+    expect(roleHeader.className).not.toContain("max-w-11");
+    expect(roleHeader.hasAttribute("lang")).toBe(false);
+
+    const nameCell = screen.getByText("Ada");
+    expect(nameCell.className).toContain("max-w-11");
+    expect(nameCell.getAttribute("lang")).toBe("en");
+
+    const roleCell = screen.getByText("Engineer");
+    expect(roleCell.className).not.toContain("max-w-11");
+    expect(roleCell.hasAttribute("lang")).toBe(false);
+  });
+});
+
 describe("DataTable density", () => {
   it("defaults to comfortable padding and tightens under compact", () => {
     const { rerender } = render(<DataTable rows={baseRows} columns={baseColumns} density="comfortable" />);
