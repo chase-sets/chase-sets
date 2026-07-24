@@ -13,6 +13,11 @@ import {
 } from "@chase-sets/design-system";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import type { RegistrationConsentResolution } from "../../../support/request-support/registration-consent";
+import {
+  RegistrationConsentAffirmation,
+  RegistrationConsentResolutionInput,
+} from "../../registration/ui/registration-consent-affirmation";
 
 export type InvitationAcceptancePresentation =
   | Readonly<{
@@ -22,6 +27,7 @@ export type InvitationAcceptancePresentation =
       accountName: string;
       invitedByName: string;
       roleLabel: string;
+      requiresRegistration: boolean;
     }>
   | Readonly<{ status: "expired" | "revoked" | "accepted" | "unavailable" }>;
 
@@ -30,6 +36,7 @@ type Props = Readonly<{
   token: string;
   action?: string;
   errorMessage?: string | null;
+  registrationConsent?: RegistrationConsentResolution | null;
 }>;
 
 const terminalCopyKeys = {
@@ -39,11 +46,12 @@ const terminalCopyKeys = {
   unavailable: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.unavailable",
 } as const;
 
-export function InvitationAcceptancePage({ invitation, token, action, errorMessage }: Props) {
+export function InvitationAcceptancePage({ invitation, token, action, errorMessage, registrationConsent }: Props) {
   const [method, setMethod] = useState<"passkey" | "password">("passkey");
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [consentAffirmed, setConsentAffirmed] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
 
   if (invitation.status !== "pending") {
@@ -90,6 +98,8 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
     <>
       <HiddenInput type="hidden" name="invitationId" value={invitation.invitationId} readOnly />
       <HiddenInput type="hidden" name="token" value={token} readOnly />
+      {registrationConsent ? <RegistrationConsentResolutionInput resolution={registrationConsent} /> : null}
+      <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
     </>
   );
 
@@ -113,6 +123,13 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
           description={errorMessage}
           tone="danger"
           role="alert"
+        />
+      ) : null}
+      {registrationConsent ? (
+        <RegistrationConsentAffirmation
+          resolution={registrationConsent}
+          affirmed={consentAffirmed}
+          onAffirmedChange={setConsentAffirmed}
         />
       ) : null}
       <SegmentedControl

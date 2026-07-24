@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
@@ -48,6 +49,7 @@ function buildApp(services: IdentityServices, requestActor: ResolvedActor = acto
 function createServices(
   overrides: Partial<Pick<IdentityServices, "apiKeys" | "invitations" | "memberships" | "users">> = {},
 ) {
+  const { eventStore } = createInMemoryEventStore();
   return {
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
@@ -207,6 +209,7 @@ function createServices(
         resolvedAt: "2026-06-15T00:00:00.000Z",
       })),
     },
+    eventStore,
     shippingAddresses: {
       commandHandler: vi.fn(async () => commandResult(71, "committed")),
       verifyShippingAddress: vi.fn(
@@ -288,15 +291,19 @@ describe("Identity API mutation snapshots", () => {
       body: JSON.stringify({
         email: "new@example.com",
         displayName: "New Person",
-        consentAffirmed: false,
+        registrationConsent: {
+          operationId: "cmd_personal_identity_snapshot",
+          snapshot: { bundleKey: "registration", requirements: [] },
+          affirmed: false,
+        },
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
     expect(personalIdentity.body.snapshots).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ aggregate: "account", version: 11, status: "active" }),
-        expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
+        expect.objectContaining({ aggregate: "account", version: 1, status: "active" }),
+        expect.objectContaining({ aggregate: "membership", version: 1, status: "active" }),
+        expect.objectContaining({ aggregate: "user", version: 1, status: "active" }),
       ]),
     );
     expect(services.consents.commandHandler).not.toHaveBeenCalled();

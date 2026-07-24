@@ -70,6 +70,15 @@ export {
   type TermsOfServicePolicyValue,
 } from "./features/consents/domain/terms-of-service-policy";
 export { consentBundles, type ConsentBundle, type ConsentBundleKey } from "./features/consents/domain/consent-bundle";
+export type {
+  ActivatedConsentPolicy,
+  RegistrationConsentBundleSnapshot,
+  RegistrationConsentSubmission,
+} from "./features/consents/domain/consent-activation";
+import type {
+  RegistrationConsentBundleSnapshot,
+  RegistrationConsentSubmission,
+} from "./features/consents/domain/consent-activation";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
@@ -95,6 +104,12 @@ export type IdentityCommandSnapshot = Readonly<{
 }>;
 
 export type IdentityAuthMutationClient = Readonly<{
+  resolveRegistrationConsent: () => Promise<
+    Readonly<{
+      operationId: string;
+      snapshot: RegistrationConsentBundleSnapshot;
+    }>
+  >;
   createGuestAccount: (
     params: Readonly<{
       email: string;
@@ -114,7 +129,7 @@ export type IdentityAuthMutationClient = Readonly<{
       displayName: string;
       givenName?: string;
       familyName?: string;
-      consentAffirmed?: boolean;
+      registrationConsent: RegistrationConsentSubmission;
       foundersBetaAccessStartedAt?: string;
     }>,
   ) => Promise<
@@ -224,8 +239,15 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         body: JSON.stringify(body),
       }),
     );
+  const getJson = async <T>(path: string) =>
+    parseJsonResponse<T>(
+      await fetch(new URL(path, `${baseUrl}/`), {
+        headers: createPlatformInternalAuthHeaders(),
+      }),
+    );
 
   return {
+    resolveRegistrationConsent: () => getJson("registration-consent"),
     createGuestAccount: (params) => postJson("guest-accounts", params),
     createUser: (params) => postJson("users", params),
     createPersonalIdentity: (params) => postJson("personal-identities", params),

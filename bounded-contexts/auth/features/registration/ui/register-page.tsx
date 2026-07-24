@@ -6,12 +6,10 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   Divider,
   Heading,
   Inline,
   LinkButton,
-  LinkText,
   PasswordInput,
   SegmentedControl,
   Stack,
@@ -24,6 +22,11 @@ import { useEffect, useRef, useState } from "react";
 import type { AuthActionNotice } from "../../../support/route-support/auth-host";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import {
+  serializeRegistrationConsentResolution,
+  type RegistrationConsentResolution,
+} from "../../../support/request-support/registration-consent";
+import { RegistrationConsentAffirmation, RegistrationConsentResolutionInput } from "./registration-consent-affirmation";
 
 type RegistrationMethod = "passkey" | "phone-code" | "magic-link" | "password";
 type RegistrationAnalyticsStage = "shown" | "selected" | "completed" | "abandoned" | "failed";
@@ -73,6 +76,7 @@ type RegistrationPageProps = Readonly<{
   hiddenFields?: readonly { name: string; value: string }[];
   contextMessage?: Readonly<{ title: string; description: string }> | null;
   notice?: AuthActionNotice | null;
+  registrationConsent?: RegistrationConsentResolution;
   returnTo?: string;
 }>;
 
@@ -85,6 +89,7 @@ type RegistrationFormCardProps = Readonly<{
   intent: string;
   method: RegistrationMethod;
   consentAffirmed: boolean;
+  registrationConsent: RegistrationConsentResolution;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 }>;
 
@@ -139,6 +144,7 @@ function RegistrationFormCard({
   intent,
   method,
   consentAffirmed,
+  registrationConsent,
   onSubmit,
 }: RegistrationFormCardProps) {
   return (
@@ -150,6 +156,7 @@ function RegistrationFormCard({
           <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
           <HiddenInput type="hidden" name="intent" value={intent} readOnly />
           <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
+          <RegistrationConsentResolutionInput resolution={registrationConsent} />
           {children}
         </Stack>
       </Form>
@@ -182,6 +189,10 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
 }
 
 export function RegisterPage(props: RegistrationPageProps) {
+  const registrationConsent = props.registrationConsent ?? {
+    operationId: "",
+    snapshot: { bundleKey: "registration" as const, requirements: [] },
+  };
   const [method, setMethod] = useState<RegistrationMethod>(
     props.notice?.status === "phone-code-sent" ? "phone-code" : DEFAULT_REGISTRATION_METHOD,
   );
@@ -322,24 +333,10 @@ export function RegisterPage(props: RegistrationPageProps) {
         />
       ) : null}
 
-      <Checkbox
-        name="registrationConsentAffirmation"
-        value="affirmed"
-        checked={consentAffirmed}
-        onCheckedChange={(checked) => setConsentAffirmed(checked === true)}
-        label={
-          <Text as="span" size="sm" weight="medium">
-            {t("auth.features.registration.ui.registerPage.consent.affirmation.prefix")}{" "}
-            <LinkText href="/terms" target="_blank" rel="noreferrer">
-              {t("auth.features.registration.ui.registerPage.consent.terms.of.service")}
-            </LinkText>{" "}
-            {t("auth.features.registration.ui.registerPage.consent.and")}{" "}
-            <LinkText href="/privacy" target="_blank" rel="noreferrer">
-              {t("auth.features.registration.ui.registerPage.consent.privacy.policy")}
-            </LinkText>
-            .
-          </Text>
-        }
+      <RegistrationConsentAffirmation
+        resolution={registrationConsent}
+        affirmed={consentAffirmed}
+        onAffirmedChange={setConsentAffirmed}
       />
 
       <Card glow>
@@ -352,14 +349,14 @@ export function RegisterPage(props: RegistrationPageProps) {
           </Inline>
           <Inline>
             <LinkButton
-              href={`/api/auth/social/google/start?journey=registration&consentAffirmed=${consentAffirmed}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              href={`/api/auth/social/google/start?journey=registration&consentAffirmed=${consentAffirmed}&registrationConsent=${encodeURIComponent(serializeRegistrationConsentResolution(registrationConsent))}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
               leadingIcon="badgeCheck"
               block
             >
               {t("auth.features.registration.ui.registerPage.continue.with.google")}
             </LinkButton>
             <LinkButton
-              href={`/api/auth/social/facebook/start?journey=registration&consentAffirmed=${consentAffirmed}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              href={`/api/auth/social/facebook/start?journey=registration&consentAffirmed=${consentAffirmed}&registrationConsent=${encodeURIComponent(serializeRegistrationConsentResolution(registrationConsent))}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
               leadingIcon="users"
               block
             >
@@ -390,6 +387,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           intent="passkey-register"
           method="passkey"
           consentAffirmed={consentAffirmed}
+          registrationConsent={registrationConsent}
           onSubmit={handlePasskeySubmit}
         >
           <PasskeyHiddenFields payload={passkeyPayload} />
@@ -422,6 +420,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           intent="magic-link-register"
           method="magic-link"
           consentAffirmed={consentAffirmed}
+          registrationConsent={registrationConsent}
           onSubmit={() => handleCompleted("magic-link")}
         >
           <Text size="sm" tone="secondary">
@@ -442,6 +441,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             intent="phone-code-request"
             method="phone-code"
             consentAffirmed={consentAffirmed}
+            registrationConsent={registrationConsent}
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
@@ -475,6 +475,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             intent="phone-code-consume"
             method="phone-code"
             consentAffirmed={consentAffirmed}
+            registrationConsent={registrationConsent}
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
@@ -519,6 +520,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           intent="password"
           method="password"
           consentAffirmed={consentAffirmed}
+          registrationConsent={registrationConsent}
           onSubmit={() => handleCompleted("password")}
         >
           <Text size="sm" tone="secondary">

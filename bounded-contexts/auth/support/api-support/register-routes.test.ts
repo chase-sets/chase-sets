@@ -93,6 +93,15 @@ function registrationRequestHeaders(clientAddress: string) {
 
 useMockReset();
 
+const activeRegistrationConsent = {
+  operationId: "cmd_direct_registration",
+  snapshot: {
+    bundleKey: "registration" as const,
+    requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+  },
+  affirmed: true,
+};
+
 describe("registration auth routes", () => {
   it("returns the waitlist path when registration has no pending invitation", async () => {
     const services = createServices();
@@ -283,7 +292,7 @@ describe("registration auth routes", () => {
       body: JSON.stringify({
         email: "new.user@chasesets.test",
         displayName: "New User",
-        consentAffirmed: true,
+        registrationConsent: activeRegistrationConsent,
       }),
     });
 
@@ -292,7 +301,7 @@ describe("registration auth routes", () => {
     expect(createPersonalIdentity).toHaveBeenCalledWith(
       expect.objectContaining({
         email: "new.user@chasesets.test",
-        consentAffirmed: true,
+        registrationConsent: activeRegistrationConsent,
       }),
     );
   });
@@ -318,7 +327,7 @@ describe("registration auth routes", () => {
       body: JSON.stringify({
         email: "no-affirmation@chasesets.test",
         displayName: "No Affirmation",
-        consentAffirmed: false,
+        registrationConsent: { ...activeRegistrationConsent, affirmed: false },
       }),
     });
 

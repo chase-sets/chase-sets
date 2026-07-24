@@ -367,6 +367,7 @@ describe("invitation auth routes", () => {
       accountName: "Competitive Cards",
       invitedByName: "Avery Collector",
       roleLabel: "Viewer",
+      requiresRegistration: true,
     });
     expect(identityMutations.verifyInvitationAcceptanceToken).toHaveBeenCalledWith({
       invitationId: "ivt_1",
@@ -511,6 +512,10 @@ describe("invitation auth routes", () => {
   it("accepts a valid emailed token once and rejects replay", async () => {
     const services = createServices();
     const identityMutations = createIdentityMutations();
+    identityMutations.createPersonalIdentity.mockRejectedValueOnce({
+      status: 400,
+      body: { error: { code: "validation_failed", message: "Registration consent bundle is stale." } },
+    });
     mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
     mockStartInteractiveAuth.mockResolvedValue({
       type: "session-started",
@@ -521,16 +526,40 @@ describe("invitation auth routes", () => {
       memberships: [],
     });
     const app = buildApp(services);
-
-    const first = await app.request("/invitations/accept", {
+    const registrationConsent = {
+      operationId: "cmd_invitation_registration",
+      snapshot: {
+        bundleKey: "registration",
+        requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+      },
+      affirmed: true,
+    };
+    const request = {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.101" },
       body: JSON.stringify({
         invitationId: "ivt_valid_once",
         token: "invite_token",
         password: "correct horse battery staple",
+        registrationConsent,
       }),
-    });
+    };
+
+    const rejected = await app.request("/invitations/accept", request);
+    expect(rejected.status).toBe(400);
+    expect(identityMutations.acceptInvitationForUser).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+
+    identityMutations.createPersonalIdentity.mockClear();
+    const first = await app.request("/invitations/accept", request);
+    expect(identityMutations.createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "seller@example.com",
+        displayName: "seller",
+        registrationConsent,
+        foundersBetaAccessStartedAt: expect.any(String),
+      }),
+    );
 
     expect(first.status).toBe(200);
     await expect(first.json()).resolves.toMatchObject({

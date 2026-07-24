@@ -33,6 +33,17 @@ function inputNamed(name: string) {
   return document.querySelector(`input[name="${name}"]`) as HTMLInputElement;
 }
 
+const activeRegistrationConsent = {
+  operationId: "cmd_registration",
+  snapshot: {
+    bundleKey: "registration" as const,
+    requirements: [
+      { policyKey: "terms-of-service" as const, version: "v1" as const, href: "/terms" },
+      { policyKey: "privacy-policy" as const, version: "v1" as const, href: "/privacy" },
+    ],
+  },
+};
+
 describe("registration page", () => {
   it("defaults to passkeys and presents them as recommended", () => {
     const events: unknown[] = [];
@@ -40,7 +51,7 @@ describe("registration page", () => {
       events.push((event as CustomEvent).detail);
     });
 
-    render(<RegisterPage />);
+    render(<RegisterPage registrationConsent={activeRegistrationConsent} />);
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1, name: "Create an account with a passkey" })).toBeTruthy();
@@ -49,11 +60,9 @@ describe("registration page", () => {
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create With Passkey" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
-    expect(
-      screen.getAllByRole("checkbox", { name: /I agree to the Terms of Service and Privacy Policy/ }),
-    ).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
-    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getAllByRole("checkbox", { name: /I agree/ })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /Terms of Service/ }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: /Privacy Policy/ }).getAttribute("href")).toBe("/privacy");
     expect(inputNamed("consentAffirmed").value).toBe("false");
     expect(events).toEqual(
       expect.arrayContaining([
@@ -66,9 +75,9 @@ describe("registration page", () => {
   });
 
   it("carries one explicit affirmation across every registration method", () => {
-    render(<RegisterPage />);
+    render(<RegisterPage registrationConsent={activeRegistrationConsent} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /I agree to the Terms of Service and Privacy Policy/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I agree/ }));
     expect(inputNamed("consentAffirmed").value).toBe("true");
 
     fireEvent.click(screen.getByRole("radio", { name: /Phone Code/ }));
@@ -78,6 +87,37 @@ describe("registration page", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
     expect(inputNamed("consentAffirmed").value).toBe("true");
+  });
+
+  it("renders no operative affirmation for an empty bundle", () => {
+    render(
+      <RegisterPage
+        registrationConsent={{
+          operationId: "cmd_empty",
+          snapshot: { bundleKey: "registration", requirements: [] },
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("checkbox", { name: /I agree/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Terms of Service" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Privacy Policy" })).toBeNull();
+  });
+
+  it("renders exactly the server-resolved partial bundle and submits its ordered identity", () => {
+    const partial = {
+      operationId: "cmd_partial",
+      snapshot: {
+        bundleKey: "registration" as const,
+        requirements: [{ policyKey: "privacy-policy" as const, version: "v7" as const, href: "/privacy-canonical" }],
+      },
+    };
+    render(<RegisterPage registrationConsent={partial} />);
+
+    expect(screen.queryByRole("link", { name: "Terms of Service" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy-canonical");
+    expect(screen.getByText(/privacy-policy · v7/)).toBeTruthy();
+    expect(JSON.parse(inputNamed("registrationConsent").value)).toEqual(partial);
   });
 
   it("shows contextual registration copy when the return path needs an account gate", () => {

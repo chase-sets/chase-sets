@@ -267,27 +267,52 @@ describe("magic link auth routes", () => {
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       consumed_at: null,
     });
-    const createPersonalIdentity = vi.fn(async () => ({
-      userId: "usr_wave",
-      accountId: "acc_wave",
-      membershipId: "mbr_wave",
-    }));
+    const createPersonalIdentity = vi
+      .fn()
+      .mockRejectedValueOnce({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "Registration consent bundle is stale." } },
+      })
+      .mockResolvedValue({
+        userId: "usr_wave",
+        accountId: "acc_wave",
+        membershipId: "mbr_wave",
+      });
     mockCreateIdentityAuthRequestClient.mockReturnValue({
       createPersonalIdentity,
       verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_wave", snapshots: [] })),
     });
     mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
 
-    const response = await buildApp(services).request("/magic-link/consume", {
+    const app = buildApp(services);
+    const registrationConsent = {
+      operationId: "cmd_magic_link_registration",
+      snapshot: {
+        bundleKey: "registration",
+        requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+      },
+      affirmed: true,
+    };
+    const request = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: "magic_token" }),
-    });
+      body: JSON.stringify({ token: "magic_token", registrationConsent }),
+    };
 
+    const rejected = await app.request("/magic-link/consume", request);
+    expect(rejected.status).toBe(400);
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+
+    createPersonalIdentity.mockClear();
+    const response = await app.request("/magic-link/consume", request);
     expect(response.status).toBe(200);
     expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
     expect(createPersonalIdentity).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "wave@chasesets.test", foundersBetaAccessStartedAt: expect.any(String) }),
+      expect.objectContaining({
+        email: "wave@chasesets.test",
+        registrationConsent,
+        foundersBetaAccessStartedAt: expect.any(String),
+      }),
     );
   });
 

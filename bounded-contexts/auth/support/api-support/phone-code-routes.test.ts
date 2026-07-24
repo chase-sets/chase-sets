@@ -228,7 +228,7 @@ describe("phone code auth routes", () => {
             {
               token_id: "cmd_phone_1",
               user_id: null,
-              phone: "+13125550101",
+              phone: "+13125550199",
               code_hash: String(params[2]),
               expires_at: new Date(Date.now() + 60_000).toISOString(),
               consumed_at: new Date().toISOString(),
@@ -256,11 +256,16 @@ describe("phone code auth routes", () => {
       },
       notificationOutbox: { enqueueNotification: vi.fn() },
     };
-    mockCreatePersonalIdentity.mockResolvedValue({
-      userId: "usr_new",
-      accountId: "acc_new",
-      membershipId: "mbr_new",
-    });
+    mockCreatePersonalIdentity
+      .mockRejectedValueOnce({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "Registration consent bundle is stale." } },
+      })
+      .mockResolvedValue({
+        userId: "usr_new",
+        accountId: "acc_new",
+        membershipId: "mbr_new",
+      });
     mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity: mockCreatePersonalIdentity });
     mockStartInteractiveAuth.mockResolvedValue({
       type: "session-started",
@@ -272,16 +277,34 @@ describe("phone code auth routes", () => {
     });
     const app = buildApp(services);
 
-    const response = await app.request("/phone-code/consume", {
+    const request = {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.122" },
       body: JSON.stringify({
         tokenId: "cmd_phone_1",
-        phone: "3125550101",
+        phone: "3125550199",
         code: "123456",
         displayName: "New Buyer",
+        registrationConsent: {
+          operationId: "cmd_phone_registration",
+          snapshot: {
+            bundleKey: "registration",
+            requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+          },
+          affirmed: true,
+        },
       }),
+    };
+
+    const rejected = await app.request("/phone-code/consume", request);
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: { code: "validation_failed", message: "Registration consent bundle is stale." },
     });
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+
+    mockCreatePersonalIdentity.mockClear();
+    const response = await app.request("/phone-code/consume", request);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -289,9 +312,16 @@ describe("phone code auth routes", () => {
       sessionToken: "session_token",
     });
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
-      phone: "+13125550101",
+      phone: "+13125550199",
       displayName: "New Buyer",
-      consentAffirmed: false,
+      registrationConsent: {
+        operationId: "cmd_phone_registration",
+        snapshot: {
+          bundleKey: "registration",
+          requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+        },
+        affirmed: true,
+      },
     });
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,
@@ -362,12 +392,12 @@ describe("phone code auth routes", () => {
 
     const first = await app.request("/phone-code/consume", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.123" },
       body: requestBody,
     });
     const replay = await app.request("/phone-code/consume", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.123" },
       body: requestBody,
     });
 

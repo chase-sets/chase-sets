@@ -29,6 +29,7 @@ import {
 } from "../auth-support/http";
 import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import { createAuthApiClient } from "../request-support/api-client";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 export { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -507,6 +508,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               email: submittedFormData.get("email"),
               landingPath: magicLinkLandingPath(options.signInPath),
               returnTo: getSafeReturnTo(request, options.defaultSuccessPath),
+              registrationConsent: registrationConsentSubmission(
+                submittedFormData.get("registrationConsent"),
+                submittedFormData.get("consentAffirmed") === "true",
+              ),
             });
 
             return {
@@ -527,6 +532,25 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               tokenId: result.tokenId,
               phone: result.phone,
               expiresAt: result.expiresAt,
+            };
+          }
+
+          if (intent === "magic-link-register") {
+            const result = await api.requestMagicLink<MagicLinkRequestResult>({
+              email: formData.get("email"),
+              landingPath: magicLinkLandingPath(options.signInPath),
+              returnTo: getSafeReturnTo(request, options.defaultSuccessPath),
+              registrationConsent: registrationConsentSubmission(
+                formData.get("registrationConsent"),
+                formData.get("consentAffirmed") === "true",
+              ),
+            });
+
+            return {
+              status: "magic-link-sent",
+              tokenId: result.tokenId,
+              expiresAt: result.expiresAt,
+              email: typeof formData.get("email") === "string" ? String(formData.get("email")) : undefined,
             };
           }
 
@@ -551,6 +575,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                     phone: submittedFormData.get("phone"),
                     code: submittedFormData.get("code"),
                     accountId: submittedFormData.get("accountId"),
+                    registrationConsent: registrationConsentSubmission(
+                      submittedFormData.get("registrationConsent"),
+                      submittedFormData.get("consentAffirmed") === "true",
+                    ),
                   })
                 : intent === "passkey-sign-in"
                   ? await api.signInWithPasskey<InteractiveAuthResult>({
@@ -608,7 +636,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               externalCredentialId: formData.get("externalCredentialId"),
               label: formData.get("label"),
               webauthnResponse: formData.get("webauthnResponse"),
-              consentAffirmed: formData.get("consentAffirmed") === "true",
+              registrationConsent: registrationConsentSubmission(
+                formData.get("registrationConsent"),
+                formData.get("consentAffirmed") === "true",
+              ),
             });
             freshWriteSource = identityFreshWriteSource(passkeyRegistration);
             authResult = passkeyRegistration.authResult;
@@ -618,7 +649,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               displayName: formData.get("displayName"),
               phone: formData.get("phone"),
               code: formData.get("code"),
-              consentAffirmed: formData.get("consentAffirmed") === "true",
+              registrationConsent: registrationConsentSubmission(
+                formData.get("registrationConsent"),
+                formData.get("consentAffirmed") === "true",
+              ),
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           } else {
@@ -626,7 +660,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               displayName: formData.get("displayName"),
               email: formData.get("email"),
               password: formData.get("password"),
-              consentAffirmed: formData.get("consentAffirmed") === "true",
+              registrationConsent: registrationConsentSubmission(
+                formData.get("registrationConsent"),
+                formData.get("consentAffirmed") === "true",
+              ),
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           }

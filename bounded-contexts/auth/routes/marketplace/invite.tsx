@@ -10,6 +10,7 @@ import {
 import type { InteractiveAuthResult } from "../../support/runtime-support/services";
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
+import { resolveRegistrationConsentForRequest } from "../../support/request-support/registration-consent";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("auth.routes.marketplace.invite.meta.title") });
 
@@ -20,7 +21,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     invitationId,
     token,
   });
-  return { invitation, token };
+  return {
+    invitation,
+    token,
+    registrationConsent:
+      invitation.status === "pending" && invitation.requiresRegistration
+        ? await resolveRegistrationConsentForRequest(request)
+        : null,
+  };
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -35,6 +43,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       externalCredentialId: formData.get("externalCredentialId"),
       label: formData.get("label"),
       webauthnResponse: formData.get("webauthnResponse"),
+      registrationConsent: formData.get("registrationConsent"),
+      consentAffirmed: formData.get("consentAffirmed") === "true",
     });
     return marketplaceAuthHost.completeAuthentication(request, result, {
       defaultSuccessPath: "/account",
@@ -59,6 +69,7 @@ export default function MarketplaceInviteRoute() {
         invitation={data.invitation}
         token={data.token}
         errorMessage={actionData && "error" in actionData ? actionData.error : null}
+        registrationConsent={data.registrationConsent}
       />
     </Container>
   );

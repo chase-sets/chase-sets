@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import { createPersonalIdentityForAuth } from "../api";
-import type { ConsentPublicationRegistry } from "../features/consents/domain/consent-activation";
-import { initialConsentState, type RecordConsentCommand } from "../features/consents/domain/domain";
+import {
+  resolveGuardedRegistrationConsentSnapshot,
+  type ConsentPublicationRegistry,
+  type RegistrationConsentSubmission,
+} from "../features/consents/domain/consent-activation";
 import type { IdentityServices } from "../support/runtime-support/services";
 
 const context: EventStoreContext = {
@@ -14,15 +19,6 @@ const context: EventStoreContext = {
   },
   trace: {},
 };
-
-function commandResult(status: string) {
-  return {
-    version: 1,
-    state: { status },
-    newEvents: [],
-    storedEvents: [],
-  };
-}
 
 function activeRegistrationPublications(): ConsentPublicationRegistry {
   return {
@@ -40,96 +36,114 @@ function activeRegistrationPublications(): ConsentPublicationRegistry {
   } satisfies ConsentPublicationRegistry;
 }
 
-function createServices() {
-  const accounts = vi.fn(async () => commandResult("active"));
-  const users = vi.fn(async () => commandResult("active"));
-  const memberships = vi.fn(async () => commandResult("active"));
-  const consents = vi.fn<IdentityServices["consents"]["commandHandler"]>(async ({ command }) => ({
-    version: 1,
-    state: { ...initialConsentState, status: command.type === "RecordConsent" ? "recorded" : "withdrawn" },
-    newEvents: [],
-    storedEvents: [],
-  }));
-  const db = {
-    query: vi.fn(async (sql: string) =>
-      sql.includes("INSERT INTO identity_account_display_name_reservations")
-        ? { rows: [{ display_name_key: "new user" }], rowCount: 1 }
-        : { rows: [], rowCount: 0 },
-    ),
-  };
+async function createHarness(options: Readonly<{ active?: boolean; eventStore?: EventStore }> = {}) {
+  const memory = createInMemoryEventStore();
+  const eventStore = options.eventStore ?? memory.eventStore;
+  const publications = options.active ? activeRegistrationPublications() : publicPolicyPublicationRecords;
+  const policyDocuments = {
+    "identity.terms-of-service-active-version": "pol_terms",
+    "identity.privacy-policy-active-version": "pol_privacy",
+  } as const;
+
+  if (options.active) {
+    for (const documentId of Object.values(policyDocuments)) {
+      await memory.eventStore.appendToStream({
+        streamId: `platform-policy.document-${documentId}`,
+        expectedVersion: "no_stream",
+        events: [{ eventType: "platform-policy.document.created", payload: { documentId } }],
+        context,
+      });
+    }
+  }
+
   const policies = {
-    resolvePolicy: vi.fn(async (definition: { policyKey: string }) => ({
+    resolvePolicy: vi.fn(async (definition: { policyKey: keyof typeof policyDocuments }) => ({
       policyKey: definition.policyKey,
       value: { version: "v1" },
       source: "policy" as const,
-      documentId: `pol_${definition.policyKey}`,
+      documentId: policyDocuments[definition.policyKey],
       effectiveFrom: "2026-07-24T00:00:00.000Z",
       effectiveUntil: null,
       resolvedAt: "2026-07-24T00:00:00.000Z",
     })),
   };
+  const db = {
+    query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+  };
   const services = {
     db,
-    accounts: { commandHandler: accounts },
-    users: { commandHandler: users },
-    memberships: { commandHandler: memberships },
-    consents: { commandHandler: consents },
+    eventStore,
     policies,
   } as unknown as IdentityServices;
+  const resolved = await resolveGuardedRegistrationConsentSnapshot(policies, memory.eventStore, publications);
 
-  return { services, db, accounts, users, memberships, consents, policies };
+  return { memory, services, db, policies, publications, resolved };
 }
 
-describe("registration consent affirmation", () => {
-  it("rejects a missing required affirmation before any reservation or aggregate command", async () => {
-    const harness = createServices();
+function submission(
+  resolved: Awaited<ReturnType<typeof createHarness>>["resolved"],
+  overrides: Readonly<{ operationId?: string; affirmed?: boolean }> = {},
+): RegistrationConsentSubmission {
+  return {
+    operationId: overrides.operationId ?? "cmd_registration",
+    snapshot: resolved.snapshot,
+    affirmed: overrides.affirmed ?? true,
+  };
+}
+
+function registrationParams(registrationConsent: RegistrationConsentSubmission) {
+  return {
+    email: "new.user@chasesets.test",
+    displayName: "New User",
+    registrationConsent,
+    context,
+  } as const;
+}
+
+function registrationEvents(memory: ReturnType<typeof createInMemoryEventStore>) {
+  return memory.readAllEvents().filter((event) => event.eventType.startsWith("identity."));
+}
+
+describe("atomic registration consent", () => {
+  it("rejects a missing required affirmation before any registration write", async () => {
+    const harness = await createHarness({ active: true });
 
     await expect(
       createPersonalIdentityForAuth(
         harness.services,
-        {
-          email: "new.user@chasesets.test",
-          displayName: "New User",
-          consentAffirmed: false,
-          context,
-        },
-        activeRegistrationPublications(),
+        registrationParams(submission(harness.resolved, { affirmed: false })),
+        harness.publications,
       ),
     ).rejects.toThrow(/requires affirmation/);
 
     expect(harness.db.query).not.toHaveBeenCalled();
-    expect(harness.accounts).not.toHaveBeenCalled();
-    expect(harness.users).not.toHaveBeenCalled();
-    expect(harness.memberships).not.toHaveBeenCalled();
-    expect(harness.consents).not.toHaveBeenCalled();
+    expect(registrationEvents(harness.memory)).toEqual([]);
   });
 
-  it("records one user-scoped Consent for each active bundle member after affirmation", async () => {
-    const harness = createServices();
-
+  it("commits Account, User, Membership, and the ordered Consent bundle in one append", async () => {
+    const harness = await createHarness({ active: true });
     const result = await createPersonalIdentityForAuth(
       harness.services,
-      {
-        email: "new.user@chasesets.test",
-        displayName: "New User",
-        consentAffirmed: true,
-        context,
-      },
-      activeRegistrationPublications(),
+      registrationParams(submission(harness.resolved)),
+      harness.publications,
     );
 
-    expect(result.snapshots.filter((snapshot) => snapshot.aggregate === "consent")).toHaveLength(2);
-    expect(harness.consents).toHaveBeenCalledTimes(2);
+    expect(result.snapshots.map((snapshot) => snapshot.aggregate)).toEqual([
+      "account",
+      "membership",
+      "consent",
+      "consent",
+      "user",
+    ]);
     expect(
-      harness.consents.mock.calls
-        .map(([call]) => call.command)
-        .filter((command): command is RecordConsentCommand => command.type === "RecordConsent")
-        .map((command) => ({
-          policyKey: command.policyKey,
-          policyVersion: command.policyVersion,
-          subjectType: command.subjectType,
-          userId: command.userId,
-          accountId: command.accountId,
+      registrationEvents(harness.memory)
+        .filter((event) => event.eventType === "identity.consent.recorded")
+        .map((event) => ({
+          policyKey: event.payload.policyKey,
+          policyVersion: event.payload.policyVersion,
+          subjectType: event.payload.subjectType,
+          userId: event.payload.userId,
+          accountId: event.payload.accountId,
         })),
     ).toEqual([
       {
@@ -149,22 +163,150 @@ describe("registration consent affirmation", () => {
     ]);
   });
 
-  it("creates the identity without Consent facts while the registration bundle is inactive", async () => {
-    const harness = createServices();
+  it("leaves no partial state on a forced second-Consent failure, then retries to one completed result", async () => {
+    const memory = createInMemoryEventStore();
+    let failSecondConsent = true;
+    const eventStore: EventStore = {
+      ...memory.eventStore,
+      appendToStreams: async (inputs) => {
+        if (
+          failSecondConsent &&
+          inputs.filter((input) => input.streamId.startsWith("identity.consent-")).length === 2
+        ) {
+          failSecondConsent = false;
+          throw new Error("forced second Consent failure");
+        }
+        return memory.eventStore.appendToStreams!(inputs);
+      },
+    };
+    const harness = await createHarness({ active: true, eventStore });
+    for (const event of harness.memory.readAllEvents()) {
+      if (event.streamId.startsWith("platform-policy.document-")) {
+        await memory.eventStore.appendToStream({
+          streamId: event.streamId,
+          expectedVersion: "no_stream",
+          events: [{ eventType: event.eventType, payload: event.payload }],
+          context,
+        });
+      }
+    }
+    const input = registrationParams(submission(harness.resolved));
 
+    await expect(createPersonalIdentityForAuth(harness.services, input, harness.publications)).rejects.toThrow(
+      /forced second Consent/,
+    );
+    expect(registrationEvents(memory)).toEqual([]);
+
+    const completed = await createPersonalIdentityForAuth(harness.services, input, harness.publications);
+    const retried = await createPersonalIdentityForAuth(harness.services, input, harness.publications);
+
+    expect(retried).toEqual(completed);
+    expect(registrationEvents(memory).filter((event) => event.eventType === "identity.account.created")).toHaveLength(
+      1,
+    );
+    expect(registrationEvents(memory).filter((event) => event.eventType === "identity.user.created")).toHaveLength(1);
+    expect(
+      registrationEvents(memory).filter((event) => event.eventType === "identity.membership.granted"),
+    ).toHaveLength(1);
+    expect(registrationEvents(memory).filter((event) => event.eventType === "identity.consent.recorded")).toHaveLength(
+      2,
+    );
+  });
+
+  it("collapses concurrent attempts with one operation identity to one aggregate set", async () => {
+    const harness = await createHarness({ active: true });
+    const input = registrationParams(submission(harness.resolved));
+
+    const [left, right] = await Promise.all([
+      createPersonalIdentityForAuth(harness.services, input, harness.publications),
+      createPersonalIdentityForAuth(harness.services, input, harness.publications),
+    ]);
+
+    expect(right).toEqual(left);
+    expect(
+      registrationEvents(harness.memory).filter((event) => event.eventType === "identity.account.created"),
+    ).toHaveLength(1);
+    expect(
+      registrationEvents(harness.memory).filter(
+        (event) => event.eventType === "identity.personal-identity.provisioned",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a mid-flight activation switch before appending registration state", async () => {
+    const harness = await createHarness({ active: true });
+    harness.policies.resolvePolicy.mockClear().mockImplementation(async (definition: { policyKey: string }) => ({
+      policyKey: definition.policyKey,
+      value: { version: harness.policies.resolvePolicy.mock.calls.length > 2 ? "v2" : "v1" },
+      source: "policy" as const,
+      documentId: definition.policyKey.includes("terms") ? "pol_terms" : "pol_privacy",
+      effectiveFrom: "2026-07-24T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-07-24T00:00:00.000Z",
+    }));
+
+    await expect(
+      createPersonalIdentityForAuth(
+        harness.services,
+        registrationParams(submission(harness.resolved)),
+        harness.publications,
+      ),
+    ).rejects.toThrow(/bundle is stale/);
+
+    expect(registrationEvents(harness.memory)).toEqual([]);
+  });
+
+  it("uses policy stream versions as append-time guards against a last-instant revision", async () => {
+    const memory = createInMemoryEventStore();
+    let reviseBeforeAppend = true;
+    const eventStore: EventStore = {
+      ...memory.eventStore,
+      appendToStreams: async (inputs) => {
+        if (reviseBeforeAppend) {
+          reviseBeforeAppend = false;
+          await memory.eventStore.appendToStream({
+            streamId: "platform-policy.document-pol_terms",
+            expectedVersion: 1,
+            events: [{ eventType: "platform-policy.document.revised", payload: { version: "v2" } }],
+            context,
+          });
+        }
+        return memory.eventStore.appendToStreams!(inputs);
+      },
+    };
+    const harness = await createHarness({ active: true, eventStore });
+    for (const documentId of ["pol_terms", "pol_privacy"]) {
+      await memory.eventStore.appendToStream({
+        streamId: `platform-policy.document-${documentId}`,
+        expectedVersion: "no_stream",
+        events: [{ eventType: "platform-policy.document.created", payload: { documentId } }],
+        context,
+      });
+    }
+
+    await expect(
+      createPersonalIdentityForAuth(
+        harness.services,
+        registrationParams(submission(harness.resolved)),
+        harness.publications,
+      ),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+
+    expect(registrationEvents(memory)).toEqual([]);
+  });
+
+  it("creates the identity without Consent facts for an exact empty bundle", async () => {
+    const harness = await createHarness();
     const result = await createPersonalIdentityForAuth(
       harness.services,
-      {
-        email: "new.user@chasesets.test",
-        displayName: "New User",
-        consentAffirmed: false,
-        context,
-      },
-      publicPolicyPublicationRecords,
+      registrationParams(submission(harness.resolved, { affirmed: false })),
+      harness.publications,
     );
 
     expect(result.snapshots.some((snapshot) => snapshot.aggregate === "account")).toBe(true);
-    expect(harness.consents).not.toHaveBeenCalled();
+    expect(
+      registrationEvents(harness.memory).filter((event) => event.eventType === "identity.consent.recorded"),
+    ).toEqual([]);
     expect(harness.policies.resolvePolicy).not.toHaveBeenCalled();
   });
 });

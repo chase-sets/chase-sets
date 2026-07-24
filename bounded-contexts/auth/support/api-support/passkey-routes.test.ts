@@ -218,31 +218,38 @@ describe("passkey route security", () => {
       eventIds: ["evt_identity_63"],
     } as const satisfies SourceCommitPosition;
     const dbQuery = vi.mocked(services.db.query);
-    dbQuery
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            challenge_id: "cmd_1",
-            purpose: "passkey-register",
-            email: "owner@pokebash.example",
-            user_id: null,
-            challenge_value: "challenge_value",
-            expires_at: new Date(Date.now() + 60_000).toISOString(),
-            consumed_at: new Date().toISOString(),
-          },
-        ],
-      })
-      .mockResolvedValue({ rows: [] });
-    mockCreatePersonalIdentity.mockResolvedValue(
-      withCommandReceipt(
-        {
-          userId: "usr_new",
-          accountId: "acc_new",
-          membershipId: "mbr_new",
-        },
-        identitySource,
-      ),
+    dbQuery.mockImplementation(async (sql: string) =>
+      sql.includes("UPDATE identity_auth_challenges")
+        ? {
+            rows: [
+              {
+                challenge_id: "cmd_1",
+                purpose: "passkey-register",
+                email: "owner@pokebash.example",
+                user_id: null,
+                challenge_value: "challenge_value",
+                expires_at: new Date(Date.now() + 60_000).toISOString(),
+                consumed_at: new Date().toISOString(),
+              },
+            ],
+          }
+        : { rows: [] },
     );
+    mockCreatePersonalIdentity
+      .mockRejectedValueOnce({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "Registration consent bundle is stale." } },
+      })
+      .mockResolvedValue(
+        withCommandReceipt(
+          {
+            userId: "usr_new",
+            accountId: "acc_new",
+            membershipId: "mbr_new",
+          },
+          identitySource,
+        ),
+      );
     mockRegisterPasskeyCredential.mockResolvedValue(
       withCommandReceipt(
         {
@@ -259,7 +266,7 @@ describe("passkey route security", () => {
     });
     const app = buildApp(services);
 
-    const response = await app.request("/passkeys/register", {
+    const request = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -269,8 +276,26 @@ describe("passkey route security", () => {
         externalCredentialId: "external_credential",
         label: "Passkey",
         webauthnResponse: registrationResponse,
+        registrationConsent: {
+          operationId: "cmd_passkey_registration",
+          snapshot: {
+            bundleKey: "registration",
+            requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+          },
+          affirmed: true,
+        },
       }),
+    };
+    const rejected = await app.request("/passkeys/register", request);
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: { code: "validation_failed", message: "Registration consent bundle is stale." },
     });
+    expect(mockRegisterPasskeyCredential).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+
+    mockCreatePersonalIdentity.mockClear();
+    const response = await app.request("/passkeys/register", request);
 
     expect(response.status).toBe(201);
     expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
@@ -294,7 +319,14 @@ describe("passkey route security", () => {
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",
       displayName: "PokeBash TCG",
-      consentAffirmed: false,
+      registrationConsent: {
+        operationId: "cmd_passkey_registration",
+        snapshot: {
+          bundleKey: "registration",
+          requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+        },
+        affirmed: true,
+      },
     });
     expect(mockRegisterPasskeyCredential).toHaveBeenCalledWith({
       userId: "usr_new",

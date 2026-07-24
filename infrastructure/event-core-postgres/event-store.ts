@@ -267,7 +267,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     },
     appendToStreams: async (inputs) => {
       const appendInputs = inputs.filter((input) => input.events.length > 0);
-      if (appendInputs.length === 0) {
+      if (inputs.length === 0) {
         return inputs.map((input) => ({ streamId: input.streamId, storedEvents: [] }));
       }
 
@@ -700,7 +700,13 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   for (const input of args.inputs) {
     const storedEvents =
       input.events.length === 0
-        ? []
+        ? await assertStreamExpectedVersion({
+            client: args.client,
+            input,
+            now: args.now,
+            upsertStreamSql: args.upsertStreamSql,
+            readCurrentVersionSql: args.readCurrentVersionSql,
+          })
         : await appendEventsToStream({
             ...args,
             input,
@@ -712,6 +718,31 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   }
 
   return results;
+}
+
+async function assertStreamExpectedVersion(
+  args: Readonly<{
+    client: PgPoolClient;
+    input: AppendToStreamInput;
+    now: () => IsoUtcTimestamp;
+    upsertStreamSql: string;
+    readCurrentVersionSql: string;
+  }>,
+): Promise<readonly StoredEvent[]> {
+  const now = args.now();
+  await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
+  const currentVersionResult = await args.client.query<{ current_version: string | number }>(
+    args.readCurrentVersionSql,
+    [args.input.streamId],
+  );
+  const currentVersion = Number(currentVersionResult.rows[0]?.current_version);
+  if (!Number.isInteger(currentVersion) || currentVersion < 0) {
+    throw createEventStoreError("infrastructure_failure", "Stream row not found", {
+      streamId: args.input.streamId,
+    });
+  }
+  assertExpectedVersion(args.input.streamId, args.input.expectedVersion, currentVersion);
+  return [];
 }
 
 type PendingIndependentStreamAppend = Readonly<{

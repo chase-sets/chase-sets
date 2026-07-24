@@ -156,6 +156,26 @@ describe("postgres event store", () => {
     expect(calls).toEqual([]);
   });
 
+  it("rolls back a multi-stream append when a zero-event version guard is stale", async () => {
+    const { pool, calls } = createAppendPool({ currentVersion: 1 });
+    const store = createPostgresEventStore({ pool });
+
+    await expect(
+      store.appendToStreams!([
+        appendInput({
+          streamId: "platform-policy.document-pol_terms",
+          expectedVersion: 0,
+          events: [],
+        }),
+        appendInput({ streamId: "identity.account-acc_new" }),
+      ]),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+
+    expect(calls.some((call) => isEventInsertCall(call))).toBe(false);
+    expect(calls.some((call) => call.sql === "ROLLBACK")).toBe(true);
+    expect(calls.some((call) => call.sql === "COMMIT")).toBe(false);
+  });
+
   it("pushes readAll event type and stream prefix filters into SQL", async () => {
     const queries: { sql: string; params: readonly unknown[] }[] = [];
     const store = createPostgresEventStore({

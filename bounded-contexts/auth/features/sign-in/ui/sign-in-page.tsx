@@ -24,6 +24,14 @@ import {
 } from "../../../support/route-support/auth-host";
 import { getPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import {
+  serializeRegistrationConsentResolution,
+  type RegistrationConsentResolution,
+} from "../../../support/request-support/registration-consent";
+import {
+  RegistrationConsentAffirmation,
+  RegistrationConsentResolutionInput,
+} from "../../registration/ui/registration-consent-affirmation";
 
 type SignInMethodItem = SegmentedControlItem & Readonly<{ value: SignInMethod }>;
 type SignInIdentifierKind = "email" | "phone";
@@ -107,6 +115,7 @@ export function SignInPage(
     allowManualMagicLinkTokenEntry?: boolean;
     socialLoginDescription?: string;
     socialLoginLinks?: readonly SocialLoginLink[];
+    registrationConsent?: RegistrationConsentResolution;
   }>,
 ) {
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
@@ -127,20 +136,25 @@ export function SignInPage(
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [consentAffirmed, setConsentAffirmed] = useState(false);
   const errorBannerId = useId();
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
   const challengeMethods = identifierKind ? methodItemsForIdentifier(identifierKind, signInMethods) : [];
   const hasIdentifier = identifier.trim().length > 0 && identifierKind !== null;
+  const registrationConsent = props.registrationConsent ?? {
+    operationId: "",
+    snapshot: { bundleKey: "registration" as const, requirements: [] },
+  };
   const socialLoginLinks =
     props.socialLoginLinks ??
     ([
       {
-        href: `/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
+        href: `/api/auth/social/google/start?journey=sign-in&consentAffirmed=${consentAffirmed}&registrationConsent=${encodeURIComponent(serializeRegistrationConsentResolution(registrationConsent))}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
         label: t("auth.features.signIn.ui.signInPage.continue.with.google"),
         icon: "badgeCheck",
       },
       {
-        href: `/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
+        href: `/api/auth/social/facebook/start?journey=sign-in&consentAffirmed=${consentAffirmed}&registrationConsent=${encodeURIComponent(serializeRegistrationConsentResolution(registrationConsent))}&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
         label: t("auth.features.signIn.ui.signInPage.continue.with.facebook"),
         icon: "users",
       },
@@ -303,6 +317,14 @@ export function SignInPage(
         </Stack>
       ) : null}
 
+      {!hasIdentifier || method === "magic-link" || method === "phone-code" ? (
+        <RegistrationConsentAffirmation
+          resolution={registrationConsent}
+          affirmed={consentAffirmed}
+          onAffirmedChange={setConsentAffirmed}
+        />
+      ) : null}
+
       {hasIdentifier && challengeMethods.length === 0 ? (
         <Banner
           title={t("auth.features.signIn.ui.signInPage.no.compatible.methods")}
@@ -343,6 +365,8 @@ export function SignInPage(
                 <HiddenFields fields={props.hiddenFields} />
                 <HiddenInput type="hidden" name="intent" value="phone-code-request" readOnly />
                 <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                <RegistrationConsentResolutionInput resolution={registrationConsent} />
+                <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.phone.code")}
                 </Button>
@@ -359,6 +383,8 @@ export function SignInPage(
                   readOnly
                 />
                 <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                <RegistrationConsentResolutionInput resolution={registrationConsent} />
+                <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
                   name="code"
@@ -386,6 +412,8 @@ export function SignInPage(
                 <HiddenFields fields={props.hiddenFields} />
                 <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
                 <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                <RegistrationConsentResolutionInput resolution={registrationConsent} />
+                <HiddenInput type="hidden" name="consentAffirmed" value={consentAffirmed ? "true" : "false"} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}
                 </Button>
@@ -397,6 +425,13 @@ export function SignInPage(
                   <HiddenFields fields={props.hiddenFields} />
                   <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
                   <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                  <RegistrationConsentResolutionInput resolution={registrationConsent} />
+                  <HiddenInput
+                    type="hidden"
+                    name="consentAffirmed"
+                    value={consentAffirmed ? "true" : "false"}
+                    readOnly
+                  />
                   <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
                   <Button type="submit" tone="secondary">
                     {t("auth.features.signIn.ui.signInPage.continue.with.token")}

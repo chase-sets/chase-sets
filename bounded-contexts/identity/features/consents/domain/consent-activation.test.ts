@@ -80,8 +80,16 @@ describe("consent activation", () => {
     });
 
     await expect(resolveConsentBundleRequirements(runtime as never, "registration", publications)).resolves.toEqual([
-      { policyKey: "terms-of-service", version: "v1" },
-      { policyKey: "privacy-policy", version: "v1" },
+      {
+        policyKey: "terms-of-service",
+        version: "v1",
+        href: publicPolicyPublicationRecords["terms-of-service"].href,
+      },
+      {
+        policyKey: "privacy-policy",
+        version: "v1",
+        href: publicPolicyPublicationRecords["privacy-policy"].href,
+      },
     ]);
   });
 
@@ -93,14 +101,22 @@ describe("consent activation", () => {
     await expect(
       assertConsentAcceptanceIsActivated(
         policies({ "terms-of-service": { source: "fallback", version: "v1" } }) as never,
-        { policyKey: "terms-of-service", version: "v1" },
+        {
+          policyKey: "terms-of-service",
+          version: "v1",
+          href: publicPolicyPublicationRecords["terms-of-service"].href,
+        },
         publications,
       ),
     ).rejects.toThrow(/not published and activated/);
     await expect(
       assertConsentAcceptanceIsActivated(
         policies({ "terms-of-service": { source: "policy", version: "v1" } }) as never,
-        { policyKey: "terms-of-service", version: "v2" },
+        {
+          policyKey: "terms-of-service",
+          version: "v2",
+          href: publicPolicyPublicationRecords["terms-of-service"].href,
+        },
         publications,
       ),
     ).rejects.toThrow(/not published and activated/);

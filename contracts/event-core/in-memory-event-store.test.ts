@@ -88,6 +88,35 @@ describe("shared in-memory event store", () => {
     await expect(eventStore.readStream({ streamId: "test.conflict" })).resolves.toHaveLength(0);
   });
 
+  it("uses zero-event streams as atomic expected-version guards", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "test.policy",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.policy-activated")],
+    });
+
+    await expect(
+      eventStore.appendToStreams!([
+        {
+          streamId: "test.policy",
+          expectedVersion: 0,
+          context,
+          events: [],
+        },
+        {
+          streamId: "test.registration",
+          expectedVersion: "no_stream",
+          context,
+          events: [event("test.registration-created")],
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+
+    await expect(eventStore.readStream({ streamId: "test.registration" })).resolves.toEqual([]);
+  });
+
   it("keeps global reads gap-free across atomic append batches", async () => {
     const { eventStore } = createInMemoryEventStore();
 

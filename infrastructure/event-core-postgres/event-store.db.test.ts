@@ -178,6 +178,42 @@ describeDb("postgres event store real database integration", () => {
     );
   });
 
+  it("rolls back registration writes when a zero-event policy guard is stale", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+    await store.appendToStream({
+      streamId: "platform-policy.document-pol_registration",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("platform-policy.document.activated", { version: "v1" })],
+    });
+
+    await expect(
+      store.appendToStreams!([
+        {
+          streamId: "identity.account-acc_guarded",
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [eventToStore("identity.account.created", { accountId: "acc_guarded" })],
+        },
+        {
+          streamId: "platform-policy.document-pol_registration",
+          expectedVersion: 0,
+          context: eventContext("tenant_a"),
+          events: [],
+        },
+      ]),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: { expectedVersion: 0, currentVersion: 1 },
+    });
+
+    await expect(store.readStream({ streamId: "identity.account-acc_guarded", limit: 10 })).resolves.toEqual([]);
+  });
+
   it("allows exactly one simultaneous append with the same expected stream revision", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

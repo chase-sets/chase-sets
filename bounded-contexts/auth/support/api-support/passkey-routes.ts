@@ -24,6 +24,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 export function passkeyMatchesChallengeUser(challengeUserId: string | null, passkeyUserId: string) {
   return challengeUserId !== null && challengeUserId === passkeyUserId;
@@ -118,7 +119,10 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName
               : createOwnedUserDisplayName(challenge.email),
-          consentAffirmed: body.consentAffirmed === true,
+          registrationConsent: registrationConsentSubmission(
+            body.registrationConsent,
+            body.registrationConsent?.affirmed === true,
+          ),
           foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {

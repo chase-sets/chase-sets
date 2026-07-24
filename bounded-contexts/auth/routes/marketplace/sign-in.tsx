@@ -7,12 +7,13 @@ import { marketplaceAuthHost } from "../../support/route-support/auth-host.serve
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 import { marketplaceAccountGateContextMessage } from "../../support/route-support/marketplace-account-gate-context";
 import { authFormActionFromRequest } from "../../support/route-support/auth-form-action";
+import { resolveRegistrationConsentForRequest } from "../../support/request-support/registration-consent";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.signIn });
 
 export const action = marketplaceAuthHost.createSignInAction();
 
-export function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const returnTo = marketplaceAuthHost.getReturnTo(request);
   return {
@@ -22,6 +23,7 @@ export function loader({ request }: LoaderFunctionArgs) {
     initialIdentifier: url.searchParams.get("signInIdentifier"),
     initialMethod: url.searchParams.get("signInMethod"),
     socialLoginError: url.searchParams.get("socialLoginError"),
+    registrationConsent: await resolveRegistrationConsentForRequest(request),
   };
 }
 
@@ -41,6 +43,7 @@ export default function MarketplaceSignInRoute() {
         returnTo={data.returnTo}
         signInMethods={marketplaceAuthHostConfig.signInMethods}
         allowManualMagicLinkTokenEntry={marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry}
+        registrationConsent={data.registrationConsent}
       />
     </Container>
   );

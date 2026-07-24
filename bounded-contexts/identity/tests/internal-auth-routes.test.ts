@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
 
 function createServices() {
+  const { eventStore } = createInMemoryEventStore();
   return {
     db: {
       query: vi.fn(),
@@ -19,6 +21,10 @@ function createServices() {
     },
     consents: {
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "recorded" } })),
+    },
+    eventStore,
+    policies: {
+      resolvePolicy: vi.fn(),
     },
     projectors: [],
   } as unknown as IdentityServices;
@@ -42,18 +48,18 @@ describe("identity internal auth routes", () => {
       body: JSON.stringify({
         email: "owner@pokebash.example",
         displayName: "PokeBash TCG",
+        registrationConsent: emptyRegistrationConsent("cmd_personal_name"),
       }),
     });
 
     expect(response.status).toBe(201);
-    expect(services.accounts.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          type: "CreateAccount",
-          name: "",
-          displayName: "PokeBash TCG",
+    await expect(services.eventStore.readAll()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "identity.account.created",
+          payload: expect.objectContaining({ name: "", displayName: "PokeBash TCG" }),
         }),
-      }),
+      ]),
     );
   });
 
@@ -68,6 +74,7 @@ describe("identity internal auth routes", () => {
       body: JSON.stringify({
         email: "owner@pokebash.example",
         displayName: "PokeBash TCG",
+        registrationConsent: emptyRegistrationConsent("cmd_duplicate_name"),
       }),
     });
 
@@ -142,3 +149,11 @@ describe("identity internal auth routes", () => {
     );
   });
 });
+
+function emptyRegistrationConsent(operationId: string) {
+  return {
+    operationId,
+    snapshot: { bundleKey: "registration", requirements: [] },
+    affirmed: false,
+  };
+}

@@ -17,6 +17,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 const PHONE_CODE_MAX_FAILED_ATTEMPTS = 5;
@@ -144,7 +145,10 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName.trim()
               : createOwnedUserDisplayName(record.phone),
-          consentAffirmed: body.consentAffirmed === true,
+          registrationConsent: registrationConsentSubmission(
+            body.registrationConsent,
+            body.registrationConsent?.affirmed === true,
+          ),
         });
       } catch (error) {
         const failure = readIdentityMutationFailure(error);

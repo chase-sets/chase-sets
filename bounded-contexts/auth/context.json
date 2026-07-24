@@ -517,7 +517,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"],
+      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

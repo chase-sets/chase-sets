@@ -11,6 +11,7 @@ type AuthMagicLinkRequestedData = Readonly<{
   origin?: string;
   landingPath?: string;
   returnTo?: string | null;
+  registrationConsent?: unknown;
 }>;
 
 export type MagicLinkDeliveryTokenStore = Readonly<{
@@ -53,6 +54,7 @@ export function buildMagicLinkUrl(
     origin?: string;
     landingPath?: string;
     returnTo?: string | null;
+    registrationConsent?: unknown;
   }>,
 ) {
   const url = new URL(safeLandingPath(input.landingPath), safeOrigin(input.origin));
@@ -60,6 +62,9 @@ export function buildMagicLinkUrl(
   const returnTo = safeReturnTo(input.returnTo);
   if (returnTo) {
     url.searchParams.set("returnTo", returnTo);
+  }
+  if (input.registrationConsent && typeof input.registrationConsent === "object") {
+    url.searchParams.set("registrationConsent", JSON.stringify(input.registrationConsent));
   }
   return url.toString();
 }
@@ -87,6 +92,7 @@ export function buildAuthSessionTransactionalEmailProjectionHandlers(
               origin: data.origin,
               landingPath: data.landingPath,
               returnTo: data.returnTo,
+              registrationConsent: data.registrationConsent,
             }),
           }
         : null;

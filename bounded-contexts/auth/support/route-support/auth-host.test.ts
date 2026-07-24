@@ -243,6 +243,11 @@ describe("auth host", () => {
       email: "seller@example.test",
       landingPath: "/sign-in/magic",
       returnTo: "/account/sell-list",
+      registrationConsent: {
+        operationId: "",
+        snapshot: { bundleKey: "registration", requirements: [] },
+        affirmed: false,
+      },
     });
   });
 
@@ -263,6 +268,11 @@ describe("auth host", () => {
       email: "seller@example.test",
       landingPath: "/sign-in/magic",
       returnTo: "/account",
+      registrationConsent: {
+        operationId: "",
+        snapshot: { bundleKey: "registration", requirements: [] },
+        affirmed: false,
+      },
     });
   });
 

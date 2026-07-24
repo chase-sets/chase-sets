@@ -15,6 +15,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 function buildPublicOrigin(request: Request) {
   return resolvePublicRequestOrigin(request);
@@ -96,6 +97,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
             origin: buildPublicOrigin(c.req.raw),
             landingPath: safeLandingPath(body.landingPath),
             returnTo: safeReturnTo(body.returnTo),
+            registrationConsent: body.registrationConsent ?? null,
           },
         },
       ],
@@ -134,6 +136,10 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         identity = await identityMutations.createPersonalIdentity({
           email: record.email,
           displayName: createOwnedUserDisplayName(record.email),
+          registrationConsent: registrationConsentSubmission(
+            body.registrationConsent,
+            body.registrationConsent?.affirmed === true,
+          ),
           foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {

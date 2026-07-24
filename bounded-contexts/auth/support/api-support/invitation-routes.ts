@@ -27,6 +27,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { screenRegistrationEmailDomain } from "./registration-gates";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 const INVITATION_ACCEPTANCE_LINK_NOTIFICATION_PROJECTION = "auth-invitation-acceptance-link-notification-intent";
 
@@ -137,6 +138,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
         invitation.role_key === "viewer"
           ? "Viewer"
           : invitation.role_key.replace(/(^|-)([a-z])/g, (_m, p, c) => `${p}${c.toUpperCase()}`),
+      requiresRegistration: !(await services.identity.getUserByEmail(invitation.email)),
     });
   });
 
@@ -293,6 +295,10 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
         createdIdentity = await identityMutations.createPersonalIdentity({
           email: invitation.email,
           displayName: createOwnedUserDisplayName(invitation.email),
+          registrationConsent: registrationConsentSubmission(
+            body.registrationConsent,
+            body.consentAffirmed === true || body.registrationConsent?.affirmed === true,
+          ),
           foundersBetaAccessStartedAt: new Date().toISOString(),
         });
       } catch (error) {

@@ -166,12 +166,24 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const socialRegistrationConsent = {
+  operationId: "cmd_social_registration",
+  snapshot: {
+    bundleKey: "registration" as const,
+    requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+  },
+};
+
 describe("social login routes", () => {
   it("starts a provider redirect with a single-use state token", async () => {
     const services = createServices({ existingUser: null });
     const app = buildApp(services);
 
-    const response = await app.request("/social/google/start?journey=registration&returnTo=/account/orders");
+    const response = await app.request(
+      `/social/google/start?journey=registration&returnTo=/account/orders&registrationConsent=${encodeURIComponent(
+        JSON.stringify(socialRegistrationConsent),
+      )}&consentAffirmed=true`,
+    );
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
@@ -181,9 +193,15 @@ describe("social login routes", () => {
         "hashed:social_token",
         "google",
         "registration",
-        "/account/orders?__registrationConsentAffirmed=false",
+        expect.stringContaining("/account/orders?__registrationConsent="),
       ]),
     );
+    const storedReturnTo = String(vi.mocked(services.db.query).mock.calls[0]?.[1]?.[3]);
+    const storedState = new URL(storedReturnTo, "https://chase-sets.test");
+    expect(JSON.parse(storedState.searchParams.get("__registrationConsent") ?? "")).toEqual({
+      ...socialRegistrationConsent,
+      affirmed: true,
+    });
   });
 
   it("requires an authenticated user before starting an account-link journey", async () => {
@@ -424,14 +442,30 @@ describe("social login routes", () => {
         },
       ],
     });
-    mockIdentityMutations.createPersonalIdentity.mockResolvedValue({
-      userId: "usr_new",
-      accountId: "acc_new",
-    });
+    mockIdentityMutations.createPersonalIdentity
+      .mockRejectedValueOnce({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "Registration consent bundle is stale." } },
+      })
+      .mockResolvedValue({
+        userId: "usr_new",
+        accountId: "acc_new",
+      });
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
+    const startPath = `/social/google/start?journey=registration&consentAffirmed=true&returnTo=/account&registrationConsent=${encodeURIComponent(
+      JSON.stringify(socialRegistrationConsent),
+    )}`;
 
-    await app.request("/social/google/start?journey=registration&consentAffirmed=true&returnTo=/account");
+    await app.request(startPath);
+    const rejected = await app.request("/social/google/callback?state=social_token&code=provider-code");
+    expect(rejected.status).toBe(302);
+    expect(rejected.headers.get("Location")).toContain("/register?socialLoginError=");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+
+    mockIdentityMutations.createPersonalIdentity.mockClear();
+    await app.request(startPath);
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -441,7 +475,11 @@ describe("social login routes", () => {
       displayName: "Buyer Example",
       givenName: undefined,
       familyName: undefined,
-      consentAffirmed: true,
+      registrationConsent: {
+        ...socialRegistrationConsent,
+        affirmed: true,
+      },
+      foundersBetaAccessStartedAt: undefined,
     });
     expect(mockIdentityMutations.linkSocialLogin).toHaveBeenCalledWith({
       userId: "usr_new",

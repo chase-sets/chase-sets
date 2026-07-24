@@ -4,6 +4,7 @@ import { t } from "@chase-sets/localization";
 import { AuthApiError } from "../../client";
 import type { AuthHost, InteractiveAuthResult } from "./auth-host";
 import { createAuthRequestApiClient } from "./auth-host";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 export type MagicLinkLandingLoaderData = Readonly<{
   title: string;
@@ -52,7 +53,11 @@ export function createMagicLinkLandingLoader(
 
     try {
       const api = createAuthRequestApiClient(request);
-      const result = await api.consumeMagicLink<InteractiveAuthResult>({ token });
+      const registrationConsent = url.searchParams.get("registrationConsent");
+      const result = await api.consumeMagicLink<InteractiveAuthResult>({
+        token,
+        ...(registrationConsent ? { registrationConsent: registrationConsentSubmission(registrationConsent) } : {}),
+      });
       return options.authHost.completeAuthentication(request, result);
     } catch (error) {
       if (error instanceof AuthApiError && error.status === 401) {

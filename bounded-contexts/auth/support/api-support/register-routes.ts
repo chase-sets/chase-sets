@@ -20,6 +20,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { registrationConsentSubmission } from "../request-support/registration-consent";
 
 const registrationIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.register.ip", {
   max: 3,
@@ -53,7 +54,10 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         displayName: String(body.displayName ?? ""),
         givenName: body.givenName ? String(body.givenName) : undefined,
         familyName: body.familyName ? String(body.familyName) : undefined,
-        consentAffirmed: body.consentAffirmed === true,
+        registrationConsent: registrationConsentSubmission(
+          body.registrationConsent,
+          body.registrationConsent?.affirmed === true,
+        ),
         foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
       });
     } catch (error) {

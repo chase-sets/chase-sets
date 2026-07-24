@@ -26,15 +26,22 @@ import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
-  resolveConsentBundleRequirements,
-  type ConsentPublicationRegistry,
+  parseRegistrationConsentSubmission,
+  resolveGuardedRegistrationConsentSnapshot,
 } from "./features/consents/domain/consent-activation";
-import { consentBundles } from "./features/consents/domain/consent-bundle";
+import {
+  createPersonalIdentityForAuth,
+  IdentityDisplayNameConflictError,
+  normalizeAccountDisplayNameKey,
+  type IdentityMutationSnapshot,
+} from "./support/runtime-support/personal-identity-registration";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/shell-support/current-actor-display";
 import { publishIdentityCsatOutcomeFact } from "./support/request-support/csat-outcome-facts";
+
+export { createPersonalIdentityForAuth, normalizeAccountDisplayNameKey };
 
 export type IdentityApiEnv = {
   Variables: {
@@ -63,24 +70,6 @@ function getRequiredContext(c: Context<IdentityApiEnv>) {
   return context;
 }
 
-export class IdentityDisplayNameConflictError extends Error {
-  constructor() {
-    super("Display name is already taken.");
-    this.name = "IdentityDisplayNameConflictError";
-  }
-}
-
-export function normalizeAccountDisplayNameKey(displayName: string) {
-  return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
-}
-
-type IdentityMutationSnapshot = Readonly<{
-  aggregate: "account" | "api-key" | "consent" | "invitation" | "membership" | "user";
-  id: string;
-  version: number;
-  status: string;
-}>;
-
 function mutationSnapshot<State extends Readonly<object>>(
   aggregate: IdentityMutationSnapshot["aggregate"],
   id: string,
@@ -95,189 +84,6 @@ function mutationSnapshot<State extends Readonly<object>>(
     version: result.version,
     status: typeof stateStatus === "string" ? stateStatus : (options.fallbackStatus ?? "committed"),
   };
-}
-
-async function reservePersonalAccountDisplayName(
-  services: IdentityServices,
-  params: Readonly<{
-    accountId: AccountId;
-    displayName: string;
-  }>,
-) {
-  const displayNameKey = normalizeAccountDisplayNameKey(params.displayName);
-  if (!displayNameKey) {
-    return;
-  }
-
-  const existingAccount = await services.db.query<{ account_id: string }>(
-    `SELECT account_id
-     FROM identity_accounts
-     WHERE lower(regexp_replace(btrim(display_name), '[[:space:]]+', ' ', 'g')) = $1
-     LIMIT 1`,
-    [displayNameKey],
-  );
-  if (existingAccount.rows.some((row) => row.account_id !== params.accountId)) {
-    throw new IdentityDisplayNameConflictError();
-  }
-
-  const reservation = await services.db.query<{ display_name_key: string }>(
-    `INSERT INTO identity_account_display_name_reservations (
-       display_name_key,
-       account_id,
-       display_name,
-       created_at
-     )
-     VALUES ($1, $2, $3, now())
-     ON CONFLICT (display_name_key) DO NOTHING
-     RETURNING display_name_key`,
-    [displayNameKey, params.accountId, params.displayName],
-  );
-  if (reservation.rows.length === 0) {
-    throw new IdentityDisplayNameConflictError();
-  }
-}
-
-export async function createPersonalIdentityForAuth(
-  services: IdentityServices,
-  params: Readonly<{
-    email?: string | null;
-    phone?: string | null;
-    displayName: string;
-    givenName?: string;
-    familyName?: string;
-    consentAffirmed?: boolean;
-    foundersBetaAccessStartedAt?: string;
-    context: EventStoreContext;
-  }>,
-  consentPublications: ConsentPublicationRegistry = publicPolicyPublicationRecords,
-) {
-  const consentRequirements = await resolveConsentBundleRequirements(
-    services.policies,
-    "registration",
-    consentPublications,
-  );
-  if (consentRequirements.length > 0 && params.consentAffirmed !== true) {
-    throw new IdentityDomainError(
-      "Registration requires affirmation of the active Terms of Service and Privacy Policy.",
-    );
-  }
-
-  const userId = createId("usr") as UserId;
-  const accountId = createId("acc") as AccountId;
-  const membershipId = createId("mbr") as MembershipId;
-  const email = params.email?.trim() ?? "";
-  const phone = params.phone?.trim() ?? "";
-  const displayName = params.displayName.trim() || email || phone;
-  const primaryContactMethod = phone
-    ? {
-        contactMethodId: createId("ctm"),
-        type: "phone" as const,
-        value: phone,
-        verifiedAt: new Date().toISOString(),
-      }
-    : undefined;
-  const snapshots: IdentityMutationSnapshot[] = [];
-
-  await reservePersonalAccountDisplayName(services, {
-    accountId,
-    displayName,
-  });
-
-  let accountResult = await services.accounts.commandHandler({
-    streamId: `identity.account-${accountId}`,
-    command: {
-      type: "CreateAccount",
-      accountId,
-      name: "",
-      accountType: "personal",
-      displayName,
-    },
-    context: params.context,
-  });
-  if (params.foundersBetaAccessStartedAt) {
-    const betaAccessStartedAt = new Date(params.foundersBetaAccessStartedAt);
-    const foundersWindowEndsAt = new Date(betaAccessStartedAt);
-    foundersWindowEndsAt.setUTCDate(foundersWindowEndsAt.getUTCDate() + 60);
-    accountResult = await services.accounts.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "OpenFoundersWindow",
-        betaAccessStartedAt: betaAccessStartedAt.toISOString(),
-        foundersWindowEndsAt: foundersWindowEndsAt.toISOString(),
-        recipientEmail: email,
-      },
-      context: params.context,
-    });
-  }
-  snapshots.push(mutationSnapshot("account", accountId, accountResult));
-
-  let userResult = await services.users.commandHandler({
-    streamId: `identity.user-${userId}`,
-    command: {
-      type: "CreateUser",
-      userId,
-      displayName,
-      givenName: params.givenName,
-      familyName: params.familyName,
-      primaryEmail: email || null,
-      ...(primaryContactMethod ? { primaryContactMethod } : {}),
-    },
-    context: params.context,
-  });
-
-  const membershipResult = await services.memberships.commandHandler({
-    streamId: `identity.membership-${membershipId}`,
-    command: {
-      type: "GrantMembership",
-      membershipId,
-      userId,
-      accountId,
-      roleKey: "owner",
-      assignmentAuthority: { type: "system" },
-    },
-    context: params.context,
-  });
-  snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
-
-  for (const consent of consentRequirements) {
-    const consentId = createId("cns");
-    const consentResult = await services.consents.commandHandler({
-      streamId: `identity.consent-${consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId,
-        subjectType: consentBundles.registration.subjectType,
-        userId,
-        accountId,
-        policyKey: consent.policyKey,
-        policyVersion: consent.version,
-        recordedAt: new Date().toISOString(),
-      },
-      context: params.context,
-    });
-    snapshots.push(mutationSnapshot("consent", consentId, consentResult, { fallbackStatus: "recorded" }));
-  }
-
-  if (phone) {
-    userResult = await services.users.commandHandler({
-      streamId: `identity.user-${userId}`,
-      command: { type: "EnableAuthMethod", authMethod: "sms-code" },
-      context: params.context,
-    });
-  }
-  snapshots.push(mutationSnapshot("user", userId, userResult));
-
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
-      outcomeCode: "registration.completed",
-      subjectAccountId: accountId,
-      subjectKind: "account",
-      subject: { entityType: "account", entityId: accountId },
-      idempotencyKey: `identity:registration:${accountId}`,
-    });
-  }
-
-  return { userId, accountId, membershipId, snapshots };
 }
 
 async function createGuestAccountForAuth(
@@ -709,6 +515,21 @@ async function getCurrentActorMembershipDisplay(services: IdentityServices, acto
 export function buildIdentityApi(services: IdentityServices) {
   const app = new Hono<IdentityApiEnv>();
 
+  app.get("/internal/auth/registration-consent", async (c) => {
+    if (!services.eventStore) {
+      throw new Error("Registration consent resolution requires event storage.");
+    }
+    const resolved = await resolveGuardedRegistrationConsentSnapshot(
+      services.policies,
+      services.eventStore,
+      publicPolicyPublicationRecords,
+    );
+    return c.json({
+      operationId: createId("cmd"),
+      snapshot: resolved.snapshot,
+    });
+  });
+
   app.post("/internal/auth/guest-accounts", async (c) => {
     const body = await c.req.json();
     const account = await createGuestAccountForAuth(services, {
@@ -757,7 +578,7 @@ export function buildIdentityApi(services: IdentityServices) {
         displayName: String(body.displayName ?? ""),
         givenName: typeof body.givenName === "string" ? body.givenName : undefined,
         familyName: typeof body.familyName === "string" ? body.familyName : undefined,
-        consentAffirmed: body.consentAffirmed === true,
+        registrationConsent: parseRegistrationConsentSubmission(body.registrationConsent),
         foundersBetaAccessStartedAt:
           typeof body.foundersBetaAccessStartedAt === "string" ? body.foundersBetaAccessStartedAt : undefined,
         context: getBootstrapContext(c),
