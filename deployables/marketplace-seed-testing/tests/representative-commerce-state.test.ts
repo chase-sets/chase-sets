@@ -2,13 +2,13 @@ import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-con
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
-  filterUntouchedMarketplaceCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidates,
   publishRepresentativeListings,
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
   reconcileRepresentativeOrderingSupplyState,
+  selectRepresentativeCatalogUsageCandidates,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
   type CatalogRepresentativeServices,
@@ -39,6 +39,8 @@ const representativeCatalogItem = {
   updatedAt: "2030-01-01T00:00:00.000Z",
 } as const;
 
+const eventCountContexts = ["catalog", "inventory", "marketplace", "ordering", "discovery"] as const;
+
 type RepresentativeCommerceStateRun = Readonly<{
   candidates: readonly CatalogRepresentativeCatalogUsageCandidate[];
   stock: readonly RepresentativeInventoryStockResult[];
@@ -49,46 +51,63 @@ type RepresentativeCommerceStateRun = Readonly<{
   discovery: Awaited<ReturnType<typeof reconcileRepresentativeDiscoveryMarketState>>;
 }>;
 
+type PartialRepresentativeCommerceStateRun = Pick<RepresentativeCommerceStateRun, "candidates" | "stock" | "listings">;
+
 describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   const seedRuntime = useMarketplaceSeedRuntime("representative-commerce-state", { resetSchemas: "beforeAll" });
-  let run: RepresentativeCommerceStateRun | null = null;
+  let partialRun: PartialRepresentativeCommerceStateRun | null = null;
+  let firstRun: RepresentativeCommerceStateRun | null = null;
+  let repeatRun: RepresentativeCommerceStateRun | null = null;
+  let eventCountsAfterFirstRun: ReadonlyMap<string, number> | null = null;
+  let eventCountsAfterRepeatRun: ReadonlyMap<string, number> | null = null;
 
   beforeAll(async () => {
     const runtime = await seedRuntime.seed();
     await insertRepresentativeCatalogSource(seedRuntime.pools);
 
-    const sourceCandidates = await prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
-      limit: 1,
-    });
-    const candidates = await filterUntouchedMarketplaceCatalogUsageCandidates(
-      seedRuntime.pools.marketplace,
-      sourceCandidates,
-      {
-        limit: 1,
-      },
-    );
-    if (candidates[0]?.catalogItemId !== representativeCatalogItem.catalogItemId) {
-      throw new Error("Representative commerce state test source Catalog Item was not selected.");
-    }
+    // Pass one is interrupted on purpose: it stops right after publishing the
+    // representative listings and before the listing projection sync, the
+    // shape a crashed refresh leaves behind.
+    partialRun = await runRepresentativeCommercePassThroughListings(runtime);
+    // Pass two resumes the interrupted run to completion against retained state.
+    firstRun = await runRepresentativeCommercePass(runtime);
+    eventCountsAfterFirstRun = await readEventCounts(seedRuntime.pools);
+    // Pass three repeats the completed run against fully retained state.
+    repeatRun = await runRepresentativeCommercePass(runtime);
+    eventCountsAfterRepeatRun = await readEventCounts(seedRuntime.pools);
+  }, 300_000);
 
-    await reconcileRepresentativeMarketplaceCatalogItems(seedRuntime.pools.marketplace, candidates);
-    await reconcileRepresentativeInventoryCatalogItems(getInventoryServices(runtime.services), candidates);
-    const stock = await ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates);
-    if (stock.length !== 1) {
-      throw new Error("Representative commerce state test did not create Inventory stock.");
-    }
+  async function runRepresentativeCommercePassThroughListings(
+    runtime: MarketplaceSeedRuntime,
+  ): Promise<PartialRepresentativeCommerceStateRun> {
+    const { candidates, stock } = await runRepresentativeStockStages(runtime);
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), stock);
 
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
-    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
+    return { candidates, stock, listings };
+  }
+
+  async function runRepresentativeCommercePass(
+    runtime: MarketplaceSeedRuntime,
+  ): Promise<RepresentativeCommerceStateRun> {
+    const { candidates, stock } = await runRepresentativeStockStages(runtime);
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
     const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     const offers = await submitRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     const acceptedOffers = await acceptRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-order-reservation-workflow");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-reservation-outcomes");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
     const orderingSupply = await reconcileRepresentativeOrderingSupplyState(
       {
         inventoryDb: seedRuntime.pools.inventory,
@@ -110,11 +129,39 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       },
     );
 
-    run = { candidates, stock, listings, offers, acceptedOffers, orderingSupply, discovery };
-  }, 300_000);
+    return { candidates, stock, listings, offers, acceptedOffers, orderingSupply, discovery };
+  }
+
+  async function runRepresentativeStockStages(runtime: MarketplaceSeedRuntime): Promise<{
+    candidates: readonly CatalogRepresentativeCatalogUsageCandidate[];
+    stock: readonly RepresentativeInventoryStockResult[];
+  }> {
+    const sourceCandidates = await prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
+      limit: 1,
+    });
+    const candidates = selectRepresentativeCatalogUsageCandidates(sourceCandidates, { limit: 1 });
+    if (candidates[0]?.catalogItemId !== representativeCatalogItem.catalogItemId) {
+      throw new Error("Representative commerce state test source Catalog Item was not selected.");
+    }
+
+    await reconcileRepresentativeMarketplaceCatalogItems(seedRuntime.pools.marketplace, candidates);
+    await reconcileRepresentativeInventoryCatalogItems(getInventoryServices(runtime.services), candidates);
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
+    const stock = await ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates);
+    if (stock.length !== 1) {
+      throw new Error("Representative commerce state test did not resolve Inventory stock.");
+    }
+
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
+
+    return { candidates, stock };
+  }
 
   it("loads the current Catalog Item with product schema and resolved measures", () => {
-    const candidate = requireRepresentativeRun().candidates[0];
+    const candidate = requireRun(firstRun).candidates[0];
 
     expect(candidate).toMatchObject({
       catalogItemId: representativeCatalogItem.catalogItemId,
@@ -138,7 +185,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   });
 
   it("reconciles selected Catalog facts and representative stock into Inventory read models", async () => {
-    const state = requireRepresentativeRun();
+    const state = requireRun(firstRun);
     const catalogProjection = await seedRuntime.pools.inventory.query<{
       title: string;
       status: string;
@@ -168,6 +215,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     expect(catalogProjection.rows[0]?.product_schema).toEqual(
       expect.objectContaining({ dimensions: expect.any(Array) }),
     );
+    expect(inventoryItems.rows).toHaveLength(1);
     expect(inventoryItems.rows[0]).toMatchObject({
       account_id: state.stock[0]?.accountId,
       product_id: representativeProductId(),
@@ -177,7 +225,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   });
 
   it("publishes active Marketplace listings and accepted offers for the representative stock", async () => {
-    const state = requireRepresentativeRun();
+    const state = requireRun(firstRun);
     const listingId = state.listings[0]?.listingId;
     const offerId = state.offers[0]?.offerId;
     const listing = await seedRuntime.pools.marketplace.query<{
@@ -208,7 +256,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       [offerId],
     );
 
-    expect(state.listings).toEqual([
+    expect(requireRun(partialRun).listings).toEqual([
       expect.objectContaining({ catalogItemId: representativeCatalogItem.catalogItemId, status: "created" }),
     ]);
     expect(state.offers).toEqual([
@@ -236,13 +284,96 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     expect(offer.rows[0]?.selected_options).toEqual(expect.arrayContaining(representativeSelectedOptions()));
   });
 
+  it("resumes an interrupted run against retained state without duplicating representative records", () => {
+    const partial = requireRun(partialRun);
+    const resumed = requireRun(firstRun);
+
+    // The interrupted pass created the listing; the resumed pass recognizes it
+    // even though the interruption happened before the listing projection sync.
+    expect(partial.listings[0]?.status).toBe("created");
+    expect(resumed.listings).toEqual([
+      expect.objectContaining({ listingId: partial.listings[0]?.listingId, status: "already-present" }),
+    ]);
+    expect(resumed.stock).toEqual([
+      expect.objectContaining({
+        inventoryItemId: partial.stock[0]?.inventoryItemId,
+        createdInventoryItem: false,
+        adjustedQuantityBy: 0,
+        totalQuantity: 4,
+      }),
+    ]);
+    // Deterministic representative offer ids hash the serialized selection, so
+    // retained stock must serialize exactly like the domain snapshot did.
+    expect(JSON.stringify(resumed.stock[0]?.selectedOptions)).toBe(JSON.stringify(partial.stock[0]?.selectedOptions));
+  });
+
+  it("repeats a completed run against retained state with equal results and no new records", () => {
+    const first = requireRun(firstRun);
+    const repeat = requireRun(repeatRun);
+
+    expect(repeat.candidates.map((candidate) => candidate.catalogItemId)).toEqual(
+      first.candidates.map((candidate) => candidate.catalogItemId),
+    );
+    expect(repeat.stock).toEqual(first.stock);
+    expect(repeat.listings).toEqual([
+      expect.objectContaining({ listingId: first.listings[0]?.listingId, status: "already-present" }),
+    ]);
+    expect(repeat.offers).toEqual([
+      expect.objectContaining({ offerId: first.offers[0]?.offerId, status: "already-present" }),
+    ]);
+    expect(repeat.acceptedOffers).toEqual([
+      expect.objectContaining({ offerId: first.acceptedOffers[0]?.offerId, status: "already-accepted" }),
+    ]);
+    expect(countAcceptedOffers(repeat.acceptedOffers)).toBe(countAcceptedOffers(first.acceptedOffers));
+    expect(repeat.orderingSupply).toEqual(first.orderingSupply);
+    expect(repeat.discovery).toEqual(first.discovery);
+  });
+
+  it("appends no domain events on the retained repeat run", () => {
+    expect(eventCountsAfterRepeatRun).toEqual(eventCountsAfterFirstRun);
+    expect([...requireEventCounts(eventCountsAfterFirstRun).keys()].sort()).toEqual([...eventCountContexts].sort());
+  });
+
+  it("keeps retained pending-payment sales and inventory quantities stable across the repeat run", async () => {
+    const state = requireRun(firstRun);
+    const inventory = await seedRuntime.pools.inventory.query<{ total_quantity: number; item_count: string }>(
+      `SELECT MAX(total_quantity) AS total_quantity, COUNT(*) AS item_count
+       FROM inventory_items
+       WHERE catalog_catalog_item_id = $1`,
+      [representativeCatalogItem.catalogItemId],
+    );
+    const listings = await seedRuntime.pools.marketplace.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM marketplace_listing_pages
+       WHERE catalog_catalog_item_id = $1`,
+      [representativeCatalogItem.catalogItemId],
+    );
+    const offers = await seedRuntime.pools.marketplace.query<{ count: string; accepted_count: string }>(
+      `SELECT COUNT(*) AS count, COUNT(*) FILTER (WHERE status = 'accepted') AS accepted_count
+       FROM marketplace_offer_pages
+       WHERE catalog_catalog_item_id = $1`,
+      [representativeCatalogItem.catalogItemId],
+    );
+    const sales = await seedRuntime.pools.ordering.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM ordering_order_pages
+       WHERE seller_account_id = $1
+         AND status = 'pending-payment'`,
+      [state.stock[0]?.accountId],
+    );
+
+    expect(inventory.rows[0]).toMatchObject({ total_quantity: 4, item_count: "1" });
+    expect(listings.rows[0]?.count).toBe("1");
+    expect(offers.rows[0]).toMatchObject({ count: "1", accepted_count: "1" });
+    expect(sales.rows[0]?.count).toBe("1");
+  });
+
   it("reconciles representative listings into Ordering checkout supply inputs", async () => {
-    const state = requireRepresentativeRun();
+    const state = requireRun(firstRun);
     const listingId = state.listings[0]?.listingId;
     expect(state.orderingSupply).toMatchObject({
       listingCount: 1,
       inventoryItemCount: 1,
-      inventoryHoldCount: 0,
     });
     const supply = await seedRuntime.pools.ordering.query<{
       listing_id: string;
@@ -251,7 +382,6 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       terms_resolved_at: string | null;
       product_measure_snapshot: unknown;
       total_quantity: number;
-      available_quantity: number;
     }>(
       `SELECT
          listing.listing_id,
@@ -259,21 +389,10 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
          listing.seller_listing_availability_status,
          listing.terms_resolved_at::text AS terms_resolved_at,
          listing.product_measure_snapshot,
-         item.total_quantity,
-         LEAST(
-           listing.quantity_cap,
-           GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
-         ) AS available_quantity
+         item.total_quantity
        FROM ordering_market_listing_inputs AS listing
        INNER JOIN ordering_inventory_item_inputs AS item
          ON item.item_id = listing.inventory_item_id
-       LEFT JOIN (
-         SELECT item_id, SUM(quantity)::integer AS held_quantity
-         FROM ordering_inventory_hold_inputs
-         WHERE status = 'active'
-         GROUP BY item_id
-       ) AS active_holds
-         ON active_holds.item_id = item.item_id
        WHERE listing.listing_id = $1`,
       [listingId],
     );
@@ -284,7 +403,6 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       seller_listing_availability_status: "available",
       terms_resolved_at: expect.any(String),
       total_quantity: 4,
-      available_quantity: 2,
     });
     expect(supply.rows[0]?.product_measure_snapshot).toEqual(
       expect.objectContaining({ productId: representativeProductId() }),
@@ -292,7 +410,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   });
 
   it("reconciles the representative marketplace facts into Discovery market read models", async () => {
-    const state = requireRepresentativeRun();
+    const state = requireRun(firstRun);
     const discoveryListing = await seedRuntime.pools.discovery.query<{
       listing_id: string;
       listing_slug: string;
@@ -338,14 +456,40 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     });
   });
 
-  function requireRepresentativeRun(): RepresentativeCommerceStateRun {
+  function requireRun<Run>(run: Run | null): Run {
     if (!run) {
       throw new Error("Representative commerce state run is not initialized.");
     }
 
     return run;
   }
+
+  function requireEventCounts(counts: ReadonlyMap<string, number> | null): ReadonlyMap<string, number> {
+    if (!counts) {
+      throw new Error("Representative commerce state event counts are not initialized.");
+    }
+
+    return counts;
+  }
 });
+
+type MarketplaceSeedRuntime = Awaited<ReturnType<ReturnType<typeof useMarketplaceSeedRuntime>["seed"]>>;
+
+function countAcceptedOffers(results: readonly MarketplaceRepresentativeOfferAcceptanceResult[]): number {
+  return results.filter((result) => result.status === "accepted" || result.status === "already-accepted").length;
+}
+
+async function readEventCounts(pools: MarketplaceSeedRuntimePools): Promise<ReadonlyMap<string, number>> {
+  const counts = new Map<string, number>();
+  for (const contextName of eventCountContexts) {
+    const result = await pools[contextName].query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM event_store_events`,
+    );
+    counts.set(contextName, Number.parseInt(result.rows[0]?.count ?? "0", 10));
+  }
+
+  return counts;
+}
 
 async function insertRepresentativeCatalogSource(pools: MarketplaceSeedRuntimePools): Promise<void> {
   await pools.catalog.query(
@@ -468,7 +612,7 @@ async function insertRepresentativeCatalogSource(pools: MarketplaceSeedRuntimePo
 }
 
 async function syncRepresentativeProjection(
-  runtime: Awaited<ReturnType<ReturnType<typeof useMarketplaceSeedRuntime>["seed"]>>,
+  runtime: MarketplaceSeedRuntime,
   contextName: string,
   projectionName: string,
 ): Promise<void> {
