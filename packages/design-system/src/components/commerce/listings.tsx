@@ -1,4 +1,4 @@
-import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useState, type ImgHTMLAttributes, type MouseEventHandler, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Box, Inline, Stack } from "../../primitives/layout";
@@ -17,6 +17,7 @@ import {
 
 export interface ListingCardProps {
   href?: string;
+  onDetailClick?: MouseEventHandler<HTMLAnchorElement>;
   title: string;
   subtitle?: ReactNode;
   model?: ListingModel;
@@ -76,6 +77,7 @@ export interface ListingCardProps {
 
 export function ListingCard({
   href,
+  onDetailClick,
   title,
   subtitle,
   model = "product",
@@ -321,6 +323,7 @@ export function ListingCard({
               <a
                 href={href}
                 aria-label={detailLinkLabel}
+                onClick={onDetailClick}
                 className="focus-ring pointer-events-auto absolute inset-0 z-30 rounded-tokenSm"
               />
             ) : null}

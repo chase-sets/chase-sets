@@ -2,6 +2,7 @@ export const itemDetailRailAnalyticsEventNames = [
   "rail_intent_selected",
   "workflow_selected",
   "similar_item_selected",
+  "search_result_selected",
   "reference_info_opened",
   "payout_preview_shown",
   "standard_preview_unavailable",
@@ -31,6 +32,9 @@ export type ItemDetailRailAnalyticsProperties = Readonly<
     gate: string;
     viewer: ItemDetailRailAnalyticsViewer;
     surface: string;
+    position: number;
+    queryHash: string;
+    resultSetKey: string;
   }>
 >;
 

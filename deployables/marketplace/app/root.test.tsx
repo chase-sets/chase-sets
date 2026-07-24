@@ -166,6 +166,43 @@ describe("marketplace root layout", () => {
     expect(response.status).toBe(204);
   });
 
+  it("captures Result Set click hashes and rejects raw query text", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const accepted = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "search_result_selected",
+          surface: "search_results",
+          position: 1,
+          queryHash: "a".repeat(64),
+          resultSetKey: "b".repeat(64),
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    const rejected = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "search_result_selected",
+          surface: "search_results",
+          position: 1,
+          queryHash: "private-pikachu-query",
+          resultSetKey: "b".repeat(64),
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(accepted.status).toBe(204);
+    expect(rejected.status).toBe(400);
+  });
+
   it("rejects unsupported or unbounded rail analytics events before logging", async () => {
     vi.stubEnv("OBSERVABILITY_ENABLED", "false");
     const unsupported = await itemDetailRailAnalyticsAction({

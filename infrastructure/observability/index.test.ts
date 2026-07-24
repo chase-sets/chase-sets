@@ -23,6 +23,7 @@ import {
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
   recordProviderWebhookIngestion,
+  recordDiscoverySearchQuerySignal,
   recordProjectionInterestIndexLookup,
   recordProjectionInlineApplyOutcome,
   recordProjectionWakeIntentEnqueueOutcome,
@@ -127,6 +128,49 @@ describe("provider webhook ingestion observability", () => {
       },
     ]);
     expect(JSON.stringify(counterAdds)).not.toContain("evt_private");
+  });
+});
+
+describe("Discovery search observability", () => {
+  it("exports bounded dimensions and phase timings without query or Result Set identifiers", () => {
+    const counterAdds: unknown[] = [];
+    const histogramRecords: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const createHistogram = vi.fn((name: string) => ({
+      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter,
+      createHistogram,
+      createUpDownCounter: vi.fn(),
+    } as never);
+
+    try {
+      recordDiscoverySearchQuerySignal({
+        queryHash: "a".repeat(64),
+        resultSetKey: "b".repeat(64),
+        filterState: "category,field",
+        sortOrder: "relevance",
+        cursorState: "fresh",
+        resultCount: 0,
+        total: 0,
+        zeroResults: true,
+        retrievalMode: "lexical",
+        outcome: "success",
+        normalizationDurationMs: 1,
+        retrievalDurationMs: 2,
+        totalDurationMs: 3,
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(counterAdds).toHaveLength(1);
+    expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("a".repeat(64));
+    expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("b".repeat(64));
+    expect(histogramRecords).toHaveLength(3);
   });
 });
 

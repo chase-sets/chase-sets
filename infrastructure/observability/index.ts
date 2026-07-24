@@ -76,6 +76,9 @@ const requestDuration = lazyHistogram("chase_sets_http_server_request_duration_m
   unit: "ms",
 });
 const discoverySearchQueryCounter = lazyCounter("chase_sets_discovery_search_queries_total");
+const discoverySearchQueryDuration = lazyHistogram("chase_sets_discovery_search_query_duration_ms", {
+  unit: "ms",
+});
 const eventStoreCounter = lazyCounter("chase_sets_event_store_operations_total");
 const eventStoreDuration = lazyHistogram("chase_sets_event_store_operation_duration_ms", {
   unit: "ms",
@@ -203,10 +206,25 @@ export type ItemDetailRailAnalyticsSignal = Readonly<{
   gate?: string | null;
   viewer?: string | null;
   surface?: string | null;
+  position?: number | null;
+  queryHash?: string | null;
+  resultSetKey?: string | null;
 }>;
 
 export type DiscoverySearchQuerySignal = Readonly<{
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured";
+  queryHash: string;
+  resultSetKey: string;
+  filterState: string;
+  sortOrder: string;
+  cursorState: "cursor" | "fresh";
+  resultCount: number | null;
+  total: number | null;
+  zeroResults: boolean | null;
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | null;
+  outcome: "success" | "failure";
+  normalizationDurationMs: number;
+  retrievalDurationMs: number;
+  totalDurationMs: number;
 }>;
 
 export type CheckoutObservabilityEventSignal = Readonly<{
@@ -1042,9 +1060,20 @@ export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSi
 }
 
 export function recordDiscoverySearchQuerySignal(event: DiscoverySearchQuerySignal): void {
+  const attributes = {
+    filter_state: event.filterState,
+    sort_order: event.sortOrder,
+    cursor_state: event.cursorState,
+    zero_results: event.zeroResults === null ? "unknown" : String(event.zeroResults),
+    retrieval_mode: event.retrievalMode ?? "unknown",
+    outcome: event.outcome,
+  };
   discoverySearchQueryCounter.add(1, {
-    retrieval_mode: event.retrievalMode,
+    ...attributes,
   });
+  discoverySearchQueryDuration.record(event.normalizationDurationMs, { ...attributes, phase: "normalization" });
+  discoverySearchQueryDuration.record(event.retrievalDurationMs, { ...attributes, phase: "retrieval" });
+  discoverySearchQueryDuration.record(event.totalDurationMs, { ...attributes, phase: "total" });
 }
 
 export function checkoutObservabilityEventAttributes(event: CheckoutObservabilityEventSignal): Attributes {

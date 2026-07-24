@@ -35,7 +35,7 @@ import {
   createDiscoverySearchEmbeddingEnrichment,
   type DiscoverySearchEmbeddingEnrichment,
 } from "../../features/search/read-model/embedding-enrichment";
-import type { DiscoveryRetrievalMode } from "../../features/search/read-model/hybrid-retrieval";
+import type { DiscoverySearchQuerySignal } from "../../features/search/api/runtime";
 import {
   createSavedListPickerRuntime,
   type SavedListPickerServices,
@@ -60,7 +60,7 @@ export type DiscoveryHostPorts = Readonly<{
   }>;
   searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
   searchTelemetry?: Readonly<{
-    recordRetrievalMode: (mode: DiscoveryRetrievalMode) => void;
+    recordSearchQuery: (signal: DiscoverySearchQuerySignal) => void;
   }>;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
@@ -146,7 +146,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       discoverySearchHybridEnabled({
         [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: embeddingConfig?.hybridValue ?? undefined,
       }),
-    recordRetrievalMode: ports.searchTelemetry?.recordRetrievalMode,
+    recordSearchQuery: ports.searchTelemetry?.recordSearchQuery,
   });
 
   return {

@@ -66,6 +66,11 @@ export const itemDetailRailAnalyticsBridgeScript = `
     return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
   }
 
+  function readSha256(value) {
+    const text = readBounded(value);
+    return text && /^[a-f0-9]{64}$/.test(text) ? text : null;
+  }
+
   window.addEventListener("chase-sets:item-detail-rail-analytics", (event) => {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
@@ -82,6 +87,9 @@ export const itemDetailRailAnalyticsBridgeScript = `
       gate: readBounded(detail.gate),
       viewer: readBounded(detail.viewer),
       surface: readBounded(detail.surface),
+      position: Number.isInteger(detail.position) && detail.position > 0 ? detail.position : null,
+      queryHash: readSha256(detail.queryHash),
+      resultSetKey: readSha256(detail.resultSetKey),
     };
     const body = JSON.stringify(payload);
 

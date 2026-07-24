@@ -108,6 +108,8 @@ const searchResponse: DiscoverySearchResponse = {
   nextCursor: null,
   retrievalMode: "lexical",
   lexicalCount: 1,
+  queryHash: "a".repeat(64),
+  resultSetKey: "b".repeat(64),
 };
 
 function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCategoryItem {
@@ -164,6 +166,34 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
+  it("dispatches a Result Set click through the rail analytics path without raw query text", () => {
+    const events: unknown[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener("chase-sets:item-detail-rail-analytics", listener);
+
+    try {
+      renderSearchPage({
+        committedSearch: "private pikachu query",
+        resultSetKey: "b".repeat(64),
+        data: { ...searchResponse, queryHash: "a".repeat(64), resultSetKey: "b".repeat(64) },
+      });
+      fireEvent.click(screen.getByRole("link", { name: /View details for Prismatic Evolutions Booster Pack/i }));
+    } finally {
+      window.removeEventListener("chase-sets:item-detail-rail-analytics", listener);
+    }
+
+    expect(events).toEqual([
+      {
+        event: "search_result_selected",
+        position: 1,
+        queryHash: "a".repeat(64),
+        resultSetKey: "b".repeat(64),
+        surface: "search_results",
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("private pikachu query");
+  });
+
   it("renders identical facet groups, options, and counts in the desktop rail and mobile sheet", () => {
     renderSearchPage({
       committedSearch: "abra",
