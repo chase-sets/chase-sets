@@ -13,6 +13,10 @@ on:
         options:
           - "true"
           - "false"
+      confirm:
+        description: For manual apply, type "delete production restore points" exactly.
+        required: false
+        type: string
       min_age_hours:
         description: Minimum restore-point age before cleanup can select it.
         required: false
@@ -31,17 +35,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed-apply:
+    name: Refuse Unconfirmed Production Restore Point Cleanup
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete production restore points'
+    steps:
+      - name: Refuse unconfirmed restore-point cleanup
+        run: |
+          echo 'Confirmation text did not match exactly; expected "delete production restore points".' >&2
+          exit 1
+
   cleanup:
     name: Cleanup Production Restore Points
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    needs: refuse-unconfirmed-apply
+    if: always() && needs.refuse-unconfirmed-apply.result == 'skipped'
     permissions:
       contents: read
       issues: write
     env:
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_PREFIX: cs-prod-rp-
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ github.event.inputs.hold_names || vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
+      PRODUCTION_DB_RESTORE_POINT_CLEANUP_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         env:
@@ -61,14 +78,13 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release-health
 
-          dry_run="${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}"
           min_age_hours="${{ github.event.inputs.min_age_hours || '6' }}"
           apply_arg=""
-          if [ "$dry_run" = "false" ]; then
+          if [ "$PRODUCTION_DB_RESTORE_POINT_CLEANUP_DRY_RUN" = "false" ]; then
             apply_arg="--apply"
           fi
 
-          echo "Production restore-point cleanup dry_run=${dry_run}, min_age_hours=${min_age_hours}."
+          echo "Production restore-point cleanup dry_run=${PRODUCTION_DB_RESTORE_POINT_CLEANUP_DRY_RUN}, min_age_hours=${min_age_hours}."
 
           node ./scripts/production-db-restore-point-cleanup.mjs \
             --min-age-hours "$min_age_hours" \

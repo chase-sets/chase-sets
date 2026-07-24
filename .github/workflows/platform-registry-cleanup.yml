@@ -13,6 +13,10 @@ on:
         options:
           - "true"
           - "false"
+      confirm:
+        description: For manual apply, type "delete registry cleanup candidates" exactly.
+        required: false
+        type: string
 
 permissions: {}
 
@@ -24,11 +28,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed-apply:
+    name: Refuse Unconfirmed Registry Cleanup
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete registry cleanup candidates'
+    steps:
+      - name: Refuse unconfirmed registry cleanup
+        run: |
+          echo 'Confirmation text did not match exactly; expected "delete registry cleanup candidates".' >&2
+          exit 1
+
   cleanup:
     name: Cleanup DOCR Images
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
+    needs: refuse-unconfirmed-apply
+    if: always() && needs.refuse-unconfirmed-apply.result == 'skipped'
     permissions:
       contents: read
       actions: read
