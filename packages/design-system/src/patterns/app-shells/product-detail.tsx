@@ -1,5 +1,49 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { Sidebar } from "../../components/feedback";
+
+const MOBILE_DOCK_HEIGHT_VAR = "--product-detail-mobile-dock-height";
+const MOBILE_DOCK_CLEARANCE_VAR = "--product-detail-mobile-dock-clearance";
+
+function useMobileDockClearance() {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || typeof document === "undefined" || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+
+    const applyClearance = (heightPx: number) => {
+      const shellBottomNavHeight = getComputedStyle(node).getPropertyValue("--shell-bottom-nav-height").trim() || "0px";
+      root.style.setProperty(MOBILE_DOCK_HEIGHT_VAR, `${heightPx}px`);
+      root.style.setProperty(
+        MOBILE_DOCK_CLEARANCE_VAR,
+        `calc(${shellBottomNavHeight} + ${heightPx}px + env(safe-area-inset-bottom))`,
+      );
+      root.style.scrollPaddingBottom = `var(${MOBILE_DOCK_CLEARANCE_VAR})`;
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        applyClearance(entry.contentRect.height);
+      }
+    });
+    observer.observe(node);
+    applyClearance(node.getBoundingClientRect().height);
+
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty(MOBILE_DOCK_HEIGHT_VAR);
+      root.style.removeProperty(MOBILE_DOCK_CLEARANCE_VAR);
+      root.style.removeProperty("scroll-padding-bottom");
+    };
+  }, []);
+
+  return ref;
+}
 
 export interface MarketplaceProductDetailLayoutProps {
   summary: ReactNode;
@@ -30,11 +74,22 @@ export function MarketplaceProductCommerceRail({
 
 export interface MarketplaceProductMobileActionDockProps {
   children: ReactNode;
+  label?: string;
 }
 
-export function MarketplaceProductMobileActionDock({ children }: MarketplaceProductMobileActionDockProps) {
+export function MarketplaceProductMobileActionDock({
+  children,
+  label = "Mobile commerce actions",
+}: MarketplaceProductMobileActionDockProps) {
+  const dockRef = useMobileDockClearance();
+
   return (
-    <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden">
+    <div
+      ref={dockRef}
+      role="region"
+      aria-label={label}
+      className="sticky bottom-[calc(var(--shell-bottom-nav-height,0px)+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden"
+    >
       <div className="mx-auto max-w-3xl">{children}</div>
     </div>
   );

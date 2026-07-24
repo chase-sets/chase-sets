@@ -18,8 +18,6 @@ import {
 } from "../domain/product-resolution";
 import {
   buildProductOptionSummaries,
-  formatCompactProductSummary,
-  formatListingAvailability,
   formatUpdatedAt,
   getBestAccountOfferMatch,
   getBestOffer,
@@ -293,14 +291,6 @@ export function useItemDetailPageModel({
       : [];
   const selectedProductSelectionDetails = getProductSelectionDetails(selectedProductOptions);
   const explicitSelectedProductSelectionDetails = getProductSelectionDetails(explicitSelectedProductOptions);
-  const selectedListingAvailability = selectedListing ? formatListingAvailability(selectedListing) : null;
-  const selectedListingProductSummary = selectedListing
-    ? formatCompactProductSummary(
-        selectedListing.product_summary,
-        getProductSelectionDetails(selectedListing.selected_options),
-        t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
-      )
-    : null;
   const currentOptionSummary =
     explicitSelectedProductSummary ??
     (hasActiveFilters
@@ -408,8 +398,6 @@ export function useItemDetailPageModel({
     selectedMarketSummary,
     selectedListing,
     selectedListingSource,
-    selectedListingAvailability,
-    selectedListingProductSummary,
     selectedOffer,
     selectedOfferSource,
     selectedProductId,

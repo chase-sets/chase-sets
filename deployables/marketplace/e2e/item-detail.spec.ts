@@ -92,3 +92,93 @@ test.describe("marketplace item detail", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 });
+
+// Issue #5963: the compact mobile action dock must stay short, keep every
+// action at a 44px touch target, sit directly above the bottom nav using
+// shell-owned geometry (no offset once the nav disappears at tablet width),
+// and leave keyboard-focused Market book controls fully clear of the dock.
+test.describe("marketplace item detail mobile action dock @marketplace-browse", () => {
+  async function gotoFirstItemDetail(page: Page) {
+    await expectPageOk(page, "/search");
+    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
+    await searchBox.fill(searchQuery);
+    const detailLink = page.getByRole("link", { name: /View details for/i }).first();
+    await expect(detailLink).toBeVisible();
+    await detailLink.click();
+    await expect(page).toHaveURL(/\/items\//);
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+  }
+
+  for (const viewport of [
+    { width: 360, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    test(`keeps the compact dock <=76px with 44px actions above the bottom nav at ${viewport.width}x${viewport.height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await gotoFirstItemDetail(page);
+
+      const dock = page.getByRole("region", { name: "Mobile commerce actions" });
+      await expect(dock).toBeVisible();
+      const dockBox = await dock.boundingBox();
+      expect(dockBox, "dock should report a bounding box").not.toBeNull();
+      const safeAreaInsetBottom = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.height = "env(safe-area-inset-bottom, 0px)";
+        document.body.appendChild(probe);
+        const height = probe.getBoundingClientRect().height;
+        probe.remove();
+        return height;
+      });
+      expect(dockBox!.height - safeAreaInsetBottom).toBeLessThanOrEqual(76);
+
+      for (const name of ["Buy", "Sell", "Watch"]) {
+        const action = dock.getByRole("button", { name, exact: true });
+        if (await action.count()) {
+          const box = await action.first().boundingBox();
+          expect(box, `${name} action should report a bounding box`).not.toBeNull();
+          expect(box!.width).toBeGreaterThanOrEqual(44);
+          expect(box!.height).toBeGreaterThanOrEqual(44);
+        }
+      }
+
+      const bottomNav = page.locator("nav.fixed.inset-x-0.bottom-0");
+      await expect(bottomNav).toBeVisible();
+      const bottomNavBox = await bottomNav.boundingBox();
+      expect(bottomNavBox, "bottom nav should report a bounding box").not.toBeNull();
+      expect(dockBox!.y + dockBox!.height).toBeLessThanOrEqual(bottomNavBox!.y + 1);
+    });
+  }
+
+  test("reserves no mobile bottom-nav offset for the dock at the tablet breakpoint", async ({ page }) => {
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await gotoFirstItemDetail(page);
+
+    const dock = page.getByRole("region", { name: "Mobile commerce actions" });
+    await expect(dock).toBeVisible();
+    const dockBox = await dock.boundingBox();
+    expect(dockBox, "dock should report a bounding box").not.toBeNull();
+    const viewportHeight = page.viewportSize()?.height ?? 1180;
+    expect(viewportHeight - (dockBox!.y + dockBox!.height)).toBeLessThanOrEqual(1);
+  });
+
+  test("keeps a focused Market book control fully clear of the dock at 390x844", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoFirstItemDetail(page);
+
+    const dock = page.getByRole("region", { name: "Mobile commerce actions" });
+    await expect(dock).toBeVisible();
+
+    const selectButton = page.getByRole("button", { name: /^Select .+ listing at /i }).first();
+    await expect(selectButton).toBeVisible();
+    await selectButton.focus();
+    await expect(selectButton).toBeFocused();
+
+    const dockBox = await dock.boundingBox();
+    const controlBox = await selectButton.boundingBox();
+    expect(dockBox, "dock should report a bounding box").not.toBeNull();
+    expect(controlBox, "focused control should report a bounding box").not.toBeNull();
+    expect(controlBox!.y + controlBox!.height).toBeLessThanOrEqual(dockBox!.y + 1);
+  });
+});

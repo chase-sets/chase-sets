@@ -1063,6 +1063,26 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.getAllByText("Mobile watch action").length).toBeGreaterThan(0);
   });
 
+  it("repeats only price and actions in the mobile dock, leaving availability and Product options in-flow", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ market_listings: [baseListing] })}
+        renderCommerce={() => ({
+          buy: <div>Mobile buy action</div>,
+          offer: <div>Mobile offer action</div>,
+        })}
+      />,
+    );
+
+    const dock = screen.getByRole("region", { name: "Mobile commerce actions" });
+    expect(within(dock).getByText("$399.99")).toBeTruthy();
+    expect(within(dock).getByRole("button", { name: "Buy" })).toBeTruthy();
+    expect(within(dock).queryByText(/available/i)).toBeNull();
+    expect(within(dock).queryByText("Available")).toBeNull();
+
+    expect(screen.getByText("Available")).toBeTruthy();
+  });
+
   it("uses explicit selected listing and offer titles in mobile commerce sheets", () => {
     render(
       <ItemDetailPage

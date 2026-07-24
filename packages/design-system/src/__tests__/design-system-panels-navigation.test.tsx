@@ -443,7 +443,7 @@ describe("design system panels, navigation, and shells", () => {
       </MarketplaceProductDetailLayout>,
     );
 
-    expect(markup).toContain("sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
+    expect(markup).toContain("sticky bottom-[calc(var(--shell-bottom-nav-height,0px)+env(safe-area-inset-bottom))]");
     expect(markup).not.toContain("fixed inset-x-3");
     expect(markup).not.toContain("h-32 md:hidden");
     expect(markup).toContain("xl:col-span-2");
@@ -452,6 +452,47 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("xl:overflow-x-hidden");
     expect(markup).toContain("xl:[scrollbar-gutter:stable]");
     expect(markup.indexOf("Offers list")).toBeLessThan(markup.indexOf("Mobile buy sell panel"));
+  });
+
+  it("publishes measured mobile dock height as a combined shell-and-dock clearance variable", () => {
+    class ResizeObserverStub {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = ResizeObserverStub;
+
+    const { unmount } = render(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <section>Offers list</section>
+      </MarketplaceProductDetailLayout>,
+    );
+
+    const rootStyle = document.documentElement.style;
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).not.toBe("");
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toContain(
+      "--shell-bottom-nav-height",
+    );
+    expect(rootStyle.scrollPaddingBottom).toBe("var(--product-detail-mobile-dock-clearance)");
+
+    unmount();
+
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-height")).toBe("");
+    expect(rootStyle.getPropertyValue("--product-detail-mobile-dock-clearance")).toBe("");
+    expect(rootStyle.scrollPaddingBottom).toBe("");
+
+    globalThis.ResizeObserver = originalResizeObserver;
   });
 
   it("renders marketplace detail, seller, review, and comparison templates", () => {

@@ -1147,6 +1147,75 @@ describe("design system components", () => {
     expect(markup).toContain("Make offer");
   });
 
+  it("renders the compact commerce action bar as one visual row with a dominant primary action", () => {
+    const { container } = render(
+      <CommerceActionBar
+        summary="$21.50"
+        primaryAction={
+          <Button type="button" size="lg">
+            Buy
+          </Button>
+        }
+        secondaryAction={
+          <Button type="button" tone="secondary" size="md">
+            Sell
+          </Button>
+        }
+        tertiaryAction={
+          <Button type="button" tone="secondary" size="md">
+            Watch
+          </Button>
+        }
+      />,
+    );
+
+    const row = container.firstElementChild?.lastElementChild;
+    expect(row?.className).toContain("flex");
+    expect(row?.className).toContain("items-center");
+    expect(row?.className).not.toContain("flex-col");
+
+    const actionsGrid = row?.lastElementChild;
+    expect(actionsGrid?.className).toContain("grid-cols-[2fr_1fr_1fr]");
+
+    const buyButton = screen.getByRole("button", { name: "Buy" });
+    const sellButton = screen.getByRole("button", { name: "Sell" });
+    const watchButton = screen.getByRole("button", { name: "Watch" });
+    expect(buyButton.className).toContain("min-h-[var(--control-lg-height)]");
+    expect(sellButton.className).toContain("min-h-[var(--control-md-height)]");
+    expect(watchButton.className).toContain("min-h-[var(--control-md-height)]");
+  });
+
+  it("keeps commerce action bar buttons keyboard-focusable in order", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommerceActionBar
+        summary="$21.50"
+        primaryAction={
+          <Button type="button" size="lg">
+            Buy
+          </Button>
+        }
+        secondaryAction={
+          <Button type="button" tone="secondary" size="md">
+            Sell
+          </Button>
+        }
+        tertiaryAction={
+          <Button type="button" tone="secondary" size="md">
+            Watch
+          </Button>
+        }
+      />,
+    );
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Buy" }));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sell" }));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Watch" }));
+  });
+
   it("renders commerce bottom sheets with form footer actions", () => {
     render(
       <ChaseRoot>

@@ -338,7 +338,8 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(selectedListingAvailability.parentElement?.lastElementChild).toBe(selectedListingAvailability);
     const selectedListingText = selectedListingRow.textContent ?? "";
     expect(selectedListingText.indexOf("Raw · Near Mint")).toBeLessThan(selectedListingText.indexOf("2 available"));
-    expect(screen.getByText("2 available · Raw · Near Mint")).toBeTruthy();
+    expect(screen.queryByText("2 available · Raw · Near Mint")).toBeNull();
+    expect(screen.getAllByText("$399.99").length).toBeGreaterThan(0);
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
   });
 
@@ -657,7 +658,8 @@ describe("item detail commerce panel market intents and listing selection", () =
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByText("1 available · Raw · Near Mint")).toBeTruthy();
+    expect(screen.queryByText("1 available · Raw · Near Mint")).toBeNull();
+    expect(screen.getAllByText("$410.00").length).toBeGreaterThan(0);
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt");
     expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "explicit");
     const url = new URL(window.location.href);

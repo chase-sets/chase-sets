@@ -63,8 +63,6 @@ export type ItemDetailPageViewArgs = {
   };
   selectedListing: DiscoveryMarketListing | null;
   selectedListingSource: MarketSelectionSource;
-  selectedListingAvailability: string | null;
-  selectedListingProductSummary: string | null;
   selectedOffer: DiscoveryOffer | null;
   selectedOfferSource: MarketSelectionSource;
   selectedProductId: string | null;
@@ -93,8 +91,6 @@ export function buildItemDetailPageView({
   selectedMarketSummary,
   selectedListing,
   selectedListingSource,
-  selectedListingAvailability,
-  selectedListingProductSummary,
   selectedOffer,
   selectedOfferSource,
   selectedProductId,
@@ -150,22 +146,9 @@ export function buildItemDetailPageView({
       ? formatMoney(getHighestOfferPrice(matchingOffers))
       : formatMoney(selectedMarketSummary.lowest_price_amount);
   const mobileCommerceSummary = (
-    <Stack gap={1}>
-      <Text element="div" weight="semibold">
-        {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
-      </Text>
-      <Text element="div" size="xs" tone="secondary" weight="medium" truncate>
-        {marketIntent === "buy" && selectedListing ? (
-          [selectedListingAvailability, selectedListingProductSummary].filter(Boolean).join(" · ")
-        ) : (
-          <>
-            {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
-            {": "}
-            {currentOptionSummary}
-          </>
-        )}
-      </Text>
-    </Stack>
+    <Text element="div" weight="semibold" truncate>
+      {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
+    </Text>
   );
   const marketSummaryFacts =
     marketIntent === "sell"
@@ -265,22 +248,22 @@ export function buildItemDetailPageView({
   const mobileSellAction =
     (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
       selectedProductId ? (
-        <Button type="button" size="lg" onClick={() => openMobileCommerce("sell", "sell")}>
+        <Button type="button" tone="secondary" size="md" onClick={() => openMobileCommerce("sell", "sell")}>
           {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
         </Button>
       ) : (
-        <LinkButton href="#select-options" size="sm">
+        <LinkButton href="#select-options" tone="secondary" size="md">
           {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}
         </LinkButton>
       )
     ) : null;
   const mobileWatchAction = commerceSections?.mobile?.watch ? (
     selectedProductId ? (
-      <Button type="button" tone="secondary" size="lg" onClick={() => openMobileCommerce("watch", "watch")}>
+      <Button type="button" tone="secondary" size="md" onClick={() => openMobileCommerce("watch", "watch")}>
         {commerceSections.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")}
       </Button>
     ) : (
-      <LinkButton href="#select-options" tone="secondary" size="sm">
+      <LinkButton href="#select-options" tone="secondary" size="md">
         {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.watch")}
       </LinkButton>
     )
