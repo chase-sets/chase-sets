@@ -37,7 +37,11 @@ import {
 const sqlExecutionMethodNames = new Set(["query", "execute"]);
 
 function isTestFile(relativeFile) {
-  return relativeFile.includes("/tests/") || relativeFile.includes("/__tests__/") || /\.(?:test|spec)\.[^/]+$/.test(relativeFile);
+  return (
+    relativeFile.includes("/tests/") ||
+    relativeFile.includes("/__tests__/") ||
+    /\.(?:test|spec)\.[^/]+$/.test(relativeFile)
+  );
 }
 
 function isDbTestFile(relativeFile) {
@@ -277,7 +281,9 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Read-model DB coverage guard passed: every changed SQL-bearing module has a same-workspace db-test importer.");
+  console.log(
+    "Read-model DB coverage guard passed: every changed SQL-bearing module has a same-workspace db-test importer.",
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
