@@ -49,6 +49,7 @@ import { formatMoney } from "../../../support/ui-support/formatting";
 import { AddToSavedListControl } from "../../saved-list-addition/ui/add-to-saved-list";
 import type { SavedListClaimLoadState } from "../../saved-list-addition/ui/contracts";
 import { HomeMerchandising, type HomeMerchandisingData } from "../../home/ui/home-merchandising";
+import { trackItemDetailRailEvent } from "../../item-detail/ui/item-detail-rail-analytics";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
@@ -298,6 +299,7 @@ export interface SearchPageProps {
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
+  resultSetKey?: string;
   categories: DiscoveryCategoryItem[];
   homeMerchandising?: HomeMerchandisingData | null;
   loading?: boolean;
@@ -373,6 +375,7 @@ export function SearchPage({
   sort,
   dynamicFilters,
   data,
+  resultSetKey,
   categories,
   homeMerchandising = null,
   loading = false,
@@ -1100,6 +1103,15 @@ export function SearchPage({
                       key={item.catalog_item_id}
                       cardLayout="search-result"
                       href={itemDetailHref}
+                      onDetailClick={() => {
+                        if (!data?.queryHash || !resultSetKey) return;
+                        trackItemDetailRailEvent("search_result_selected", {
+                          position: index + 1,
+                          queryHash: data.queryHash,
+                          resultSetKey,
+                          surface: "search_results",
+                        });
+                      }}
                       title={item.title}
                       image={productAssetImage ?? undefined}
                       imageSrc={imageSrc}

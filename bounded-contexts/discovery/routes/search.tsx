@@ -88,6 +88,8 @@ const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
   nextCursor: null,
   retrievalMode: "lexical",
   lexicalCount: 0,
+  queryHash: "",
+  resultSetKey: "",
 };
 const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 
@@ -1079,6 +1081,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       sort={data.sort}
       dynamicFilters={dynamicFilters}
       data={visibleData}
+      resultSetKey={data.data?.resultSetKey}
       categories={[...data.categories]}
       homeMerchandising={data.homeMerchandising}
       loading={navigation.state !== "idle"}

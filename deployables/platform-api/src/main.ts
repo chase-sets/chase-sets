@@ -319,8 +319,7 @@ const runtime = createPlatformApiHost({
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
-      recordRetrievalMode: (retrievalMode: "lexical" | "rescue" | "hybrid" | "structured") =>
-        recordDiscoverySearchQuerySignal({ retrievalMode }),
+      recordSearchQuery: recordDiscoverySearchQuerySignal,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),

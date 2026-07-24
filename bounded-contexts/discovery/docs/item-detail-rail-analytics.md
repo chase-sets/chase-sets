@@ -15,7 +15,10 @@ The event detail must contain `event` plus optional bounded labels:
 - `outcome`: bounded outcome such as `opened`, `shown`, or `unavailable`
 - `gate`: deferred registration or commitment gate such as `accept_offer`, `create_listing`, or `buyer_registration`
 - `viewer`: `guest`, `signed_in`, or `unknown`
-- `surface`: `desktop_rail`, `mobile_action_bar`, `action_rail`, `market_book`, `reference_info`, `similar_items`, or `guest_registration`
+- `surface`: `desktop_rail`, `mobile_action_bar`, `action_rail`, `market_book`, `reference_info`, `similar_items`, `search_results`, or `guest_registration`
+- `position`: one-based Result Set click position for `search_result_selected`
+- `queryHash`: SHA-256 normalized Discovery Query hash for `search_result_selected`
+- `resultSetKey`: opaque SHA-256 Result Set key for `search_result_selected`
 
 Labels must be ASCII, 80 characters or shorter, and match `[a-zA-Z0-9_.-]+`.
 
@@ -24,6 +27,7 @@ Labels must be ASCII, 80 characters or shorter, and match `[a-zA-Z0-9_.-]+`.
 - `rail_intent_selected`: top-level Buy/Sell/Watch intent changed.
 - `workflow_selected`: rail accordion or market-book workflow selected.
 - `similar_item_selected`: a visitor followed a Similar Items card link. It records only `surface=similar_items` and `selection=implicit`, never either catalog item identifier.
+- `search_result_selected`: a visitor followed a Search Result card link. It records the one-based position, normalized-query hash, opaque Result Set key, and `surface=search_results`.
 - `reference_info_opened`: shared design-system Reference Info popup opened.
 - `payout_preview_shown`: selected-offer seller payout preview was visible.
 - `standard_preview_unavailable`: selected-offer standard terms preview could not be shown.
@@ -43,6 +47,8 @@ Rail analytics must not include product IDs, listing IDs, offer IDs, account IDs
 Reference Info analytics record topic and open outcome only. Payout analytics record preview visibility and source category through bounded labels, not monetary values or fee details.
 
 Similar Items analytics records only the event, surface, and implicit-selection labels. Source and destination item IDs, titles, ranks, similarity scores, and category values are prohibited.
+
+Search Result analytics must not include raw query text, Filter values, item identifiers, or titles. Query hashes and Result Set keys are correlation tokens and are excluded from metric labels and capture-route logs.
 
 ## Observability
 

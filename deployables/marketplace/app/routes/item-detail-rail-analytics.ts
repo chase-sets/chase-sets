@@ -16,6 +16,9 @@ type ItemDetailRailAnalyticsPayload = Readonly<{
   gate?: string | null;
   viewer?: string | null;
   surface?: string | null;
+  position?: number | null;
+  queryHash?: string | null;
+  resultSetKey?: string | null;
 }>;
 
 export function loader(_args: LoaderFunctionArgs) {
@@ -83,6 +86,9 @@ function parsePayload(text: string): ItemDetailRailAnalyticsPayload | null {
   const gate = readOptionalBoundedString(body.gate);
   const viewer = readOptionalBoundedString(body.viewer);
   const surface = readOptionalBoundedString(body.surface);
+  const queryHash = readOptionalSha256(body.queryHash);
+  const resultSetKey = readOptionalSha256(body.resultSetKey);
+  const position = readOptionalPositiveInteger(body.position);
   if (
     intent === invalidAnalyticsLabel ||
     workflow === invalidAnalyticsLabel ||
@@ -91,7 +97,10 @@ function parsePayload(text: string): ItemDetailRailAnalyticsPayload | null {
     outcome === invalidAnalyticsLabel ||
     gate === invalidAnalyticsLabel ||
     viewer === invalidAnalyticsLabel ||
-    surface === invalidAnalyticsLabel
+    surface === invalidAnalyticsLabel ||
+    queryHash === invalidAnalyticsLabel ||
+    resultSetKey === invalidAnalyticsLabel ||
+    position === invalidAnalyticsLabel
   ) {
     return null;
   }
@@ -106,6 +115,9 @@ function parsePayload(text: string): ItemDetailRailAnalyticsPayload | null {
     gate,
     viewer,
     surface,
+    position,
+    queryHash,
+    resultSetKey,
   };
 }
 
@@ -129,6 +141,24 @@ function readOptionalBoundedString(value: unknown) {
 
   const text = value.trim();
   return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : invalidAnalyticsLabel;
+}
+
+function readOptionalPositiveInteger(value: unknown) {
+  if (typeof value === "undefined" || value === null) {
+    return null;
+  }
+
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 10_000
+    ? value
+    : invalidAnalyticsLabel;
+}
+
+function readOptionalSha256(value: unknown) {
+  if (typeof value === "undefined" || value === null) {
+    return null;
+  }
+
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : invalidAnalyticsLabel;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

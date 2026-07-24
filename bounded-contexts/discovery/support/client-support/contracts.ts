@@ -85,6 +85,8 @@ export interface DiscoverySearchResponse {
   nextCursor: string | null;
   retrievalMode: "lexical" | "rescue" | "hybrid" | "structured";
   lexicalCount: number | null;
+  queryHash: string;
+  resultSetKey: string;
 }
 
 export interface DiscoverySearchSuggestion {

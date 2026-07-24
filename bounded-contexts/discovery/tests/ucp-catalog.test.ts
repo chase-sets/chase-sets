@@ -43,6 +43,8 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
         nextCursor: null,
         retrievalMode: "lexical" as const,
         lexicalCount: 0,
+        queryHash: "",
+        resultSetKey: "",
       })),
       previewBulkAdd: vi.fn(async () => ({
         totalMatches: null,

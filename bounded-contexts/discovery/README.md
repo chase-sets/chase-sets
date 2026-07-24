@@ -115,6 +115,8 @@ item-category/status facts; it does not silently checkpoint unrelated blueprint,
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.
 
+Search Query and Result Set click telemetry is documented in [Discovery Search Observability](./docs/search-observability.md).
+
 ## Item Detail Discovery
 
 Detail Pages use the first assigned category from Catalog's stable `category_ids` order as the primary category for

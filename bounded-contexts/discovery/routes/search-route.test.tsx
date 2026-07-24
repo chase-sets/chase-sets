@@ -1006,5 +1006,7 @@ function persistedSearchPage(catalogItemId: string, slug: string, title: string)
     nextCursor: null,
     retrievalMode: "lexical",
     lexicalCount: 1,
+    queryHash: "",
+    resultSetKey: "",
   };
 }

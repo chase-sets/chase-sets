@@ -14,6 +14,8 @@ function createServices(): DiscoveryItemSearchServices {
       nextCursor: null,
       retrievalMode: "lexical" as const,
       lexicalCount: 0,
+      queryHash: "",
+      resultSetKey: "",
     })),
     previewBulkAdd: vi.fn(async () => ({
       totalMatches: 0,
@@ -31,6 +33,33 @@ function createServices(): DiscoveryItemSearchServices {
 }
 
 describe("discovery item search routes", () => {
+  it("preserves runtime query and Result Set identities in the search JSON response", async () => {
+    const services = createServices();
+    const queryHash = "a".repeat(64);
+    const resultSetKey = "b".repeat(64);
+    vi.mocked(services.searchItems).mockResolvedValue({
+      items: [],
+      facets: [],
+      category_counts: [],
+      total: 0,
+      nextCursor: null,
+      retrievalMode: "lexical",
+      lexicalCount: 0,
+      queryHash,
+      resultSetKey,
+    });
+    const app = discoveryItemSearchRoutes(services);
+
+    const response = await app.request("/?search=pikachu");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      queryHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      resultSetKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "pikachu" }));
+  });
+
   it("returns bounded active-item prefix suggestions", async () => {
     const services = createServices();
     vi.mocked(services.suggestItems).mockResolvedValue([
