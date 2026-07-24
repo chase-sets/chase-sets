@@ -5,14 +5,19 @@ import type { ConsentPublicationRegistry } from "../domain/consent-activation";
 import { resolveConsentBundleAcceptanceStatus } from "./acceptance";
 
 function activatedRegistrationPublications(): ConsentPublicationRegistry {
-  return Object.fromEntries(
-    Object.entries(publicPolicyPublicationRecords).map(([policyKey, publication]) => [
-      policyKey,
-      ["terms-of-service", "privacy-policy"].includes(policyKey)
-        ? { ...publication, publicationStatus: "published", consentActivatable: true }
-        : publication,
-    ]),
-  ) as ConsentPublicationRegistry;
+  return {
+    ...publicPolicyPublicationRecords,
+    "terms-of-service": {
+      ...publicPolicyPublicationRecords["terms-of-service"],
+      publicationStatus: "published",
+      consentActivatable: true,
+    },
+    "privacy-policy": {
+      ...publicPolicyPublicationRecords["privacy-policy"],
+      publicationStatus: "published",
+      consentActivatable: true,
+    },
+  } satisfies ConsentPublicationRegistry;
 }
 
 function fakePolicies() {
@@ -145,14 +150,19 @@ describe("consent bundle acceptance", () => {
 
   it("resolves the seller-onboarding bundle against account-scoped Consent facts", async () => {
     const publications = activatedRegistrationPublications();
-    const sellerPublications = Object.fromEntries(
-      Object.entries(publications).map(([policyKey, publication]) => [
-        policyKey,
-        ["seller-agreement", "payments-terms"].includes(policyKey)
-          ? { ...publication, publicationStatus: "published", consentActivatable: true }
-          : publication,
-      ]),
-    ) as ConsentPublicationRegistry;
+    const sellerPublications = {
+      ...publications,
+      "seller-agreement": {
+        ...publications["seller-agreement"],
+        publicationStatus: "published",
+        consentActivatable: true,
+      },
+      "payments-terms": {
+        ...publications["payments-terms"],
+        publicationStatus: "published",
+        consentActivatable: true,
+      },
+    } satisfies ConsentPublicationRegistry;
 
     const status = await resolveConsentBundleAcceptanceStatus(
       fakeDb({

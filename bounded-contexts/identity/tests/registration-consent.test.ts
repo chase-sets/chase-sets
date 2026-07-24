@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { publicPolicyPublicationRecords, type PublicPolicyKey } from "@chase-sets/public-docs";
+import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import { createPersonalIdentityForAuth } from "../api";
 import type { ConsentPublicationRegistry } from "../features/consents/domain/consent-activation";
+import { initialConsentState, type RecordConsentCommand } from "../features/consents/domain/domain";
 import type { IdentityServices } from "../support/runtime-support/services";
 
 const context: EventStoreContext = {
@@ -24,21 +25,31 @@ function commandResult(status: string) {
 }
 
 function activeRegistrationPublications(): ConsentPublicationRegistry {
-  return Object.fromEntries(
-    Object.entries(publicPolicyPublicationRecords).map(([policyKey, publication]) => [
-      policyKey,
-      ["terms-of-service", "privacy-policy"].includes(policyKey)
-        ? { ...publication, publicationStatus: "published", consentActivatable: true }
-        : publication,
-    ]),
-  ) as ConsentPublicationRegistry;
+  return {
+    ...publicPolicyPublicationRecords,
+    "terms-of-service": {
+      ...publicPolicyPublicationRecords["terms-of-service"],
+      publicationStatus: "published",
+      consentActivatable: true,
+    },
+    "privacy-policy": {
+      ...publicPolicyPublicationRecords["privacy-policy"],
+      publicationStatus: "published",
+      consentActivatable: true,
+    },
+  } satisfies ConsentPublicationRegistry;
 }
 
 function createServices() {
   const accounts = vi.fn(async () => commandResult("active"));
   const users = vi.fn(async () => commandResult("active"));
   const memberships = vi.fn(async () => commandResult("active"));
-  const consents = vi.fn(async () => commandResult("recorded"));
+  const consents = vi.fn<IdentityServices["consents"]["commandHandler"]>(async ({ command }) => ({
+    version: 1,
+    state: { ...initialConsentState, status: command.type === "RecordConsent" ? "recorded" : "withdrawn" },
+    newEvents: [],
+    storedEvents: [],
+  }));
   const db = {
     query: vi.fn(async (sql: string) =>
       sql.includes("INSERT INTO identity_account_display_name_reservations")
@@ -110,13 +121,16 @@ describe("registration consent affirmation", () => {
     expect(result.snapshots.filter((snapshot) => snapshot.aggregate === "consent")).toHaveLength(2);
     expect(harness.consents).toHaveBeenCalledTimes(2);
     expect(
-      harness.consents.mock.calls.map(([call]) => ({
-        policyKey: call.command.policyKey as PublicPolicyKey,
-        policyVersion: call.command.policyVersion,
-        subjectType: call.command.subjectType,
-        userId: call.command.userId,
-        accountId: call.command.accountId,
-      })),
+      harness.consents.mock.calls
+        .map(([call]) => call.command)
+        .filter((command): command is RecordConsentCommand => command.type === "RecordConsent")
+        .map((command) => ({
+          policyKey: command.policyKey,
+          policyVersion: command.policyVersion,
+          subjectType: command.subjectType,
+          userId: command.userId,
+          accountId: command.accountId,
+        })),
     ).toEqual([
       {
         policyKey: "terms-of-service",
