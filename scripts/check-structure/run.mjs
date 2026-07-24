@@ -32,6 +32,7 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validateReadModelDbCoverage } from "./read-model-db-coverage.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -3386,6 +3387,11 @@ export async function runStructureCheck(options = {}) {
 
   const designSystemDeadExportResult = await checkDesignSystemDeadExports({ repoRoot });
   for (const violation of designSystemDeadExportResult.violations) {
+    violations.push(violation);
+  }
+
+  const readModelDbCoverageResult = await validateReadModelDbCoverage({ repoRoot, contextManifests });
+  for (const violation of readModelDbCoverageResult.violations) {
     violations.push(violation);
   }
 
