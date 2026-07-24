@@ -24,6 +24,7 @@ import {
   observationPackManifestV1Schema,
   readVerifiedObservationPackEnvelopes,
   sha256,
+  stableStringify,
   verifyObservationPack,
   type ObservationPackEnvelope,
   type ObservationPackManifestV1,
@@ -87,18 +88,43 @@ export class RepresentativeCatalogReplayError extends Error {
 export type RepresentativeCatalogPackReplaySummary = Readonly<{
   packId: string;
   packVersion: string;
+  manifestKey: string;
+  captureContentHash: string;
   providerKey: string;
   envelopeCount: number;
   observationCount: number;
   catalogItemCount: number;
   assetSetCount: number;
   appendedEventCount: number;
+  appendedAssetSetCount: number;
   externalReferenceDigest: string;
+}>;
+
+export type RepresentativeCatalogReplayReceipt = Readonly<{
+  schemaVersion: "representative-catalog-replay.receipt/v1";
+  type: "representative-catalog-replay.complete";
+  checkedAt: string;
+  replayRunIdentity: string;
+  packSetIdentity: string;
+  replayStateIdentity: string;
+  sandbox: RepresentativeCatalogReplaySandboxBinding;
+  packs: readonly RepresentativeCatalogPackReplaySummary[];
+  totals: Readonly<{
+    appendedEventCount: number;
+    appendedAssetSetCount: number;
+  }>;
+}>;
+
+export type RepresentativeCatalogReplaySandboxBinding = Readonly<{
+  sandboxId: string;
+  postgresPort: number;
+  catalogDatabaseName: string;
 }>;
 
 type LoadedPackSource = Readonly<{
   storage: Pick<ObservationPackObjectStorage, "getObject">;
   manifestKey: string;
+  sourceManifestKey: string;
   listedRelativePaths?: readonly string[];
 }>;
 
@@ -146,6 +172,7 @@ async function replayRepresentativeCatalogPack(input: {
   context: EventStoreContext;
 }): Promise<RepresentativeCatalogPackReplaySummary> {
   const eventCountBefore = await countCatalogEvents(input.services);
+  const assetSetCountBefore = await countCatalogProductAssetSets(input.services);
   const verification = await verifyObservationPack({
     storage: input.source.storage,
     manifestKey: input.source.manifestKey,
@@ -262,16 +289,87 @@ async function replayRepresentativeCatalogPack(input: {
     throw new RepresentativeCatalogReplayError("representative-catalog-publication-failed");
   }
   const eventCountAfter = await countCatalogEvents(input.services);
+  const assetSetCountAfter = await countCatalogProductAssetSets(input.services);
   return {
     packId: manifest.packId,
     packVersion: manifest.packVersion,
+    manifestKey: input.source.sourceManifestKey,
+    captureContentHash: manifest.captureContentHash,
     providerKey: manifest.identity.provider.key,
     envelopeCount: envelopes.length,
     observationCount: prepared.length,
     catalogItemCount: evidence.length,
     assetSetCount: evidence.reduce((sum, item) => sum + item.productAssetSets.length, 0),
     appendedEventCount: eventCountAfter - eventCountBefore,
+    appendedAssetSetCount: assetSetCountAfter - assetSetCountBefore,
     externalReferenceDigest: representativeCatalogExternalReferenceDigest(evidence),
+  };
+}
+
+export function buildRepresentativeCatalogReplayReceipt(
+  packs: readonly RepresentativeCatalogPackReplaySummary[],
+  checkedAt: string,
+  sandbox: RepresentativeCatalogReplaySandboxBinding,
+): RepresentativeCatalogReplayReceipt {
+  const orderedPackIdentity = packs.map(({ packId, packVersion, manifestKey, captureContentHash }) => ({
+    packId,
+    packVersion,
+    manifestKey,
+    captureContentHash,
+  }));
+  const replayState = packs.map(
+    ({
+      packId,
+      packVersion,
+      manifestKey,
+      captureContentHash,
+      providerKey,
+      envelopeCount,
+      observationCount,
+      catalogItemCount,
+      assetSetCount,
+      externalReferenceDigest,
+    }) => ({
+      packId,
+      packVersion,
+      manifestKey,
+      captureContentHash,
+      providerKey,
+      envelopeCount,
+      observationCount,
+      catalogItemCount,
+      assetSetCount,
+      externalReferenceDigest,
+    }),
+  );
+  const packSetIdentity = contentIdentity(orderedPackIdentity);
+  const replayStateIdentity = contentIdentity(replayState);
+  const totals = {
+    appendedEventCount: packs.reduce((sum, pack) => sum + pack.appendedEventCount, 0),
+    appendedAssetSetCount: packs.reduce((sum, pack) => sum + pack.appendedAssetSetCount, 0),
+  };
+  const replayRunIdentity = contentIdentity({
+    checkedAt,
+    sandbox,
+    packSetIdentity,
+    replayStateIdentity,
+    appendDeltas: packs.map(({ manifestKey, appendedEventCount, appendedAssetSetCount }) => ({
+      manifestKey,
+      appendedEventCount,
+      appendedAssetSetCount,
+    })),
+    totals,
+  });
+  return {
+    schemaVersion: "representative-catalog-replay.receipt/v1",
+    type: "representative-catalog-replay.complete",
+    checkedAt,
+    replayRunIdentity,
+    packSetIdentity,
+    replayStateIdentity,
+    sandbox: { ...sandbox },
+    packs: packs.map((pack) => ({ ...pack })),
+    totals,
   };
 }
 
@@ -382,7 +480,7 @@ async function prepareObservations(
           matchingAssets.find((candidate) => candidate.sourceReferences.includes(sourceReference)),
         )
         .find((candidate): candidate is PreflightAsset => Boolean(candidate)) ??
-      [...matchingAssets].sort((left, right) => left.sourceHash.localeCompare(right.sourceHash))[0]!;
+      [...matchingAssets].sort((left, right) => compareCanonicalText(left.sourceHash, right.sourceHash))[0]!;
     const sourceUrl =
       preferredSourceReferences.find((reference) => selectedAsset.sourceReferences.includes(reference)) ??
       selectedAsset.sourceReferences[0] ??
@@ -691,6 +789,18 @@ async function countCatalogEvents(services: CatalogServices): Promise<number> {
   return Number(result.rows[0]?.count ?? 0);
 }
 
+async function countCatalogProductAssetSets(services: CatalogServices): Promise<number> {
+  const result = await services.db.query<Readonly<{ count: string }>>(
+    `SELECT COALESCE(SUM(jsonb_array_length(product_asset_sets)), 0)::text AS count
+     FROM catalog_items`,
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+function contentIdentity(value: unknown): string {
+  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
+}
+
 function verificationError(codes: readonly string[]): RepresentativeCatalogReplayError {
   if (codes.includes("captured-not-accepted") || codes.includes("lifecycle-invalid")) {
     return new RepresentativeCatalogReplayError("representative-catalog-pack-not-accepted");
@@ -744,7 +854,7 @@ async function localPackSources(root: string): Promise<readonly LoadedPackSource
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-source-invalid");
   }
   return Promise.all(
-    manifests.sort().map(async (relativeManifest) => {
+    manifests.sort(compareCanonicalText).map(async (relativeManifest) => {
       const packRoot = path.dirname(path.join(root, ...relativeManifest.split("/")));
       const manifestBody = await readBoundedLocalFile(
         path.join(packRoot, path.basename(relativeManifest)),
@@ -755,6 +865,7 @@ async function localPackSources(root: string): Promise<readonly LoadedPackSource
       const listedRelativePaths = await listLocalPackFiles(packRoot, "", { count: 0 }, 0);
       return {
         manifestKey: "manifest.json",
+        sourceManifestKey: relativeManifest,
         listedRelativePaths,
         storage: {
           getObject: (key: string) => readLocalPackObject(packRoot, key, expectedSizes),
@@ -762,6 +873,10 @@ async function localPackSources(root: string): Promise<readonly LoadedPackSource
       };
     }),
   );
+}
+
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 async function findLocalManifests(
@@ -776,7 +891,7 @@ async function findLocalManifests(
   }
   const directory = path.join(root, ...current.split("/").filter(Boolean));
   const entries = await readdir(directory, { withFileTypes: true });
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareCanonicalText(left.name, right.name))) {
     visited.count += 1;
     if (visited.count > MAX_LOCAL_SOURCE_ENTRIES) {
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-source-invalid");
@@ -808,7 +923,7 @@ async function listLocalPackFiles(
   const directory = path.join(root, ...current.split("/").filter(Boolean));
   const entries = await readdir(directory, { withFileTypes: true });
   const files: string[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareCanonicalText(left.name, right.name))) {
     visited.count += 1;
     if (visited.count > MAX_LOCAL_PACK_FILES) {
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-source-invalid");
@@ -870,6 +985,7 @@ async function remotePackSource(manifestUrl: string, fetcher: typeof globalThis.
   cache.set("manifest.json", manifestBody);
   return {
     manifestKey: "manifest.json",
+    sourceManifestKey: new URL(manifestUrl).pathname.replace(/^\/+/u, ""),
     storage: {
       getObject: async (key) => {
         const safeKey = safeObjectKey(key);

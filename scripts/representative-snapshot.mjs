@@ -21,11 +21,13 @@ const [
   { OBSERVATION_PACK_REPLAY_CONTRACT_VERSION, observationPackManifestV1Schema, stableStringify, verifyObservationPack },
   { getActiveCatalogProviderIntegrationProfileVersion },
   { verifyPostReplay },
+  { buildRepresentativeAcceptedPackSetIdentity: buildRepresentativeAcceptedPackSetIdentityShared },
 ] = await Promise.all([
   import("../infrastructure/object-storage/index.ts"),
   import("../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts"),
   import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts"),
   import("./verify-observation-pack.mjs"),
+  import("./lib/representative-pack-set-identity.mjs"),
 ]);
 
 export const REPRESENTATIVE_SNAPSHOT_MANIFEST_VERSION = "representative-snapshot-set/v1";
@@ -130,6 +132,10 @@ export function buildRepresentativeSnapshotCompatibility({
     replayContractVersion,
     migrationsHash,
   };
+}
+
+export function buildRepresentativeAcceptedPackSetIdentity(acceptedPacks) {
+  return buildRepresentativeAcceptedPackSetIdentityShared(acceptedPacks);
 }
 
 export function representativeSnapshotCompatibilityRefusal(expected, actual) {
@@ -1092,7 +1098,7 @@ async function findManifestFiles(root) {
     }
   }
   await visit(root, 0);
-  return manifests.sort((left, right) => left.localeCompare(right, "en"));
+  return manifests.sort(compareCanonicalText);
 }
 
 async function listAssetFiles(root) {
@@ -1115,7 +1121,7 @@ async function listAssetFiles(root) {
     }
   }
   await visit(root);
-  return files.sort((left, right) => left.localeCompare(right, "en"));
+  return files.sort(compareCanonicalText);
 }
 
 async function buildAssetInventory(root) {
@@ -1333,6 +1339,10 @@ function sha256Text(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function compareCanonicalText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function snapshotIdentity(value) {
   return sha256Text(
     stableStringify({
@@ -1439,7 +1449,7 @@ function validateAssetInventory(value, fileCount) {
     requireSha256(entry.sha256);
     paths.push(entry.path);
   }
-  const orderedUniquePaths = [...new Set(paths)].sort((left, right) => left.localeCompare(right, "en"));
+  const orderedUniquePaths = [...new Set(paths)].sort(compareCanonicalText);
   if (stableStringify(paths) !== stableStringify(orderedUniquePaths)) {
     throw new RepresentativeSnapshotError("representative-snapshot-asset-inventory-mismatch");
   }
