@@ -145,6 +145,7 @@
     "check:operator-surface-pm": "node ./scripts/check-operator-surface-pm-content.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@chase-sets/typescript-compiler-api": "workspace:*",
     "@playwright/test": "^1.60.0",
     "@react-router/dev": "^7.14.0",

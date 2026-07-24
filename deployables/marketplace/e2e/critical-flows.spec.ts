@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expectAxeScan, type AxeRuleExclusion } from "./support/accessibility";
 import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
 
 const configuredMarketplaceAccount = {
@@ -6,7 +7,25 @@ const configuredMarketplaceAccount = {
   password: process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "",
 };
 
-const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
+const browseSearchQuery = "pokemon";
+const browseAxeExclusions: readonly AxeRuleExclusion[] = [
+  {
+    ruleId: "heading-order",
+    reason: "The canonical ListingCard uses h3 result titles beneath the search-page h1; hierarchy repair is DS-owned.",
+  },
+  {
+    ruleId: "label-title-only",
+    reason: "The canonical NumberField price inputs do not expose their visible group labels directly to axe.",
+  },
+  {
+    ruleId: "label",
+    reason: "The canonical NumberField price inputs do not expose their visible group labels directly to axe.",
+  },
+  {
+    ruleId: "landmark-unique",
+    reason: "The canonical Facet accordion regions do not yet have unique accessible names.",
+  },
+] as const;
 const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
@@ -41,7 +60,7 @@ const protectedAccountRoutes = [
 ] as const;
 
 async function expectPageOk(page: Page, path: string) {
-  const response = await page.goto(path, { waitUntil: "domcontentloaded" });
+  const response = await page.goto(path, { waitUntil: "load" });
   expect(response, `${path} did not return a page response`).not.toBeNull();
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 }
@@ -161,20 +180,84 @@ function expectFirstPaintChaseRoot(html: string, expected: Readonly<{ colorMode:
   expect(root).not.toContain('data-color-mode="light"');
 }
 
-test.describe("marketplace critical flows", () => {
-  test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {
-    await expectPageOk(page, "/search");
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-    const searchBox = page.getByRole("searchbox").first();
+test.describe("marketplace critical flows", () => {
+  test("signed-out shoppers can browse, refine, and recover @marketplace-browse", async ({ page }, testInfo) => {
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
     await expect(searchBox).toBeVisible();
-    await expect(page.getByText(/Find cards, comics, figures, sneakers/i)).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign In" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Register" }).first()).toBeVisible();
+    await expect(searchBox).toHaveValue(browseSearchQuery);
+    const resultLinks = page.getByRole("link", { name: /View details for/i });
+    await expect(resultLinks.first()).toBeVisible();
+    await expectAxeScan(page, testInfo, "marketplace-browse-results", browseAxeExclusions);
 
-    await searchBox.fill(searchQuery);
-    await expect(searchBox).toHaveValue(searchQuery);
+    const categoryFacet = page.locator("#search-facet-categories");
+    const initialResultCount = await resultLinks.count();
+    expect(initialResultCount).toBeGreaterThan(2);
+    const categoryButtons = categoryFacet.getByRole("button");
+    const categoryLabels = await categoryButtons.allTextContents();
+    const categoryIndex = categoryLabels.findIndex((label) => {
+      const count = Number(label.match(/\((\d+)\)\s*$/)?.[1]);
+      return count >= 2 && count < initialResultCount;
+    });
+    expect(categoryIndex, "seeded browse needs a category that narrows to at least two results").toBeGreaterThanOrEqual(
+      0,
+    );
+    const categoryChoice = categoryButtons.nth(categoryIndex);
+    const categoryText = categoryLabels[categoryIndex]!;
+    const categoryCount = Number(categoryText.match(/\((\d+)\)\s*$/)![1]);
+    const categoryLabel = categoryText.replace(/\s*\(\d+\)\s*$/, "").trim();
+    const selectedCategory = categoryFacet.getByRole("button", {
+      name: new RegExp(`^${escapeRegExp(categoryLabel)} \\(`),
+    });
+    await expect(async () => {
+      if (!new URL(page.url()).pathname.startsWith("/categories/")) {
+        await categoryChoice.click();
+      }
+      await expect(page).toHaveURL(/\/categories\/[^/?]+(?:\?|$)/, { timeout: 500 });
+    }).toPass({ timeout: 5_000 });
+    await expect(selectedCategory).toHaveAttribute("aria-pressed", "true");
+    await expect(resultLinks).toHaveCount(categoryCount);
+
+    const sort = page.getByRole("combobox", { name: "Sort" });
+    await sort.click();
+    await page.getByRole("option", { name: "Title A-Z" }).click();
+    await expect(page).toHaveURL(/(?:\?|&)sort=title_asc(?:&|$)/);
+    await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+    const ascendingResultHrefs = await resultLinks.evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href")),
+    );
+    expect(ascendingResultHrefs).toHaveLength(categoryCount);
+
+    await sort.click();
+    await page.getByRole("option", { name: "Title Z-A" }).click();
+    await expect(sort).toContainText("Title Z-A");
+    await expect(page).toHaveURL(/(?:\?|&)sort=title_desc(?:&|$)/);
+    await expect
+      .poll(() => resultLinks.evaluateAll((links) => links.map((link) => link.getAttribute("href"))))
+      .toEqual([...ascendingResultHrefs].reverse());
+
+    const missingQuery = `no-result-${syntheticAccountRunId}-${syntheticAccountNonce}`;
+    await searchBox.fill(missingQuery);
+    await searchBox.press("Enter");
+    await expect(page.getByRole("heading", { name: "No items found" })).toBeVisible();
+    await expectAxeScan(page, testInfo, "marketplace-browse-zero-result", browseAxeExclusions);
+
+    await page.getByRole("button", { name: "Clear search" }).click();
     await expect(page.getByRole("link", { name: /View details for/i }).first()).toBeVisible();
+    await expect(searchBox).toHaveValue("");
+  });
 
+  test("signed-out shoppers can reach auth entry points @marketplace-browse", async ({ page }) => {
+    await expectPageOk(page, "/search");
+    await expect(page.getByRole("link", { name: "Sign In" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Register" }).first()).toBeVisible();
     await page.getByRole("link", { name: "Sign In" }).first().click();
     await expect(page).toHaveURL(/\/sign-in/);
     await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();

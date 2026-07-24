@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectAxeScan } from "./support/accessibility";
 
 // Charter scope: this spec owns the browse -> item-detail composition wiring that
 // real browsers exercise (SSR of the decomposed `items/:id` route, hydration of the
@@ -12,7 +13,7 @@ import { expect, test, type Page } from "@playwright/test";
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 
 async function expectPageOk(page: Page, path: string) {
-  const response = await page.goto(path, { waitUntil: "domcontentloaded" });
+  const response = await page.goto(path, { waitUntil: "load" });
   expect(response, `${path} did not return a page response`).not.toBeNull();
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 }
@@ -42,7 +43,7 @@ test.describe("marketplace item detail", () => {
 
   test("browse search results into the decomposed item-detail route and its commerce panel @marketplace-browse", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await expectPageOk(page, "/search");
 
     const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
@@ -90,5 +91,6 @@ test.describe("marketplace item detail", () => {
     await expect(
       page.getByText(/Time range|Select a condition|No sales recorded yet|Sales history unavailable/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+    await expectAxeScan(page, testInfo, "marketplace-item-detail");
   });
 });

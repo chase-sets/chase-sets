@@ -104,6 +104,166 @@ const itemSeed = {
   japaneseItemId: "cat_japanese_charizard",
 };
 
+const searchRegressionSeed = {
+  fieldId: "fld_search_regression_tier",
+  cardBlueprintId: "bpr_search_regression_card",
+  sealedBlueprintId: "bpr_search_regression_sealed",
+  singlesCategoryId: "cat_search_regression_singles",
+  sealedCategoryId: "cat_search_regression_sealed",
+  titleItemId: "cat_search_regression_title",
+  subtitleItemId: "cat_search_regression_subtitle",
+  descriptionItemId: "cat_search_regression_description",
+  tagItemId: "cat_search_regression_tag",
+} as const;
+
+const searchRegressionItems = [
+  {
+    id: searchRegressionSeed.titleItemId,
+    title: "Ember Dragon",
+    subtitle: "Collector Print",
+    description: "A legendary card",
+    tags: ["fire", "featured"],
+    blueprintId: searchRegressionSeed.cardBlueprintId,
+    categoryId: searchRegressionSeed.singlesCategoryId,
+    facetValue: "title-tier",
+  },
+  {
+    id: searchRegressionSeed.subtitleItemId,
+    title: "Alpha Collector",
+    subtitle: "Ember Showcase",
+    description: "A popular card",
+    tags: ["fire", "featured"],
+    blueprintId: searchRegressionSeed.cardBlueprintId,
+    categoryId: searchRegressionSeed.singlesCategoryId,
+    facetValue: "subtitle-tier",
+  },
+  {
+    id: searchRegressionSeed.descriptionItemId,
+    title: "Beta Collector",
+    subtitle: "Archive Print",
+    description: "Ember artwork",
+    tags: ["water"],
+    blueprintId: searchRegressionSeed.cardBlueprintId,
+    categoryId: searchRegressionSeed.sealedCategoryId,
+    facetValue: "description-tier",
+  },
+  {
+    id: searchRegressionSeed.tagItemId,
+    title: "Gamma Collector",
+    subtitle: "Modern Print",
+    description: "A popular card",
+    tags: ["ember", "modern"],
+    blueprintId: searchRegressionSeed.sealedBlueprintId,
+    categoryId: searchRegressionSeed.sealedCategoryId,
+    facetValue: "tag-tier",
+  },
+] as const;
+
+async function seedSearchRegressionFixture(): Promise<void> {
+  await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${searchRegressionSeed.fieldId}`, {
+    type: "CreateField",
+    fieldId: searchRegressionSeed.fieldId as never,
+    key: "search-regression-tier",
+    name: l10n("Search regression tier"),
+    description: l10n("Identifies the relevance source used by the search regression fixture"),
+    valueType: "string",
+    behavior: { filterable: true, searchable: true, sortable: false },
+  });
+  await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${searchRegressionSeed.fieldId}`, {
+    type: "ActivateField",
+  });
+
+  for (const category of [
+    {
+      id: searchRegressionSeed.singlesCategoryId,
+      key: "search-regression-singles",
+      name: "Regression Singles",
+      displayOrder: 0,
+    },
+    {
+      id: searchRegressionSeed.sealedCategoryId,
+      key: "search-regression-sealed",
+      name: "Regression Sealed",
+      displayOrder: 1,
+    },
+  ]) {
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${category.id}`, {
+      type: "CreateCategory",
+      categoryId: category.id as never,
+      key: category.key,
+      name: l10n(category.name),
+      description: l10n(`${category.name} fixture category`),
+      displayOrder: category.displayOrder,
+    });
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${category.id}`, {
+      type: "PublishCategory",
+    });
+  }
+
+  for (const blueprint of [
+    {
+      id: searchRegressionSeed.cardBlueprintId,
+      key: "search-regression-card",
+      name: "Regression Card",
+    },
+    {
+      id: searchRegressionSeed.sealedBlueprintId,
+      key: "search-regression-sealed",
+      name: "Regression Sealed Product",
+    },
+  ]) {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprint.id}`, {
+      type: "CreateBlueprint",
+      blueprintId: blueprint.id as never,
+      key: blueprint.key,
+      name: l10n(blueprint.name),
+      description: l10n(`${blueprint.name} fixture blueprint`),
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprint.id}`, {
+      type: "SetBlueprintFields",
+      fieldRules: [{ fieldId: searchRegressionSeed.fieldId as never, required: true }],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprint.id}`, {
+      type: "PublishBlueprint",
+    });
+  }
+
+  for (const item of searchRegressionItems) {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "CreateCatalogItem",
+      itemId: item.id as never,
+      languageCode: "en",
+      title: l10n(item.title),
+      subtitle: l10n(item.subtitle),
+      description: l10n(item.description),
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: item.blueprintId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "SetCatalogItemFieldValue",
+      fieldId: searchRegressionSeed.fieldId as never,
+      value: item.facetValue,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "AssignCatalogItemToCategory",
+      categoryId: item.categoryId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "SetCatalogItemTags",
+      tags: [...item.tags],
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+      type: "PublishCatalogItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [searchRegressionSeed.fieldId as never],
+    });
+  }
+
+  await drainContextProcesses({ subscriptionRunners });
+}
+
 describe("marketplace search", () => {
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
@@ -209,6 +369,101 @@ describe("marketplace search", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("pins relevance, filters, zero-result facets, and archive removal against PostgreSQL", async () => {
+    await seedSearchRegressionFixture();
+
+    type SearchRegressionResponse = {
+      items: Array<{ catalog_item_id: string }>;
+      total: number;
+      facets: Array<{ id: string; values: Array<{ id: string; count: number }> }>;
+      category_counts: Array<{ slug: string; count: number }>;
+    };
+
+    const requestSearch = async (query: string): Promise<SearchRegressionResponse> => {
+      const response = await app.request(`/api/marketplace/items?${query}`);
+      expect(response.status).toBe(200);
+      return (await response.json()) as SearchRegressionResponse;
+    };
+    const itemIds = (body: SearchRegressionResponse) => body.items.map((item) => item.catalog_item_id);
+
+    const ranked = await requestSearch("search=ember&includeTotal=true");
+    expect(itemIds(ranked)).toEqual([
+      searchRegressionSeed.titleItemId,
+      searchRegressionSeed.subtitleItemId,
+      searchRegressionSeed.descriptionItemId,
+      searchRegressionSeed.tagItemId,
+    ]);
+    expect(ranked.total).toBe(4);
+    expect(ranked.category_counts).toEqual([
+      { slug: expect.stringContaining("regression-sealed"), count: 2 },
+      { slug: expect.stringContaining("regression-singles"), count: 2 },
+    ]);
+
+    const tagFiltered = await requestSearch("search=ember&tag=featured&includeTotal=true");
+    expect(itemIds(tagFiltered)).toEqual([searchRegressionSeed.titleItemId, searchRegressionSeed.subtitleItemId]);
+    expect(tagFiltered.total).toBe(2);
+
+    const blueprintFiltered = await requestSearch(
+      `search=ember&blueprintId=${searchRegressionSeed.cardBlueprintId}&includeTotal=true`,
+    );
+    expect(itemIds(blueprintFiltered)).toEqual([
+      searchRegressionSeed.titleItemId,
+      searchRegressionSeed.subtitleItemId,
+      searchRegressionSeed.descriptionItemId,
+    ]);
+    expect(blueprintFiltered.total).toBe(3);
+
+    const categoryFiltered = await requestSearch(
+      `search=ember&category=${encodeURIComponent("Regression Singles")}&includeTotal=true`,
+    );
+    expect(itemIds(categoryFiltered)).toEqual([searchRegressionSeed.titleItemId, searchRegressionSeed.subtitleItemId]);
+    expect(categoryFiltered.total).toBe(2);
+
+    const zeroResult = await requestSearch("search=definitely-not-in-the-index&includeTotal=true");
+    expect(zeroResult).toMatchObject({
+      items: [],
+      total: 0,
+      facets: [],
+      category_counts: [],
+    });
+
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${searchRegressionSeed.titleItemId}`, {
+      type: "ArchiveCatalogItem",
+    });
+    await drainContextProcesses({ subscriptionRunners });
+
+    const afterArchive = await requestSearch("search=ember&includeTotal=true");
+    expect(itemIds(afterArchive)).toEqual([
+      searchRegressionSeed.subtitleItemId,
+      searchRegressionSeed.descriptionItemId,
+      searchRegressionSeed.tagItemId,
+    ]);
+    expect(afterArchive.total).toBe(3);
+    expect(afterArchive.category_counts).toEqual([
+      { slug: expect.stringContaining("regression-sealed"), count: 2 },
+      { slug: expect.stringContaining("regression-singles"), count: 1 },
+    ]);
+
+    const tierFacet = afterArchive.facets.find((facet: { id: string }) => facet.id === searchRegressionSeed.fieldId);
+    expect(
+      tierFacet?.values
+        .map((value: { id: string; count: number }) => ({ id: value.id, count: value.count }))
+        .sort((left: { id: string }, right: { id: string }) => left.id.localeCompare(right.id)),
+    ).toEqual([
+      { id: "description-tier", count: 1 },
+      { id: "subtitle-tier", count: 1 },
+      { id: "tag-tier", count: 1 },
+    ]);
+
+    const archivedTitle = await requestSearch("search=%22ember+dragon%22&includeTotal=true");
+    expect(archivedTitle).toMatchObject({
+      items: [],
+      total: 0,
+      facets: [],
+      category_counts: [],
+    });
   });
 
   it("indexes catalog facts into discovery search and item detail slices", async () => {
