@@ -255,7 +255,11 @@ function CoarsePointerLinkLabel({ children }: { children: ReactNode }) {
 // it wrap onto two lines instead, per the #5620 fee-table fit fallback ruling
 // (wrap the metric labels before any font-size reduction).
 function FeeTableMetricLabel({ children }: { children: ReactNode }) {
-  return <span className="block max-w-[2.75rem] hyphens-auto break-words" lang="en">{children}</span>;
+  return (
+    <span className="block max-w-[2.75rem] hyphens-auto break-words" lang="en">
+      {children}
+    </span>
+  );
 }
 
 const policyLinks = [
@@ -917,7 +921,9 @@ function FeeComparisonSection() {
           density="compact"
           caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
           columns={[
-            <FeeTableMetricLabel>{t("publicPresence.home.sellerEconomics.comparison.column.metric")}</FeeTableMetricLabel>,
+            <FeeTableMetricLabel>
+              {t("publicPresence.home.sellerEconomics.comparison.column.metric")}
+            </FeeTableMetricLabel>,
             t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
             t("publicPresence.home.sellerEconomics.comparison.column.tcgplayer"),
             t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
@@ -940,7 +946,9 @@ function FeeComparisonSection() {
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.ebay"),
             ],
             [
-              <FeeTableMetricLabel>{t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label")}</FeeTableMetricLabel>,
+              <FeeTableMetricLabel>
+                {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label")}
+              </FeeTableMetricLabel>,
               <Badge tone="success" variant="solid">
                 {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets")}
               </Badge>,

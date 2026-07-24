@@ -773,9 +773,7 @@ describe("public waitlist form migration smoke", () => {
     if (!inlineProtectionLink) {
       throw new Error("Expected the inline LinkText order-protection link to render in the product preview section.");
     }
-    expect(inlineProtectionLink.querySelector("span span")?.className).toContain(
-      "[@media(pointer:coarse)]:min-h-11",
-    );
+    expect(inlineProtectionLink.querySelector("span span")?.className).toContain("[@media(pointer:coarse)]:min-h-11");
 
     // The fee-comparison Table renders at compact density, and its metric
     // column labels wrap within a narrow, hyphenatable span so the table
