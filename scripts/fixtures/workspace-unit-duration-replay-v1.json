@@ -1,0 +1,752 @@
+{
+  "schemaVersion": "workspace-unit-duration-replay/v1",
+  "observations": [
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-admin-web",
+      "script": "test",
+      "observedDurationMs": 31328
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-marketplace-web",
+      "script": "test",
+      "observedDurationMs": 33051
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-public-web",
+      "script": "test",
+      "observedDurationMs": 14535
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/auth-context",
+      "script": "test",
+      "observedDurationMs": 3050
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/authenticity",
+      "script": "test",
+      "observedDurationMs": 7508
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/bounded-context-module",
+      "script": "test",
+      "observedDurationMs": 2840
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/catalog-seed",
+      "script": "test",
+      "observedDurationMs": 5357
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/checkout-order-source",
+      "script": "test",
+      "observedDurationMs": 3849
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/commercial-terms",
+      "script": "test",
+      "observedDurationMs": 24946
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/design-system",
+      "script": "test",
+      "observedDurationMs": 86864
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/easypost-postage",
+      "script": "test",
+      "observedDurationMs": 3664
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/event-core",
+      "script": "test",
+      "observedDurationMs": 5636
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/http",
+      "script": "test",
+      "observedDurationMs": 4480
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/identity",
+      "script": "test",
+      "observedDurationMs": 56346
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/local-email-capture",
+      "script": "test",
+      "observedDurationMs": 3945
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/localization",
+      "script": "test",
+      "observedDurationMs": 5568
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/market-estimate-display",
+      "script": "test",
+      "observedDurationMs": 3754
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/money-movement",
+      "script": "test",
+      "observedDurationMs": 3746
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/notification-outbox",
+      "script": "test",
+      "observedDurationMs": 3880
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/object-storage",
+      "script": "test",
+      "observedDurationMs": 4430
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/observability",
+      "script": "test",
+      "observedDurationMs": 4826
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/outbound-messaging",
+      "script": "test",
+      "observedDurationMs": 4541
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/payment-processing",
+      "script": "test",
+      "observedDurationMs": 3908
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/platform-policy",
+      "script": "test",
+      "observedDurationMs": 6146
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/postage-labels",
+      "script": "test",
+      "observedDurationMs": 4661
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/primitives",
+      "script": "test",
+      "observedDurationMs": 6813
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/product-measures",
+      "script": "test",
+      "observedDurationMs": 4981
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/product-selection",
+      "script": "test",
+      "observedDurationMs": 4310
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/provider-webhook-inbox",
+      "script": "test",
+      "observedDurationMs": 4046
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/public-presence",
+      "script": "test",
+      "observedDurationMs": 56002
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/realtime",
+      "script": "test",
+      "observedDurationMs": 3733
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/review-eligibility",
+      "script": "test",
+      "observedDurationMs": 3890
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/seller-attention-queue",
+      "script": "test",
+      "observedDurationMs": 4214
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/seller-desk",
+      "script": "test",
+      "observedDurationMs": 4145
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/ses-email",
+      "script": "test",
+      "observedDurationMs": 4235
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/stripe-connect",
+      "script": "test",
+      "observedDurationMs": 3631
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/stripe-payments",
+      "script": "test",
+      "observedDurationMs": 3969
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/twilio-messaging",
+      "script": "test",
+      "observedDurationMs": 3788
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/web-notifications",
+      "script": "test",
+      "observedDurationMs": 2527
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/app-platform-api",
+      "script": "test:unit",
+      "observedDurationMs": 61789
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/app-platform-worker",
+      "script": "test:unit",
+      "observedDurationMs": 38203
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/auth",
+      "script": "test:unit",
+      "observedDurationMs": 57793
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/bounded-context-runtime",
+      "script": "test:unit",
+      "observedDurationMs": 11255
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/catalog",
+      "script": "test:unit",
+      "observedDurationMs": 288271
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/checkout",
+      "script": "test:unit",
+      "observedDurationMs": 98676
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/collections",
+      "script": "test:unit",
+      "observedDurationMs": 18802
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/customer-feedback",
+      "script": "test:unit",
+      "observedDurationMs": 13463
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/discovery",
+      "script": "test:unit",
+      "observedDurationMs": 151296
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/event-core-postgres",
+      "script": "test:unit",
+      "observedDurationMs": 8222
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/fulfillment",
+      "script": "test:unit",
+      "observedDurationMs": 36959
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/inventory",
+      "script": "test:unit",
+      "observedDurationMs": 48660
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/marketplace",
+      "script": "test:unit",
+      "observedDurationMs": 115102
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/notifications",
+      "script": "test:unit",
+      "observedDurationMs": 12578
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/payments",
+      "script": "test:unit",
+      "observedDurationMs": 47413
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/platform-operations",
+      "script": "test:unit",
+      "observedDurationMs": 107024
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/platform-runtime",
+      "script": "test:unit",
+      "observedDurationMs": 42655
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/pricing",
+      "script": "test:unit",
+      "observedDurationMs": 24985
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/settlement",
+      "script": "test:unit",
+      "observedDurationMs": 53838
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-admin-web",
+      "script": "test",
+      "observedDurationMs": 32463
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-marketplace-web",
+      "script": "test",
+      "observedDurationMs": 33742
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-public-web",
+      "script": "test",
+      "observedDurationMs": 16034
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/authenticity",
+      "script": "test",
+      "observedDurationMs": 6611
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/commercial-terms",
+      "script": "test",
+      "observedDurationMs": 25636
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/identity",
+      "script": "test",
+      "observedDurationMs": 40563
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/public-presence",
+      "script": "test",
+      "observedDurationMs": 47845
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/app-platform-api",
+      "script": "test:unit",
+      "observedDurationMs": 65172
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/app-platform-worker",
+      "script": "test:unit",
+      "observedDurationMs": 35593
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/auth",
+      "script": "test:unit",
+      "observedDurationMs": 60879
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/bounded-context-runtime",
+      "script": "test:unit",
+      "observedDurationMs": 10488
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/catalog",
+      "script": "test:unit",
+      "observedDurationMs": 288351
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/checkout",
+      "script": "test:unit",
+      "observedDurationMs": 98734
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/collections",
+      "script": "test:unit",
+      "observedDurationMs": 18031
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/customer-feedback",
+      "script": "test:unit",
+      "observedDurationMs": 13244
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/discovery",
+      "script": "test:unit",
+      "observedDurationMs": 153036
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/fulfillment",
+      "script": "test:unit",
+      "observedDurationMs": 38332
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/inventory",
+      "script": "test:unit",
+      "observedDurationMs": 48508
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/marketplace",
+      "script": "test:unit",
+      "observedDurationMs": 114770
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/notifications",
+      "script": "test:unit",
+      "observedDurationMs": 12772
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/payments",
+      "script": "test:unit",
+      "observedDurationMs": 52503
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/platform-operations",
+      "script": "test:unit",
+      "observedDurationMs": 101788
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/platform-runtime",
+      "script": "test:unit",
+      "observedDurationMs": 40184
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/pricing",
+      "script": "test:unit",
+      "observedDurationMs": 25648
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/settlement",
+      "script": "test:unit",
+      "observedDurationMs": 53762
+    }
+  ]
+}

@@ -1,11 +1,15 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DEFAULT_TEST_COMMAND_TIMEOUT_MS,
   loadTestEnvironment,
   parseRunWorkspacesArgs,
   runWorkspaceScripts,
+  validateDurationHintRegistry,
+  validateRunWorkspacesSummary,
+  validateWorkspaceDurationReplay,
 } from "./run-workspaces.mjs";
 
 function workspace(name, scripts, testProfile) {
@@ -23,6 +27,37 @@ function buildInvocation(args) {
     command: "pnpm",
     args,
   };
+}
+
+function durationRegistry(entries) {
+  return {
+    schemaVersion: "workspace-test-duration-hints/v1",
+    entries,
+  };
+}
+
+function durationEntry(workspace, script, estimatedDurationSeconds) {
+  return { workspace, script, estimatedDurationSeconds };
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+async function captureConsole(action) {
+  const stdout = [];
+  const stderr = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...values) => stdout.push(values.map(String).join(" "));
+  console.error = (...values) => stderr.push(values.map(String).join(" "));
+
+  try {
+    return { result: await action(), stdout, stderr };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
 }
 
 describe("run-workspaces", () => {
@@ -81,21 +116,22 @@ describe("run-workspaces", () => {
   it("respects include and exclude test profiles", async () => {
     const runs = [];
     const workspaces = [
-      workspace("@test/fast", { test: "test" }),
-      workspace("@test/db", { test: "test" }, "db"),
-      workspace("@test/none", { build: "build" }),
+      workspace("@chase-sets/fast", { test: "test" }),
+      workspace("@chase-sets/db", { test: "test" }, "db"),
+      workspace("@chase-sets/none", { build: "build" }),
     ];
 
     await runWorkspaceScripts({
       argv: ["test", "--exclude-test-profile=db"],
       buildInvocation,
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/fast", "test", 1)]),
       listWorkspaces: () => workspaces,
       loadEnvironment: () => {},
       run: async (_command, args) => {
         runs.push(args[1]);
       },
     });
-    expect(runs).toEqual(["@test/fast"]);
+    expect(runs).toEqual(["@chase-sets/fast"]);
 
     runs.length = 0;
     await runWorkspaceScripts({
@@ -107,7 +143,7 @@ describe("run-workspaces", () => {
         runs.push(args[1]);
       },
     });
-    expect(runs).toEqual(["@test/db"]);
+    expect(runs).toEqual(["@chase-sets/db"]);
 
     runs.length = 0;
     await runWorkspaceScripts({
@@ -292,7 +328,8 @@ describe("run-workspaces", () => {
     await runWorkspaceScripts({
       argv: ["test", "--exclude-test-profile=db"],
       buildInvocation,
-      listWorkspaces: () => [workspace("@test/fast", { test: "test" })],
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/fast", "test", 1)]),
+      listWorkspaces: () => [workspace("@chase-sets/fast", { test: "test" })],
       loadEnvironment: (options) => {
         loadCalls.push(options);
       },
@@ -305,7 +342,8 @@ describe("run-workspaces", () => {
     await runWorkspaceScripts({
       argv: ["test:unit", "--test-profile=db"],
       buildInvocation,
-      listWorkspaces: () => [workspace("@test/db-unit", { "test:unit": "test:unit" }, "db")],
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/db-unit", "test:unit", 1)]),
+      listWorkspaces: () => [workspace("@chase-sets/db-unit", { "test:unit": "test:unit" }, "db")],
       loadEnvironment: (options) => {
         loadCalls.push(options);
       },
@@ -365,5 +403,490 @@ describe("run-workspaces", () => {
 
     expect(inheritedEnv.TEST_DATABASE_URL).toBe("postgresql://ci/postgres");
     expect(inheritedEnv.CHASE_SETS_SANDBOX_ID).toBe("unit");
+  });
+});
+
+describe("closed duration scheduling contracts", () => {
+  const registryPath = "scripts/workspace-test-duration-hints-v1.json";
+  const replayPath = "scripts/fixtures/workspace-unit-duration-replay-v1.json";
+
+  it("validates the checked-in registry and replay fixture against the current workspace universe", () => {
+    const registry = readJson(registryPath);
+    const replay = readJson(replayPath);
+    const workspaces = listWorkspacePackages();
+    const eligibleKeys = workspaces.flatMap((candidate) => {
+      const keys = [];
+      if (
+        typeof candidate.packageJson.scripts?.test === "string" &&
+        candidate.packageJson.chaseSets?.testProfile !== "db"
+      ) {
+        keys.push(`${candidate.name}\0test`);
+      }
+      if (
+        typeof candidate.packageJson.scripts?.["test:unit"] === "string" &&
+        candidate.packageJson.chaseSets?.testProfile === "db"
+      ) {
+        keys.push(`${candidate.name}\0test:unit`);
+      }
+      return keys;
+    });
+    const registryKeys = registry.entries.map((entry) => `${entry.workspace}\0${entry.script}`);
+
+    expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
+    expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
+    expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
+    expect(registry.entries).toHaveLength(58);
+    expect(replay.observations).toHaveLength(83);
+  });
+
+  it("derives every checked-in duration hint from the authoritative observations", () => {
+    const registry = readJson(registryPath);
+    const replay = readJson(replayPath);
+    const observationsByTask = new Map();
+
+    for (const observation of replay.observations) {
+      const key = `${observation.workspace}\0${observation.script}`;
+      const durations = observationsByTask.get(key) ?? [];
+      durations.push(observation.observedDurationMs);
+      observationsByTask.set(key, durations);
+    }
+
+    const derivedEntries = [...observationsByTask.entries()]
+      .map(([key, durations]) => {
+        const [workspaceName, script] = key.split("\0");
+        const sorted = durations.toSorted((left, right) => left - right);
+        const middle = Math.floor(sorted.length / 2);
+        const median = sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+        return durationEntry(workspaceName, script, Math.ceil(median / 1000));
+      })
+      .sort((left, right) => {
+        const leftKey = `${left.script}\0${left.workspace}`;
+        const rightKey = `${right.script}\0${right.workspace}`;
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      });
+    const registeredEntries = registry.entries.toSorted((left, right) => {
+      const leftKey = `${left.script}\0${left.workspace}`;
+      const rightKey = `${right.script}\0${right.workspace}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+
+    expect(registeredEntries).toEqual(derivedEntries);
+  });
+
+  it("closed-schema-shallow-validation rejects registry drift before command execution", async () => {
+    const workspaces = [
+      workspace("@chase-sets/fast", { test: "test" }),
+      workspace("@chase-sets/db-unit", { "test:unit": "test:unit" }, "db"),
+      workspace("@chase-sets/db-fast", { test: "test" }, "db"),
+      workspace("@chase-sets/no-unit", { test: "test" }, "db"),
+    ];
+    const valid = durationRegistry([durationEntry("@chase-sets/fast", "test", 12)]);
+    const invalidRegistries = [
+      null,
+      { ...valid, unknown: true },
+      { ...valid, schemaVersion: 1 },
+      { ...valid, entries: {} },
+      { ...valid, entries: [] },
+      { ...valid, entries: Array.from({ length: 257 }, () => valid.entries[0]) },
+      durationRegistry([null]),
+      durationRegistry([{ ...valid.entries[0], unknown: true }]),
+      durationRegistry([{ ...valid.entries[0], workspace: 1 }]),
+      durationRegistry([durationEntry("", "test", 12)]),
+      durationRegistry([durationEntry(`@chase-sets/${"a".repeat(128)}`, "test", 12)]),
+      durationRegistry([durationEntry("fast", "test", 12)]),
+      durationRegistry([durationEntry("@chase-sets/fast", 1, 12)]),
+      durationRegistry([durationEntry("@chase-sets/fast", "build", 12)]),
+      durationRegistry([durationEntry("@chase-sets/fast", "test", "12")]),
+      durationRegistry([durationEntry("@chase-sets/fast", "test", 1.5)]),
+      durationRegistry([durationEntry("@chase-sets/fast", "test", Number.POSITIVE_INFINITY)]),
+      durationRegistry([durationEntry("@chase-sets/fast", "test", 0)]),
+      durationRegistry([durationEntry("@chase-sets/fast", "test", 3601)]),
+      durationRegistry([valid.entries[0], valid.entries[0]]),
+      durationRegistry([durationEntry("@chase-sets/missing", "test", 12)]),
+      durationRegistry([durationEntry("@chase-sets/no-unit", "test:unit", 12)]),
+      durationRegistry([durationEntry("@chase-sets/db-fast", "test", 12)]),
+    ];
+
+    for (const durationHintRegistry of invalidRegistries) {
+      let commandCount = 0;
+      const { stdout } = await captureConsole(async () => {
+        await expect(
+          runWorkspaceScripts({
+            argv: ["test", "--exclude-test-profile=db"],
+            buildInvocation,
+            durationHintRegistry,
+            listWorkspaces: () => workspaces,
+            loadEnvironment: () => {},
+            run: async () => {
+              commandCount += 1;
+            },
+          }),
+        ).rejects.toThrow();
+      });
+
+      expect(commandCount).toBe(0);
+      expect(stdout.some((line) => line.startsWith("RUN_WORKSPACES_SUMMARY "))).toBe(false);
+    }
+  });
+
+  it("closed-schema-shallow-validation rejects replay unknowns, wrong types, bounds, duplicates, and absent tasks", () => {
+    const registry = durationRegistry([durationEntry("@chase-sets/fast", "test", 12)]);
+    const validObservation = {
+      runId: 1,
+      runAttempt: 1,
+      jobId: 2,
+      invocation: "test--exclude-test-profile=db",
+      workspace: "@chase-sets/fast",
+      script: "test",
+      observedDurationMs: 1000,
+    };
+    const fixture = (observations) => ({
+      schemaVersion: "workspace-unit-duration-replay/v1",
+      observations,
+    });
+    const invalidFixtures = [
+      null,
+      { ...fixture([validObservation]), unknown: true },
+      { ...fixture([validObservation]), schemaVersion: 1 },
+      { ...fixture([validObservation]), observations: {} },
+      fixture([]),
+      fixture(Array.from({ length: 129 }, (_, index) => ({ ...validObservation, runId: index + 1 }))),
+      fixture([null]),
+      fixture([{ ...validObservation, unknown: true }]),
+      fixture([{ ...validObservation, runId: 0 }]),
+      fixture([{ ...validObservation, runId: 1.5 }]),
+      fixture([{ ...validObservation, runId: Number.MAX_SAFE_INTEGER + 1 }]),
+      fixture([{ ...validObservation, runAttempt: 101 }]),
+      fixture([{ ...validObservation, jobId: "2" }]),
+      fixture([{ ...validObservation, invocation: 1 }]),
+      fixture([{ ...validObservation, invocation: "test" }]),
+      fixture([{ ...validObservation, workspace: 1 }]),
+      fixture([{ ...validObservation, workspace: "fast" }]),
+      fixture([{ ...validObservation, script: 1 }]),
+      fixture([{ ...validObservation, script: "test:unit" }]),
+      fixture([{ ...validObservation, observedDurationMs: "1000" }]),
+      fixture([{ ...validObservation, observedDurationMs: -1 }]),
+      fixture([{ ...validObservation, observedDurationMs: 600_001 }]),
+      fixture([validObservation, validObservation]),
+      fixture([{ ...validObservation, workspace: "@chase-sets/absent" }]),
+    ];
+
+    for (const invalidFixture of invalidFixtures) {
+      expect(() => validateWorkspaceDurationReplay(invalidFixture, registry)).toThrow();
+    }
+  });
+
+  it("orders real-shaped skew by unhinted, duration descending, and workspace ascending without changing identity or concurrency", async () => {
+    const workspaces = [
+      workspace("@chase-sets/delta", { test: "test" }),
+      workspace("@chase-sets/alpha", { test: "test" }),
+      workspace("@chase-sets/echo", { test: "test" }),
+      workspace("@chase-sets/bravo", { test: "test" }),
+      workspace("@chase-sets/charlie", { test: "test" }),
+    ];
+    const registry = durationRegistry([
+      durationEntry("@chase-sets/delta", "test", 10),
+      durationEntry("@chase-sets/alpha", "test", 20),
+      durationEntry("@chase-sets/bravo", "test", 20),
+    ]);
+    const dispatchOrder = [];
+    let active = 0;
+    let peakActive = 0;
+
+    const { stdout, stderr } = await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["test", "--exclude-test-profile=db", "--concurrency=2", "--", "--coverage"],
+        buildInvocation,
+        durationHintRegistry: registry,
+        listWorkspaces: () => workspaces,
+        loadEnvironment: () => {},
+        run: async (_command, args) => {
+          dispatchOrder.push(args[1]);
+          expect(args.at(-1)).toBe("--coverage");
+          active += 1;
+          peakActive = Math.max(peakActive, active);
+          await delay(2);
+          active -= 1;
+        },
+      }),
+    );
+
+    expect(dispatchOrder).toEqual([
+      "@chase-sets/charlie",
+      "@chase-sets/echo",
+      "@chase-sets/alpha",
+      "@chase-sets/bravo",
+      "@chase-sets/delta",
+    ]);
+    expect(peakActive).toBeLessThanOrEqual(2);
+    expect(new Set(dispatchOrder)).toEqual(new Set(workspaces.map(({ name }) => name)));
+    expect(stderr).toEqual([
+      "Warning: missing duration hints for @chase-sets/charlie, @chase-sets/echo; using the largest registered duration as fallback.",
+    ]);
+
+    const summaryLines = stdout.filter((line) => line.startsWith("RUN_WORKSPACES_SUMMARY "));
+    expect(summaryLines).toHaveLength(1);
+    const summary = JSON.parse(summaryLines[0].slice("RUN_WORKSPACES_SUMMARY ".length));
+    expect(Object.keys(summary)).toEqual([
+      "schemaVersion",
+      "scriptName",
+      "concurrency",
+      "eligibleCount",
+      "completedCount",
+      "passedCount",
+      "failedCount",
+      "elapsedMs",
+      "unhintedTasks",
+      "tasks",
+    ]);
+    expect(validateRunWorkspacesSummary(summary)).toBe(summary);
+    expect(summary.tasks.map((task) => [task.workspace, task.estimatedDurationSeconds, task.usedFallback])).toEqual([
+      ["@chase-sets/charlie", 20, true],
+      ["@chase-sets/echo", 20, true],
+      ["@chase-sets/alpha", 20, false],
+      ["@chase-sets/bravo", 20, false],
+      ["@chase-sets/delta", 10, false],
+    ]);
+    expect(stdout.at(-1)).toBe(summaryLines[0]);
+  });
+
+  it("keeps every noneligible invocation FIFO and emits no duration summary", async () => {
+    const cases = [
+      ["build", "--concurrency=2"],
+      ["test:db", "--concurrency=2"],
+      ["test", "--test-profile=db", "--concurrency=2"],
+      ["test", "--exclude-test-profile=other", "--concurrency=2"],
+      ["test:unit", "--concurrency=2"],
+      ["test:unit", "--test-profile=other", "--concurrency=2"],
+    ];
+
+    for (const argv of cases) {
+      const scriptName = argv[0];
+      const profileArgument = argv.find((argument) => argument.startsWith("--test-profile="));
+      const testProfile = profileArgument?.slice("--test-profile=".length);
+      const workspaces = [
+        workspace("@test/z", { [scriptName]: scriptName }, testProfile),
+        workspace("@test/a", { [scriptName]: scriptName }, testProfile),
+        workspace("@test/m", { [scriptName]: scriptName }, testProfile),
+      ];
+      const starts = [];
+      const { stdout } = await captureConsole(() =>
+        runWorkspaceScripts({
+          argv,
+          buildInvocation,
+          durationHintRegistry: { invalid: true },
+          listWorkspaces: () => workspaces,
+          loadEnvironment: () => {},
+          run: async (_command, args) => {
+            starts.push(args[1]);
+            await delay(1);
+          },
+        }),
+      );
+
+      expect(starts).toEqual(workspaces.map(({ name }) => name));
+      expect(stdout.some((line) => line.startsWith("RUN_WORKSPACES_SUMMARY "))).toBe(false);
+    }
+  });
+
+  it("emits the closed terminal summary on aggregate failure without changing failure semantics", async () => {
+    const workspaces = [
+      workspace("@chase-sets/alpha", { "test:unit": "test:unit" }, "db"),
+      workspace("@chase-sets/bravo", { "test:unit": "test:unit" }, "db"),
+    ];
+    const registry = durationRegistry([
+      durationEntry("@chase-sets/alpha", "test:unit", 2),
+      durationEntry("@chase-sets/bravo", "test:unit", 1),
+    ]);
+
+    const { stdout, stderr } = await captureConsole(async () => {
+      await expect(
+        runWorkspaceScripts({
+          argv: ["test:unit", "--test-profile=db", "--concurrency=2"],
+          buildInvocation,
+          durationHintRegistry: registry,
+          listWorkspaces: () => workspaces,
+          loadEnvironment: () => {},
+          run: async (_command, args) => {
+            if (args[1] === "@chase-sets/bravo") {
+              throw new Error("boom");
+            }
+          },
+        }),
+      ).rejects.toThrow("1 workspace script run(s) failed.");
+    });
+
+    const summaryLine = stdout.at(-1);
+    expect(summaryLine.startsWith("RUN_WORKSPACES_SUMMARY ")).toBe(true);
+    const summary = JSON.parse(summaryLine.slice("RUN_WORKSPACES_SUMMARY ".length));
+    expect(summary).toMatchObject({
+      eligibleCount: 2,
+      completedCount: 2,
+      passedCount: 1,
+      failedCount: 1,
+    });
+    expect(summary.tasks.map((task) => task.outcome)).toEqual(["passed", "failed"]);
+    expect(stderr.join("\n")).toContain("Failed workspaces: @chase-sets/bravo");
+    expect(validateRunWorkspacesSummary(summary)).toBe(summary);
+  });
+
+  it("emits a valid zero-eligible summary and one compact GitHub table without leaking args or environment", async () => {
+    const registry = durationRegistry([durationEntry("@chase-sets/alpha", "test", 2)]);
+    const appended = [];
+    const secret = "must-not-appear";
+
+    const { stdout } = await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["test", "--exclude-test-profile=db", "--workspace-list=@chase-sets/missing", "--", `--token=${secret}`],
+        appendSummary: (...args) => appended.push(args),
+        buildInvocation,
+        durationHintRegistry: registry,
+        env: { GITHUB_STEP_SUMMARY: "summary.md", SECRET_VALUE: secret },
+        listWorkspaces: () => [workspace("@chase-sets/alpha", { test: "test" })],
+        loadEnvironment: () => {},
+        run: async () => {
+          throw new Error("must not run");
+        },
+      }),
+    );
+
+    const summaryLine = stdout.at(-1);
+    const summary = JSON.parse(summaryLine.slice("RUN_WORKSPACES_SUMMARY ".length));
+    expect(summary).toMatchObject({
+      eligibleCount: 0,
+      completedCount: 0,
+      passedCount: 0,
+      failedCount: 0,
+      unhintedTasks: [],
+      tasks: [],
+    });
+    expect(validateRunWorkspacesSummary(summary)).toBe(summary);
+    expect(appended).toHaveLength(1);
+    expect(appended[0][0]).toBe("summary.md");
+    expect(appended[0][1]).toContain("| Workspace | Script | Estimated seconds | Fallback | Actual ms | Outcome |");
+    expect(appended[0][1]).not.toContain(secret);
+    expect(summaryLine).not.toContain(secret);
+  });
+
+  it("rejects closed summary unknowns, wrong types, bounds, and broken equations", () => {
+    const validSummary = {
+      schemaVersion: "run-workspaces-summary/v1",
+      scriptName: "test",
+      concurrency: 1,
+      eligibleCount: 1,
+      completedCount: 1,
+      passedCount: 1,
+      failedCount: 0,
+      elapsedMs: 1,
+      unhintedTasks: [],
+      tasks: [
+        {
+          workspace: "@chase-sets/alpha",
+          script: "test",
+          estimatedDurationSeconds: 1,
+          usedFallback: false,
+          actualDurationMs: 1,
+          outcome: "passed",
+        },
+      ],
+    };
+    const invalidSummaries = [
+      { ...validSummary, unknown: true },
+      {
+        scriptName: validSummary.scriptName,
+        schemaVersion: validSummary.schemaVersion,
+        concurrency: validSummary.concurrency,
+        eligibleCount: validSummary.eligibleCount,
+        completedCount: validSummary.completedCount,
+        passedCount: validSummary.passedCount,
+        failedCount: validSummary.failedCount,
+        elapsedMs: validSummary.elapsedMs,
+        unhintedTasks: validSummary.unhintedTasks,
+        tasks: validSummary.tasks,
+      },
+      { ...validSummary, concurrency: 65 },
+      { ...validSummary, eligibleCount: 257 },
+      { ...validSummary, eligibleCount: "1" },
+      { ...validSummary, completedCount: 0 },
+      { ...validSummary, elapsedMs: 86_400_001 },
+      { ...validSummary, unhintedTasks: [{ workspace: "@chase-sets/alpha", script: "test", unknown: true }] },
+      { ...validSummary, tasks: [{ ...validSummary.tasks[0], unknown: true }] },
+      { ...validSummary, tasks: [{ ...validSummary.tasks[0], usedFallback: "false" }] },
+      { ...validSummary, tasks: [{ ...validSummary.tasks[0], actualDurationMs: 600_001 }] },
+      { ...validSummary, tasks: [{ ...validSummary.tasks[0], outcome: "skipped" }] },
+    ];
+
+    expect(validateRunWorkspacesSummary(validSummary)).toBe(validSummary);
+    for (const summary of invalidSummaries) {
+      expect(() => validateRunWorkspacesSummary(summary)).toThrow();
+    }
+  });
+
+  it("replays the two authoritative attempt-one jobs at exact FIFO and LPT phase makespans", () => {
+    const replay = readJson(replayPath);
+    const observedPhaseBoundaries = new Map([
+      [
+        "30054895589\u000089364607063\u0000test--exclude-test-profile=db",
+        ["2026-07-24T00:01:50.5694948Z", "2026-07-24T00:04:03.6692643Z"],
+      ],
+      [
+        "30054895589\u000089364607063\u0000test:unit--test-profile=db",
+        ["2026-07-24T00:04:03.7974100Z", "2026-07-24T00:09:38.6839751Z"],
+      ],
+      [
+        "30060154233\u000089380059115\u0000test--exclude-test-profile=db",
+        ["2026-07-24T01:54:01.9353929Z", "2026-07-24T01:55:22.4205650Z"],
+      ],
+      [
+        "30060154233\u000089380059115\u0000test:unit--test-profile=db",
+        ["2026-07-24T01:55:22.5641532Z", "2026-07-24T02:00:56.8796117Z"],
+      ],
+    ]);
+    const phases = new Map();
+    for (const observation of replay.observations) {
+      expect(observation.runAttempt).toBe(1);
+      const key = `${observation.runId}\0${observation.jobId}\0${observation.invocation}`;
+      const phase = phases.get(key) ?? [];
+      phase.push(observation.observedDurationMs);
+      phases.set(key, phase);
+    }
+
+    const makespan = (durations) => {
+      const lanes = [0, 0, 0, 0];
+      for (const duration of durations) {
+        let earliestLane = 0;
+        for (let index = 1; index < lanes.length; index += 1) {
+          if (lanes[index] < lanes[earliestLane]) {
+            earliestLane = index;
+          }
+        }
+        lanes[earliestLane] += duration;
+      }
+      return Math.max(...lanes);
+    };
+    const roundToNearestHundredMs = (durationMs) => Math.round(durationMs / 100) * 100;
+    const fifoMs = [...observedPhaseBoundaries.values()].reduce(
+      (total, [startedAt, completedAt]) =>
+        total + roundToNearestHundredMs(Date.parse(completedAt) - Date.parse(startedAt)),
+      0,
+    );
+    const lptMs = roundToNearestHundredMs(
+      [...phases.values()].reduce(
+        (total, durations) => total + makespan(durations.toSorted((left, right) => right - left)),
+        0,
+      ),
+    );
+    const reduction = (((fifoMs - lptMs) / fifoMs) * 100).toFixed(1);
+
+    expect([...phases.keys()]).toEqual([
+      "30054895589\u000089364607063\u0000test--exclude-test-profile=db",
+      "30054895589\u000089364607063\u0000test:unit--test-profile=db",
+      "30060154233\u000089380059115\u0000test--exclude-test-profile=db",
+      "30060154233\u000089380059115\u0000test:unit--test-profile=db",
+    ]);
+    expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
+    expect(fifoMs).toBe(882_800);
+    expect(lptMs).toBe(794_400);
+    expect(reduction).toBe("10.0");
   });
 });
