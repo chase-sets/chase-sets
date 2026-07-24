@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { authenticateAdmin, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 type AccountRealtimeProbeResult = Readonly<{
@@ -115,24 +116,18 @@ test.describe("admin cross-cutting error state", () => {
     });
   }
 
-  test("mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting", async ({ page }) => {
+  test("mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting @admin-platform", async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await page.setViewportSize({ width: 390, height: 844 });
     await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
     await expectPageOk(page, "/access/accounts");
 
-    const overflow = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    expect(
-      overflow.scrollWidth,
-      `mobile admin shell should not overflow horizontally (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
-    ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "admin-shell-mobile-overflow" });
   });
 });

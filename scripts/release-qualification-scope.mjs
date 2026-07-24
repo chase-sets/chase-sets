@@ -103,6 +103,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     observability: "runtime-library",
     "platform-policy": "runtime-library",
     "platform-runtime": "runtime-library",
+    "playwright-evidence": "repo-tooling",
     "provider-webhook-inbox": "live-provider",
     "remote-dev": "repo-tooling",
     "ses-email": "live-provider",

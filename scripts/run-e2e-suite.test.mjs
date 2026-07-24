@@ -94,6 +94,12 @@ describe("run e2e suite", () => {
       "marketplace_seller",
     ]);
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/access-api-keys.spec.ts")).toEqual(["admin_access"]);
+    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-scopes.spec.ts")).toEqual([
+      "catalog_admin_integrations",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/responsive-evidence-contract.spec.ts")).toEqual([
+      "marketplace_browse",
+    ]);
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts")).toEqual(
       [],
     );
@@ -113,6 +119,30 @@ describe("run e2e suite", () => {
       "marketplace_account",
       "admin_auth",
     ]);
+  });
+
+  it("routes shared responsive evidence contract changes to every browser suite", () => {
+    const expected = [
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_platform",
+      "admin_auth",
+      "admin_access",
+    ];
+
+    expect(e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/index.ts")).toEqual(expected);
+    expect(e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/package.json")).toEqual(expected);
+    expect(e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/responsive-evidence-manifest.json")).toEqual(
+      expected,
+    );
+    expect(e2eSuiteIdsForChangedFile("scripts/validate-responsive-evidence-artifacts.mjs")).toEqual(expected);
   });
 
   it("routes catalog admin integration routes to admin coverage", () => {

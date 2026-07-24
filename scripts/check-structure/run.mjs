@@ -27,6 +27,7 @@ import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
+import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs";
 import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
@@ -3371,6 +3372,9 @@ export async function runStructureCheck(options = {}) {
 
   const browserE2eDisclosureGuardResult = await validateBrowserE2eDisclosureGuard({ repoRoot });
   violations.push(...browserE2eDisclosureGuardResult.violations);
+
+  const responsiveEvidenceGuardResult = await validateResponsiveEvidenceGuard({ repoRoot });
+  violations.push(...responsiveEvidenceGuardResult.violations);
 
   const publicPolicyPostureResult = await validatePublicPolicyPosture({ repoRoot });
   violations.push(...publicPolicyPostureResult.violations);
