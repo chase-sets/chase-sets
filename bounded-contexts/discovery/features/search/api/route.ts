@@ -50,6 +50,8 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       nextCursor: result.nextCursor,
       retrievalMode: result.retrievalMode,
       lexicalCount: result.lexicalCount,
+      queryHash: result.queryHash,
+      resultSetKey: result.resultSetKey,
     });
   });
 

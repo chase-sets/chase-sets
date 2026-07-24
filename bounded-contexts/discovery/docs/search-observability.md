@@ -14,6 +14,20 @@ Selecting a Search Result card dispatches `search_result_selected` through `chas
 
 Raw query text, item identifiers, titles, account identifiers, and any Filter values are prohibited from both payloads. The query hash and Result Set key are correlation tokens only; they are never used as metric labels or logged by the capture route.
 
+### Required click-field projection
+
+The production `search_result_selected` payload is deliberately closed. Its required fields and their producer-to-consumer path are:
+
+| Field | Producer | Consumer |
+| --- | --- | --- |
+| `event=search_result_selected` | `features/search/ui/search-page.tsx` | marketplace root bridge, then `/analytics/item-detail-rail` |
+| `surface=search_results` | `features/search/ui/search-page.tsx` | marketplace root bridge, then `/analytics/item-detail-rail` |
+| one-based `position` | `features/search/ui/search-page.tsx` | marketplace root bridge, then `/analytics/item-detail-rail` |
+| SHA-256 `queryHash` | `features/search/api/runtime.ts` → `features/search/api/route.ts` → Discovery search loader → `features/search/ui/search-page.tsx` | marketplace root bridge, then `/analytics/item-detail-rail` |
+| opaque SHA-256 `resultSetKey` | `features/search/api/runtime.ts` → `features/search/api/route.ts` → Discovery search loader → `features/search/ui/search-page.tsx` | marketplace root bridge, then `/analytics/item-detail-rail` |
+
+The search UI dispatches the event only when both identities are non-empty. Empty identities are reserved for its explicit SSR failure fallback; the marketplace bridge independently accepts only 64-character lowercase SHA-256 values.
+
 ## Runtime contract inventory
 
 `createDiscoveryItemSearchRuntime` remains wired by Discovery's item runtime and consumed by Search routes, item-support MCP, UCP catalog support, and API/acceptance tests. `suggestItems` remains exposed by the runtime but is not a Result Set invocation and does not emit this signal.
