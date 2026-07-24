@@ -777,6 +777,9 @@
       "@chase-sets/platform-runtime/worker-capacity": [
         "./infrastructure/platform-runtime/worker-capacity.ts"
       ],
+      "@chase-sets/playwright-evidence": [
+        "./infrastructure/playwright-evidence/index.ts"
+      ],
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"
       ],
