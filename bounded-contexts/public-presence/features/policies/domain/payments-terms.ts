@@ -162,28 +162,31 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       draftText:
         "Stripe may place a hold on funds connected to your account, pause your payout capability, or request " +
         "additional verification in connection with risk review, incomplete verification, an open dispute, or " +
-        "its own compliance obligations. Chase Sets reflects certain of these states in your payout-readiness " +
-        "status, such as an active payout hold or an outstanding provider requirement. Where the Terms of " +
+        "its own compliance obligations. Chase Sets separately places its own hold on sale proceeds pending " +
+        "delivery, risk, support, and aging rules, and reflects that and other payout-unavailable states — " +
+        "such as an outstanding provider requirement — in your payout-readiness status. Where the Terms of " +
         "Service authorize it, Chase Sets may also apply, hold, or offset your available Wallet balance " +
-        "against amounts you owe Chase Sets, including in connection with a dispute, refund, chargeback, or " +
-        "fee. Neither Chase Sets nor Stripe guarantees when a hold or freeze will be released.",
+        "against amounts you owe Chase Sets. Neither Chase Sets nor Stripe guarantees when a hold or freeze " +
+        "will be released.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe processor-level holds/freezes and the Terms of Service's existing Wallet setoff authority " +
-          "as two distinct mechanisms, without inventing release timing.",
+          "Describe Stripe-level processor holds, Chase Sets' own Payout Release Hold, and the Terms of " +
+          "Service's existing Wallet setoff authority as three distinct mechanisms, without inventing release " +
+          "timing.",
         decisionRefs: [5685],
         productTruthRefs: [
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts:3-16",
-          "bounded-contexts/settlement/features/wallets/domain/wallet-adjustment.ts:24-35",
+          "bounded-contexts/settlement/GLOSSARY.md:117-125 (Payout Release Hold)",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion:
-              "Chase Sets already models distinct payout-unavailable reasons for an active payout-release " +
-              "hold, an open provider requirement, and a negative Wallet balance.",
-            evidenceRef: "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts:3-16",
+              "Chase Sets already models a Settlement-owned Payout Release Hold distinct from Stripe's own " +
+              "processor-level holds, plus a payout-unavailable reason for an outstanding provider requirement, " +
+              "without publishing a numeric release SLA.",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:117-125",
           },
         ],
       },
@@ -194,24 +197,30 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       draftText:
         "If a buyer disputes a charge with their card issuer or bank, or opens a dispute through Stripe, " +
         "Stripe manages that chargeback or dispute under its own card-network and processor rules, including " +
-        "any evidence submission process. Chase Sets may ask you for supporting information, tell you the " +
-        "dispute's status, and record a related Wallet Adjustment to reflect a completed dispute outcome, " +
-        "consistent with the Terms of Service. Chase Sets does not control a card network's or Stripe's " +
-        "dispute decision, evidence deadlines, or resolution timing.",
+        "any evidence submission process. While a dispute is open, Chase Sets may hold the related pending " +
+        "sale proceeds so they do not become available to the seller. If the dispute is resolved against the " +
+        "seller, Chase Sets records the resulting recovery against the seller's Wallet balance, which can " +
+        "create a negative balance if the related funds already left the Wallet. If the dispute is resolved " +
+        "in the seller's favor, Chase Sets releases the hold and credits the seller's Wallet balance. Chase " +
+        "Sets does not control a card network's or Stripe's dispute decision, evidence deadlines, or " +
+        "resolution timing.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe the chargeback/dispute path as Stripe- and card-network-owned, with Chase Sets limited to " +
-          "the existing dispute-resolution Wallet Adjustment reason code, without inventing deadlines.",
+          "Describe the chargeback/dispute path as Stripe- and card-network-owned, and describe Chase Sets' " +
+          "own chargeback hold and recovery/release mechanics using the ratified Chargeback Clawback " +
+          "vocabulary's effects without naming that internal term, without inventing deadlines.",
         decisionRefs: [5685],
-        productTruthRefs: ["bounded-contexts/settlement/features/wallets/domain/wallet-adjustment.ts:24-35"],
+        productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135 (Chargeback Clawback)"],
         openQuestions: [],
         assumptions: [
           {
             assertion:
-              "Chase Sets already has a dedicated Wallet Adjustment reason code for recording dispute " +
-              "resolution outcomes.",
-            evidenceRef: "bounded-contexts/settlement/features/wallets/domain/wallet-adjustment.ts:24-35",
+              "Chase Sets already holds pending sale proceeds during an open dispute, posts an automated " +
+              "recovery against the seller's Wallet balance (which may go negative) if the dispute is lost, " +
+              "and releases the hold with a matching credit if the dispute is won — a mechanism distinct from " +
+              "the operator-directed Wallet Adjustment path, which this section therefore does not name.",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:127-135",
           },
         ],
       },
