@@ -148,7 +148,9 @@ function readOptionalPositiveInteger(value: unknown) {
     return null;
   }
 
-  return Number.isInteger(value) && value > 0 && value <= 10_000 ? value : invalidAnalyticsLabel;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 10_000
+    ? value
+    : invalidAnalyticsLabel;
 }
 
 function readOptionalSha256(value: unknown) {

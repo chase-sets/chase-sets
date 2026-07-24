@@ -198,9 +198,25 @@ describe("marketplace root layout", () => {
       params: {},
       context: undefined,
     } as never);
+    const rejectedStringPosition = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "search_result_selected",
+          surface: "search_results",
+          position: "1",
+          queryHash: "a".repeat(64),
+          resultSetKey: "b".repeat(64),
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
 
     expect(accepted.status).toBe(204);
     expect(rejected.status).toBe(400);
+    expect(rejectedStringPosition.status).toBe(400);
   });
 
   it("rejects unsupported or unbounded rail analytics events before logging", async () => {

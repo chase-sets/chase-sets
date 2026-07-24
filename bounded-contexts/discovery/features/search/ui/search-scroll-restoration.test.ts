@@ -74,5 +74,7 @@ function page(id: string, nextCursor: string | null): DiscoverySearchResponse {
     nextCursor,
     retrievalMode: "lexical",
     lexicalCount: 1,
+    queryHash: "",
+    resultSetKey: "",
   };
 }

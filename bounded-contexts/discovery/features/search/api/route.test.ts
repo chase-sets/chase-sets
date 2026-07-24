@@ -14,6 +14,8 @@ function createServices(): DiscoveryItemSearchServices {
       nextCursor: null,
       retrievalMode: "lexical" as const,
       lexicalCount: 0,
+      queryHash: "",
+      resultSetKey: "",
     })),
     previewBulkAdd: vi.fn(async () => ({
       totalMatches: 0,

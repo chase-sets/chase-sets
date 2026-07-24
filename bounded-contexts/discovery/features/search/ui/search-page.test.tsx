@@ -545,6 +545,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
       categories: [],
     });
@@ -566,6 +568,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
       categories: [],
     });
@@ -612,6 +616,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 2,
+        queryHash: "",
+        resultSetKey: "",
       },
       categories: [],
     });
@@ -637,6 +643,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
       categories: [],
     });
@@ -809,6 +817,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
     });
 
@@ -885,6 +895,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
     });
 
@@ -931,6 +943,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
     });
 
@@ -979,6 +993,8 @@ describe("SearchPage", () => {
         nextCursor: null,
         retrievalMode: "lexical",
         lexicalCount: 1,
+        queryHash: "",
+        resultSetKey: "",
       },
     });
 
