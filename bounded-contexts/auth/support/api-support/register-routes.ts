@@ -28,6 +28,10 @@ const registrationIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.regi
 });
 
 export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServices) {
+  app.get("/registration-consent", async (c) => {
+    return c.json(await createIdentityMutations(c).resolveRegistrationConsent());
+  });
+
   app.post("/register", async (c) => {
     const rateLimitDecision = registrationIpRateLimiter.check(publicClientRequestKey(c.req.raw));
     if (rateLimitDecision.limited) {

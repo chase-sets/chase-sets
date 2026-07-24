@@ -74,12 +74,25 @@ export async function registerOrSignInSyntheticAccount(
   account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
 ) {
   await provisionSyntheticAccountInvitation(origin, account.email);
+  const consentResponse = await page.request.get(`${origin}/api/auth/registration-consent`);
+  expect(consentResponse.status(), "marketplace registration should resolve the active consent bundle").toBe(200);
+  const registrationConsent = (await consentResponse.json()) as {
+    operationId: string;
+    snapshot: {
+      bundleKey: "registration";
+      requirements: readonly { policyKey: string; version: string; href: string }[];
+    };
+  };
 
   const response = await page.request.post(`${origin}/api/auth/register`, {
     data: {
       displayName: account.displayName,
       email: account.email,
       password: account.password,
+      registrationConsent: {
+        ...registrationConsent,
+        affirmed: registrationConsent.snapshot.requirements.length > 0,
+      },
     },
   });
 

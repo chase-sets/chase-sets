@@ -103,6 +103,24 @@ const activeRegistrationConsent = {
 };
 
 describe("registration auth routes", () => {
+  it("exposes the authoritative registration consent resolution", async () => {
+    const resolution = {
+      operationId: "cmd_direct_registration",
+      snapshot: {
+        bundleKey: "registration",
+        requirements: [{ policyKey: "terms-of-service", version: "v1", href: "/terms" }],
+      },
+    };
+    const resolveRegistrationConsent = vi.fn(async () => resolution);
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ resolveRegistrationConsent });
+
+    const response = await buildApp(createServices()).request("/registration-consent");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(resolution);
+    expect(resolveRegistrationConsent).toHaveBeenCalledOnce();
+  });
+
   it("returns the waitlist path when registration has no pending invitation", async () => {
     const services = createServices();
     services.registrationAdmission = {
