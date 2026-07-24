@@ -156,22 +156,27 @@ describe("policy artifact page", () => {
     });
   }
 
-  it("never renders packet-only review-manifest fields on the public page", () => {
-    const { container } = renderRouteAdapter(policyRouteAdapters[1].render);
-    const text = container.textContent ?? "";
+  for (const route of policyRouteAdapters) {
+    it(`never renders packet-only review-manifest fields through the real ${route.path} adapter`, () => {
+      const { container } = renderRouteAdapter(route.render);
+      const text = container.textContent ?? "";
 
-    for (const section of sellerAgreementPolicyArtifact.sections) {
-      expect(text).not.toContain(section.reviewManifest.scopeNote);
-      for (const openQuestion of section.reviewManifest.openQuestions) {
-        expect(text).not.toContain(openQuestion);
+      for (const section of route.artifact.sections) {
+        expect(text).not.toContain(section.reviewManifest.scopeNote);
+        for (const openQuestion of section.reviewManifest.openQuestions) {
+          expect(text).not.toContain(openQuestion);
+        }
+        for (const ref of section.reviewManifest.productTruthRefs) {
+          expect(text).not.toContain(ref);
+        }
+        for (const assumption of section.reviewManifest.assumptions) {
+          expect(text).not.toContain(assumption.assertion);
+          expect(text).not.toContain(assumption.evidenceRef);
+        }
+        for (const decisionRef of section.reviewManifest.decisionRefs) {
+          expect(text).not.toContain(String(decisionRef));
+        }
       }
-      for (const ref of section.reviewManifest.productTruthRefs) {
-        expect(text).not.toContain(ref);
-      }
-      for (const assumption of section.reviewManifest.assumptions) {
-        expect(text).not.toContain(assumption.assertion);
-      }
-    }
-    expect(text).not.toContain("5687");
-  });
+    });
+  }
 });
