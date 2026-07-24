@@ -75,7 +75,7 @@ async function createHarness(options: Readonly<{ active?: boolean; eventStore?: 
     eventStore,
     policies,
   } as unknown as IdentityServices;
-  const resolved = await resolveGuardedRegistrationConsentSnapshot(policies, memory.eventStore, publications);
+  const resolved = await resolveGuardedRegistrationConsentSnapshot(services.policies, memory.eventStore, publications);
 
   return { memory, services, db, policies, publications, resolved };
 }
@@ -235,7 +235,7 @@ describe("atomic registration consent", () => {
 
   it("rejects a mid-flight activation switch before appending registration state", async () => {
     const harness = await createHarness({ active: true });
-    harness.policies.resolvePolicy.mockClear().mockImplementation(async (definition: { policyKey: string }) => ({
+    harness.policies.resolvePolicy.mockClear().mockImplementation(async (definition) => ({
       policyKey: definition.policyKey,
       value: { version: harness.policies.resolvePolicy.mock.calls.length > 2 ? "v2" : "v1" },
       source: "policy" as const,

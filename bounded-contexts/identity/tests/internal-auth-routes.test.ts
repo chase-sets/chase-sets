@@ -53,7 +53,7 @@ describe("identity internal auth routes", () => {
     });
 
     expect(response.status).toBe(201);
-    await expect(services.eventStore.readAll()).resolves.toEqual(
+    await expect(services.eventStore!.readAll()).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           eventType: "identity.account.created",

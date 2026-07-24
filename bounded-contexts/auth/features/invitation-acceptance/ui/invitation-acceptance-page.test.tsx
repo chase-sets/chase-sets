@@ -17,6 +17,7 @@ describe("invitation acceptance page", () => {
           accountName: "Competitive Cards",
           invitedByName: "Avery Collector",
           roleLabel: "Member",
+          requiresRegistration: false,
         }}
         token="invite_token"
       />,

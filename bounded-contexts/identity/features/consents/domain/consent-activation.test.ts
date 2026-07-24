@@ -104,7 +104,6 @@ describe("consent activation", () => {
         {
           policyKey: "terms-of-service",
           version: "v1",
-          href: publicPolicyPublicationRecords["terms-of-service"].href,
         },
         publications,
       ),
@@ -115,7 +114,6 @@ describe("consent activation", () => {
         {
           policyKey: "terms-of-service",
           version: "v2",
-          href: publicPolicyPublicationRecords["terms-of-service"].href,
         },
         publications,
       ),
