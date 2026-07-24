@@ -98,17 +98,21 @@ export const DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG: TcgplayerAutomationAd
 const MAX_PROVIDER_DIAGNOSTIC_BODY_LENGTH = 2_048;
 
 export class TcgplayerAutomationHttpError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly responseBody: string | null,
-  ) {
+  public readonly status: number;
+  public readonly responseBody: string | null;
+
+  constructor(message: string, status: number, responseBody: string | null) {
     super(message);
     this.name = "TcgplayerAutomationHttpError";
+    this.status = status;
+    this.responseBody = responseBody;
   }
 }
 
 export class TcgplayerAutomationDomainHttpClient {
+  public readonly domainKey: TcgplayerAutomationDomainKey;
+  public readonly baseUrl: string;
+  private readonly configStore: TcgplayerAutomationHttpConfigStore;
   private readonly throttler: TcgplayerAutomationRequestThrottler;
   private readonly limiter = new TcgplayerAutomationConcurrencyLimiter();
   private readonly fetchImpl: typeof fetch;
@@ -116,11 +120,14 @@ export class TcgplayerAutomationDomainHttpClient {
   private readonly random: () => number;
 
   constructor(
-    readonly domainKey: TcgplayerAutomationDomainKey,
-    readonly baseUrl: string,
-    private readonly configStore: TcgplayerAutomationHttpConfigStore,
+    domainKey: TcgplayerAutomationDomainKey,
+    baseUrl: string,
+    configStore: TcgplayerAutomationHttpConfigStore,
     deps: TcgplayerAutomationHttpClientDeps = {},
   ) {
+    this.domainKey = domainKey;
+    this.baseUrl = baseUrl;
+    this.configStore = configStore;
     this.fetchImpl = deps.fetch ?? fetch;
     this.sleep = deps.sleep ?? sleepWithAbort;
     this.random = deps.random ?? Math.random;
@@ -429,6 +436,9 @@ export function redactTcgplayerAutomationProviderDiagnostic(value: string | null
 }
 
 class TcgplayerAutomationRequestThrottler {
+  private readonly domainKey: TcgplayerAutomationDomainKey;
+  private readonly configStore: TcgplayerAutomationHttpConfigStore;
+  private readonly deps: TcgplayerAutomationRequestThrottlerDeps;
   private lastRequestStartTime = 0;
   private rateLimitedUntil = 0;
   private readonly startQueue: Array<() => void> = [];
@@ -436,13 +446,14 @@ class TcgplayerAutomationRequestThrottler {
   private consecutiveSuccesses = 0;
 
   constructor(
-    private readonly domainKey: TcgplayerAutomationDomainKey,
-    private readonly configStore: TcgplayerAutomationHttpConfigStore,
-    private readonly deps: Readonly<{
-      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
-      now: () => number;
-    }>,
-  ) {}
+    domainKey: TcgplayerAutomationDomainKey,
+    configStore: TcgplayerAutomationHttpConfigStore,
+    deps: TcgplayerAutomationRequestThrottlerDeps,
+  ) {
+    this.domainKey = domainKey;
+    this.configStore = configStore;
+    this.deps = deps;
+  }
 
   async waitToStart(signal?: AbortSignal): Promise<void> {
     const now = this.deps.now();
@@ -522,6 +533,11 @@ class TcgplayerAutomationRequestThrottler {
     this.processingQueue = false;
   }
 }
+
+type TcgplayerAutomationRequestThrottlerDeps = Readonly<{
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  now: () => number;
+}>;
 
 class TcgplayerAutomationConcurrencyLimiter {
   private activeRequests = 0;

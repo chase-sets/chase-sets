@@ -626,12 +626,12 @@ export type SourceObservationIntegrationJobLifecycleCommandErrorCode =
   | "unsupported_state";
 
 export class SourceObservationIntegrationJobLifecycleCommandError extends Error {
-  constructor(
-    public readonly code: SourceObservationIntegrationJobLifecycleCommandErrorCode,
-    message: string,
-  ) {
+  public readonly code: SourceObservationIntegrationJobLifecycleCommandErrorCode;
+
+  constructor(code: SourceObservationIntegrationJobLifecycleCommandErrorCode, message: string) {
     super(message);
     this.name = "SourceObservationIntegrationJobLifecycleCommandError";
+    this.code = code;
   }
 }
 
