@@ -30,7 +30,7 @@ test.describe("access admin sessions", () => {
     await authenticateAdmin(page, "/access/sessions", "/access/sign-in");
     await expectPageOk(page, "/access/sessions");
     await expectAdminWebHydrated(page);
-    await expect(page.getByText("Sessions", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { name: "Sessions", exact: true })).toBeVisible();
 
     const session = await getActiveSession(page);
 
