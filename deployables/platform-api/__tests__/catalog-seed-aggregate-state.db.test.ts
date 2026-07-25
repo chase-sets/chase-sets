@@ -197,6 +197,29 @@ async function requiredEventCounts(): Promise<Readonly<Record<string, number>>> 
   return Object.fromEntries(streamIds.map((streamId) => [streamId, counts.get(streamId) ?? 0]));
 }
 
+const scenarioCatalogItemIds = Object.values(catalogSeedIds.items);
+
+async function scenarioCatalogItemEventCount(): Promise<number> {
+  const streamIds = scenarioCatalogItemIds.map((catalogItemId) => `catalog.item-${catalogItemId}`);
+  const result = await pools.catalog.query<Readonly<{ count: string }>>(
+    `SELECT COUNT(*) AS count
+     FROM event_store_events
+     WHERE stream_id = ANY($1::text[])`,
+    [streamIds],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function scenarioCatalogItemProjectionCount(): Promise<number> {
+  const result = await pools.catalog.query<Readonly<{ count: string }>>(
+    `SELECT COUNT(*) AS count
+     FROM catalog_items
+     WHERE catalog_item_id = ANY($1::text[])`,
+    [scenarioCatalogItemIds],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 async function expectAllRequiredAggregatesActive(): Promise<void> {
   const states = await inspectCatalogIntegrationSeedState(pools.catalog);
   expect(
@@ -249,6 +272,25 @@ async function countEventType(streamId: string, eventType: string): Promise<numb
 }
 
 describe("Catalog integration aggregate-state seed", () => {
+  it("reconciles all required aggregates for a clean scenario-seed-only module seed", async () => {
+    const runtime = await prepareCatalog();
+    if (!catalogModule.seed) {
+      throw new Error("Catalog module seed is unavailable.");
+    }
+
+    const options: ApiHostSeedOptions = {
+      enabledDataProfiles: ["scenario-seed"],
+      environmentName: "test",
+    };
+    await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    await expectAllRequiredAggregatesActive();
+    expect((await inspectCatalogIntegrationSeedState(pools.catalog)).length).toBe(130);
+    const afterBootOne = await requiredEventCounts();
+
+    await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    expect(await requiredEventCounts()).toEqual(afterBootOne);
+  });
+
   it("NC-1 resumes an undrained Dimension seed without duplicate creation", async () => {
     const profile = profileShapes[0];
     const runtime = await prepareCatalog();
@@ -300,6 +342,26 @@ describe("Catalog integration aggregate-state seed", () => {
     expect(await requiredEventCounts()).toEqual(before);
     await ordinaryBoot(runtime, profile);
     expect(await requiredEventCounts()).toEqual(before);
+  });
+
+  it("rebuilds lost Catalog Item projections from retained streams without appending item events", async () => {
+    const profile = profileShapes[0];
+    const runtime = await prepareCatalog();
+    await ordinaryBoot(runtime, profile);
+    expect(await scenarioCatalogItemProjectionCount()).toBe(14);
+    const before = await scenarioCatalogItemEventCount();
+    expect(before).toBe(205);
+
+    await pools.catalog.query("TRUNCATE TABLE catalog_items CASCADE");
+    expect(await scenarioCatalogItemProjectionCount()).toBe(0);
+
+    await ordinaryBoot(runtime, profile);
+    expect(await scenarioCatalogItemProjectionCount()).toBe(14);
+    expect(await scenarioCatalogItemEventCount()).toBe(before);
+
+    await ordinaryBoot(runtime, profile);
+    expect(await scenarioCatalogItemProjectionCount()).toBe(14);
+    expect(await scenarioCatalogItemEventCount()).toBe(before);
   });
 
   it("NC-4 ignores populated containers when required aggregates have zero events", async () => {

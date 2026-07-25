@@ -48,7 +48,7 @@ export async function seedCatalogDatabase(
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentativeProductContents = profileEnabled(options, "representative-commerce-state");
   const shouldSeedRepresentativeCatalog = profileEnabled(options, "representative-catalog");
-  const shouldSeedAuthoring = shouldSeedIntegrationProfile || shouldSeedRepresentativeCatalog;
+  const shouldSeedAuthoring = shouldSeedIntegrationProfile || shouldSeedScenarioData || shouldSeedRepresentativeCatalog;
 
   if (
     !shouldSeedIntegrationProfile &&
@@ -119,6 +119,7 @@ export async function seedCatalogDatabase(
     });
   }
 
+  await assertCatalogIntegrationSeedComplete(services.db);
   console.log("\nCatalog seed reconciliation complete!");
 }
 
@@ -292,22 +293,22 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
 
 async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
   const services = createCatalogServices(pool);
+  const targetCatalogItemId = catalogSeedIds.items.pikachuJungle as CatalogItemId;
+  const [hasAnyCatalogItem, retainedScenarioItemIds] = await Promise.all([
+    hasAnyCatalogItemCreatedEvent(services.db),
+    loadRetainedScenarioCatalogItemIds(services.db),
+  ]);
 
-  if (await tableHasRows(services.db, "catalog_items")) {
+  if (hasAnyCatalogItem) {
     console.log("Catalog scenario items already exist. Reconciling exact integration prerequisites.");
-    const targetStreamId = `catalog.item-${catalogSeedIds.items.pikachuJungle}`;
-    const targetEvents = await services.db.query<{ event_type: string }>(
-      `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC`,
-      [targetStreamId],
-    );
-    if (targetEvents.rows.length === 0) {
+    if (!retainedScenarioItemIds.has(targetCatalogItemId)) {
       await seedCatalogItems(
         services,
         authoring.blueprints,
         authoring.fields,
         authoring.categories,
         authoring.references,
-        { catalogItemIds: [catalogSeedIds.items.pikachuJungle as CatalogItemId] },
+        { catalogItemIds: [targetCatalogItemId] },
       );
     }
   } else {
@@ -325,8 +326,62 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   // Drain Catalog Item projections after either a full or targeted reconciliation;
   // a partial/terminal target stream then fails deterministically in the observation seed.
   await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+  await recoverScenarioCatalogItemProjections(pool, services);
   await seedProductContentScenario(services);
   await seedPromotedSourceObservationScenario(services);
+}
+
+const scenarioCatalogItemIds = Object.values(catalogSeedIds.items) as readonly CatalogItemId[];
+
+function catalogItemStreamId(catalogItemId: CatalogItemId): string {
+  return `catalog.item-${catalogItemId}`;
+}
+
+async function hasAnyCatalogItemCreatedEvent(db: CatalogServices["db"]): Promise<boolean> {
+  const result = await db.query<Readonly<{ exists: boolean }>>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM event_store_events
+       WHERE event_type = 'catalog.catalog-item.created'
+       LIMIT 1
+     ) AS exists`,
+  );
+  return result.rows[0]?.exists ?? false;
+}
+
+async function loadRetainedScenarioCatalogItemIds(db: CatalogServices["db"]): Promise<Set<CatalogItemId>> {
+  const streamIds = scenarioCatalogItemIds.map(catalogItemStreamId);
+  const result = await db.query<Readonly<{ stream_id: string }>>(
+    `SELECT DISTINCT stream_id
+     FROM event_store_events
+     WHERE event_type = 'catalog.catalog-item.created'
+       AND stream_id = ANY($1::text[])`,
+    [streamIds],
+  );
+  return new Set(result.rows.map(({ stream_id }) => stream_id.replace(/^catalog\.item-/u, "") as CatalogItemId));
+}
+
+async function recoverScenarioCatalogItemProjections(
+  pool: PgTransactionalPool,
+  services: CatalogServices,
+): Promise<void> {
+  const retainedScenarioItemIds = await loadRetainedScenarioCatalogItemIds(services.db);
+  if (retainedScenarioItemIds.size === 0) {
+    return;
+  }
+  const result = await services.db.query<Readonly<{ catalog_item_id: string }>>(
+    `SELECT catalog_item_id
+     FROM catalog_items
+     WHERE catalog_item_id = ANY($1::text[])`,
+    [[...retainedScenarioItemIds]],
+  );
+  const projectedItemIds = new Set(result.rows.map(({ catalog_item_id }) => catalog_item_id));
+  if ([...retainedScenarioItemIds].every((catalogItemId) => projectedItemIds.has(catalogItemId))) {
+    return;
+  }
+
+  console.log("Catalog Item projections are behind retained item streams. Rebuilding scenario prerequisites.");
+  await rebuildLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
 }
 
 async function seedRepresentativeProductContentsCatalogItems(
@@ -381,18 +436,6 @@ function profileEnabled(
   ];
 
   return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
-}
-
-async function tableHasRows(
-  db: { query: (sql: string) => Promise<{ rows: readonly { count?: string | number }[] }> },
-  tableName: string,
-): Promise<boolean> {
-  try {
-    const existing = await db.query(`SELECT COUNT(*) AS count FROM ${tableName}`);
-    return Number(existing.rows[0]?.count ?? 0) > 0;
-  } catch {
-    return false;
-  }
 }
 
 function staticCatalogIntegrationIds(): CatalogIntegrationIds {
