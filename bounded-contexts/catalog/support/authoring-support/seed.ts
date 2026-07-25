@@ -48,7 +48,11 @@ export async function seedCatalogDatabase(
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentativeProductContents = profileEnabled(options, "representative-commerce-state");
   const shouldSeedRepresentativeCatalog = profileEnabled(options, "representative-catalog");
-  const shouldSeedAuthoring = shouldSeedIntegrationProfile || shouldSeedScenarioData || shouldSeedRepresentativeCatalog;
+  const shouldSeedAuthoring =
+    shouldSeedIntegrationProfile ||
+    shouldSeedScenarioData ||
+    shouldSeedRepresentativeProductContents ||
+    shouldSeedRepresentativeCatalog;
 
   if (
     !shouldSeedIntegrationProfile &&

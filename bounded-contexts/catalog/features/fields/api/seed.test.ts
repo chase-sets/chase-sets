@@ -116,14 +116,35 @@ function createSeedFieldsHarness(input: { missingKeys?: Set<string> } = {}) {
   const services = {
     db: {
       query: async <T>(_sql: string, values: readonly unknown[]) => {
-        const fieldId = String(values[0]);
-        const key = String(values[1]);
-        const row =
-          existingFields.get(key) ?? Array.from(existingFields.values()).find((field) => field.field_id === fieldId);
+        const expectedStreamId = String(values[0]);
+        const expectedKey = String(values[2]);
+        const rows = Array.from(existingFields.values())
+          .filter((field) => `catalog.field-${field.field_id}` === expectedStreamId || field.key === expectedKey)
+          .flatMap((field) => [
+            {
+              stream_id: `catalog.field-${field.field_id}`,
+              stream_version: 1,
+              event_type: "catalog.field.created",
+              payload: {
+                fieldId: field.field_id,
+                key: field.key,
+                name: { defaultLocale: "en", values: { en: field.key } },
+                description: { defaultLocale: "en", values: { en: "" } },
+                valueType: "string",
+                behavior: { filterable: false, searchable: false, sortable: false },
+              },
+            },
+            {
+              stream_id: `catalog.field-${field.field_id}`,
+              stream_version: 2,
+              event_type: "catalog.field.activated",
+              payload: {},
+            },
+          ]);
 
         return {
-          rowCount: row ? 1 : 0,
-          rows: (row ? [row] : []) as T[],
+          rowCount: rows.length,
+          rows: rows as T[],
         };
       },
     },
