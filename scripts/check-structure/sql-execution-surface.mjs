@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { loadModuleResolutionContext, resolveModule } from "./module-resolution.mjs";
@@ -12,7 +12,6 @@ const contractDeclarationModule = "infrastructure/event-core-postgres/types.ts";
 const contractIndexModule = "infrastructure/event-core-postgres/index.ts";
 const contractNames = new Set(["PgQueryable", "PgPoolClient", "PgTransactionalPool"]);
 const transparentTypeConstructors = new Set(["Pick", "Readonly", "Promise", "NonNullable"]);
-const ignoredDirectories = new Set([".git", "artifacts", "build", "coverage", "dist", "node_modules"]);
 const moduleResolutionContextCache = new Map();
 
 export const SANCTIONED_SQL_RECEIVER_RESOLUTION =
@@ -679,20 +678,11 @@ export function deriveChangedSqlExecutionFiles({
     .sort();
 }
 
-function listFiles(root, relativeDirectory = "") {
-  const absoluteDirectory = path.join(root, ...relativeDirectory.split("/").filter(Boolean));
-  const result = [];
-  for (const entry of readdirSync(absoluteDirectory, { withFileTypes: true })) {
-    if (ignoredDirectories.has(entry.name)) continue;
-    const relativePath = normalizeRepoPath(path.posix.join(relativeDirectory, entry.name));
-    if (entry.isDirectory()) result.push(...listFiles(root, relativePath));
-    else if (entry.isFile()) result.push(relativePath);
-  }
-  return result;
-}
-
-export function listNonTestTypeScriptModules(repoRoot) {
-  return listFiles(repoRoot)
+export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => defaultExecGit(args, repoRoot) } = {}) {
+  return execGit(["ls-files", "-z", "--cached"])
+    .split("\0")
+    .filter(Boolean)
+    .map(normalizeRepoPath)
     .filter((file) => /\.(?:ts|mts)$/.test(file))
     .filter((file) => !/\.(?:test|spec|d)\.(?:ts|mts)$/.test(file))
     .filter((file) => !/(^|\/)(?:__tests__|e2e|fixtures|tests)(\/|$)/.test(file))

@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
-  SqlExecutionGuardError,
   classifySqlExecutionSurface,
   deriveChangedSqlExecutionFiles,
   listNonTestTypeScriptModules,
@@ -16,6 +15,17 @@ const tempRoots = [];
 
 function classify(files, root = repoRoot) {
   return classifySqlExecutionSurface({ repoRoot: root, files });
+}
+
+function withoutChangedFilesJson(run) {
+  const previous = process.env.CHANGED_FILES_JSON;
+  delete process.env.CHANGED_FILES_JSON;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete process.env.CHANGED_FILES_JSON;
+    else process.env.CHANGED_FILES_JSON = previous;
+  }
 }
 
 function callAt(result, file, line) {
@@ -240,30 +250,53 @@ describe("SQL execution diff scope fail-closed controls", () => {
       if (args.slice(0, failingPrefix.length).join(" ") === failingPrefix.join(" ")) throw new Error("control");
       return "abc123\n";
     };
-    expect(() => deriveChangedSqlExecutionFiles({ repoRoot, execGit })).toThrowError(
+    expect(() => withoutChangedFilesJson(() => deriveChangedSqlExecutionFiles({ repoRoot, execGit }))).toThrowError(
       expect.objectContaining({ name: "SqlExecutionGuardError", code }),
     );
   });
 
   it("fails outside Git and accepts only a successfully derived empty diff", () => {
     expect(() =>
-      deriveChangedSqlExecutionFiles({
-        repoRoot,
-        execGit: () => {
-          throw new Error("not git");
-        },
-      }),
-    ).toThrowError(SqlExecutionGuardError);
+      withoutChangedFilesJson(() =>
+        deriveChangedSqlExecutionFiles({
+          repoRoot,
+          execGit: () => {
+            throw new Error("not git");
+          },
+        }),
+      ),
+    ).toThrowError(expect.objectContaining({ name: "SqlExecutionGuardError", code: "SQL_MERGE_BASE_FAILED" }));
     expect(
-      deriveChangedSqlExecutionFiles({
-        repoRoot,
-        execGit: (args) => (args[0] === "merge-base" ? "abc123\n" : ""),
-      }),
+      withoutChangedFilesJson(() =>
+        deriveChangedSqlExecutionFiles({
+          repoRoot,
+          execGit: (args) => (args[0] === "merge-base" ? "abc123\n" : ""),
+        }),
+      ),
     ).toEqual([]);
   });
 });
 
 describe("repository-wide SQL execution partition", () => {
+  it("enumerates only cached Git index entries", () => {
+    const calls = [];
+    const files = listNonTestTypeScriptModules(repoRoot, {
+      execGit: (args) => {
+        calls.push(args);
+        return [
+          "src/tracked.ts",
+          "src/tracked.mts",
+          "src/tracked.test.ts",
+          "src/tracked.d.ts",
+          "src/fixtures/tracked.ts",
+          "",
+        ].join("\0");
+      },
+    });
+    expect(calls).toEqual([["ls-files", "-z", "--cached"]]);
+    expect(files).toEqual(["src/tracked.mts", "src/tracked.ts"]);
+  });
+
   it("classifies every non-test TypeScript module and measures unresolved member roots", () => {
     const files = listNonTestTypeScriptModules(repoRoot);
     const result = classify(files);
