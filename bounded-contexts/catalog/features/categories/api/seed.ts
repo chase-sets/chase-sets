@@ -15,9 +15,12 @@ type CategoryDef = Readonly<{
   displayOrder?: number;
 }>;
 
-export async function seedCategories(services: CatalogServices): Promise<CategoryIds> {
+export async function seedCategories(
+  services: CatalogServices,
+  options: Readonly<{ reconcileExisting?: boolean }> = {},
+): Promise<CategoryIds> {
   console.log("Seeding categories...");
-  const result = await seedCategoryDefinitions(services, allCategoryDefs());
+  const result = await seedCategoryDefinitions(services, allCategoryDefs(), options);
 
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;

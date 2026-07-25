@@ -186,7 +186,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
 ): Promise<CatalogIntegrationIds> {
   const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
 
-  if (await catalogIntegrationDimensionStreamsComplete(services)) {
+  if (await catalogIntegrationAuthoringStreamsComplete(services)) {
     console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
     const dimensions = await seedDimensions(services);
     const fields = await seedFields(services);
@@ -215,9 +215,9 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const [dimensions, fields] = await Promise.all([seedDimensions(services), seedFields(services)]);
 
   const references = await seedReferenceData(services);
-  const components = await seedComponents(services, dimensions, fields);
-  const blueprints = await seedBlueprints(services, components, dimensions, fields);
-  const categories = await seedCategories(services);
+  const components = await seedComponents(services, dimensions, fields, { reconcileExisting: true });
+  const blueprints = await seedBlueprints(services, components, dimensions, fields, { reconcileExisting: true });
+  const categories = await seedCategories(services, { reconcileExisting: true });
   await syncDisplayTemplateAuthoringDependencies(pool, services);
   await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(pool, services, fields);
   await seedProductContentConfiguration(services);
@@ -410,17 +410,21 @@ async function recoverCatalogIntegrationSeedProjections(services: CatalogService
   await rebuildLocalProjectionHandlerSets("catalog", services.pool, seedProjectors);
 }
 
-async function catalogIntegrationDimensionStreamsComplete(services: CatalogServices): Promise<boolean> {
-  const streamIds = Object.values(catalogSeedIds.dimensions).map(
-    ({ dimensionId }) => `catalog.dimension-${dimensionId}`,
-  );
+const catalogIntegrationAuthoringStreamIds = [
+  ...Object.values(catalogSeedIds.dimensions).map(({ dimensionId }) => `catalog.dimension-${dimensionId}`),
+  ...Object.values(catalogSeedIds.components).map((componentId) => `catalog.component-${componentId}`),
+  ...Object.values(catalogSeedIds.blueprints).map((blueprintId) => `catalog.blueprint-${blueprintId}`),
+  ...Object.values(catalogSeedIds.categories).map((categoryId) => `catalog.category-${categoryId}`),
+] as const;
+
+async function catalogIntegrationAuthoringStreamsComplete(services: CatalogServices): Promise<boolean> {
   const existing = await services.db.query<{ stream_count: string }>(
     `SELECT COUNT(*) AS stream_count
      FROM event_store_streams
      WHERE stream_id = ANY($1::text[])`,
-    [streamIds],
+    [catalogIntegrationAuthoringStreamIds],
   );
-  return Number(existing.rows[0]?.stream_count ?? 0) === streamIds.length;
+  return Number(existing.rows[0]?.stream_count ?? 0) === catalogIntegrationAuthoringStreamIds.length;
 }
 
 async function tableHasRows(

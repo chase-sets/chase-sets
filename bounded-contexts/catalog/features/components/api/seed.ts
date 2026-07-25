@@ -12,6 +12,7 @@ export async function seedComponents(
   services: CatalogServices,
   dimensions: DimensionIds,
   fields: FieldIds,
+  options: Readonly<{ reconcileExisting?: boolean }> = {},
 ): Promise<ComponentIds> {
   console.log("Seeding components...");
   const result: ComponentIds = {};
@@ -20,32 +21,34 @@ export async function seedComponents(
     const componentId = catalogSeedIds.components.singleCardIdentity as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "CreateComponent",
-      componentId,
-      key: "single-card-identity",
-      name: localizedTextMapFromEnglish("Single Card Identity"),
-      description: localizedTextMapFromEnglish("Descriptive fields for a specific printed Pokemon card"),
-    });
-
-    for (const [fieldKey, required] of [
-      ["card-number", true],
-      ["card-name", true],
-      ["expansion", true],
-      ["rarity", true],
-      ["card-illustrator", false],
-      ["release-year", false],
-    ] as const) {
+    if (!(options.reconcileExisting && (await componentExists(services, componentId, "single-card-identity")))) {
       await sendSeedCommand(services.components.commandHandler, streamId, {
-        type: "AddFieldRuleToComponent",
-        fieldId: fields[fieldKey],
-        required,
+        type: "CreateComponent",
+        componentId,
+        key: "single-card-identity",
+        name: localizedTextMapFromEnglish("Single Card Identity"),
+        description: localizedTextMapFromEnglish("Descriptive fields for a specific printed Pokemon card"),
+      });
+
+      for (const [fieldKey, required] of [
+        ["card-number", true],
+        ["card-name", true],
+        ["expansion", true],
+        ["rarity", true],
+        ["card-illustrator", false],
+        ["release-year", false],
+      ] as const) {
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddFieldRuleToComponent",
+          fieldId: fields[fieldKey],
+          required,
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
       });
     }
-
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "ActivateComponent",
-    });
 
     result["single-card-identity"] = componentId;
     console.log('  Component "Single Card Identity" created');
@@ -56,53 +59,57 @@ export async function seedComponents(
     const streamId = `catalog.component-${componentId}`;
     const formDimension = dimensions.form;
 
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "CreateComponent",
-      componentId,
-      key: "single-card-product-resolution",
-      name: localizedTextMapFromEnglish("Single Card Product Resolution"),
-      description: localizedTextMapFromEnglish("Product-resolution rules for raw and graded card variants"),
-    });
+    if (
+      !(options.reconcileExisting && (await componentExists(services, componentId, "single-card-product-resolution")))
+    ) {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "CreateComponent",
+        componentId,
+        key: "single-card-product-resolution",
+        name: localizedTextMapFromEnglish("Single Card Product Resolution"),
+        description: localizedTextMapFromEnglish("Product-resolution rules for raw and graded card variants"),
+      });
 
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "AddDimensionRuleToComponent",
-      dimensionId: formDimension.dimensionId,
-      required: true,
-      allowedOptionIds: formDimension.orderedOptionIds,
-    });
-
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "AddDimensionRuleToComponent",
-      dimensionId: dimensions.condition.dimensionId,
-      required: true,
-      allowedOptionIds: dimensions.condition.orderedOptionIds,
-      appliesWhen: [
-        {
-          dimensionId: formDimension.dimensionId,
-          optionIds: [formDimension.optionIds.raw],
-        },
-      ],
-    });
-
-    for (const dimKey of ["grading-company", "grade"] as const) {
-      const dimension = dimensions[dimKey];
       await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddDimensionRuleToComponent",
-        dimensionId: dimension.dimensionId,
+        dimensionId: formDimension.dimensionId,
         required: true,
-        allowedOptionIds: dimension.orderedOptionIds,
+        allowedOptionIds: formDimension.orderedOptionIds,
+      });
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "AddDimensionRuleToComponent",
+        dimensionId: dimensions.condition.dimensionId,
+        required: true,
+        allowedOptionIds: dimensions.condition.orderedOptionIds,
         appliesWhen: [
           {
             dimensionId: formDimension.dimensionId,
-            optionIds: [formDimension.optionIds.graded],
+            optionIds: [formDimension.optionIds.raw],
           },
         ],
       });
-    }
 
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "ActivateComponent",
-    });
+      for (const dimKey of ["grading-company", "grade"] as const) {
+        const dimension = dimensions[dimKey];
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddDimensionRuleToComponent",
+          dimensionId: dimension.dimensionId,
+          required: true,
+          allowedOptionIds: dimension.orderedOptionIds,
+          appliesWhen: [
+            {
+              dimensionId: formDimension.dimensionId,
+              optionIds: [formDimension.optionIds.graded],
+            },
+          ],
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
+      });
+    }
 
     result["single-card-product-resolution"] = componentId;
     console.log('  Component "Single Card Product Resolution" created');
@@ -112,37 +119,39 @@ export async function seedComponents(
     const componentId = catalogSeedIds.components.sealedProductIdentity as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "CreateComponent",
-      componentId,
-      key: "sealed-product-identity",
-      name: localizedTextMapFromEnglish("Sealed Product Identity"),
-      description: localizedTextMapFromEnglish("Descriptive fields for Pokemon sealed products"),
-    });
-
-    for (const [fieldKey, required] of [
-      ["expansion", true],
-      ["release-year", false],
-      ["pack-count", true],
-    ] as const) {
+    if (!(options.reconcileExisting && (await componentExists(services, componentId, "sealed-product-identity")))) {
       await sendSeedCommand(services.components.commandHandler, streamId, {
-        type: "AddFieldRuleToComponent",
-        fieldId: fields[fieldKey],
-        required,
+        type: "CreateComponent",
+        componentId,
+        key: "sealed-product-identity",
+        name: localizedTextMapFromEnglish("Sealed Product Identity"),
+        description: localizedTextMapFromEnglish("Descriptive fields for Pokemon sealed products"),
+      });
+
+      for (const [fieldKey, required] of [
+        ["expansion", true],
+        ["release-year", false],
+        ["pack-count", true],
+      ] as const) {
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddFieldRuleToComponent",
+          fieldId: fields[fieldKey],
+          required,
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
       });
     }
-
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "ActivateComponent",
-    });
 
     result["sealed-product-identity"] = componentId;
     console.log('  Component "Sealed Product Identity" created');
   }
 
-  Object.assign(result, await seedMagicComponents(services, dimensions, fields, { reconcileExisting: false }));
-  Object.assign(result, await seedOnePieceComponents(services, dimensions, fields, { reconcileExisting: false }));
-  Object.assign(result, await seedLorcanaComponents(services, dimensions, fields, { reconcileExisting: false }));
+  Object.assign(result, await seedMagicComponents(services, dimensions, fields, options));
+  Object.assign(result, await seedOnePieceComponents(services, dimensions, fields, options));
+  Object.assign(result, await seedLorcanaComponents(services, dimensions, fields, options));
 
   return result;
 }

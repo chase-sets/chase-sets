@@ -168,6 +168,97 @@ async function countCatalogDimensionStreamEvents(
   return Object.fromEntries(streamIds.sort().map((streamId) => [streamId, eventCounts.get(streamId) ?? 0]));
 }
 
+const requiredBaseCatalogAuthoringStreamIds = [
+  `catalog.component-${catalogSeedIds.components.singleCardIdentity}`,
+  `catalog.component-${catalogSeedIds.components.singleCardProductResolution}`,
+  `catalog.component-${catalogSeedIds.components.sealedProductIdentity}`,
+  `catalog.blueprint-${catalogSeedIds.blueprints.pokemonCardSingle}`,
+  `catalog.blueprint-${catalogSeedIds.blueprints.pokemonSealedProduct}`,
+  `catalog.category-${catalogSeedIds.categories.pokemonTcg}`,
+] as const;
+
+async function countRequiredBaseCatalogAuthoringStreamEvents(
+  pool: PlatformApiTestPools["catalog"],
+): Promise<Readonly<Record<string, number>>> {
+  const result = await pool.query<Readonly<{ stream_id: string; event_count: string }>>(
+    `SELECT stream_id, COUNT(*) AS event_count
+     FROM event_store_events
+     WHERE stream_id = ANY($1::text[])
+     GROUP BY stream_id
+     ORDER BY stream_id`,
+    [requiredBaseCatalogAuthoringStreamIds],
+  );
+  const eventCounts = new Map(result.rows.map(({ stream_id, event_count }) => [stream_id, Number(event_count)]));
+  return Object.fromEntries(
+    requiredBaseCatalogAuthoringStreamIds.map((streamId) => [streamId, eventCounts.get(streamId) ?? 0]),
+  );
+}
+
+type CatalogSeedInterruptionPoint = "dimensions" | "components" | "blueprints";
+
+async function interruptCatalogSeedAfter(
+  services: ReturnType<typeof catalogModule.createServices>,
+  interruptionPoint: CatalogSeedInterruptionPoint,
+): Promise<void> {
+  let resolveDimensionsSeeded!: () => void;
+  const dimensionsSeeded = new Promise<void>((resolve) => {
+    resolveDimensionsSeeded = resolve;
+  });
+  let activatedDimensionCount = 0;
+  const interruptedServices = {
+    ...services,
+    dimensions: {
+      ...services.dimensions,
+      commandHandler: async (...args: Parameters<typeof services.dimensions.commandHandler>) => {
+        const result = await services.dimensions.commandHandler(...args);
+        if (
+          interruptionPoint === "dimensions" &&
+          args[0].command.type === "ActivateDimension" &&
+          ++activatedDimensionCount === Object.keys(catalogSeedIds.dimensions).length
+        ) {
+          resolveDimensionsSeeded();
+        }
+        return result;
+      },
+    },
+    fields: {
+      ...services.fields,
+      commandHandler: async (...args: Parameters<typeof services.fields.commandHandler>) => {
+        if (interruptionPoint === "dimensions") {
+          await dimensionsSeeded;
+          throw new Error("test interruption after seedDimensions");
+        }
+        return services.fields.commandHandler(...args);
+      },
+    },
+    blueprints: {
+      ...services.blueprints,
+      commandHandler: async (...args: Parameters<typeof services.blueprints.commandHandler>) => {
+        if (interruptionPoint === "components") {
+          throw new Error("test interruption after seedComponents");
+        }
+        return services.blueprints.commandHandler(...args);
+      },
+    },
+    categories: {
+      ...services.categories,
+      commandHandler: async (...args: Parameters<typeof services.categories.commandHandler>) => {
+        if (interruptionPoint === "blueprints") {
+          throw new Error("test interruption after seedBlueprints");
+        }
+        return services.categories.commandHandler(...args);
+      },
+    },
+  } satisfies typeof services;
+
+  await expect(
+    catalogModule.seed?.(services.pool, interruptedServices, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    }),
+  ).rejects.toThrow(`test interruption after seed${interruptionPoint[0]!.toUpperCase()}${interruptionPoint.slice(1)}`);
+}
+
 async function representativeParticipantIdentities(
   pools: PlatformApiTestPools,
 ): Promise<Readonly<{ sellerAccountIds: readonly string[]; buyerAccountIds: readonly string[] }>> {
@@ -541,8 +632,17 @@ describe("platform api bootstrap production reconciliation", () => {
     await seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions);
 
     const retainedDimensionEvents = await countCatalogDimensionStreamEvents(pools.catalog);
-    expect(Object.values(retainedDimensionEvents)).toHaveLength(Object.keys(catalogSeedIds.dimensions).length);
-    expect(Object.values(retainedDimensionEvents).every((count) => count > 0)).toBe(true);
+    expect(retainedDimensionEvents).toEqual({
+      [`catalog.dimension-${catalogSeedIds.dimensions.condition.dimensionId}`]: 9,
+      [`catalog.dimension-${catalogSeedIds.dimensions.form.dimensionId}`]: 4,
+      [`catalog.dimension-${catalogSeedIds.dimensions.grade.dimensionId}`]: 15,
+      [`catalog.dimension-${catalogSeedIds.dimensions.gradingCompany.dimensionId}`]: 8,
+    });
+
+    await expect(
+      seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+    ).resolves.toBeUndefined();
+    expect(await countCatalogDimensionStreamEvents(pools.catalog)).toEqual(retainedDimensionEvents);
 
     // PostgreSQL truncates UNLOGGED projection tables after crash recovery while
     // retaining event streams, subscription checkpoints, and application ledgers.
@@ -572,7 +672,76 @@ describe("platform api bootstrap production reconciliation", () => {
     );
     expect(firstRecoveryEventCounts).toEqual(retainedDimensionEvents);
     expect(secondRecoveryEventCounts).toEqual(firstRecoveryEventCounts);
+
+    await pools.catalog.query("TRUNCATE TABLE catalog_dimension_options, catalog_dimensions");
+    const concurrentPools = createPlatformApiPools({
+      runtimeProfile: "public",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6184,
+    });
+    const concurrentRuntime = createCatalogSeedHost(concurrentPools);
+    try {
+      await expect(
+        Promise.all([
+          seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+          seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", concurrentRuntime, bootstrapOptions),
+        ]),
+      ).resolves.toEqual([undefined, undefined]);
+    } finally {
+      await closePlatformApiPools(concurrentPools);
+    }
+    expect(await countCatalogDimensionStreamEvents(pools.catalog)).toEqual(retainedDimensionEvents);
+    const concurrentlyRecoveredDimensionProjection = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_dimensions",
+    );
+    expect(Number(concurrentlyRecoveredDimensionProjection.rows[0]?.count ?? 0)).toBe(
+      Object.keys(catalogSeedIds.dimensions).length,
+    );
   }, 120_000);
+
+  it.each(["dimensions", "components", "blueprints"] as const)(
+    "completes the base Catalog authoring set after interruption following %s",
+    async (interruptionPoint) => {
+      await bootstrapContextDatabase(catalogModule, pools.catalog);
+      const runtime = createCatalogSeedHost(pools);
+      const services = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+      const bootstrapOptions = {
+        enabledDataProfiles: nonProductionDataProfiles,
+        environmentName: "test",
+      } as const;
+
+      await interruptCatalogSeedAfter(services, interruptionPoint);
+      const afterInterruption = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+      const expectedPresentStreamCounts: Readonly<Record<CatalogSeedInterruptionPoint, number>> = {
+        dimensions: 0,
+        components: 3,
+        blueprints: 5,
+      };
+      expect(Object.values(afterInterruption).filter((eventCount) => eventCount > 0)).toHaveLength(
+        expectedPresentStreamCounts[interruptionPoint],
+      );
+
+      await expect(
+        seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+      ).resolves.toBeUndefined();
+      const afterFirstResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+
+      await expect(
+        seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+      ).resolves.toBeUndefined();
+      const afterSecondResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+
+      expect(
+        Object.values(afterFirstResume).every((eventCount) => eventCount > 0),
+        `${interruptionPoint}: after interruption=${JSON.stringify(afterInterruption)}; ` +
+          `after first ordinary boot=${JSON.stringify(afterFirstResume)}; ` +
+          `after second ordinary boot=${JSON.stringify(afterSecondResume)}`,
+      ).toBe(true);
+      expect(afterSecondResume).toEqual(afterFirstResume);
+    },
+    120_000,
+  );
 
   it("limits and reconciles every production-like seed context against current-code state", async () => {
     const runtime = createPlatformApiHost({
