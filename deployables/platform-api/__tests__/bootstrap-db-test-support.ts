@@ -5,6 +5,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE } from "@chase-sets/bounded-context-runtime";
+import type { PgPoolClient } from "@chase-sets/event-core-postgres";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -86,7 +87,7 @@ function selectPlatformApiContexts<T>(
 export async function holdSchemaBootstrapAdvisoryLock(
   pool: PlatformApiTestPools[PlatformApiContextName],
 ): Promise<() => Promise<void>> {
-  const client = await pool.connect();
+  const client: PgPoolClient = await pool.connect();
   let released = false;
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended(($1::text || ':' || current_database()), 0))", [
