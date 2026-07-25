@@ -15,20 +15,19 @@ const operationPatterns = [
   },
   {
     operation: "script:digitalocean-registry-cleanup",
-    pattern: /(?:^|[\s;&|$(])node\s+(?:["']?)[^\s"';&|)]*digitalocean-registry-cleanup\.mjs(?=["'\s;&|)]|$)/gm,
+    pattern: /(?:^|[^A-Za-z0-9_.-])digitalocean-registry-cleanup\.mjs(?=$|[^A-Za-z0-9_.-])/gm,
   },
   {
     operation: "script:production-db-restore-point-cleanup",
-    pattern: /(?:^|[\s;&|$(])node\s+(?:["']?)[^\s"';&|)]*production-db-restore-point-cleanup\.mjs(?=["'\s;&|)]|$)/gm,
+    pattern: /(?:^|[^A-Za-z0-9_.-])production-db-restore-point-cleanup\.mjs(?=$|[^A-Za-z0-9_.-])/gm,
   },
   {
     operation: "script:disable-terraform-prevent-destroy",
-    pattern: /(?:^|[\s;&|$(])node\s+(?:["']?)[^\s"';&|)]*disable-terraform-prevent-destroy\.mjs(?=["'\s;&|)]|$)/gm,
+    pattern: /(?:^|[^A-Za-z0-9_.-])disable-terraform-prevent-destroy\.mjs(?=$|[^A-Za-z0-9_.-])/gm,
   },
 ];
 
-const safeDryRunResolverPattern =
-  /^\s*\$\{\{\s*github\.event_name\s*==\s*'schedule'\s*&&\s*'false'\s*\|\|\s*\(\s*inputs\.dry_run\s*==\s*'true'\s*&&\s*'true'\s*\|\|\s*'false'\s*\)\s*\}\}\s*$/;
+const requestedDryRunExpressionPattern = /^\s*\$\{\{\s*github\.event\.inputs\.dry_run\s*\}\}\s*$/;
 
 // These pre-existing operation classes intentionally sit outside the manual
 // cleanup dry-run policy: preview lifecycle teardown, deploy-time production
@@ -95,10 +94,10 @@ function workflowDispatchInputs(workflow) {
     : {};
 }
 
-function envEntries(job, step) {
-  const jobEnv = job?.env && typeof job.env === "object" ? job.env : {};
-  const stepEnv = step?.env && typeof step.env === "object" ? step.env : {};
-  return Object.entries({ ...jobEnv, ...stepEnv }).filter(([, value]) => typeof value === "string");
+function envEntries(...owners) {
+  return Object.entries(
+    Object.assign({}, ...owners.map((owner) => (owner?.env && typeof owner.env === "object" ? owner.env : {}))),
+  ).filter(([, value]) => typeof value === "string");
 }
 
 function referencedEnvVariable(run, variable) {
@@ -106,10 +105,33 @@ function referencedEnvVariable(run, variable) {
   return new RegExp(`\\$(?:\\{${escaped}\\}|${escaped})(?![A-Za-z0-9_])`).test(run);
 }
 
-function safeResolverVariables(job, step) {
-  return envEntries(job, step)
-    .filter(([, value]) => safeDryRunResolverPattern.test(value))
-    .map(([name]) => name);
+function hasNonzeroExit(run) {
+  return /(?:^|\n)[ \t]*exit[ \t]+[1-9][0-9]*(?:[ \t]*(?:#.*)?)?(?=\r?\n|$)/.test(run);
+}
+
+function safeModeResolverTarget(run) {
+  if (typeof run !== "string") return null;
+  const assignments = [...run.matchAll(/^\s*effective_dry_run="(true|false)"\s*$/gm)].map((match) => match[1]);
+  if (JSON.stringify(assignments) !== JSON.stringify(["true", "false", "false"])) return null;
+
+  const resolver =
+    /if\s+\[\s*"\$GITHUB_EVENT_NAME"\s*=\s*"schedule"\s*\]\s*;\s*then\s+effective_dry_run="false"\s+elif\s+\[\s*"\$GITHUB_EVENT_NAME"\s*=\s*"workflow_dispatch"\s*\]\s*&&\s*\[\s*"\$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN"\s*=\s*"false"\s*\]\s*;\s*then\s+effective_dry_run="false"\s+fi/;
+  if (!resolver.test(run)) return null;
+
+  const output = run.match(/echo\s+"([A-Z][A-Z0-9_]*)=\$\{effective_dry_run\}"\s*>>\s*"\$GITHUB_ENV"/);
+  return output?.[1] ?? null;
+}
+
+function safeResolverVariables(job) {
+  const requestedInput = Object.fromEntries(envEntries(job)).DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN;
+  if (!requestedDryRunExpressionPattern.test(requestedInput ?? "")) return [];
+
+  const resolved = [];
+  for (const step of job?.steps ?? []) {
+    const target = safeModeResolverTarget(step?.run);
+    if (target) resolved.push(target);
+  }
+  return resolved.length === 1 ? resolved : [];
 }
 
 function hasScriptDryRunWiring(run, variable) {
@@ -119,22 +141,31 @@ function hasScriptDryRunWiring(run, variable) {
   ).test(run);
 }
 
-function hasRestorePointApplyWiring(run, variable) {
+function hasRestorePointApplyWiring(run, variable, environmentEntries) {
   const escaped = variable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const falseBranch = new RegExp(
     `if\\s+\\[\\s*"\\$(?:\\{${escaped}\\}|${escaped})"\\s*=\\s*"false"\\s*\\]\\s*;\\s*then[\\s\\S]*?apply_arg="--apply"[\\s\\S]*?fi`,
   );
   const assignments = [...run.matchAll(/^\s*apply_arg=(.+)$/gm)].map((match) => match[1].trim());
+  const applyEnvironment = environmentEntries.find(([name]) => name === "PRODUCTION_DB_RESTORE_POINT_CLEANUP_APPLY");
   return (
     falseBranch.test(run) &&
     assignments.length === 2 &&
     assignments[0] === '""' &&
     assignments[1] === '"--apply"' &&
-    /\$\{apply_arg\}(?=\s|$)/m.test(run)
+    /\$\{apply_arg\}(?=\s|$)/m.test(run) &&
+    (run.match(/--apply/g) ?? []).length === 1 &&
+    (!applyEnvironment || applyEnvironment[1] === "false") &&
+    !/PRODUCTION_DB_RESTORE_POINT_CLEANUP_APPLY\s*=\s*(?:"?true"?|\$\{\{)/.test(run)
   );
 }
 
-function hasProvableModeWiring(run, operations, resolverVariables) {
+function hasProvableModeWiring(workflow, job, step, operations, resolverVariables) {
+  const run = step.run;
+  const environment = envEntries(workflow, job, ...(job?.steps ?? []));
+  const jobRun = (job?.steps ?? [])
+    .map((candidate) => (typeof candidate?.run === "string" ? candidate.run : ""))
+    .join("\n");
   if (resolverVariables.length === 0) return false;
   return resolverVariables.some((variable) => {
     if (!referencedEnvVariable(run, variable)) return false;
@@ -143,7 +174,10 @@ function hasProvableModeWiring(run, operations, resolverVariables) {
         return hasScriptDryRunWiring(run, variable);
       }
       if (operation === "script:production-db-restore-point-cleanup") {
-        return hasRestorePointApplyWiring(run, variable);
+        return (
+          hasRestorePointApplyWiring(run, variable, environment) &&
+          !/PRODUCTION_DB_RESTORE_POINT_CLEANUP_APPLY\s*=\s*(?:"?true"?|\$\{\{)/.test(jobRun)
+        );
       }
       return false;
     });
@@ -162,33 +196,65 @@ function inputHasTrueDefault(input) {
   );
 }
 
+function inputHasNoDefault(input) {
+  return input && typeof input === "object" && (!Object.hasOwn(input, "default") || input.default === "");
+}
+
 function confirmationGate(workflow) {
   const input = workflowDispatchInputs(workflow).confirm;
   const job = workflow?.jobs?.["refuse-unconfirmed-apply"];
   const condition = typeof job?.if === "string" ? job.if : "";
-  const conditionMatch = condition.match(
-    /^\s*github\.event_name\s*==\s*'workflow_dispatch'\s*&&\s*inputs\.dry_run\s*==\s*'false'\s*&&\s*inputs\.confirm\s*!=\s*'([^']+)'\s*$/,
-  );
-  const phrase = conditionMatch?.[1] ?? null;
-  const refuses = (job?.steps ?? []).some(
-    (step) =>
-      typeof step?.run === "string" && step["continue-on-error"] !== true && /(?:^|\n)\s*exit\s+1\s*$/.test(step.run),
-  );
-  const conditionIsScoped = phrase !== null;
+  const gateEnvironment = Object.fromEntries(envEntries(job));
+  const environmentIsWired =
+    requestedDryRunExpressionPattern.test(gateEnvironment.DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN ?? "") &&
+    /^\s*\$\{\{\s*github\.event\.inputs\.confirm\s*\}\}\s*$/.test(
+      gateEnvironment.DESTRUCTIVE_OPERATION_CONFIRMATION ?? "",
+    );
+  const manualCondition = /^\s*github\.event_name\s*==\s*'workflow_dispatch'\s*$/.test(condition);
+  let shellIsAuthoritative = false;
+  let phrase = null;
+
+  for (const step of job?.steps ?? []) {
+    if (typeof step?.run !== "string" || step["continue-on-error"] === true) continue;
+    const run = step.run;
+    const trueBranch = run.match(/"true"\s*\)([\s\S]*?)\n\s*;;/);
+    const falseBranch = run.match(/"false"\s*\)([\s\S]*?)\n\s*;;/);
+    const unknownBranch = run.match(/\*\s*\)([\s\S]*?)\n\s*;;/);
+    const confirmation = falseBranch?.[1]?.match(
+      /if\s+\[\s*"\$DESTRUCTIVE_OPERATION_CONFIRMATION"\s*!=\s*"([^"]+)"\s*\]\s*;\s*then([\s\S]*?)\n[ \t]*fi(?=\r?\n|$)/,
+    );
+    if (
+      /case\s+"\$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN"\s+in/.test(run) &&
+      trueBranch &&
+      falseBranch &&
+      unknownBranch &&
+      confirmation &&
+      hasNonzeroExit(confirmation[2]) &&
+      hasNonzeroExit(unknownBranch[1])
+    ) {
+      phrase = confirmation[1];
+      shellIsAuthoritative = phrase.length > 0;
+      break;
+    }
+  }
 
   return {
     inputIsTyped: input && typeof input === "object" && input.type === "string",
+    inputHasNoDefault: inputHasNoDefault(input),
     jobExists: Boolean(job),
-    conditionIsScoped,
-    refuses,
+    conditionIsScoped: manualCondition && environmentIsWired && shellIsAuthoritative,
+    refuses: shellIsAuthoritative,
+    phrase,
   };
 }
 
 function destructiveJobNeedsConfirmation(job) {
-  const condition = typeof job?.if === "string" ? job.if : "";
+  const condition = typeof job?.if === "string" ? job.if.replace(/\s+/g, " ").trim() : "";
   return (
     normalizeNeeds(job?.needs).includes("refuse-unconfirmed-apply") &&
-    /^\s*always\(\)\s*&&\s*needs\.refuse-unconfirmed-apply\.result\s*==\s*'skipped'\s*$/.test(condition)
+    /^!cancelled\(\) && \(needs\.refuse-unconfirmed-apply\.result == 'skipped' \|\| needs\.refuse-unconfirmed-apply\.result == 'success'\)$/.test(
+      condition,
+    )
   );
 }
 
@@ -300,6 +366,9 @@ export function checkWorkflowDestructiveOperationGating(source, { workflowFile =
         `${workflowFile}: workflow_dispatch must declare a typed string confirmation input named 'confirm'.`,
       );
     }
+    if (!gate.inputHasNoDefault) {
+      violations.push(`${workflowFile}: workflow_dispatch confirmation input must not default the destructive phrase.`);
+    }
     if (!gate.jobExists) {
       violations.push(
         `${workflowFile}: destructive workflow is missing the refuse-unconfirmed-apply confirmation job.`,
@@ -307,31 +376,31 @@ export function checkWorkflowDestructiveOperationGating(source, { workflowFile =
     } else {
       if (!gate.conditionIsScoped) {
         violations.push(
-          `${workflowFile}: refuse-unconfirmed-apply must reject manual dry_run=false unless inputs.confirm equals a non-empty typed phrase.`,
+          `${workflowFile}: refuse-unconfirmed-apply must shell-validate every manual dry_run value and compare confirmation case-sensitively to a non-empty phrase.`,
         );
       }
       if (!gate.refuses) {
         violations.push(
-          `${workflowFile}: refuse-unconfirmed-apply must terminate the unconfirmed apply path with exit 1.`,
+          `${workflowFile}: refuse-unconfirmed-apply must terminate invalid, empty, unknown, or unconfirmed manual modes with a nonzero exit.`,
         );
       }
     }
   }
 
   for (const detected of gatedSteps) {
-    const resolverVariables = safeResolverVariables(detected.job, detected.step);
+    const resolverVariables = safeResolverVariables(detected.job);
     if (resolverVariables.length === 0) {
       violations.push(
-        `${workflowFile}: job '${detected.jobId}' destructive step #${detected.stepIndex} has no provable resolver; manual dry_run=true can resolve to apply.`,
+        `${workflowFile}: job '${detected.jobId}' destructive step #${detected.stepIndex} has no fail-closed shell resolver; only exact manual dry_run=false may resolve to apply.`,
       );
-    } else if (!hasProvableModeWiring(detected.run, detected.operations, resolverVariables)) {
+    } else if (!hasProvableModeWiring(workflow, detected.job, detected.step, detected.operations, resolverVariables)) {
       violations.push(
         `${workflowFile}: job '${detected.jobId}' destructive step #${detected.stepIndex} cannot associate its invocation with the provable dry-run/apply resolver; failing closed.`,
       );
     }
     if (!destructiveJobNeedsConfirmation(detected.job)) {
       violations.push(
-        `${workflowFile}: destructive job '${detected.jobId}' must need refuse-unconfirmed-apply and run only when that confirmation job is skipped.`,
+        `${workflowFile}: destructive job '${detected.jobId}' must be cancellation-safe, need refuse-unconfirmed-apply, and run only when that gate is skipped or succeeds.`,
       );
     }
   }
@@ -340,14 +409,34 @@ export function checkWorkflowDestructiveOperationGating(source, { workflowFile =
 }
 
 function checkPlatformStagingResetTripwire(source, violations) {
-  const requiredPatterns = [
-    /RESET_CONFIRM:\s*\$\{\{\s*inputs\.confirm\s*\}\}/,
-    /"\$RESET_CONFIRM"\s*!=\s*"reset staging"/,
-    /"\$RESET_CONFIRM"\s*!=\s*"resume staging recreate"/,
-  ];
-  if (requiredPatterns.some((pattern) => !pattern.test(source))) {
+  let workflow;
+  try {
+    workflow = parse(source);
+  } catch (error) {
     violations.push(
-      ".github/workflows/platform-staging-reset.yml: named reset tripwire requires RESET_CONFIRM and both exact typed-confirmation comparisons.",
+      `.github/workflows/platform-staging-reset.yml: named reset tripwire could not parse workflow (${error.message}).`,
+    );
+    return;
+  }
+  const input = workflowDispatchInputs(workflow).confirm;
+  const resetJob = workflow?.jobs?.["reset-staging"];
+  const confirmationStep = (resetJob?.steps ?? []).find(
+    (step) =>
+      Object.fromEntries(envEntries(step)).RESET_CONFIRM === "${{ inputs.confirm }}" && typeof step?.run === "string",
+  );
+  const refusalPhrases = ["reset staging", "resume staging recreate"];
+  const hasRefusals = refusalPhrases.every((phrase) => {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = confirmationStep?.run?.match(
+      new RegExp(
+        `if\\s+\\[\\s*"\\$RESET_CONFIRM"\\s*!=\\s*"${escaped}"\\s*\\]\\s*;\\s*then([\\s\\S]*?)\\n[ \\t]*fi(?=\\r?\\n|$)`,
+      ),
+    );
+    return match && hasNonzeroExit(match[1]);
+  });
+  if (!input || input.type !== "string" || !inputHasNoDefault(input) || !confirmationStep || !hasRefusals) {
+    violations.push(
+      ".github/workflows/platform-staging-reset.yml: named reset tripwire requires an unset-by-default typed confirmation and actual nonzero refusal for both exact phrases.",
     );
   }
 }
@@ -366,15 +455,25 @@ function checkCatalogIntegrationResetTripwire(source, violations) {
   const gate = workflow?.jobs?.["refuse-unconfirmed-apply"];
   const destructiveJob = workflow?.jobs?.["catalog-integration-reset"];
   const condition = typeof gate?.if === "string" ? gate.if : "";
+  const destructiveCondition =
+    typeof destructiveJob?.if === "string" ? destructiveJob.if.replace(/\s+/g, " ").trim() : "";
+  const gateRefuses = (gate?.steps ?? []).some(
+    (step) => typeof step?.run === "string" && step["continue-on-error"] !== true && hasNonzeroExit(step.run),
+  );
   if (
     !input ||
     input.type !== "string" ||
+    !inputHasNoDefault(input) ||
     !/inputs\.action\s*==\s*'apply'/.test(condition) ||
     !/inputs\.confirm\s*!=\s*'reset staging catalog integration data'/.test(condition) ||
-    !normalizeNeeds(destructiveJob?.needs).includes("refuse-unconfirmed-apply")
+    !gateRefuses ||
+    !normalizeNeeds(destructiveJob?.needs).includes("refuse-unconfirmed-apply") ||
+    !/^!cancelled\(\) && needs\.refuse-production\.result == 'skipped' && needs\.refuse-unconfirmed-apply\.result == 'skipped'$/.test(
+      destructiveCondition,
+    )
   ) {
     violations.push(
-      ".github/workflows/catalog-integration-staging-reset.yml: named reset tripwire requires the refuse-unconfirmed-apply typed-confirmation gate and destructive-job dependency.",
+      ".github/workflows/catalog-integration-staging-reset.yml: named reset tripwire requires actual nonzero refusal plus a cancellation-safe destructive-job dependency/result condition.",
     );
   }
 }

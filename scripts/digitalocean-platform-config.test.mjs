@@ -853,6 +853,7 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("guards scheduled registry cleanup against queued or active platform deploys", () => {
+    const resolveModeStep = workflowStep(platformRegistryCleanupWorkflow, "Resolve destructive operation mode");
     const deployLaneStep = workflowStep(platformRegistryCleanupWorkflow, "Check deploy lane");
     const cleanupStep = workflowStep(platformRegistryCleanupWorkflow, "Cleanup registry tags");
     const validateStep = workflowStep(platformRegistryCleanupWorkflow, "Validate canonical registry cleanup record");
@@ -875,7 +876,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
     expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
     expect(platformRegistryCleanupWorkflow).toContain(
-      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
+      "DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}",
+    );
+    expect(resolveModeStep).toContain('effective_dry_run="true"');
+    expect(resolveModeStep).toContain('if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then');
+    expect(resolveModeStep).toContain(
+      'elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" = "false" ]; then',
+    );
+    expect(resolveModeStep).toContain(
+      'echo "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN=${effective_dry_run}" >> "$GITHUB_ENV"',
     );
     expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
     expect(cleanupStep).toContain("--out artifacts/release-health/digitalocean-registry-cleanup.json");

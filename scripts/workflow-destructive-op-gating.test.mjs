@@ -42,16 +42,46 @@ permissions: {}
 jobs:
   refuse-unconfirmed-apply:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete fixture restore points'
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: \${{ github.event.inputs.dry_run }}
+      DESTRUCTIVE_OPERATION_CONFIRMATION: \${{ github.event.inputs.confirm }}
     steps:
-      - run: exit 1
+      - run: |
+          set -euo pipefail
+          case "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" in
+            "true")
+              ;;
+            "false")
+              if [ "$DESTRUCTIVE_OPERATION_CONFIRMATION" != "delete fixture restore points" ]; then
+                echo refused >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo invalid >&2
+              exit 1
+              ;;
+          esac
   mutate:
     runs-on: ubuntu-latest
     needs: refuse-unconfirmed-apply
-    if: always() && needs.refuse-unconfirmed-apply.result == 'skipped'
+    if: >-
+      !cancelled() &&
+      (needs.refuse-unconfirmed-apply.result == 'skipped' ||
+      needs.refuse-unconfirmed-apply.result == 'success')
     env:
-      FIXTURE_DRY_RUN: \${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: \${{ github.event.inputs.dry_run }}
     steps:
+      - name: Resolve destructive operation mode
+        run: |
+          effective_dry_run="true"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            effective_dry_run="false"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" = "false" ]; then
+            effective_dry_run="false"
+          fi
+          echo "FIXTURE_DRY_RUN=\${effective_dry_run}" >> "$GITHUB_ENV"
       - run: |
           apply_arg=""
           if [ "$FIXTURE_DRY_RUN" = "false" ]; then
@@ -118,6 +148,24 @@ node scripts/disable-terraform-prevent-destroy.mjs main.tf
     expect(result.passed).toBe(false);
     expect(result.violations).toEqual([expect.stringContaining("no gate can be proven; failing closed")]);
   });
+
+  it.each([
+    ["Node option", "node --no-warnings ./scripts/production-db-restore-point-cleanup.mjs --apply"],
+    ["shell line continuation", "node \\\n  ./scripts/production-db-restore-point-cleanup.mjs --apply"],
+  ])("negative control: %s cannot evade destructive-script discovery", (_label, run) => {
+    const result = checkWorkflowDestructiveOperationGating(`jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          ${run.replaceAll("\n", "\n          ")}
+`);
+
+    expect(result.checkedSteps).toHaveLength(1);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([expect.stringContaining("missing the refuse-unconfirmed-apply")]),
+    );
+  });
 });
 
 describe("dry-run and typed-confirmation contract", () => {
@@ -153,13 +201,10 @@ describe("dry-run and typed-confirmation contract", () => {
   });
 
   it("negative control: an inverted resolver proves the manual dry_run=true incident class is rejected", () => {
-    const source = safeFixture().replace(
-      "inputs.dry_run == 'true' && 'true' || 'false'",
-      "inputs.dry_run == 'true' && 'false' || 'true'",
-    );
+    const source = safeFixture().replace('effective_dry_run="true"', 'effective_dry_run="false"');
     const result = checkWorkflowDestructiveOperationGating(source);
 
-    expect(result.violations).toEqual([expect.stringContaining("manual dry_run=true can resolve to apply")]);
+    expect(result.violations).toEqual([expect.stringContaining("no fail-closed shell resolver")]);
   });
 
   it("negative control: a safe resolver that is not wired to the destructive invocation fails closed", () => {
@@ -178,6 +223,16 @@ describe("dry-run and typed-confirmation contract", () => {
     expect(result.violations).toEqual([expect.stringContaining("typed string confirmation input named 'confirm'")]);
   });
 
+  it("negative control: rejects a defaulted destructive confirmation phrase", () => {
+    const source = safeFixture().replace(
+      "        required: false\n        type: string",
+      '        required: false\n        default: "delete fixture restore points"\n        type: string',
+    );
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual([expect.stringContaining("must not default the destructive phrase")]);
+  });
+
   it("negative control: requires the refuse-unconfirmed-apply job", () => {
     const source = withoutJob(safeFixture(), "refuse-unconfirmed-apply", "mutate");
     const result = checkWorkflowDestructiveOperationGating(source);
@@ -188,23 +243,37 @@ describe("dry-run and typed-confirmation contract", () => {
   });
 
   it("negative control: confirmation must be scoped to manual apply and an exact phrase", () => {
+    const source = safeFixture().replace("if: github.event_name == 'workflow_dispatch'", "if: inputs.confirm");
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual([expect.stringContaining("must shell-validate every manual dry_run value")]);
+  });
+
+  it("negative control: the case-sensitive shell comparison is authoritative", () => {
     const source = safeFixture().replace(
-      "if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete fixture restore points'",
-      "if: inputs.confirm",
+      'if [ "$DESTRUCTIVE_OPERATION_CONFIRMATION" != "delete fixture restore points" ]; then',
+      'if [ "${DESTRUCTIVE_OPERATION_CONFIRMATION,,}" != "delete fixture restore points" ]; then',
+    );
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must shell-validate every manual dry_run value"),
+        expect.stringContaining("with a nonzero exit"),
+      ]),
+    );
+  });
+
+  it("negative control: unknown or empty manual dry_run values must refuse with nonzero exit", () => {
+    const source = safeFixture().replace(
+      "              echo invalid >&2\n              exit 1",
+      "              echo accepted",
     );
     const result = checkWorkflowDestructiveOperationGating(source);
 
     expect(result.violations).toEqual([
-      expect.stringContaining("must reject manual dry_run=false unless inputs.confirm equals"),
-    ]);
-  });
-
-  it("negative control: the refusal job must fail the unconfirmed path", () => {
-    const source = safeFixture().replace("- run: exit 1", "- run: echo accepted");
-    const result = checkWorkflowDestructiveOperationGating(source);
-
-    expect(result.violations).toEqual([
-      expect.stringContaining("must terminate the unconfirmed apply path with exit 1"),
+      expect.stringContaining("must shell-validate every manual dry_run value"),
+      expect.stringContaining("with a nonzero exit"),
     ]);
   });
 
@@ -212,9 +281,34 @@ describe("dry-run and typed-confirmation contract", () => {
     const source = safeFixture().replace("    needs: refuse-unconfirmed-apply\n", "");
     const result = checkWorkflowDestructiveOperationGating(source);
 
-    expect(result.violations).toEqual([
-      expect.stringContaining("must need refuse-unconfirmed-apply and run only when"),
-    ]);
+    expect(result.violations).toEqual([expect.stringContaining("must be cancellation-safe")]);
+  });
+
+  it("negative control: cancellation cannot start the destructive job", () => {
+    const source = safeFixture().replace("!cancelled() &&", "always() &&");
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual([expect.stringContaining("must be cancellation-safe")]);
+  });
+
+  it("negative control: restore apply wiring rejects an unconditional --apply channel", () => {
+    const source = safeFixture().replace(
+      "node ./scripts/production-db-restore-point-cleanup.mjs ${apply_arg}",
+      "node ./scripts/production-db-restore-point-cleanup.mjs --apply ${apply_arg}",
+    );
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual([expect.stringContaining("cannot associate its invocation")]);
+  });
+
+  it("negative control: restore apply wiring rejects the competing apply environment channel", () => {
+    const source = safeFixture().replace(
+      "    env:\n      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}\n    steps:\n      - name: Resolve destructive operation mode",
+      '    env:\n      PRODUCTION_DB_RESTORE_POINT_CLEANUP_APPLY: "true"\n      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}\n    steps:\n      - name: Resolve destructive operation mode',
+    );
+    const result = checkWorkflowDestructiveOperationGating(source);
+
+    expect(result.violations).toEqual([expect.stringContaining("cannot associate its invocation")]);
   });
 });
 
@@ -314,7 +408,22 @@ describe("bounded named reset regression tripwires", () => {
     const result = checkNamedResetWorkflowTripwires(mutated);
 
     expect(result.violations).toEqual([
-      expect.stringContaining("requires RESET_CONFIRM and both exact typed-confirmation comparisons"),
+      expect.stringContaining("requires an unset-by-default typed confirmation and actual nonzero refusal"),
+    ]);
+  });
+
+  it("negative control: catches a platform reset comparison that does not actually refuse", () => {
+    const mutated = {
+      ...sources,
+      ".github/workflows/platform-staging-reset.yml": sources[".github/workflows/platform-staging-reset.yml"].replace(
+        "echo \"Confirmation input must exactly equal 'reset staging'.\" >&2\n                exit 1",
+        "echo \"Confirmation input must exactly equal 'reset staging'.\" >&2",
+      ),
+    };
+    const result = checkNamedResetWorkflowTripwires(mutated);
+
+    expect(result.violations).toEqual([
+      expect.stringContaining("requires an unset-by-default typed confirmation and actual nonzero refusal"),
     ]);
   });
 
@@ -330,8 +439,38 @@ describe("bounded named reset regression tripwires", () => {
     };
     const result = checkNamedResetWorkflowTripwires(mutated);
 
+    expect(result.violations).toEqual([expect.stringContaining("requires actual nonzero refusal")]);
+  });
+
+  it("negative control: catches a catalog reset gate that does not actually refuse", () => {
+    const mutated = {
+      ...sources,
+      ".github/workflows/catalog-integration-staging-reset.yml": sources[
+        ".github/workflows/catalog-integration-staging-reset.yml"
+      ].replace(
+        "echo 'Confirmation text did not match exactly; expected \"reset staging catalog integration data\".' >&2\n          exit 1",
+        "echo 'Confirmation text did not match exactly; expected \"reset staging catalog integration data\".' >&2",
+      ),
+    };
+    const result = checkNamedResetWorkflowTripwires(mutated);
+
+    expect(result.violations).toEqual([expect.stringContaining("requires actual nonzero refusal")]);
+  });
+
+  it("negative control: catches a catalog reset dependency with no required result condition", () => {
+    const mutated = {
+      ...sources,
+      ".github/workflows/catalog-integration-staging-reset.yml": sources[
+        ".github/workflows/catalog-integration-staging-reset.yml"
+      ].replace(
+        "!cancelled() &&\n      needs.refuse-production.result == 'skipped' &&\n      needs.refuse-unconfirmed-apply.result == 'skipped'",
+        "always()",
+      ),
+    };
+    const result = checkNamedResetWorkflowTripwires(mutated);
+
     expect(result.violations).toEqual([
-      expect.stringContaining("requires the refuse-unconfirmed-apply typed-confirmation gate"),
+      expect.stringContaining("cancellation-safe destructive-job dependency/result condition"),
     ]);
   });
 });

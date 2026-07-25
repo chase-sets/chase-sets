@@ -31,12 +31,28 @@ jobs:
   refuse-unconfirmed-apply:
     name: Refuse Unconfirmed Registry Cleanup
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete registry cleanup candidates'
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}
+      DESTRUCTIVE_OPERATION_CONFIRMATION: ${{ github.event.inputs.confirm }}
     steps:
-      - name: Refuse unconfirmed registry cleanup
+      - name: Validate manual registry cleanup mode
         run: |
-          echo 'Confirmation text did not match exactly; expected "delete registry cleanup candidates".' >&2
-          exit 1
+          set -euo pipefail
+          case "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" in
+            "true")
+              ;;
+            "false")
+              if [ "$DESTRUCTIVE_OPERATION_CONFIRMATION" != "delete registry cleanup candidates" ]; then
+                echo 'Confirmation text did not match exactly; expected "delete registry cleanup candidates".' >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo 'dry_run must be exactly "true" or "false".' >&2
+              exit 1
+              ;;
+          esac
 
   cleanup:
     name: Cleanup DOCR Images
@@ -44,15 +60,29 @@ jobs:
     timeout-minutes: 20
     environment: staging
     needs: refuse-unconfirmed-apply
-    if: always() && needs.refuse-unconfirmed-apply.result == 'skipped'
+    if: >-
+      !cancelled() &&
+      (needs.refuse-unconfirmed-apply.result == 'skipped' ||
+      needs.refuse-unconfirmed-apply.result == 'success')
     permissions:
       contents: read
       actions: read
       issues: write
     env:
-      DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
+      - name: Resolve destructive operation mode
+        run: |
+          set -euo pipefail
+          effective_dry_run="true"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            effective_dry_run="false"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" = "false" ]; then
+            effective_dry_run="false"
+          fi
+          echo "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN=${effective_dry_run}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: ./.github/actions/setup-pnpm-workspace

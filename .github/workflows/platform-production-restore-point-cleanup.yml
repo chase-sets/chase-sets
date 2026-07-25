@@ -38,12 +38,28 @@ jobs:
   refuse-unconfirmed-apply:
     name: Refuse Unconfirmed Production Restore Point Cleanup
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false' && inputs.confirm != 'delete production restore points'
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}
+      DESTRUCTIVE_OPERATION_CONFIRMATION: ${{ github.event.inputs.confirm }}
     steps:
-      - name: Refuse unconfirmed restore-point cleanup
+      - name: Validate manual restore-point cleanup mode
         run: |
-          echo 'Confirmation text did not match exactly; expected "delete production restore points".' >&2
-          exit 1
+          set -euo pipefail
+          case "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" in
+            "true")
+              ;;
+            "false")
+              if [ "$DESTRUCTIVE_OPERATION_CONFIRMATION" != "delete production restore points" ]; then
+                echo 'Confirmation text did not match exactly; expected "delete production restore points".' >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo 'dry_run must be exactly "true" or "false".' >&2
+              exit 1
+              ;;
+          esac
 
   cleanup:
     name: Cleanup Production Restore Points
@@ -51,15 +67,29 @@ jobs:
     timeout-minutes: 20
     environment: production
     needs: refuse-unconfirmed-apply
-    if: always() && needs.refuse-unconfirmed-apply.result == 'skipped'
+    if: >-
+      !cancelled() &&
+      (needs.refuse-unconfirmed-apply.result == 'skipped' ||
+      needs.refuse-unconfirmed-apply.result == 'success')
     permissions:
       contents: read
       issues: write
     env:
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_PREFIX: cs-prod-rp-
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ github.event.inputs.hold_names || vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
-      PRODUCTION_DB_RESTORE_POINT_CLEANUP_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}
+      DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN: ${{ github.event.inputs.dry_run }}
     steps:
+      - name: Resolve destructive operation mode
+        run: |
+          set -euo pipefail
+          effective_dry_run="true"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            effective_dry_run="false"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DESTRUCTIVE_OPERATION_REQUESTED_DRY_RUN" = "false" ]; then
+            effective_dry_run="false"
+          fi
+          echo "PRODUCTION_DB_RESTORE_POINT_CLEANUP_DRY_RUN=${effective_dry_run}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
