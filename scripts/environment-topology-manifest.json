@@ -82,8 +82,8 @@
     "preview": {
       "dnsZones": [
         {
-          "name": "preview.chasesets.com",
-          "managedBy": "dynamic-platform",
+          "name": "chasesets.com",
+          "managedBy": "digitalocean-platform-root",
           "delegatedFrom": null
         }
       ],

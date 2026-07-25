@@ -6,11 +6,23 @@ import { parseDocument } from "yaml";
 
 const manifestRelativePath = "scripts/environment-topology-manifest.json";
 const schemaRelativePath = "scripts/environment-topology-manifest.schema.json";
+const previewDnsSourceRelativePath = "scripts/digitalocean-preview-cleanup-sweep.mjs";
 const topologyViolationCode = "topology-assertion-undeclared";
 const zoneViolationCode = "topology-zone-shape-contradiction";
 const unresolvableViolationCode = "topology-assertion-unresolvable";
-const ignoredDirectoryNames = new Set([".git", "node_modules", ".pnpm-store", "coverage", "artifacts"]);
+const ignoredDirectoryReasons = {
+  ".git": "Git object and worktree metadata is not executable repository source.",
+  node_modules: "Installed third-party dependencies are outside repository-owned topology assertions.",
+  ".pnpm-store": "The package-manager content-addressed cache is outside repository-owned source.",
+  coverage: "Generated coverage output is derived from scanned source.",
+  artifacts: "Generated verification evidence is output, not an executable topology gate.",
+};
+const ignoredDirectoryNames = new Set(Object.keys(ignoredDirectoryReasons));
 const scriptExtensions = new Set([".js", ".cjs", ".mjs", ".ts", ".sh", ".ps1"]);
+const vitestImportPattern = /(?:from\s+["']vitest["']|require\(["']vitest["']\))/;
+const vitestExclusionReason =
+  "Vitest-importing scripts are test modules containing intentional negative-control fixtures; " +
+  "the script test battery executes them, while the topology guard scans executable non-test scripts.";
 
 function violation(code, file, message, line = null) {
   return { code, file, line, message: `${file}${line === null ? "" : `:${line}`} [${code}] ${message}` };
@@ -160,10 +172,26 @@ function semanticWorkflowFiles(root, primaryFiles) {
       } catch {
         return false;
       }
-      return (
-        (/^\s*jobs:\s*$/m.test(source) && /^\s+steps:\s*$/m.test(source)) ||
-        (/^\s*runs:\s*$/m.test(source) && /^\s+using:\s*composite\s*$/m.test(source))
-      );
+      try {
+        const parsed = parseWorkflow(source, relative(root, path).replaceAll("\\", "/"));
+        const jobs = isPlainObject(parsed?.jobs) ? Object.values(parsed.jobs) : [];
+        const triggers = parsed?.on;
+        const reusable =
+          triggers === "workflow_call" ||
+          (Array.isArray(triggers) && triggers.includes("workflow_call")) ||
+          (isPlainObject(triggers) && Object.hasOwn(triggers, "workflow_call"));
+        const workflowJobs = jobs.some(
+          (job) => isPlainObject(job) && (Array.isArray(job.steps) || typeof job.uses === "string"),
+        );
+        const compositeAction = isPlainObject(parsed?.runs) && parsed.runs.using === "composite";
+        return reusable || workflowJobs || compositeAction;
+      } catch {
+        return (
+          (/^\s*jobs:\s*$/m.test(source) && (/^\s+steps:\s*$/m.test(source) || /^\s+uses:\s*\S+/m.test(source))) ||
+          (/^\s*(?:on:\s*)?workflow_call:\s*$/m.test(source) && /^\s*jobs:\s*$/m.test(source)) ||
+          (/^\s*runs:\s*$/m.test(source) && /^\s+using:\s*composite\s*$/m.test(source))
+        );
+      }
     },
     [],
   ).sort();
@@ -184,6 +212,31 @@ function normalizeDynamicHostText(value) {
     .replace(/\\\r?\n/g, "")
     .replace(/["'`]\s*\+\s*["'`]/g, "")
     .replace(/["'`]\s*["'`]/g, "");
+}
+
+function expandStaticReferences(value, assignments) {
+  let expanded = value;
+  for (let pass = 0; pass <= assignments.size; pass += 1) {
+    const next = expanded.replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)\b/g,
+      (reference, braced, unbraced) => assignments.get(braced ?? unbraced) ?? reference,
+    );
+    if (next === expanded) break;
+    expanded = next;
+  }
+  return expanded;
+}
+
+function expandStaticScalarValues(value) {
+  const assignments = shellAssignments(value);
+  let variants = [value];
+  for (const match of value.matchAll(/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([A-Za-z0-9_. -]+);\s*do/g)) {
+    const [, name, tokenSource] = match;
+    const tokens = tokenSource.trim().split(/\s+/).filter(Boolean);
+    const reference = new RegExp(`\\$\\{${name}\\}|\\$${name}\\b`, "g");
+    variants = variants.flatMap((variant) => tokens.map((token) => variant.replace(reference, token)));
+  }
+  return variants.map((variant) => expandStaticReferences(variant, assignments));
 }
 
 export function extractTopologyHosts(value) {
@@ -256,16 +309,18 @@ function isScriptAssertionSource(source) {
 function assertionHostViolations(source, scalars, file, index) {
   const violations = [];
   for (const scalar of scalars) {
-    for (const host of extractTopologyHosts(scalar.value)) {
-      const classification = classifyHost(host, index);
-      if (classification.role === "assertable" || classification.role === "zone") continue;
-      const reason =
-        classification.role === "diagnostic"
-          ? `'${host}' is diagnostic-only in ${classification.environment}, not an application or service host.`
-          : `'${host}' is not declared as an application host, service host, or DNS zone.`;
-      violations.push(
-        violation(topologyViolationCode, file, reason, lineNumber(source, host.replaceAll("{slug}", ""))),
-      );
+    for (const resolvedValue of expandStaticScalarValues(scalar.value)) {
+      for (const host of extractTopologyHosts(resolvedValue)) {
+        const classification = classifyHost(host, index);
+        if (classification.role === "assertable" || classification.role === "zone") continue;
+        const reason =
+          classification.role === "diagnostic"
+            ? `'${host}' is diagnostic-only in ${classification.environment}, not an application or service host.`
+            : `'${host}' is not declared as an application host, service host, or DNS zone.`;
+        violations.push(
+          violation(topologyViolationCode, file, reason, lineNumber(source, host.replaceAll("{slug}", ""))),
+        );
+      }
     }
   }
   return violations;
@@ -281,10 +336,21 @@ export function shellAssignments(source, contextSource = source) {
       assignments.set(match[1], value);
     }
   }
+  const multilineScriptConstant =
+    /(?:^|[;\r\n]\s*)(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/gm;
+  for (const match of contextSource.matchAll(multilineScriptConstant)) {
+    assignments.set(match[1], match[2] ?? match[3] ?? match[4]);
+  }
+  for (const [name, value] of assignments) {
+    assignments.set(name, expandStaticReferences(value, assignments));
+  }
   const suffix = /(?:^|[\s;])([A-Za-z_][A-Za-z0-9_]*)="\$\{([A-Za-z_][A-Za-z0-9_]*)%\.([A-Za-z0-9.-]+)\}"/gm;
   for (const match of source.matchAll(suffix)) {
     const base = assignments.get(match[2]);
     if (base?.endsWith(`.${match[3]}`)) assignments.set(match[1], base.slice(0, -match[3].length - 1));
+  }
+  for (const [name, value] of assignments) {
+    assignments.set(name, expandStaticReferences(value, assignments));
   }
   return assignments;
 }
@@ -363,7 +429,7 @@ export function dnsAssertionViolations(source, file, index, contextSource = sour
 }
 
 function parseWorkflow(source, file) {
-  const document = parseDocument(source, { prettyErrors: true, uniqueKeys: true });
+  const document = parseDocument(source, { logLevel: "silent", prettyErrors: true, uniqueKeys: true });
   if (document.errors.length > 0) {
     throw new Error(`${file}: ${document.errors.map((error) => error.message).join("; ")}`);
   }
@@ -394,14 +460,15 @@ function scanYamlSource(source, file, index, shapes) {
 }
 
 function scanScriptSource(source, file, index, shapes) {
-  if (/(?:from\s+["']vitest["']|require\(["']vitest["']\))/.test(source)) {
-    shapes.add("test-fixture");
-    return [];
-  }
+  const assignments = shellAssignments(source);
   const blocks = source
     .split(/\r?\n/)
     .filter((line) => isScriptAssertionSource(line))
-    .map((line) => ({ value: line }));
+    .map((line) => ({ value: expandStaticReferences(line, assignments) }));
+  for (const match of source.matchAll(/\bfetch\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    const value = assignments.get(match[1]);
+    if (value !== undefined) blocks.push({ value });
+  }
   if (blocks.length > 0) shapes.add("script-assertion");
   return [...assertionHostViolations(source, blocks, file, index), ...dnsAssertionViolations(source, file, index)];
 }
@@ -412,9 +479,11 @@ export function reconcileEnvironmentDnsTerraform(root, manifest) {
   const recordsPath = manifest.terraformSource.records;
   let localsSource;
   let recordsSource;
+  let previewDnsSource;
   try {
     localsSource = readFileSync(resolve(root, localsPath), "utf8");
     recordsSource = readFileSync(resolve(root, recordsPath), "utf8");
+    previewDnsSource = readFileSync(resolve(root, previewDnsSourceRelativePath), "utf8");
   } catch (error) {
     return [violation("topology-terraform-source-unreadable", error.path ?? localsPath, error.message)];
   }
@@ -431,6 +500,35 @@ export function reconcileEnvironmentDnsTerraform(root, manifest) {
       ),
     );
   }
+
+  const previewParentZone = previewDnsSource.match(/PREVIEW_DNS_BASE_DOMAIN\s*=\s*["']([^"']+)["']/)?.[1];
+  const previewZone = manifest.environments.preview.dnsZones[0];
+  if (
+    !previewParentZone ||
+    !/record:\s*\{\s*role:\s*["']wildcard["'][\s\S]*?previewDnsRecordName\(fqdn,\s*zone\)/.test(previewDnsSource)
+  ) {
+    findings.push(
+      violation(
+        "topology-preview-dns-source-diverged",
+        previewDnsSourceRelativePath,
+        "shared preview DNS ownership is no longer statically derivable from the preview wildcard record plan.",
+      ),
+    );
+  } else if (
+    previewZone?.name !== previewParentZone ||
+    previewZone.delegatedFrom !== null ||
+    previewZone.managedBy !== "digitalocean-platform-root"
+  ) {
+    findings.push(
+      violation(
+        "topology-manifest-preview-dns-diverged",
+        manifestRelativePath,
+        `preview DNS must use parent zone '${previewParentZone}' from ${previewDnsSourceRelativePath}; ` +
+          "preview.chasesets.com is a record namespace, not a delegated DNS zone.",
+      ),
+    );
+  }
+
   const catalogResource = recordsSource.match(
     /resource\s+"digitalocean_record"\s+"catalog_assets"\s*\{([\s\S]*?)\n\}/,
   )?.[1];
@@ -503,7 +601,15 @@ export function scanEnvironmentTopology({ root = process.cwd() } = {}) {
     return {
       passed: false,
       violations: [violation("topology-source-invalid", manifestRelativePath, error.message)],
-      discovery: { scannedFiles: 0, totalFiles: 0, semanticFiles: 0, recognizedShapes: [] },
+      discovery: {
+        scannedFiles: 0,
+        excludedFiles: 0,
+        totalFiles: 0,
+        semanticFiles: 0,
+        recognizedShapes: [],
+        exclusionReasons: [],
+        ignoredDirectories: ignoredDirectoryReasons,
+      },
     };
   }
   const index = topologyIndex(manifest);
@@ -513,6 +619,7 @@ export function scanEnvironmentTopology({ root = process.cwd() } = {}) {
   const shapes = new Set();
   const violations = [...reconcileEnvironmentDnsTerraform(root, manifest)];
   let scannedFiles = 0;
+  let excludedFiles = 0;
   for (const absolutePath of files) {
     const file = relative(root, absolutePath).replaceAll("\\", "/");
     let source;
@@ -520,6 +627,11 @@ export function scanEnvironmentTopology({ root = process.cwd() } = {}) {
       source = readFileSync(absolutePath, "utf8");
     } catch (error) {
       violations.push(violation("topology-candidate-unreadable", file, error.message));
+      continue;
+    }
+    if (!/\.ya?ml$/i.test(file) && vitestImportPattern.test(source)) {
+      excludedFiles += 1;
+      shapes.add("vitest-test-module-excluded");
       continue;
     }
     scannedFiles += 1;
@@ -531,10 +643,16 @@ export function scanEnvironmentTopology({ root = process.cwd() } = {}) {
     violations,
     discovery: {
       scannedFiles,
+      excludedFiles,
       totalFiles: files.length,
       primaryFiles: primaryFiles.length,
       semanticFiles: semanticFiles.length,
       recognizedShapes: [...shapes].sort(),
+      exclusionReasons:
+        excludedFiles === 0
+          ? []
+          : [{ category: "vitest-importing-script", count: excludedFiles, reason: vitestExclusionReason }],
+      ignoredDirectories: ignoredDirectoryReasons,
     },
   };
 }
@@ -542,9 +660,17 @@ export function scanEnvironmentTopology({ root = process.cwd() } = {}) {
 export function reportEnvironmentTopology(result) {
   const discovery = result.discovery;
   console.log(
-    `environment topology guard: scanned ${discovery.scannedFiles}/${discovery.totalFiles} candidate files ` +
+    `environment topology guard: scanned=${discovery.scannedFiles} excluded=${discovery.excludedFiles ?? 0} ` +
+      `total=${discovery.totalFiles} candidate files ` +
       `(${discovery.primaryFiles ?? 0} workflow/action/script candidates; ${discovery.semanticFiles ?? 0} semantic arbitrary-path additions).`,
   );
+  for (const exclusion of discovery.exclusionReasons ?? []) {
+    console.log(`excluded ${exclusion.count} ${exclusion.category} files: ${exclusion.reason}`);
+  }
+  const ignored = Object.entries(discovery.ignoredDirectories ?? {});
+  if (ignored.length > 0) {
+    console.log(`traversal-excluded directories: ${ignored.map(([name, reason]) => `${name} (${reason})`).join("; ")}`);
+  }
   console.log(`recognized assertion shapes: ${(discovery.recognizedShapes ?? []).join(", ") || "none"}.`);
   for (const finding of result.violations) console.error(`- ${finding.message}`);
   return result.passed;

@@ -40,14 +40,30 @@ describe("environment topology guard (#6088)", () => {
     );
   });
 
-  it("derives full workflow/action/script discovery and reports scanned/total without silent narrowing", () => {
+  it("reports scanned, deliberately excluded, and total candidates without silent narrowing", () => {
     const result = scanEnvironmentTopology();
 
-    expect(result.discovery.scannedFiles).toBe(result.discovery.totalFiles);
+    expect(result.discovery.scannedFiles + result.discovery.excludedFiles).toBe(result.discovery.totalFiles);
     expect(result.discovery.primaryFiles).toBe(result.discovery.totalFiles);
     expect(result.discovery.primaryFiles).toBeGreaterThan(400);
+    expect(result.discovery.excludedFiles).toBeGreaterThan(0);
+    expect(result.discovery.exclusionReasons).toEqual([
+      expect.objectContaining({
+        category: "vitest-importing-script",
+        count: result.discovery.excludedFiles,
+      }),
+    ]);
+    expect(Object.keys(result.discovery.ignoredDirectories)).toEqual(
+      expect.arrayContaining([".git", "node_modules", ".pnpm-store", "coverage", "artifacts"]),
+    );
     expect(result.discovery.recognizedShapes).toEqual(
-      expect.arrayContaining(["run-block", "input-default", "environment-value", "script-assertion"]),
+      expect.arrayContaining([
+        "run-block",
+        "input-default",
+        "environment-value",
+        "script-assertion",
+        "vitest-test-module-excluded",
+      ]),
     );
   });
 
@@ -66,6 +82,21 @@ doctl compute domain records list chasesets.com --output json | jq -e \\
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("[topology-zone-shape-contradiction]");
     expect(result.stderr).toContain("owned by delegated child zone 'staging.chasesets.com'");
+  });
+
+  it("accepts the legitimate shared preview wildcard query in the parent zone", () => {
+    const root = createFixture({
+      ".github/workflows/preview-dns.yml": workflowWithRun(`
+record_name="*.preview"
+doctl compute domain records list chasesets.com --output json | jq -e \\
+  --arg record_name "$record_name" '.[] | select(.name == $record_name)'
+`),
+    });
+
+    const result = runGuard(root);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
   });
 
   it.each([
@@ -152,6 +183,38 @@ doctl compute domain records list staging.chasesets.com --output json | jq -e \\
     ["literal inline URL", workflowWithRun("curl https://retired.staging.chasesets.com/health/ready")],
     ["shell variable assembly", workflowWithRun('d="retired.staging.chasesets.com"; curl "https://$d/health/ready"')],
     [
+      "two-variable shell assembly",
+      workflowWithRun(
+        'retired_label="retired.staging"; root_zone="chasesets.com"; curl "https://${retired_label}.${root_zone}/health/ready"',
+      ),
+    ],
+    [
+      "multiline script constant consumed by fetch",
+      `const retiredEndpoint = \`
+  https://retired.staging.chasesets.com/health/ready
+\`;
+await fetch(
+  retiredEndpoint,
+);
+`,
+      "scripts/multiline-fetch.mjs",
+    ],
+    [
+      "further equivalent: chained shell aliases",
+      workflowWithRun(
+        'label="retired"; environment_label="${label}.staging"; root_zone="chasesets.com"; endpoint="https://${environment_label}.${root_zone}"; curl "$endpoint"',
+      ),
+    ],
+    [
+      "further equivalent: JavaScript template from two constants",
+      `const retiredLabel = "retired.staging";
+const rootZone = "chasesets.com";
+const endpoint = \`https://\${retiredLabel}.\${rootZone}/health/ready\`;
+await fetch(endpoint);
+`,
+      "scripts/template-fetch.mjs",
+    ],
+    [
       "parameter expansion / suffix strip",
       workflowWithRun(
         'custom_domain="retired.staging.chasesets.com"; record_name="${custom_domain%.chasesets.com}"; curl "https://${custom_domain}"',
@@ -235,18 +298,45 @@ jobs:
     },
   );
 
-  it("finds a workflow-shaped assertion at an arbitrary path without a path exemption list", () => {
+  it("finds workflow and reusable-workflow assertions at arbitrary paths, including jobs without steps", () => {
     const root = createFixture({
       "unfamiliar/nested/pipeline.yaml": workflowWithRun("curl https://retired.staging.chasesets.com/health/ready"),
+      "unfamiliar/reusable/delegated.yaml": `name: delegated topology control
+on:
+  workflow_call:
+    inputs:
+      health_url:
+        type: string
+        default: https://retired.staging.chasesets.com/health/ready
+jobs:
+  delegate:
+    uses: chase-sets/chase-sets/.github/workflows/reusable.yml@main
+    with:
+      health_url: \${{ inputs.health_url }}
+`,
     });
 
     const result = scanEnvironmentTopology({ root });
 
-    expect(result.discovery.semanticFiles).toBe(1);
-    expect(result.discovery.scannedFiles).toBe(result.discovery.totalFiles);
-    expect(result.violations.map(({ code }) => code)).toContain("topology-assertion-undeclared");
-    const guardSource = readFileSync(guardEntrypoint, "utf8");
-    expect(guardSource).not.toMatch(/(?:exemption|allowlist)(?:Files|Paths|List)\s*=/i);
+    expect(result.discovery.semanticFiles).toBe(2);
+    expect(result.discovery.scannedFiles + result.discovery.excludedFiles).toBe(result.discovery.totalFiles);
+    expect(result.violations.filter(({ code }) => code === "topology-assertion-undeclared")).toHaveLength(2);
+  });
+
+  it("reports Vitest modules as excluded instead of scanned and explains every traversal exclusion", () => {
+    const root = createFixture({
+      "scripts/negative-control.test.mjs": `import { it } from "vitest";
+it("keeps a negative fixture", () => "https://retired.staging.chasesets.com");
+`,
+      "artifacts/generated-smoke.mjs": 'await fetch("https://retired.staging.chasesets.com");\n',
+    });
+
+    const result = scanEnvironmentTopology({ root });
+
+    expect(result.passed).toBe(true);
+    expect(result.discovery).toMatchObject({ scannedFiles: 1, excludedFiles: 1, totalFiles: 2 });
+    expect(result.discovery.exclusionReasons[0].reason).toContain("intentional negative-control fixtures");
+    expect(result.discovery.ignoredDirectories.artifacts).toContain("Generated verification evidence");
   });
 
   it("fails closed when a workflow cannot be parsed", () => {
@@ -364,6 +454,15 @@ function createFixture(files = {}, options = {}) {
     `resource "digitalocean_record" "catalog_assets" {
   domain = digitalocean_domain.environment[0].name
   name = "assets"
+}
+`,
+  );
+  write(
+    root,
+    "scripts/digitalocean-preview-cleanup-sweep.mjs",
+    `export const PREVIEW_DNS_BASE_DOMAIN = "chasesets.com";
+export function previewSharedDnsRecordPlan(fqdn, zone) {
+  return { record: { role: "wildcard", name: previewDnsRecordName(fqdn, zone) } };
 }
 `,
   );
