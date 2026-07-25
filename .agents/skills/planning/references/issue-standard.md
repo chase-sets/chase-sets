@@ -33,6 +33,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   was invisible to every check except a probe taken at that exact moment.
 - **Verification plan.** The scoped commands that prove the change
   (`pnpm --filter <workspace> run test`, guards, e2e batch if UI).
+- **Review packet seed (full path).** Name the invariants and likely failure
+  modes the independent reviewer must attack, plus the evidence artifact that
+  exposes omissions invisible in the diff (state enumeration, caller inventory,
+  authority probe, provider test-mode result). This is a focused attack surface,
+  not a restated checklist.
 - **Predicted footprint.** Workspaces/files the change will touch, plus chain
   position: `Blocked by #N` / `Blocks #M`. Feeds parallel-lane collision checks.
   When the change adds validation or invariants to a handler that seed,
@@ -67,6 +72,8 @@ The orchestrator dispatches an issue only when ALL hold:
    a link to one) taken at the exact lifecycle moment the implementation
    needs the data — not endpoint/docs existence, not a post-hoc replay
    (#5883).
+9. Full-path work includes a review packet seed naming its invariants, likely
+   failure modes, and omission-revealing evidence.
 
 Fails → planning-repair pass, not an implementation lane.
 

@@ -68,12 +68,33 @@ git -C <worktree> switch -c <branch> --track origin/main
 ## Review
 
 - One bounded self-review pass per PR before marking it ready: correctness, security of touched surfaces, simplicity, and test adequacy. Fix what you find; do not loop until perfection.
+- For full-path work, produce a compact review packet from the issue's seed:
+  changed invariants, likely failure modes, exact omission-revealing artifacts,
+  and the focused commands/probes that exercise them. This packet directs the
+  independent attack; it never asks the reviewer to trust the author's result.
 - Two probes are mandatory in that pass when they apply, because both defect classes have shipped through green CI:
   - **Changed a service function's signature?** Grep every caller — including composition roots and support/wiring layers — and replace hand-written decoupled function types and `as {...}` casts with the imported interface, so future drift is a typecheck error. A unit test in a fake harness does not prove the production caller compiles.
   - **Added validation to a command handler?** Enumerate every seeding path (seed, bootstrap, import, reconciliation) and run each against the new rules. PR-lane CI does **not** run the DB-profile suite — the merge group is its first executor — so stand up a disposable Postgres locally rather than pushing unverified attempts.
 - Comprehensive tech-debt review happens on a weekly repo-wide cadence, not per PR.
 - Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there. The cadence is monitored by the weekly Review Cadence Digest workflow (advisory, never blocking).
 - Milestone and launch evidence lives in the closing GitHub issue/PR, git history, and gitignored `artifacts/` outputs from the retained ops verifiers; do not add evidence ledgers or signoff checklists to committed docs. Evidence recorded against a main commit stays valid for its descendants unless the covered surface changed, so do not request or perform broad "current-main revalidation" passes.
+
+## Repair Continuation
+
+When an independent review returns `BLOCK_FIXABLE`, continue from its complete
+repair brief rather than rediscovering the PR:
+
+- Confirm the exact reviewed head, then address every stable finding ID in one
+  bounded pass.
+- Apply the prescribed remedy literally when safe. If the remedy requires a new
+  decision, expanded footprint, or changed acceptance criterion, stop and report
+  that finding as needing replanning.
+- Preserve every behavior the reviewer marked verified-good.
+- Report each finding ID as repaired, disputed with executed evidence, or
+  escalated; never silently omit one.
+- If the reviewer attached a patch, treat it as an untrusted proposal. The
+  author applies/accepts it and runs the scoped proof; the reviewer never
+  self-certifies its own patch.
 
 ## PR & Readiness
 
@@ -91,6 +112,9 @@ Keep PR bodies to roughly 10–20 lines:
 state machine/lifecycle → every state, every transition, the steady state, and day-after routine behavior ·
 validation on a shared handler → the caller inventory (seed/bootstrap/import/reconciliation) and which you ran ·
 external provider contract → the provider's test-mode validation output>
+
+## Review Packet
+<full path: changed invariants, likely failure modes, omission-revealing artifacts, and focused attack commands/probes>
 
 ## Verification
 <what you ran and observed>
@@ -111,6 +135,7 @@ End your lane with a report the orchestrator can act on:
 3. File footprint touched (for parallel-lane collision checks).
 4. Assumptions flagged in the PR.
 5. Decisions needing escalation, each with a recommendation.
+6. Full-path review packet, or repair finding IDs with one disposition each.
 
 ## Landing (solo mode only)
 
@@ -128,6 +153,8 @@ Per-PR staging/production verification is not required; the deploy pipeline gate
 ## Rules
 
 - Resolve answerable questions from code and docs yourself.
+- Use exact model versions in every routed or reported lane identity. A successor
+  is a new model; predecessor evidence, vetoes, and verdicts never transfer.
 - Call out glossary conflicts and propose one canonical term plus owning context.
 - Tie each cross-context interaction to one behavior owner and one stable published fact.
 - Surface contradictions between docs, code, and the change before continuing.

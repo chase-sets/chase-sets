@@ -1,9 +1,20 @@
 # Pressure Test — adversarial plan review
 
-Run in a FRESH context (independent agent, different model than the planner —
-see model-routing). Input: the drafted milestone/epic/issues. Output: pass, or
-concrete repairs. The planner fixes findings before registration; findings are
-repairs to drafts, not new scope.
+Run in a FRESH context (independent agent, different exact model instance than
+the planner — see model-routing). Input: the drafted milestone/epic/issues.
+Never transfer evidence or a veto from a predecessor model version.
+
+Return `PASS`, `BLOCK_FIXABLE`, or `BLOCK_REPLAN`. Plain `BLOCK` is invalid.
+`BLOCK_FIXABLE` means the draft can be repaired without changing the intended
+outcome or authority assumptions. `BLOCK_REPLAN` means feasibility, sequencing,
+or a required decision/probe must change before drafting can continue. The
+planner fixes repairable findings before registration.
+
+Perform one complete sweep; do not stop after the first finding. Give every
+finding a stable ID, repo/authority evidence, the exact draft section affected,
+a minimal prescribed repair, and the acceptance evidence that distinguishes the
+repair. A finding without a bounded remedy is `BLOCK_REPLAN`, not an
+aspirational suggestion.
 
 ## Rubric
 

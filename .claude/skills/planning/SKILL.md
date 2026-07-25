@@ -83,4 +83,5 @@ highest-traffic first.
 Calibration, decomposition, decision extraction, and synthesis are frontier-
 judgment work (model-routing row 8). Discovery sweeps and drafting mechanics go
 to cheap workers. The pressure test runs on an independent capable model, never
-the one that wrote the plan.
+the one that wrote the plan. Always route by exact model version; a successor is
+a new model with new evidence, and predecessor vetoes or scores never transfer.
