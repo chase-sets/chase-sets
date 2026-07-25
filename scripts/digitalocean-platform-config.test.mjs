@@ -656,7 +656,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("disable-terraform-prevent-destroy.mjs main.tf");
     expect(platformStagingResetWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
     expect(platformStagingResetWorkflow).toContain("doctl compute cdn list --output json");
-    expect(platformStagingResetWorkflow).toContain("doctl compute domain records list chasesets.com --output json");
+    expect(platformStagingResetWorkflow).toContain(
+      'record_name="${custom_domain%.staging.chasesets.com}"',
+    );
+    expect(platformStagingResetWorkflow).toContain(
+      "doctl compute domain records list staging.chasesets.com --output json",
+    );
     expect(platformStagingResetWorkflow).toContain("Catalog asset CDN root must stay protected; expected 403");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("repair catalog-assets cdn state");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("doctl compute cdn list --output json");
