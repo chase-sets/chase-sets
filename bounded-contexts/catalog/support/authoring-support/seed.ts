@@ -1,30 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
-import { createProjectionAwarePool, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  createProjectionAwarePool,
+  drainLocalProjectionHandlerSets,
+  rebuildLocalProjectionHandlerSets,
+} from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices, type CatalogServices } from "./services";
-import {
-  seedBlueprints,
-  seedLorcanaBlueprints,
-  seedMagicBlueprints,
-  seedOnePieceBlueprints,
-} from "../../features/blueprints/api/seed";
+import { seedBlueprints } from "../../features/blueprints/api/seed";
 import type { BlueprintIds } from "../../features/blueprints/api/seed";
 import { seedCatalogItems } from "../../features/catalog-items/api/seed";
-import {
-  seedCategories,
-  seedLorcanaCategories,
-  seedMagicCategories,
-  seedOnePieceCategories,
-} from "../../features/categories/api/seed";
+import { seedCategories } from "../../features/categories/api/seed";
 import type { CategoryIds } from "../../features/categories/api/seed";
-import {
-  seedComponents,
-  seedLorcanaComponents,
-  seedMagicComponents,
-  seedOnePieceComponents,
-} from "../../features/components/api/seed";
+import { seedComponents } from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
@@ -44,6 +33,10 @@ import { seedCatalogProviderIntegrationProfileVersions } from "../../features/so
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CatalogItemId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 import { seedContext } from "../seed-support/context";
+import {
+  assertCatalogIntegrationSeedComplete,
+  catalogIntegrationSeedRequirements,
+} from "../seed-support/catalog-integration-state";
 
 export async function seedCatalogDatabase(
   pool: PgTransactionalPool,
@@ -179,38 +172,15 @@ export async function seedTcgdexCatalogIntegrationProfile(
 ): Promise<CatalogIntegrationIds> {
   const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
 
-  if (await tableHasRows(services.db, "catalog_dimensions")) {
-    console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
-    const dimensions = staticCatalogIntegrationIds().dimensions;
-    const fields = await seedFields(services);
-    await syncDisplayTemplateAuthoringDependencies(pool, services);
-    await seedReferenceData(services);
-    const components = await seedMagicComponents(services, dimensions, fields);
-    Object.assign(components, await seedOnePieceComponents(services, dimensions, fields));
-    Object.assign(components, await seedLorcanaComponents(services, dimensions, fields));
-    await seedMagicBlueprints(services, components, dimensions, fields);
-    await seedOnePieceBlueprints(services, components, dimensions, fields);
-    await seedLorcanaBlueprints(services, components, dimensions, fields);
-    await seedMagicCategories(services);
-    await seedOnePieceCategories(services);
-    await seedLorcanaCategories(services);
-    await syncDisplayTemplateAuthoringDependencies(pool, services);
-    await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(pool, services, fields);
-    await seedProductContentConfiguration(services);
-    return {
-      ...staticCatalogIntegrationIds(),
-      fields,
-    };
-  }
-
-  console.log("Seeding Pokemon TCG catalog integration structure...");
-
-  const [dimensions, fields] = await Promise.all([seedDimensions(services), seedFields(services)]);
-
+  console.log("Reconciling Catalog integration authoring aggregates from event streams...");
+  const dimensions = await seedDimensions(services);
+  const fields = await seedFields(services);
   const references = await seedReferenceData(services);
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
+  await assertCatalogIntegrationSeedComplete(services.db);
+  await recoverCatalogIntegrationSeedProjections(services);
   await syncDisplayTemplateAuthoringDependencies(pool, services);
   await seedDisplayTemplatesWhenAuthoringDependenciesAreActive(pool, services, fields);
   await seedProductContentConfiguration(services);
@@ -223,6 +193,58 @@ export async function seedTcgdexCatalogIntegrationProfile(
     blueprints,
     categories,
   };
+}
+
+const catalogIntegrationSeedProjectionNames = new Set([
+  "catalog-blueprint-projection",
+  "catalog-category-projection",
+  "catalog-component-projection",
+  "catalog-dimension-projection",
+  "catalog-field-projection",
+  "catalog-reference-data-projection",
+]);
+
+const aggregateProjection = {
+  Dimension: { table: "catalog_dimensions", idColumn: "dimension_id" },
+  Field: { table: "catalog_fields", idColumn: "field_id" },
+  "Reference Type": { table: "catalog_reference_types", idColumn: "reference_type_id" },
+  "Reference Record": { table: "catalog_reference_records", idColumn: "reference_record_id" },
+  Component: { table: "catalog_components", idColumn: "component_id" },
+  Blueprint: { table: "catalog_blueprints", idColumn: "blueprint_id" },
+  Category: { table: "catalog_categories", idColumn: "category_id" },
+} as const;
+
+async function recoverCatalogIntegrationSeedProjections(services: CatalogServices): Promise<void> {
+  const projectionChecks = await Promise.all(
+    Object.entries(aggregateProjection).map(async ([aggregateName, projection]) => {
+      const requirements = catalogIntegrationSeedRequirements.filter(
+        (requirement) => requirement.aggregateName === aggregateName,
+      );
+      const result = await services.db.query<Readonly<{ id: string; key: string; status: string }>>(
+        `SELECT ${projection.idColumn} AS id, key, status
+         FROM ${projection.table}
+         WHERE ${projection.idColumn} = ANY($1::text[])`,
+        [requirements.map(({ id }) => id)],
+      );
+      const activeById = new Map(
+        result.rows.filter(({ status }) => status === "active").map(({ id, key }) => [id, key]),
+      );
+      return requirements.every(({ id, key }) => activeById.get(id) === key);
+    }),
+  );
+  if (projectionChecks.every(Boolean)) {
+    return;
+  }
+
+  const seedProjectors = services.projectors.filter(({ projectionName }) =>
+    catalogIntegrationSeedProjectionNames.has(projectionName),
+  );
+  if (seedProjectors.length !== catalogIntegrationSeedProjectionNames.size) {
+    throw new Error("Catalog integration bootstrap is missing a seed prerequisite projector.");
+  }
+
+  console.log("Catalog integration projections are behind retained aggregate state. Rebuilding seed prerequisites.");
+  await rebuildLocalProjectionHandlerSets("catalog", services.pool, seedProjectors);
 }
 
 async function syncDisplayTemplateAuthoringDependencies(

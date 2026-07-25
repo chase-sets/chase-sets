@@ -1,9 +1,16 @@
-import { CatalogDomainError, localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedContext } from "../../../support/seed-support/context";
+import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { enqueueAllCatalogItemDisplayIdentityRecomputeWork } from "../../catalog-items/read-model/display-identity-recompute";
-import { deriveRequiredFieldKeys } from "../domain/domain";
+import {
+  deriveRequiredFieldKeys,
+  evolveDisplayTemplate,
+  initialDisplayTemplateState,
+  type DisplayTemplateEvent,
+  type DisplayTemplateState,
+} from "../domain/domain";
 
 export async function seedDisplayTemplates(services: CatalogServices): Promise<void> {
   const definitions = [
@@ -93,15 +100,21 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
     },
   ];
 
-  const existing = await loadExistingSeedDisplayTemplates(
-    services,
-    definitions.map((definition) => definition.displayTemplateId),
-  );
   let reconciled = 0;
 
   for (const definition of definitions) {
-    const current = existing.get(definition.displayTemplateId);
     const streamId = `catalog.display-template-${definition.displayTemplateId}`;
+    const aggregate = await loadSeedAggregateState<typeof initialDisplayTemplateState, DisplayTemplateEvent>({
+      db: services.db,
+      aggregateName: "Display Template",
+      streamId,
+      createdEventType: "catalog.display-template.created",
+      createdIdField: "displayTemplateId",
+      expectedId: definition.displayTemplateId,
+      expectedKey: definition.key,
+      initialState: initialDisplayTemplateState,
+      evolve: evolveDisplayTemplate,
+    });
     const command = {
       key: definition.key,
       name: localizedTextMapFromEnglish(definition.name),
@@ -112,7 +125,7 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       subtitleTemplate: definition.subtitleTemplate,
     };
 
-    if (!current) {
+    if (aggregate.kind === "absent") {
       await services.displayTemplates.commandHandler({
         streamId,
         command: {
@@ -131,7 +144,7 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       continue;
     }
 
-    if (!seedDefinitionMatches(current, definition)) {
+    if (!seedDefinitionMatches(aggregate.state, definition)) {
       await services.displayTemplates.commandHandler({
         streamId,
         command: {
@@ -143,11 +156,13 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       reconciled += 1;
     }
 
-    if (current.status === "draft") {
-      const published = await publishExistingSeedDisplayTemplate(services, streamId);
-      if (published) {
-        reconciled += 1;
-      }
+    if (aggregate.kind === "draft") {
+      await services.displayTemplates.commandHandler({
+        streamId,
+        command: { type: "PublishDisplayTemplate" },
+        context: seedContext,
+      });
+      reconciled += 1;
     }
   }
 
@@ -156,59 +171,8 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
   }
 }
 
-async function publishExistingSeedDisplayTemplate(services: CatalogServices, streamId: string): Promise<boolean> {
-  try {
-    await services.displayTemplates.commandHandler({
-      streamId,
-      command: { type: "PublishDisplayTemplate" },
-      context: seedContext,
-    });
-    return true;
-  } catch (error) {
-    if (error instanceof CatalogDomainError && error.message === "Only draft Display Templates can be published.") {
-      return false;
-    }
-
-    throw error;
-  }
-}
-
-type ExistingSeedDisplayTemplateRow = Readonly<{
-  display_template_id: string;
-  key: string;
-  target_kind: string;
-  target_id: string | null;
-  priority: number;
-  title_template: string;
-  subtitle_template: string | null;
-  required_field_keys: unknown;
-  status: string;
-}>;
-
-async function loadExistingSeedDisplayTemplates(
-  services: CatalogServices,
-  ids: readonly string[],
-): Promise<Map<string, ExistingSeedDisplayTemplateRow>> {
-  const result = await services.db.query<ExistingSeedDisplayTemplateRow>(
-    `SELECT display_template_id,
-       key,
-       target_kind,
-       target_id,
-       priority,
-       title_template,
-       subtitle_template,
-       required_field_keys,
-       status
-     FROM catalog_display_templates
-     WHERE display_template_id = ANY($1::text[])`,
-    [ids],
-  );
-
-  return new Map(result.rows.map((row) => [row.display_template_id, row]));
-}
-
 function seedDefinitionMatches(
-  current: ExistingSeedDisplayTemplateRow,
+  current: DisplayTemplateState,
   definition: Readonly<{
     key: string;
     target: { kind: string; id?: string };
@@ -219,12 +183,12 @@ function seedDefinitionMatches(
 ): boolean {
   return (
     current.key === definition.key &&
-    current.target_kind === definition.target.kind &&
-    current.target_id === (definition.target.kind === "global" ? null : (definition.target.id ?? null)) &&
+    current.target.kind === definition.target.kind &&
+    (current.target.id ?? null) === (definition.target.kind === "global" ? null : (definition.target.id ?? null)) &&
     current.priority === definition.priority &&
-    current.title_template === definition.titleTemplate &&
-    current.subtitle_template === definition.subtitleTemplate &&
-    sortedStrings(current.required_field_keys).join("\n") === derivedRequiredFieldKeys(definition).join("\n")
+    current.titleTemplate === definition.titleTemplate &&
+    current.subtitleTemplate === definition.subtitleTemplate &&
+    sortedStrings(current.requiredFieldKeys).join("\n") === derivedRequiredFieldKeys(definition).join("\n")
   );
 }
 

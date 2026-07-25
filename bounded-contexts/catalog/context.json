@@ -53,7 +53,7 @@
     "shell-support",
     "test-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [

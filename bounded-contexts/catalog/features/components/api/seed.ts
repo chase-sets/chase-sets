@@ -1,18 +1,60 @@
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { ComponentId } from "../../../ids";
-import { sendSeedCommand } from "../../../support/seed-support/context";
+import { sendSeedCommand as sendRawSeedCommand } from "../../../support/seed-support/context";
+import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
 import type { DimensionIds } from "../../dimensions/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
 import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import {
+  decideComponent,
+  evolveComponent,
+  initialComponentState,
+  type ComponentCommand,
+  type ComponentEvent,
+  type ComponentState,
+} from "../domain/domain";
 
 export type ComponentIds = Record<string, ComponentId>;
+
+const componentSeedIdentities = [
+  [catalogSeedIds.components.singleCardIdentity, "single-card-identity"],
+  [catalogSeedIds.components.singleCardProductResolution, "single-card-product-resolution"],
+  [catalogSeedIds.components.sealedProductIdentity, "sealed-product-identity"],
+  [catalogSeedIds.components.magicCardPrintIdentity, "magic-card-print-identity"],
+  [catalogSeedIds.components.magicCardProductResolution, "magic-card-product-resolution"],
+  [catalogSeedIds.components.magicSealedProductIdentity, "magic-sealed-product-identity"],
+  [catalogSeedIds.components.onePieceCardPrintIdentity, "one-piece-card-print-identity"],
+  [catalogSeedIds.components.onePieceCardProductResolution, "one-piece-card-product-resolution"],
+  [catalogSeedIds.components.onePieceSealedProductIdentity, "one-piece-sealed-product-identity"],
+  [catalogSeedIds.components.lorcanaCardPrintIdentity, "lorcana-card-print-identity"],
+  [catalogSeedIds.components.lorcanaCardProductResolution, "lorcana-card-product-resolution"],
+  [catalogSeedIds.components.lorcanaSealedProductIdentity, "lorcana-sealed-product-identity"],
+] as const;
+
+export const componentSeedRequirements = componentSeedIdentities.map(([id, key]) => ({
+  aggregateName: "Component",
+  id: id as ComponentId,
+  key,
+  streamId: `catalog.component-${id}`,
+})) as readonly Readonly<{ aggregateName: "Component"; id: ComponentId; key: string; streamId: string }>[];
+
+type ComponentSeedRuntime = Readonly<{
+  services: CatalogServices;
+  states: Map<string, ComponentState>;
+}>;
+
+const componentSeedRuntimeByHandler = new WeakMap<
+  CatalogServices["components"]["commandHandler"],
+  ComponentSeedRuntime
+>();
 
 export async function seedComponents(
   services: CatalogServices,
   dimensions: DimensionIds,
   fields: FieldIds,
 ): Promise<ComponentIds> {
+  registerComponentSeedServices(services);
   console.log("Seeding components...");
   const result: ComponentIds = {};
 
@@ -153,6 +195,7 @@ export async function seedMagicComponents(
   fields: FieldIds,
   options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
 ): Promise<ComponentIds> {
+  registerComponentSeedServices(services);
   const result: ComponentIds = {};
 
   {
@@ -286,6 +329,7 @@ export async function seedOnePieceComponents(
   fields: FieldIds,
   options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
 ): Promise<ComponentIds> {
+  registerComponentSeedServices(services);
   const result: ComponentIds = {};
 
   {
@@ -424,6 +468,7 @@ export async function seedLorcanaComponents(
   fields: FieldIds,
   options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
 ): Promise<ComponentIds> {
+  registerComponentSeedServices(services);
   const result: ComponentIds = {};
 
   {
@@ -557,21 +602,106 @@ export async function seedLorcanaComponents(
 }
 
 async function componentExists(services: CatalogServices, componentId: ComponentId, key: string): Promise<boolean> {
-  const existing = await services.db.query<{ component_id: string; key: string; status: string }>(
-    `SELECT component_id, key, status
-     FROM catalog_components
-     WHERE component_id = $1 OR key = $2`,
-    [componentId, key],
-  );
-  const row = existing.rows.find((candidate) => candidate.component_id === componentId);
-  if (existing.rows.length === 0) {
-    return false;
+  const aggregate = await loadComponentSeedState(services, componentId, key);
+  return aggregate.kind === "active";
+}
+
+function registerComponentSeedServices(services: CatalogServices): void {
+  componentSeedRuntimeByHandler.set(services.components.commandHandler, {
+    services,
+    states: new Map(),
+  });
+}
+
+async function sendSeedCommand(
+  handler: CatalogServices["components"]["commandHandler"],
+  streamId: string,
+  command: ComponentCommand,
+): Promise<void> {
+  const runtime = componentSeedRuntimeByHandler.get(handler);
+  if (!runtime) {
+    throw new Error("Catalog Component seed command handler was not registered.");
   }
-  if (!row || row.key !== key || existing.rows.length > 1) {
-    throw new Error(`Catalog integration bootstrap component '${key}' conflicts with existing metadata.`);
+  const identity = componentSeedIdentities.find(([id]) => streamId === `catalog.component-${id}`);
+  if (!identity) {
+    throw new Error(`Unknown Catalog integration Component stream '${streamId}'.`);
   }
-  if (row.status !== "active") {
-    throw new Error(`Catalog integration bootstrap requires active component '${key}'.`);
+  const [componentId, key] = identity;
+  const persisted = runtime.states.has(streamId)
+    ? undefined
+    : await loadComponentSeedState(runtime.services, componentId as ComponentId, key);
+  const state = runtime.states.get(streamId) ?? persisted?.state ?? initialComponentState;
+  const kind = persisted?.kind ?? (state.id === null ? "absent" : state.status === "active" ? "active" : "draft");
+
+  if (kind === "active") {
+    return;
   }
-  return true;
+  if (command.type === "CreateComponent") {
+    if (kind === "draft") {
+      return;
+    }
+  } else if (kind === "absent") {
+    throw new Error(`Catalog integration bootstrap Component '${key}' must be created before '${command.type}'.`);
+  }
+
+  if (command.type === "AddFieldRuleToComponent") {
+    const existing = state.fieldRules.find((rule) => rule.fieldId === command.fieldId);
+    if (existing?.required === command.required) {
+      return;
+    }
+    if (existing) {
+      throw new Error(
+        `Catalog integration bootstrap Component '${key}' expected Field rule '${command.fieldId}' required=${command.required}, but found required=${existing.required}.`,
+      );
+    }
+  }
+  if (command.type === "AddDimensionRuleToComponent") {
+    const existing = state.dimensionRules.find((rule) => rule.dimensionId === command.dimensionId);
+    if (existing) {
+      if (
+        existing.required === command.required &&
+        sameStrings(existing.allowedOptionIds, command.allowedOptionIds ?? []) &&
+        sameApplicability(existing.appliesWhen ?? [], command.appliesWhen ?? [])
+      ) {
+        return;
+      }
+      throw new Error(
+        `Catalog integration bootstrap Component '${key}' found conflicting Dimension rule '${command.dimensionId}'.`,
+      );
+    }
+  }
+
+  await sendRawSeedCommand(handler, streamId, command);
+  const nextState = decideComponent(state, command).reduce(evolveComponent, state);
+  runtime.states.set(streamId, nextState);
+}
+
+function loadComponentSeedState(services: CatalogServices, componentId: ComponentId, key: string) {
+  return loadSeedAggregateState<typeof initialComponentState, ComponentEvent>({
+    db: services.db,
+    aggregateName: "Component",
+    streamId: `catalog.component-${componentId}`,
+    createdEventType: "catalog.component.created",
+    createdIdField: "componentId",
+    expectedId: componentId,
+    expectedKey: key,
+    initialState: initialComponentState,
+    evolve: evolveComponent,
+  });
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return [...left].sort().join("\u0000") === [...right].sort().join("\u0000");
+}
+
+function sameApplicability(
+  left: readonly Readonly<{ dimensionId: string; optionIds: readonly string[] }>[],
+  right: readonly Readonly<{ dimensionId: string; optionIds: readonly string[] }>[],
+): boolean {
+  const normalize = (clauses: readonly Readonly<{ dimensionId: string; optionIds: readonly string[] }>[]) =>
+    clauses
+      .map((clause) => `${clause.dimensionId}:${[...clause.optionIds].sort().join(",")}`)
+      .sort()
+      .join("\u0000");
+  return normalize(left) === normalize(right);
 }

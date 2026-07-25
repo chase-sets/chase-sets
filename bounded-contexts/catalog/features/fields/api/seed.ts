@@ -2,7 +2,9 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
 import { localizedTextMapFromEnglish, type LocalizedTextMap } from "@chase-sets/localization";
+import { evolveField, initialFieldState, type FieldEvent } from "../domain/domain";
 
 type FieldDef = {
   key: string;
@@ -186,6 +188,13 @@ const fieldDefs: FieldDef[] = [
 
 export type FieldIds = Record<string, FieldId>;
 
+export const fieldSeedRequirements = fieldDefs.map((def) => ({
+  aggregateName: "Field",
+  id: def.fieldId,
+  key: def.key,
+  streamId: `catalog.field-${def.fieldId}`,
+})) as readonly Readonly<{ aggregateName: "Field"; id: FieldId; key: string; streamId: string }>[];
+
 export async function seedFields(services: CatalogServices): Promise<FieldIds> {
   console.log("Seeding fields...");
   const result: FieldIds = {};
@@ -226,27 +235,18 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
 }
 
 async function findSeedField(services: CatalogServices, def: FieldDef): Promise<{ status: string } | null> {
-  const existing = await services.db.query<{
-    field_id: string;
-    key: string;
-    status: string;
-  }>(
-    `SELECT field_id, key, status
-     FROM catalog_fields
-     WHERE field_id = $1 OR key = $2`,
-    [def.fieldId, def.key],
-  );
-  const row = existing.rows.find((field) => field.field_id === def.fieldId && field.key === def.key);
-
-  if (existing.rows.length === 0) {
-    return null;
-  }
-
-  if (!row || existing.rows.length > 1) {
-    throw new Error(`Catalog integration bootstrap field '${def.key}' conflicts with existing field metadata.`);
-  }
-
-  return { status: row.status };
+  const aggregate = await loadSeedAggregateState<typeof initialFieldState, FieldEvent>({
+    db: services.db,
+    aggregateName: "Field",
+    streamId: `catalog.field-${def.fieldId}`,
+    createdEventType: "catalog.field.created",
+    createdIdField: "fieldId",
+    expectedId: def.fieldId,
+    expectedKey: def.key,
+    initialState: initialFieldState,
+    evolve: evolveField,
+  });
+  return aggregate.kind === "absent" ? null : { status: aggregate.state.status };
 }
 
 function l10n(en: string): LocalizedTextMap {

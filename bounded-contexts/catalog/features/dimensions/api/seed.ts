@@ -3,6 +3,15 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
+import {
+  decideDimension,
+  evolveDimension,
+  initialDimensionState,
+  type DimensionCommand,
+  type DimensionEvent,
+  type DimensionState,
+} from "../domain/domain";
 
 type DimensionOptionDef = {
   optionId: OptionId;
@@ -302,16 +311,24 @@ export type DimensionIds = Record<
   { dimensionId: DimensionId; optionIds: Record<string, OptionId>; orderedOptionIds: OptionId[] }
 >;
 
+export const dimensionSeedRequirements = dimensionDefs.map((def) => ({
+  aggregateName: "Dimension",
+  id: def.dimensionId,
+  key: def.key,
+  streamId: `catalog.dimension-${def.dimensionId}`,
+})) as readonly Readonly<{ aggregateName: "Dimension"; id: DimensionId; key: string; streamId: string }>[];
+
 export async function seedDimensions(services: CatalogServices): Promise<DimensionIds> {
   console.log("Seeding dimensions...");
   const result: DimensionIds = {};
+  const states = new Map<string, DimensionState>();
 
   for (const def of dimensionDefs) {
     const streamId = `catalog.dimension-${def.dimensionId}`;
     const optionIds: Record<string, OptionId> = {};
     const orderedOptionIds: OptionId[] = [];
 
-    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+    await sendDimensionSeedCommand(services, states, streamId, {
       type: "CreateDimension",
       dimensionId: def.dimensionId,
       key: def.key,
@@ -324,7 +341,7 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
       optionIds[option.code] = option.optionId;
       orderedOptionIds.push(option.optionId);
 
-      await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+      await sendDimensionSeedCommand(services, states, streamId, {
         type: "AddOption",
         optionId: option.optionId,
         code: option.code,
@@ -333,7 +350,7 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
       });
     }
 
-    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
+    await sendDimensionSeedCommand(services, states, streamId, {
       type: "ActivateDimension",
     });
 
@@ -342,4 +359,67 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
   }
 
   return result;
+}
+
+async function sendDimensionSeedCommand(
+  services: CatalogServices,
+  states: Map<string, DimensionState>,
+  streamId: string,
+  command: DimensionCommand,
+): Promise<void> {
+  const expectedId =
+    command.type === "CreateDimension"
+      ? command.dimensionId
+      : (dimensionDefs.find((def) => `catalog.dimension-${def.dimensionId}` === streamId)?.dimensionId ??
+        (() => {
+          throw new Error(`Unknown Catalog integration Dimension stream '${streamId}'.`);
+        })());
+  const def = dimensionDefs.find((candidate) => candidate.dimensionId === expectedId);
+  if (!def) {
+    throw new Error(`Unknown Catalog integration Dimension '${expectedId}'.`);
+  }
+  const persisted = states.has(streamId)
+    ? undefined
+    : await loadSeedAggregateState({
+        db: services.db,
+        aggregateName: "Dimension",
+        streamId,
+        createdEventType: "catalog.dimension.created",
+        createdIdField: "dimensionId",
+        expectedId: def.dimensionId,
+        expectedKey: def.key,
+        initialState: initialDimensionState,
+        evolve: evolveDimension,
+      });
+  const state = states.get(streamId) ?? persisted?.state ?? initialDimensionState;
+  const kind = persisted?.kind ?? (state.id === null ? "absent" : state.status === "active" ? "active" : "draft");
+  states.set(streamId, state);
+
+  if (kind === "active") {
+    return;
+  }
+  if (command.type === "CreateDimension") {
+    if (kind === "draft") {
+      return;
+    }
+  } else if (kind === "absent") {
+    throw new Error(`Catalog integration bootstrap Dimension '${def.key}' must be created before '${command.type}'.`);
+  }
+
+  if (command.type === "AddOption") {
+    const sameId = state.options.find((option) => option.id === command.optionId);
+    const sameCode = state.options.find((option) => option.code === command.code);
+    if (sameId && sameCode && sameId.id === sameCode.id) {
+      return;
+    }
+    if (sameId || sameCode) {
+      const found = sameId ?? sameCode;
+      throw new Error(
+        `Catalog integration bootstrap Dimension '${def.key}' expected Option id '${command.optionId}' and code '${command.code}', but found id '${found?.id ?? "null"}' and code '${found?.code ?? "null"}'.`,
+      );
+    }
+  }
+
+  await sendSeedCommand(services.dimensions.commandHandler, streamId, command);
+  states.set(streamId, decideDimension(state, command).reduce(evolveDimension, state));
 }
