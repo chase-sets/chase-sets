@@ -13,6 +13,7 @@ const contractIndexModule = "infrastructure/event-core-postgres/index.ts";
 const contractNames = new Set(["PgQueryable", "PgPoolClient", "PgTransactionalPool"]);
 const transparentTypeConstructors = new Set(["Pick", "Readonly", "Promise", "NonNullable"]);
 const ignoredDirectories = new Set([".git", "artifacts", "build", "coverage", "dist", "node_modules"]);
+const moduleResolutionContextCache = new Map();
 
 export const SANCTIONED_SQL_RECEIVER_RESOLUTION =
   "introduce a locally annotated binding whose type is contract-bound and resolvable to a contract module, then execute through it";
@@ -123,20 +124,38 @@ function sourceLine(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+function moduleResolutionContextFor(repoRoot) {
+  const cached = moduleResolutionContextCache.get(repoRoot);
+  if (cached) return cached;
+  const context = loadModuleResolutionContext(repoRoot);
+  moduleResolutionContextCache.set(repoRoot, context);
+  return context;
+}
+
 class Analyzer {
   constructor(repoRoot) {
     this.repoRoot = repoRoot;
-    this.resolutionContext = loadModuleResolutionContext(repoRoot);
+    this.resolutionContext = moduleResolutionContextFor(repoRoot);
     this.modules = new Map();
+    this.sources = new Map();
     this.unresolvedMemberRoots = new Map();
+  }
+
+  readModuleSource(file) {
+    const normalizedFile = normalizeRepoPath(file);
+    if (this.sources.has(normalizedFile)) return this.sources.get(normalizedFile);
+    const absolutePath = path.join(this.repoRoot, ...normalizedFile.split("/"));
+    if (!existsSync(absolutePath)) return null;
+    const source = readFileSync(absolutePath, "utf8");
+    this.sources.set(normalizedFile, source);
+    return source;
   }
 
   loadModule(file) {
     const normalizedFile = normalizeRepoPath(file);
     if (this.modules.has(normalizedFile)) return this.modules.get(normalizedFile);
-    const absolutePath = path.join(this.repoRoot, ...normalizedFile.split("/"));
-    if (!existsSync(absolutePath)) return null;
-    const source = readFileSync(absolutePath, "utf8");
+    const source = this.readModuleSource(normalizedFile);
+    if (source === null) return null;
     const sourceFile = parseSource(normalizedFile, source);
     const record = {
       file: normalizedFile,
@@ -501,6 +520,11 @@ class Analyzer {
   }
 
   analyzeModule(file) {
+    const source = this.readModuleSource(file);
+    if (source === null) return null;
+    if (!/\.(?:query|execute)\b/.test(source)) {
+      return { file: normalizeRepoPath(file), outcome: "not-sql", calls: [] };
+    }
     const module = this.loadModule(file);
     if (!module) return null;
     const calls = [];
