@@ -5,10 +5,24 @@ import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { loadSeedAggregateState, loadSeedStreamEvents } from "../../../support/seed-support/aggregate-state";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
-import type { ReferenceRelationship } from "../domain/domain";
+import {
+  evolveReferenceRecord,
+  evolveReferenceType,
+  initialReferenceRecordState,
+  initialReferenceTypeState,
+  type ReferenceRecordEvent,
+  type ReferenceRelationship,
+  type ReferenceTypeEvent,
+} from "../domain/domain";
 import { buildCatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
-import { catalogAliasStreamId } from "../../alias-equivalence/domain/domain";
+import {
+  catalogAliasStreamId,
+  evolveCatalogAlias,
+  initialCatalogAliasState,
+  type CatalogAliasEvent,
+} from "../../alias-equivalence/domain/domain";
 
 type ReferenceTypeDef = Readonly<{
   referenceTypeId: ReferenceTypeId;
@@ -327,6 +341,23 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
   }),
 ];
 
+export const referenceDataSeedRequirements = [
+  ...referenceTypes.map((def) => ({
+    aggregateName: "Reference Type" as const,
+    id: def.referenceTypeId,
+    key: def.key,
+    streamId: `catalog.reference-type-${def.referenceTypeId}`,
+    typeKey: null,
+  })),
+  ...referenceRecords.map((def) => ({
+    aggregateName: "Reference Record" as const,
+    id: def.referenceRecordId,
+    key: def.key,
+    streamId: `catalog.reference-record-${def.referenceRecordId}`,
+    typeKey: def.typeKey,
+  })),
+] as const;
+
 const magicReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
 const magicReferenceRecordIds = new Set<ReferenceRecordId>([
   magicManufacturerId,
@@ -355,9 +386,7 @@ export async function seedReferenceData(services: CatalogServices): Promise<Cata
   }
 
   for (const def of referenceRecords) {
-    if (!(await referenceRecordExists(services, def))) {
-      await createReferenceRecord(services, def);
-    }
+    await reconcileReferenceRecord(services, def);
   }
 
   await seedOnePieceReferenceAliases(services);
@@ -374,9 +403,7 @@ export async function seedMagicReferenceData(services: CatalogServices): Promise
   }
 
   for (const def of referenceRecords.filter((candidate) => magicReferenceRecordIds.has(candidate.referenceRecordId))) {
-    if (!(await referenceRecordExists(services, def))) {
-      await createReferenceRecord(services, def);
-    }
+    await reconcileReferenceRecord(services, def);
   }
 
   return staticReferenceIds().magic;
@@ -392,9 +419,7 @@ export async function seedOnePieceReferenceData(services: CatalogServices): Prom
   for (const def of referenceRecords.filter((candidate) =>
     onePieceReferenceRecordIds.has(candidate.referenceRecordId),
   )) {
-    if (!(await referenceRecordExists(services, def))) {
-      await createReferenceRecord(services, def);
-    }
+    await reconcileReferenceRecord(services, def);
   }
 
   await seedOnePieceReferenceAliases(services);
@@ -412,9 +437,7 @@ export async function seedLorcanaReferenceData(services: CatalogServices): Promi
   for (const def of referenceRecords.filter((candidate) =>
     lorcanaReferenceRecordIds.has(candidate.referenceRecordId),
   )) {
-    if (!(await referenceRecordExists(services, def))) {
-      await createReferenceRecord(services, def);
-    }
+    await reconcileReferenceRecord(services, def);
   }
 
   await seedLorcanaReferenceAliases(services);
@@ -511,74 +534,76 @@ async function reconcileReferenceType(services: CatalogServices, def: ReferenceT
     console.log(`  Reference Type "${def.name}" projection stream recovered`);
   }
 
-  const existing = await services.db.query<{
-    reference_type_id: string;
-    key: string;
-    name_i18n: LocalizedTextMap;
-    description_i18n: LocalizedTextMap;
-    attribute_keys: unknown;
-    status: string;
-  }>(
-    `SELECT reference_type_id, key, name_i18n, description_i18n, attribute_keys, status
-     FROM catalog_reference_types
-     WHERE reference_type_id = $1 OR key = $2`,
-    [def.referenceTypeId, def.key],
-  );
-  const row = existing.rows.find((candidate) => candidate.reference_type_id === def.referenceTypeId);
-  if (existing.rows.length === 0) {
+  const aggregate = await loadSeedAggregateState<typeof initialReferenceTypeState, ReferenceTypeEvent>({
+    db: services.db,
+    aggregateName: "Reference Type",
+    streamId,
+    createdEventType: "catalog.reference-type.created",
+    createdIdField: "referenceTypeId",
+    expectedId: def.referenceTypeId,
+    expectedKey: def.key,
+    initialState: initialReferenceTypeState,
+    evolve: evolveReferenceType,
+  });
+  if (aggregate.kind === "absent") {
     await createReferenceType(services, def);
     return;
   }
-  if (!row || row.key !== def.key || existing.rows.length > 1) {
-    throw new Error(`Catalog integration bootstrap reference type '${def.key}' conflicts with existing metadata.`);
-  }
-  if (row.status !== "active") {
-    throw new Error(`Catalog integration bootstrap requires active reference type '${def.key}'.`);
-  }
 
-  const existingAttributeKeys = asStrings(row.attribute_keys);
+  const existingAttributeKeys = asStrings(aggregate.state.attributeKeys);
   const missingAttributeKeys = def.attributeKeys.filter((key) => !existingAttributeKeys.includes(key));
-  if (missingAttributeKeys.length === 0) {
-    return;
+  if (missingAttributeKeys.length > 0) {
+    await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
+      type: "ReviseReferenceType",
+      key: def.key,
+      name: aggregate.state.name ?? localizedTextMapFromEnglish(def.name),
+      description: aggregate.state.description,
+      attributeKeys: [...new Set([...existingAttributeKeys, ...def.attributeKeys])].sort(),
+    });
+    console.log(`  Reference Type "${def.name}" reconciled with additive attributes`);
   }
 
-  await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
-    type: "ReviseReferenceType",
-    key: row.key,
-    name: row.name_i18n,
-    description: row.description_i18n,
-    attributeKeys: [...new Set([...existingAttributeKeys, ...def.attributeKeys])].sort(),
-  });
-  console.log(`  Reference Type "${def.name}" reconciled with additive attributes`);
+  if (aggregate.kind === "draft") {
+    await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
+      type: "PublishReferenceType",
+    });
+  }
 }
 
 function asStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
-async function referenceRecordExists(services: CatalogServices, def: ReferenceRecordDef): Promise<boolean> {
-  const existing = await services.db.query<{
-    reference_record_id: string;
-    type_key: string;
-    key: string;
-    status: string;
-  }>(
-    `SELECT reference_record_id, type_key, key, status
-     FROM catalog_reference_records
-     WHERE reference_record_id = $1 OR (type_key = $2 AND key = $3)`,
-    [def.referenceRecordId, def.typeKey, def.key],
-  );
-  const row = existing.rows.find((candidate) => candidate.reference_record_id === def.referenceRecordId);
-  if (existing.rows.length === 0) {
-    return false;
+async function reconcileReferenceRecord(services: CatalogServices, def: ReferenceRecordDef): Promise<void> {
+  const streamId = `catalog.reference-record-${def.referenceRecordId}`;
+  const aggregate = await loadSeedAggregateState<typeof initialReferenceRecordState, ReferenceRecordEvent>({
+    db: services.db,
+    aggregateName: "Reference Record",
+    streamId,
+    createdEventType: "catalog.reference-record.created",
+    createdIdField: "referenceRecordId",
+    expectedId: def.referenceRecordId,
+    expectedKey: def.key,
+    keyScope: { field: "typeKey", value: def.typeKey },
+    initialState: initialReferenceRecordState,
+    evolve: evolveReferenceRecord,
+    validateIdentity: (state) => {
+      if (state.typeKey !== def.typeKey) {
+        throw new Error(
+          `Catalog integration bootstrap Reference Record '${def.key}' expected type key '${def.typeKey}', but found '${state.typeKey ?? "null"}'.`,
+        );
+      }
+    },
+  });
+  if (aggregate.kind === "absent") {
+    await createReferenceRecord(services, def);
+    return;
   }
-  if (!row || row.type_key !== def.typeKey || row.key !== def.key || existing.rows.length > 1) {
-    throw new Error(`Catalog integration bootstrap reference record '${def.key}' conflicts with existing metadata.`);
+  if (aggregate.kind === "draft") {
+    await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
+      type: "PublishReferenceRecord",
+    });
   }
-  if (row.status !== "active") {
-    throw new Error(`Catalog integration bootstrap requires active reference record '${def.key}'.`);
-  }
-  return true;
 }
 
 function expansion(
@@ -759,17 +784,15 @@ async function seedLorcanaReferenceAliases(services: CatalogServices): Promise<v
 }
 
 async function referenceAliasExists(services: CatalogServices, aliasHash: string): Promise<boolean> {
-  try {
-    const existing = await services.db.query<{ alias_hash: string }>(
-      `SELECT alias_hash
-       FROM catalog_reference_record_aliases
-       WHERE alias_hash = $1
-         AND review_status IN ('accepted', 'auto-accepted')`,
-      [aliasHash],
-    );
-
-    return existing.rows.length > 0;
-  } catch {
+  const events = await loadSeedStreamEvents<CatalogAliasEvent>(services.db, catalogAliasStreamId(aliasHash));
+  if (events.length === 0) {
     return false;
   }
+  const state = events.reduce(evolveCatalogAlias, initialCatalogAliasState);
+  if (state.aliasHash !== aliasHash) {
+    throw new Error(
+      `Catalog integration bootstrap Reference Alias expected hash '${aliasHash}', but found '${state.aliasHash ?? "null"}'.`,
+    );
+  }
+  return state.reviewStatus === "accepted" || state.reviewStatus === "auto-accepted";
 }

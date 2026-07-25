@@ -37,6 +37,29 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       "isolates partition databases and bootstrap advisory locks",
     ]),
   }),
+  "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
+    databaseSuffix: "platform_api_catalog_seed_aggregate_state",
+    cases: Object.freeze([
+      "reconciles all required aggregates for a clean scenario-seed-only module seed",
+      "NC-1 resumes an undrained Dimension seed without duplicate creation",
+      "NC-2 resumes a Component committed at created version one across two ordinary boots",
+      "NC-3 restores lagging projections without re-authoring active aggregates",
+      "rebuilds lost Catalog Item projections from retained streams without appending item events",
+      "NC-4 ignores populated containers when required aggregates have zero events",
+      "NC-5a repairs a draft partial aggregate rather than skipping it",
+      "NC-5b rejects conflicting retained identity metadata on both boots",
+      "NC-5c rejects a terminal retained aggregate on both boots",
+      "resumes after Dimensions under scenario-seed and production-like profiles",
+      "resumes after Fields under scenario-seed and production-like profiles",
+      "resumes after Reference Data under scenario-seed and production-like profiles",
+      "resumes after Components under scenario-seed and production-like profiles",
+      "resumes after Blueprints under scenario-seed and production-like profiles",
+      "resumes after the final Category under scenario-seed and production-like profiles",
+      "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+      "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+      "preserves duplicate CreateDimension rejection through the non-seed command handler",
+    ]),
+  }),
 });
 
 const partitionFileNames = Object.freeze(Object.keys(bootstrapDbEnrollmentManifest));

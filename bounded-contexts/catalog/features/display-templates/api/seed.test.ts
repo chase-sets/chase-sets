@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { CatalogDomainError } from "../../../support/runtime-support/common";
-import { seedDisplayTemplates } from "./seed";
+import { areDisplayTemplateSeedProjectionsCurrent, seedDisplayTemplates } from "./seed";
 
 describe("seedDisplayTemplates", () => {
   it("does not emit commands on a no-op seed rerun", async () => {
@@ -137,30 +136,28 @@ describe("seedDisplayTemplates", () => {
     expect(db.queueTouched).toBe(true);
   });
 
-  it("treats stale draft read model publish attempts as idempotent", async () => {
-    const commandHandler = vi.fn(async (input: { command: { type: string } }) => {
-      if (input.command.type === "PublishDisplayTemplate") {
-        throw new CatalogDomainError("Only draft Display Templates can be published.");
-      }
-    });
-    const db = seedDb(
-      matchingSeedRows({
-        [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
-          status: "draft",
-        },
-      }),
-    );
+  it("does not publish when a stale projection says draft but the stream is active", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const db = seedDb(matchingSeedRows());
 
     await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
 
-    expect(commandHandler).toHaveBeenCalledTimes(1);
-    expect(commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
-        command: { type: "PublishDisplayTemplate" },
-      }),
-    );
+    expect(commandHandler).not.toHaveBeenCalled();
     expect(db.queueTouched).toBe(false);
+  });
+
+  it("detects stale Display Template projections when retained aggregate state is current", async () => {
+    const retainedAggregateRows = matchingSeedRows();
+    const staleProjectionRows = matchingSeedRows({
+      [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
+        required_field_keys: ["card-name", "card-number", "expansion"],
+      },
+    });
+
+    expect(await areDisplayTemplateSeedProjectionsCurrent(seedDb(retainedAggregateRows) as never)).toBe(true);
+    expect(
+      await areDisplayTemplateSeedProjectionsCurrent(seedDb(retainedAggregateRows, staleProjectionRows) as never),
+    ).toBe(false);
   });
 });
 
@@ -282,12 +279,44 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
   return rows.map((row) => ({ ...row, ...(overrides[row.display_template_id] ?? {}) }));
 }
 
-function seedDb(rows: SeedRow[]) {
+function seedDb(rows: SeedRow[], projectionRows: SeedRow[] = rows) {
   return {
     queueTouched: false,
-    async query<T>(sql: string): Promise<{ rows: T[] }> {
+    async query<T>(sql: string, values: readonly unknown[] = []): Promise<{ rows: T[] }> {
+      if (sql.includes("FROM event_store_events")) {
+        const streamId = String(values[0]);
+        const row = rows.find((candidate) => streamId === `catalog.display-template-${candidate.display_template_id}`);
+        if (!row) {
+          return { rows: [] };
+        }
+        const events = [
+          {
+            event_type: "catalog.display-template.created",
+            payload: {
+              displayTemplateId: row.display_template_id,
+              key: row.key,
+              name: { defaultLocale: "en", values: { en: row.key } },
+              description: { defaultLocale: "en", values: {} },
+              target: { kind: row.target_kind, ...(row.target_id === null ? {} : { id: row.target_id }) },
+              priority: row.priority,
+              titleTemplate: row.title_template,
+              subtitleTemplate: row.subtitle_template,
+              requiredFieldKeys: row.required_field_keys,
+            },
+          },
+          ...(row.status === "active" ? [{ event_type: "catalog.display-template.published", payload: {} }] : []),
+        ];
+        return {
+          rows: events.map((event, index) => ({
+            ...event,
+            stream_id: streamId,
+            stream_version: index + 1,
+          })) as T[],
+        };
+      }
+
       if (sql.includes("FROM catalog_display_templates")) {
-        return { rows: rows as T[] };
+        return { rows: projectionRows as T[] };
       }
 
       if (sql.includes("FROM catalog_items")) {

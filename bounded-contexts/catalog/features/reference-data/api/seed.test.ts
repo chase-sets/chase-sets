@@ -377,6 +377,26 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
   const referenceTypes = new Map<string, ReferenceTypeRow>(
     referenceTypeEntries.filter(([key]) => existingReferenceTypeKeys.has(key)),
   );
+  type EventRow = Readonly<{ event_type: string; payload: Record<string, unknown> }>;
+  const eventsByStream = new Map<string, EventRow[]>();
+  for (const row of referenceTypes.values()) {
+    eventsByStream.set(`catalog.reference-type-${row.reference_type_id}`, [
+      {
+        event_type: "catalog.reference-type.created",
+        payload: {
+          referenceTypeId: row.reference_type_id,
+          key: row.key,
+          name: row.name_i18n,
+          description: row.description_i18n,
+          attributeKeys: row.attribute_keys,
+        },
+      },
+      { event_type: "catalog.reference-type.published", payload: {} },
+    ]);
+  }
+  const appendEvent = (streamId: string, event: EventRow): void => {
+    eventsByStream.set(streamId, [...(eventsByStream.get(streamId) ?? []), event]);
+  };
   const referenceRecords = new Map<
     string,
     { reference_record_id: string; type_key: string; key: string; status: string }
@@ -402,6 +422,17 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     pool: {},
     db: {
       query: async <T>(sql: string, values: readonly unknown[]) => {
+        if (sql.includes("FROM event_store_events")) {
+          const streamId = String(values[0]);
+          return {
+            rows: (eventsByStream.get(streamId) ?? []).map((event, index) => ({
+              ...event,
+              stream_id: streamId,
+              stream_version: index + 1,
+            })) as T[],
+          };
+        }
+
         if (sql.includes("FROM catalog_reference_types")) {
           const referenceTypeId = String(values[0]);
           const key = String(values[1]);
@@ -443,11 +474,23 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           referenceTypeId?: string;
           key?: keyof typeof attributeKeysByType;
           attributeKeys?: readonly string[];
+          name?: unknown;
+          description?: unknown;
         };
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
         details.push({ key: command.key });
         if (command.type === "CreateReferenceType" && command.referenceTypeId && command.key) {
+          appendEvent(streamId, {
+            event_type: "catalog.reference-type.created",
+            payload: {
+              referenceTypeId: command.referenceTypeId,
+              key: command.key,
+              name: command.name,
+              description: command.description,
+              attributeKeys: command.attributeKeys ?? [],
+            },
+          });
           referenceTypes.set(command.key, {
             ...referenceTypeRow(command.referenceTypeId, command.key),
             attribute_keys: [...(command.attributeKeys ?? [])],
@@ -455,12 +498,22 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           });
         }
         if (command.type === "ReviseReferenceType" && command.key) {
+          appendEvent(streamId, {
+            event_type: "catalog.reference-type.revised",
+            payload: {
+              key: command.key,
+              name: command.name,
+              description: command.description,
+              attributeKeys: command.attributeKeys ?? [],
+            },
+          });
           const row = referenceTypes.get(command.key);
           if (row) {
             row.attribute_keys = [...(command.attributeKeys ?? row.attribute_keys)];
           }
         }
         if (command.type === "PublishReferenceType") {
+          appendEvent(streamId, { event_type: "catalog.reference-type.published", payload: {} });
           const row = Array.from(referenceTypes.values()).find((candidate) =>
             streamId.endsWith(candidate.reference_type_id),
           );
@@ -482,6 +535,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           name?: { values?: { en?: string } };
           attributes?: unknown;
           relationships?: unknown;
+          description?: unknown;
         };
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
@@ -492,6 +546,18 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           relationships: command.relationships,
         });
         if (command.type === "CreateReferenceRecord" && command.referenceRecordId && command.typeKey && command.key) {
+          appendEvent(streamId, {
+            event_type: "catalog.reference-record.created",
+            payload: {
+              referenceRecordId: command.referenceRecordId,
+              typeKey: command.typeKey,
+              key: command.key,
+              name: command.name,
+              description: command.description,
+              attributes: command.attributes ?? {},
+              relationships: command.relationships ?? [],
+            },
+          });
           referenceRecords.set(`${command.typeKey}:${command.key}`, {
             reference_record_id: command.referenceRecordId,
             type_key: command.typeKey,
@@ -500,6 +566,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           });
         }
         if (command.type === "PublishReferenceRecord") {
+          appendEvent(streamId, { event_type: "catalog.reference-record.published", payload: {} });
           const row = Array.from(referenceRecords.values()).find((candidate) =>
             streamId.endsWith(candidate.reference_record_id),
           );
@@ -522,7 +589,15 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
             aliasText: string;
             target: { targetId: string | null; targetKey: string };
             reviewStatus: string;
+            normalizedAliasText: string;
+            aliasLanguageCode: string;
+            sourceLanguageCode: string | null;
+            aliasType: string;
+            confidence: string;
+            provenance: Record<string, unknown>;
+            evidence: Record<string, unknown>;
           };
+          actor?: string;
         };
       }) => {
         aliasCommands.push({
@@ -534,6 +609,14 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           reviewStatus: command.candidate?.reviewStatus,
         });
         if (command.type === "ProposeCatalogAlias" && command.candidate) {
+          appendEvent(streamId, {
+            event_type: "catalog.alias.proposed",
+            payload: {
+              ...command.candidate,
+              actor: command.actor ?? "system",
+              policyVersion: "test",
+            },
+          });
           referenceAliases.add(command.candidate.aliasHash);
         }
       },

@@ -45,15 +45,13 @@ describe("blueprint seed", () => {
         }),
       }),
     );
-    expect(commands).toContainEqual(
-      expect.objectContaining({
-        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.onePieceSealedProduct}`,
-        command: expect.objectContaining({
-          type: "SetBlueprintProductResolutionRules",
-          canonicalDimensionOrder: [],
-        }),
-      }),
-    );
+    expect(
+      commands.some(
+        ({ streamId, command }) =>
+          streamId === `catalog.blueprint-${catalogSeedIds.blueprints.onePieceSealedProduct}` &&
+          command.type === "SetBlueprintProductResolutionRules",
+      ),
+    ).toBe(false);
   });
 
   it("seeds Lorcana card and sealed blueprints without schema changes", async () => {
@@ -116,15 +114,13 @@ describe("blueprint seed", () => {
         }),
       }),
     );
-    expect(commands).toContainEqual(
-      expect.objectContaining({
-        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaSealedProduct}`,
-        command: expect.objectContaining({
-          type: "SetBlueprintProductResolutionRules",
-          canonicalDimensionOrder: [],
-        }),
-      }),
-    );
+    expect(
+      commands.some(
+        ({ streamId, command }) =>
+          streamId === `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaSealedProduct}` &&
+          command.type === "SetBlueprintProductResolutionRules",
+      ),
+    ).toBe(false);
   });
 });
 

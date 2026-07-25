@@ -1472,6 +1472,28 @@ export async function drainLocalProjectionHandlerSets(
   await drainSubscriptionRunners(runners, context);
 }
 
+export async function rebuildLocalProjectionHandlerSets(
+  contextName: string,
+  pool: PgTransactionalPool,
+  projectionHandlerSets: readonly BcProjectionHandlerSet[],
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const runners = projectionHandlerSets.map((projectionHandlerSet, index) =>
+    createSubscriptionRunner(
+      contextName,
+      pool,
+      pool,
+      createLocalProjectionSubscription(contextName, projectionHandlerSet, index),
+    ),
+  );
+
+  for (const runner of sortSubscriptionRunners(runners)) {
+    context?.throwIfLeaseLost?.();
+    await runner.reset(context);
+  }
+  await drainSubscriptionRunners(runners, context);
+}
+
 export async function retryLocalProjectionBlockedStream(
   contextName: string,
   pool: PgTransactionalPool,

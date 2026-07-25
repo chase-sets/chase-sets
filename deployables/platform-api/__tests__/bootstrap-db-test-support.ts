@@ -5,6 +5,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE } from "@chase-sets/bounded-context-runtime";
+import type { PgPoolClient } from "@chase-sets/event-core-postgres";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -32,12 +33,17 @@ export type PlatformApiBootstrapTestState = Readonly<{
   databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
   pools: PlatformApiTestPools;
 }>;
+export type PlatformApiBootstrapTestHarnessOptions = Readonly<{
+  activeContextNames?: readonly PlatformApiContextName[];
+}>;
 
 export function createPlatformApiBootstrapTestHarness(
   databaseSuffix: string,
   assignState: (state: PlatformApiBootstrapTestState) => void,
+  options: PlatformApiBootstrapTestHarnessOptions = {},
 ): void {
   let state: PlatformApiBootstrapTestState | undefined;
+  const activeContextNames = options.activeContextNames ?? platformApiContextNames;
 
   beforeAll(async () => {
     const databaseBaseUrl = requireDatabaseBaseUrl();
@@ -46,7 +52,7 @@ export function createPlatformApiBootstrapTestHarness(
       platformApiContextNames,
       databaseSuffix,
     ) as Readonly<Record<PlatformApiContextName, string>>;
-    await ensureMultiContextTestDatabases(databaseBaseUrl, databaseUrls);
+    await ensureMultiContextTestDatabases(databaseBaseUrl, selectPlatformApiContexts(databaseUrls, activeContextNames));
     const pools = createPlatformApiPools({
       runtimeProfile: "public",
       sharedDatabaseUrl: null,
@@ -61,7 +67,7 @@ export function createPlatformApiBootstrapTestHarness(
     if (!state) {
       throw new Error("Platform API bootstrap test harness was not initialized.");
     }
-    await resetMultiContextTestSchemas(state.pools);
+    await resetMultiContextTestSchemas(selectPlatformApiContexts(state.pools, activeContextNames));
   }, 30_000);
 
   afterAll(async () => {
@@ -70,10 +76,18 @@ export function createPlatformApiBootstrapTestHarness(
     }
   });
 }
+
+function selectPlatformApiContexts<T>(
+  resources: Readonly<Record<PlatformApiContextName, T>>,
+  contextNames: readonly PlatformApiContextName[],
+): Readonly<Record<string, T>> {
+  return Object.fromEntries(contextNames.map((contextName) => [contextName, resources[contextName]]));
+}
+
 export async function holdSchemaBootstrapAdvisoryLock(
   pool: PlatformApiTestPools[PlatformApiContextName],
 ): Promise<() => Promise<void>> {
-  const client = await pool.connect();
+  const client: PgPoolClient = await pool.connect();
   let released = false;
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended(($1::text || ':' || current_database()), 0))", [

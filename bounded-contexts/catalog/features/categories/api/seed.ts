@@ -2,7 +2,16 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { CategoryId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
 import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import {
+  decideCategory,
+  evolveCategory,
+  initialCategoryState,
+  type CategoryCommand,
+  type CategoryEvent,
+  type CategoryState,
+} from "../domain/domain";
 
 export type CategoryIds = Record<string, CategoryId>;
 
@@ -388,12 +397,20 @@ function allCategoryDefs(): CategoryDef[] {
   return defs;
 }
 
+export const categorySeedRequirements = allCategoryDefs().map((def) => ({
+  aggregateName: "Category",
+  id: def.categoryId,
+  key: def.key,
+  streamId: `catalog.category-${def.categoryId}`,
+})) as readonly Readonly<{ aggregateName: "Category"; id: CategoryId; key: string; streamId: string }>[];
+
 async function seedCategoryDefinitions(
   services: CatalogServices,
   defs: readonly CategoryDef[],
   options: Readonly<{ reconcileExisting?: boolean }> = {},
 ): Promise<CategoryIds> {
   const result: CategoryIds = Object.fromEntries(defs.map((def) => [def.key, def.categoryId]));
+  const states = new Map<string, CategoryState>();
 
   for (const def of defs) {
     if (options.reconcileExisting && (await categoryExists(services, def))) {
@@ -402,7 +419,7 @@ async function seedCategoryDefinitions(
 
     const streamId = `catalog.category-${def.categoryId}`;
 
-    await sendSeedCommand(services.categories.commandHandler, streamId, {
+    await sendCategorySeedCommand(services, states, def, streamId, {
       type: "CreateCategory",
       categoryId: def.categoryId,
       key: def.key,
@@ -412,7 +429,7 @@ async function seedCategoryDefinitions(
       displayOrder: def.displayOrder ?? 0,
     });
 
-    await sendSeedCommand(services.categories.commandHandler, streamId, {
+    await sendCategorySeedCommand(services, states, def, streamId, {
       type: "PublishCategory",
     });
   }
@@ -421,21 +438,44 @@ async function seedCategoryDefinitions(
 }
 
 async function categoryExists(services: CatalogServices, def: CategoryDef): Promise<boolean> {
-  const existing = await services.db.query<{ category_id: string; key: string; status: string }>(
-    `SELECT category_id, key, status
-     FROM catalog_categories
-     WHERE category_id = $1 OR key = $2`,
-    [def.categoryId, def.key],
-  );
-  const row = existing.rows.find((candidate) => candidate.category_id === def.categoryId);
-  if (existing.rows.length === 0) {
-    return false;
+  const aggregate = await loadCategorySeedState(services, def);
+  return aggregate.kind === "active";
+}
+
+async function sendCategorySeedCommand(
+  services: CatalogServices,
+  states: Map<string, CategoryState>,
+  def: CategoryDef,
+  streamId: string,
+  command: CategoryCommand,
+): Promise<void> {
+  const persisted = states.has(streamId) ? undefined : await loadCategorySeedState(services, def);
+  const state = states.get(streamId) ?? persisted?.state ?? initialCategoryState;
+  const kind = persisted?.kind ?? (state.id === null ? "absent" : state.status === "active" ? "active" : "draft");
+  states.set(streamId, state);
+  if (kind === "active") {
+    return;
   }
-  if (!row || row.key !== def.key || existing.rows.length > 1) {
-    throw new Error(`Catalog integration bootstrap category '${def.key}' conflicts with existing metadata.`);
+  if (command.type === "CreateCategory" && kind === "draft") {
+    return;
   }
-  if (row.status !== "active") {
-    throw new Error(`Catalog integration bootstrap requires active category '${def.key}'.`);
+  if (command.type !== "CreateCategory" && kind === "absent") {
+    throw new Error(`Catalog integration bootstrap Category '${def.key}' must be created before '${command.type}'.`);
   }
-  return true;
+  await sendSeedCommand(services.categories.commandHandler, streamId, command);
+  states.set(streamId, decideCategory(state, command).reduce(evolveCategory, state));
+}
+
+function loadCategorySeedState(services: CatalogServices, def: CategoryDef) {
+  return loadSeedAggregateState<typeof initialCategoryState, CategoryEvent>({
+    db: services.db,
+    aggregateName: "Category",
+    streamId: `catalog.category-${def.categoryId}`,
+    createdEventType: "catalog.category.created",
+    createdIdField: "categoryId",
+    expectedId: def.categoryId,
+    expectedKey: def.key,
+    initialState: initialCategoryState,
+    evolve: evolveCategory,
+  });
 }
