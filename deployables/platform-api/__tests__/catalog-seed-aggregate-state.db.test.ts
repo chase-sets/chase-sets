@@ -1,9 +1,9 @@
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
-import { module as catalogModule } from "@chase-sets/catalog";
 import {
   catalogIntegrationSeedRequirements,
   inspectCatalogIntegrationSeedState,
-} from "@chase-sets/catalog/seed-support/catalog-integration-state";
+  module as catalogModule,
+} from "@chase-sets/catalog";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import {
   nonProductionDataProfiles,
