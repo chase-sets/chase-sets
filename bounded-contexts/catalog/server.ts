@@ -5,6 +5,12 @@ export {
   type CatalogProductSelectionResolution,
 } from "./support/request-support/product-selection";
 export { seedCatalogDatabase as bootstrapCatalogDatabase } from "./support/authoring-support/seed";
+export {
+  catalogIntegrationSeedRequirements,
+  inspectCatalogIntegrationSeedState,
+  type CatalogIntegrationSeedAggregateState,
+  type CatalogIntegrationSeedRequirement,
+} from "./support/seed-support/catalog-integration-state";
 export { seedProductContentScenario as reconcileRepresentativeProductContentsScenario } from "./features/product-contents/api/seed";
 export {
   catalogRealtimeManifest,

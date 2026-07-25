@@ -1,10 +1,4 @@
 export { default as contextManifest } from "./context.json";
-export {
-  catalogIntegrationSeedRequirements,
-  inspectCatalogIntegrationSeedState,
-  type CatalogIntegrationSeedAggregateState,
-  type CatalogIntegrationSeedRequirement,
-} from "./support/seed-support/catalog-integration-state";
 
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
