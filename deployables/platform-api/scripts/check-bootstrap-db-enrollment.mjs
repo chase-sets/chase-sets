@@ -40,9 +40,11 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
   "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
     databaseSuffix: "platform_api_catalog_seed_aggregate_state",
     cases: Object.freeze([
+      "reconciles all required aggregates for a clean scenario-seed-only module seed",
       "NC-1 resumes an undrained Dimension seed without duplicate creation",
       "NC-2 resumes a Component committed at created version one across two ordinary boots",
       "NC-3 restores lagging projections without re-authoring active aggregates",
+      "rebuilds lost Catalog Item projections from retained streams without appending item events",
       "NC-4 ignores populated containers when required aggregates have zero events",
       "NC-5a repairs a draft partial aggregate rather than skipping it",
       "NC-5b rejects conflicting retained identity metadata on both boots",

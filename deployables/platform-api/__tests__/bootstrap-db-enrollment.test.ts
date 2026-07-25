@@ -49,7 +49,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.caseCount).toBe(33);
+    expect(result.caseCount).toBe(35);
   });
 
   it.each([
