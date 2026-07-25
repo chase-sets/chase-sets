@@ -51,10 +51,14 @@ const profileShapes = [
 
 let databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
 let pools: PlatformApiTestPools;
-createPlatformApiBootstrapTestHarness("platform_api_catalog_seed_aggregate_state", (state) => {
-  databaseUrls = state.databaseUrls;
-  pools = state.pools;
-});
+createPlatformApiBootstrapTestHarness(
+  "platform_api_catalog_seed_aggregate_state",
+  (state) => {
+    databaseUrls = state.databaseUrls;
+    pools = state.pools;
+  },
+  { activeContextNames: ["catalog"] },
+);
 
 function createCatalogSeedHost() {
   const runtime = createPlatformApiHost({
@@ -77,7 +81,7 @@ function createCatalogSeedHost() {
 }
 
 async function prepareCatalog() {
-  await resetMultiContextTestSchemas(pools);
+  await resetMultiContextTestSchemas({ catalog: pools.catalog });
   await bootstrapContextDatabase(catalogModule, pools.catalog);
   return createCatalogSeedHost();
 }
