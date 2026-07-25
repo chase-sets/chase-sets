@@ -259,6 +259,45 @@ async function interruptCatalogSeedAfter(
   ).rejects.toThrow(`test interruption after seed${interruptionPoint[0]!.toUpperCase()}${interruptionPoint.slice(1)}`);
 }
 
+async function expectCatalogSeedToResumeAfter(interruptionPoint: CatalogSeedInterruptionPoint): Promise<void> {
+  await bootstrapContextDatabase(catalogModule, pools.catalog);
+  const runtime = createCatalogSeedHost(pools);
+  const services = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+  const bootstrapOptions = {
+    enabledDataProfiles: nonProductionDataProfiles,
+    environmentName: "test",
+  } as const;
+
+  await interruptCatalogSeedAfter(services, interruptionPoint);
+  const afterInterruption = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+  const expectedPresentStreamCounts: Readonly<Record<CatalogSeedInterruptionPoint, number>> = {
+    dimensions: 0,
+    components: 3,
+    blueprints: 5,
+  };
+  expect(Object.values(afterInterruption).filter((eventCount) => eventCount > 0)).toHaveLength(
+    expectedPresentStreamCounts[interruptionPoint],
+  );
+
+  await expect(
+    seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+  ).resolves.toBeUndefined();
+  const afterFirstResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+
+  await expect(
+    seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
+  ).resolves.toBeUndefined();
+  const afterSecondResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
+
+  expect(
+    Object.values(afterFirstResume).every((eventCount) => eventCount > 0),
+    `${interruptionPoint}: after interruption=${JSON.stringify(afterInterruption)}; ` +
+      `after first ordinary boot=${JSON.stringify(afterFirstResume)}; ` +
+      `after second ordinary boot=${JSON.stringify(afterSecondResume)}`,
+  ).toBe(true);
+  expect(afterSecondResume).toEqual(afterFirstResume);
+}
+
 async function representativeParticipantIdentities(
   pools: PlatformApiTestPools,
 ): Promise<Readonly<{ sellerAccountIds: readonly string[]; buyerAccountIds: readonly string[] }>> {
@@ -700,48 +739,17 @@ describe("platform api bootstrap production reconciliation", () => {
     );
   }, 120_000);
 
-  it.each(["dimensions", "components", "blueprints"] as const)(
-    "completes the base Catalog authoring set after interruption following %s",
-    async (interruptionPoint) => {
-      await bootstrapContextDatabase(catalogModule, pools.catalog);
-      const runtime = createCatalogSeedHost(pools);
-      const services = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
-      const bootstrapOptions = {
-        enabledDataProfiles: nonProductionDataProfiles,
-        environmentName: "test",
-      } as const;
+  it("completes the base Catalog authoring set after interruption following dimensions", async () => {
+    await expectCatalogSeedToResumeAfter("dimensions");
+  }, 120_000);
 
-      await interruptCatalogSeedAfter(services, interruptionPoint);
-      const afterInterruption = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
-      const expectedPresentStreamCounts: Readonly<Record<CatalogSeedInterruptionPoint, number>> = {
-        dimensions: 0,
-        components: 3,
-        blueprints: 5,
-      };
-      expect(Object.values(afterInterruption).filter((eventCount) => eventCount > 0)).toHaveLength(
-        expectedPresentStreamCounts[interruptionPoint],
-      );
+  it("completes the base Catalog authoring set after interruption following components", async () => {
+    await expectCatalogSeedToResumeAfter("components");
+  }, 120_000);
 
-      await expect(
-        seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
-      ).resolves.toBeUndefined();
-      const afterFirstResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
-
-      await expect(
-        seedApiHostIfEmpty(catalogApiContextRegistry, "platform-api", runtime, bootstrapOptions),
-      ).resolves.toBeUndefined();
-      const afterSecondResume = await countRequiredBaseCatalogAuthoringStreamEvents(pools.catalog);
-
-      expect(
-        Object.values(afterFirstResume).every((eventCount) => eventCount > 0),
-        `${interruptionPoint}: after interruption=${JSON.stringify(afterInterruption)}; ` +
-          `after first ordinary boot=${JSON.stringify(afterFirstResume)}; ` +
-          `after second ordinary boot=${JSON.stringify(afterSecondResume)}`,
-      ).toBe(true);
-      expect(afterSecondResume).toEqual(afterFirstResume);
-    },
-    120_000,
-  );
+  it("completes the base Catalog authoring set after interruption following blueprints", async () => {
+    await expectCatalogSeedToResumeAfter("blueprints");
+  }, 120_000);
 
   it("limits and reconciles every production-like seed context against current-code state", async () => {
     const runtime = createPlatformApiHost({
