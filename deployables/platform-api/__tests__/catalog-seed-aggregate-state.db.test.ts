@@ -275,25 +275,26 @@ async function countEventType(streamId: string, eventType: string): Promise<numb
   return Number(result.rows[0]?.count ?? 0);
 }
 
+async function expectCatalogOnlyHarnessConnections(): Promise<void> {
+  const ownedDatabaseNames = Object.values(databaseUrls).map((databaseUrl) =>
+    new URL(databaseUrl).pathname.replace(/^\//u, ""),
+  );
+  const catalogDatabaseName = new URL(databaseUrls.catalog).pathname.replace(/^\//u, "");
+  const result = await pools.catalog.query<Readonly<{ datname: string; connection_count: string }>>(
+    `SELECT datname, COUNT(*) AS connection_count
+     FROM pg_stat_activity
+     WHERE datname = ANY($1::text[])
+     GROUP BY datname
+     ORDER BY datname`,
+    [ownedDatabaseNames],
+  );
+
+  expect(result.rows).toEqual([{ datname: catalogDatabaseName, connection_count: "1" }]);
+}
+
 describe("Catalog integration aggregate-state seed", () => {
-  it("keeps the catalog-only regression harness scoped to the Catalog database", async () => {
-    const ownedDatabaseNames = Object.values(databaseUrls).map((databaseUrl) =>
-      new URL(databaseUrl).pathname.replace(/^\//u, ""),
-    );
-    const catalogDatabaseName = new URL(databaseUrls.catalog).pathname.replace(/^\//u, "");
-    const result = await pools.catalog.query<Readonly<{ datname: string; connection_count: string }>>(
-      `SELECT datname, COUNT(*) AS connection_count
-       FROM pg_stat_activity
-       WHERE datname = ANY($1::text[])
-       GROUP BY datname
-       ORDER BY datname`,
-      [ownedDatabaseNames],
-    );
-
-    expect(result.rows).toEqual([{ datname: catalogDatabaseName, connection_count: "1" }]);
-  });
-
   it("reconciles all required aggregates for a clean scenario-seed-only module seed", async () => {
+    await expectCatalogOnlyHarnessConnections();
     const runtime = await prepareCatalog();
     if (!catalogModule.seed) {
       throw new Error("Catalog module seed is unavailable.");
