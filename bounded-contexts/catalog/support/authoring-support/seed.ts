@@ -17,7 +17,10 @@ import { seedComponents } from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
-import { seedDisplayTemplates } from "../../features/display-templates/api/seed";
+import {
+  areDisplayTemplateSeedProjectionsCurrent,
+  seedDisplayTemplates,
+} from "../../features/display-templates/api/seed";
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
@@ -293,6 +296,10 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
 
   await seedDisplayTemplates(services);
   await drainLocalProjectionHandlerSets("catalog", pool, services.displayTemplates.projectors);
+  if (!(await areDisplayTemplateSeedProjectionsCurrent(services.db))) {
+    console.log("Catalog Display Template projections are behind retained aggregate state. Rebuilding seed templates.");
+    await rebuildLocalProjectionHandlerSets("catalog", pool, services.displayTemplates.projectors);
+  }
 }
 
 async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {

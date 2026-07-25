@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedDisplayTemplates } from "./seed";
+import { areDisplayTemplateSeedProjectionsCurrent, seedDisplayTemplates } from "./seed";
 
 describe("seedDisplayTemplates", () => {
   it("does not emit commands on a no-op seed rerun", async () => {
@@ -145,6 +145,20 @@ describe("seedDisplayTemplates", () => {
     expect(commandHandler).not.toHaveBeenCalled();
     expect(db.queueTouched).toBe(false);
   });
+
+  it("detects stale Display Template projections when retained aggregate state is current", async () => {
+    const retainedAggregateRows = matchingSeedRows();
+    const staleProjectionRows = matchingSeedRows({
+      [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
+        required_field_keys: ["card-name", "card-number", "expansion"],
+      },
+    });
+
+    expect(await areDisplayTemplateSeedProjectionsCurrent(seedDb(retainedAggregateRows) as never)).toBe(true);
+    expect(
+      await areDisplayTemplateSeedProjectionsCurrent(seedDb(retainedAggregateRows, staleProjectionRows) as never),
+    ).toBe(false);
+  });
 });
 
 type SeedRow = Readonly<{
@@ -265,7 +279,7 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
   return rows.map((row) => ({ ...row, ...(overrides[row.display_template_id] ?? {}) }));
 }
 
-function seedDb(rows: SeedRow[]) {
+function seedDb(rows: SeedRow[], projectionRows: SeedRow[] = rows) {
   return {
     queueTouched: false,
     async query<T>(sql: string, values: readonly unknown[] = []): Promise<{ rows: T[] }> {
@@ -299,6 +313,10 @@ function seedDb(rows: SeedRow[]) {
             stream_version: index + 1,
           })) as T[],
         };
+      }
+
+      if (sql.includes("FROM catalog_display_templates")) {
+        return { rows: projectionRows as T[] };
       }
 
       if (sql.includes("FROM catalog_items")) {
