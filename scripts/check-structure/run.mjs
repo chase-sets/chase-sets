@@ -32,6 +32,7 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -1338,6 +1339,9 @@ export async function runStructureCheck(options = {}) {
   warnings.length = 0;
   clientSurfaceConsumers.clear();
   supportFileConsumers.clear();
+
+  const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
+  violations.push(...sqlExecutionSurface.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);
