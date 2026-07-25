@@ -49,6 +49,130 @@ test.describe("responsive evidence fail-closed contract", () => {
     expectResponsiveEvidenceArtifactsAbsent(testInfo, "zero-table-unrelated-list-item");
   });
 
+  // #5963 AC12: the three measurement properties added for the compact mobile
+  // action dock (gap-above, scroll-margin-bottom, css-custom-property) are
+  // additive to the closed-schema, fail-closed contract. Each gets its own
+  // negative control proving it fails closed rather than silently passing.
+  test("fails before capture when the gap-above reference element is absent @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/gap-above-missing-reference",
+      fixtureDocument(`
+        <div data-evidence-target="gap-target">
+          <article data-evidence-row>Row</article>
+        </div>
+      `),
+    );
+
+    await expect(captureResponsiveEvidence({ page, testInfo, claimId: "gap-above-missing-reference" })).rejects.toThrow(
+      /route=gap-above missing reference fixture:\/responsive-evidence\/gap-above-missing-reference viewport=390x844 target=gap-above-target .*reason=measurement-relative-to-not-exact\(gap-above-missing-reference, count=0\)/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "gap-above-missing-reference");
+  });
+
+  test("fails before capture when the scroll-margin-bottom measurement target is hidden @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/scroll-margin-bottom-hidden-target",
+      fixtureDocument(`
+        <div data-evidence-target="clearance-target">
+          <article data-evidence-row>Visible row</article>
+          <button data-hidden-clearance-target hidden>Hidden focus control</button>
+        </div>
+      `),
+    );
+
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "scroll-margin-bottom-hidden-target" }),
+    ).rejects.toThrow(
+      /route=scroll-margin-bottom hidden target fixture:\/responsive-evidence\/scroll-margin-bottom-hidden-target viewport=390x844 target=clearance-target .*reason=measurement-target-hidden\(scroll-margin-bottom-hidden-target\)/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "scroll-margin-bottom-hidden-target");
+  });
+
+  test("fails before capture when the css-custom-property observation is non-numeric @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/css-custom-property-non-numeric",
+      fixtureDocument(`
+        <style>
+          [data-evidence-target="nonnumeric-target"] { --nonnumeric-test-var: not-a-number; }
+        </style>
+        <div data-evidence-target="nonnumeric-target">
+          <article data-evidence-row>Row</article>
+        </div>
+      `),
+    );
+
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "css-custom-property-non-numeric" }),
+    ).rejects.toThrow(
+      /route=css-custom-property non-numeric fixture:\/responsive-evidence\/css-custom-property-non-numeric viewport=390x844 target=nonnumeric-target .*reason=measurement-not-numeric\(css-custom-property-non-numeric, actual=not-a-number\)/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "css-custom-property-non-numeric");
+  });
+
+  // An unregistered custom property computes to its authored token, so a naive
+  // Number.parseFloat turns "5.25em" into 5.25 and compares a font-relative count
+  // against a pixel bound without ever failing. This control pins the fail-closed
+  // behavior for every length unit the contract does not resolve: the assertion below
+  // would have *passed* at 84 +/- 0.5 only if the reader silently accepted 5.25.
+  test("fails before capture when the css-custom-property observation carries an unsupported length unit @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/css-custom-property-unsupported-unit",
+      fixtureDocument(`
+        <style>
+          [data-evidence-target="unsupported-unit-target"] { --unsupported-unit-test-var: 5.25em; }
+        </style>
+        <div data-evidence-target="unsupported-unit-target">
+          <article data-evidence-row>Row</article>
+        </div>
+      `),
+    );
+
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "css-custom-property-unsupported-unit" }),
+    ).rejects.toThrow(
+      /route=css-custom-property unsupported unit fixture:\/responsive-evidence\/css-custom-property-unsupported-unit viewport=390x844 target=unsupported-unit-target .*reason=measurement-not-numeric\(css-custom-property-unsupported-unit, actual=5\.25em\)/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "css-custom-property-unsupported-unit");
+  });
+
+  test("fails before capture when an element-scoped label is clipped @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/clipped-label",
+      fixtureDocument(`
+        <div data-evidence-target="label-clip-target">
+          <article data-evidence-row>
+            <span
+              data-evidence-label
+              style="display:inline-block;width:20px;overflow:hidden;white-space:nowrap;"
+            >A very long label text</span>
+          </article>
+        </div>
+      `),
+    );
+
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "horizontal-overflow-clipped-label" }),
+    ).rejects.toThrow(
+      /route=clipped label fixture:\/responsive-evidence\/clipped-label viewport=390x844 target=label-clip-target .*reason=measurement-failed\(horizontal-overflow-clipped-label, expected=\{"maximum":0\}, actual=\d+\)/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "horizontal-overflow-clipped-label");
+  });
+
   test("records exact mobile card evidence at 390px @marketplace-browse", async ({ page }, testInfo) => {
     await serveFixture(page, "/responsive-evidence/scope-transition", responsiveTransitionFixture());
 

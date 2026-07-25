@@ -15,7 +15,21 @@ type Measurement = Readonly<{
   identity: string;
   scope: "target" | "page" | "document";
   selector?: string;
-  property: "width" | "height" | "display" | "visible" | "horizontal-overflow";
+  property:
+    | "width"
+    | "height"
+    | "display"
+    | "visible"
+    | "horizontal-overflow"
+    | "gap-above"
+    | "scroll-margin-bottom"
+    | "css-custom-property";
+  // Additive: page-scoped selector for the "gap-above" property's reference element.
+  // Required for "gap-above", unused otherwise.
+  relativeToSelector?: string;
+  // Additive: CSS custom property name for the "css-custom-property" property.
+  // Required for "css-custom-property", unused otherwise.
+  customProperty?: string;
   assertion: NumericAssertion | Readonly<{ equals: string | boolean }>;
 }>;
 
@@ -157,7 +171,16 @@ function findClaim(claimId: string): ResponsiveEvidenceClaim {
 }
 
 function validateMeasurement(claim: ResponsiveEvidenceClaim, measurement: Measurement) {
-  const supportedProperties = ["width", "height", "display", "visible", "horizontal-overflow"];
+  const supportedProperties = [
+    "width",
+    "height",
+    "display",
+    "visible",
+    "horizontal-overflow",
+    "gap-above",
+    "scroll-margin-bottom",
+    "css-custom-property",
+  ];
   if (
     !measurement.identity?.trim() ||
     !["target", "page", "document"].includes(measurement.scope) ||
@@ -170,6 +193,12 @@ function validateMeasurement(claim: ResponsiveEvidenceClaim, measurement: Measur
     (measurement.scope !== "document" && !measurement.selector?.trim())
   ) {
     fail(claim, `invalid-measurement-selector(${measurement.identity})`);
+  }
+  if (measurement.property === "gap-above" && !measurement.relativeToSelector?.trim()) {
+    fail(claim, `measurement-relative-to-missing(${measurement.identity})`);
+  }
+  if (measurement.property === "css-custom-property" && !measurement.customProperty?.trim()) {
+    fail(claim, `measurement-custom-property-missing(${measurement.identity})`);
   }
   const assertion = measurement.assertion;
   if (
@@ -242,11 +271,89 @@ async function observeMeasurement(
   if (measurement.property === "display") {
     return locator.evaluate((element) => getComputedStyle(element).display);
   }
+  if (measurement.property === "horizontal-overflow") {
+    // Additive: the pre-existing "horizontal-overflow" property only supported
+    // document scope. Element scope reuses the same scrollWidth/clientWidth
+    // semantics to prove a label is not clipped, with no change to the document-scope
+    // branch above.
+    return locator.evaluate((element) => element.scrollWidth - element.clientWidth);
+  }
+  if (measurement.property === "scroll-margin-bottom") {
+    const raw = await locator.evaluate((element) => getComputedStyle(element).scrollMarginBottom);
+    return parsePixelMeasurement(claim, measurement, raw);
+  }
+  if (measurement.property === "css-custom-property") {
+    if (!measurement.customProperty?.trim()) {
+      fail(claim, `measurement-custom-property-missing(${measurement.identity})`);
+    }
+    const observed = await locator.evaluate(
+      (element, propertyName) => ({
+        value: getComputedStyle(element).getPropertyValue(propertyName).trim(),
+        rootFontSizePx: Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+      }),
+      measurement.customProperty!,
+    );
+    return parseCustomPropertyPixels(claim, measurement, observed.value, observed.rootFontSizePx);
+  }
   const box = await locator.boundingBox();
   if (!box) fail(claim, `measurement-target-has-no-layout(${measurement.identity})`);
   if (measurement.property === "width") return box!.width;
   if (measurement.property === "height") return box!.height;
+  if (measurement.property === "gap-above") {
+    if (!measurement.relativeToSelector?.trim()) {
+      fail(claim, `measurement-relative-to-missing(${measurement.identity})`);
+    }
+    const reference = page.locator(measurement.relativeToSelector!);
+    const referenceCount = await reference.count();
+    if (referenceCount !== 1) {
+      fail(claim, `measurement-relative-to-not-exact(${measurement.identity}, count=${referenceCount})`);
+    }
+    if (!(await reference.isVisible())) {
+      fail(claim, `measurement-relative-to-hidden(${measurement.identity})`);
+    }
+    const referenceBox = await reference.boundingBox();
+    if (!referenceBox) {
+      fail(claim, `measurement-relative-to-has-no-layout(${measurement.identity})`);
+    }
+    return referenceBox!.y - (box!.y + box!.height);
+  }
   fail(claim, `unsupported-measurement(${measurement.identity}:${measurement.property})`);
+}
+
+function parsePixelMeasurement(claim: ResponsiveEvidenceClaim, measurement: Measurement, raw: string): number {
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value)) {
+    fail(claim, `measurement-not-numeric(${measurement.identity}, actual=${raw || "<empty>"})`);
+  }
+  return value;
+}
+
+// An unregistered CSS custom property computes to its authored token sequence, not to a
+// resolved length: getPropertyValue returns "5.25rem" for a shell nav height the browser
+// resolves to 84px. Number.parseFloat reads that token as 5.25 and would compare a rem
+// count against a pixel bound — a silently wrong number rather than a failure. Resolve
+// the length units the design system authors against the document's own root font size,
+// and fail closed on every other token so an unrecognized unit can never be truncated
+// into a number.
+function parseCustomPropertyPixels(
+  claim: ResponsiveEvidenceClaim,
+  measurement: Measurement,
+  raw: string,
+  rootFontSizePx: number,
+): number {
+  const match = /^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|rem)?$/.exec(raw);
+  const magnitude = match ? Number.parseFloat(match[1]!) : Number.NaN;
+  const unit = match?.[2];
+  if (!Number.isFinite(magnitude) || (unit === undefined && magnitude !== 0)) {
+    fail(claim, `measurement-not-numeric(${measurement.identity}, actual=${raw || "<empty>"})`);
+  }
+  if (unit !== "rem") {
+    return magnitude;
+  }
+  if (!Number.isFinite(rootFontSizePx) || rootFontSizePx <= 0) {
+    fail(claim, `measurement-root-font-size-unresolved(${measurement.identity}, actual=${raw})`);
+  }
+  return magnitude * rootFontSizePx;
 }
 
 function assertMeasurement(

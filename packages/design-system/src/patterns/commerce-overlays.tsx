@@ -21,7 +21,7 @@ import { toMotionDomProps } from "../utils/motion-props";
 
 export interface CommerceActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   intentControl?: ReactNode;
-  summary: ReactNode;
+  summary?: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
   tertiaryAction?: ReactNode;
@@ -462,14 +462,9 @@ export function CommerceActionBar({
   return (
     <div {...rest} className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay">
       {intentControl ? <div className="mb-3">{intentControl}</div> : null}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1 text-xs font-medium text-secondary">{summary}</div>
-        <div
-          className={cx(
-            "grid shrink-0 gap-2 sm:flex sm:items-center [&>*]:w-full sm:[&>*]:w-auto",
-            actionCount === 3 ? "grid-cols-3" : actionCount === 2 ? "grid-cols-2" : "grid-cols-1",
-          )}
-        >
+      <div className="flex items-center gap-3">
+        {summary ? <div className="min-w-0 flex-1 shrink text-xs font-medium text-secondary">{summary}</div> : null}
+        <div className={cx("flex shrink-0 items-center gap-2", actionCount === 1 && "flex-1")}>
           {primaryAction}
           {secondaryAction}
           {tertiaryAction}

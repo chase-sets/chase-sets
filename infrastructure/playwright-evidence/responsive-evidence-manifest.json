@@ -71,6 +71,180 @@
       "artifact": "zero-table-unrelated-list-item"
     },
     {
+      "kind": "negative-control",
+      "id": "gap-above-missing-reference",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the gap-above reference element is absent @marketplace-browse",
+      "route": {
+        "name": "gap-above missing reference fixture",
+        "path": "/responsive-evidence/gap-above-missing-reference"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:gap-above-missing-reference:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "gap-above-target",
+        "selector": "[data-evidence-target='gap-target']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "gap-above-missing-reference",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "gap-above",
+          "relativeToSelector": "[data-evidence-dock]",
+          "assertion": {
+            "minimum": 0
+          }
+        }
+      ],
+      "artifact": "gap-above-missing-reference"
+    },
+    {
+      "kind": "negative-control",
+      "id": "scroll-margin-bottom-hidden-target",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the scroll-margin-bottom measurement target is hidden @marketplace-browse",
+      "route": {
+        "name": "scroll-margin-bottom hidden target fixture",
+        "path": "/responsive-evidence/scroll-margin-bottom-hidden-target"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:scroll-margin-bottom-hidden-target:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "clearance-target",
+        "selector": "[data-evidence-target='clearance-target']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "scroll-margin-bottom-hidden-target",
+          "scope": "target",
+          "selector": ":scope [data-hidden-clearance-target]",
+          "property": "scroll-margin-bottom",
+          "assertion": {
+            "minimum": 0
+          }
+        }
+      ],
+      "artifact": "scroll-margin-bottom-hidden-target"
+    },
+    {
+      "kind": "negative-control",
+      "id": "css-custom-property-non-numeric",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the css-custom-property observation is non-numeric @marketplace-browse",
+      "route": {
+        "name": "css-custom-property non-numeric fixture",
+        "path": "/responsive-evidence/css-custom-property-non-numeric"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:css-custom-property-non-numeric:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "nonnumeric-target",
+        "selector": "[data-evidence-target='nonnumeric-target']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "css-custom-property-non-numeric",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--nonnumeric-test-var",
+          "assertion": {
+            "minimum": 0
+          }
+        }
+      ],
+      "artifact": "css-custom-property-non-numeric"
+    },
+    {
+      "kind": "negative-control",
+      "id": "css-custom-property-unsupported-unit",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when the css-custom-property observation carries an unsupported length unit @marketplace-browse",
+      "route": {
+        "name": "css-custom-property unsupported unit fixture",
+        "path": "/responsive-evidence/css-custom-property-unsupported-unit"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:css-custom-property-unsupported-unit:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "unsupported-unit-target",
+        "selector": "[data-evidence-target='unsupported-unit-target']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "css-custom-property-unsupported-unit",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--unsupported-unit-test-var",
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "css-custom-property-unsupported-unit"
+    },
+    {
+      "kind": "negative-control",
+      "id": "horizontal-overflow-clipped-label",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when an element-scoped label is clipped @marketplace-browse",
+      "route": {
+        "name": "clipped label fixture",
+        "path": "/responsive-evidence/clipped-label"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:clipped-label:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "label-clip-target",
+        "selector": "[data-evidence-target='label-clip-target']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "horizontal-overflow-clipped-label",
+          "scope": "target",
+          "selector": ":scope [data-evidence-label]",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "horizontal-overflow-clipped-label"
+    },
+    {
       "kind": "claim",
       "id": "fixture-scope-cards-mobile",
       "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
@@ -358,6 +532,461 @@
         }
       ],
       "artifact": "admin-shell-mobile-overflow"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-geometry-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "publishes dock height and shell-symbolic focus clearance at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-selected-listing-control",
+        "selector": "[data-focus-clearance-target][aria-pressed='true']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "dock-height",
+          "scope": "page",
+          "selector": "[data-testid='product-detail-mobile-dock']",
+          "property": "height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "published-dock-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--product-detail-dock-height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "shell-bottom-nav-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-bottom-nav-height",
+          "assertion": { "equals": 84, "tolerance": 0.5 }
+        },
+        {
+          "identity": "focus-clearance",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "scroll-margin-bottom",
+          "assertion": { "minimum": 128, "maximum": 160 }
+        },
+        {
+          "identity": "gap-above-dock",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "gap-above",
+          "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
+          "assertion": { "minimum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-geometry-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-geometry-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "publishes dock height and shell-symbolic focus clearance at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-selected-listing-control",
+        "selector": "[data-focus-clearance-target][aria-pressed='true']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "dock-height",
+          "scope": "page",
+          "selector": "[data-testid='product-detail-mobile-dock']",
+          "property": "height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "published-dock-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--product-detail-dock-height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "shell-bottom-nav-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-bottom-nav-height",
+          "assertion": { "equals": 84, "tolerance": 0.5 }
+        },
+        {
+          "identity": "focus-clearance",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "scroll-margin-bottom",
+          "assertion": { "minimum": 128, "maximum": 160 }
+        },
+        {
+          "identity": "gap-above-dock",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "gap-above",
+          "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
+          "assertion": { "minimum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-geometry-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-geometry-tablet",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "resolves shell-symbolic focus clearance to zero bottom-nav contribution at 820x1180 @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "item-detail-selected-listing-control",
+        "selector": "[data-focus-clearance-target][aria-pressed='true']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "dock-height",
+          "scope": "page",
+          "selector": "[data-testid='product-detail-mobile-dock']",
+          "property": "height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "published-dock-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--product-detail-dock-height",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "shell-bottom-nav-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-bottom-nav-height",
+          "assertion": { "equals": 0, "tolerance": 0.5 }
+        },
+        {
+          "identity": "focus-clearance",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "scroll-margin-bottom",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        },
+        {
+          "identity": "gap-above-dock",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "gap-above",
+          "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
+          "assertion": { "minimum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-geometry-tablet"
+    },
+    {
+      "kind": "negative-control",
+      "id": "item-detail-mobile-dock-geometry-tablet-frozen-control",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "fails the tablet focus-clearance assertion when --shell-bottom-nav-height is frozen to the phone value @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "item-detail-selected-listing-control-frozen",
+        "selector": "[data-focus-clearance-target][aria-pressed='true']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "focus-clearance",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "scroll-margin-bottom",
+          "assertion": { "minimum": 44, "maximum": 76 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-geometry-tablet-frozen-control"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-unselected-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the unselected-state dock label unclipped at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail without listings (bulbasaur base set)",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_bulbasaur_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-unselected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "select-options-label-not-clipped",
+          "scope": "target",
+          "selector": "role=link[name='Select options']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-unselected-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-unselected-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the unselected-state dock label unclipped at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail without listings (bulbasaur base set)",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_bulbasaur_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-unselected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "select-options-label-not-clipped",
+          "scope": "target",
+          "selector": "role=link[name='Select options']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-unselected-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-unselected-tablet",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the unselected-state dock label unclipped at 820x1180 @marketplace-browse",
+      "route": {
+        "name": "item detail without listings (bulbasaur base set)",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_bulbasaur_base_set:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-unselected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "select-options-label-not-clipped",
+          "scope": "target",
+          "selector": "role=link[name='Select options']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-unselected-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-selected-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the Buy, Sell, and Watch dock labels unclipped at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-selected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope button"
+      },
+      "measurements": [
+        {
+          "identity": "buy-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Buy']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "sell-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Sell']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "watch-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Watch']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-selected-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-selected-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the Buy, Sell, and Watch dock labels unclipped at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-selected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope button"
+      },
+      "measurements": [
+        {
+          "identity": "buy-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Buy']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "sell-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Sell']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "watch-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Watch']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-selected-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-mobile-dock-labels-selected-tablet",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "keeps the Buy, Sell, and Watch dock labels unclipped at 820x1180 @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "item-detail-mobile-dock-selected",
+        "selector": "[data-testid='product-detail-mobile-dock']",
+        "populatedSelector": ":scope button"
+      },
+      "measurements": [
+        {
+          "identity": "buy-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Buy']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "sell-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Sell']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        },
+        {
+          "identity": "watch-label-not-clipped",
+          "scope": "target",
+          "selector": "role=button[name='Watch']",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "item-detail-mobile-dock-labels-selected-tablet"
     }
   ]
 }

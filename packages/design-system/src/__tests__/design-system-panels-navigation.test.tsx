@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { type MouseEvent, useState } from "react";
+import { act, type MouseEvent, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -443,7 +443,7 @@ describe("design system panels, navigation, and shells", () => {
       </MarketplaceProductDetailLayout>,
     );
 
-    expect(markup).toContain("sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
+    expect(markup).toContain("sticky bottom-[calc(var(--shell-bottom-nav-height,0px)+env(safe-area-inset-bottom))]");
     expect(markup).not.toContain("fixed inset-x-3");
     expect(markup).not.toContain("h-32 md:hidden");
     expect(markup).toContain("xl:col-span-2");
@@ -452,6 +452,88 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("xl:overflow-x-hidden");
     expect(markup).toContain("xl:[scrollbar-gutter:stable]");
     expect(markup.indexOf("Offers list")).toBeLessThan(markup.indexOf("Mobile buy sell panel"));
+  });
+
+  it("keeps --shell-bottom-nav-height symbolic in the mobile action dock after mount and a simulated breakpoint change (#5963 AC1)", () => {
+    class StubResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+
+    const expectedBottomClass = "bottom-[calc(var(--shell-bottom-nav-height,0px)+env(safe-area-inset-bottom))]";
+
+    const { container } = render(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <section>Offers list</section>
+      </MarketplaceProductDetailLayout>,
+    );
+
+    const dock = screen.getByText("Mobile buy sell panel").closest(".sticky.z-sticky");
+    expect(dock?.className).toContain(expectedBottomClass);
+
+    // A breakpoint change resolves entirely in CSS; nothing in this component reads
+    // --shell-bottom-nav-height in JS, so the class string must be byte-identical
+    // after any DOM update, not just at first paint.
+    fireEvent(window, new Event("resize"));
+
+    const dockAfterResize = screen.getByText("Mobile buy sell panel").closest(".sticky.z-sticky");
+    expect(dockAfterResize?.className).toContain(expectedBottomClass);
+    expect(container.innerHTML).not.toContain("getComputedStyle");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("publishes the measured dock height and composes shell clearance symbolically for shell-subtree descendants (#5963 decisions 2 and 6)", () => {
+    let observedCallback: ResizeObserverCallback | null = null;
+    class StubResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        observedCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+
+    const { container } = render(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <button data-focus-clearance-target>Selected listing</button>
+      </MarketplaceProductDetailLayout>,
+    );
+
+    const gridRoot = container.querySelector(".grid.gap-6") as HTMLElement;
+    expect(gridRoot.style.getPropertyValue("--product-detail-focus-clearance")).toBe(
+      "calc(var(--product-detail-dock-height, 0px) + var(--shell-bottom-nav-height, 0px) + env(safe-area-inset-bottom))",
+    );
+    // Before the dock has measured itself the pattern publishes no dock-height value at
+    // all, so the composed clearance stays on its declared 0px fallback instead of a
+    // fabricated "0px" measurement that a reader cannot tell apart from a real one.
+    expect(gridRoot.style.getPropertyValue("--product-detail-dock-height")).toBe("");
+
+    act(() => {
+      observedCallback?.(
+        [{ borderBoxSize: [{ blockSize: 66 }], contentRect: { height: 66 } } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    expect(gridRoot.style.getPropertyValue("--product-detail-dock-height")).toBe("66px");
+
+    vi.unstubAllGlobals();
   });
 
   it("renders marketplace detail, seller, review, and comparison templates", () => {

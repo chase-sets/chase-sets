@@ -338,7 +338,9 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(selectedListingAvailability.parentElement?.lastElementChild).toBe(selectedListingAvailability);
     const selectedListingText = selectedListingRow.textContent ?? "";
     expect(selectedListingText.indexOf("Raw · Near Mint")).toBeLessThan(selectedListingText.indexOf("2 available"));
-    expect(screen.getByText("2 available · Raw · Near Mint")).toBeTruthy();
+    // Availability and selected Product options have exactly one in-flow owner (the
+    // Market book row above); the mobile dock repeats only price and actions (#5963 AC9).
+    expect(screen.queryByText("2 available · Raw · Near Mint")).toBeNull();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
   });
 
@@ -657,7 +659,7 @@ describe("item detail commerce panel market intents and listing selection", () =
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByText("1 available · Raw · Near Mint")).toBeTruthy();
+    expect(screen.queryByText("1 available · Raw · Near Mint")).toBeNull();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt");
     expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "explicit");
     const url = new URL(window.location.href);

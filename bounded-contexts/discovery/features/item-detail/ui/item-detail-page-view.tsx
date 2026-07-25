@@ -63,8 +63,6 @@ export type ItemDetailPageViewArgs = {
   };
   selectedListing: DiscoveryMarketListing | null;
   selectedListingSource: MarketSelectionSource;
-  selectedListingAvailability: string | null;
-  selectedListingProductSummary: string | null;
   selectedOffer: DiscoveryOffer | null;
   selectedOfferSource: MarketSelectionSource;
   selectedProductId: string | null;
@@ -93,8 +91,6 @@ export function buildItemDetailPageView({
   selectedMarketSummary,
   selectedListing,
   selectedListingSource,
-  selectedListingAvailability,
-  selectedListingProductSummary,
   selectedOffer,
   selectedOfferSource,
   selectedProductId,
@@ -150,22 +146,9 @@ export function buildItemDetailPageView({
       ? formatMoney(getHighestOfferPrice(matchingOffers))
       : formatMoney(selectedMarketSummary.lowest_price_amount);
   const mobileCommerceSummary = (
-    <Stack gap={1}>
-      <Text element="div" weight="semibold">
-        {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
-      </Text>
-      <Text element="div" size="xs" tone="secondary" weight="medium" truncate>
-        {marketIntent === "buy" && selectedListing ? (
-          [selectedListingAvailability, selectedListingProductSummary].filter(Boolean).join(" · ")
-        ) : (
-          <>
-            {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
-            {": "}
-            {currentOptionSummary}
-          </>
-        )}
-      </Text>
-    </Stack>
+    <Text element="div" weight="semibold">
+      {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
+    </Text>
   );
   const marketSummaryFacts =
     marketIntent === "sell"
@@ -253,45 +236,41 @@ export function buildItemDetailPageView({
     setActiveMobileCommerce(action);
     trackRailIntentSelected(nextMarketIntent, "mobile_action_bar");
   };
-  const mobileBuyAction = selectedProductId ? (
-    <Button type="button" size="lg" onClick={() => openMobileCommerce("buy", "buy")}>
-      {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}
-    </Button>
-  ) : (
-    <LinkButton href="#select-options" size="lg">
+  // With no product selected, "Select options" / "Choose to sell" / "Choose to watch"
+  // all resolve to the same #select-options anchor, so the dock collapses to one
+  // full-width primary action instead of repeating the anchor three times.
+  const mobileSelectOptionsAction = (
+    <LinkButton href="#select-options" block>
       {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}
     </LinkButton>
   );
+  const mobileBuyAction = (
+    <Button type="button" onClick={() => openMobileCommerce("buy", "buy")}>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}
+    </Button>
+  );
   const mobileSellAction =
     (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
-      selectedProductId ? (
-        <Button type="button" size="lg" onClick={() => openMobileCommerce("sell", "sell")}>
-          {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
-        </Button>
-      ) : (
-        <LinkButton href="#select-options" size="sm">
-          {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}
-        </LinkButton>
-      )
+      <Button type="button" tone="secondary" onClick={() => openMobileCommerce("sell", "sell")}>
+        {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
+      </Button>
     ) : null;
   const mobileWatchAction = commerceSections?.mobile?.watch ? (
-    selectedProductId ? (
-      <Button type="button" tone="secondary" size="lg" onClick={() => openMobileCommerce("watch", "watch")}>
-        {commerceSections.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")}
-      </Button>
-    ) : (
-      <LinkButton href="#select-options" tone="secondary" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.watch")}
-      </LinkButton>
-    )
+    <Button type="button" tone="secondary" onClick={() => openMobileCommerce("watch", "watch")}>
+      {commerceSections.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")}
+    </Button>
   ) : null;
   const mobileCommerceActionBar = commerce ? (
-    <CommerceActionBar
-      summary={mobileCommerceSummary}
-      primaryAction={mobileBuyAction}
-      secondaryAction={mobileSellAction}
-      tertiaryAction={mobileWatchAction}
-    />
+    selectedProductId ? (
+      <CommerceActionBar
+        summary={mobileCommerceSummary}
+        primaryAction={mobileBuyAction}
+        secondaryAction={mobileSellAction}
+        tertiaryAction={mobileWatchAction}
+      />
+    ) : (
+      <CommerceActionBar primaryAction={mobileSelectOptionsAction} />
+    )
   ) : null;
   const mobileCommerceBottomSheet = commerce ? (
     <CommerceBottomSheet

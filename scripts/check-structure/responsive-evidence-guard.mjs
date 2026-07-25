@@ -289,11 +289,30 @@ function validateClaimShape(claim, claimIds, artifactNames, associationKeys, vio
   }
 }
 
+const SUPPORTED_MEASUREMENT_PROPERTIES = [
+  "width",
+  "height",
+  "display",
+  "visible",
+  "horizontal-overflow",
+  "gap-above",
+  "scroll-margin-bottom",
+  "css-custom-property",
+];
+
 function validateMeasurementShape(claimId, measurement, measurementIds, violations) {
   const identity = typeof measurement?.identity === "string" ? measurement.identity.trim() : "";
   const assertion = measurement?.assertion;
   if (
-    !isClosedObject(measurement, ["identity", "scope", "selector", "property", "assertion"]) ||
+    !isClosedObject(measurement, [
+      "identity",
+      "scope",
+      "selector",
+      "property",
+      "relativeToSelector",
+      "customProperty",
+      "assertion",
+    ]) ||
     !isClosedObject(assertion, ["equals", "minimum", "maximum", "tolerance"])
   ) {
     violations.push(
@@ -311,7 +330,7 @@ function validateMeasurementShape(claimId, measurement, measurementIds, violatio
       `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' has unsupported scope.`,
     );
   }
-  if (!["width", "height", "display", "visible", "horizontal-overflow"].includes(measurement?.property)) {
+  if (!SUPPORTED_MEASUREMENT_PROPERTIES.includes(measurement?.property)) {
     violations.push(
       `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' has unsupported property.`,
     );
@@ -322,6 +341,32 @@ function validateMeasurementShape(claimId, measurement, measurementIds, violatio
   ) {
     violations.push(
       `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' has an invalid selector.`,
+    );
+  }
+  if (
+    measurement?.property === "gap-above" &&
+    (typeof measurement?.relativeToSelector !== "string" || !measurement.relativeToSelector.trim())
+  ) {
+    violations.push(
+      `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' requires relativeToSelector for 'gap-above'.`,
+    );
+  }
+  if (measurement?.relativeToSelector !== undefined && measurement?.property !== "gap-above") {
+    violations.push(
+      `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' sets relativeToSelector for a property that does not use it.`,
+    );
+  }
+  if (
+    measurement?.property === "css-custom-property" &&
+    (typeof measurement?.customProperty !== "string" || !measurement.customProperty.trim())
+  ) {
+    violations.push(
+      `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' requires customProperty for 'css-custom-property'.`,
+    );
+  }
+  if (measurement?.customProperty !== undefined && measurement?.property !== "css-custom-property") {
+    violations.push(
+      `${manifestPath}: responsive evidence claim '${claimId}' measurement '${identity}' sets customProperty for a property that does not use it.`,
     );
   }
   if (

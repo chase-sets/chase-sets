@@ -255,6 +255,7 @@ export function ItemDetailMarketBook({
                                 )}
                                 leadingIcon={isSelected ? "check" : undefined}
                                 onClick={() => onSelectListing(listing)}
+                                data-focus-clearance-target
                               >
                                 {isSelected
                                   ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
@@ -403,6 +404,7 @@ export function ItemDetailMarketBook({
                                 )}
                                 leadingIcon={isSelected ? "check" : undefined}
                                 onClick={() => onSelectOffer(offer)}
+                                data-focus-clearance-target
                               >
                                 {isSelected
                                   ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
