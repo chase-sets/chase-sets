@@ -51,10 +51,7 @@ export function createPlatformApiBootstrapTestHarness(
       platformApiContextNames,
       databaseSuffix,
     ) as Readonly<Record<PlatformApiContextName, string>>;
-    await ensureMultiContextTestDatabases(
-      databaseBaseUrl,
-      selectPlatformApiContexts(databaseUrls, activeContextNames),
-    );
+    await ensureMultiContextTestDatabases(databaseBaseUrl, selectPlatformApiContexts(databaseUrls, activeContextNames));
     const pools = createPlatformApiPools({
       runtimeProfile: "public",
       sharedDatabaseUrl: null,
