@@ -1132,21 +1132,34 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Buy now" })).toBeNull();
-    expect(
-      screen
-        .getAllByRole("link", { name: "Select options" })
-        .every((link) => link.getAttribute("href") === "#select-options"),
-    ).toBe(true);
+    // Decision 3 (#5963): with no product selected, the mobile dock renders exactly one
+    // full-width "Select options" action instead of repeating the same #select-options
+    // anchor as three separate labels.
+    expect(screen.getByRole("link", { name: "Select options" }).getAttribute("href")).toBe("#select-options");
     expect(screen.queryByRole("radiogroup", { name: "Choose mobile market intent" })).toBeNull();
-    expect(
-      screen
-        .getAllByRole("link", { name: "Choose to sell" })
-        .every((link) => link.getAttribute("href") === "#select-options"),
-    ).toBe(true);
-    expect(
-      screen
-        .getAllByRole("link", { name: "Choose to watch" })
-        .every((link) => link.getAttribute("href") === "#select-options"),
-    ).toBe(true);
+    expect(screen.queryByRole("link", { name: "Choose to sell" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Choose to watch" })).toBeNull();
+  });
+
+  it("keeps availability and selected Product options owned by the in-flow Market summary, not duplicated in the mobile dock (#5963 AC9)", () => {
+    const { container } = renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({ market_listings: [baseListing] })}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    const dock = container.querySelector(".sticky.z-sticky") as HTMLElement;
+    expect(dock).toBeTruthy();
+    expect(within(dock).getByText("$399.99")).toBeTruthy();
+    expect(within(dock).queryByText(/available/i)).toBeNull();
+    expect(within(dock).queryByText(/Near Mint/)).toBeNull();
+
+    const selectedListingRow = screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" });
+    expect(within(selectedListingRow).getByText("2 available")).toBeTruthy();
+    expect(within(selectedListingRow).getByText("Raw · Near Mint")).toBeTruthy();
   });
 });

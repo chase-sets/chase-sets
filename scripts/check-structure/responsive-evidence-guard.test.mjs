@@ -126,6 +126,58 @@ describe("responsive evidence structural guard", () => {
 
     expect(result.violations).toEqual([expect.stringContaining("requires an equality or bound assertion")]);
   });
+
+  it("rejects a gap-above measurement without relativeToSelector", async () => {
+    const root = await fixture(`
+      test("${designatedTitle}", async ({ page }, testInfo) => {
+        await captureResponsiveEvidence({ page, testInfo, claimId: "scope-cards-mobile" });
+      });
+    `);
+    const manifestFile = path.join(root, "infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    manifest.claims[0].measurements[0].property = "gap-above";
+    await writeFile(manifestFile, JSON.stringify(manifest), "utf8");
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(expect.stringContaining("requires relativeToSelector for 'gap-above'"));
+  });
+
+  it("rejects relativeToSelector set on a property that does not use it", async () => {
+    const root = await fixture(`
+      test("${designatedTitle}", async ({ page }, testInfo) => {
+        await captureResponsiveEvidence({ page, testInfo, claimId: "scope-cards-mobile" });
+      });
+    `);
+    const manifestFile = path.join(root, "infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    manifest.claims[0].measurements[0].relativeToSelector = "[data-evidence-dock]";
+    await writeFile(manifestFile, JSON.stringify(manifest), "utf8");
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(
+      expect.stringContaining("sets relativeToSelector for a property that does not use it"),
+    );
+  });
+
+  it("rejects a css-custom-property measurement without customProperty", async () => {
+    const root = await fixture(`
+      test("${designatedTitle}", async ({ page }, testInfo) => {
+        await captureResponsiveEvidence({ page, testInfo, claimId: "scope-cards-mobile" });
+      });
+    `);
+    const manifestFile = path.join(root, "infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    manifest.claims[0].measurements[0].property = "css-custom-property";
+    await writeFile(manifestFile, JSON.stringify(manifest), "utf8");
+
+    const result = await validateResponsiveEvidenceGuard({ repoRoot: root });
+
+    expect(result.violations).toContainEqual(
+      expect.stringContaining("requires customProperty for 'css-custom-property'"),
+    );
+  });
 });
 
 describe("responsive evidence real-tree reviewer mutations", () => {

@@ -670,6 +670,17 @@
     animation: none !important;
   }
 
+  /*
+   * Opt an interactive control into a pattern-published sticky-dock clearance
+   * (#5963 decision 1). The value stays a plain CSS custom property lookup with a
+   * zero fallback, so this is a no-op wherever no ancestor publishes it; it only
+   * takes effect where a pattern (e.g. product-detail.tsx) has composed
+   * --product-detail-focus-clearance inside the shell subtree.
+   */
+  [data-focus-clearance-target] {
+    scroll-margin-bottom: var(--product-detail-focus-clearance, 0px);
+  }
+
   @keyframes ds-rise {
     from {
       opacity: 0;
