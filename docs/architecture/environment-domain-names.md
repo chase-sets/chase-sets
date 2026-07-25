@@ -1,6 +1,20 @@
 # Environment Domain Names
 
-This document owns Chase Sets application domain naming across production, staging, dev, and preview environments.
+The machine-readable
+[`environment-topology-manifest.json`](../../scripts/environment-topology-manifest.json)
+owns Chase Sets application domain naming and DNS zone ownership across production,
+staging, dev, and preview environments. This document explains the topology for
+humans; the static topology guard verifies that the application-host table below
+is an exact rendering of the manifest.
+
+<!-- environment-topology-hosts:start -->
+| Environment | Application hosts |
+| --- | --- |
+| production | `chasesets.com`, `www.chasesets.com`, `marketplace.chasesets.com`, `admin.chasesets.com`, `api.chasesets.com` |
+| staging | `www.staging.chasesets.com`, `staging.chasesets.com`, `marketplace.staging.chasesets.com`, `admin.staging.chasesets.com`, `api.staging.chasesets.com` |
+| dev | `{slug}.dev.chasesets.com`, `marketplace.{slug}.dev.chasesets.com`, `admin.{slug}.dev.chasesets.com`, `api.{slug}.dev.chasesets.com` |
+| preview | `{slug}.preview.chasesets.com`, `{slug}-marketplace.preview.chasesets.com`, `{slug}-admin.preview.chasesets.com` |
+<!-- environment-topology-hosts:end -->
 
 ## Convention
 

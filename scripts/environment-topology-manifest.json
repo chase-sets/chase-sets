@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "rootDomain": "chasesets.com",
+  "terraformSource": {
+    "locals": "infrastructure/digitalocean/environment-dns/locals.tf",
+    "records": "infrastructure/digitalocean/environment-dns/main.tf"
+  },
+  "environments": {
+    "production": {
+      "dnsZones": [
+        {
+          "name": "chasesets.com",
+          "managedBy": "digitalocean-platform-root",
+          "delegatedFrom": null
+        }
+      ],
+      "applicationHosts": [
+        "chasesets.com",
+        "www.chasesets.com",
+        "marketplace.chasesets.com",
+        "admin.chasesets.com",
+        "api.chasesets.com"
+      ],
+      "serviceHosts": [
+        "assets.chasesets.com",
+        "grafana.chasesets.com",
+        "otel.chasesets.com",
+        "prometheus.chasesets.com"
+      ],
+      "diagnosticHosts": [
+        "doks.chasesets.com",
+        "www.doks.chasesets.com",
+        "marketplace.doks.chasesets.com",
+        "admin.doks.chasesets.com"
+      ]
+    },
+    "staging": {
+      "dnsZones": [
+        {
+          "name": "staging.chasesets.com",
+          "managedBy": "digitalocean-environment-dns",
+          "delegatedFrom": "chasesets.com"
+        }
+      ],
+      "applicationHosts": [
+        "www.staging.chasesets.com",
+        "staging.chasesets.com",
+        "marketplace.staging.chasesets.com",
+        "admin.staging.chasesets.com",
+        "api.staging.chasesets.com"
+      ],
+      "serviceHosts": [
+        "assets.staging.chasesets.com",
+        "grafana.staging.chasesets.com",
+        "otel.staging.chasesets.com",
+        "prometheus.staging.chasesets.com"
+      ],
+      "diagnosticHosts": [
+        "doks.staging.chasesets.com",
+        "www.doks.staging.chasesets.com",
+        "marketplace.doks.staging.chasesets.com",
+        "admin.doks.staging.chasesets.com"
+      ]
+    },
+    "dev": {
+      "dnsZones": [
+        {
+          "name": "dev.chasesets.com",
+          "managedBy": "dynamic-platform",
+          "delegatedFrom": null
+        }
+      ],
+      "applicationHosts": [
+        "{slug}.dev.chasesets.com",
+        "marketplace.{slug}.dev.chasesets.com",
+        "admin.{slug}.dev.chasesets.com",
+        "api.{slug}.dev.chasesets.com"
+      ],
+      "serviceHosts": [],
+      "diagnosticHosts": []
+    },
+    "preview": {
+      "dnsZones": [
+        {
+          "name": "preview.chasesets.com",
+          "managedBy": "dynamic-platform",
+          "delegatedFrom": null
+        }
+      ],
+      "applicationHosts": [
+        "{slug}.preview.chasesets.com",
+        "{slug}-marketplace.preview.chasesets.com",
+        "{slug}-admin.preview.chasesets.com"
+      ],
+      "serviceHosts": ["assets.preview.chasesets.com"],
+      "diagnosticHosts": []
+    }
+  }
+}

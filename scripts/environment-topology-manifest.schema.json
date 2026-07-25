@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chasesets.com/schemas/environment-topology-manifest.schema.json",
+  "title": "Chase Sets environment topology",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rootDomain", "terraformSource", "environments"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "rootDomain": {
+      "const": "chasesets.com"
+    },
+    "terraformSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locals", "records"],
+      "properties": {
+        "locals": {
+          "const": "infrastructure/digitalocean/environment-dns/locals.tf"
+        },
+        "records": {
+          "const": "infrastructure/digitalocean/environment-dns/main.tf"
+        }
+      }
+    },
+    "environments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["production", "staging", "dev", "preview"],
+      "properties": {
+        "production": {
+          "$ref": "#/$defs/environment"
+        },
+        "staging": {
+          "$ref": "#/$defs/environment"
+        },
+        "dev": {
+          "$ref": "#/$defs/environment"
+        },
+        "preview": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dnsZones", "applicationHosts", "serviceHosts", "diagnosticHosts"],
+      "properties": {
+        "dnsZones": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "managedBy", "delegatedFrom"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "managedBy": {
+                "enum": ["digitalocean-platform-root", "digitalocean-environment-dns", "dynamic-platform"]
+              },
+              "delegatedFrom": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        },
+        "applicationHosts": {
+          "$ref": "#/$defs/hosts"
+        },
+        "serviceHosts": {
+          "$ref": "#/$defs/hosts"
+        },
+        "diagnosticHosts": {
+          "$ref": "#/$defs/hosts"
+        }
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}
