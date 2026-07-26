@@ -52,11 +52,18 @@ export function readGeneratedHelpArticles({ rootDir, tracked, catalogPath = gene
     .filter(ts.isVariableStatement)
     .flatMap((statement) => statement.declarationList.declarations)
     .find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === "helpArticles");
-  if (!declaration || !declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) {
+  let initializer = declaration?.initializer;
+  while (
+    initializer &&
+    (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer) || ts.isParenthesizedExpression(initializer))
+  ) {
+    initializer = initializer.expression;
+  }
+  if (!declaration || !initializer || !ts.isArrayLiteralExpression(initializer)) {
     failure(catalogPath, "must export helpArticles as an array literal");
   }
 
-  return declaration.initializer.elements.map((element, index) => {
+  return initializer.elements.map((element, index) => {
     const source = `${catalogPath} helpArticles[${index}]`;
     if (!ts.isObjectLiteralExpression(element)) failure(source, "article must be an object literal");
     return {
