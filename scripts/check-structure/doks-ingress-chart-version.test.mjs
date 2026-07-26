@@ -74,6 +74,30 @@ describe("doks ingress chart version guard", () => {
     });
   });
 
+  it("flags deletion of a deep real-path template with an unchanged version", async () => {
+    const repoRoot = await createGitRepo();
+    const deletedPath = "infrastructure/helm/doks-ingress/templates/deep/nested/issuer.yaml";
+    await rm(path.join(repoRoot, deletedPath));
+    commitChange(repoRoot);
+
+    await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
+      violations: [expect.stringContaining("DOKS_INGRESS_VERSION_UNCHANGED")],
+      changedPackagedFiles: [deletedPath],
+    });
+  });
+
+  it("flags deletion of values.yaml with an unchanged version", async () => {
+    const repoRoot = await createGitRepo();
+    const deletedPath = "infrastructure/helm/doks-ingress/values.yaml";
+    await rm(path.join(repoRoot, deletedPath));
+    commitChange(repoRoot);
+
+    await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
+      violations: [expect.stringContaining("DOKS_INGRESS_VERSION_UNCHANGED")],
+      changedPackagedFiles: [deletedPath],
+    });
+  });
+
   it("passes a deep template change with a strictly increasing version", async () => {
     const repoRoot = await createGitRepo();
     await writeChart(repoRoot, { version: "0.1.1", template: "kind: Certificate\n" });

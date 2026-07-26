@@ -26,6 +26,10 @@ function normalizePath(filePath) {
   return filePath.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
+function isPackagedChartFile(file) {
+  return file === chartYaml || file === chartValues || file.startsWith(`${templatesRoot}/`);
+}
+
 function readGit(repoRoot, args, code, description, execFileSyncImpl) {
   try {
     return execFileSyncImpl("git", args, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -112,9 +116,7 @@ export function scannedDoksIngressChartSurface({ repoRoot } = {}) {
   const candidateFiles = listFiles(absoluteChartRoot)
     .map((file) => `${chartRoot}/${file}`)
     .sort();
-  const scanned = candidateFiles.filter(
-    (file) => file === chartYaml || file === chartValues || file.startsWith(`${templatesRoot}/`),
-  );
+  const scanned = candidateFiles.filter(isPackagedChartFile);
   if (scanned.length === 0) {
     throw new DoksIngressChartVersionGuardError(
       "DOKS_INGRESS_CHART_SURFACE_UNAVAILABLE",
@@ -209,7 +211,7 @@ export async function validateDoksIngressChartVersion({
 } = {}) {
   const surface = scannedDoksIngressChartSurface({ repoRoot });
   const discovery = discoverDoksIngressChangedFiles({ repoRoot, environment, execFileSyncImpl });
-  const changedPackagedFiles = discovery.changedFiles.filter((file) => surface.scanned.includes(file));
+  const changedPackagedFiles = discovery.changedFiles.filter(isPackagedChartFile);
   if (changedPackagedFiles.length === 0) {
     return { violations: [], surface, changedPackagedFiles };
   }
