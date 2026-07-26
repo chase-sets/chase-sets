@@ -115,7 +115,7 @@ jobs:
       - name: Resolve full battery lane
         id: full-battery
         env:
-          FULL_BATTERY_LABEL: ${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'full-pr-battery') || contains(github.event.pull_request.labels.*.name, 'preview') || contains(github.event.pull_request.labels.*.name, 'ci-circuit-repair')) }}
+          FULL_BATTERY_LABEL: ${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'preview') || contains(github.event.pull_request.labels.*.name, 'ci-circuit-repair')) }}
           INTEGRATION_RISK_REQUIRED: ${{ steps.scope.outputs.integration_risk_required }}
           INTEGRATION_RISK_REASON: ${{ steps.scope.outputs.integration_risk_reason }}
         run: |
