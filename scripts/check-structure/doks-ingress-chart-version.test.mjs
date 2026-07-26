@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -54,6 +54,29 @@ function commitChange(repoRoot) {
   git(repoRoot, ["commit", "-m", "changed chart content"]);
 }
 
+const renameOutCases = [
+  {
+    name: "nested template renamed outside templates",
+    source: "infrastructure/helm/doks-ingress/templates/deep/nested/issuer.yaml",
+    destination: "infrastructure/helm/doks-ingress/issuer.yaml",
+  },
+  {
+    name: "values.yaml renamed outside the packaged surface",
+    source: "infrastructure/helm/doks-ingress/values.yaml",
+    destination: "infrastructure/helm/doks-ingress/values.previous.yaml",
+  },
+  {
+    name: "nested packaged file renamed outside the chart root",
+    source: "infrastructure/helm/doks-ingress/templates/deep/nested/issuer.yaml",
+    destination: "infrastructure/helm/doks-ingress-archive/issuer.yaml",
+  },
+];
+
+async function renameOutOfPackagedSurface(repoRoot, { source, destination }) {
+  await mkdir(path.dirname(path.join(repoRoot, destination)), { recursive: true });
+  await rename(path.join(repoRoot, source), path.join(repoRoot, destination));
+}
+
 afterAll(async () => {
   await Promise.all(createdRepos.splice(0).map((repoRoot) => rm(repoRoot, { recursive: true, force: true })));
 });
@@ -95,6 +118,54 @@ describe("doks ingress chart version guard", () => {
     await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
       violations: [expect.stringContaining("DOKS_INGRESS_VERSION_UNCHANGED")],
       changedPackagedFiles: [deletedPath],
+    });
+  });
+
+  it.each(renameOutCases)("flags $name through its own rename-aware diff", async ({ source, destination }) => {
+    const repoRoot = await createGitRepo();
+    git(repoRoot, ["config", "diff.renames", "true"]);
+    await renameOutOfPackagedSurface(repoRoot, { source, destination });
+    commitChange(repoRoot);
+
+    await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
+      violations: [expect.stringContaining("DOKS_INGRESS_VERSION_UNCHANGED")],
+      changedPackagedFiles: [source],
+    });
+  });
+
+  it.each(renameOutCases)("flags $name through CHANGED_FILES_JSON", async ({ source, destination }) => {
+    const repoRoot = await createGitRepo();
+    await renameOutOfPackagedSurface(repoRoot, { source, destination });
+    commitChange(repoRoot);
+
+    await expect(
+      validateDoksIngressChartVersion({
+        repoRoot,
+        environment: { CHANGED_FILES_JSON: JSON.stringify([destination]) },
+      }),
+    ).resolves.toMatchObject({
+      violations: [expect.stringContaining("DOKS_INGRESS_VERSION_UNCHANGED")],
+      changedPackagedFiles: [source],
+    });
+  });
+
+  it.each(renameOutCases)("passes $name with a Chart version bump", async ({ source, destination }) => {
+    const repoRoot = await createGitRepo();
+    await renameOutOfPackagedSurface(repoRoot, { source, destination });
+    await writeChart(repoRoot, { version: "0.1.1" });
+    await rm(path.join(repoRoot, source));
+    commitChange(repoRoot);
+
+    await expect(
+      validateDoksIngressChartVersion({
+        repoRoot,
+        environment: {
+          CHANGED_FILES_JSON: JSON.stringify([destination, chartRoot.replaceAll("\\", "/") + "/Chart.yaml"]),
+        },
+      }),
+    ).resolves.toMatchObject({
+      violations: [],
+      changedPackagedFiles: [source, "infrastructure/helm/doks-ingress/Chart.yaml"].sort(),
     });
   });
 

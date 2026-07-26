@@ -204,6 +204,17 @@ function readBaseChartVersion({ repoRoot, mergeBase }) {
   );
 }
 
+function baseDoksIngressChartSurface({ repoRoot, mergeBase, execFileSyncImpl }) {
+  const output = readGit(
+    repoRoot,
+    ["ls-tree", "-r", "--name-only", mergeBase, "--", chartRoot],
+    "DOKS_INGRESS_DIFF_UNAVAILABLE",
+    "Unable to read the base packaged chart surface.",
+    execFileSyncImpl,
+  );
+  return output ? output.split(/\r?\n/).filter(Boolean).map(normalizePath).filter(isPackagedChartFile) : [];
+}
+
 export async function validateDoksIngressChartVersion({
   repoRoot,
   environment = process.env,
@@ -211,7 +222,16 @@ export async function validateDoksIngressChartVersion({
 } = {}) {
   const surface = scannedDoksIngressChartSurface({ repoRoot });
   const discovery = discoverDoksIngressChangedFiles({ repoRoot, environment, execFileSyncImpl });
-  const changedPackagedFiles = discovery.changedFiles.filter(isPackagedChartFile);
+  const basePackagedFiles = baseDoksIngressChartSurface({
+    repoRoot,
+    mergeBase: discovery.mergeBase,
+    execFileSyncImpl,
+  });
+  const currentPackagedFiles = new Set(surface.scanned);
+  const removedPackagedFiles = basePackagedFiles.filter((file) => !currentPackagedFiles.has(file));
+  const changedPackagedFiles = [
+    ...new Set([...discovery.changedFiles.filter(isPackagedChartFile), ...removedPackagedFiles]),
+  ].sort();
   if (changedPackagedFiles.length === 0) {
     return { violations: [], surface, changedPackagedFiles };
   }
