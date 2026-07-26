@@ -1,6 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   applyDoksDnsTokenSecret,
@@ -16,6 +18,87 @@ const ingressNginxValues = readFileSync(
   resolve("infrastructure", "helm", "doks-ingress", "ingress-nginx-values.yaml"),
   "utf8",
 );
+
+const repositoryRoot = resolve(".");
+const escapedRepositoryRoot = JSON.stringify(repositoryRoot).slice(1, -1);
+const dryRunScriptPath = resolve("scripts", "doks-cluster-addons.mjs");
+const goldenProvenance = "8236d365a24ce95c4508be62ed4718b60da8ebd7";
+const emptyAllowedNormalizedDeltas = [];
+
+function normalizeCheckoutRoot(output) {
+  return output.replaceAll(escapedRepositoryRoot, "<repo>");
+}
+
+function runRealDryRun(environment) {
+  const result = spawnSync(process.execPath, [dryRunScriptPath, "--dry-run", "--environment", environment], {
+    encoding: "utf8",
+    env: { ...process.env, DIGITALOCEAN_ACCESS_TOKEN: "do_dry_run_must_not_be_read" },
+  });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).not.toContain("do_dry_run_must_not_be_read");
+  return normalizeCheckoutRoot(result.stdout);
+}
+
+function goldenFor(environment) {
+  return readFileSync(resolve("scripts", "fixtures", `doks-cluster-addons.dry-run.${environment}.golden.txt`), "utf8");
+}
+
+function applyAllowedNormalizedDeltas(golden, allowlist) {
+  return allowlist.reduce((expected, { goldenFragment, currentFragment, name }) => {
+    const firstOccurrence = expected.indexOf(goldenFragment);
+    if (firstOccurrence === -1 || firstOccurrence !== expected.lastIndexOf(goldenFragment)) {
+      throw new Error(`dry-run-allowlist-invalid-entry: ${name}`);
+    }
+    return expected.replace(goldenFragment, currentFragment);
+  }, golden);
+}
+
+function firstDifferentLine(expected, actual) {
+  const expectedLines = expected.split("\n");
+  const actualLines = actual.split("\n");
+  for (let index = 0; index < Math.max(expectedLines.length, actualLines.length); index += 1) {
+    if (expectedLines[index] !== actualLines[index]) {
+      return index + 1;
+    }
+  }
+  return 0;
+}
+
+function assertDryRunMatchesGolden({ environment, golden, actual, allowlist = emptyAllowedNormalizedDeltas }) {
+  const expected = applyAllowedNormalizedDeltas(golden, allowlist);
+  if (actual !== expected) {
+    throw new Error(`dry-run-parity-mismatch: ${environment} line ${firstDifferentLine(expected, actual)}`);
+  }
+}
+
+function runGit(args, cwd = repositoryRoot) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    throw new Error(`golden-provenance-git-command-failed: git ${args.join(" ")}`);
+  }
+  return result.stdout.trim();
+}
+
+function assertGoldenProvenance(baseSha, baseRef = "refs/remotes/origin/main", cwd = repositoryRoot) {
+  const objectResult = spawnSync("git", ["cat-file", "-e", `${baseSha}^{commit}`], { cwd, encoding: "utf8" });
+  if (objectResult.error || objectResult.status !== 0) {
+    if (objectResult.stderr.includes("not a git repository")) {
+      throw new Error("golden-provenance-git-command-failed: git cat-file");
+    }
+    throw new Error(`golden-provenance-object-does-not-exist: ${baseSha}`);
+  }
+
+  let mergeBase;
+  try {
+    mergeBase = runGit(["merge-base", "HEAD", baseRef], cwd);
+  } catch {
+    throw new Error(`golden-provenance-merge-base-unavailable: ${baseRef}`);
+  }
+  if (baseSha !== mergeBase) {
+    throw new Error(`golden-provenance-merge-base-mismatch: expected ${mergeBase}, received ${baseSha}`);
+  }
+}
 
 describe("doks cluster addons planner", () => {
   it("plans repos, controller, cert-manager, and issuers in order", () => {
@@ -189,5 +272,98 @@ describe("doks cluster addons planner", () => {
     const serialized = JSON.stringify(steps.map((step) => ({ name: step.name, command: step.command.join(" ") })));
     expect(serialized).not.toContain("digitalocean-dns-token");
     expect(serialized.toLowerCase()).not.toContain("access-token");
+  });
+});
+
+describe("DOKS add-on dry-run immutable base contract", () => {
+  it("matches the staging and production immutable goldens through the real CLI", () => {
+    for (const environment of ["staging", "production"]) {
+      assertDryRunMatchesGolden({
+        environment,
+        golden: goldenFor(environment),
+        actual: runRealDryRun(environment),
+      });
+    }
+  });
+
+  it("records an empty allowlist until a later behavior slice explicitly adds a reviewed delta", () => {
+    expect(emptyAllowedNormalizedDeltas).toEqual([]);
+  });
+
+  it("verifies the recorded golden base is an object and this branch's origin/main merge-base", () => {
+    assertGoldenProvenance(goldenProvenance);
+  });
+
+  it("reaches the named nonexistent-provenance-object failure for the historical bad SHA", () => {
+    expect(() => assertGoldenProvenance("93172b2173e40bdd0089c63a28b58cd86466a6b9")).toThrow(
+      "golden-provenance-object-does-not-exist: 93172b2173e40bdd0089c63a28b58cd86466a6b9",
+    );
+  });
+
+  it("reaches the named provenance merge-base mismatch failure for a real wrong commit", () => {
+    const realWrongCommit = runGit(["rev-parse", "HEAD^"]);
+    expect(() => assertGoldenProvenance(realWrongCommit)).toThrow("golden-provenance-merge-base-mismatch");
+  });
+
+  it("reaches the named provenance missing-base-ref failure", () => {
+    expect(() => assertGoldenProvenance(goldenProvenance, "refs/remotes/origin/does-not-exist")).toThrow(
+      "golden-provenance-merge-base-unavailable: refs/remotes/origin/does-not-exist",
+    );
+  });
+
+  it("fails closed with a named guard error outside a Git worktree", () => {
+    const nonGitDirectory = mkdtempSync(resolve(tmpdir(), "doks-golden-provenance-"));
+    try {
+      expect(() => assertGoldenProvenance(goldenProvenance, "refs/remotes/origin/main", nonGitDirectory)).toThrow(
+        "golden-provenance-git-command-failed: git cat-file",
+      );
+    } finally {
+      rmSync(nonGitDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("reaches a staging line diff when one captured golden byte drifts", () => {
+    const actual = runRealDryRun("staging");
+    const driftedGolden = goldenFor("staging").replace('"environment": "staging"', '"environment": "staginx"');
+    expect(() => assertDryRunMatchesGolden({ environment: "staging", golden: driftedGolden, actual })).toThrow(
+      "dry-run-parity-mismatch: staging line 2",
+    );
+  });
+
+  it("reaches a production line diff when one captured golden byte drifts", () => {
+    const actual = runRealDryRun("production");
+    const driftedGolden = goldenFor("production").replace('"environment": "production"', '"environment": "productiox"');
+    expect(() => assertDryRunMatchesGolden({ environment: "production", golden: driftedGolden, actual })).toThrow(
+      "dry-run-parity-mismatch: production line 2",
+    );
+  });
+
+  it("reaches the named failure when an extra command token is not allowlisted", () => {
+    const actual = runRealDryRun("staging").replace("--force-update", "--force-update --debug");
+    expect(() => assertDryRunMatchesGolden({ environment: "staging", golden: goldenFor("staging"), actual })).toThrow(
+      "dry-run-parity-mismatch: staging line 6",
+    );
+  });
+
+  it("reaches the named failure when a normalized delta is not allowlisted", () => {
+    const actual = runRealDryRun("production").replace("--force-update", "--force-update --debug");
+    expect(() => assertDryRunMatchesGolden({ environment: "production", golden: goldenFor("production"), actual })).toThrow(
+      "dry-run-parity-mismatch: production line 6",
+    );
+  });
+
+  it("permits only a temporary, exact allowlist entry", () => {
+    const golden = goldenFor("staging");
+    const goldenFragment = "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update";
+    const currentFragment = `${goldenFragment} --debug`;
+    const actual = runRealDryRun("staging").replace(goldenFragment, currentFragment);
+    expect(() =>
+      assertDryRunMatchesGolden({
+        environment: "staging",
+        golden,
+        actual,
+        allowlist: [{ name: "temporary test-only debug token", goldenFragment, currentFragment }],
+      }),
+    ).not.toThrow();
   });
 });
