@@ -19,3 +19,4 @@ export {
  */
 export { lookupCheckoutSupportReference } from "./features/support-lookup/api/runtime";
 export type { CheckoutSupportLookupResult } from "./features/support-lookup/api/runtime";
+export { checkoutSeedIds } from "./support/seed-support/ids";

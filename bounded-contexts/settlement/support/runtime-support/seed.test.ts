@@ -9,6 +9,9 @@ describe("settlement seed", () => {
     });
     const pool = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("event_store_events")) {
+          return { rows: [] };
+        }
         if (sql.includes("settlement_payout_pages")) {
           return { rows: [{ count: "0" }] };
         }
@@ -30,6 +33,10 @@ describe("settlement seed", () => {
 
     expect(logs.join("\n")).toContain(
       "Settlement seed is waiting for captured payment pay_seed_offer_captured. Skipping payouts for this pass.",
+    );
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM event_store_events"),
+      expect.arrayContaining([expect.stringContaining("settlement.wallet-")]),
     );
   });
 });

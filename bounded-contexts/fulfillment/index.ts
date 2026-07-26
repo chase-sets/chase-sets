@@ -9,7 +9,7 @@ import { buildFulfillmentApi, buildFulfillmentProviderWebhookApi } from "./api";
 import { createFulfillmentServices } from "./support/runtime-support/services";
 import { fulfillmentSchemaMigrations, fulfillmentSchemaSql } from "./support/runtime-support/schema";
 import { fulfillmentUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedFulfillmentDatabase } from "./support/runtime-support/seed";
+import { inspectFulfillmentSeedState, seedFulfillmentDatabase } from "./support/runtime-support/seed";
 import {
   buildFulfillmentAccountProjectionHandlers,
   buildFulfillmentOrderProjectionHandlers,
@@ -71,4 +71,5 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       },
     }),
   seed: seedFulfillmentDatabase,
+  inspectSeedState: (pool) => inspectFulfillmentSeedState(pool),
 });

@@ -17,7 +17,7 @@ import {
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
 import { authUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedAuthDatabase } from "./support/runtime-support/seed";
+import { inspectAuthSeedState, seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
 import { createAuthServices } from "./support/runtime-support/services";
 import {
@@ -60,6 +60,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
       },
     }),
   seed: seedAuthDatabase,
+  inspectSeedState: (pool) => inspectAuthSeedState(pool),
 });
 
 function buildAgentWebhookHandlers(services: AuthServices) {

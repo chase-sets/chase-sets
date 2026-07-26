@@ -21,7 +21,7 @@ import {
 } from "./support/runtime-support/services";
 import { checkoutSchemaMigrations, checkoutSchemaSql } from "./support/runtime-support/schema";
 import { checkoutUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedCheckoutDatabase } from "./support/runtime-support/seed";
+import { inspectCheckoutSeedState, seedCheckoutDatabase } from "./support/runtime-support/seed";
 
 export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
   manifest: contextManifest,
@@ -50,6 +50,7 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
   },
   projectionHandlerSets: (services) => services.projectors,
   seed: seedCheckoutDatabase,
+  inspectSeedState: (pool) => inspectCheckoutSeedState(pool),
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
       contextName: "checkout",

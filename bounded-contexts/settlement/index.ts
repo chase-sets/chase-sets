@@ -18,7 +18,11 @@ import { buildSettlementApi, buildSettlementMoneyMovementWebhookApi } from "./ap
 import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaMigrations, settlementSchemaSql } from "./support/runtime-support/schema";
 import { settlementUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { reconcileSettlementBootstrapState, seedSettlementDatabase } from "./support/runtime-support/seed";
+import {
+  inspectSettlementSeedState,
+  reconcileSettlementBootstrapState,
+  seedSettlementDatabase,
+} from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
 import { buildSettlementCoverageReservationHandlers } from "./features/liability-allocation/integrations/coverage-request/coverage-reservation-projection";
@@ -143,5 +147,6 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
     }),
   seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: seedSettlementDatabase,
+  inspectSeedState: (pool, options) => inspectSettlementSeedState(pool, options),
   reconcileBootstrapState: reconcileSettlementBootstrapState,
 });

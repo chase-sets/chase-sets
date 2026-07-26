@@ -15,7 +15,7 @@ import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { identityAccountSchemaMigrations } from "./features/accounts/read-model/schema";
-import { seedIdentityDatabase } from "./support/runtime-support/seed";
+import { inspectIdentitySeedState, seedIdentityDatabase } from "./support/runtime-support/seed";
 import { buildFounderClaimReactionHandlers } from "./features/founders-cohort/integrations/marketplace/founder-claim-reaction";
 
 const identityContextManifest = contextManifest as BcContextManifest;
@@ -42,4 +42,5 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
     }),
   seedProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
   seed: seedIdentityDatabase,
+  inspectSeedState: (pool, options) => inspectIdentitySeedState(pool, options),
 });

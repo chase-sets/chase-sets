@@ -1,4 +1,13 @@
-import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import type {
+  BcSeedAggregateStateReport,
+  BcSeedOptions,
+  EnvironmentDataProfile,
+} from "@chase-sets/bounded-context-module";
+import {
+  createSeedAggregateReconciler,
+  reconcileSeedAggregates,
+  type SeedAggregateReconciler,
+} from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { isDeepStrictEqual } from "node:util";
 import { identitySeedIds } from "../seed-support/ids";
@@ -6,7 +15,63 @@ import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
-import { normalizeShippingAddressSnapshot } from "../../features/shipping-addresses/domain/domain";
+import {
+  decideAccount,
+  evolveAccount,
+  initialAccountState,
+  type AccountCommand,
+  type AccountEvent,
+  type AccountState,
+} from "../../features/accounts/domain/domain";
+import {
+  decideApiKey,
+  evolveApiKey,
+  initialApiKeyState,
+  type ApiKeyCommand,
+  type ApiKeyEvent,
+  type ApiKeyState,
+} from "../../features/api-keys/domain/domain";
+import {
+  decideConsent,
+  evolveConsent,
+  initialConsentState,
+  type ConsentCommand,
+  type ConsentEvent,
+  type ConsentState,
+} from "../../features/consents/domain/domain";
+import {
+  decideInvitation,
+  evolveInvitation,
+  initialInvitationState,
+  type InvitationCommand,
+  type InvitationEvent,
+  type InvitationState,
+} from "../../features/invitations/domain/domain";
+import {
+  decideMembership,
+  evolveMembership,
+  initialMembershipState,
+  type MembershipCommand,
+  type MembershipEvent,
+  type MembershipState,
+} from "../../features/memberships/domain/domain";
+import {
+  decideUser,
+  evolveUser,
+  initialUserState,
+  type UserCommand,
+  type UserEvent,
+  type UserState,
+} from "../../features/users/domain/domain";
+import {
+  decideShippingAddressBook,
+  evolveShippingAddressBook,
+  initialShippingAddressBookState,
+  normalizeShippingAddressSnapshot,
+  type ShippingAddressBookState,
+  type ShippingAddressCommand,
+  type ShippingAddressEvent,
+} from "../../features/shipping-addresses/domain/domain";
 import { IdentityDomainError, normalizeEmail, normalizeLabel } from "./common";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
@@ -160,20 +225,554 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-async function ensureScenarioTrustedSellerBadges(
-  services: ReturnType<typeof createIdentityServices>,
-  context: ReturnType<typeof createIdentityBootstrapContext>,
-) {
-  for (const accountId of scenarioTrustedSellerAccountIds) {
-    await services.accounts.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "AssignAccountBadge",
-        badgeKey: "trusted-seller",
-      },
-      context,
+const IDENTITY_BOOTSTRAP_LABEL = "Identity seed bootstrap";
+
+const additionalMarketAccounts = [
+  {
+    seed: identitySeedIds.valueTrader,
+    name: "Value Trader",
+    accountType: "personal",
+    displayName: "Binder Builder",
+    primaryEmail: "value-trader@chasesets.test",
+    givenName: "Value",
+    familyName: "Trader",
+  },
+  {
+    seed: identitySeedIds.highRollerTrader,
+    name: "High Roller Trader",
+    accountType: "business",
+    displayName: "Top Loader Capital",
+    primaryEmail: "high-roller@chasesets.test",
+    givenName: "High",
+    familyName: "Roller",
+  },
+  {
+    seed: identitySeedIds.cardVault,
+    name: "Card Vault",
+    accountType: "business",
+    displayName: "Card Vault",
+    primaryEmail: "card-vault@chasesets.test",
+    givenName: "Card",
+    familyName: "Vault",
+  },
+  {
+    seed: identitySeedIds.sealedStockroom,
+    name: "Sealed Stockroom",
+    accountType: "business",
+    displayName: "Pack Runners",
+    primaryEmail: "sealed-stockroom@chasesets.test",
+    givenName: "Pack",
+    familyName: "Runner",
+  },
+] as const;
+
+type IdentityServices = ReturnType<typeof createIdentityServices>;
+type IdentityBootstrapContext = ReturnType<typeof createIdentityBootstrapContext>;
+
+/**
+ * Every base aggregate the scenario Identity seed authors, bound to its own
+ * `identity.*` event stream.
+ *
+ * `identity_accounts` is UNLOGGED, so PostgreSQL truncates it on crash
+ * recovery while the logged streams survive. The projection-sourced guard this
+ * replaced then read zero rows and replayed `CreateAccount` into an existing
+ * aggregate. Each aggregate now resumes from the command sequence its own
+ * stream is missing, so a partially seeded account, user, membership,
+ * invitation, or API key is repaired rather than re-authored or mistaken for
+ * complete.
+ */
+function buildScenarioIdentityReconcilers(
+  services: IdentityServices,
+  context: IdentityBootstrapContext,
+): readonly SeedAggregateReconciler[] {
+  const {
+    demo,
+    collector,
+    valueTrader,
+    highRollerTrader,
+    cardVault,
+    sealedStockroom,
+    support,
+    suspended,
+    invitations,
+    apiKeys,
+  } = identitySeedIds;
+
+  const accountReconciler = (id: string, key: string, steps: readonly AccountCommand[]) =>
+    createSeedAggregateReconciler<AccountState, AccountCommand, AccountEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "Account",
+      id,
+      key,
+      streamId: `identity.account-${id}`,
+      initialState: initialAccountState,
+      decide: decideAccount,
+      evolve: evolveAccount,
+      steps,
+      send: (streamId, command) => services.accounts.commandHandler({ streamId, command, context }),
     });
+
+  const userReconciler = (id: string, key: string, steps: readonly UserCommand[]) =>
+    createSeedAggregateReconciler<UserState, UserCommand, UserEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "User",
+      id,
+      key,
+      streamId: `identity.user-${id}`,
+      initialState: initialUserState,
+      decide: decideUser,
+      evolve: evolveUser,
+      steps,
+      send: (streamId, command) => services.users.commandHandler({ streamId, command, context }),
+    });
+
+  const membershipReconciler = (id: string, key: string, steps: readonly MembershipCommand[]) =>
+    createSeedAggregateReconciler<MembershipState, MembershipCommand, MembershipEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "Membership",
+      id,
+      key,
+      streamId: `identity.membership-${id}`,
+      initialState: initialMembershipState,
+      decide: decideMembership,
+      evolve: evolveMembership,
+      steps,
+      send: (streamId, command) => services.memberships.commandHandler({ streamId, command, context }),
+    });
+
+  const consentReconciler = (id: string, key: string, steps: readonly ConsentCommand[]) =>
+    createSeedAggregateReconciler<ConsentState, ConsentCommand, ConsentEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "Consent",
+      id,
+      key,
+      streamId: `identity.consent-${id}`,
+      initialState: initialConsentState,
+      decide: decideConsent,
+      evolve: evolveConsent,
+      steps,
+      send: (streamId, command) => services.consents.commandHandler({ streamId, command, context }),
+    });
+
+  const invitationReconciler = (id: string, key: string, steps: readonly InvitationCommand[]) =>
+    createSeedAggregateReconciler<InvitationState, InvitationCommand, InvitationEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "Invitation",
+      id,
+      key,
+      streamId: `identity.invitation-${id}`,
+      initialState: initialInvitationState,
+      decide: decideInvitation,
+      evolve: evolveInvitation,
+      steps,
+      send: (streamId, command) => services.invitations.commandHandler({ streamId, command, context }),
+    });
+
+  const apiKeyReconciler = (id: string, key: string, steps: readonly ApiKeyCommand[]) =>
+    createSeedAggregateReconciler<ApiKeyState, ApiKeyCommand, ApiKeyEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "API Key",
+      id,
+      key,
+      streamId: `identity.api-key-${id}`,
+      initialState: initialApiKeyState,
+      decide: decideApiKey,
+      evolve: evolveApiKey,
+      steps,
+      send: (streamId, command) => services.apiKeys.commandHandler({ streamId, command, context }),
+    });
+
+  const shippingAddressBookReconciler = (accountId: string, key: string, steps: readonly ShippingAddressCommand[]) =>
+    createSeedAggregateReconciler<ShippingAddressBookState, ShippingAddressCommand, ShippingAddressEvent>({
+      db: services.db,
+      contextName: "identity",
+      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
+      aggregateName: "Shipping Address Book",
+      id: accountId,
+      key,
+      streamId: `identity.shipping-address-book-${accountId}`,
+      initialState: initialShippingAddressBookState,
+      decide: decideShippingAddressBook,
+      evolve: evolveShippingAddressBook,
+      steps,
+      send: (streamId, command) => services.shippingAddresses.commandHandler({ streamId, command, context }),
+    });
+
+  const trustedSellerBadgeStep = (accountId: string): readonly AccountCommand[] =>
+    scenarioTrustedSellerAccountIds.some((candidate) => String(candidate) === String(accountId))
+      ? [{ type: "AssignAccountBadge", badgeKey: "trusted-seller" }]
+      : [];
+
+  return [
+    accountReconciler(demo.accountId, "Demo Account", [
+      {
+        type: "CreateAccount",
+        accountId: demo.accountId,
+        name: "Demo Account",
+        accountType: "business",
+        displayName: "Chase Sets",
+      },
+      ...trustedSellerBadgeStep(demo.accountId),
+    ]),
+    accountReconciler(collector.accountId, "Demo Collector", [
+      {
+        type: "CreateAccount",
+        accountId: collector.accountId,
+        name: "Demo Collector",
+        accountType: "personal",
+        displayName: "Collector Zero",
+      },
+      ...trustedSellerBadgeStep(collector.accountId),
+    ]),
+    accountReconciler(support.accountId, "Support Ops", [
+      {
+        type: "CreateAccount",
+        accountId: support.accountId,
+        name: "Support Ops",
+        accountType: "business",
+        displayName: "Support Ops",
+      },
+      ...trustedSellerBadgeStep(support.accountId),
+    ]),
+    accountReconciler(suspended.accountId, "Dormant Account", [
+      {
+        type: "CreateAccount",
+        accountId: suspended.accountId,
+        name: "Dormant Account",
+        accountType: "business",
+        displayName: "Dormant Account",
+      },
+      { type: "SuspendAccount" },
+    ]),
+    ...additionalMarketAccounts.map((persona) =>
+      accountReconciler(persona.seed.accountId, persona.name, [
+        {
+          type: "CreateAccount",
+          accountId: persona.seed.accountId,
+          name: persona.name,
+          accountType: persona.accountType,
+          displayName: persona.displayName,
+        },
+        ...trustedSellerBadgeStep(persona.seed.accountId),
+      ]),
+    ),
+
+    shippingAddressBookReconciler(demo.accountId, "Office receiving", [
+      {
+        type: "AddShippingAddress",
+        accountId: demo.accountId,
+        shippingAddressId: demo.shippingAddressId,
+        label: "Office receiving",
+        address: {
+          name: "Demo Receiving",
+          company: "Chase Sets",
+          line1: "100 Market Street",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          phone: "312 555 0101",
+          email: "receiving@chasesets.test",
+        },
+        makeDefault: true,
+        addedAt: isoDate("2026-03-01T10:00:00.000Z"),
+      },
+    ]),
+    shippingAddressBookReconciler(collector.accountId, "Home", [
+      {
+        type: "AddShippingAddress",
+        accountId: collector.accountId,
+        shippingAddressId: collector.shippingAddressId,
+        label: "Home",
+        address: {
+          name: "Demo Collector",
+          company: null,
+          line1: "42 Binder Lane",
+          line2: null,
+          city: "Evanston",
+          state: "IL",
+          postalCode: "60201",
+          country: "US",
+          phone: null,
+          email: "collector@chasesets.test",
+        },
+        makeDefault: true,
+        addedAt: isoDate("2026-03-01T10:05:00.000Z"),
+      },
+    ]),
+
+    userReconciler(demo.userId, "demo@chasesets.test", [
+      {
+        type: "CreateUser",
+        userId: demo.userId,
+        displayName: "Demo Account",
+        primaryEmail: "demo@chasesets.test",
+        primaryContactMethod: {
+          contactMethodId: DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID,
+          type: "email",
+          value: "demo@chasesets.test",
+          verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
+        },
+        givenName: "Demo",
+        familyName: "Account",
+      },
+      {
+        type: "AddContactMethod",
+        contactMethodId: DEMO_CONTACT_METHOD_ID,
+        contactMethodType: "phone",
+        value: "312 555 0101",
+      },
+      {
+        type: "VerifyContactMethod",
+        contactMethodId: DEMO_CONTACT_METHOD_ID,
+        verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
+      },
+      { type: "EnableAuthMethod", authMethod: "password" },
+      { type: "EnableAuthMethod", authMethod: "passkey" },
+      { type: "AttachPasswordCredential", credentialId: demo.credentialId },
+      { type: "RegisterPasskeyCredential", credentialId: DEMO_PASSKEY_ID },
+    ]),
+    userReconciler(collector.userId, "collector@chasesets.test", [
+      {
+        type: "CreateUser",
+        userId: collector.userId,
+        displayName: "Demo Collector",
+        primaryEmail: "collector@chasesets.test",
+        givenName: "Demo",
+        familyName: "Collector",
+      },
+      { type: "EnableAuthMethod", authMethod: "password" },
+      { type: "AttachPasswordCredential", credentialId: collector.credentialId },
+    ]),
+    userReconciler(support.userId, "support@chasesets.test", [
+      {
+        type: "CreateUser",
+        userId: support.userId,
+        displayName: "Support User",
+        primaryEmail: "support@chasesets.test",
+        givenName: "Support",
+        familyName: "User",
+      },
+      {
+        type: "AddContactMethod",
+        contactMethodId: SUPPORT_CONTACT_METHOD_ID,
+        contactMethodType: "email",
+        value: "support+alerts@chasesets.test",
+      },
+      {
+        type: "VerifyContactMethod",
+        contactMethodId: SUPPORT_CONTACT_METHOD_ID,
+        verifiedAt: isoDate("2026-03-02T09:00:00.000Z"),
+      },
+      { type: "EnableAuthMethod", authMethod: "magic-link" },
+    ]),
+    userReconciler(suspended.userId, "suspended@chasesets.test", [
+      {
+        type: "CreateUser",
+        userId: suspended.userId,
+        displayName: "Suspended User",
+        primaryEmail: "suspended@chasesets.test",
+        givenName: "Suspended",
+        familyName: "User",
+      },
+      { type: "SuspendUser" },
+    ]),
+    ...additionalMarketAccounts.map((persona) =>
+      userReconciler(persona.seed.userId, persona.primaryEmail, [
+        {
+          type: "CreateUser",
+          userId: persona.seed.userId,
+          displayName: persona.name,
+          primaryEmail: persona.primaryEmail,
+          givenName: persona.givenName,
+          familyName: persona.familyName,
+        },
+        { type: "EnableAuthMethod", authMethod: "password" },
+        { type: "AttachPasswordCredential", credentialId: persona.seed.credentialId },
+      ]),
+    ),
+
+    membershipReconciler(demo.membershipId, "Demo Account owner", [
+      {
+        type: "GrantMembership",
+        membershipId: demo.membershipId,
+        userId: demo.userId,
+        accountId: demo.accountId,
+        roleKey: "owner",
+        assignmentAuthority: { type: "system" },
+      },
+    ]),
+    membershipReconciler(collector.membershipId, "Demo Collector owner", [
+      {
+        type: "GrantMembership",
+        membershipId: collector.membershipId,
+        userId: collector.userId,
+        accountId: collector.accountId,
+        roleKey: "owner",
+        assignmentAuthority: { type: "system" },
+      },
+    ]),
+    membershipReconciler(support.membershipId, "Support Ops manager", [
+      {
+        type: "GrantMembership",
+        membershipId: support.membershipId,
+        userId: support.userId,
+        accountId: demo.accountId,
+        roleKey: "viewer",
+        assignmentAuthority: { type: "system" },
+      },
+      { type: "ChangeMembershipRole", roleKey: "manager", assignmentAuthority: { type: "system" } },
+      { type: "RevokeMembership" },
+      { type: "ReinstateMembership" },
+    ]),
+    membershipReconciler(suspended.membershipId, "Dormant Account owner", [
+      {
+        type: "GrantMembership",
+        membershipId: suspended.membershipId,
+        userId: suspended.userId,
+        accountId: suspended.accountId,
+        roleKey: "owner",
+        assignmentAuthority: { type: "system" },
+      },
+    ]),
+    ...additionalMarketAccounts.map((persona) =>
+      membershipReconciler(persona.seed.membershipId, `${persona.name} owner`, [
+        {
+          type: "GrantMembership",
+          membershipId: persona.seed.membershipId,
+          userId: persona.seed.userId,
+          accountId: persona.seed.accountId,
+          roleKey: "owner",
+          assignmentAuthority: { type: "system" },
+        },
+      ]),
+    ),
+
+    ...[demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
+      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, [
+        {
+          type: "RecordConsent",
+          consentId: consent.consentId,
+          subjectType: "user",
+          userId: consent.userId,
+          accountId: consent.accountId,
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+          recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
+        },
+      ]),
+    ),
+
+    invitationReconciler(support.invitationId, "support@chasesets.test", [
+      {
+        type: "CreateInvitation",
+        invitationId: support.invitationId,
+        accountId: demo.accountId,
+        email: "support@chasesets.test",
+        roleKey: "manager",
+        expiresAt: isoDate("2026-05-01T00:00:00.000Z"),
+        assignmentAuthority: { type: "system" },
+      },
+      {
+        type: "IssueInvitationAcceptanceToken",
+        tokenHash: "seeded-support-invitation-token",
+        expiresAt: isoDate("2026-04-01T00:00:00.000Z"),
+      },
+      {
+        type: "AcceptInvitation",
+        userId: support.userId,
+        acceptanceTokenHash: "seeded-support-invitation-token",
+        acceptedAt: isoDate("2026-03-03T12:00:00.000Z"),
+      },
+    ]),
+    invitationReconciler(invitations.declined, "declined@chasesets.test", [
+      {
+        type: "CreateInvitation",
+        invitationId: invitations.declined,
+        accountId: demo.accountId,
+        email: "declined@chasesets.test",
+        roleKey: "viewer",
+        expiresAt: isoDate("2026-05-03T00:00:00.000Z"),
+        assignmentAuthority: { type: "system" },
+      },
+      { type: "DeclineInvitation" },
+    ]),
+    invitationReconciler(invitations.cancelled, "cancelled@chasesets.test", [
+      {
+        type: "CreateInvitation",
+        invitationId: invitations.cancelled,
+        accountId: demo.accountId,
+        email: "cancelled@chasesets.test",
+        roleKey: "viewer",
+        expiresAt: isoDate("2026-05-05T00:00:00.000Z"),
+        assignmentAuthority: { type: "system" },
+      },
+      { type: "CancelInvitation" },
+    ]),
+    invitationReconciler(invitations.expired, "expired@chasesets.test", [
+      {
+        type: "CreateInvitation",
+        invitationId: invitations.expired,
+        accountId: demo.accountId,
+        email: "expired@chasesets.test",
+        roleKey: "viewer",
+        expiresAt: isoDate("2026-03-04T00:00:00.000Z"),
+        assignmentAuthority: { type: "system" },
+      },
+      { type: "ExpireInvitation" },
+    ]),
+
+    apiKeyReconciler(demo.apiKeyId, DEMO_PRIMARY_KEY_PREFIX, [
+      {
+        type: "CreateApiKey",
+        apiKeyId: demo.apiKeyId,
+        userId: demo.userId,
+        name: "Primary integration",
+        keyPrefix: DEMO_PRIMARY_KEY_PREFIX,
+      },
+      { type: "RecordApiKeyUse", usedAt: isoDate("2026-03-06T00:00:00.000Z") },
+    ]),
+    apiKeyReconciler(apiKeys.rotatedRevoked, DEMO_ROTATED_KEY_PREFIX, [
+      {
+        type: "CreateApiKey",
+        apiKeyId: apiKeys.rotatedRevoked,
+        userId: demo.userId,
+        name: "Legacy automation key",
+        keyPrefix: "sk_seed_demo_legacy",
+      },
+      { type: "RotateApiKey", keyPrefix: DEMO_ROTATED_KEY_PREFIX },
+      { type: "RevokeApiKey" },
+    ]),
+  ];
+}
+
+/**
+ * Reports the Identity seed's base aggregate state from the authoritative
+ * `identity.*` streams. Returns an empty inventory when the scenario profile is
+ * not enabled, because no scenario aggregate is authored in that case.
+ */
+export async function inspectIdentitySeedState(
+  pool: PgTransactionalPool,
+  options?: BcSeedOptions,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  if (!profileEnabled(options, "scenario-seed")) {
+    return [];
   }
+  const services = createIdentityServices(pool);
+  return reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, createIdentityBootstrapContext()), false);
 }
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
@@ -188,618 +787,9 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
     return;
   }
 
-  if (!shouldSeedScenario) {
-    if (shouldSeedRepresentative) {
-      await seedRepresentativeIdentityAccounts(services, context);
-    }
-    if (shouldSeedAdminQaActorFixtures) {
-      await provisionAdminQaActorFixtures(services);
-    }
-    return;
+  if (shouldSeedScenario) {
+    await reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, context), true);
   }
-
-  try {
-    const existing = await services.db.query("SELECT COUNT(*) AS count FROM identity_accounts");
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Identity already contains data. Skipping seed.");
-      await ensureScenarioTrustedSellerBadges(services, context);
-      if (shouldSeedRepresentative) {
-        await seedRepresentativeIdentityAccounts(services, context);
-      }
-      if (shouldSeedAdminQaActorFixtures) {
-        await provisionAdminQaActorFixtures(services);
-      }
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
-  }
-
-  const {
-    demo,
-    collector,
-    valueTrader,
-    highRollerTrader,
-    cardVault,
-    sealedStockroom,
-    support,
-    suspended,
-    invitations,
-    apiKeys,
-  } = identitySeedIds;
-  const additionalMarketAccounts = [
-    {
-      seed: valueTrader,
-      name: "Value Trader",
-      accountType: "personal",
-      displayName: "Binder Builder",
-      primaryEmail: "value-trader@chasesets.test",
-      givenName: "Value",
-      familyName: "Trader",
-    },
-    {
-      seed: highRollerTrader,
-      name: "High Roller Trader",
-      accountType: "business",
-      displayName: "Top Loader Capital",
-      primaryEmail: "high-roller@chasesets.test",
-      givenName: "High",
-      familyName: "Roller",
-    },
-    {
-      seed: cardVault,
-      name: "Card Vault",
-      accountType: "business",
-      displayName: "Card Vault",
-      primaryEmail: "card-vault@chasesets.test",
-      givenName: "Card",
-      familyName: "Vault",
-    },
-    {
-      seed: sealedStockroom,
-      name: "Sealed Stockroom",
-      accountType: "business",
-      displayName: "Pack Runners",
-      primaryEmail: "sealed-stockroom@chasesets.test",
-      givenName: "Pack",
-      familyName: "Runner",
-    },
-  ] as const;
-
-  await services.accounts.commandHandler({
-    streamId: `identity.account-${demo.accountId}`,
-    command: {
-      type: "CreateAccount",
-      accountId: demo.accountId,
-      name: "Demo Account",
-      accountType: "business",
-      displayName: "Chase Sets",
-    },
-    context,
-  });
-  await services.accounts.commandHandler({
-    streamId: `identity.account-${collector.accountId}`,
-    command: {
-      type: "CreateAccount",
-      accountId: collector.accountId,
-      name: "Demo Collector",
-      accountType: "personal",
-      displayName: "Collector Zero",
-    },
-    context,
-  });
-  await services.accounts.commandHandler({
-    streamId: `identity.account-${support.accountId}`,
-    command: {
-      type: "CreateAccount",
-      accountId: support.accountId,
-      name: "Support Ops",
-      accountType: "business",
-      displayName: "Support Ops",
-    },
-    context,
-  });
-  await services.accounts.commandHandler({
-    streamId: `identity.account-${suspended.accountId}`,
-    command: {
-      type: "CreateAccount",
-      accountId: suspended.accountId,
-      name: "Dormant Account",
-      accountType: "business",
-      displayName: "Dormant Account",
-    },
-    context,
-  });
-  await services.accounts.commandHandler({
-    streamId: `identity.account-${suspended.accountId}`,
-    command: { type: "SuspendAccount" },
-    context,
-  });
-  for (const persona of additionalMarketAccounts) {
-    await services.accounts.commandHandler({
-      streamId: `identity.account-${persona.seed.accountId}`,
-      command: {
-        type: "CreateAccount",
-        accountId: persona.seed.accountId,
-        name: persona.name,
-        accountType: persona.accountType,
-        displayName: persona.displayName,
-      },
-      context,
-    });
-  }
-  await ensureScenarioTrustedSellerBadges(services, context);
-
-  await services.shippingAddresses.commandHandler({
-    streamId: `identity.shipping-address-book-${demo.accountId}`,
-    command: {
-      type: "AddShippingAddress",
-      accountId: demo.accountId,
-      shippingAddressId: demo.shippingAddressId,
-      label: "Office receiving",
-      address: {
-        name: "Demo Receiving",
-        company: "Chase Sets",
-        line1: "100 Market Street",
-        line2: null,
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-        phone: "312 555 0101",
-        email: "receiving@chasesets.test",
-      },
-      makeDefault: true,
-      addedAt: isoDate("2026-03-01T10:00:00.000Z"),
-    },
-    context,
-  });
-  await services.shippingAddresses.commandHandler({
-    streamId: `identity.shipping-address-book-${collector.accountId}`,
-    command: {
-      type: "AddShippingAddress",
-      accountId: collector.accountId,
-      shippingAddressId: collector.shippingAddressId,
-      label: "Home",
-      address: {
-        name: "Demo Collector",
-        company: null,
-        line1: "42 Binder Lane",
-        line2: null,
-        city: "Evanston",
-        state: "IL",
-        postalCode: "60201",
-        country: "US",
-        phone: null,
-        email: "collector@chasesets.test",
-      },
-      makeDefault: true,
-      addedAt: isoDate("2026-03-01T10:05:00.000Z"),
-    },
-    context,
-  });
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "CreateUser",
-      userId: demo.userId,
-      displayName: "Demo Account",
-      primaryEmail: "demo@chasesets.test",
-      primaryContactMethod: {
-        contactMethodId: DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID,
-        type: "email",
-        value: "demo@chasesets.test",
-        verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
-      },
-      givenName: "Demo",
-      familyName: "Account",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "AddContactMethod",
-      contactMethodId: DEMO_CONTACT_METHOD_ID,
-      contactMethodType: "phone",
-      value: "312 555 0101",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "VerifyContactMethod",
-      contactMethodId: DEMO_CONTACT_METHOD_ID,
-      verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "EnableAuthMethod",
-      authMethod: "password",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "EnableAuthMethod",
-      authMethod: "passkey",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "AttachPasswordCredential",
-      credentialId: demo.credentialId,
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${demo.userId}`,
-    command: {
-      type: "RegisterPasskeyCredential",
-      credentialId: DEMO_PASSKEY_ID,
-    },
-    context,
-  });
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${collector.userId}`,
-    command: {
-      type: "CreateUser",
-      userId: collector.userId,
-      displayName: "Demo Collector",
-      primaryEmail: "collector@chasesets.test",
-      givenName: "Demo",
-      familyName: "Collector",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${collector.userId}`,
-    command: {
-      type: "EnableAuthMethod",
-      authMethod: "password",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${collector.userId}`,
-    command: {
-      type: "AttachPasswordCredential",
-      credentialId: collector.credentialId,
-    },
-    context,
-  });
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${support.userId}`,
-    command: {
-      type: "CreateUser",
-      userId: support.userId,
-      displayName: "Support User",
-      primaryEmail: "support@chasesets.test",
-      givenName: "Support",
-      familyName: "User",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${support.userId}`,
-    command: {
-      type: "AddContactMethod",
-      contactMethodId: SUPPORT_CONTACT_METHOD_ID,
-      contactMethodType: "email",
-      value: "support+alerts@chasesets.test",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${support.userId}`,
-    command: {
-      type: "VerifyContactMethod",
-      contactMethodId: SUPPORT_CONTACT_METHOD_ID,
-      verifiedAt: isoDate("2026-03-02T09:00:00.000Z"),
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${support.userId}`,
-    command: {
-      type: "EnableAuthMethod",
-      authMethod: "magic-link",
-    },
-    context,
-  });
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${suspended.userId}`,
-    command: {
-      type: "CreateUser",
-      userId: suspended.userId,
-      displayName: "Suspended User",
-      primaryEmail: "suspended@chasesets.test",
-      givenName: "Suspended",
-      familyName: "User",
-    },
-    context,
-  });
-  await services.users.commandHandler({
-    streamId: `identity.user-${suspended.userId}`,
-    command: { type: "SuspendUser" },
-    context,
-  });
-  for (const persona of additionalMarketAccounts) {
-    await services.users.commandHandler({
-      streamId: `identity.user-${persona.seed.userId}`,
-      command: {
-        type: "CreateUser",
-        userId: persona.seed.userId,
-        displayName: persona.name,
-        primaryEmail: persona.primaryEmail,
-        givenName: persona.givenName,
-        familyName: persona.familyName,
-      },
-      context,
-    });
-    await services.users.commandHandler({
-      streamId: `identity.user-${persona.seed.userId}`,
-      command: {
-        type: "EnableAuthMethod",
-        authMethod: "password",
-      },
-      context,
-    });
-    await services.users.commandHandler({
-      streamId: `identity.user-${persona.seed.userId}`,
-      command: {
-        type: "AttachPasswordCredential",
-        credentialId: persona.seed.credentialId,
-      },
-      context,
-    });
-  }
-
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${demo.membershipId}`,
-    command: {
-      type: "GrantMembership",
-      membershipId: demo.membershipId,
-      userId: demo.userId,
-      accountId: demo.accountId,
-      roleKey: "owner",
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${collector.membershipId}`,
-    command: {
-      type: "GrantMembership",
-      membershipId: collector.membershipId,
-      userId: collector.userId,
-      accountId: collector.accountId,
-      roleKey: "owner",
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${support.membershipId}`,
-    command: {
-      type: "GrantMembership",
-      membershipId: support.membershipId,
-      userId: support.userId,
-      accountId: demo.accountId,
-      roleKey: "viewer",
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${support.membershipId}`,
-    command: {
-      type: "ChangeMembershipRole",
-      roleKey: "manager",
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${support.membershipId}`,
-    command: { type: "RevokeMembership" },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${support.membershipId}`,
-    command: { type: "ReinstateMembership" },
-    context,
-  });
-  await services.memberships.commandHandler({
-    streamId: `identity.membership-${suspended.membershipId}`,
-    command: {
-      type: "GrantMembership",
-      membershipId: suspended.membershipId,
-      userId: suspended.userId,
-      accountId: suspended.accountId,
-      roleKey: "owner",
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  for (const persona of additionalMarketAccounts) {
-    await services.memberships.commandHandler({
-      streamId: `identity.membership-${persona.seed.membershipId}`,
-      command: {
-        type: "GrantMembership",
-        membershipId: persona.seed.membershipId,
-        userId: persona.seed.userId,
-        accountId: persona.seed.accountId,
-        roleKey: "owner",
-        assignmentAuthority: { type: "system" },
-      },
-      context,
-    });
-  }
-
-  for (const consent of [demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom]) {
-    await services.consents.commandHandler({
-      streamId: `identity.consent-${consent.consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId: consent.consentId,
-        subjectType: "user",
-        userId: consent.userId,
-        accountId: consent.accountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
-        recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
-      },
-      context,
-    });
-  }
-
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${support.invitationId}`,
-    command: {
-      type: "CreateInvitation",
-      invitationId: support.invitationId,
-      accountId: demo.accountId,
-      email: "support@chasesets.test",
-      roleKey: "manager",
-      expiresAt: isoDate("2026-05-01T00:00:00.000Z"),
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${support.invitationId}`,
-    command: {
-      type: "IssueInvitationAcceptanceToken",
-      tokenHash: "seeded-support-invitation-token",
-      expiresAt: isoDate("2026-04-01T00:00:00.000Z"),
-    },
-    context,
-  });
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${support.invitationId}`,
-    command: {
-      type: "AcceptInvitation",
-      userId: support.userId,
-      acceptanceTokenHash: "seeded-support-invitation-token",
-      acceptedAt: isoDate("2026-03-03T12:00:00.000Z"),
-    },
-    context,
-  });
-
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.declined}`,
-    command: {
-      type: "CreateInvitation",
-      invitationId: invitations.declined,
-      accountId: demo.accountId,
-      email: "declined@chasesets.test",
-      roleKey: "viewer",
-      expiresAt: isoDate("2026-05-03T00:00:00.000Z"),
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.declined}`,
-    command: { type: "DeclineInvitation" },
-    context,
-  });
-
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.cancelled}`,
-    command: {
-      type: "CreateInvitation",
-      invitationId: invitations.cancelled,
-      accountId: demo.accountId,
-      email: "cancelled@chasesets.test",
-      roleKey: "viewer",
-      expiresAt: isoDate("2026-05-05T00:00:00.000Z"),
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.cancelled}`,
-    command: { type: "CancelInvitation" },
-    context,
-  });
-
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.expired}`,
-    command: {
-      type: "CreateInvitation",
-      invitationId: invitations.expired,
-      accountId: demo.accountId,
-      email: "expired@chasesets.test",
-      roleKey: "viewer",
-      expiresAt: isoDate("2026-03-04T00:00:00.000Z"),
-      assignmentAuthority: { type: "system" },
-    },
-    context,
-  });
-  await services.invitations.commandHandler({
-    streamId: `identity.invitation-${invitations.expired}`,
-    command: { type: "ExpireInvitation" },
-    context,
-  });
-
-  await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${demo.apiKeyId}`,
-    command: {
-      type: "CreateApiKey",
-      apiKeyId: demo.apiKeyId,
-      userId: demo.userId,
-      name: "Primary integration",
-      keyPrefix: DEMO_PRIMARY_KEY_PREFIX,
-    },
-    context,
-  });
-  await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${demo.apiKeyId}`,
-    command: {
-      type: "RecordApiKeyUse",
-      usedAt: isoDate("2026-03-06T00:00:00.000Z"),
-    },
-    context,
-  });
-
-  await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${apiKeys.rotatedRevoked}`,
-    command: {
-      type: "CreateApiKey",
-      apiKeyId: apiKeys.rotatedRevoked,
-      userId: demo.userId,
-      name: "Legacy automation key",
-      keyPrefix: "sk_seed_demo_legacy",
-    },
-    context,
-  });
-  await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${apiKeys.rotatedRevoked}`,
-    command: {
-      type: "RotateApiKey",
-      keyPrefix: DEMO_ROTATED_KEY_PREFIX,
-    },
-    context,
-  });
-  await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${apiKeys.rotatedRevoked}`,
-    command: { type: "RevokeApiKey" },
-    context,
-  });
-
   if (shouldSeedRepresentative) {
     await seedRepresentativeIdentityAccounts(services, context);
   }

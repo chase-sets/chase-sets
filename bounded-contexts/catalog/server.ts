@@ -8,6 +8,7 @@ export { seedCatalogDatabase as bootstrapCatalogDatabase } from "./support/autho
 export {
   catalogIntegrationSeedRequirements,
   inspectCatalogIntegrationSeedState,
+  inspectCatalogSeedState,
   type CatalogIntegrationSeedAggregateState,
   type CatalogIntegrationSeedRequirement,
 } from "./support/seed-support/catalog-integration-state";

@@ -1,11 +1,22 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { AccountId, OrderId, SupportRequestId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createPlatformOperationsServices, type PlatformOperationsServices } from "./services";
-import { ExperienceDomainError } from "../../features/platform-feedback/domain/common";
-import { SupportDomainError } from "../../features/support-requests/domain/common";
+import {
+  evolvePlatformFeedback,
+  initialPlatformFeedbackState,
+  type PlatformFeedbackEvent,
+} from "../../features/platform-feedback/domain/domain";
+import {
+  evolveSupportRequest,
+  initialSupportRequestState,
+  type SupportRequestEvent,
+  type SupportRequestState,
+} from "../../features/support-requests/domain/domain";
 import {
   SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
   supportDeadlinePolicy,
@@ -128,16 +139,6 @@ export async function seedPlatformFeedbackData(
   pool: PgTransactionalPool,
   services: PlatformOperationsServices = createPlatformOperationsServices(pool),
 ) {
-  try {
-    const existing = await services.db.query("SELECT COUNT(*) AS count FROM experience_platform_feedback_pages");
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Platform feedback already contains data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
-  }
-
   const context = {
     tenantId: "tnt_seed_demo" as TenantId,
     audit: {
@@ -201,25 +202,23 @@ export async function seedPlatformFeedbackData(
     },
   ];
 
+  // Each sample is decided on its own `platform-operations.platform-feedback-*`
+  // stream. `experience_platform_feedback_pages` is UNLOGGED, so the projection
+  // count this replaced could report an empty table while the logged streams
+  // still held every submission; the previous code covered that by catching and
+  // discarding the domain duplicate error, which also hid genuine conflicts.
   for (const sample of samples) {
-    try {
-      await services.platformFeedback.commandHandler({
-        streamId: `platform-operations.platform-feedback-${sample.feedbackId}`,
-        command: {
-          type: "SubmitPlatformFeedback",
-          ...sample,
-        },
-        context,
-      });
-    } catch (error) {
-      // Seed passes can repeat before the feedback projection catches up,
-      // so the table-count guard above can miss already-submitted streams.
-      if (error instanceof ExperienceDomainError) {
-        console.log(`Platform feedback ${sample.feedbackId} already submitted. Skipping.`);
-        continue;
-      }
-      throw error;
+    if ((await loadSeedPlatformFeedbackState(services.db, sample.feedbackId)).feedbackId !== null) {
+      continue;
     }
+    await services.platformFeedback.commandHandler({
+      streamId: platformFeedbackStreamId(sample.feedbackId),
+      command: {
+        type: "SubmitPlatformFeedback",
+        ...sample,
+      },
+      context,
+    });
   }
 }
 
@@ -241,17 +240,169 @@ function createSupportSeedContext(accountId: string, userId: string): EventStore
   };
 }
 
-async function supportRequestExists(services: PlatformOperationsServices, supportRequestId: string) {
-  const result = await services.db.query<{ exists: boolean }>(
-    `SELECT EXISTS(
-       SELECT 1
-       FROM support_request_pages
-       WHERE support_request_id = $1
-     ) AS exists`,
-    [supportRequestId],
-  );
+const PLATFORM_OPERATIONS_BOOTSTRAP_LABEL = "Platform Operations seed bootstrap";
 
-  return result.rows[0]?.exists ?? false;
+const platformFeedbackStreamId = (feedbackId: string) => `platform-operations.platform-feedback-${feedbackId}`;
+const supportRequestStreamId = (supportRequestId: string) => `support.support-request-${supportRequestId}`;
+
+async function loadSeedPlatformFeedbackState(db: PgQueryable, feedbackId: string) {
+  const committed = await loadSeedStreamEvents<PlatformFeedbackEvent>(db, platformFeedbackStreamId(feedbackId));
+  return committed.reduce(evolvePlatformFeedback, initialPlatformFeedbackState);
+}
+
+/**
+ * Folds one seeded support request from its own `support.support-request-*`
+ * stream.
+ *
+ * `support_request_pages` is UNLOGGED, so PostgreSQL truncates it on crash
+ * recovery while the logged streams survive. The projection-sourced guard this
+ * replaced counted three reserved rows as one all-or-nothing verdict and then
+ * relied on catching the domain duplicate error per block; each request is now
+ * decided, and resumed, on its own committed events.
+ */
+async function loadSeedSupportRequestState(db: PgQueryable, supportRequestId: string) {
+  const committed = await loadSeedStreamEvents<SupportRequestEvent>(db, supportRequestStreamId(supportRequestId));
+  return { committed, state: committed.reduce(evolveSupportRequest, initialSupportRequestState) };
+}
+
+const seededSupportRequestInventory = [
+  {
+    supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived,
+    key: "active-product-not-received",
+    flowType: "product-not-received",
+    openedAt: "2026-03-25T09:00:00.000Z",
+    evidence: [
+      {
+        evidenceId: supportSeedIds.evidence.activeBuyerAttestation,
+        evidenceType: "buyer-attestation",
+        summary: "Buyer reports the order has not arrived.",
+        submittedAt: "2026-03-25T09:02:00.000Z",
+        attachments: null,
+      },
+    ],
+    resolution: null,
+  },
+  {
+    supportRequestId: supportSeedIds.supportRequests.selfServiceProductDamaged,
+    key: "self-service-product-damaged",
+    flowType: "product-damaged",
+    openedAt: "2026-07-15T09:00:00.000Z",
+    evidence: [
+      {
+        evidenceId: supportSeedIds.evidence.selfServiceBuyerAttestation,
+        evidenceType: "buyer-attestation",
+        summary: "Buyer reports that the item arrived with a damaged corner.",
+        submittedAt: "2026-07-15T09:02:00.000Z",
+        attachments: null,
+      },
+      {
+        evidenceId: supportSeedIds.evidence.selfServicePhoto,
+        evidenceType: "photo",
+        summary: "Photos show the damaged item and package corner.",
+        submittedAt: "2026-07-15T09:04:00.000Z",
+        attachments: ["seed://support/self-service-damaged-corner"],
+      },
+    ],
+    resolution: null,
+  },
+  {
+    supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund,
+    key: "resolved-partial-refund",
+    flowType: "product-damaged",
+    openedAt: "2026-03-25T10:00:00.000Z",
+    evidence: [
+      {
+        evidenceId: supportSeedIds.evidence.resolvedBuyerAttestation,
+        evidenceType: "buyer-attestation",
+        summary: "Buyer reports edge wear from shipping damage.",
+        submittedAt: "2026-03-25T10:02:00.000Z",
+        attachments: null,
+      },
+      {
+        evidenceId: supportSeedIds.evidence.resolvedPhoto,
+        evidenceType: "photo",
+        summary: "Photo evidence shows the damaged corner.",
+        submittedAt: "2026-03-25T10:04:00.000Z",
+        attachments: ["seed://support/damaged-card-corner"],
+      },
+    ],
+    resolution: {
+      summary: "Seeded support partial refund for shipping damage.",
+      refundAmount: "5.00",
+      resolvedAt: "2026-03-25T10:30:00.000Z",
+    },
+  },
+] as const satisfies readonly Readonly<{
+  supportRequestId: string;
+  key: string;
+  flowType: "product-not-received" | "product-damaged";
+  openedAt: string;
+  evidence: readonly Readonly<{
+    evidenceId: string;
+    evidenceType: "buyer-attestation" | "photo";
+    summary: string;
+    submittedAt: string;
+    attachments: readonly string[] | null;
+  }>[];
+  resolution: Readonly<{ summary: string; refundAmount: string; resolvedAt: string }> | null;
+}>[];
+
+/**
+ * Evidence already committed to a support request, read from the folded
+ * aggregate rather than from the projection. `support.support-request.
+ * evidence-submitted` nests its id under `evidence`, so folding is also the
+ * only reading that stays correct if that payload shape changes.
+ */
+function committedEvidenceIds(state: SupportRequestState): readonly string[] {
+  return state.evidence.map((entry) => String(entry.evidenceId));
+}
+
+/**
+ * Reports the Platform Operations seed's base aggregate state from the
+ * authoritative streams: every reserved platform-feedback submission and every
+ * reserved support request.
+ */
+export async function inspectPlatformOperationsSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const reports: BcSeedAggregateStateReport[] = [];
+
+  for (const [key, feedbackId] of Object.entries(experienceSeedIds)) {
+    const committed = await loadSeedStreamEvents<PlatformFeedbackEvent>(pool, platformFeedbackStreamId(feedbackId));
+    const state = committed.reduce(evolvePlatformFeedback, initialPlatformFeedbackState);
+    reports.push({
+      contextName: "platform-operations",
+      aggregateName: "Platform Feedback",
+      id: feedbackId,
+      key,
+      streamId: platformFeedbackStreamId(feedbackId),
+      kind: state.feedbackId === null ? "absent" : "active",
+      status: state.feedbackId === null ? null : "submitted",
+      eventCount: committed.length,
+    });
+  }
+
+  for (const request of seededSupportRequestInventory) {
+    const { committed, state } = await loadSeedSupportRequestState(pool, request.supportRequestId);
+    const evidence = committedEvidenceIds(state);
+    const evidenceComplete = request.evidence.every((entry) => evidence.includes(entry.evidenceId));
+    const complete =
+      state.supportRequestId !== null &&
+      evidenceComplete &&
+      (request.resolution === null || state.status === "resolved");
+    reports.push({
+      contextName: "platform-operations",
+      aggregateName: "Support Request",
+      id: request.supportRequestId,
+      key: request.key,
+      streamId: supportRequestStreamId(request.supportRequestId),
+      kind: state.supportRequestId === null ? "absent" : complete ? "active" : "draft",
+      status: state.supportRequestId === null ? null : String(state.status),
+      eventCount: committed.length,
+    });
+  }
+
+  return reports;
 }
 
 async function loadSeedOrderSource(services: PlatformOperationsServices): Promise<SupportSeedOrderSource | null> {
@@ -296,27 +447,6 @@ export async function seedSupportDatabase(
   pool: PgTransactionalPool,
   support: PlatformOperationsServices = createPlatformOperationsServices(pool),
 ): Promise<void> {
-  try {
-    const seededCount = await support.db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM support_request_pages
-       WHERE support_request_id = ANY($1::text[])`,
-      [
-        [
-          supportSeedIds.supportRequests.activeProductNotReceived,
-          supportSeedIds.supportRequests.selfServiceProductDamaged,
-          supportSeedIds.supportRequests.resolvedPartialRefund,
-        ],
-      ],
-    );
-    if (Number(seededCount.rows[0]?.count ?? 0) === 3) {
-      console.log("Support already contains seed data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Tables may not exist yet. Proceed with seeding.
-  }
-
   const order = await loadSeedOrderSource(support);
   if (!order) {
     return;
@@ -324,173 +454,95 @@ export async function seedSupportDatabase(
   const buyerContext = createSupportSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const supportContext = createSupportSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  // Seed passes can repeat before the support projection catches up, so the
-  // exists guards can miss already-opened streams; the domain duplicate error
-  // marks a block as already seeded.
-  try {
-    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.activeProductNotReceived))) {
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
-        command: {
-          type: "OpenSupportRequest",
-          supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
-          orderId: order.order_id as OrderId,
-          orderTotalAmount: order.total_amount,
-          buyerAccountId: order.buyer_account_id as AccountId,
-          sellerAccountId: order.seller_account_id as AccountId,
-          flowType: "product-not-received",
-          openedByAccountId: order.buyer_account_id as AccountId,
-          openedByRole: "buyer",
-          openedAt: "2026-03-25T09:00:00.000Z",
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
-        command: {
-          type: "SubmitSupportEvidence",
-          evidenceId: supportSeedIds.evidence.activeBuyerAttestation,
-          submittedByAccountId: order.buyer_account_id as AccountId,
-          submittedByRole: "buyer",
-          evidenceType: "buyer-attestation",
-          summary: "Buyer reports the order has not arrived.",
-          submittedAt: "2026-03-25T09:02:00.000Z",
-        },
-        context: buyerContext,
-      });
-    }
-  } catch (error) {
-    if (error instanceof SupportDomainError) {
-      console.log("Support request active-product-not-received already seeded. Skipping.");
-    } else {
-      throw error;
-    }
+  for (const request of seededSupportRequestInventory) {
+    await reconcileSeedSupportRequest(support, request, order, buyerContext, supportContext);
+  }
+}
+
+type SeededSupportRequest = (typeof seededSupportRequestInventory)[number];
+
+/**
+ * Resumes one seeded support request from its own committed stream. Opening,
+ * each piece of evidence, and the resolution are separate decisions, so an
+ * interrupted seed continues from where the stream stops instead of relying on
+ * a swallowed duplicate-create error.
+ */
+async function reconcileSeedSupportRequest(
+  support: PlatformOperationsServices,
+  request: SeededSupportRequest,
+  order: SupportSeedOrderSource,
+  buyerContext: EventStoreContext,
+  supportContext: EventStoreContext,
+): Promise<void> {
+  const streamId = supportRequestStreamId(request.supportRequestId);
+  const { state } = await loadSeedSupportRequestState(support.db, request.supportRequestId);
+
+  if (state.supportRequestId !== null && String(state.orderId) !== String(order.order_id)) {
+    throw new Error(
+      `${PLATFORM_OPERATIONS_BOOTSTRAP_LABEL} Support Request '${request.key}' expected order ` +
+        `'${order.order_id}', but found '${state.orderId ?? "null"}'. Stream '${streamId}'.`,
+    );
   }
 
-  try {
-    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.selfServiceProductDamaged))) {
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
-        command: {
-          type: "OpenSupportRequest",
-          supportRequestId: supportSeedIds.supportRequests.selfServiceProductDamaged as SupportRequestId,
-          orderId: order.order_id as OrderId,
-          orderTotalAmount: order.total_amount,
-          buyerAccountId: order.buyer_account_id as AccountId,
-          sellerAccountId: order.seller_account_id as AccountId,
-          flowType: "product-damaged",
-          openedByAccountId: order.buyer_account_id as AccountId,
-          openedByRole: "buyer",
-          openedAt: "2026-07-15T09:00:00.000Z",
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
-        command: {
-          type: "SubmitSupportEvidence",
-          evidenceId: supportSeedIds.evidence.selfServiceBuyerAttestation,
-          submittedByAccountId: order.buyer_account_id as AccountId,
-          submittedByRole: "buyer",
-          evidenceType: "buyer-attestation",
-          summary: "Buyer reports that the item arrived with a damaged corner.",
-          submittedAt: "2026-07-15T09:02:00.000Z",
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
-        command: {
-          type: "SubmitSupportEvidence",
-          evidenceId: supportSeedIds.evidence.selfServicePhoto,
-          submittedByAccountId: order.buyer_account_id as AccountId,
-          submittedByRole: "buyer",
-          evidenceType: "photo",
-          summary: "Photos show the damaged item and package corner.",
-          submittedAt: "2026-07-15T09:04:00.000Z",
-          attachments: ["seed://support/self-service-damaged-corner"],
-        },
-        context: buyerContext,
-      });
-    }
-  } catch (error) {
-    if (error instanceof SupportDomainError) {
-      console.log("Support request self-service-product-damaged already seeded. Skipping.");
-    } else {
-      throw error;
-    }
+  if (state.supportRequestId === null) {
+    await support.supportRequests.commandHandler({
+      streamId,
+      command: {
+        type: "OpenSupportRequest",
+        supportRequestId: request.supportRequestId as SupportRequestId,
+        orderId: order.order_id as OrderId,
+        orderTotalAmount: order.total_amount,
+        buyerAccountId: order.buyer_account_id as AccountId,
+        sellerAccountId: order.seller_account_id as AccountId,
+        flowType: request.flowType,
+        openedByAccountId: order.buyer_account_id as AccountId,
+        openedByRole: "buyer",
+        openedAt: request.openedAt,
+      },
+      context: buyerContext,
+    });
   }
 
-  try {
-    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.resolvedPartialRefund))) {
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-        command: {
-          type: "OpenSupportRequest",
-          supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
-          orderId: order.order_id as OrderId,
-          orderTotalAmount: order.total_amount,
-          buyerAccountId: order.buyer_account_id as AccountId,
-          sellerAccountId: order.seller_account_id as AccountId,
-          flowType: "product-damaged",
-          openedByAccountId: order.buyer_account_id as AccountId,
-          openedByRole: "buyer",
-          openedAt: "2026-03-25T10:00:00.000Z",
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-        command: {
-          type: "SubmitSupportEvidence",
-          evidenceId: supportSeedIds.evidence.resolvedBuyerAttestation,
-          submittedByAccountId: order.buyer_account_id as AccountId,
-          submittedByRole: "buyer",
-          evidenceType: "buyer-attestation",
-          summary: "Buyer reports edge wear from shipping damage.",
-          submittedAt: "2026-03-25T10:02:00.000Z",
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-        command: {
-          type: "SubmitSupportEvidence",
-          evidenceId: supportSeedIds.evidence.resolvedPhoto,
-          submittedByAccountId: order.buyer_account_id as AccountId,
-          submittedByRole: "buyer",
-          evidenceType: "photo",
-          summary: "Photo evidence shows the damaged corner.",
-          submittedAt: "2026-03-25T10:04:00.000Z",
-          attachments: ["seed://support/damaged-card-corner"],
-        },
-        context: buyerContext,
-      });
-      await support.supportRequests.commandHandler({
-        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-        command: {
-          type: "ResolveSupportRequest",
-          resolutionType: "partial-refund",
-          summary: "Seeded support partial refund for shipping damage.",
-          refundAmount: "5.00",
-          responsibility: "carrier",
-          evidenceBasis: {
-            type: "operator-finding",
-            reference: "support-seed.operator-adjudication.v1",
-          },
-          responsibilityReasonCode: "product-damaged.carrier-damage",
-          resolvedByAccountId: identitySeedIds.demo.accountId,
-          resolvedByRole: "support",
-          resolvedAt: "2026-03-25T10:30:00.000Z",
-        },
-        context: supportContext,
-      });
+  const alreadySubmitted = committedEvidenceIds(state);
+  for (const evidence of request.evidence) {
+    if (alreadySubmitted.includes(evidence.evidenceId)) {
+      continue;
     }
-  } catch (error) {
-    if (error instanceof SupportDomainError) {
-      console.log("Support request resolved-partial-refund already seeded. Skipping.");
-    } else {
-      throw error;
-    }
+    await support.supportRequests.commandHandler({
+      streamId,
+      command: {
+        type: "SubmitSupportEvidence",
+        evidenceId: evidence.evidenceId,
+        submittedByAccountId: order.buyer_account_id as AccountId,
+        submittedByRole: "buyer",
+        evidenceType: evidence.evidenceType,
+        summary: evidence.summary,
+        submittedAt: evidence.submittedAt,
+        ...(evidence.attachments ? { attachments: [...evidence.attachments] } : {}),
+      },
+      context: buyerContext,
+    });
+  }
+
+  if (request.resolution && state.status !== "resolved") {
+    await support.supportRequests.commandHandler({
+      streamId,
+      command: {
+        type: "ResolveSupportRequest",
+        resolutionType: "partial-refund",
+        summary: request.resolution.summary,
+        refundAmount: request.resolution.refundAmount,
+        responsibility: "carrier",
+        evidenceBasis: {
+          type: "operator-finding",
+          reference: "support-seed.operator-adjudication.v1",
+        },
+        responsibilityReasonCode: "product-damaged.carrier-damage",
+        resolvedByAccountId: identitySeedIds.demo.accountId,
+        resolvedByRole: "support",
+        resolvedAt: request.resolution.resolvedAt,
+      },
+      context: supportContext,
+    });
   }
 }
