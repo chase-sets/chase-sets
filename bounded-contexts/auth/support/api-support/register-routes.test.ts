@@ -19,6 +19,7 @@ import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-s
 import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerRegistrationRoutes } from "./register-routes";
 import type { AuthApiEnv } from "./support";
+import { createAuthApiClient } from "../../client";
 
 const { mockCreateIdentityAuthRequestClient, mockStartInteractiveAuth } = vi.hoisted(() => ({
   mockCreateIdentityAuthRequestClient: vi.fn(),
@@ -560,5 +561,121 @@ describe("registration auth routes", () => {
       error: { code: "registration_consent_not_server_minted", reason: "absent" },
     });
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
+  // The parked review defeated a source-syntax caller check with ordinary code.
+  // Each shape below is re-run against this boundary and lands on the same
+  // rejection for the same reason: nothing accompanied the registration that
+  // only the server could have minted. They are not three cases.
+  describe("parked evasions produce one violation for one reason", () => {
+    function registrationConsentRejection() {
+      return Object.assign(new Error("rejected"), {
+        status: 400,
+        body: {
+          error: {
+            code: "registration_consent_not_server_minted",
+            reason: "absent",
+            message: "A server-minted registration consent resolution is required.",
+          },
+        },
+      });
+    }
+
+    function buildRejectingApp() {
+      const services = createServices();
+      mockCreateIdentityAuthRequestClient.mockReturnValue({
+        createPersonalIdentity: vi.fn(async () => {
+          throw registrationConsentRejection();
+        }),
+        enablePasswordCredential: vi.fn(),
+      });
+      return { app: buildApp(services), services };
+    }
+
+    it("rejects a destructured raw auth client with the same code as an absent submission", async () => {
+      const { app } = buildRejectingApp();
+      // Evasion A: never name the canonical client at the call site.
+      const { register } = createAuthApiClient({
+        baseUrl: "https://marketplace.test",
+        fetch: (async (input: URL | RequestInfo, init?: RequestInit) =>
+          app.request(String(input), {
+            ...init,
+            headers: registrationRequestHeaders("203.0.113.210"),
+          })) as typeof globalThis.fetch,
+      });
+
+      await expect(
+        register({ email: "evasion-a@chasesets.test", displayName: "Evasion A", password: "hunter2hunter2" }),
+      ).rejects.toMatchObject({
+        status: 400,
+        body: { error: { code: "registration_consent_not_server_minted", reason: "absent" } },
+      });
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    });
+
+    it("rejects a split-string route URL with the same code as an absent submission", async () => {
+      const { app } = buildRejectingApp();
+      // Evasion B: never write the route as one literal.
+      const route = "/regi" + "ster";
+
+      const response = await app.request(route, {
+        method: "POST",
+        headers: registrationRequestHeaders("203.0.113.211"),
+        body: JSON.stringify({ email: "evasion-b@chasesets.test", displayName: "Evasion B" }),
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "registration_consent_not_server_minted", reason: "absent" },
+      });
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    });
+
+    it("rejects a caller-local impostor binder with the same code as an absent submission", async () => {
+      const services = createServices();
+      const impostorRejection = Object.assign(new Error("rejected"), {
+        status: 400,
+        body: {
+          error: {
+            code: "registration_consent_not_server_minted",
+            reason: "signature-invalid",
+            message: "The registration consent resolution signature does not verify.",
+          },
+        },
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue({
+        createPersonalIdentity: vi.fn(async () => {
+          throw impostorRejection;
+        }),
+        enablePasswordCredential: vi.fn(),
+      });
+      // Evasion D: a caller-local binder with the canonical name, returning a
+      // plausibly-shaped unsigned object.
+      const registrationConsentSubmission = () => ({
+        resolution: {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: new Date().toISOString(),
+          signature: "locally-minted",
+        },
+        affirmed: true,
+      });
+
+      const response = await buildApp(services).request("/register", {
+        method: "POST",
+        headers: registrationRequestHeaders("203.0.113.212"),
+        body: JSON.stringify({
+          email: "evasion-d@chasesets.test",
+          displayName: "Evasion D",
+          registrationConsent: registrationConsentSubmission(),
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "registration_consent_not_server_minted" },
+      });
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    });
   });
 });
