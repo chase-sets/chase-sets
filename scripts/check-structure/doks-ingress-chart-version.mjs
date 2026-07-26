@@ -31,7 +31,10 @@ function readGit(repoRoot, args, code, description, execFileSyncImpl) {
     return execFileSyncImpl("git", args, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch (error) {
     if (error?.code === "ENOENT") {
-      throw new DoksIngressChartVersionGuardError("DOKS_INGRESS_GIT_UNAVAILABLE", "Git is required for chart diff discovery.");
+      throw new DoksIngressChartVersionGuardError(
+        "DOKS_INGRESS_GIT_UNAVAILABLE",
+        "Git is required for chart diff discovery.",
+      );
     }
     throw new DoksIngressChartVersionGuardError(code, description);
   }
@@ -52,9 +55,15 @@ function parseExplicitChangedFiles(value) {
   }
 }
 
-export function discoverDoksIngressChangedFiles({ repoRoot, environment = process.env, execFileSyncImpl = execFileSync } = {}) {
+export function discoverDoksIngressChangedFiles({
+  repoRoot,
+  environment = process.env,
+  execFileSyncImpl = execFileSync,
+} = {}) {
   const explicitChangedFiles =
-    typeof environment.CHANGED_FILES_JSON === "string" ? parseExplicitChangedFiles(environment.CHANGED_FILES_JSON) : null;
+    typeof environment.CHANGED_FILES_JSON === "string"
+      ? parseExplicitChangedFiles(environment.CHANGED_FILES_JSON)
+      : null;
   const mergeBase = readGit(
     repoRoot,
     ["merge-base", "origin/main", "HEAD"],
@@ -100,7 +109,9 @@ export function scannedDoksIngressChartSurface({ repoRoot } = {}) {
       `${chartRoot} is absent; the guard refuses to certify an empty surface.`,
     );
   }
-  const candidateFiles = listFiles(absoluteChartRoot).map((file) => `${chartRoot}/${file}`).sort();
+  const candidateFiles = listFiles(absoluteChartRoot)
+    .map((file) => `${chartRoot}/${file}`)
+    .sort();
   const scanned = candidateFiles.filter(
     (file) => file === chartYaml || file === chartValues || file.startsWith(`${templatesRoot}/`),
   );
@@ -114,22 +125,34 @@ export function scannedDoksIngressChartSurface({ repoRoot } = {}) {
     scanned,
     excluded: candidateFiles
       .filter((file) => !scanned.includes(file))
-      .map((file) => ({ file, reason: explicitlyExcluded.get(file) ?? "not part of the declared packaged-content surface" })),
+      .map((file) => ({
+        file,
+        reason: explicitlyExcluded.get(file) ?? "not part of the declared packaged-content surface",
+      })),
   };
 }
 
 function chartVersion(source, label) {
   const version = parse(source)?.version;
   if (typeof version !== "string") {
-    throw new DoksIngressChartVersionGuardError("DOKS_INGRESS_VERSION_NON_SEMVER", `${label} has no string semver version.`);
+    throw new DoksIngressChartVersionGuardError(
+      "DOKS_INGRESS_VERSION_NON_SEMVER",
+      `${label} has no string semver version.`,
+    );
   }
   return version;
 }
 
 function parseStrictSemver(version, label) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      version,
+    );
   if (!match) {
-    throw new DoksIngressChartVersionGuardError("DOKS_INGRESS_VERSION_NON_SEMVER", `${label} version "${version}" is not semver.`);
+    throw new DoksIngressChartVersionGuardError(
+      "DOKS_INGRESS_VERSION_NON_SEMVER",
+      `${label} version "${version}" is not semver.`,
+    );
   }
   return { core: match.slice(1, 4).map(Number), prerelease: match[4]?.split(".") ?? [] };
 }
@@ -168,12 +191,22 @@ function readBaseChartVersion({ repoRoot, mergeBase }) {
     );
   }
   return chartVersion(
-    readGit(repoRoot, ["show", `${mergeBase}:${chartYaml}`], "DOKS_INGRESS_DIFF_UNAVAILABLE", "Unable to read base Chart.yaml.", execFileSync),
+    readGit(
+      repoRoot,
+      ["show", `${mergeBase}:${chartYaml}`],
+      "DOKS_INGRESS_DIFF_UNAVAILABLE",
+      "Unable to read base Chart.yaml.",
+      execFileSync,
+    ),
     "base Chart.yaml",
   );
 }
 
-export async function validateDoksIngressChartVersion({ repoRoot, environment = process.env, execFileSyncImpl = execFileSync } = {}) {
+export async function validateDoksIngressChartVersion({
+  repoRoot,
+  environment = process.env,
+  execFileSyncImpl = execFileSync,
+} = {}) {
   const surface = scannedDoksIngressChartSurface({ repoRoot });
   const discovery = discoverDoksIngressChangedFiles({ repoRoot, environment, execFileSyncImpl });
   const changedPackagedFiles = discovery.changedFiles.filter((file) => surface.scanned.includes(file));

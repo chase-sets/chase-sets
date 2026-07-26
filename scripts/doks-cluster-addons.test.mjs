@@ -34,13 +34,19 @@ describe("doks cluster addons planner", () => {
     try {
       const moduleUrl = pathToFileURL(resolve("scripts", "doks-cluster-addons.mjs")).href;
       const output = await new Promise((resolveOutput, reject) => {
-        const child = spawn(process.execPath, ["--input-type=module", "--eval", `import { localChartVersion } from \"${moduleUrl}\"; console.log(localChartVersion);`]);
+        const child = spawn(process.execPath, [
+          "--input-type=module",
+          "--eval",
+          `import { localChartVersion } from \"${moduleUrl}\"; console.log(localChartVersion);`,
+        ]);
         let stdout = "";
         child.stdout.on("data", (chunk) => {
           stdout += chunk;
         });
         child.on("error", reject);
-        child.on("close", (code) => (code === 0 ? resolveOutput(stdout.trim()) : reject(new Error(`child exited ${code}`))));
+        child.on("close", (code) =>
+          code === 0 ? resolveOutput(stdout.trim()) : reject(new Error(`child exited ${code}`)),
+        );
       });
       expect(output).toBe("0.1.1");
     } finally {

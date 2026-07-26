@@ -16,10 +16,17 @@ function git(repoRoot, args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
 
-async function writeChart(repoRoot, { version = "0.1.0", template = "kind: ConfigMap\n", values = "enabled: true\n" } = {}) {
+async function writeChart(
+  repoRoot,
+  { version = "0.1.0", template = "kind: ConfigMap\n", values = "enabled: true\n" } = {},
+) {
   const root = path.join(repoRoot, chartRoot);
   await mkdir(path.join(root, "templates", "deep", "nested"), { recursive: true });
-  await writeFile(path.join(root, "Chart.yaml"), `apiVersion: v2\nname: chase-sets-doks-ingress\nversion: ${version}\n`, "utf8");
+  await writeFile(
+    path.join(root, "Chart.yaml"),
+    `apiVersion: v2\nname: chase-sets-doks-ingress\nversion: ${version}\n`,
+    "utf8",
+  );
   await writeFile(path.join(root, "values.yaml"), values, "utf8");
   await writeFile(path.join(root, "templates", "deep", "nested", "issuer.yaml"), template, "utf8");
   await writeFile(path.join(root, "README.md"), "operator notes\n", "utf8");
@@ -54,7 +61,11 @@ afterAll(async () => {
 describe("doks ingress chart version guard", () => {
   it("flags a deep real-path template change with an unchanged version", async () => {
     const repoRoot = await createGitRepo();
-    await writeFile(path.join(repoRoot, chartRoot, "templates", "deep", "nested", "issuer.yaml"), "kind: Certificate\n", "utf8");
+    await writeFile(
+      path.join(repoRoot, chartRoot, "templates", "deep", "nested", "issuer.yaml"),
+      "kind: Certificate\n",
+      "utf8",
+    );
     commitChange(repoRoot);
 
     await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
@@ -68,7 +79,9 @@ describe("doks ingress chart version guard", () => {
     await writeChart(repoRoot, { version: "0.1.1", template: "kind: Certificate\n" });
     commitChange(repoRoot);
 
-    await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({ violations: [] });
+    await expect(validateDoksIngressChartVersion({ repoRoot, environment: {} })).resolves.toMatchObject({
+      violations: [],
+    });
   });
 
   it.each([
@@ -108,7 +121,10 @@ describe("doks ingress chart version guard", () => {
       ]),
       excluded: expect.arrayContaining([
         expect.objectContaining({ file: "infrastructure/helm/doks-ingress/README.md", reason: expect.any(String) }),
-        expect.objectContaining({ file: "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml", reason: expect.any(String) }),
+        expect.objectContaining({
+          file: "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml",
+          reason: expect.any(String),
+        }),
       ]),
     });
   });
@@ -128,9 +144,11 @@ describe("doks ingress chart version guard", () => {
       git(repoRoot, ["commit", "-m", "base"]);
     }
 
-    for (const ambient of [undefined, "[\"ambient/path\"]"]) {
+    for (const ambient of [undefined, '["ambient/path"]']) {
       const overriddenEnvironment = { CHANGED_FILES_JSON: environment.CHANGED_FILES_JSON ?? ambient };
-      expect(() => discoverDoksIngressChangedFiles({ repoRoot, environment: overriddenEnvironment })).toThrow(diagnostic);
+      expect(() => discoverDoksIngressChangedFiles({ repoRoot, environment: overriddenEnvironment })).toThrow(
+        diagnostic,
+      );
     }
   });
 
@@ -151,16 +169,20 @@ describe("doks ingress chart version guard", () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-doks-chart-version-non-git-"));
     createdRepos.push(repoRoot);
     await writeChart(repoRoot);
-    for (const environment of [{}, { CHANGED_FILES_JSON: "[\"ambient/path\"]" }]) {
-      expect(() => discoverDoksIngressChangedFiles({ repoRoot, environment })).toThrow("DOKS_INGRESS_MERGE_BASE_UNAVAILABLE");
+    for (const environment of [{}, { CHANGED_FILES_JSON: '["ambient/path"]' }]) {
+      expect(() => discoverDoksIngressChangedFiles({ repoRoot, environment })).toThrow(
+        "DOKS_INGRESS_MERGE_BASE_UNAVAILABLE",
+      );
     }
   });
 
   it("uses the explicit changed-file path only after parsing it", async () => {
     const repoRoot = await createGitRepo();
-    expect(discoverDoksIngressChangedFiles({
-      repoRoot,
-      environment: { CHANGED_FILES_JSON: '["infrastructure\\\\helm\\\\doks-ingress\\\\values.yaml"]' },
-    }).changedFiles).toEqual(["infrastructure/helm/doks-ingress/values.yaml"]);
+    expect(
+      discoverDoksIngressChangedFiles({
+        repoRoot,
+        environment: { CHANGED_FILES_JSON: '["infrastructure\\\\helm\\\\doks-ingress\\\\values.yaml"]' },
+      }).changedFiles,
+    ).toEqual(["infrastructure/helm/doks-ingress/values.yaml"]);
   });
 });
