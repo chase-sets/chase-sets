@@ -67,6 +67,46 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    wire blocked-by links, comment placement into the program tracking issue, and
    hand off to the orchestrator.
 
+## Replan intake — planning an issue whose implementation stopped
+
+Most planning starts from an idea. This branch starts from a failure: an issue
+labeled `status:needs-replan` whose PR was closed unmerged. It is **active
+recovery work, not parked work**, and the accumulated review findings are the
+most valuable input you will get — a replacement that does not answer them
+fails the same way. Lane dispatches carry the orchestrator's planning-repair
+contract (`planning-repair/v1`) automatically; solo sessions follow the same
+shape.
+
+Before Stage 1, gather and state: the closed PR with its **exact head and
+branch** (read-only salvage), every blocking finding ID from the reviews that
+stopped it, the decision issues that governed it and how each resolved, and
+current `origin/main` — the findings were written against a head that has moved.
+
+Then run the normal pipeline with three changes:
+
+- **Discovery is a don't-rebuild check first.** Search for replacements filed
+  for *sibling* issues; adjacency is not coverage. #6105 and #6106 replaced
+  #6058, and reading them as covering #5684 would have silently dropped consent
+  bundle content, activation authority, and the affirmation UI.
+- **Decomposition answers the findings explicitly.** Each blocking finding maps
+  to a slice, an accepted constraint written into the issue text, or a stated
+  reason it no longer applies at current main.
+- **The pressure test is mandatory**, not tier-dependent. This plan already
+  failed once.
+
+Terminate in exactly one disposition:
+
+| Disposition | When | Effect on the original |
+|---|---|---|
+| `REPAIR_IN_PLACE` | outcome, decisions, and acceptance semantics all unchanged; the brief was merely imprecise | rewritten in place, stays runnable |
+| `REPLACED` | anything else — the normal outcome | relabel `status:tracking-only`, link every replacement, stays **open** until they land |
+| `RECOMMEND_NOT_COMPLETING` | the work should not be done at all | stays open; only Todd may close it |
+
+`PARKED` is not a disposition. Never amend new requirements into the original;
+a genuinely new gap is a new fixed-scope issue. Never mark a replacement
+runnable before it passes the definition-of-ready checklist — filing an unready
+replacement moves the failure rather than fixing it.
+
 ## Enforcement — definition of ready
 
 The milestone orchestrator dispatches only issues that pass the
