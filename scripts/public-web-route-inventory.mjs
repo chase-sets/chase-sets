@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 export const generatedHelpCatalogPath = "bounded-contexts/public-presence/features/help/domain/generated/articles.ts";
 export const trackedFileRule =
   "Only paths returned by `git ls-files` are read; therefore gitignored and untracked files are excluded.";
+const contextManifestPath = /^bounded-contexts\/[^/]+\/context\.json$/;
 
 function failure(source, detail) {
   throw new Error(`public-web route inventory: ${source}: ${detail}`);
@@ -82,7 +83,7 @@ export function readGeneratedHelpArticles({ rootDir, tracked, catalogPath = gene
 
 function readPublicWebRouteRecords({ rootDir, tracked }) {
   const routes = [];
-  for (const relativePath of tracked.filter((candidate) => candidate.endsWith(".json"))) {
+  for (const relativePath of tracked.filter((candidate) => contextManifestPath.test(candidate))) {
     let document;
     try {
       const parsed = ts.parseConfigFileTextToJson(
@@ -94,7 +95,12 @@ function readPublicWebRouteRecords({ rootDir, tracked }) {
     } catch (error) {
       failure(relativePath, `malformed JSON (${error instanceof Error ? error.message : String(error)})`);
     }
-    if (!document || typeof document !== "object" || !Array.isArray(document.deployableContributions)) continue;
+    if (!document || typeof document !== "object" || Array.isArray(document)) {
+      failure(relativePath, "context manifest must be a JSON object");
+    }
+    if (!Array.isArray(document.deployableContributions)) {
+      failure(relativePath, "context manifest must contain a deployableContributions array");
+    }
     document.deployableContributions.forEach((contribution, contributionIndex) => {
       if (!contribution || contribution.deployable !== "public-web" || !Array.isArray(contribution.routes)) return;
       contribution.routes.forEach((route, routeIndex) => {

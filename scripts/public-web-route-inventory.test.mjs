@@ -32,11 +32,9 @@ function write(rootDir, relativePath, content) {
 }
 
 function independentlyReadPublicWebRoutes() {
-  const manifests = [
-    "bounded-contexts/public-presence/context.json",
-    "bounded-contexts/commercial-terms/context.json",
-    "bounded-contexts/pricing/context.json",
-  ];
+  const manifests = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\0")
+    .filter((candidate) => /^bounded-contexts\/[^/]+\/context\.json$/.test(candidate));
   return manifests.flatMap((manifestPath) =>
     JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8"))
       .deployableContributions.filter((contribution) => contribution.deployable === "public-web")
@@ -48,13 +46,11 @@ describe("public-web route inventory", () => {
   it("derives the complete real-source surface and an exclusive partition", () => {
     const inventory = derivePublicWebRouteInventory({ rootDir: repoRoot });
     expect(inventory.sources.manifests).toHaveLength(independentlyReadPublicWebRoutes().length);
-    expect(inventory.sources.manifests.map((source) => source.replace(/.*routes\[\d+\]$/, "")).sort()).toEqual(
-      expect.arrayContaining([
-        "bounded-contexts/public-presence/context.json deployableContributions[0].",
-        "bounded-contexts/commercial-terms/context.json deployableContributions[0].",
-        "bounded-contexts/pricing/context.json deployableContributions[0].",
-      ]),
-    );
+    expect(
+      inventory.sources.manifests.every((source) =>
+        /^bounded-contexts\/[^/]+\/context\.json deployableContributions\[\d+\]\.routes\[\d+\]$/.test(source),
+      ),
+    ).toBe(true);
     expect(inventory.members.filter((member) => member.kind === "EXPANDED")).toHaveLength(inventory.counts.EXPANDED);
     expect(inventory.counts.CONCRETE + inventory.counts.EXPANDED + inventory.counts.INDETERMINATE).toBe(
       inventory.members.length,
@@ -84,21 +80,23 @@ describe("public-web route inventory", () => {
     expect(member.reason).toContain("no authoritative enumeration");
   });
 
-  it("selects a contributing manifest by its deployable shape at an arbitrary tracked path", () => {
+  it("reads only authoritative context manifests and ignores unrelated tracked JSON", () => {
     const rootDir = mkdtempSync(path.join(os.tmpdir(), "chase-sets-public-route-inventory-"));
     temporaryRoots.push(rootDir);
     write(
       rootDir,
-      "unrelated/location/contribution.json",
+      "bounded-contexts/arbitrary-context/context.json",
       JSON.stringify({
         deployableContributions: [
           {
             deployable: "public-web",
-            routes: [{ routeId: "shape-control", routePath: "shape-control" }],
+            routes: [{ routeId: "manifest-control", routePath: "manifest-control" }],
           },
         ],
       }),
     );
+    write(rootDir, "unrelated/malformed.json", "{ malformed");
+    write(rootDir, "unrelated/array-fixture.json", "[]\n");
     write(rootDir, generatedHelpCatalogPath, "export const helpArticles = [];\n");
     execFileSync("git", ["init", "--quiet"], { cwd: rootDir });
     execFileSync("git", ["add", "."], { cwd: rootDir });
@@ -106,7 +104,7 @@ describe("public-web route inventory", () => {
     execFileSync("git", ["config", "user.name", "Test"], { cwd: rootDir });
     execFileSync("git", ["commit", "--quiet", "-m", "tracked fixture"], { cwd: rootDir });
     expect(derivePublicWebRouteInventory({ rootDir }).members).toEqual(
-      expect.arrayContaining([expect.objectContaining({ memberId: "shape-control", kind: "CONCRETE" })]),
+      expect.arrayContaining([expect.objectContaining({ memberId: "manifest-control", kind: "CONCRETE" })]),
     );
   });
 
@@ -128,8 +126,8 @@ describe("public-web route inventory", () => {
     replaceTracked(
       catalogPath,
       catalog.replace(
-        "\n];",
-        '\n  { slug: "tree-control", category: "testing", href: "/help/testing/tree-control" },\n];',
+        "\n] as const",
+        '\n  { slug: "tree-control", category: "testing", href: "/help/testing/tree-control" },\n] as const',
       ),
     );
     const members = derivePublicWebRouteInventory({ rootDir: repoRoot }).members;
@@ -146,6 +144,12 @@ describe("public-web route inventory", () => {
       "malformed manifest JSON",
       "bounded-contexts/pricing/context.json",
       "{ bad json",
+      "bounded-contexts/pricing/context.json",
+    ],
+    [
+      "array authoritative context manifest",
+      "bounded-contexts/pricing/context.json",
+      "[]",
       "bounded-contexts/pricing/context.json",
     ],
     [
