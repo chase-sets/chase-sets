@@ -14,6 +14,8 @@ import {
   getBootstrapContext,
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
+  resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -144,8 +146,14 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName.trim()
               : createOwnedUserDisplayName(record.phone),
+          registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
         });
       } catch (error) {
+        const consentRejection = readRegistrationConsentRejection(error);
+        if (consentRejection) {
+          return c.json(consentRejection, 400);
+        }
+
         const conflict = readIdentityMutationConflict(error);
         if (conflict) {
           return c.json(conflict, 409);

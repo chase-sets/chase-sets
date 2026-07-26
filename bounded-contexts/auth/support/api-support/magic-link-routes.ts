@@ -12,6 +12,8 @@ import {
   getBootstrapContext,
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
+  resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -134,9 +136,15 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         identity = await identityMutations.createPersonalIdentity({
           email: record.email,
           displayName: createOwnedUserDisplayName(record.email),
+          registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
           foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {
+        const consentRejection = readRegistrationConsentRejection(error);
+        if (consentRejection) {
+          return c.json(consentRejection, 400);
+        }
+
         const conflict = readIdentityMutationConflict(error);
         if (conflict) {
           return c.json(conflict, 409);

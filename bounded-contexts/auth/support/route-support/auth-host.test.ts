@@ -123,6 +123,24 @@ describe("auth host", () => {
     });
   }
 
+  function registrationFetchStub(sources: readonly SourceCommitPosition[]) {
+    const registrationCalls: string[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      registrationCalls.push(new URL(url).pathname);
+      if (url.endsWith("/registration-consent")) {
+        return Response.json({
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
+      return authJsonResponse(createSessionStartedResult(), sources);
+    });
+    return { fetch, registrationCalls };
+  }
+
   function redirectLocation(response: unknown) {
     expect(response).toBeInstanceOf(Response);
     const location = (response as Response).headers.get("Location");
@@ -281,14 +299,14 @@ describe("auth host", () => {
   });
 
   it("adds the identity fresh-write receipt to password registration account redirects", async () => {
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [identitySource]));
+    const { fetch, registrationCalls } = registrationFetchStub([identitySource]);
     vi.stubGlobal("fetch", fetch);
 
     const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
     const location = redirectLocation(response);
 
+    // The route action resolves before it registers.
+    expect(registrationCalls).toEqual(["/api/auth/registration-consent", "/api/auth/register"]);
     expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
     expect((response as Response).headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(location.pathname).toBe("/account");
@@ -362,9 +380,7 @@ describe("auth host", () => {
   });
 
   it("does not use Auth-only receipts as account freshness evidence during registration redirects", async () => {
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [authSource]));
+    const { fetch } = registrationFetchStub([authSource]);
     vi.stubGlobal("fetch", fetch);
 
     const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
@@ -377,9 +393,7 @@ describe("auth host", () => {
   });
 
   it("does not attach identity freshness to marketplace registration continuations", async () => {
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [identitySource]));
+    const { fetch } = registrationFetchStub([identitySource]);
     vi.stubGlobal("fetch", fetch);
 
     const response = await host.createRegisterAction()(

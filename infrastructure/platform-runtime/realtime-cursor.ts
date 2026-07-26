@@ -1,4 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  canonicalSigningJson,
+  isValidCanonicalPayloadSignatureForKeySet,
+  resolveCurrentSigningSecret,
+  resolveSigningSecrets,
+  signCanonicalPayload,
+} from "./signed-payload";
 import type { RealtimeCursor } from "./realtime-outbox-store";
 import type { RealtimeCursorSigningKeySet } from "./realtime";
 
@@ -9,17 +15,17 @@ type RealtimeCursorEnvelope = Readonly<{
 }>;
 
 export function encodeRealtimeCursor(cursor: RealtimeCursor, signingKeys?: RealtimeCursorSigningKeySet): string {
-  const currentSigningSecret = resolveCurrentRealtimeCursorSigningSecret(signingKeys);
+  const currentSigningSecret = resolveCurrentSigningSecret(signingKeys);
   const envelope: RealtimeCursorEnvelope = {
     v: 1,
     positions: cursor,
   };
-  const unsignedPayload = stableJson(envelope);
+  const unsignedPayload = canonicalSigningJson(envelope);
   const signedEnvelope = currentSigningSecret
-    ? { ...envelope, sig: signRealtimeCursorPayload(unsignedPayload, currentSigningSecret) }
+    ? { ...envelope, sig: signCanonicalPayload(unsignedPayload, currentSigningSecret) }
     : envelope;
 
-  return Buffer.from(stableJson(signedEnvelope), "utf8").toString("base64url");
+  return Buffer.from(canonicalSigningJson(signedEnvelope), "utf8").toString("base64url");
 }
 
 export function decodeRealtimeCursor(
@@ -40,7 +46,7 @@ export function decodeRealtimeCursor(
       return decodeRealtimeCursorEnvelope(parsed, signingKeys);
     }
 
-    if (resolveRealtimeCursorSigningSecrets(signingKeys).length > 0) {
+    if (resolveSigningSecrets(signingKeys).length > 0) {
       return {};
     }
 
@@ -59,11 +65,10 @@ function decodeRealtimeCursorEnvelope(
     return {};
   }
 
-  const signingSecrets = resolveRealtimeCursorSigningSecrets(signingKeys);
-  if (signingSecrets.length > 0) {
+  if (resolveSigningSecrets(signingKeys).length > 0) {
     const sig = typeof envelope.sig === "string" ? envelope.sig : "";
-    const unsignedPayload = stableJson({ v: 1, positions: envelope.positions });
-    if (!signingSecrets.some((secret) => isValidRealtimeCursorSignature(unsignedPayload, sig, secret))) {
+    const unsignedPayload = canonicalSigningJson({ v: 1, positions: envelope.positions });
+    if (!isValidCanonicalPayloadSignatureForKeySet(unsignedPayload, sig, signingKeys)) {
       return {};
     }
   }
@@ -77,52 +82,4 @@ function sanitizeRealtimeCursor(value: Record<string, unknown>): RealtimeCursor 
       .filter((entry): entry is [string, string] => typeof entry[1] === "string")
       .filter(([, position]) => /^(0|[1-9]\d*)$/.test(position)),
   );
-}
-
-function signRealtimeCursorPayload(payload: string, signingSecret: string): string {
-  return createHmac("sha256", signingSecret).update(payload).digest("base64url");
-}
-
-function isValidRealtimeCursorSignature(payload: string, signature: string, signingSecret: string): boolean {
-  const expected = signRealtimeCursorPayload(payload, signingSecret);
-  const expectedBuffer = Buffer.from(expected);
-  const actualBuffer = Buffer.from(signature);
-  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
-}
-
-function resolveCurrentRealtimeCursorSigningSecret(
-  signingKeys: RealtimeCursorSigningKeySet | undefined,
-): string | undefined {
-  return typeof signingKeys === "string" ? signingKeys : signingKeys?.current;
-}
-
-function resolveRealtimeCursorSigningSecrets(signingKeys: RealtimeCursorSigningKeySet | undefined): readonly string[] {
-  if (!signingKeys) {
-    return [];
-  }
-
-  return typeof signingKeys === "string"
-    ? [signingKeys]
-    : [signingKeys.current, ...(signingKeys.previous ?? [])].filter(Boolean);
-}
-
-function stableJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortJson);
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entryValue]) => entryValue !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entryValue]) => [key, sortJson(entryValue)]),
-    );
-  }
-
-  return value;
 }

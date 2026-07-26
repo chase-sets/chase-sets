@@ -330,6 +330,47 @@ Notes:
 - Consents must be auditable.
 - A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
+### Registration Consent Resolution
+
+A **Registration Consent Resolution** is Identity's signed answer to "what must a person agree to in
+order to create an identity right now, and at exactly which versions".
+
+It carries a bundle key, an **ordered** list of Registration Consent Requirements, the instant it was
+resolved, and an HMAC signature over all of them. Identity mints it and Identity verifies it; no other
+context can produce one that verifies, and requirement order is part of the signed payload, so
+reordering the list is tampering rather than an equivalent encoding.
+
+Notes:
+
+- The resolution is the only source of the policy versions recorded as Consent when a personal
+  identity is created. Never raw client input, and never a fresh resolve taken at append time.
+- An empty requirement list is a value, not a disabled mode. A resolution over an empty list is still
+  signed, still version-bearing, and still mandatory on every first-use path.
+- A resolution has a freshness window. Past it, a genuinely minted resolution stops being submittable.
+
+### Registration Consent Requirement
+
+One ordered element of a Registration Consent Resolution: the policy key, the exact version resolved,
+and where that version is readable.
+
+### Registration Consent Submission
+
+A **Registration Consent Submission** is what a caller hands to identity creation: a Registration
+Consent Resolution together with whether the person affirmed it.
+
+The affirmation is a field **of** the resolution it answers, never a sibling of one the server fetched
+separately. There is deliberately no shape in which a caller supplies a bare affirmation flag and lets
+the server resolve afterwards — that shape is how an affirmation ends up recorded against a version
+the caller was never shown.
+
+Notes:
+
+- The submission is a required, non-nullable parameter of personal-identity creation. A caller that
+  omits it fails the typecheck gate; a request that omits it is rejected before any aggregate write.
+- An unaffirmed submission is accepted only while the resolution carries no requirements. Once the
+  requirement list is non-empty, a path with no way to show someone what they are agreeing to fails
+  closed rather than recording an agreement nobody made.
+
 ## Account Address Book
 
 ### Shipping Address

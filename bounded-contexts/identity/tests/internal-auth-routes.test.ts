@@ -1,6 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
+import { mintRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
+import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+
+// Registration reaches the aggregate writes only with a server-minted
+// resolution, so these route tests resolve one the same way a caller does.
+function registrationConsent() {
+  return {
+    resolution: mintRegistrationConsentResolution({
+      requirements: [],
+      resolvedAt: new Date().toISOString(),
+      signingKeys: resolveRegistrationConsentSigningKeys(),
+    }),
+    affirmed: false,
+  };
+}
 
 function createServices() {
   return {
@@ -42,6 +57,7 @@ describe("identity internal auth routes", () => {
       body: JSON.stringify({
         email: "owner@pokebash.example",
         displayName: "PokeBash TCG",
+        registrationConsent: registrationConsent(),
       }),
     });
 
@@ -68,6 +84,7 @@ describe("identity internal auth routes", () => {
       body: JSON.stringify({
         email: "owner@pokebash.example",
         displayName: "PokeBash TCG",
+        registrationConsent: registrationConsent(),
       }),
     });
 

@@ -20,6 +20,8 @@ import {
   createOwnedUserDisplayName,
   getBootstrapContext,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
+  resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -391,9 +393,18 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
               displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
               givenName: profile.givenName?.trim() || undefined,
               familyName: profile.familyName?.trim() || undefined,
+              registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
               foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
             });
           } catch (error) {
+            const consentRejection = readRegistrationConsentRejection(error);
+            if (consentRejection) {
+              return redirectToFallback(
+                t("auth.support.apiSupport.socialLoginRoutes.registration.consent.unavailable"),
+                journey,
+              );
+            }
+
             const conflict = readIdentityMutationConflict(error);
             if (conflict) {
               return redirectToFallback(t("identity.api.display.name.already.taken"), journey);

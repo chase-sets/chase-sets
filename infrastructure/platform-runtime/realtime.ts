@@ -10,6 +10,7 @@ import {
 } from "./work-signal-composite";
 import type { ResolvedActor } from "./auth";
 import { decodeRealtimeCursor, encodeRealtimeCursor } from "./realtime-cursor";
+import type { SigningKeySet } from "./signed-payload";
 import { createRealtimeReadHub, type RealtimeReadHub } from "./realtime-read-hub";
 import {
   createInMemoryRealtimeStreamLimiter,
@@ -62,12 +63,8 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 60_000;
 const DEFAULT_MAX_CONSECUTIVE_FULL_BATCHES = 3;
 
-export type RealtimeCursorSigningKeySet =
-  | string
-  | Readonly<{
-      current: string;
-      previous?: readonly string[];
-    }>;
+/** The realtime cursor's rotating signing keys -- the shared platform signing key set. */
+export type RealtimeCursorSigningKeySet = SigningKeySet;
 
 export {
   authorizeRealtimeTopics,

@@ -222,6 +222,7 @@
   ],
   "anonymousRoutes": [
     { "routePath": "/api/auth/session", "methods": ["GET", "HEAD"] },
+    { "routePath": "/api/auth/registration-consent", "methods": ["GET", "HEAD"] },
     { "routePath": "/api/auth/register", "methods": ["POST"] },
     { "routePath": "/api/auth/password-sign-in", "methods": ["POST"] },
     { "routePath": "/api/auth/phone-code/request", "methods": ["POST"] },

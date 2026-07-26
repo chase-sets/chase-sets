@@ -8,6 +8,10 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
 import { createAuthServicesFake } from "../auth-support/test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
@@ -23,7 +27,10 @@ const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoiste
 }));
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
 
 function buildApp(
@@ -431,11 +438,13 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account");
+    // The exact server-minted resolution reaches the constructor.
     expect(mockIdentityMutations.createPersonalIdentity).toHaveBeenCalledWith({
       email: "buyer@example.com",
       displayName: "Buyer Example",
       givenName: undefined,
       familyName: undefined,
+      registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
     });
     expect(mockIdentityMutations.linkSocialLogin).toHaveBeenCalledWith({
       userId: "usr_new",

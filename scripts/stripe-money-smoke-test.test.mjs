@@ -56,6 +56,14 @@ function createSmokeFetch(calls) {
         ],
       });
     }
+    if (path === "/api/auth/registration-consent") {
+      return jsonResponse({
+        bundleKey: "registration",
+        requirements: [],
+        resolvedAt: "2026-07-25T00:00:00.000Z",
+        signature: "server-minted-test-signature",
+      });
+    }
     if (path === "/api/auth/register") {
       return jsonResponse(
         {
@@ -677,11 +685,12 @@ describe("stripe money smoke test", () => {
     });
 
     expect(result.accountStatus).toBe("ok");
-    expect(calls.slice(0, 5).map((call) => new URL(call.url).pathname)).toEqual([
+    expect(calls.slice(0, 6).map((call) => new URL(call.url).pathname)).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
+      "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
     const invitationBody = JSON.parse(calls[2].init.body);
@@ -691,17 +700,22 @@ describe("stripe money smoke test", () => {
       roleKey: "viewer",
     });
     expect(invitationBody.invitationId).toMatch(/^ivt_stripe_money_smoke_/);
-    const registrationBody = JSON.parse(calls[4].init.body);
+    // The smoke test submits the resolution it was handed and names no policy
+    // version of its own -- the recorded versions come from the mint alone.
+    const registrationBody = JSON.parse(calls[5].init.body);
     expect(registrationBody).toMatchObject({
       email: "stripe-smoke@example.test",
       displayName: "Stripe Preview Smoke stripe smoke",
-      consents: [
-        {
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
+      registrationConsent: {
+        affirmed: false,
+        resolution: {
+          bundleKey: "registration",
+          requirements: [],
+          signature: "server-minted-test-signature",
         },
-      ],
+      },
     });
+    expect(registrationBody).not.toHaveProperty("consents");
     const sellerSignInCall = calls.find((call) => {
       if (call.url !== "https://marketplace.preview.test/api/auth/password-sign-in") {
         return false;
@@ -751,12 +765,13 @@ describe("stripe money smoke test", () => {
     });
 
     expect(result.accountStatus).toBe("ok");
-    expect(calls.slice(0, 6).map((call) => new URL(call.url).pathname)).toEqual([
+    expect(calls.slice(0, 7).map((call) => new URL(call.url).pathname)).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
       "/api/platform/projections/refresh",
+      "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
   });
@@ -776,11 +791,12 @@ describe("stripe money smoke test", () => {
     });
 
     expect(result.accountStatus).toBe("ok");
-    expect(calls.slice(0, 5).map((call) => new URL(call.url).pathname)).toEqual([
+    expect(calls.slice(0, 6).map((call) => new URL(call.url).pathname)).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
+      "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
   });

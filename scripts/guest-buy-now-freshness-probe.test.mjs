@@ -681,11 +681,23 @@ describe("guest Buy Now freshness probe", () => {
           ],
         });
       }
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         expect(call.data).toMatchObject({
           displayName: expect.stringMatching(/^Buy Now Probe Account /),
           email: expect.stringMatching(/^buy-now-probe\+account-/),
           password: expect.stringMatching(/^buy-now-probe-/),
+          registrationConsent: {
+            affirmed: false,
+            resolution: expect.objectContaining({ signature: "server-minted-test-signature" }),
+          },
         });
         return new FakeResponse(201, { sessionToken: "synthetic_session" });
       }
@@ -707,6 +719,7 @@ describe("guest Buy Now freshness probe", () => {
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh",
+      "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
     expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));

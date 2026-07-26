@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Identity creation path registry",
+  "description": "Every currently-shipping position that can create an Account, User, or Membership, with its disposition. additionalProperties is false at every object level so an unrecognised member is a failure, not a silently ignored extra.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["paths", "compositions"],
+  "properties": {
+    "paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "kind", "disposition", "reason", "sites"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "label": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "public-first-use",
+              "direct-register-client",
+              "protected-administration",
+              "domain-decider",
+              "operator-provisioning",
+              "test-fixture",
+              "seed"
+            ]
+          },
+          "disposition": { "type": "string", "enum": ["bound", "exempt-permanent", "exempt-temporary"] },
+          "reason": { "type": "string", "minLength": 1 },
+          "owningIssue": { "type": "integer", "minimum": 1 },
+          "sites": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "line"],
+              "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "compositions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "disposition", "reason", "owningIssue", "members"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "label": { "type": "string", "minLength": 1 },
+          "disposition": { "type": "string", "enum": ["bound", "exempt-permanent", "exempt-temporary"] },
+          "reason": { "type": "string", "minLength": 1 },
+          "owningIssue": { "type": "integer", "minimum": 1 },
+          "members": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "line", "constructor"],
+              "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1 },
+                "constructor": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

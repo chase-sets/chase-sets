@@ -1368,7 +1368,7 @@
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/identity/server.ts:POST H7f09e43ec5bd#1",
+        "api-client:bounded-contexts/identity/server.ts:POST Hba6a8435214e#1",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts/:id/claim",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/accept",

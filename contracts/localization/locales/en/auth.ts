@@ -295,6 +295,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.socialLoginRoutes.admin.permission.required":
     "This Workspace user does not have access to this admin area.",
   "auth.support.apiSupport.socialLoginRoutes.admin.user.required": "This Workspace user is not set up in Chase Sets.",
+  "auth.support.apiSupport.socialLoginRoutes.registration.consent.unavailable":
+    "Account creation is unavailable right now. Try again in a moment.",
   "auth.support.apiSupport.socialLoginRoutes.admin.workspace.domain.required":
     "Use a Google Workspace account from an approved Chase Sets domain.",
   "auth.support.apiSupport.socialLoginRoutes.admin.workspace.not.configured":

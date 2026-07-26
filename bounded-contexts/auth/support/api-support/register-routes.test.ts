@@ -7,6 +7,10 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
+import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   decodeCommitReceipt,
   type SourceCommitPosition,
@@ -26,7 +30,10 @@ vi.mock("../runtime-support/services", () => ({
 }));
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
 
 function buildApp(services: unknown) {
@@ -498,5 +505,60 @@ describe("registration auth routes", () => {
         ],
       }),
     );
+  });
+
+  it("forwards the caller-supplied registration consent submission to the identity constructor", async () => {
+    const services = createServices();
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_consent",
+      accountId: "acc_consent",
+      membershipId: "mbr_consent",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity, enablePasswordCredential: vi.fn() });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.201"),
+      body: JSON.stringify({
+        email: "consent@chasesets.test",
+        displayName: "Consent Caller",
+        registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION }),
+    );
+  });
+
+  it("relays Identity's rejection when a registration arrives without a resolution", async () => {
+    const services = createServices();
+    const createPersonalIdentity = vi.fn(async () => {
+      throw Object.assign(new Error("rejected"), {
+        status: 400,
+        body: {
+          error: {
+            code: "registration_consent_not_server_minted",
+            reason: "absent",
+            message: "A server-minted registration consent resolution is required.",
+          },
+        },
+      });
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity, enablePasswordCredential: vi.fn() });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.202"),
+      body: JSON.stringify({ email: "no-consent@chasesets.test", displayName: "No Consent" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "registration_consent_not_server_minted", reason: "absent" },
+    });
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 });
