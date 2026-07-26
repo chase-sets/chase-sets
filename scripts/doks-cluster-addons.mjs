@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const chartDir = path.join(scriptDir, "..", "infrastructure", "helm", "doks-ingress");
+const chartYamlPath = path.join(chartDir, "Chart.yaml");
+
+// The local chart's declared version is the one source of truth for later
+// release-state comparisons. The planner intentionally does not use it: adding
+// a Helm argument here would alter the established dry-run contract.
+export const localChartVersion = parse(readFileSync(chartYamlPath, "utf8")).version;
 
 // Pinned upstream releases. Bump deliberately with an operator note; the DOKS
 // cutover proves ingress and cert issuance against these exact versions.

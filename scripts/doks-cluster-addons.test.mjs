@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   applyDoksDnsTokenSecret,
@@ -8,6 +10,7 @@ import {
   doksDnsTokenSecretName,
   doksDnsTokenSecretNamespace,
   loadBalancerName,
+  localChartVersion,
   pinned,
   planClusterAddons,
 } from "./doks-cluster-addons.mjs";
@@ -18,6 +21,33 @@ const ingressNginxValues = readFileSync(
 );
 
 describe("doks cluster addons planner", () => {
+  it("reads the local chart version from Chart.yaml rather than duplicating it", () => {
+    const chartYaml = readFileSync(resolve("infrastructure", "helm", "doks-ingress", "Chart.yaml"), "utf8");
+    expect(localChartVersion).toBe(chartYaml.match(/^version:\s*(.+)$/m)?.[1]);
+    expect(readFileSync(resolve("scripts", "doks-cluster-addons.mjs"), "utf8")).not.toContain('version: "0.1.0"');
+  });
+
+  it("tracks a modified Chart.yaml on a fresh module evaluation", async () => {
+    const chartYamlPath = resolve("infrastructure", "helm", "doks-ingress", "Chart.yaml");
+    const original = readFileSync(chartYamlPath, "utf8");
+    writeFileSync(chartYamlPath, original.replace(/^version:\s*.+$/m, "version: 0.1.1"), "utf8");
+    try {
+      const moduleUrl = pathToFileURL(resolve("scripts", "doks-cluster-addons.mjs")).href;
+      const output = await new Promise((resolveOutput, reject) => {
+        const child = spawn(process.execPath, ["--input-type=module", "--eval", `import { localChartVersion } from \"${moduleUrl}\"; console.log(localChartVersion);`]);
+        let stdout = "";
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.on("error", reject);
+        child.on("close", (code) => (code === 0 ? resolveOutput(stdout.trim()) : reject(new Error(`child exited ${code}`))));
+      });
+      expect(output).toBe("0.1.1");
+    } finally {
+      writeFileSync(chartYamlPath, original, "utf8");
+    }
+  });
+
   it("plans repos, controller, cert-manager, and issuers in order", () => {
     const steps = planClusterAddons({ environment: "staging" });
     expect(steps.map((step) => step.name)).toEqual([
