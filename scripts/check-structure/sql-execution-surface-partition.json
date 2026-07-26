@@ -1627,6 +1627,7 @@
     "bounded-contexts/public-presence/features/help/domain/article-catalog.ts",
     "bounded-contexts/public-presence/features/help/domain/article-model.ts",
     "bounded-contexts/public-presence/features/help/domain/generated/articles.ts",
+    "bounded-contexts/public-presence/features/help/domain/policy-value-state.ts",
     "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.ts",
     "bounded-contexts/public-presence/features/help/integrations/public-policy-values-client.ts",
     "bounded-contexts/public-presence/features/help/integrations/resolve-public-policy-article.ts",

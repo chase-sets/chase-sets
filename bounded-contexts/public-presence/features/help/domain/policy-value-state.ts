@@ -1,7 +1,7 @@
 import type { HelpArticleBlock } from "./article-model";
 
 /**
- * Machine-readable degraded-state contract for public policy values (#6115).
+ * Machine-readable degraded-state contract for public policy values.
  * These are locale-independent DOM markers derived from the `policy-value-unavailable`
  * domain discriminant — a health check must read these attributes, never rendered prose,
  * because the visible copy is a translatable string that any locale edit can change.
