@@ -25,7 +25,11 @@
       "digest": "",
       "pullPolicy": "IfNotPresent"
     },
-    "imagePullSecrets": [],
+    "imagePullSecrets": [
+      {
+        "name": "chase-sets"
+      }
+    ],
     "envOverrides": {},
     "existingSecretName": "chase-sets-platform-runtime",
     "serviceAccount": {

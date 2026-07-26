@@ -34,6 +34,24 @@ kubectl --namespace chase-sets-platform get events --sort-by=.lastTimestamp
 
 The deploy helper renders the checked-in runtime contract, applies the environment Secret, runs the Helm upgrade, waits for bootstrap and workload readiness, verifies ingress, and emits release-health evidence. Do not hand-edit generated values or live Deployments.
 
+## Managed Registry Pull Authority
+
+DigitalOcean's DOKS/DOCR integration is the sole owner of platform image-pull credentials. It owns the source Secret in `kube-system`, reconciles a namespace-local Secret named `chase-sets`, and adds that name to each namespace's default ServiceAccount. GitHub Actions and the platform chart select the stable name `chase-sets`; they never generate, refresh, or select a parallel Docker-config Secret. DigitalOcean owns credential refresh and distribution timing. If that contract stops reconciling, fail closed and escalate to DigitalOcean support instead of creating a fallback credential or extending a credential TTL.
+
+Chart-created ServiceAccounts do not inherit the namespace default ServiceAccount. The platform ServiceAccount, bootstrap-quiesce ServiceAccount, every private-image workload, and both quiescing and non-quiescing scenario-seed Jobs therefore carry `imagePullSecrets: [{name: chase-sets}]` explicitly. Public preview Postgres and observability images do not require DOCR authority.
+
+Disposable preview, merge-gate, and ephemeral-verification workflows create their namespace first, then run `scripts/managed-registry-readiness.mjs` with a 120-second deadline. The named checks wait for both `secret/chase-sets` and the default ServiceAccount's `chase-sets` reference. A missing Secret, missing default ServiceAccount, missing reference, or expired deadline stops the deploy; there is no generated credential fallback or unbounded retry.
+
+For a cold-pull incident, recover in this order:
+
+1. If staging reports `CPBridgeReady` failure or the provider-managed taint remains, DigitalOcean support must restore the control-plane bridge first; then verify CoreDNS and scheduling.
+2. Prove the namespace-local managed Secret name and default ServiceAccount reference through the bounded readiness helper. Do not refresh or select an obsolete parallel Secret.
+3. Deploy a reviewed exact head that explicitly selects `chase-sets`, then recreate or roll out every private-image workload so the new Pod specs carry that name.
+4. Prove the bootstrap Job and all application workloads Ready, then run the normal smoke/canary gates and an authorized cold-node or image-eviction pull discriminator.
+5. Delete an obsolete parallel registry Secret only after exact-deploy evidence proves no workload references it. Repository repair alone is not deploy evidence.
+
+The registry redaction boundary is strict: never request or retain Secret payloads, Docker config, complete Secret YAML/JSON, map-valued metadata, annotations, or credential-bearing command output. Support-safe verification is limited to the exact Secret resource name and the default ServiceAccount's referenced pull-secret names. Do not use `kubectl describe secret` or broad metadata queries. Record only workflow URLs, immutable Git/image identities, named readiness outcomes, workload readiness, and redacted provider support references.
+
 ## Diagnostics
 
 Start with the workflow summary and uploaded deployment diagnostics. Then inspect:

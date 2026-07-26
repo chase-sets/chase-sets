@@ -1198,6 +1198,10 @@ jobs:
           kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true --timeout=5m
           kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
+      - name: Wait for managed registry authority
+        timeout-minutes: 3
+        run: node ./scripts/managed-registry-readiness.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --timeout-seconds 120
+
       - name: Apply preview Kubernetes runtime secrets
         env:
           DEPLOYMENT_ENVIRONMENT: preview
@@ -1260,27 +1264,6 @@ jobs:
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
-      - name: Apply preview Kubernetes registry pull secret
-        run: |
-          set -euo pipefail
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            echo "DigitalOcean Container Registry is required before preview Kubernetes deploys can pull images." >&2
-            exit 1
-          fi
-
-          registry_pull_secret_name="registry-${registry_name}"
-          docker_config="$(mktemp)"
-          trap 'rm -f "$docker_config"' EXIT
-          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
-          kubectl create secret generic "$registry_pull_secret_name" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --from-file=.dockerconfigjson="$docker_config" \
-            --type=kubernetes.io/dockerconfigjson \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
-
       - name: Deploy preview Kubernetes release
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
@@ -1308,7 +1291,7 @@ jobs:
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
             --runtime-env "PREVIEW_IDENTIFIER=${PREVIEW_IDENTIFIER}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \

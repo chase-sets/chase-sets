@@ -15,6 +15,7 @@ import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
+export const managedRegistryPullSecretName = "chase-sets";
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
 const scenarioSeedQuiesceTimeoutSeconds = 45;
 // Leave more than four minutes inside the 55-minute Job deadline for worker
@@ -106,7 +107,7 @@ export function buildHelmUpgradeArgs(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
   const image = parsePlatformImageRef(requiredOption(options.image, "image"));
-  const imagePullSecret = options.imagePullSecret ?? "";
+  const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
   const observabilityEnabled =
@@ -225,7 +226,8 @@ export function buildHelmUpgradeArgs(options = {}) {
     `global.image.tag=${image.tag}`,
     "--set-string",
     `global.image.digest=${image.digest}`,
-    ...(imagePullSecret ? ["--set-string", `global.imagePullSecrets[0].name=${imagePullSecret}`] : []),
+    "--set-string",
+    `global.imagePullSecrets[0].name=${imagePullSecret}`,
     ...Object.entries(envOverrides).flatMap(([name, value]) => [
       "--set-string",
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
@@ -619,6 +621,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const release = requiredOption(options.release ?? defaultRelease, "release");
   const image = platformImageReference(parsePlatformImageRef(requiredOption(options.image, "image")));
+  const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   if (envOverrides.DEPLOYMENT_ENVIRONMENT !== "staging") {
     throw new Error("The post-deploy scenario seed Job is staging-only; DEPLOYMENT_ENVIRONMENT must be staging.");
@@ -708,7 +711,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
         spec: {
           restartPolicy: "Never",
           ...(quiesceWorkers ? { serviceAccountName: accessName } : {}),
-          ...(options.imagePullSecret ? { imagePullSecrets: [{ name: options.imagePullSecret }] } : {}),
+          imagePullSecrets: [{ name: imagePullSecret }],
           containers: [
             {
               name: "scenario-seed",
@@ -752,6 +755,7 @@ export function buildScenarioSeedAccessManifest(options = {}) {
         apiVersion: "v1",
         kind: "ServiceAccount",
         metadata: { name, namespace, labels },
+        imagePullSecrets: [{ name: managedRegistryPullSecretName }],
       },
       {
         apiVersion: "rbac.authorization.k8s.io/v1",
@@ -1246,6 +1250,16 @@ function trimKubernetesName(name) {
   return name.slice(0, 63).replace(/-+$/g, "");
 }
 
+function managedRegistryPullSecret(value = managedRegistryPullSecretName) {
+  const name = requiredOption(value, "image-pull-secret");
+  if (name !== managedRegistryPullSecretName) {
+    throw new Error(
+      `image-pull-secret must select the provider-managed '${managedRegistryPullSecretName}' authority (received '${name}').`,
+    );
+  }
+  return name;
+}
+
 function requiredOption(value, name) {
   if (value == null || value === "") {
     throw new Error(`${name} is required.`);
@@ -1357,7 +1371,7 @@ export function parseArgs(argv, env = process.env) {
   return {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
-    imagePullSecret: readOption(rest, "--image-pull-secret", env.CHASE_SETS_IMAGE_PULL_SECRET_NAME ?? ""),
+    imagePullSecret: readOption(rest, "--image-pull-secret", managedRegistryPullSecretName),
     observabilityExporterEndpoint: readOption(
       rest,
       "--observability-exporter-endpoint",

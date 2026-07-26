@@ -348,6 +348,10 @@ jobs:
             --image-digest "$IMAGE_DIGEST" | kubectl create -f -
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
 
+      - name: Wait for managed registry authority
+        timeout-minutes: 3
+        run: node ./scripts/managed-registry-readiness.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --timeout-seconds 120
+
       # Cleanup evidence drill: fail deliberately AFTER namespace creation so
       # the run proves the failure path reaches the always() finalizers.
       - name: Induced failure drill
@@ -397,22 +401,6 @@ jobs:
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase secrets-applied
 
-      - name: Apply gate Kubernetes registry pull secret
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          REGISTRY_NAME: ${{ steps.image.outputs.registry_name }}
-        run: |
-          set -euo pipefail
-          registry_pull_secret_name="registry-${REGISTRY_NAME}"
-          docker_config="$(mktemp)"
-          trap 'rm -f "$docker_config"' EXIT
-          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
-          kubectl create secret generic "$registry_pull_secret_name" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --from-file=.dockerconfigjson="$docker_config" \
-            --type=kubernetes.io/dockerconfigjson --dry-run=client -o yaml | kubectl apply -f -
-          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
-
       - name: Deploy gate Kubernetes release
         id: deploy
         env:
@@ -423,7 +411,7 @@ jobs:
           marketplace_domain="${GATE_SLUG}-marketplace.preview.chasesets.com"
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
             --runtime-env "PREVIEW_IDENTIFIER=${GATE_SLUG}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
