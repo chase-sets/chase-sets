@@ -15,9 +15,17 @@ export const NON_EXECUTABLE_MILESTONES = Object.freeze(["Deferred / Incubation",
 
 const EPIC_LABEL = "kind:epic";
 
+// The native issue type is authoritative; `kind:epic` remains a fallback
+// because the label predates the type and the orchestrator still reads it.
+export function isEpic(issue) {
+  const type = issue.type?.name ?? issue.issueType?.name ?? null;
+  if (type) return type === "Epic";
+  return (issue.labels ?? []).some((label) => (label.name ?? label) === EPIC_LABEL);
+}
+
 export function deriveStatus(issue) {
   const labels = (issue.labels ?? []).map((label) => label.name ?? label);
-  if (labels.includes(EPIC_LABEL)) return null; // epics roll up; they are not dispatchable
+  if (isEpic(issue)) return null; // epics roll up; they are not dispatchable
 
   if ((issue.blockedBy ?? 0) > 0) return "Blocked";
 
@@ -30,6 +38,25 @@ export function deriveStatus(issue) {
     labels.some((name) => name.startsWith("kind:"));
 
   return refined ? "Refined" : "Backlog";
+}
+
+// GitHub's Roadmap layout cannot plot the built-in Milestone field, so the
+// board carries a real Date field derived from the milestone's due date.
+// Derived, not hand-set: re-dating a milestone re-dates every one of its items.
+export function deriveTargetDate(issue) {
+  const dueOn = issue.milestone?.dueOn ?? issue.milestone?.due_on ?? null;
+  return dueOn ? String(dueOn).slice(0, 10) : null;
+}
+
+export function planDateUpdates(items) {
+  const updates = [];
+  for (const item of items) {
+    const next = deriveTargetDate(item.issue);
+    if (!next) continue; // undated milestones (Deferred, Operations) stay blank
+    if (item.targetDate === next) continue;
+    updates.push({ itemId: item.itemId, number: item.issue.number, from: item.targetDate ?? "(none)", to: next });
+  }
+  return updates;
 }
 
 export function planStatusUpdates(items) {
@@ -70,11 +97,13 @@ query($project:ID!, $after:String) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
-          fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          targetDate: fieldValueByName(name:"Target date") { ... on ProjectV2ItemFieldDateValue { date } }
           content {
             ... on Issue {
               number
-              milestone { title }
+              issueType { name }
+              milestone { title dueOn }
               labels(first:30) { nodes { name } }
               issueDependenciesSummary { blockedBy }
             }
@@ -105,9 +134,11 @@ async function main() {
       if (!node.content?.number) continue;
       items.push({
         itemId: node.id,
-        status: node.fieldValueByName?.name ?? null,
+        status: node.status?.name ?? null,
+        targetDate: node.targetDate?.date ? String(node.targetDate.date).slice(0, 10) : null,
         issue: {
           number: node.content.number,
+          issueType: node.content.issueType,
           milestone: node.content.milestone,
           labels: node.content.labels.nodes,
           blockedBy: node.content.issueDependenciesSummary?.blockedBy ?? 0,
@@ -139,6 +170,28 @@ async function main() {
       token,
     );
     console.log(`  #${update.number}: ${update.from} -> ${update.to}`);
+  }
+
+  const dateFieldId = process.env.TARGET_DATE_FIELD_ID;
+  if (dateFieldId) {
+    const dateUpdates = planDateUpdates(items);
+    console.log(`${dateUpdates.length} target-date changes.`);
+    for (const update of dateUpdates) {
+      await graphql(
+        `
+          mutation ($p: ID!, $i: ID!, $f: ID!, $d: Date!) {
+            updateProjectV2ItemFieldValue(input: { projectId: $p, itemId: $i, fieldId: $f, value: { date: $d } }) {
+              projectV2Item {
+                id
+              }
+            }
+          }
+        `,
+        { p: project, i: update.itemId, f: dateFieldId, d: update.to },
+        token,
+      );
+      console.log(`  #${update.number}: ${update.from} -> ${update.to}`);
+    }
   }
 
   return 0;

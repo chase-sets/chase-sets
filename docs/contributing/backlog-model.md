@@ -17,9 +17,17 @@ Five levels. Only three are GitHub objects.
 |---|---|---|---|
 | **Strategy pillar** | this file (below) | why we build anything | ~yearly |
 | **Outcome wave** | GitHub **milestone** | what is usable next, and when | quarterly |
-| **Epic** | GitHub **issue**, `kind:epic` | what capability this completes | per capability |
-| **Slice** | GitHub **issue**, sub-issue of its epic | what one lane delivers | daily |
-| **Decision / Probe** | GitHub **issue**, `decision` | what blocks a slice from starting | as surfaced |
+| **Epic** | GitHub issue, type **Epic** | what capability this completes | per capability |
+| **Slice** | GitHub issue, type **Slice**, sub-issue of its epic | what one lane delivers | daily |
+| **Bug** | GitHub issue, type **Bug** | what is broken now | as found |
+| **Decision** | GitHub issue, type **Decision** | what blocks a slice from starting | as surfaced |
+| **Probe** | GitHub issue, type **Probe** | what evidence a slice needs before dispatch | as surfaced |
+
+The **native GitHub issue type is the form of the work and is authoritative.**
+`kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
+`test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
+`kind:epic` label is kept only as a fallback for tooling that predates types;
+where the two disagree, the type wins.
 
 Deliberately **not** adopted: *story*, *story points*, *velocity*, *sprints*.
 A slice already carries scope fence, acceptance criteria with evidence methods,
@@ -95,7 +103,7 @@ that belongs in an epic or a milestone.
 |---|---|---|
 | **CI control** | drives workflow behavior | `full-ci`, `preview`, `ci-circuit-repair`. Load-bearing — read by `.github/workflows/platform-pr.yml`. Never prune without changing the workflow. (That workflow also tests for `full-pr-battery`, which is not a defined label; the clause is currently a no-op.) |
 | `area:*` | owning bounded context | Mirrors the context map. Stable. |
-| `kind:*` | nature of the work | Small fixed set: `product`, `tech-debt`, `security`, `test`, `ops`, `epic`. |
+| `kind:*` | nature of the work | Small fixed set: `product`, `tech-debt`, `security`, `test`, `ops`. (`kind:epic` is legacy — the **Epic issue type** replaced it.) |
 | `priority:*` | dispatch rank | `p0`–`p3`. On slices only. |
 | `risk:*` | a named risk to call out | Small fixed set. |
 | `status:*` | lifecycle exceptions | `tracking-only`, `needs-replan`. |
@@ -110,8 +118,8 @@ prompted it ships? If no, it belongs in the epic body.
 
 ## Refined vs. backlog
 
-`priority` + `area` + `kind` + milestone + epic parent are what make a slice
-**refined**. Their absence is not a data-quality failure — it is the honest
+Issue type + `priority` + `area` + `kind` + milestone + epic parent are what
+make a slice **refined**. Their absence is not a data-quality failure — it is the honest
 state of far-horizon work.
 
 - **Refined** — passes the definition of ready. Only refined slices are
@@ -137,8 +145,8 @@ size.
 
 ## Selection (the orchestrator contract)
 
-1. Exclude `kind:epic`, `Deferred / Incubation`, and `Operations` from the
-   executable queue.
+1. Exclude issue type **Epic**, `Deferred / Incubation`, and `Operations` from
+   the executable queue.
 2. Work the earliest wave with runnable refined slices.
 3. Within a wave: `priority:p0`, then `p1`, then `p2`, then `p3`.
 4. A slice with an open blocking dependency is not runnable. Work-conserving:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveStatus, planStatusUpdates } from "./project-status-sync.mjs";
+import { deriveStatus, deriveTargetDate, isEpic, planDateUpdates, planStatusUpdates } from "./project-status-sync.mjs";
 
 function issue(overrides = {}) {
   return {
@@ -36,6 +36,15 @@ describe("project status sync", () => {
     expect(deriveStatus(issue({ labels: [{ name: "kind:epic" }] }))).toBeNull();
   });
 
+  it("prefers the native issue type over the legacy label", () => {
+    expect(isEpic(issue({ issueType: { name: "Epic" }, labels: [] }))).toBe(true);
+    // A typed Slice still carrying a stale kind:epic label is not an epic.
+    expect(isEpic(issue({ issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }))).toBe(false);
+    // Untyped issues fall back to the label.
+    expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(true);
+    expect(isEpic(issue())).toBe(false);
+  });
+
   it("plans only real transitions", () => {
     const items = [
       { itemId: "a", status: "Backlog", issue: issue({ number: 10 }) },
@@ -64,5 +73,39 @@ describe("project status sync", () => {
   it("skips epics entirely", () => {
     const items = [{ itemId: "a", status: null, issue: issue({ labels: [{ name: "kind:epic" }] }) }];
     expect(planStatusUpdates(items)).toEqual([]);
+  });
+});
+
+describe("target date", () => {
+  it("derives the date from the milestone due date", () => {
+    expect(deriveTargetDate(issue({ milestone: { title: "Wave 2", dueOn: "2026-08-12T00:00:00Z" } }))).toBe(
+      "2026-08-12",
+    );
+    expect(deriveTargetDate(issue({ milestone: { title: "Wave 2", due_on: "2026-08-12T00:00:00Z" } }))).toBe(
+      "2026-08-12",
+    );
+  });
+
+  it("is null for undated and absent milestones", () => {
+    expect(deriveTargetDate(issue({ milestone: { title: "Operations" } }))).toBeNull();
+    expect(deriveTargetDate(issue({ milestone: null }))).toBeNull();
+  });
+
+  it("re-dates every item when its milestone moves", () => {
+    const items = [
+      { itemId: "a", targetDate: "2026-08-12", issue: issue({ number: 1, milestone: { dueOn: "2026-08-19" } }) },
+      { itemId: "b", targetDate: "2026-08-19", issue: issue({ number: 2, milestone: { dueOn: "2026-08-19" } }) },
+    ];
+    expect(planDateUpdates(items)).toEqual([{ itemId: "a", number: 1, from: "2026-08-12", to: "2026-08-19" }]);
+  });
+
+  it("leaves undated milestones blank rather than guessing", () => {
+    const items = [{ itemId: "a", targetDate: null, issue: issue({ milestone: { title: "Deferred / Incubation" } }) }];
+    expect(planDateUpdates(items)).toEqual([]);
+  });
+
+  it("fills an unset date", () => {
+    const items = [{ itemId: "a", targetDate: null, issue: issue({ number: 3, milestone: { dueOn: "2026-09-30" } }) }];
+    expect(planDateUpdates(items)).toEqual([{ itemId: "a", number: 3, from: "(none)", to: "2026-09-30" }]);
   });
 });

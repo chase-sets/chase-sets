@@ -2,7 +2,9 @@
 
 An epic is the coordination artifact for a multi-slice feature. Its body is
 **write-once**: corrections and rulings land as superseding comments, never
-edits — the comment trail is the audit log. Use the `epic` issue form.
+edits — the comment trail is the audit log. Use the `epic` issue form, which
+sets the native **Epic** issue type; that type is what marks the issue
+non-dispatchable, not the legacy `kind:epic` label.
 
 Structure contract: `docs/contributing/backlog-model.md`.
 

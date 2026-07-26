@@ -37,4 +37,8 @@ jobs:
           PROJECT_ID: ${{ vars.DELIVERY_PROJECT_ID }}
           STATUS_FIELD_ID: ${{ vars.DELIVERY_STATUS_FIELD_ID }}
           STATUS_OPTION_IDS: ${{ vars.DELIVERY_STATUS_OPTION_IDS }}
+          # Optional: when set, the Roadmap layout's date field is re-derived
+          # from each item's milestone due date. GitHub cannot plot the built-in
+          # Milestone field, so the board carries a real Date field instead.
+          TARGET_DATE_FIELD_ID: ${{ vars.DELIVERY_TARGET_DATE_FIELD_ID }}
         run: node ./scripts/project-status-sync.mjs

@@ -10,7 +10,11 @@ export const END_MARKER = "<!-- roadmap-status:end -->";
 const EPIC_LABEL = "kind:epic";
 const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 
+// The native issue type is authoritative. `kind:epic` is kept as a fallback
+// because the label predates the type and the orchestrator still reads it.
 export function isEpic(issue) {
+  const type = issue.type?.name ?? issue.issueType?.name ?? null;
+  if (type) return type === "Epic";
   return (issue.labels ?? []).some((label) => (label.name ?? label) === EPIC_LABEL);
 }
 
