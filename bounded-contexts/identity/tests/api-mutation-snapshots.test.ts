@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
+import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 
@@ -283,6 +284,9 @@ describe("Identity API mutation snapshots", () => {
       }),
     );
 
+    const registrationConsent = await requestJson(app, "/internal/auth/registration-consent");
+    expect(registrationConsent.response.status).toBe(200);
+
     const personalIdentity = await requestJson(app, "/internal/auth/personal-identities", {
       method: "POST",
       body: JSON.stringify({
@@ -292,6 +296,10 @@ describe("Identity API mutation snapshots", () => {
         // mock above); the client-supplied version here is intentionally
         // stale to prove the server ignores it for the canonical key.
         consents: [{ policyKey: "terms-of-service", policyVersion: "stale-client-supplied-version" }],
+        registrationConsent: {
+          resolution: registrationConsent.body as SignedRegistrationConsentResolution,
+          affirmed: true,
+        },
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
