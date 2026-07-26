@@ -40,6 +40,8 @@ export function AdminRootShell({
           ) : undefined
         }
         moreLabel={t("adminWeb.app.adminShell.more")}
+        sectionsLabel={t("adminWeb.app.adminShell.sections")}
+        currentSectionLabel={t("adminWeb.app.adminShell.current.section")}
       >
         {children}
       </AdminShell>

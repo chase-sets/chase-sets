@@ -1,5 +1,7 @@
 export const adminWebEnglishTranslations = {
+  "adminWeb.app.adminShell.current.section": "Current section",
   "adminWeb.app.adminShell.more": "More",
+  "adminWeb.app.adminShell.sections": "Sections",
   "adminWeb.app.adminSectionLayout.account": "Account",
   "adminWeb.app.adminSectionLayout.account.menu": "Account menu",
   "adminWeb.app.adminSectionLayout.admin.account": "Admin account",

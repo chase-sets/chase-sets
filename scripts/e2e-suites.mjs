@@ -204,6 +204,10 @@ const e2eSpecSuiteOwnership = [
     suites: ["marketplace_browse"],
   },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/admin-tablet-navigation\.spec\.ts$/,
+    suites: ["catalog_admin_integrations", "admin_support"],
+  },
   { pattern: /^deployables\/admin-web\/e2e\/auth-shell-rbac\.spec\.ts$/, suites: ["admin_auth"] },
   { pattern: /^deployables\/admin-web\/e2e\/catalog-integrations\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
   { pattern: /^deployables\/admin-web\/e2e\/catalog-scopes\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
