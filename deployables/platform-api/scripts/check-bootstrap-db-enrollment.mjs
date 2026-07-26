@@ -42,6 +42,8 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       "enumerates stream-sourced seed-state coverage from the runtime mount list",
       "resumes every converted context after its UNLOGGED guard projections are truncated",
+      "accepts a seeded resolution after the real deadline sweep advances it to closed",
+      "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
       "recreates only a missing review-eligible payment after a sibling payment has completed",
     ]),
   }),

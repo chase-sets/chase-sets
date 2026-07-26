@@ -358,6 +358,16 @@ function committedEvidenceIds(state: SupportRequestState): readonly string[] {
 }
 
 /**
+ * A resolution-bearing seed entry stays complete after the normal deadline
+ * sweep advances it from resolved to closed. Cancellation is a distinct
+ * terminal outcome and must still fail reconciliation rather than masquerade
+ * as the seeded resolution.
+ */
+function hasCompletedSeedResolution(status: SupportRequestState["status"]): boolean {
+  return status === "resolved" || status === "closed";
+}
+
+/**
  * Reports the Platform Operations seed's base aggregate state from the
  * authoritative streams: every reserved platform-feedback submission and every
  * reserved support request.
@@ -389,7 +399,7 @@ export async function inspectPlatformOperationsSeedState(
     const complete =
       state.supportRequestId !== null &&
       evidenceComplete &&
-      (request.resolution === null || state.status === "resolved");
+      (request.resolution === null || hasCompletedSeedResolution(state.status));
     reports.push({
       contextName: "platform-operations",
       aggregateName: "Support Request",
@@ -524,7 +534,7 @@ async function reconcileSeedSupportRequest(
     });
   }
 
-  if (request.resolution && state.status !== "resolved") {
+  if (request.resolution && !hasCompletedSeedResolution(state.status)) {
     await support.supportRequests.commandHandler({
       streamId,
       command: {

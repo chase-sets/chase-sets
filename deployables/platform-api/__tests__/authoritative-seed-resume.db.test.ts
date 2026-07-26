@@ -1,4 +1,5 @@
 import type { BcApiModule, BcSeedAggregateStateReport, BcSeedOptions } from "@chase-sets/bounded-context-module";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { describe, expect, it } from "vitest";
@@ -57,6 +58,9 @@ const seedStateExemptions = new Map<string, string>([
 ]);
 
 const requiredDraftListingId = "lst_seed_lugia_neo_genesis_draft";
+const resolvedSeedSupportRequestId = "sup_seed_resolved_partial_refund";
+const resolvedSeedBuyerAttestationId = "sev_seed_resolved_buyer_attestation";
+const resolvedSeedPhotoId = "sev_seed_resolved_photo";
 
 let pools: PlatformApiTestPools;
 createPlatformApiBootstrapTestHarness("platform_api_authoritative_seed_resume", (state) => {
@@ -64,6 +68,25 @@ createPlatformApiBootstrapTestHarness("platform_api_authoritative_seed_resume", 
 });
 
 type SeedingModule = Pick<BcApiModule<unknown, unknown, unknown>, "contextName" | "seed" | "inspectSeedState">;
+type SeedLifecycleSupportRequests = Readonly<{
+  commandHandler: (
+    input: Readonly<{
+      streamId: string;
+      command: Readonly<Record<string, unknown>>;
+      context: EventStoreContext;
+    }>,
+  ) => Promise<unknown>;
+  sweepSupportRequestDeadlines: (
+    params: Readonly<{ now?: string; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<Readonly<{ autoClosed: number }>>;
+}>;
+type SupportSeedOrderSource = Readonly<{
+  order_id: string;
+  buyer_account_id: string;
+  seller_account_id: string;
+  total_amount: string;
+}>;
 
 function createHost() {
   return createPlatformApiHost({
@@ -109,6 +132,26 @@ function poolFor(contextName: string) {
   return pools[contextName as PlatformApiContextName];
 }
 
+function requirePlatformOperationsContext(runtime: ReturnType<typeof createHost>) {
+  const context = runtime.mountedContexts.find((mounted) => mounted.contextName === "platform-operations");
+  if (!context?.module.seed || !context.module.inspectSeedState) {
+    throw new Error("Platform Operations is not mounted with seed reconciliation and inspection.");
+  }
+  return context;
+}
+
+function supportRequestServices(context: ReturnType<typeof requirePlatformOperationsContext>) {
+  return (context.services as unknown as Readonly<{ supportRequests: SeedLifecycleSupportRequests }>).supportRequests;
+}
+
+const seedActorContext = {
+  tenantId: "tnt_seed_development",
+  audit: {
+    performedByUserId: "usr_test_issue_6167",
+    forAccountId: "acc_test_issue_6167",
+  },
+} as EventStoreContext;
+
 async function contextEventCount(contextName: string): Promise<number> {
   const result = await poolFor(contextName).query<Readonly<{ count: string }>>(
     "SELECT COUNT(*) AS count FROM event_store_events",
@@ -143,6 +186,98 @@ async function paymentStreamEventTypes(paymentId: string): Promise<readonly stri
     [`payments.payment-${paymentId}`],
   );
   return result.rows.map((row) => row.event_type);
+}
+
+async function supportRequestStreamEventTypes(supportRequestId: string): Promise<readonly string[]> {
+  const result = await pools["platform-operations"].query<Readonly<{ event_type: string }>>(
+    "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC",
+    [`support.support-request-${supportRequestId}`],
+  );
+  return result.rows.map((row) => row.event_type);
+}
+
+async function replaceResolvedSeedRequestWithCancelled(supportRequests: SeedLifecycleSupportRequests): Promise<void> {
+  const supportRequestId = resolvedSeedSupportRequestId;
+  const streamId = `support.support-request-${supportRequestId}`;
+  const platformOperationsPool = pools["platform-operations"];
+  const orderResult = await platformOperationsPool.query<SupportSeedOrderSource>(
+    `SELECT source.order_id,
+            source.buyer_account_id,
+            source.seller_account_id,
+            source.total_amount::text AS total_amount
+     FROM support_request_pages AS request
+     JOIN support_order_sources AS source ON source.order_id = request.order_id
+     WHERE request.support_request_id = $1`,
+    [supportRequestId],
+  );
+  const order = orderResult.rows[0];
+  if (!order) {
+    throw new Error("Platform Operations support seed order source is absent.");
+  }
+
+  await platformOperationsPool.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [streamId]);
+  await platformOperationsPool.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+  await platformOperationsPool.query(
+    "UPDATE event_store_streams SET current_version = 0, updated_at = now() WHERE stream_id = $1",
+    [streamId],
+  );
+  await platformOperationsPool.query("DELETE FROM support_request_pages WHERE support_request_id = $1", [
+    supportRequestId,
+  ]);
+
+  await supportRequests.commandHandler({
+    streamId,
+    command: {
+      type: "OpenSupportRequest",
+      supportRequestId,
+      orderId: order.order_id,
+      orderTotalAmount: order.total_amount,
+      buyerAccountId: order.buyer_account_id,
+      sellerAccountId: order.seller_account_id,
+      flowType: "product-damaged",
+      openedByAccountId: order.buyer_account_id,
+      openedByRole: "buyer",
+      openedAt: "2026-03-25T10:00:00.000Z",
+    },
+    context: seedActorContext,
+  });
+  await supportRequests.commandHandler({
+    streamId,
+    command: {
+      type: "SubmitSupportEvidence",
+      evidenceId: resolvedSeedBuyerAttestationId,
+      submittedByAccountId: order.buyer_account_id,
+      submittedByRole: "buyer",
+      evidenceType: "buyer-attestation",
+      summary: "Buyer reports the item arrived with shipping damage.",
+      submittedAt: "2026-03-25T10:02:00.000Z",
+      attachments: [],
+    },
+    context: seedActorContext,
+  });
+  await supportRequests.commandHandler({
+    streamId,
+    command: {
+      type: "SubmitSupportEvidence",
+      evidenceId: resolvedSeedPhotoId,
+      submittedByAccountId: order.buyer_account_id,
+      submittedByRole: "buyer",
+      evidenceType: "photo",
+      summary: "Photo evidence shows the damaged corner.",
+      submittedAt: "2026-03-25T10:04:00.000Z",
+      attachments: ["seed://support/damaged-card-corner"],
+    },
+    context: seedActorContext,
+  });
+  await supportRequests.commandHandler({
+    streamId,
+    command: {
+      type: "CancelSupportRequest",
+      cancelledAt: "2026-03-25T10:10:00.000Z",
+      reason: "Cancelled-state seed reconciliation negative control.",
+    },
+    context: seedActorContext,
+  });
 }
 
 function summarizeStates(reports: readonly BcSeedAggregateStateReport[]): string {
@@ -259,6 +394,84 @@ describe("authoritative seed resume", () => {
     }
     // Full-host boot case: same explicit budget the suite already uses for
     // `bootstrap-scenario.db.test.ts`'s single full-host boot.
+  }, 300_000);
+
+  it("accepts a seeded resolution after the real deadline sweep advances it to closed", async () => {
+    const runtime = createHost();
+    await ordinaryBoot(runtime);
+    const context = requirePlatformOperationsContext(runtime);
+    const supportRequests = supportRequestServices(context);
+    const supportRequestId = resolvedSeedSupportRequestId;
+    const beforeSweepTypes = await supportRequestStreamEventTypes(supportRequestId);
+    expect(beforeSweepTypes).toContain("support.support-request.resolved");
+    expect(beforeSweepTypes).not.toContain("support.support-request.closed");
+
+    const sweep = await supportRequests.sweepSupportRequestDeadlines(
+      { now: "2026-04-02T10:30:00.000Z" },
+      seedActorContext,
+    );
+
+    expect(sweep.autoClosed).toBe(1);
+    const afterSweepTypes = await supportRequestStreamEventTypes(supportRequestId);
+    expect(afterSweepTypes).toEqual([...beforeSweepTypes, "support.support-request.closed"]);
+    const afterSweepReports = await context.module.inspectSeedState!(context.pool);
+    expect(afterSweepReports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: supportRequestId,
+          kind: "active",
+          status: "closed",
+        }),
+      ]),
+    );
+
+    const afterSweepEventCount = await contextEventCount("platform-operations");
+    await expect(context.module.seed!(context.pool, context.services, seedOptions)).resolves.toBeUndefined();
+    expect(await contextEventCount("platform-operations")).toBe(afterSweepEventCount);
+    const afterReconciliationReports = await context.module.inspectSeedState!(context.pool);
+    expect(afterReconciliationReports.filter((report) => report.kind === "draft")).toEqual([]);
+    expect(await supportRequestStreamEventTypes(supportRequestId)).toEqual(afterSweepTypes);
+    console.log(
+      `[#6167 pass-after] status=closed inspection=active seed-reentry-appends=0 ` +
+        "counterfactual-resolved-only-complete=false",
+    );
+  }, 300_000);
+
+  it("keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it", async () => {
+    const runtime = createHost();
+    await ordinaryBoot(runtime);
+    const context = requirePlatformOperationsContext(runtime);
+    await replaceResolvedSeedRequestWithCancelled(supportRequestServices(context));
+    const supportRequestId = resolvedSeedSupportRequestId;
+    const cancelledTypes = await supportRequestStreamEventTypes(supportRequestId);
+    expect(cancelledTypes.at(-1)).toBe("support.support-request.cancelled");
+
+    const beforeReconciliationEventCount = await contextEventCount("platform-operations");
+    const beforeReconciliationReports = await context.module.inspectSeedState!(context.pool);
+    expect(beforeReconciliationReports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: supportRequestId,
+          kind: "draft",
+          status: "cancelled",
+        }),
+      ]),
+    );
+
+    await expect(context.module.seed!(context.pool, context.services, seedOptions)).rejects.toThrow();
+    expect(await contextEventCount("platform-operations")).toBe(beforeReconciliationEventCount);
+    expect(await supportRequestStreamEventTypes(supportRequestId)).toEqual(cancelledTypes);
+    const afterReconciliationReports = await context.module.inspectSeedState!(context.pool);
+    expect(afterReconciliationReports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: supportRequestId,
+          kind: "draft",
+          status: "cancelled",
+        }),
+      ]),
+    );
+    console.log("[#6167 cancelled-control] inspection=draft seed-reentry=reject appends=0");
   }, 300_000);
 
   it("recreates only a missing review-eligible payment after a sibling payment has completed", async () => {
