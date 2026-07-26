@@ -1,9 +1,8 @@
 import process from "node:process";
 
-// Applies the slice form's Priority / Owning context / Kind answers as labels.
-// The form itself cannot set conditional labels, so the ready-gate metadata
-// would otherwise depend on the author remembering to label by hand — which is
-// how 292 of 522 open slices ended up with no priority at all.
+// Applies a trusted issue author's slice-form Priority / Owning context / Kind
+// answers as labels. The form itself cannot set conditional labels, so this
+// script mirrors those answers for repository owners, members, and collaborators.
 //
 // Additive only: this never removes a label a human or the planner set.
 
@@ -43,6 +42,22 @@ const FIELDS = [
 
 const NO_RESPONSE = "_no response_";
 
+// GitHub's CommentAuthorAssociation vocabulary, retrieved 2026-07-26:
+// https://docs.github.com/en/graphql/reference/issues#commentauthorassociation
+// Keep the trusted partition explicit and fail closed when GitHub adds a value.
+// github-actions[bot] currently reports NONE; repository workflows must set
+// their labels when creating issues instead of relying on this form labeler.
+export function isTrustedAuthorAssociation(association) {
+  switch (association) {
+    case "OWNER":
+    case "MEMBER":
+    case "COLLABORATOR":
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function readFormField(body, heading) {
   const text = String(body ?? "");
   const pattern = new RegExp(`^###\\s+${heading}\\s*$`, "im");
@@ -80,12 +95,12 @@ export function labelsToAdd(body, existing = []) {
   });
 }
 
-async function main() {
-  const repo = process.env.GITHUB_REPOSITORY;
-  const token = process.env.GITHUB_TOKEN;
-  const issueNumber = process.env.ISSUE_NUMBER;
+export async function main({ env = process.env, client = globalThis.fetch, logger = console } = {}) {
+  const repo = env.GITHUB_REPOSITORY;
+  const token = env.GITHUB_TOKEN;
+  const issueNumber = env.ISSUE_NUMBER;
   if (!repo || !token || !issueNumber) {
-    console.error("GITHUB_REPOSITORY, GITHUB_TOKEN and ISSUE_NUMBER are required.");
+    logger.error("GITHUB_REPOSITORY, GITHUB_TOKEN and ISSUE_NUMBER are required.");
     return 2;
   }
 
@@ -95,19 +110,24 @@ async function main() {
     "x-github-api-version": "2022-11-28",
   };
 
-  const issueResponse = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}`, { headers });
+  const issueResponse = await client(`https://api.github.com/repos/${repo}/issues/${issueNumber}`, { headers });
   if (!issueResponse.ok) {
     throw new Error(`Failed to read issue: ${issueResponse.status} ${await issueResponse.text()}`);
   }
   const issue = await issueResponse.json();
 
-  const add = labelsToAdd(issue.body, issue.labels);
-  if (add.length === 0) {
-    console.log("No form labels to add.");
+  if (!isTrustedAuthorAssociation(issue.author_association)) {
+    logger.log(`skipped: author association \`${String(issue.author_association)}\` is not trusted.`);
     return 0;
   }
 
-  const addResponse = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`, {
+  const add = labelsToAdd(issue.body, issue.labels);
+  if (add.length === 0) {
+    logger.log("No form labels to add.");
+    return 0;
+  }
+
+  const addResponse = await client(`https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`, {
     method: "POST",
     headers,
     body: JSON.stringify({ labels: add }),
@@ -116,7 +136,7 @@ async function main() {
     throw new Error(`Failed to add labels: ${addResponse.status} ${await addResponse.text()}`);
   }
 
-  console.log(`Applied: ${add.join(", ")}`);
+  logger.log(`Applied: ${add.join(", ")}`);
   return 0;
 }
 
