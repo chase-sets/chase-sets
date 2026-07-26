@@ -1,3 +1,5 @@
+import { cleanup, render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loader as articleLoader } from "../routes/marketplace/help-article";
 import { loader as categoryLoader } from "../routes/marketplace/help-category";
@@ -6,10 +8,33 @@ import { loader as protectionRedirectLoader } from "../routes/marketplace/order-
 import { loader as refundsRedirectLoader } from "../routes/marketplace/refunds-and-returns";
 import { resolvePublicPolicyArticle } from "../features/help/integrations/resolve-public-policy-article";
 import type { HelpArticle } from "../features/help/domain/article-model";
+import { HelpArticlePage } from "../features/help/ui/help-pages";
+import {
+  collectUnresolvedPolicyValueOccurrences,
+  POLICY_VALUE_KEY_ATTRIBUTE,
+  POLICY_VALUE_STATE_ATTRIBUTE,
+  POLICY_VALUE_UNAVAILABLE_STATE,
+  POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE,
+  POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE,
+  parsePolicyValueKeys,
+} from "../features/help/domain/policy-value-state";
+
+function renderedUnresolvedKeys(article: HelpArticle) {
+  const { container } = render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
+  const markers = [...container.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`)]
+    .map((node) => node.getAttribute(POLICY_VALUE_KEY_ATTRIBUTE))
+    .sort();
+  const aggregate = container.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
+  const aggregateKeys = aggregate
+    ? [...parsePolicyValueKeys(aggregate.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort()
+    : [];
+  return { markers, aggregateKeys };
+}
 
 const request = new Request("https://chasesets.com/help");
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -137,6 +162,10 @@ describe("public help routes", () => {
     expect(body).toContain("2.9%");
     expect(body).toContain("$0.30");
     expect(body).toContain("0.5%");
+
+    const { markers, aggregateKeys } = renderedUnresolvedKeys(data.article as HelpArticle);
+    expect(markers).toEqual([]);
+    expect(aggregateKeys).toEqual([]);
   });
 
   it.each([
@@ -183,6 +212,10 @@ describe("public help routes", () => {
         classification,
         ...(status === undefined ? {} : { status }),
       });
+
+      const { markers, aggregateKeys } = renderedUnresolvedKeys(data.article as HelpArticle);
+      expect(markers).toEqual(collectUnresolvedPolicyValueOccurrences((data.article as HelpArticle).blocks));
+      expect(aggregateKeys).toEqual([...data.article.policyValueKeys].sort());
     },
   );
 
@@ -264,6 +297,10 @@ describe("public help routes", () => {
       classification: "malformed",
     });
     expect(JSON.stringify(error.mock.calls)).not.toContain(malformedMarker);
+
+    const { markers, aggregateKeys } = renderedUnresolvedKeys(data.article as HelpArticle);
+    expect(markers).toEqual(collectUnresolvedPolicyValueOccurrences((data.article as HelpArticle).blocks));
+    expect(aggregateKeys).toEqual(unresolvedKeys);
   });
 
   it("renders valid entries while combining missing and malformed keys into one exact unresolved set", async () => {
@@ -293,6 +330,13 @@ describe("public help routes", () => {
       unresolvedKeys: ["checkout-processing-fee.card.bps", "checkout-processing-fee.card.fixed"],
       classification: "malformed",
     });
+
+    const expectedUnresolved = ["checkout-processing-fee.card.bps", "checkout-processing-fee.card.fixed"];
+    const { markers, aggregateKeys } = renderedUnresolvedKeys(data.article as HelpArticle);
+    expect(markers).toEqual(collectUnresolvedPolicyValueOccurrences((data.article as HelpArticle).blocks));
+    expect(aggregateKeys).toEqual(expectedUnresolved);
+    // Resolved keys never carry the unavailable marker.
+    expect(markers).not.toContain("checkout-processing-fee.bank-account.bps");
   });
 
   it.each(["not-a-timestamp", "2026-02-30T00:00:00.000Z"])(

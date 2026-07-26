@@ -3,6 +3,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import {
+  POLICY_VALUE_KEY_ATTRIBUTE,
+  POLICY_VALUE_STATE_ATTRIBUTE,
+  POLICY_VALUE_UNAVAILABLE_STATE,
+  POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE,
+  POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE,
+  parsePolicyValueKeys,
+} from "@chase-sets/public-presence/web";
 import SalesFeesRoute, { headers, loader, meta } from "./sales-fees";
 
 const values = {
@@ -138,6 +146,19 @@ describe("sales fees route", () => {
         route: "/sales-fees",
         unresolvedKeys: expect.arrayContaining(["marketplace-sales-fee.standard.bps"]),
       }),
+    );
+
+    const [, loggedFields] = error.mock.calls[0] as [string, { unresolvedKeys: readonly string[] }];
+    const expectedKeys = [...loggedFields.unresolvedKeys].sort();
+    const markers = [
+      ...document.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`),
+    ]
+      .map((node) => node.getAttribute(POLICY_VALUE_KEY_ATTRIBUTE))
+      .sort();
+    expect(markers).toEqual(expectedKeys);
+    const aggregate = document.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
+    expect([...parsePolicyValueKeys(aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort()).toEqual(
+      expectedKeys,
     );
   });
 
