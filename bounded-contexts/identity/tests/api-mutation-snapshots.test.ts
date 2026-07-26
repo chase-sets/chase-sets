@@ -307,18 +307,13 @@ describe("Identity API mutation snapshots", () => {
       expect.arrayContaining([
         expect.objectContaining({ aggregate: "account", version: 11, status: "active" }),
         expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "consent", version: 61, status: "recorded" }),
         expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
       ]),
     );
-    expect(services.consents.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-        }),
-      }),
+    expect(personalIdentity.body.snapshots).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ aggregate: "consent" })]),
     );
+    expect(services.consents.commandHandler).not.toHaveBeenCalled();
 
     for (const path of [
       "/internal/auth/users/usr_1/sms-code",
