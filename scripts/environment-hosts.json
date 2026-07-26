@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 1,
+  "rootDomain": "chasesets.com",
+  "hosts": [
+    {
+      "host": "admin.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "admin.doks.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "admin.doks.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "admin.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "assets.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A9"
+    },
+    {
+      "host": "chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A4"
+    },
+    {
+      "host": "doks.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "doks.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "grafana.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "grafana.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "marketplace.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "marketplace.doks.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "marketplace.doks.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "marketplace.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "otel.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "otel.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "prometheus.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "prometheus.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "service",
+      "templated": false,
+      "authorityAnchor": "A10"
+    },
+    {
+      "host": "staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A4"
+    },
+    {
+      "host": "www.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "www.doks.chasesets.com",
+      "status": "current",
+      "environment": "production",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "www.doks.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "diagnostic",
+      "templated": false,
+      "authorityAnchor": "A6"
+    },
+    {
+      "host": "www.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
+      "host": "*.preview.chasesets.com",
+      "status": "current",
+      "environment": "preview",
+      "class": "service",
+      "templated": true,
+      "authorityAnchor": "A11"
+    },
+    {
+      "host": "pr-N.preview.chasesets.com",
+      "status": "current",
+      "environment": "preview",
+      "class": "application",
+      "templated": true,
+      "authorityAnchor": "A12"
+    },
+    {
+      "host": "pr-N-admin.preview.chasesets.com",
+      "status": "current",
+      "environment": "preview",
+      "class": "application",
+      "templated": true,
+      "authorityAnchor": "A12"
+    },
+    {
+      "host": "pr-N-marketplace.preview.chasesets.com",
+      "status": "current",
+      "environment": "preview",
+      "class": "application",
+      "templated": true,
+      "authorityAnchor": "A12"
+    },
+    {
+      "host": "api.chasesets.com",
+      "status": "reserved",
+      "environment": "production",
+      "class": "application",
+      "templated": false,
+      "reservedFor": "Future public API and provider callbacks; docs/architecture/environment-domain-names.md#api-hosts"
+    },
+    {
+      "host": "api.staging.chasesets.com",
+      "status": "reserved",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "reservedFor": "Future staging public API; docs/architecture/environment-domain-names.md#api-hosts"
+    },
+    {
+      "host": "admin-staging.chasesets.com",
+      "status": "retired",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "retiredIn": "https://github.com/chase-sets/chase-sets/pull/5782",
+      "retiredOn": "2026-07-19T14:10:58-05:00"
+    },
+    {
+      "host": "landing-staging.chasesets.com",
+      "status": "retired",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "retiredIn": "https://github.com/chase-sets/chase-sets/pull/5782",
+      "retiredOn": "2026-07-19T14:10:58-05:00"
+    },
+    {
+      "host": "marketplace-staging.chasesets.com",
+      "status": "retired",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "retiredIn": "https://github.com/chase-sets/chase-sets/pull/5782",
+      "retiredOn": "2026-07-19T14:10:58-05:00"
+    }
+  ],
+  "sanctionedReferences": [
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "admin-staging.chasesets.com",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "admin.doks",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "admin.doks.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "admin.doks.staging",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "admin.doks.staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "doks.chasesets.com",
+      "occurrences": 4,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "doks.staging",
+      "occurrences": 4,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "doks.staging.chasesets.com",
+      "occurrences": 4,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "landing-staging.chasesets.com",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "marketplace-staging.chasesets.com",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "marketplace.doks",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "marketplace.doks.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "marketplace.doks.staging",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "marketplace.doks.staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "www.doks",
+      "occurrences": 2,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "www.doks.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "www.doks.staging",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/architecture/environment-domain-names.md",
+      "token": "www.doks.staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Rendered registry and canonical migration guidance.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#environment-domain-names"
+    },
+    {
+      "path": "docs/runbooks/money-operations.md",
+      "token": "marketplace-staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Historical Stripe endpoint migration guidance.",
+      "sanctionedBy": "docs/runbooks/money-operations.md"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/README.md",
+      "token": "admin.doks",
+      "occurrences": 1,
+      "reason": "Authority documentation for retained diagnostic aliases.",
+      "sanctionedBy": "infrastructure/digitalocean/environment-dns/README.md"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/README.md",
+      "token": "marketplace.doks",
+      "occurrences": 1,
+      "reason": "Authority documentation for retained diagnostic aliases.",
+      "sanctionedBy": "infrastructure/digitalocean/environment-dns/README.md"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/README.md",
+      "token": "www.doks",
+      "occurrences": 1,
+      "reason": "Authority documentation for retained diagnostic aliases.",
+      "sanctionedBy": "infrastructure/digitalocean/environment-dns/README.md"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/locals.tf",
+      "token": "admin.doks",
+      "occurrences": 2,
+      "reason": "Terraform authority declaration for retained diagnostic aliases.",
+      "sanctionedBy": "A6"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/locals.tf",
+      "token": "marketplace.doks",
+      "occurrences": 2,
+      "reason": "Terraform authority declaration for retained diagnostic aliases.",
+      "sanctionedBy": "A6"
+    },
+    {
+      "path": "infrastructure/digitalocean/environment-dns/locals.tf",
+      "token": "www.doks",
+      "occurrences": 2,
+      "reason": "Terraform authority declaration for retained diagnostic aliases.",
+      "sanctionedBy": "A6"
+    },
+    {
+      "path": "scripts/environment-topology-guard.mjs",
+      "token": "admin.doks",
+      "occurrences": 2,
+      "reason": "Pinned A6 authority source text used for fail-closed derivation.",
+      "sanctionedBy": "https://github.com/chase-sets/chase-sets/issues/6103"
+    },
+    {
+      "path": "scripts/environment-topology-guard.mjs",
+      "token": "marketplace.doks",
+      "occurrences": 2,
+      "reason": "Pinned A6 authority source text used for fail-closed derivation.",
+      "sanctionedBy": "https://github.com/chase-sets/chase-sets/issues/6103"
+    },
+    {
+      "path": "scripts/environment-topology-guard.mjs",
+      "token": "www.doks",
+      "occurrences": 2,
+      "reason": "Pinned A6 authority source text used for fail-closed derivation.",
+      "sanctionedBy": "https://github.com/chase-sets/chase-sets/issues/6103"
+    },
+    {
+      "path": "scripts/platform-ingress-wait.test.mjs",
+      "token": "doks.chasesets.com",
+      "occurrences": 2,
+      "reason": "Negative-path fixtures for legacy and diagnostic ingress hosts.",
+      "sanctionedBy": "scripts/platform-ingress-wait.test.mjs"
+    },
+    {
+      "path": "scripts/platform-ingress-wait.test.mjs",
+      "token": "landing-staging.chasesets.com",
+      "occurrences": 6,
+      "reason": "Negative-path fixtures for legacy and diagnostic ingress hosts.",
+      "sanctionedBy": "scripts/platform-ingress-wait.test.mjs"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.mjs",
+      "token": "admin.doks",
+      "occurrences": 1,
+      "reason": "Authority implementation constructing retained diagnostic aliases.",
+      "sanctionedBy": "scripts/render-platform-helm-values.mjs#buildDoksIngressHosts"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.mjs",
+      "token": "marketplace.doks",
+      "occurrences": 1,
+      "reason": "Authority implementation constructing retained diagnostic aliases.",
+      "sanctionedBy": "scripts/render-platform-helm-values.mjs#buildDoksIngressHosts"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.mjs",
+      "token": "www.doks",
+      "occurrences": 1,
+      "reason": "Authority implementation constructing retained diagnostic aliases.",
+      "sanctionedBy": "scripts/render-platform-helm-values.mjs#buildDoksIngressHosts"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.test.mjs",
+      "token": "admin.doks",
+      "occurrences": 1,
+      "reason": "Incident regression prose for the retained diagnostic alias.",
+      "sanctionedBy": "scripts/render-platform-helm-values.test.mjs"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.test.mjs",
+      "token": "admin.doks.staging",
+      "occurrences": 1,
+      "reason": "Incident regression prose for the retained diagnostic alias.",
+      "sanctionedBy": "scripts/render-platform-helm-values.test.mjs"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.test.mjs",
+      "token": "admin.doks.staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Incident regression prose for the retained diagnostic alias.",
+      "sanctionedBy": "scripts/render-platform-helm-values.test.mjs"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.test.mjs",
+      "token": "doks.staging",
+      "occurrences": 1,
+      "reason": "Incident regression prose for the retained diagnostic alias.",
+      "sanctionedBy": "scripts/render-platform-helm-values.test.mjs"
+    },
+    {
+      "path": "scripts/render-platform-helm-values.test.mjs",
+      "token": "doks.staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Incident regression prose for the retained diagnostic alias.",
+      "sanctionedBy": "scripts/render-platform-helm-values.test.mjs"
+    },
+    {
+      "path": "scripts/stripe-webhook-endpoint.mjs",
+      "token": "marketplace-staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Sanctioned legacy Stripe compatibility input.",
+      "sanctionedBy": "docs/architecture/environment-domain-names.md#convention"
+    },
+    {
+      "path": "scripts/stripe-webhook-endpoint.test.mjs",
+      "token": "marketplace-staging.chasesets.com",
+      "occurrences": 1,
+      "reason": "Pinned test for the sanctioned Stripe compatibility input.",
+      "sanctionedBy": "scripts/stripe-webhook-endpoint.test.mjs"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rootDomain", "hosts", "sanctionedReferences"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "rootDomain": {
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+$"
+    },
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "status", "environment", "class", "templated", "authorityAnchor"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "status": { "const": "current" },
+              "environment": { "enum": ["production", "staging", "dev", "preview"] },
+              "class": { "enum": ["application", "service", "diagnostic"] },
+              "templated": { "type": "boolean" },
+              "authorityAnchor": { "type": "string", "pattern": "^A(?:[1-9]|1[0-2])$" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "status", "environment", "class", "templated", "reservedFor"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "status": { "const": "reserved" },
+              "environment": { "enum": ["production", "staging", "dev", "preview"] },
+              "class": { "enum": ["application", "service", "diagnostic"] },
+              "templated": { "type": "boolean" },
+              "reservedFor": { "type": "string", "minLength": 1 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "status", "environment", "class", "templated", "retiredIn", "retiredOn"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "status": { "const": "retired" },
+              "environment": { "enum": ["production", "staging", "dev", "preview"] },
+              "class": { "enum": ["application", "service", "diagnostic"] },
+              "templated": { "type": "boolean" },
+              "retiredIn": { "type": "string", "minLength": 1 },
+              "retiredOn": { "type": "string", "format": "date-time" }
+            }
+          }
+        ]
+      }
+    },
+    "sanctionedReferences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "token", "occurrences", "reason", "sanctionedBy"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "token": { "type": "string", "minLength": 1 },
+          "occurrences": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "sanctionedBy": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

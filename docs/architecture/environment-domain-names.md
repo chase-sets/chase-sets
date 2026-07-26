@@ -1,6 +1,45 @@
 # Environment Domain Names
 
-This document owns Chase Sets application domain naming across production, staging, dev, and preview environments.
+[`environment-hosts.json`](../../scripts/environment-hosts.json) is the machine-readable authority for host status
+across production, staging, dev, and preview environments. This document explains that topology for humans; the
+static environment-topology guard verifies that the rendered block below is exact.
+
+<!-- environment-hosts:start -->
+| Host | Status | Environment | Class | Authority / disposition |
+| --- | --- | --- | --- | --- |
+| `*.preview.chasesets.com` | current | preview | service | A11 |
+| `pr-N-admin.preview.chasesets.com` | current | preview | application | A12 |
+| `pr-N-marketplace.preview.chasesets.com` | current | preview | application | A12 |
+| `pr-N.preview.chasesets.com` | current | preview | application | A12 |
+| `admin.chasesets.com` | current | production | application | A3 |
+| `admin.doks.chasesets.com` | current | production | diagnostic | A6 |
+| `chasesets.com` | current | production | application | A4 |
+| `doks.chasesets.com` | current | production | diagnostic | A6 |
+| `grafana.chasesets.com` | current | production | service | A10 |
+| `marketplace.chasesets.com` | current | production | application | A3 |
+| `marketplace.doks.chasesets.com` | current | production | diagnostic | A6 |
+| `otel.chasesets.com` | current | production | service | A10 |
+| `prometheus.chasesets.com` | current | production | service | A10 |
+| `www.chasesets.com` | current | production | application | A3 |
+| `www.doks.chasesets.com` | current | production | diagnostic | A6 |
+| `api.chasesets.com` | reserved | production | application | Future public API and provider callbacks; docs/architecture/environment-domain-names.md#api-hosts |
+| `admin.doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
+| `admin.staging.chasesets.com` | current | staging | application | A3 |
+| `assets.staging.chasesets.com` | current | staging | service | A9 |
+| `doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
+| `grafana.staging.chasesets.com` | current | staging | service | A10 |
+| `marketplace.doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
+| `marketplace.staging.chasesets.com` | current | staging | application | A3 |
+| `otel.staging.chasesets.com` | current | staging | service | A10 |
+| `prometheus.staging.chasesets.com` | current | staging | service | A10 |
+| `staging.chasesets.com` | current | staging | application | A4 |
+| `www.doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
+| `www.staging.chasesets.com` | current | staging | application | A3 |
+| `api.staging.chasesets.com` | reserved | staging | application | Future staging public API; docs/architecture/environment-domain-names.md#api-hosts |
+| `admin-staging.chasesets.com` | retired | staging | application | https://github.com/chase-sets/chase-sets/pull/5782 (2026-07-19T14:10:58-05:00) |
+| `landing-staging.chasesets.com` | retired | staging | application | https://github.com/chase-sets/chase-sets/pull/5782 (2026-07-19T14:10:58-05:00) |
+| `marketplace-staging.chasesets.com` | retired | staging | application | https://github.com/chase-sets/chase-sets/pull/5782 (2026-07-19T14:10:58-05:00) |
+<!-- environment-hosts:end -->
 
 ## Convention
 
