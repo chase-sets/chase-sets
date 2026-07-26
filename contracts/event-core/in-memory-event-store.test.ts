@@ -88,6 +88,61 @@ describe("shared in-memory event store", () => {
     await expect(eventStore.readStream({ streamId: "test.conflict" })).resolves.toHaveLength(0);
   });
 
+  it("enforces a zero-event guard participant in an atomic multi-stream append", async () => {
+    const { eventStore } = createInMemoryEventStore();
+
+    // The guarded stream is read while it has no events, then moves.
+    await eventStore.appendToStream({
+      streamId: "test.authority",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.activated")],
+    });
+
+    await expect(
+      eventStore.appendToStreams!([
+        {
+          streamId: "test.authority",
+          expectedVersion: "no_stream",
+          context,
+          events: [],
+        },
+        {
+          streamId: "test.guarded",
+          expectedVersion: "no_stream",
+          context,
+          events: [event("test.created")],
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+
+    await expect(eventStore.readStream({ streamId: "test.guarded" })).resolves.toHaveLength(0);
+    await expect(eventStore.readStream({ streamId: "test.authority" })).resolves.toHaveLength(1);
+  });
+
+  it("commits an atomic multi-stream append whose zero-event guard still matches", async () => {
+    const { eventStore } = createInMemoryEventStore();
+
+    await eventStore.appendToStreams!([
+      {
+        streamId: "test.authority",
+        expectedVersion: "no_stream",
+        context,
+        events: [],
+      },
+      {
+        streamId: "test.guarded",
+        expectedVersion: "no_stream",
+        context,
+        events: [event("test.created")],
+      },
+    ]);
+
+    await expect(eventStore.readStream({ streamId: "test.guarded" })).resolves.toHaveLength(1);
+    // A guard writes nothing to the stream it protects.
+    await expect(eventStore.readStream({ streamId: "test.authority" })).resolves.toHaveLength(0);
+  });
+
   it("keeps global reads gap-free across atomic append batches", async () => {
     const { eventStore } = createInMemoryEventStore();
 

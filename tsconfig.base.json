@@ -609,6 +609,9 @@
       "@chase-sets/platform-policy/commands": [
         "./infrastructure/platform-policy/commands.ts"
       ],
+      "@chase-sets/platform-policy/consent-activation-authority": [
+        "./infrastructure/platform-policy/consent-activation-authority.ts"
+      ],
       "@chase-sets/platform-policy/define-policy": [
         "./infrastructure/platform-policy/define-policy.ts"
       ],

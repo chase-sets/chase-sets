@@ -178,6 +178,121 @@ describeDb("postgres event store real database integration", () => {
     );
   });
 
+  it("rolls back every stream when a zero-event guard participant's expected version no longer matches", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    // The guarded stream is read while it has no events, then moves before the
+    // append. The guard contributes no events of its own.
+    await store.appendToStream({
+      streamId: "platform-policy.authority-guarded",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("platform-policy.authority.activated", { policyKey: "identity.terms" })],
+    });
+
+    await expect(
+      store.appendToStreams!([
+        {
+          streamId: "platform-policy.authority-guarded",
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [],
+        },
+        {
+          streamId: "commerce.order-ord_guarded",
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [eventToStore("commerce.order.created", { orderId: "ord_guarded" })],
+        },
+      ]),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: { expectedVersion: "no_stream", currentVersion: 1 },
+    });
+
+    await expect(store.readStream({ streamId: "commerce.order-ord_guarded", limit: 10 })).resolves.toEqual([]);
+    await expect(store.readStream({ streamId: "platform-policy.authority-guarded", limit: 10 })).resolves.toHaveLength(
+      1,
+    );
+  });
+
+  it("commits every stream when a zero-event guard participant still matches", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    await store.appendToStreams!([
+      {
+        streamId: "platform-policy.authority-matching",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [],
+      },
+      {
+        streamId: "commerce.order-ord_matching",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("commerce.order.created", { orderId: "ord_matching" })],
+      },
+    ]);
+
+    await expect(store.readStream({ streamId: "commerce.order-ord_matching", limit: 10 })).resolves.toHaveLength(1);
+    // A guard writes no events to the stream it protects, even though it
+    // materializes that stream's row so concurrent writers serialize on it.
+    await expect(store.readStream({ streamId: "platform-policy.authority-matching", limit: 10 })).resolves.toHaveLength(
+      0,
+    );
+  });
+
+  it("allows exactly one concurrent guarded append against a first activation of the guarded stream", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    const guardedAppend = store.appendToStreams!([
+      {
+        streamId: "platform-policy.authority-race",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [],
+      },
+      {
+        streamId: "commerce.order-ord_race",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("commerce.order.created", { orderId: "ord_race" })],
+      },
+    ]);
+
+    const activation = store.appendToStream({
+      streamId: "platform-policy.authority-race",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("platform-policy.authority.activated", { policyKey: "identity.terms" })],
+    });
+
+    const [guardedOutcome, activationOutcome] = await Promise.allSettled([guardedAppend, activation]);
+
+    // Both transactions serialize on the guarded stream's row. The activation
+    // always lands; the guarded append commits only if it got there first.
+    expect(activationOutcome.status).toBe("fulfilled");
+    const orderEvents = await store.readStream({ streamId: "commerce.order-ord_race", limit: 10 });
+    if (guardedOutcome.status === "fulfilled") {
+      expect(orderEvents).toHaveLength(1);
+    } else {
+      expect(guardedOutcome.reason).toMatchObject({ code: "concurrency_conflict" });
+      expect(orderEvents).toHaveLength(0);
+    }
+  });
+
   it("allows exactly one simultaneous append with the same expected stream revision", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

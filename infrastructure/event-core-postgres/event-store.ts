@@ -267,8 +267,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     },
     appendToStreams: async (inputs) => {
       const appendInputs = inputs.filter((input) => input.events.length > 0);
-      if (appendInputs.length === 0) {
-        return inputs.map((input) => ({ streamId: input.streamId, storedEvents: [] }));
+      // A zero-event input is a version guard, not a skipped no-op: the
+      // transaction still opens so its expected version is enforced.
+      if (inputs.length === 0) {
+        return [];
       }
 
       assertEventPayloadSizes(appendInputs);
@@ -698,20 +700,68 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   const results: AppendToStreamsResult[] = [];
 
   for (const input of args.inputs) {
-    const storedEvents =
-      input.events.length === 0
-        ? []
-        : await appendEventsToStream({
-            ...args,
-            input,
-          });
+    if (input.events.length === 0) {
+      await assertStreamExpectedVersionInTransaction({
+        client: args.client,
+        input,
+        now: args.now,
+        upsertStreamSql: args.upsertStreamSql,
+        readCurrentVersionSql: args.readCurrentVersionSql,
+      });
+      results.push({ streamId: input.streamId, storedEvents: [] });
+      continue;
+    }
+
     results.push({
       streamId: input.streamId,
-      storedEvents,
+      storedEvents: await appendEventsToStream({ ...args, input }),
     });
   }
 
   return results;
+}
+
+/**
+ * Enforces one stream's expected version inside the shared transaction without
+ * writing to it -- the pure-guard participant of an all-or-nothing multi-stream
+ * append. A caller that read a stream's version and needs the whole append to
+ * roll back if that stream moved supplies it with zero events; the version is
+ * checked exactly as an appending participant's would be, so an unrelated
+ * writer committing in between fails the entire transaction.
+ *
+ * The stream row upsert is load-bearing, not incidental: it is what gives a
+ * never-appended stream a row for both transactions to serialize on. Reading a
+ * missing row with FOR UPDATE locks nothing, which would let a concurrent first
+ * append slip between this check and the commit -- precisely the window a
+ * "no_stream" guard exists to close. The upsert creates no events, so a stream
+ * row alone still means an empty history, never a populated one.
+ */
+async function assertStreamExpectedVersionInTransaction(
+  args: Readonly<{
+    client: PgPoolClient;
+    input: AppendToStreamInput;
+    now: () => IsoUtcTimestamp;
+    upsertStreamSql: string;
+    readCurrentVersionSql: string;
+  }>,
+): Promise<void> {
+  await args.client.query(args.upsertStreamSql, [args.input.streamId, args.now()]);
+
+  const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
+    args.input.streamId,
+  ]);
+
+  if (streamVersionResult.rows.length !== 1) {
+    throw createEventStoreError("infrastructure_failure", "Stream row not found", {
+      streamId: args.input.streamId,
+    });
+  }
+
+  assertExpectedVersion(
+    args.input.streamId,
+    args.input.expectedVersion,
+    toNumber(streamVersionResult.rows[0].current_version),
+  );
 }
 
 type PendingIndependentStreamAppend = Readonly<{

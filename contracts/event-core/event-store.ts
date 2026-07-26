@@ -40,6 +40,20 @@ export type AppendToStreamsIndependentlyOptions = Readonly<{
 
 export type EventStore = Readonly<{
   appendToStream: (input: AppendToStreamInput) => Promise<readonly StoredEvent[]>;
+  /**
+   * Appends events for many streams in ONE all-or-nothing transaction: any
+   * stream's expected-version mismatch rolls back every stream's events.
+   *
+   * Every input's `expectedVersion` is enforced, INCLUDING an input that
+   * carries zero events. A zero-event input is a pure version guard: a caller
+   * that read some stream's state and needs this whole append to fail if that
+   * stream moved in the meantime includes it without contributing history to
+   * it. Skipping the check for empty inputs would make such a guard silently
+   * inert, so a decider that suppresses its command must pass the version it
+   * actually read (or "any") rather than relying on empty inputs being
+   * ignored. `appendToStream` keeps the single-stream shortcut -- with no other
+   * participant in the transaction there is nothing for a guard to protect.
+   */
   appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   /**
    * Appends events for many streams in ONE transaction (one advisory-lock

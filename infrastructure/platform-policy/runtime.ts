@@ -3,7 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -13,6 +13,19 @@ import {
   type RevisePolicyDocumentParams,
 } from "./commands";
 import { createPolicyCache, type PolicyCache } from "./cache";
+import {
+  consentActivationAuthorityStreamId,
+  consentActivationGuardAppendInput,
+  decideConsentActivationAuthority,
+  evolveConsentActivationAuthority,
+  initialConsentActivationAuthorityState,
+  readConsentActivationAuthority,
+  type ConsentActivationAuthorityCommand,
+  type ConsentActivationAuthorityEvent,
+  type ConsentActivationAuthoritySnapshot,
+  type ConsentActivationAuthorityState,
+  type ConsentActivationGuard,
+} from "./consent-activation-authority";
 import type { PolicyDefinition } from "./define-policy";
 import {
   decidePolicyDocument,
@@ -58,6 +71,37 @@ export type PolicyRuntimeDeps = Readonly<{
   now?: () => Date;
 }>;
 
+/**
+ * The Consent Activation Authority surface a mounting context uses. It is
+ * deliberately separate from `resolvePolicy`: `resolvePolicy` answers "what
+ * value does this policy carry", reading the cached document projection, while
+ * this surface answers "is this key activated, at which version, and what
+ * token guards that answer" -- always from the authority event stream.
+ *
+ * `register` is the no-options entry point: declaring a policy key
+ * consent-CAPABLE takes a definition and a context, and leaves the key
+ * inactive. Only `activate` activates.
+ */
+export type ConsentActivationAuthorityRuntime = Readonly<{
+  streamIdFor: (policyKey: string) => string;
+  read: (policyKey: string) => Promise<ConsentActivationAuthoritySnapshot>;
+  register: (
+    definition: PolicyDefinition<unknown>,
+    context: EventStoreContext,
+  ) => Promise<ConsentActivationAuthoritySnapshot>;
+  activate: (
+    definition: PolicyDefinition<unknown>,
+    params: Readonly<{ version: string; documentId: string; actorUserId: string; activatedAt?: string }>,
+    context: EventStoreContext,
+  ) => Promise<ConsentActivationAuthoritySnapshot>;
+  deactivate: (
+    definition: PolicyDefinition<unknown>,
+    params: Readonly<{ actorUserId: string; deactivatedAt?: string }>,
+    context: EventStoreContext,
+  ) => Promise<ConsentActivationAuthoritySnapshot>;
+  guardAppendInput: (guard: ConsentActivationGuard, context: EventStoreContext) => AppendToStreamInput;
+}>;
+
 export type PolicyRuntime = Readonly<{
   commandHandler: CommandHandler<PolicyDocumentCommand, PolicyDocumentState, PolicyDocumentEvent>;
   createPolicyDocument: <Value>(
@@ -79,6 +123,7 @@ export type PolicyRuntime = Readonly<{
   listPolicyDocumentHistory: (documentId: string) => ReturnType<typeof listPolicyDocumentHistory>;
   listPolicyRegistry: () => ReturnType<typeof listPolicyRegistry>;
   invalidateCache: (policyKey: string) => void;
+  consentActivation: ConsentActivationAuthorityRuntime;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -99,6 +144,77 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
     decide: decidePolicyDocument,
   });
   const resolver = createPolicyResolver({ db: deps.db, cache, now: deps.now });
+  const now = deps.now ?? (() => new Date());
+  const { commandHandler: consentActivationCommandHandler } = createAggregateCommandHandler<
+    ConsentActivationAuthorityState,
+    ConsentActivationAuthorityCommand,
+    ConsentActivationAuthorityEvent
+  >({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ConsentActivationAuthorityEvent>(),
+    initialState: () => initialConsentActivationAuthorityState,
+    evolve: evolveConsentActivationAuthority,
+    decide: decideConsentActivationAuthority,
+  });
+
+  async function runConsentActivationCommand(
+    policyKey: string,
+    command: ConsentActivationAuthorityCommand,
+    context: EventStoreContext,
+  ) {
+    await consentActivationCommandHandler({
+      streamId: consentActivationAuthorityStreamId(policyKey),
+      command,
+      context,
+    });
+
+    // Re-read rather than deriving the snapshot from the command result: the
+    // authority state and its guard token must always be minted together from
+    // one replay of the authority stream.
+    return readConsentActivationAuthority(deps.eventStore, policyKey);
+  }
+
+  const consentActivation: ConsentActivationAuthorityRuntime = {
+    streamIdFor: consentActivationAuthorityStreamId,
+    read: (policyKey) => readConsentActivationAuthority(deps.eventStore, policyKey),
+    register: (definition, context) =>
+      runConsentActivationCommand(
+        definition.policyKey,
+        {
+          type: "RegisterConsentCapablePolicy",
+          policyKey: definition.policyKey,
+          contextName: definition.contextName,
+          schemaSummary: definition.schemaSummary,
+          registeredAt: now().toISOString(),
+        },
+        context,
+      ),
+    activate: (definition, params, context) =>
+      runConsentActivationCommand(
+        definition.policyKey,
+        {
+          type: "ActivateConsentPolicyVersion",
+          policyKey: definition.policyKey,
+          version: params.version,
+          documentId: params.documentId,
+          activatedAt: params.activatedAt ?? now().toISOString(),
+          actorUserId: params.actorUserId,
+        },
+        context,
+      ),
+    deactivate: (definition, params, context) =>
+      runConsentActivationCommand(
+        definition.policyKey,
+        {
+          type: "DeactivateConsentPolicy",
+          policyKey: definition.policyKey,
+          deactivatedAt: params.deactivatedAt ?? now().toISOString(),
+          actorUserId: params.actorUserId,
+        },
+        context,
+      ),
+    guardAppendInput: consentActivationGuardAppendInput,
+  };
 
   async function assertNoActiveOverlap(
     params: Readonly<{
@@ -160,6 +276,7 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
     listPolicyDocumentHistory: (documentId) => listPolicyDocumentHistory(deps.db, documentId),
     listPolicyRegistry: () => listPolicyRegistry(deps.db),
     invalidateCache: cache.invalidate,
+    consentActivation,
     projectors: [
       createProjectionHandlerSet({
         projectionName: "platform-policy-document-projection",
