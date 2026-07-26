@@ -330,6 +330,20 @@ Notes:
 - Consents must be auditable.
 - A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
+### Consent Activation Authority
+
+A **Consent Activation Authority** is the single event-sourced answer to "is this consent-capable policy key activated, at which version, and what token guards that answer". There is exactly one per policy key, and its identity is derived from the policy key alone — so it exists, and can be guarded against, before the key has ever been activated.
+
+Identity owns the Consent facts and the meaning of agreement; the shared platform-policy machinery (`infrastructure/platform-policy`) owns the authority mechanism, the same way it owns [[Policy Document]] storage and revision mechanics for the contexts that adopt it.
+
+Notes:
+
+- **Consent-capable is not activated.** Registering a policy key declares that it *may* carry Consents. Only an explicit activation activates it, and registration never implies one.
+- **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
+- **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
+- Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
+- The authority is the identity Consent recording needs; the elimination sweep for consent-activation races, the Consent Bundle that composes several authorities for one surface, and the call sites that consume a guard are each owned elsewhere and do not exist yet.
+
 ### Registration Consent Resolution
 
 A **Registration Consent Resolution** is Identity's signed answer to "what must a person agree to in

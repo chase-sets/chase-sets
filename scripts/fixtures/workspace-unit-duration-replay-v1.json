@@ -213,15 +213,6 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/platform-policy",
-      "script": "test",
-      "observedDurationMs": 6146
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/postage-labels",
       "script": "test",
       "observedDurationMs": 4661
@@ -495,6 +486,15 @@
       "workspace": "@chase-sets/platform-operations",
       "script": "test:unit",
       "observedDurationMs": 107024
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/platform-policy",
+      "script": "test:unit",
+      "observedDurationMs": 6146
     },
     {
       "runId": 30054895589,

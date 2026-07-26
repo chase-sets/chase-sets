@@ -189,8 +189,10 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   const eventStore: EventStore = {
     appendToStream: async (input) => appendToStream(input),
     appendToStreams: async (inputs) => {
-      const appendableInputs = inputs.filter((input) => input.events.length > 0);
-      for (const input of appendableInputs) {
+      // Every input's expected version is enforced, including a zero-event
+      // one: that input is a pure version guard on a stream this append does
+      // not write to, and skipping it would silently drop the guard.
+      for (const input of inputs) {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
       }
 

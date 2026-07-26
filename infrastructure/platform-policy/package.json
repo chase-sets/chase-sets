@@ -8,6 +8,7 @@
     "./domain": "./domain.ts",
     "./define-policy": "./define-policy.ts",
     "./commands": "./commands.ts",
+    "./consent-activation-authority": "./consent-activation-authority.ts",
     "./schema": "./schema.ts",
     "./projection": "./projection.ts",
     "./queries": "./queries.ts",
@@ -18,6 +19,8 @@
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude consent-activation-authority.db.test.ts",
+    "test:db": "vitest run --config ./vitest.config.ts consent-activation-authority.db.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
@@ -27,5 +30,8 @@
   },
   "devDependencies": {
     "vitest": "^4.1.4"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   }
 }
