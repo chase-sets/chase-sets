@@ -274,6 +274,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-route-matrix-evidence.yml": "release",
     "platform-staging-wake-drills.yml": "release",
     "platform-terraform-state-snapshot.yml": "release",
+    "project-status-sync.yml": "ci",
     "public-docs-stale-review.yml": "ci",
     "review-cadence-digest.yml": "ci",
   }),
