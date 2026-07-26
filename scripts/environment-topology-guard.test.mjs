@@ -125,9 +125,18 @@ function retiredHost(registry = readRegistry()) {
   return registry.hosts.find((entry) => entry.status === "retired").host;
 }
 
-function diagnosticHost(registry = readRegistry()) {
+function landingRetiredHost(registry = readRegistry()) {
+  return registry.hosts.find((entry) => entry.status === "retired" && entry.host.split(".")[0].startsWith("landing-"))
+    .host;
+}
+
+function marketplaceDiagnosticHost(registry = readRegistry()) {
   return registry.hosts.find(
-    (entry) => entry.status === "current" && entry.class === "diagnostic" && entry.host.split(".").length > 4,
+    (entry) =>
+      entry.status === "current" &&
+      entry.class === "diagnostic" &&
+      entry.environment === "staging" &&
+      entry.host.split(".")[0] === "marketplace",
   ).host;
 }
 
@@ -348,7 +357,7 @@ describe("recorded-bite negative controls", () => {
     const path = ".github/workflows/platform-pr.yml";
     copyTrackedRepositoryFile(root, path);
     const source = readFileSync(resolve(root, path), "utf8");
-    writeFileSync(resolve(root, path), `${source}\n# --url https://${retiredHost(readRegistry(root))}/\n`);
+    writeFileSync(resolve(root, path), `${source}\n# --url https://${landingRetiredHost(readRegistry(root))}/\n`);
 
     expectCode(runCli(root), "retired-host-referenced", path);
   });
@@ -379,7 +388,7 @@ describe("recorded-bite negative controls", () => {
   it("flags a DOKS diagnostic shadow host in an unsanctioned file", () => {
     const root = makeFixture();
     const path = "operations/readiness.txt";
-    addTrackedFile(root, path, `https://${diagnosticHost(readRegistry(root))}/health/ready`);
+    addTrackedFile(root, path, `https://${marketplaceDiagnosticHost(readRegistry(root))}/health/ready`);
 
     expectCode(runCli(root), "diagnostic-host-referenced", path);
   });
