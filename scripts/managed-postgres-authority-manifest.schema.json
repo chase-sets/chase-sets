@@ -36,6 +36,7 @@
             "enum": [
               "alerting",
               "application-runtime",
+              "delivery-board",
               "digitalocean-ops",
               "managed-postgres-boundary",
               "marketplace-ops",

@@ -10927,6 +10927,13 @@
       "stepAnchor": "name:Publish representative snapshot set#4",
       "secretName": "SEED_PACKS_SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/project-status-sync.yml",
+      "jobId": "sync",
+      "stepAnchor": "name:Sync status#3",
+      "secretName": "PROJECTS_TOKEN",
+      "purpose": "delivery-board"
     }
   ]
 }
