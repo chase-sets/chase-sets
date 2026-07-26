@@ -24,7 +24,6 @@
     { "workspace": "@chase-sets/observability", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/outbound-messaging", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/payment-processing", "script": "test", "estimatedDurationSeconds": 4 },
-    { "workspace": "@chase-sets/platform-policy", "script": "test", "estimatedDurationSeconds": 7 },
     { "workspace": "@chase-sets/postage-labels", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/primitives", "script": "test", "estimatedDurationSeconds": 7 },
     { "workspace": "@chase-sets/product-measures", "script": "test", "estimatedDurationSeconds": 5 },
@@ -56,6 +55,7 @@
     { "workspace": "@chase-sets/notifications", "script": "test:unit", "estimatedDurationSeconds": 13 },
     { "workspace": "@chase-sets/payments", "script": "test:unit", "estimatedDurationSeconds": 50 },
     { "workspace": "@chase-sets/platform-operations", "script": "test:unit", "estimatedDurationSeconds": 105 },
+    { "workspace": "@chase-sets/platform-policy", "script": "test:unit", "estimatedDurationSeconds": 7 },
     { "workspace": "@chase-sets/platform-runtime", "script": "test:unit", "estimatedDurationSeconds": 42 },
     { "workspace": "@chase-sets/pricing", "script": "test:unit", "estimatedDurationSeconds": 26 },
     { "workspace": "@chase-sets/settlement", "script": "test:unit", "estimatedDurationSeconds": 54 }

@@ -2023,6 +2023,7 @@
     "infrastructure/observability/vitest.config.ts",
     "infrastructure/platform-policy/cache.ts",
     "infrastructure/platform-policy/commands.ts",
+    "infrastructure/platform-policy/consent-activation-authority.ts",
     "infrastructure/platform-policy/define-policy.ts",
     "infrastructure/platform-policy/domain.ts",
     "infrastructure/platform-policy/examples/grace-period-policy.ts",
