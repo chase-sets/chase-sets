@@ -84,11 +84,15 @@ jobs:
     });
 
     const report = auditManagedRegistryAuthority(root);
-    const cli = spawnSync(process.execPath, [path.resolve("scripts/managed-registry-authority-guard.mjs"), "--repository-root", root], {
-      cwd: path.resolve("."),
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    const cli = spawnSync(
+      process.execPath,
+      [path.resolve("scripts/managed-registry-authority-guard.mjs"), "--repository-root", root],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
 
     expect(report.violations.map(({ code }) => code)).toContain("generated-platform-pull-credential");
     expect(cli.status).toBe(1);
