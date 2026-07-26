@@ -86,7 +86,7 @@ Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SE
 
 ## CI
 
-The Platform PR workflow runs `E2E Tests` as a required full-battery job before `PR Required` can pass on merge-group runs and on pull requests labeled `full-ci`, `full-pr-battery`, or `preview`. CI installs Chromium and Linux browser dependencies with:
+The Platform PR workflow runs `E2E Tests` as a required full-battery job before `PR Required` can pass on merge-group runs and on pull requests labeled `full-ci` or `preview`. CI installs Chromium and Linux browser dependencies with:
 
 ```bash
 pnpm exec playwright install --with-deps chromium

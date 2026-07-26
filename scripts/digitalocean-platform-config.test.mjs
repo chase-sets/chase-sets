@@ -1096,7 +1096,6 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
     expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
-    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-pr-battery')");
     expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(fullBatteryStep).toContain(
       "INTEGRATION_RISK_REQUIRED: ${{ steps.scope.outputs.integration_risk_required }}",
