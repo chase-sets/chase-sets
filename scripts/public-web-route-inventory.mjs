@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 // will consume it.  Its input is the Git index's tracked files: gitignored
 // build output and untracked local files never participate.
 export const generatedHelpCatalogPath = "bounded-contexts/public-presence/features/help/domain/generated/articles.ts";
-export const trackedFileRule = "Only paths returned by `git ls-files` are read; therefore gitignored and untracked files are excluded.";
+export const trackedFileRule =
+  "Only paths returned by `git ls-files` are read; therefore gitignored and untracked files are excluded.";
 
 function failure(source, detail) {
   throw new Error(`public-web route inventory: ${source}: ${detail}`);
@@ -39,14 +40,16 @@ function stringProperty(object, propertyName, source) {
       ((ts.isIdentifier(candidate.name) && candidate.name.text === propertyName) ||
         (ts.isStringLiteral(candidate.name) && candidate.name.text === propertyName)),
   );
-  if (!property || !ts.isStringLiteral(property.initializer)) failure(source, `article is missing string '${propertyName}'`);
+  if (!property || !ts.isStringLiteral(property.initializer))
+    failure(source, `article is missing string '${propertyName}'`);
   return property.initializer.text;
 }
 
 export function readGeneratedHelpArticles({ rootDir, tracked, catalogPath = generatedHelpCatalogPath }) {
   const sourceText = readTracked(rootDir, tracked, catalogPath, catalogPath);
   const sourceFile = ts.createSourceFile(catalogPath, sourceText, ts.ScriptTarget.Latest, true);
-  if (sourceFile.parseDiagnostics.length > 0) failure(catalogPath, sourceFile.parseDiagnostics[0].messageText.toString());
+  if (sourceFile.parseDiagnostics.length > 0)
+    failure(catalogPath, sourceFile.parseDiagnostics[0].messageText.toString());
 
   const declaration = sourceFile.statements
     .filter(ts.isVariableStatement)
@@ -55,7 +58,9 @@ export function readGeneratedHelpArticles({ rootDir, tracked, catalogPath = gene
   let initializer = declaration?.initializer;
   while (
     initializer &&
-    (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer) || ts.isParenthesizedExpression(initializer))
+    (ts.isAsExpression(initializer) ||
+      ts.isSatisfiesExpression(initializer) ||
+      ts.isParenthesizedExpression(initializer))
   ) {
     initializer = initializer.expression;
   }
@@ -94,7 +99,10 @@ function readPublicWebRouteRecords({ rootDir, tracked }) {
       if (!contribution || contribution.deployable !== "public-web" || !Array.isArray(contribution.routes)) return;
       contribution.routes.forEach((route, routeIndex) => {
         if (!route || typeof route.routeId !== "string" || typeof route.routePath !== "string") {
-          failure(`${relativePath} deployableContributions[${contributionIndex}].routes[${routeIndex}]`, "routeId and routePath are required strings");
+          failure(
+            `${relativePath} deployableContributions[${contributionIndex}].routes[${routeIndex}]`,
+            "routeId and routePath are required strings",
+          );
         }
         routes.push({
           ...route,
@@ -107,14 +115,16 @@ function readPublicWebRouteRecords({ rootDir, tracked }) {
 }
 
 function expandHelpCategory(route, articles) {
-  return [...new Set(articles.map((article) => article.category))].sort((left, right) => left.localeCompare(right, "en")).map((category) => ({
-    kind: "EXPANDED",
-    memberId: `${route.routeId}:${category}`,
-    path: `/${route.routePath.replace(":category", category)}`,
-    source: route.source,
-    expansionSource: generatedHelpCatalogPath,
-    reason: "category enumerated from the generated help catalog",
-  }));
+  return [...new Set(articles.map((article) => article.category))]
+    .sort((left, right) => left.localeCompare(right, "en"))
+    .map((category) => ({
+      kind: "EXPANDED",
+      memberId: `${route.routeId}:${category}`,
+      path: `/${route.routePath.replace(":category", category)}`,
+      source: route.source,
+      expansionSource: generatedHelpCatalogPath,
+      reason: "category enumerated from the generated help catalog",
+    }));
 }
 
 function expandHelpArticle(route, articles) {
@@ -156,7 +166,9 @@ export function derivePublicWebRouteInventory({
   const articles = readGeneratedHelpArticles({ rootDir, tracked, catalogPath });
   const routeRecords = readPublicWebRouteRecords({ rootDir, tracked });
   const members = routeRecords.flatMap((route) => classifyRoute(route, articles));
-  const partition = Object.fromEntries(["CONCRETE", "EXPANDED", "INDETERMINATE"].map((kind) => [kind, members.filter((member) => member.kind === kind)]));
+  const partition = Object.fromEntries(
+    ["CONCRETE", "EXPANDED", "INDETERMINATE"].map((kind) => [kind, members.filter((member) => member.kind === kind)]),
+  );
   const memberIds = new Set();
   for (const member of members) {
     if (memberIds.has(member.memberId)) failure(member.source, `duplicate derived member '${member.memberId}'`);

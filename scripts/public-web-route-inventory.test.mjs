@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { derivePublicWebRouteInventory, generatedHelpCatalogPath, trackedFileRule } from "./public-web-route-inventory.mjs";
+import {
+  derivePublicWebRouteInventory,
+  generatedHelpCatalogPath,
+  trackedFileRule,
+} from "./public-web-route-inventory.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
 const restoredFiles = new Map();
@@ -34,8 +38,8 @@ function independentlyReadPublicWebRoutes() {
     "bounded-contexts/pricing/context.json",
   ];
   return manifests.flatMap((manifestPath) =>
-    JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8")).deployableContributions
-      .filter((contribution) => contribution.deployable === "public-web")
+    JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8"))
+      .deployableContributions.filter((contribution) => contribution.deployable === "public-web")
       .flatMap((contribution) => contribution.routes.map((route) => route.routeId)),
   );
 }
@@ -51,9 +55,7 @@ describe("public-web route inventory", () => {
         "bounded-contexts/pricing/context.json deployableContributions[0].",
       ]),
     );
-    expect(inventory.members.filter((member) => member.kind === "EXPANDED")).toHaveLength(
-      inventory.counts.EXPANDED,
-    );
+    expect(inventory.members.filter((member) => member.kind === "EXPANDED")).toHaveLength(inventory.counts.EXPANDED);
     expect(inventory.counts.CONCRETE + inventory.counts.EXPANDED + inventory.counts.INDETERMINATE).toBe(
       inventory.members.length,
     );
@@ -65,13 +67,15 @@ describe("public-web route inventory", () => {
     const manifestPath = "bounded-contexts/pricing/context.json";
     const original = readFileSync(path.join(repoRoot, manifestPath), "utf8");
     const manifest = JSON.parse(original);
-    manifest.deployableContributions.find((contribution) => contribution.deployable === "public-web").routes.push({
-      routeId: "unknown-shape-control",
-      routePath: "unknown/:shape",
-      routeType: "route",
-      fileExport: "./routes/unknown",
-      sourceContext: "pricing",
-    });
+    manifest.deployableContributions
+      .find((contribution) => contribution.deployable === "public-web")
+      .routes.push({
+        routeId: "unknown-shape-control",
+        routePath: "unknown/:shape",
+        routeType: "route",
+        fileExport: "./routes/unknown",
+        sourceContext: "pricing",
+      });
     replaceTracked(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     const member = derivePublicWebRouteInventory({ rootDir: repoRoot }).members.find(
       (candidate) => candidate.memberId === "unknown-shape-control",
@@ -95,7 +99,7 @@ describe("public-web route inventory", () => {
         ],
       }),
     );
-    write(rootDir, generatedHelpCatalogPath, 'export const helpArticles = [];\n');
+    write(rootDir, generatedHelpCatalogPath, "export const helpArticles = [];\n");
     execFileSync("git", ["init", "--quiet"], { cwd: rootDir });
     execFileSync("git", ["add", "."], { cwd: rootDir });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
@@ -110,37 +114,54 @@ describe("public-web route inventory", () => {
     const manifestPath = "bounded-contexts/pricing/context.json";
     const catalogPath = generatedHelpCatalogPath;
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8"));
-    manifest.deployableContributions.find((contribution) => contribution.deployable === "public-web").routes.push({
-      routeId: "route-tree-control",
-      routePath: "tree-control",
-      routeType: "route",
-      fileExport: "./routes/tree-control",
-      sourceContext: "pricing",
-    });
+    manifest.deployableContributions
+      .find((contribution) => contribution.deployable === "public-web")
+      .routes.push({
+        routeId: "route-tree-control",
+        routePath: "tree-control",
+        routeType: "route",
+        fileExport: "./routes/tree-control",
+        sourceContext: "pricing",
+      });
     replaceTracked(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     const catalog = readFileSync(path.join(repoRoot, catalogPath), "utf8");
     replaceTracked(
       catalogPath,
-      catalog.replace("\n];", '\n  { slug: "tree-control", category: "testing", href: "/help/testing/tree-control" },\n];'),
+      catalog.replace(
+        "\n];",
+        '\n  { slug: "tree-control", category: "testing", href: "/help/testing/tree-control" },\n];',
+      ),
     );
     const members = derivePublicWebRouteInventory({ rootDir: repoRoot }).members;
     expect(members).toEqual(expect.arrayContaining([expect.objectContaining({ memberId: "route-tree-control" })]));
     expect(members).toEqual(
-      expect.arrayContaining([expect.objectContaining({ memberId: "help-article:testing:tree-control", kind: "EXPANDED" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ memberId: "help-article:testing:tree-control", kind: "EXPANDED" }),
+      ]),
     );
   });
 
   it.each([
-    ["malformed manifest JSON", "bounded-contexts/pricing/context.json", "{ bad json", "bounded-contexts/pricing/context.json"],
-    ["malformed generated catalog", generatedHelpCatalogPath, "export const helpArticles = [", generatedHelpCatalogPath],
+    [
+      "malformed manifest JSON",
+      "bounded-contexts/pricing/context.json",
+      "{ bad json",
+      "bounded-contexts/pricing/context.json",
+    ],
+    [
+      "malformed generated catalog",
+      generatedHelpCatalogPath,
+      "export const helpArticles = [",
+      generatedHelpCatalogPath,
+    ],
   ])("fails closed for %s", (_name, file, content, diagnostic) => {
     replaceTracked(file, content);
     expect(() => derivePublicWebRouteInventory({ rootDir: repoRoot })).toThrow(diagnostic);
   });
 
   it("fails closed when the generated catalog source is missing", () => {
-    expect(() => derivePublicWebRouteInventory({ rootDir: repoRoot, catalogPath: "missing-generated-catalog.ts" })).toThrow(
-      "missing-generated-catalog.ts",
-    );
+    expect(() =>
+      derivePublicWebRouteInventory({ rootDir: repoRoot, catalogPath: "missing-generated-catalog.ts" }),
+    ).toThrow("missing-generated-catalog.ts");
   });
 });
