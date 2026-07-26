@@ -1,0 +1,40 @@
+name: Issue Form Labels
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-form-labels-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: Apply slice form labels
+    # Job-level `if` is evaluated before a runner is assigned, so epics,
+    # decisions, and free-form issues cost nothing. Without this guard every
+    # issue edit repo-wide would spin a checkout + pnpm setup.
+    if: contains(github.event.issue.body, '### Priority')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      # Issue forms cannot apply conditional labels, so the slice form's
+      # Priority / Owning context / Kind answers are mirrored into labels here.
+      # Additive only, one label per family: a deliberate reclassification by a
+      # human or the planner is never overwritten. Label changes do not raise
+      # `edited`, so this cannot retrigger itself.
+      - name: Apply form labels
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node ./scripts/issue-form-labels.mjs

@@ -3,6 +3,68 @@ description: A lane-ready unit of work (dispatch brief)
 title: "<verb + outcome, ubiquitous language>"
 labels: []
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Structure contract: `docs/contributing/backlog-model.md`.
+        The dropdowns below are applied as labels automatically — a slice is not
+        dispatchable until it has a priority and an owning context.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Dispatch rank within its wave. Slices only — never epics.
+      options:
+        - p0
+        - p1
+        - p2
+        - p3
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Owning context
+      description: The bounded context that owns this behavior. Drives parallel-lane collision checks.
+      options:
+        - auth
+        - catalog
+        - checkout
+        - collections
+        - commercial-terms
+        - design-system
+        - discovery
+        - fulfillment
+        - identity
+        - infrastructure
+        - inventory
+        - marketplace
+        - marketplace-web
+        - notifications
+        - ops
+        - ordering
+        - payments
+        - platform-runtime
+        - pricing
+        - public-presence
+        - settlement
+        - support
+        - tax
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: The nature of the work.
+      options:
+        - product
+        - tech-debt
+        - security
+        - test
+        - ops
+    validations:
+      required: true
   - type: textarea
     id: context
     attributes:
@@ -40,7 +102,7 @@ body:
     id: footprint
     attributes:
       label: Footprint & chain
-      description: "Predicted workspaces/files; chain links: Blocked by #N / Blocks #M."
+      description: "Predicted workspaces/files. Record chain links as GitHub issue dependencies (Blocked by / Blocks) — the relationship is authoritative; prose is a convenience."
     validations:
       required: true
   - type: input

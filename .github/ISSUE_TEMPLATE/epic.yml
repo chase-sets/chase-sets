@@ -1,26 +1,34 @@
 name: Epic
 description: Coordination artifact for a multi-slice feature (write-once body)
 title: "Epic: <feature outcome>"
-labels: []
+labels: ["kind:epic"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Structure contract: `docs/contributing/backlog-model.md`.
+        **Children are native GitHub sub-issues.** Attach every child with the
+        sub-issue relationship — that is what GitHub rolls up and what the
+        orchestrator reads. The written index below is a mirror, not a
+        substitute. Epics stay unmilestoned; priorities belong to the children.
   - type: textarea
     id: outcome
     attributes:
       label: Outcome
-      description: What ships when every child closes; how it serves the owning milestone.
+      description: "What ships when every child closes. Name the strategy pillar and owning wave: `Serves: <pillar> — <wave>`."
     validations:
       required: true
   - type: textarea
     id: handoff
     attributes:
       label: Orchestrator handoff
-      description: "Chain DAG / waves (explicit issue-number chains), gates, parked children with un-park conditions, decision registry."
+      description: "Chain DAG / waves (explicit issue-number chains), gates, parked children with un-park conditions, decision registry. Record chain links as GitHub issue dependencies too."
     validations:
       required: true
   - type: textarea
     id: children
     attributes:
       label: Child index
-      description: One line per child — number, title, chain position.
+      description: One line per child — number, title, chain position. A human-readable mirror of the sub-issue links; attach each child as a sub-issue as well.
     validations:
       required: true

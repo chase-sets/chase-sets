@@ -1,0 +1,44 @@
+name: Project Status Sync
+
+on:
+  schedule:
+    # Hourly during the working day; Blocked -> Refined is the transition that
+    # matters and it happens whenever a blocker closes.
+    - cron: "17 12-23 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-status-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync delivery board status
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The default GITHUB_TOKEN cannot write organization projects, so this needs
+    # a PAT with the `project` scope. Absent the secret the job is skipped
+    # rather than failing a scheduled run every hour.
+    if: ${{ vars.DELIVERY_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      # Recomputes only the derived states (Backlog / Refined / Blocked) from
+      # dependencies, milestone, and labels. Lane-owned states (In lane, In
+      # review, Landed) are never overwritten.
+      - name: Sync status
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_ID: ${{ vars.DELIVERY_PROJECT_ID }}
+          STATUS_FIELD_ID: ${{ vars.DELIVERY_STATUS_FIELD_ID }}
+          STATUS_OPTION_IDS: ${{ vars.DELIVERY_STATUS_OPTION_IDS }}
+          # Optional: when set, the Roadmap layout's date field is re-derived
+          # from each item's milestone due date. GitHub cannot plot the built-in
+          # Milestone field, so the board carries a real Date field instead.
+          TARGET_DATE_FIELD_ID: ${{ vars.DELIVERY_TARGET_DATE_FIELD_ID }}
+        run: node ./scripts/project-status-sync.mjs

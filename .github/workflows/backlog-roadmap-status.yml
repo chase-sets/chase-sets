@@ -1,0 +1,44 @@
+name: Backlog Roadmap Status
+
+on:
+  schedule:
+    # Daily, 13:00 UTC (before the US Central working day).
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      roadmap_issue:
+        description: Issue number whose body carries the roadmap-status markers.
+        required: false
+        default: "4129"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backlog-roadmap-status
+  cancel-in-progress: false
+
+jobs:
+  status:
+    name: Backlog Roadmap Status
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      # Generated rather than hand-maintained: the previous hand-typed rollup in
+      # the roadmap issue drifted on 5 of 12 rows within two weeks, hiding a 29%
+      # scope increase in one wave. Contract: docs/contributing/backlog-model.md.
+      # Fail-safe: if the target issue has no roadmap-status markers, the body is
+      # left untouched and the run reports a failure instead of guessing.
+      - name: Generate roadmap status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROADMAP_ISSUE: ${{ inputs.roadmap_issue || '4129' }}
+        run: node ./scripts/roadmap-status.mjs

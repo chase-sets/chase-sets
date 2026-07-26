@@ -223,10 +223,12 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // state, or gates release qualification) or ci (advisory/reporting only).
   // Unknown workflows fail closed.
   workflows: Object.freeze({
+    "backlog-roadmap-status.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "issue-form-labels.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
     "marketplace-provider-proof-status.yml": "ci",
     "platform-catalog-assets-apply.yml": "release",
@@ -272,6 +274,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-route-matrix-evidence.yml": "release",
     "platform-staging-wake-drills.yml": "release",
     "platform-terraform-state-snapshot.yml": "release",
+    "project-status-sync.yml": "ci",
     "public-docs-stale-review.yml": "ci",
     "review-cadence-digest.yml": "ci",
   }),
