@@ -49,7 +49,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.caseCount).toBe(35);
+    expect(result.expectedCaseCount).toBe(45);
+    expect(result.caseCount).toBe(result.expectedCaseCount);
   });
 
   it.each([

@@ -178,6 +178,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^contracts\/catalog-seed\//,
     // Seed runner and boot entry points.
     /^infrastructure\/bounded-context-runtime\/seeding\.ts$/,
+    /^infrastructure\/bounded-context-runtime\/seed-aggregate-state\.ts$/,
     /^deployables\/(?:platform-api|platform-worker)\/src\/(?:bootstrap(?:-storage)?|main)\.ts$/,
     /^deployables\/platform-api\/src\/(?:representative-commerce-state|admin-qa-actor-fixtures|preview-postgres)\.ts$/,
     /^deployables\/platform-api\/scripts\/check-bootstrap-db-enrollment\.(?:mjs|d\.mts)$/,

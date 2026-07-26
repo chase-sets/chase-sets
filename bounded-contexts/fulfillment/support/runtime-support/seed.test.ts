@@ -9,6 +9,9 @@ describe("fulfillment seed", () => {
     });
     const pool = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("event_store_events")) {
+          return { rows: [] };
+        }
         if (sql.includes("fulfillment_shipment_pages")) {
           return { rows: [{ count: "0" }] };
         }
@@ -27,6 +30,10 @@ describe("fulfillment seed", () => {
 
     expect(logs.join("\n")).toContain(
       "Fulfillment seed is waiting for two ready-for-fulfillment orders. Skipping shipments for this pass.",
+    );
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM event_store_events"),
+      expect.arrayContaining([expect.stringContaining("fulfillment.shipment-")]),
     );
   });
 });

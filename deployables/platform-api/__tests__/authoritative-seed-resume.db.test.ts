@@ -56,6 +56,8 @@ const seedStateExemptions = new Map<string, string>([
   ["public-presence", "authors logged platform-policy documents and promo-bar rows, not UNLOGGED projections"],
 ]);
 
+const requiredDraftListingId = "lst_seed_lugia_neo_genesis_draft";
+
 let pools: PlatformApiTestPools;
 createPlatformApiBootstrapTestHarness("platform_api_authoritative_seed_resume", (state) => {
   pools = state.pools;
@@ -173,6 +175,17 @@ describe("authoritative seed resume", () => {
     for (const [contextName, count] of Object.entries(afterBootOne)) {
       expect(count, `${contextName} must have seeded events after boot one`).toBeGreaterThan(0);
     }
+    const marketplaceModule = seedingModules(runtime).find((module) => module.contextName === "marketplace");
+    const marketplaceReports = await marketplaceModule!.inspectSeedState!(poolFor("marketplace"));
+    expect(marketplaceReports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: requiredDraftListingId,
+          kind: "active",
+          status: "draft",
+        }),
+      ]),
+    );
 
     for (const entry of callerInventory) {
       await poolFor(entry.contextName).query(`TRUNCATE TABLE ${entry.projections.join(", ")} CASCADE`);

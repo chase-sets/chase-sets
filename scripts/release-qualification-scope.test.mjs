@@ -253,6 +253,25 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     readFileAt: realReadFileAt,
   });
 
+  it("classifies the shared authoritative seed-state primitive as persistence-sensitive", () => {
+    const record = classifyReleaseQualificationScope({
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      changedFiles: [
+        {
+          path: "infrastructure/bounded-context-runtime/seed-aggregate-state.ts",
+          status: "modified",
+        },
+      ],
+      readFileAt: realReadFileAt,
+      releaseWorkflowScriptReferences,
+      now: () => 1753100000000,
+    });
+
+    expect(record.class).toBe("persistent_required");
+    expect(record.reasonCodes).toContain("seed_bootstrap_import_reconciliation");
+  });
+
   it("classifies every discovered caller persistent_required unless a reviewed ruling covers it", () => {
     expect(discovered.length).toBeGreaterThanOrEqual(40);
     const misses = [];

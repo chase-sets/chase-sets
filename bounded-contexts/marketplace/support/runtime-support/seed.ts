@@ -852,7 +852,7 @@ export async function seedMarketplaceDatabase(
     const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
     const seededListingId = listing.listingId;
     const persisted = await loadSeedListingState(services.db, seededListingId);
-    if (persisted.state.status === listing.finalStatus) {
+    if (persisted.state.listingId !== null && persisted.state.status === listing.finalStatus) {
       continue;
     }
     if (
