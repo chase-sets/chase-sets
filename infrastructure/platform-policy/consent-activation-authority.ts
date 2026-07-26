@@ -535,6 +535,16 @@ export const decideConsentActivationAuthority: AggregateDecider<
 > = (state, command) => {
   assertConsentCapablePolicyKey(command.policyKey);
 
+  // The rehydrated aggregate must belong to the key being commanded. Without
+  // this, a stream carrying a foreign key's history would let a command read
+  // as already-registered and converge against the wrong aggregate.
+  if (state.policyKey !== null && state.policyKey !== command.policyKey) {
+    fail(
+      "policy_key_mismatch",
+      `Consent activation authority for '${state.policyKey}' cannot serve a command for '${command.policyKey}'.`,
+    );
+  }
+
   switch (command.type) {
     case "RegisterConsentCapablePolicy": {
       const registration = decodeRegistration({

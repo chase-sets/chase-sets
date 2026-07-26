@@ -639,6 +639,23 @@ describe("poisoned authority history", () => {
     expect(snapshot.authorityVersion).toBe(2);
   });
 
+  it("refuses a command against a stream whose history belongs to another policy key", async () => {
+    const { eventStore, runtime } = createHarness();
+    await appendRawAuthorityEvent(
+      eventStore,
+      consentPolicy.policyKey,
+      "platform-policy.consent-activation-authority.registered",
+      registeredPayload(otherConsentPolicy.policyKey),
+    );
+
+    // The command path rehydrates the same poisoned history the read does, so
+    // it must reject rather than converge against the wrong aggregate.
+    await expect(runtime.consentActivation.register(consentPolicy, context)).rejects.toMatchObject({
+      name: "ConsentActivationAuthorityError",
+      code: "policy_key_mismatch",
+    });
+  });
+
   it("rejects a repeated registration whose metadata contradicts the recorded one", async () => {
     const { eventStore, runtime } = createHarness();
     await runtime.consentActivation.register(consentPolicy, context);
