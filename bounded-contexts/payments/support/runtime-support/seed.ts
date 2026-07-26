@@ -420,30 +420,65 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   await seedSavedCheckoutInstruments(pool);
 
   // Upstream order snapshots are a precondition only for payments this seed has
-  // still to author. Requiring them unconditionally fails the reconciliation
-  // passes at `platform-runtime/api.ts:475` and `:494`, because a captured
-  // payment moves its order past `pending-payment`.
+  // still to create. Existing payment streams can resume status transitions
+  // after their order has legitimately moved past `pending-payment`.
   const paymentsRemaining = !(await everySeedPaymentComplete(services.db));
-  const pendingCheckoutOrder = paymentsRemaining
-    ? await getSeedOrderIfAvailable(
+  let pendingCheckoutOrder: OrderRow | null = null;
+  let acceptedOfferOrder: OrderRow | null = null;
+  let reviewEligibleOrder: OrderRow | null = null;
+  if (paymentsRemaining) {
+    const pendingCheckoutOrderNeeded =
+      (await seedPaymentNeedsCreation(services.db, paymentsReservedSeedIds.payments.checkoutPending)) ||
+      (await seedPaymentNeedsCreation(services.db, paymentsReservedSeedIds.payments.failedModernCheckout)) ||
+      (await seedPaymentNeedsCreation(services.db, paymentsReservedSeedIds.payments.cancelledVintageCheckout));
+    if (pendingCheckoutOrderNeeded) {
+      pendingCheckoutOrder = await getSeedOrderIfAvailable(
         pool,
         orderingReservedSeedIds.orders.checkoutPending,
         identitySeedIds.collector.accountId,
-      )
-    : null;
-  const acceptedOfferOrder = paymentsRemaining ? await getAcceptedOfferSeedOrder(pool) : null;
-  const reviewEligibleOrder = paymentsRemaining ? await getReviewEligibleSeedOrder(pool) : null;
-  if (paymentsRemaining && (!pendingCheckoutOrder || !acceptedOfferOrder || !reviewEligibleOrder)) {
-    return;
+      );
+      if (!pendingCheckoutOrder) {
+        return;
+      }
+    }
+
+    const acceptedOfferOrderNeeded = await seedPaymentNeedsCreation(
+      services.db,
+      paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+    );
+    if (acceptedOfferOrderNeeded) {
+      acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
+      if (!acceptedOfferOrder) {
+        return;
+      }
+    }
+
+    const reviewEligibleOrderNeeded = await seedPaymentNeedsCreation(
+      services.db,
+      paymentsReservedSeedIds.payments.reviewEligibleCaptured,
+    );
+    if (reviewEligibleOrderNeeded) {
+      reviewEligibleOrder = await getReviewEligibleSeedOrder(pool);
+      if (!reviewEligibleOrder) {
+        return;
+      }
+    }
   }
 
   const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const sellerContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  const ensurePayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string): Promise<PaymentState> => {
+  const ensurePayment = async (
+    paymentId: PaymentId,
+    order: OrderRow | null,
+    createdAt: string,
+  ): Promise<PaymentState> => {
     const existing = await loadSeedPaymentState(services.db, paymentId);
     if (existing.paymentId !== null) {
       return existing;
+    }
+    if (!order) {
+      throw new Error(`${PAYMENTS_BOOTSTRAP_LABEL} Payment '${paymentId}' is absent without its required seed order.`);
     }
 
     const processorPayment = await processorGateway.createPaymentSession({
@@ -521,7 +556,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     return loadSeedPaymentState(services.db, paymentId);
   };
 
-  if (pendingCheckoutOrder && acceptedOfferOrder && reviewEligibleOrder) {
+  if (paymentsRemaining) {
     await seedReservedPayments(ensurePayment, services, buyerContext, {
       pendingCheckoutOrder,
       acceptedOfferOrder,
@@ -532,7 +567,11 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   await seedReservedRefunds(services, processorGateway, sellerContext);
 }
 
-type SeedPaymentEnsurer = (paymentId: PaymentId, order: OrderRow, createdAt: string) => Promise<PaymentState>;
+type SeedPaymentEnsurer = (paymentId: PaymentId, order: OrderRow | null, createdAt: string) => Promise<PaymentState>;
+
+async function seedPaymentNeedsCreation(db: PgQueryable, paymentId: PaymentId): Promise<boolean> {
+  return (await loadSeedPaymentState(db, paymentId)).paymentId === null;
+}
 
 async function everySeedPaymentComplete(db: PgQueryable): Promise<boolean> {
   for (const payment of seedPaymentInventory) {
@@ -551,7 +590,11 @@ async function seedReservedPayments(
   ensurePayment: SeedPaymentEnsurer,
   services: ReturnType<typeof createPaymentsServices>,
   buyerContext: EventStoreContext,
-  orders: Readonly<{ pendingCheckoutOrder: OrderRow; acceptedOfferOrder: OrderRow; reviewEligibleOrder: OrderRow }>,
+  orders: Readonly<{
+    pendingCheckoutOrder: OrderRow | null;
+    acceptedOfferOrder: OrderRow | null;
+    reviewEligibleOrder: OrderRow | null;
+  }>,
 ): Promise<void> {
   const { pendingCheckoutOrder, acceptedOfferOrder, reviewEligibleOrder } = orders;
 

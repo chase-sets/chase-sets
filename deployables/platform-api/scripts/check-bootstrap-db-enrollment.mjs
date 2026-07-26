@@ -42,6 +42,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       "enumerates stream-sourced seed-state coverage from the runtime mount list",
       "resumes every converted context after its UNLOGGED guard projections are truncated",
+      "recreates only a missing review-eligible payment after a sibling payment has completed",
     ]),
   }),
   "inventory-seed-resume.db.test.ts": Object.freeze({

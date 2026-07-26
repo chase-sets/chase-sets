@@ -124,6 +124,27 @@ async function allContextEventCounts(): Promise<Readonly<Record<string, number>>
   return counts;
 }
 
+async function paymentStreamEventCounts(paymentIds: readonly string[]): Promise<Readonly<Record<string, number>>> {
+  const counts: Record<string, number> = {};
+  for (const paymentId of paymentIds) {
+    const streamId = `payments.payment-${paymentId}`;
+    const result = await pools.payments.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1",
+      [streamId],
+    );
+    counts[paymentId] = Number(result.rows[0]?.count ?? 0);
+  }
+  return counts;
+}
+
+async function paymentStreamEventTypes(paymentId: string): Promise<readonly string[]> {
+  const result = await pools.payments.query<Readonly<{ event_type: string }>>(
+    "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC",
+    [`payments.payment-${paymentId}`],
+  );
+  return result.rows.map((row) => row.event_type);
+}
+
 function summarizeStates(reports: readonly BcSeedAggregateStateReport[]): string {
   const byKind = new Map<string, number>();
   for (const report of reports) {
@@ -238,5 +259,86 @@ describe("authoritative seed resume", () => {
     }
     // Full-host boot case: same explicit budget the suite already uses for
     // `bootstrap-scenario.db.test.ts`'s single full-host boot.
+  }, 300_000);
+
+  it("recreates only a missing review-eligible payment after a sibling payment has completed", async () => {
+    const runtime = createHost();
+    await ordinaryBoot(runtime);
+
+    const paymentsContext = runtime.mountedContexts.find((context) => context.contextName === "payments");
+    if (!paymentsContext?.module.seed || !paymentsContext.module.inspectSeedState) {
+      throw new Error("Payments context is not mounted with seed-state inspection.");
+    }
+    const paymentReports = (await paymentsContext.module.inspectSeedState(paymentsContext.pool)).filter(
+      (report) => report.aggregateName === "Payment",
+    );
+    const reviewEligibleReport = paymentReports.find((report) => report.key === "review-eligible-captured");
+    if (!reviewEligibleReport) {
+      throw new Error("Payments seed-state inspection did not report the review-eligible payment.");
+    }
+    const paymentId = reviewEligibleReport.id;
+    const paymentIds = paymentReports.map((report) => report.id);
+    const streamId = reviewEligibleReport.streamId;
+    const created = await pools.payments.query<Readonly<{ order_id: string }>>(
+      `SELECT payload->'orderIds'->>0 AS order_id
+       FROM event_store_events
+       WHERE stream_id = $1
+         AND event_type = 'payments.payment-created'`,
+      [streamId],
+    );
+    const orderId = created.rows[0]?.order_id;
+    expect(orderId, "review-eligible payment has no created order").toBeDefined();
+
+    const beforeCrash = await paymentStreamEventCounts(paymentIds);
+    expect(beforeCrash[paymentId]).toBeGreaterThan(0);
+
+    await pools.payments.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [streamId]);
+    await pools.payments.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+    await pools.payments.query(
+      "UPDATE event_store_streams SET current_version = 0, updated_at = now() WHERE stream_id = $1",
+      [streamId],
+    );
+    await pools.payments.query(
+      `UPDATE payments_order_inputs
+       SET status = 'pending-payment',
+           ready_for_fulfillment_at = NULL
+       WHERE order_id = $1`,
+      [orderId],
+    );
+    expect((await paymentStreamEventCounts(paymentIds))[paymentId]).toBe(0);
+
+    try {
+      await paymentsContext.module.seed(paymentsContext.pool, paymentsContext.services, seedOptions);
+    } catch (error) {
+      console.log(
+        `[#4906 F1 fail-before] error=${error instanceof Error ? error.message : String(error)} ` +
+          `missing-stream-events=${(await paymentStreamEventCounts(paymentIds))[paymentId]}`,
+      );
+      throw error;
+    }
+
+    const afterRepair = await paymentStreamEventCounts(paymentIds);
+    const siblingAppends = Object.fromEntries(
+      Object.entries(afterRepair)
+        .filter(([candidateId]) => candidateId !== paymentId)
+        .map(([candidateId, count]) => [candidateId, count - (beforeCrash[candidateId] ?? 0)]),
+    );
+    expect(afterRepair[paymentId]).toBe(3);
+    expect(await paymentStreamEventTypes(paymentId)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+      "payments.csat-outcome-fact.v1",
+    ]);
+    expect(siblingAppends).toEqual(
+      Object.fromEntries(Object.keys(siblingAppends).map((candidateId) => [candidateId, 0])),
+    );
+
+    await paymentsContext.module.seed(paymentsContext.pool, paymentsContext.services, seedOptions);
+    const afterSteadyState = await paymentStreamEventCounts(paymentIds);
+    expect(afterSteadyState).toEqual(afterRepair);
+    console.log(
+      `[#4906 F1 pass-after] recreated-events=${afterRepair[paymentId]} ` +
+        `sibling-appends=${JSON.stringify(siblingAppends)} next-invocation-appends=0`,
+    );
   }, 300_000);
 });
