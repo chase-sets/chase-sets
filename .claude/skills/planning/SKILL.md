@@ -15,6 +15,11 @@ References (load only what the tier needs):
 `references/issue-standard.md` · `references/epic-standard.md` ·
 `references/milestone-standard.md` · `references/pressure-test.md`
 
+The structure every artifact lands in — the strategy/wave/epic/slice ladder,
+what each GitHub primitive means, the label charter, and refined-vs-backlog —
+is `docs/contributing/backlog-model.md`. Read it before minting a milestone,
+an epic, or a label.
+
 ## Stage 0 — Scope calibration
 
 Size the idea against the existing structure before assuming a tier. Placement
@@ -63,9 +68,22 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
-7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`),
-   wire blocked-by links, comment placement into the program tracking issue, and
-   hand off to the orchestrator.
+7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
+   and wire the structure natively — prose is not structure:
+   - every child **attached as a sub-issue** of its epic (one parent per slice);
+   - every chain link recorded as a **GitHub issue dependency**, not only as a
+     `Blocked by #N` line;
+   - every slice classified with a wave milestone + `priority:*` + `area:*` +
+     `kind:*` (the slice form's dropdowns do this; API-created issues must set
+     them);
+   - **no new label** unless it fits the four families in the backlog model.
+     Sequencing inside a workstream is the epic's chain DAG — `phase:*`,
+     `stage:*`, `series:*`, and `tier:*` families are banned, having produced
+     55 dead labels across finished milestones.
+
+   Then comment placement into the program tracking issue and hand off to the
+   orchestrator. Never hand-type rollup counts anywhere;
+   `scripts/roadmap-status.mjs` generates them.
 
 ## Replan intake — planning an issue whose implementation stopped
 

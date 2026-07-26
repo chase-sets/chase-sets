@@ -1,9 +1,19 @@
 # Milestone Standard — the outcome container
 
 Milestones are few and **outcome-oriented**: each states a user- or
-operator-visible outcome, not a theme or a component list. Prefer placing new
-work into an existing milestone; mint a new one only when no current milestone
-owns the outcome.
+operator-visible outcome and a date. A milestone is a **time horizon** — never a
+theme, a component list, or a parallel track. Prefer placing new work into an
+existing milestone; mint a new one only when no current milestone owns the
+outcome.
+
+Structure contract: `docs/contributing/backlog-model.md`.
+
+Three milestones are not waves and never enter the executable queue:
+`Deferred / Incubation` (explicitly parked), `Operations` (machine-generated
+incidents, ops alerts, delivery-health signals), and — by absence — **no
+milestone at all, which means exactly one thing: needs triage**. Never leave
+real work unmilestoned to mean "later"; that is what `Deferred / Incubation` is
+for.
 
 ## Description fields
 
@@ -27,3 +37,10 @@ owns the outcome.
 - Reprioritization is a tracking-issue comment plus milestone description
   update — parked children move out (to a parked milestone or closed
   as-superseded) rather than lingering.
+- A milestone that cannot finish inside its horizon is **split at planning
+  time**, not at the deadline. If the split lines are not real, move the date
+  instead — renaming buckets is not scheduling. Watch for the dumping-ground
+  shape: one wave holding a third of the backlog under a single date.
+- Never hand-maintain issue counts in a milestone description or roadmap issue.
+  `scripts/roadmap-status.mjs` generates them; a hand-typed rollup drifted on
+  5 of 12 rows in two weeks.

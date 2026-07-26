@@ -42,6 +42,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ### Contributing
 
+- [Backlog Model](./contributing/backlog-model.md): the canonical work-structure contract — the strategy/wave/epic/slice ladder, what each GitHub primitive means, the label charter, refined-vs-backlog states, generated rollup, and the orchestrator selection algorithm.
 - [Public Knowledge Base Change Convention](./contributing/public-knowledge-base.md): the `KB:` pull-request/issue marker, warning-only feature-slice ratchet, and documented post-launch block-mode transition.
 
 ### Bounded contexts and structure

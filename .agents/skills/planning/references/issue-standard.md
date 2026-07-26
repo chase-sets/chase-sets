@@ -39,7 +39,10 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   authority probe, provider test-mode result). This is a focused attack surface,
   not a restated checklist.
 - **Predicted footprint.** Workspaces/files the change will touch, plus chain
-  position: `Blocked by #N` / `Blocks #M`. Feeds parallel-lane collision checks.
+  position. Record chain links as **native GitHub issue dependencies**
+  (Blocked by / Blocks); the prose `Blocked by #N` line is a convenience mirror
+  and the relationship is what the orchestrator reads. Feeds parallel-lane
+  collision checks.
   When the change adds validation or invariants to a handler that seed,
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
@@ -56,6 +59,12 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 
 The orchestrator dispatches an issue only when ALL hold:
 
+0. **Placed and classified:** one wave milestone, `priority:*`, `area:*`,
+   `kind:*`, and — when the slice belongs to a capability — attached as a
+   **sub-issue of its epic**. The slice form applies the first three from its
+   dropdowns (`scripts/issue-form-labels.mjs`); issues created by API must set
+   them explicitly. An unclassified slice is backlog, not a dispatch candidate:
+   it cannot be ranked, collision-checked, or rolled up.
 1. Repo evidence pointers present (≥2) and non-generic.
 2. Scope fence states at least one explicit non-goal.
 3. Every AC has an evidence method; external-provider contracts name the
