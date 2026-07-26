@@ -102,7 +102,11 @@ function readPublicWebRouteRecords({ rootDir, tracked }) {
       failure(relativePath, "context manifest must contain a deployableContributions array");
     }
     document.deployableContributions.forEach((contribution, contributionIndex) => {
-      if (!contribution || contribution.deployable !== "public-web" || !Array.isArray(contribution.routes)) return;
+      if (!contribution || contribution.deployable !== "public-web") return;
+      const contributionSource = `${relativePath} deployableContributions[${contributionIndex}]`;
+      if (!Array.isArray(contribution.routes)) {
+        failure(contributionSource, "public-web contribution must contain a routes array");
+      }
       contribution.routes.forEach((route, routeIndex) => {
         if (!route || typeof route.routeId !== "string" || typeof route.routePath !== "string") {
           failure(
@@ -151,8 +155,24 @@ function classifyRoute(route, articles) {
   if (!route.routePath.includes(":")) {
     return [{ kind: "CONCRETE", memberId: route.routeId, path: `/${route.routePath}`, source: route.source }];
   }
-  if (route.routePath === "help/:category") return expandHelpCategory(route, articles);
-  if (route.routePath === "help/:category/:slug") return expandHelpArticle(route, articles);
+  const expansion =
+    route.routePath === "help/:category"
+      ? expandHelpCategory(route, articles)
+      : route.routePath === "help/:category/:slug"
+        ? expandHelpArticle(route, articles)
+        : undefined;
+  if (expansion) {
+    if (expansion.length > 0) return expansion;
+    return [
+      {
+        kind: "INDETERMINATE",
+        memberId: route.routeId,
+        path: `/${route.routePath}`,
+        source: route.source,
+        reason: "authoritative enumeration is empty",
+      },
+    ];
+  }
   return [
     {
       kind: "INDETERMINATE",

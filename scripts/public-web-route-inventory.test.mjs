@@ -31,21 +31,54 @@ function write(rootDir, relativePath, content) {
   writeFileSync(absolutePath, content, "utf8");
 }
 
-function independentlyReadPublicWebRoutes() {
+function independentlyDerivePublicWebMembers() {
   const manifests = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
     .split("\0")
     .filter((candidate) => /^bounded-contexts\/[^/]+\/context\.json$/.test(candidate));
-  return manifests.flatMap((manifestPath) =>
+  const routes = manifests.flatMap((manifestPath) =>
     JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8"))
       .deployableContributions.filter((contribution) => contribution.deployable === "public-web")
-      .flatMap((contribution) => contribution.routes.map((route) => route.routeId)),
+      .flatMap((contribution) => contribution.routes),
   );
+  const articles = [
+    ...readFileSync(path.join(repoRoot, generatedHelpCatalogPath), "utf8").matchAll(
+      /slug:\s*"([^"]+)"[\s\S]*?category:\s*"([^"]+)"[\s\S]*?href:\s*"([^"]+)"/g,
+    ),
+  ].map(([, slug, category, href]) => ({ slug, category, href }));
+
+  const members = routes.flatMap((route) => {
+    if (!route.routePath.includes(":")) {
+      return [{ kind: "CONCRETE", memberId: route.routeId, path: `/${route.routePath}` }];
+    }
+    if (route.routePath === "help/:category") {
+      return [...new Set(articles.map((article) => article.category))]
+        .sort((left, right) => left.localeCompare(right, "en"))
+        .map((category) => ({
+          kind: "EXPANDED",
+          memberId: `${route.routeId}:${category}`,
+          path: `/${route.routePath.replace(":category", category)}`,
+        }));
+    }
+    if (route.routePath === "help/:category/:slug") {
+      return articles.map((article) => ({
+        kind: "EXPANDED",
+        memberId: `${route.routeId}:${article.category}:${article.slug}`,
+        path: article.href,
+      }));
+    }
+    return [{ kind: "INDETERMINATE", memberId: route.routeId, path: `/${route.routePath}` }];
+  });
+  return { members, sourceRecordCount: routes.length };
 }
 
 describe("public-web route inventory", () => {
   it("derives the complete real-source surface and an exclusive partition", () => {
     const inventory = derivePublicWebRouteInventory({ rootDir: repoRoot });
-    expect(inventory.sources.manifests).toHaveLength(independentlyReadPublicWebRoutes().length);
+    const independentlyDerived = independentlyDerivePublicWebMembers();
+    expect(inventory.sources.manifests).toHaveLength(independentlyDerived.sourceRecordCount);
+    expect(inventory.members.map(({ kind, memberId, path }) => ({ kind, memberId, path }))).toEqual(
+      independentlyDerived.members,
+    );
     expect(
       inventory.sources.manifests.every((source) =>
         /^bounded-contexts\/[^/]+\/context\.json deployableContributions\[\d+\]\.routes\[\d+\]$/.test(source),
@@ -90,8 +123,13 @@ describe("public-web route inventory", () => {
         deployableContributions: [
           {
             deployable: "public-web",
-            routes: [{ routeId: "manifest-control", routePath: "manifest-control" }],
+            routes: [
+              { routeId: "help-category", routePath: "help/:category" },
+              { routeId: "help-article", routePath: "help/:category/:slug" },
+              { routeId: "manifest-control", routePath: "manifest-control" },
+            ],
           },
+          { deployable: "not-public-web", routes: "not a routes array" },
         ],
       }),
     );
@@ -103,8 +141,35 @@ describe("public-web route inventory", () => {
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: rootDir });
     execFileSync("git", ["commit", "--quiet", "-m", "tracked fixture"], { cwd: rootDir });
-    expect(derivePublicWebRouteInventory({ rootDir }).members).toEqual(
-      expect.arrayContaining([expect.objectContaining({ memberId: "manifest-control", kind: "CONCRETE" })]),
+    const inventory = derivePublicWebRouteInventory({ rootDir });
+    expect(inventory.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ memberId: "manifest-control", kind: "CONCRETE" }),
+        expect.objectContaining({ memberId: "help-category", kind: "INDETERMINATE" }),
+        expect.objectContaining({ memberId: "help-article", kind: "INDETERMINATE" }),
+      ]),
+    );
+    expect(inventory.members).toHaveLength(3);
+    expect(inventory.counts).toMatchObject({ CONCRETE: 1, EXPANDED: 0, INDETERMINATE: 2 });
+    expect(new Set(inventory.members.map((member) => member.source)).size).toBe(3);
+  });
+
+  it("fails closed when a public-web contribution has malformed routes", () => {
+    const rootDir = mkdtempSync(path.join(os.tmpdir(), "chase-sets-public-route-inventory-"));
+    temporaryRoots.push(rootDir);
+    write(
+      rootDir,
+      "bounded-contexts/arbitrary-context/context.json",
+      JSON.stringify({ deployableContributions: [{ deployable: "public-web", routes: "oops" }] }),
+    );
+    write(rootDir, generatedHelpCatalogPath, "export const helpArticles = [];\n");
+    execFileSync("git", ["init", "--quiet"], { cwd: rootDir });
+    execFileSync("git", ["add", "."], { cwd: rootDir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: rootDir });
+    execFileSync("git", ["commit", "--quiet", "-m", "tracked fixture"], { cwd: rootDir });
+    expect(() => derivePublicWebRouteInventory({ rootDir })).toThrow(
+      "bounded-contexts/arbitrary-context/context.json deployableContributions[0]",
     );
   });
 
