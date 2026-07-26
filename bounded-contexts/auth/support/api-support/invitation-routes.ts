@@ -24,6 +24,8 @@ import {
   getBootstrapContext,
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
+  resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
 import { screenRegistrationEmailDomain } from "./registration-gates";
@@ -293,9 +295,15 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
         createdIdentity = await identityMutations.createPersonalIdentity({
           email: invitation.email,
           displayName: createOwnedUserDisplayName(invitation.email),
+          registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
           foundersBetaAccessStartedAt: new Date().toISOString(),
         });
       } catch (error) {
+        const consentRejection = readRegistrationConsentRejection(error);
+        if (consentRejection) {
+          return c.json(consentRejection, 400);
+        }
+
         const conflict = readIdentityMutationConflict(error);
         if (conflict) {
           return c.json(conflict, 409);

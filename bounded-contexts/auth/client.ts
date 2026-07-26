@@ -97,6 +97,18 @@ export function createAuthApiClient({
   const buildUrl = (path: string) => new URL(path, `${baseUrl}/`).toString();
 
   return {
+    /**
+     * Obtain the server-minted registration consent resolution. Every caller
+     * that goes on to create an identity resolves first and submits the value
+     * it was handed -- there is no way to construct one locally.
+     */
+    async getRegistrationConsent<T>(): Promise<T> {
+      return parseJsonResponse<T>(
+        await configuredFetch(buildUrl("registration-consent"), {
+          headers,
+        }),
+      );
+    },
     async register<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("register"), body, headers);
     },

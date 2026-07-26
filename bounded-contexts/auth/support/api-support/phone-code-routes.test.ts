@@ -6,6 +6,10 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
+import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { registerPhoneCodeRoutes } from "./phone-code-routes";
 import type { AuthApiEnv } from "./support";
@@ -19,7 +23,10 @@ const { mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockSta
 );
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
 
 vi.mock("../runtime-support/services", async () => {
@@ -288,9 +295,11 @@ describe("phone code auth routes", () => {
       type: "session-started",
       sessionToken: "session_token",
     });
+    // The exact server-minted resolution reaches the constructor.
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       phone: "+13125550101",
       displayName: "New Buyer",
+      registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
     });
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,

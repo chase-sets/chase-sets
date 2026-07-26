@@ -1304,10 +1304,24 @@ export async function startAccountSession(page, context, options, baseUrl) {
   await addAccountSessionCookie(context, baseUrl, sessionToken);
 }
 
+// Resolve the server-minted registration consent resolution, then register with
+// the value we were handed. A probe is an ordinary client of the register route
+// and has to satisfy the same requirement the product path does.
+async function resolveRegistrationConsentSubmission(page, baseUrl) {
+  const response = await page.request.get(`${baseUrl}/api/auth/registration-consent`);
+  if (response.status() !== 200) {
+    throw probeHttpError(
+      `Buy Now probe registration consent resolution failed with HTTP ${response.status()}.`,
+      response.status(),
+    );
+  }
+  return { resolution: await response.json(), affirmed: false };
+}
+
 async function registerSyntheticAccountSession(page, options, baseUrl, account) {
   await provisionSyntheticAccountInvitation(page, options, baseUrl, account.email);
   const response = await page.request.post(`${baseUrl}/api/auth/register`, {
-    data: account,
+    data: { ...account, registrationConsent: await resolveRegistrationConsentSubmission(page, baseUrl) },
   });
   if (response.status() !== 201) {
     throw probeHttpError(

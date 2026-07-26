@@ -7,7 +7,12 @@ import {
   getMutationResultCommandReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
-import { createIdentityAuthRequestClient } from "@chase-sets/identity/server";
+import {
+  createIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode,
+  type IdentityAuthMutationClient,
+  type RegistrationConsentSubmission,
+} from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
 export type AuthApiEnv = {
@@ -44,6 +49,57 @@ export function getRequiredActor(c: AuthApiContext) {
 
 export function createIdentityMutations(c: AuthApiContext) {
   return createIdentityAuthRequestClient(c.req.raw);
+}
+
+/**
+ * The unaffirmed server-minted submission, for first-use paths that have no
+ * human affirmation moment to carry one -- a social-login provider callback,
+ * an emailed magic link, a phone code, a passkey ceremony, an invitation
+ * acceptance.
+ *
+ * It takes no affirmation from anybody: there is no parameter to pass one in,
+ * so this can never become the shape that receives a detached boolean and
+ * resolves a version afterwards. While the resolved requirement set is empty
+ * there is nothing to affirm and registration proceeds. The moment the set is
+ * non-empty these paths fail closed, because an unaffirmed submission carrying
+ * requirements is rejected -- which is the correct outcome, not a regression:
+ * a path with no way to show someone what they are agreeing to has no business
+ * recording that they agreed.
+ */
+export async function resolveUnaffirmedRegistrationConsent(
+  identityMutations: Pick<IdentityAuthMutationClient, "resolveRegistrationConsent">,
+): Promise<RegistrationConsentSubmission> {
+  return {
+    resolution: await identityMutations.resolveRegistrationConsent(),
+    affirmed: false,
+  };
+}
+
+/**
+ * Relay Identity's registration-consent rejection to the caller unchanged.
+ *
+ * Identity is the single place that decides whether a submission was
+ * server-minted, so Auth forwards the verdict rather than re-deciding it. That
+ * is what makes an omitted submission, a destructured raw client, a
+ * reconstructed URL, and a local impostor binder produce one error body for one
+ * reason instead of four lookalike codes.
+ */
+export function readRegistrationConsentRejection(error: unknown) {
+  if (!error || typeof error !== "object" || !("status" in error) || Number(error.status) !== 400) {
+    return null;
+  }
+
+  const body = "body" in error ? error.body : null;
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return null;
+  }
+
+  const rejection = (body as { error?: unknown }).error;
+  if (!rejection || typeof rejection !== "object" || !("code" in rejection)) {
+    return null;
+  }
+
+  return isRegistrationConsentRejectionCode((rejection as { code?: unknown }).code) ? body : null;
 }
 
 function maxCommitPosition(left: string | undefined, right: string | undefined) {

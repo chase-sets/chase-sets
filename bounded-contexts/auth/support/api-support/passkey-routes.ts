@@ -21,6 +21,8 @@ import {
   getBootstrapContext,
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
+  resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -118,9 +120,15 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName
               : createOwnedUserDisplayName(challenge.email),
+          registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
           foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {
+        const consentRejection = readRegistrationConsentRejection(error);
+        if (consentRejection) {
+          return c.json(consentRejection, 400);
+        }
+
         const conflict = readIdentityMutationConflict(error);
         if (conflict) {
           return c.json(conflict, 409);

@@ -17,6 +17,7 @@ import {
   getBootstrapContext,
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
+  readRegistrationConsentRejection,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -53,10 +54,20 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         displayName: String(body.displayName ?? ""),
         givenName: body.givenName ? String(body.givenName) : undefined,
         familyName: body.familyName ? String(body.familyName) : undefined,
-        consents: Array.isArray(body.consents) ? body.consents : undefined,
+        // The submission the caller brought, forwarded verbatim. This route is
+        // the one that takes identity fields straight from an arbitrary client,
+        // so it never mints on the caller's behalf -- a registration that
+        // arrives without a resolution is rejected, whatever expression form
+        // built the request.
+        registrationConsent: body.registrationConsent,
         foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
       });
     } catch (error) {
+      const consentRejection = readRegistrationConsentRejection(error);
+      if (consentRejection) {
+        return c.json(consentRejection, 400);
+      }
+
       const conflict = readIdentityMutationConflict(error);
       if (conflict) {
         return c.json(conflict, 409);

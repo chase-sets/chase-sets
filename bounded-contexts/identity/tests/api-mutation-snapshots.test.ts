@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
+import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 
@@ -283,6 +284,9 @@ describe("Identity API mutation snapshots", () => {
       }),
     );
 
+    const registrationConsent = await requestJson(app, "/internal/auth/registration-consent");
+    expect(registrationConsent.response.status).toBe(200);
+
     const personalIdentity = await requestJson(app, "/internal/auth/personal-identities", {
       method: "POST",
       body: JSON.stringify({
@@ -292,6 +296,10 @@ describe("Identity API mutation snapshots", () => {
         // mock above); the client-supplied version here is intentionally
         // stale to prove the server ignores it for the canonical key.
         consents: [{ policyKey: "terms-of-service", policyVersion: "stale-client-supplied-version" }],
+        registrationConsent: {
+          resolution: registrationConsent.body as SignedRegistrationConsentResolution,
+          affirmed: true,
+        },
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
@@ -299,18 +307,13 @@ describe("Identity API mutation snapshots", () => {
       expect.arrayContaining([
         expect.objectContaining({ aggregate: "account", version: 11, status: "active" }),
         expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "consent", version: 61, status: "recorded" }),
         expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
       ]),
     );
-    expect(services.consents.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-        }),
-      }),
+    expect(personalIdentity.body.snapshots).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ aggregate: "consent" })]),
     );
+    expect(services.consents.commandHandler).not.toHaveBeenCalled();
 
     for (const path of [
       "/internal/auth/users/usr_1/sms-code",

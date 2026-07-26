@@ -316,6 +316,14 @@ describe("marketplace smoke auth support", () => {
       throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
     });
     const { calls, cookies, page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         expect(call.data).toMatchObject({
           email: account.email,
@@ -330,7 +338,10 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
     expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
@@ -371,6 +382,14 @@ describe("marketplace smoke auth support", () => {
       throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
     });
     const { cookies, page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(409, { error: "User exists." });
       }
@@ -424,6 +443,14 @@ describe("marketplace smoke auth support", () => {
       throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
     });
     const { calls, page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         expect(call.data).toMatchObject({ password: account.password });
         return new FakeResponse(201, { sessionToken: "synthetic_session" });
@@ -435,7 +462,10 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual(["/api/auth/register"]);
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
     expect(privilegedCalls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
       "/api/auth/password-sign-in",
       "/api/identity/current-actor-display",
@@ -446,6 +476,14 @@ describe("marketplace smoke auth support", () => {
 
   it("preserves direct registration for local open-admission environments without platform-admin credentials", async () => {
     const { calls, page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(201, { sessionToken: "synthetic_session" });
       }
@@ -456,11 +494,23 @@ describe("marketplace smoke auth support", () => {
       "synthetic_session",
     );
 
-    expect(calls).toHaveLength(1);
+    // Registration still runs unprivileged here; it just resolves first.
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
   });
 
   it("signs in an already-provisioned account when a gated environment lacks admin credentials", async () => {
     const { cookies, page } = createFakePage((call) => {
+      if (call.url.endsWith("/api/auth/registration-consent")) {
+        return new FakeResponse(200, {
+          bundleKey: "registration",
+          requirements: [],
+          resolvedAt: "2026-07-25T00:00:00.000Z",
+          signature: "server-minted-test-signature",
+        });
+      }
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(403, { error: { code: "registration_admission_required" } });
       }

@@ -620,10 +620,19 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           } else {
+            // Resolve first, then submit the resolution we were handed. The
+            // registration form renders no affirmation control because the
+            // resolved requirement set is empty; when it stops being empty this
+            // submission stops being accepted, which is the signal that the
+            // bundle needs a rendered surface here.
             authResult = await api.register<InteractiveAuthResult>({
               displayName: formData.get("displayName"),
               email: formData.get("email"),
               password: formData.get("password"),
+              registrationConsent: {
+                resolution: await api.getRegistrationConsent(),
+                affirmed: false,
+              },
             });
             freshWriteSource = identityFreshWriteSource(authResult);
           }

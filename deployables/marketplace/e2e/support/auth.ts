@@ -68,6 +68,20 @@ export async function signInThroughMarketplaceForm(
   await page.getByRole("button", { name: /^Sign in$/i }).click();
 }
 
+/**
+ * Resolve the server-minted registration consent resolution before registering.
+ *
+ * A synthetic client is still a client: it has to bring a value only the server
+ * can mint, exactly like the product path. Omitting this is the shape that took
+ * down a hosted CI shard, so it is done here rather than waived as "test
+ * support".
+ */
+export async function resolveRegistrationConsentSubmission(page: Page, origin: string) {
+  const response = await page.request.get(`${origin}/api/auth/registration-consent`);
+  expect(response.status(), "registration consent resolution should be readable anonymously").toBe(200);
+  return { resolution: await response.json(), affirmed: false };
+}
+
 export async function registerOrSignInSyntheticAccount(
   page: Page,
   origin: string,
@@ -80,6 +94,7 @@ export async function registerOrSignInSyntheticAccount(
       displayName: account.displayName,
       email: account.email,
       password: account.password,
+      registrationConsent: await resolveRegistrationConsentSubmission(page, origin),
     },
   });
 

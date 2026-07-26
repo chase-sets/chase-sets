@@ -24,8 +24,14 @@ import { validateInvitationAcceptanceToken } from "./features/invitations/domain
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
-import { isCanonicalTermsOfServiceConsentPolicyKey } from "./features/consents/domain/terms-of-service";
-import { identityTermsOfServicePolicy } from "./features/consents/domain/terms-of-service-policy";
+import {
+  mintRegistrationConsentResolution,
+  resolveRegistrationConsentRequirements,
+  verifyRegistrationConsentSubmission,
+  type RegistrationConsentRejection,
+  type RegistrationConsentSubmission,
+} from "./features/consents/domain/registration-consent";
+import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
@@ -63,6 +69,19 @@ export class IdentityDisplayNameConflictError extends Error {
   constructor() {
     super("Display name is already taken.");
     this.name = "IdentityDisplayNameConflictError";
+  }
+}
+
+/**
+ * Thrown by the personal-identity constructor when the registration consent
+ * submission is not a value Identity minted, is stale, or leaves requirements
+ * unaffirmed. Raised before any aggregate write, so a rejected registration
+ * leaves no account, user, membership, or consent behind.
+ */
+export class RegistrationConsentRejectedError extends Error {
+  constructor(public readonly rejection: RegistrationConsentRejection) {
+    super(rejection.message);
+    this.name = "RegistrationConsentRejectedError";
   }
 }
 
@@ -141,11 +160,31 @@ async function createPersonalIdentityForAuth(
     displayName: string;
     givenName?: string;
     familyName?: string;
-    consents?: readonly { policyKey: string; policyVersion: string }[];
+    /**
+     * Required, non-optional, non-nullable. This is the enforcement: every
+     * caller must produce a value only Identity can mint, so destructuring a
+     * raw client, rebuilding the URL from string fragments, aliasing the
+     * contract type, or defining a same-named local binder all still have to
+     * come up with a valid signature -- and none of them can.
+     */
+    registrationConsent: RegistrationConsentSubmission;
     foundersBetaAccessStartedAt?: string;
     context: EventStoreContext;
   }>,
 ) {
+  // First statement, before the display-name reservation and before any
+  // command handler: the constructor is the chokepoint, so verification lives
+  // here rather than in the route wrapper. A future route that reaches this
+  // function inherits the check instead of having to remember it.
+  const verification = verifyRegistrationConsentSubmission(params.registrationConsent, {
+    signingKeys: resolveRegistrationConsentSigningKeys(),
+    nowMs: Date.now(),
+  });
+  if (!verification.ok) {
+    throw new RegistrationConsentRejectedError(verification.rejection);
+  }
+  const verifiedRegistrationConsent = verification.submission;
+
   const userId = createId("usr") as UserId;
   const accountId = createId("acc") as AccountId;
   const membershipId = createId("mbr") as MembershipId;
@@ -223,20 +262,12 @@ async function createPersonalIdentityForAuth(
   });
   snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
 
-  // The active Terms of Service version is always resolved server-side, not
-  // trusted from the client, so acceptance can never be recorded against a
-  // version the registering client did not actually render.
-  const activeTermsOfServiceVersion = (params.consents ?? []).some((consent) =>
-    isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey),
-  )
-    ? (await services.policies.resolvePolicy(identityTermsOfServicePolicy)).value.version
-    : null;
-
-  for (const consent of params.consents ?? []) {
+  // Each Consent is recorded at exactly the policy key and version carried in
+  // the verified resolution, in its signed order. Never from raw client input,
+  // and never from a fresh resolve taken here -- resolving at append time is
+  // what recorded acceptance of a version the registering client never saw.
+  for (const requirement of verifiedRegistrationConsent.resolution.requirements) {
     const consentId = createId("cns");
-    const policyVersion = isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey)
-      ? (activeTermsOfServiceVersion ?? consent.policyVersion)
-      : consent.policyVersion;
     const consentResult = await services.consents.commandHandler({
       streamId: `identity.consent-${consentId}`,
       command: {
@@ -245,8 +276,8 @@ async function createPersonalIdentityForAuth(
         subjectType: "user",
         userId,
         accountId,
-        policyKey: consent.policyKey,
-        policyVersion,
+        policyKey: requirement.policyKey,
+        policyVersion: requirement.version,
         recordedAt: new Date().toISOString(),
       },
       context: params.context,
@@ -743,6 +774,19 @@ export function buildIdentityApi(services: IdentityServices) {
     return c.json(membership, 201);
   });
 
+  // The mint. Anonymous by design: knowing what must be agreed to in order to
+  // register is public information, and the value's authority comes from the
+  // signature, not from who asked for it.
+  app.get("/internal/auth/registration-consent", (c) =>
+    c.json(
+      mintRegistrationConsentResolution({
+        requirements: resolveRegistrationConsentRequirements(),
+        resolvedAt: new Date().toISOString(),
+        signingKeys: resolveRegistrationConsentSigningKeys(),
+      }),
+    ),
+  );
+
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
     let identity: Awaited<ReturnType<typeof createPersonalIdentityForAuth>>;
@@ -753,12 +797,25 @@ export function buildIdentityApi(services: IdentityServices) {
         displayName: String(body.displayName ?? ""),
         givenName: typeof body.givenName === "string" ? body.givenName : undefined,
         familyName: typeof body.familyName === "string" ? body.familyName : undefined,
-        consents: Array.isArray(body.consents) ? body.consents : undefined,
+        registrationConsent: body.registrationConsent,
         foundersBetaAccessStartedAt:
           typeof body.foundersBetaAccessStartedAt === "string" ? body.foundersBetaAccessStartedAt : undefined,
         context: getBootstrapContext(c),
       });
     } catch (error) {
+      if (error instanceof RegistrationConsentRejectedError) {
+        return c.json(
+          {
+            error: {
+              code: error.rejection.code,
+              reason: error.rejection.reason,
+              message: error.rejection.message,
+            },
+          },
+          400,
+        );
+      }
+
       if (error instanceof IdentityDisplayNameConflictError) {
         return c.json(
           {

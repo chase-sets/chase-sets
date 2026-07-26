@@ -129,6 +129,24 @@ async function signInWithPassword(params, fetchImpl) {
   return readSessionToken(signIn.body, params.label);
 }
 
+// Read the server-minted resolution and submit it verbatim. The policy versions
+// recorded as Consent come from this value alone -- the smoke test no longer
+// asserts a version of its own, because a client naming its own version was
+// exactly how acceptance got recorded against a version nobody rendered.
+async function resolveRegistrationConsentSubmission(authBaseUrl, fetchImpl) {
+  const resolution = await requestJson(
+    `${stripTrailingSlash(authBaseUrl)}/api/auth/registration-consent`,
+    { method: "GET" },
+    fetchImpl,
+  );
+  assert(
+    resolution.response.status === 200,
+    statusFailureMessage("registration consent resolution", resolution, "200"),
+  );
+
+  return { resolution: resolution.body, affirmed: false };
+}
+
 async function registerSellerAccount(params, fetchImpl) {
   await provisionSyntheticAccountInvitation({
     baseUrl: params.authBaseUrl,
@@ -144,6 +162,7 @@ async function registerSellerAccount(params, fetchImpl) {
     projectionPollMs: params.projectionPollMs,
   });
 
+  const registrationConsent = await resolveRegistrationConsentSubmission(params.authBaseUrl, fetchImpl);
   const registration = await requestJson(
     `${stripTrailingSlash(params.authBaseUrl)}/api/auth/register`,
     {
@@ -155,12 +174,7 @@ async function registerSellerAccount(params, fetchImpl) {
         displayName: params.displayName,
         givenName: "Stripe",
         familyName: "Smoke",
-        consents: [
-          {
-            policyKey: "terms-of-service",
-            policyVersion: "v1",
-          },
-        ],
+        registrationConsent,
       }),
     },
     fetchImpl,

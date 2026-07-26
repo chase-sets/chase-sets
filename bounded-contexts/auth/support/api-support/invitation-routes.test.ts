@@ -7,6 +7,10 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
+import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   encodeFreshWriteReceipt,
   type FreshWriteReceipt,
@@ -56,7 +60,10 @@ vi.mock("../runtime-support/services", () => ({
 }));
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
 
 function buildApp(services: unknown) {
@@ -636,6 +643,29 @@ describe("invitation auth routes", () => {
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,
       expect.objectContaining({ accountId: "acc_invited", authenticationMethod: "passkey" }),
+    );
+  });
+
+  it("forwards the server-minted registration consent submission to the identity constructor", async () => {
+    const services = createServices();
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.201" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        token: "invite_token",
+        password: "correct horse battery staple",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(identityMutations.createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION }),
     );
   });
 });

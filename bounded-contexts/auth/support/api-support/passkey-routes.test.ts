@@ -7,6 +7,10 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
+import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   decodeCommitReceipt,
   type SourceCommitPosition,
@@ -32,7 +36,10 @@ const {
 }));
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
   IdentityApiError: class IdentityApiError extends Error {
     public constructor(
       public readonly status: number,
@@ -291,9 +298,11 @@ describe("passkey route security", () => {
       }),
     );
     expect(body).not.toHaveProperty("commandReceipt");
+    // The exact server-minted resolution reaches the constructor.
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",
       displayName: "PokeBash TCG",
+      registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
     });
     expect(mockRegisterPasskeyCredential).toHaveBeenCalledWith({
       userId: "usr_new",

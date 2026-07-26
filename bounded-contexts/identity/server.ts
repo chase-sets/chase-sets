@@ -62,6 +62,19 @@ export {
   identityTermsOfServicePolicy,
   type TermsOfServicePolicyValue,
 } from "./features/consents/domain/terms-of-service-policy";
+export {
+  isRegistrationConsentRejectionCode,
+  REGISTRATION_CONSENT_AFFIRMATION_REQUIRED_CODE,
+  REGISTRATION_CONSENT_BUNDLE_KEY,
+  REGISTRATION_CONSENT_EXPIRED_CODE,
+  REGISTRATION_CONSENT_NOT_SERVER_MINTED_CODE,
+  REGISTRATION_CONSENT_REJECTION_CODES,
+  type RegistrationConsentRejectionCode,
+  type RegistrationConsentRequirement,
+  type RegistrationConsentSubmission,
+  type SignedRegistrationConsentResolution,
+} from "./features/consents/domain/registration-consent";
+import type { SignedRegistrationConsentResolution } from "./features/consents/domain/registration-consent";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
@@ -79,120 +92,11 @@ export function createIdentityRequestApiClient(request: Request) {
   });
 }
 
-export type IdentityCommandSnapshot = Readonly<{
-  aggregate: "account" | "api-key" | "consent" | "invitation" | "membership" | "user";
-  id: string;
-  version: number;
-  status: string;
-}>;
-
-export type IdentityAuthMutationClient = Readonly<{
-  createGuestAccount: (
-    params: Readonly<{
-      email: string;
-      displayName: string;
-    }>,
-  ) => Promise<Readonly<{ accountId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  createUser: (
-    params: Readonly<{
-      email: string;
-      displayName: string;
-    }>,
-  ) => Promise<Readonly<{ userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  createPersonalIdentity: (
-    params: Readonly<{
-      email?: string | null;
-      phone?: string | null;
-      displayName: string;
-      givenName?: string;
-      familyName?: string;
-      consents?: readonly { policyKey: string; policyVersion: string }[];
-      foundersBetaAccessStartedAt?: string;
-    }>,
-  ) => Promise<
-    Readonly<{
-      userId: string;
-      accountId: string;
-      membershipId: string;
-      snapshots: readonly IdentityCommandSnapshot[];
-    }>
-  >;
-  enablePasswordCredential: (
-    params: Readonly<{
-      userId: string;
-      credentialId: string;
-    }>,
-  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  registerPasskeyCredential: (
-    params: Readonly<{
-      userId: string;
-      credentialId: string;
-    }>,
-  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  enableSmsCode: (
-    params: Readonly<{
-      userId: string;
-    }>,
-  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  linkSocialLogin: (
-    params: Readonly<{
-      userId: string;
-      providerName: "google" | "facebook";
-      providerSubject: string;
-      email: string;
-    }>,
-  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  claimGuestAccount: (
-    params: Readonly<{
-      accountId: string;
-      userId: string;
-      roleKey: string;
-    }>,
-  ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  acceptInvitationForUser: (
-    params: Readonly<{
-      invitationId: string;
-      userId: string;
-      acceptanceTokenHash: string;
-    }>,
-  ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-  issueInvitationAcceptanceToken: (
-    params: Readonly<{
-      invitationId: string;
-      tokenHash: string;
-      expiresAt: string;
-    }>,
-  ) => Promise<
-    Readonly<{
-      invitationId: string;
-      accountId: string;
-      email: string;
-      roleKey: string;
-      expiresAt: string;
-      snapshots: readonly IdentityCommandSnapshot[];
-    }>
-  >;
-  verifyInvitationAcceptanceToken: (
-    params: Readonly<{
-      invitationId: string;
-      acceptanceTokenHash: string;
-    }>,
-  ) => Promise<
-    Readonly<{
-      invitationId: string;
-      accountId: string;
-      email: string;
-      roleKey: string;
-      expiresAt: string;
-    }>
-  >;
-  verifyEmailContactMethod: (
-    params: Readonly<{
-      userId: string;
-      email: string;
-    }>,
-  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
-}>;
+export type {
+  IdentityAuthMutationClient,
+  IdentityCommandSnapshot,
+} from "./support/request-support/auth-mutation-client";
+import type { IdentityAuthMutationClient } from "./support/request-support/auth-mutation-client";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -217,7 +121,16 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
       }),
     );
 
+  const getJson = async <T>(path: string) =>
+    parseJsonResponse<T>(
+      await fetch(new URL(path, `${baseUrl}/`), {
+        method: "GET",
+        headers: createPlatformInternalAuthHeaders(),
+      }),
+    );
+
   return {
+    resolveRegistrationConsent: () => getJson<SignedRegistrationConsentResolution>("registration-consent"),
     createGuestAccount: (params) => postJson("guest-accounts", params),
     createUser: (params) => postJson("users", params),
     createPersonalIdentity: (params) => postJson("personal-identities", params),

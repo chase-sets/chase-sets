@@ -7,6 +7,10 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
+  withRegistrationConsentResolution,
+} from "./registration-consent-test-support";
 import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
 import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
@@ -34,7 +38,10 @@ vi.mock("../runtime-support/services", () => ({
 }));
 
 vi.mock("@chase-sets/identity/server", () => ({
-  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  isRegistrationConsentRejectionCode: (value: unknown) =>
+    typeof value === "string" && value.startsWith("registration_consent_"),
+  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
 
 function buildApp(services: unknown) {
@@ -361,5 +368,40 @@ describe("magic link auth routes", () => {
       error: "Magic link is invalid or has expired.",
     });
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
+  it("forwards the server-minted registration consent submission to the identity constructor", async () => {
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_consent",
+      user_id: null,
+      email: "consent@chasesets.test",
+      token_hash: "hashed:magic_token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_consent",
+      accountId: "acc_consent",
+      membershipId: "mbr_consent",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity,
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_consent", snapshots: [] })),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "magic_token" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION }),
+    );
   });
 });

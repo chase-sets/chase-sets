@@ -43,6 +43,7 @@ test("privileged setup succeeds on a retained first retry without entering the P
       "/api/identity/current-actor-display",
       "/api/identity/invitations",
       "/api/platform/projections/refresh-checkpoint",
+      "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
     expect(testInfo.retry, "the first attempt intentionally creates the retained retry trace").toBe(1);
@@ -115,8 +116,18 @@ async function routeProbeRequest(
     return writeJson(response, 200, { lastGlobalPosition: "5944" });
   }
 
+  if (path === "/api/auth/registration-consent") {
+    return writeJson(response, 200, {
+      bundleKey: "registration",
+      requirements: [],
+      resolvedAt: "2026-07-25T00:00:00.000Z",
+      signature: "server-minted-test-signature",
+    });
+  }
+
   if (path === "/api/auth/register") {
     assertProbe(isRecord(body) && body.email === "trace-probe-synthetic@example.invalid", "registration-body");
+    assertProbe(isRecord(body) && isRecord(body.registrationConsent), "registration-consent-body");
     return writeJson(response, 201, { sessionToken: "synthetic-session" });
   }
 

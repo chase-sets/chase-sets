@@ -1,0 +1,226 @@
+{
+  "paths": [
+    {
+      "id": "password-direct-registration",
+      "label": "Password / direct registration",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; creates a personal identity through createPersonalIdentityForAuth and carries the registration consent submission its caller supplied.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/register-routes.ts", "line": 52 }]
+    },
+    {
+      "id": "invitation-registration",
+      "label": "Invitation registration",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; creates a personal identity for an invited email that has no user yet.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/invitation-routes.ts", "line": 295 }]
+    },
+    {
+      "id": "first-use-magic-link",
+      "label": "First-use magic link",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; a consumed magic link for an unknown email creates a personal identity.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts", "line": 136 }]
+    },
+    {
+      "id": "passkey-registration",
+      "label": "Passkey registration",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; a passkey ceremony for an unknown email creates a personal identity.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/passkey-routes.ts", "line": 117 }]
+    },
+    {
+      "id": "phone-code-registration",
+      "label": "Phone-code registration",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; a verified phone code for an unknown number creates a personal identity.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/phone-code-routes.ts", "line": 143 }]
+    },
+    {
+      "id": "social-login-first-use",
+      "label": "Social-login first use",
+      "kind": "public-first-use",
+      "disposition": "bound",
+      "reason": "Public first-use path; a provider callback for an unknown verified email creates a personal identity.",
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/social-login-routes.ts", "line": 391 }]
+    },
+    {
+      "id": "marketplace-register-route-action",
+      "label": "Marketplace register route action",
+      "kind": "direct-register-client",
+      "disposition": "bound",
+      "reason": "The product register form posts through this server-side route action, making it the only non-synthetic HTTP client of the register route; it resolves a registration consent resolution and submits the value it was handed.",
+      "sites": [{ "file": "bounded-contexts/auth/support/route-support/auth-host.ts", "line": 628 }]
+    },
+    {
+      "id": "marketplace-e2e-auth-helper",
+      "label": "Marketplace E2E auth helper",
+      "kind": "direct-register-client",
+      "disposition": "bound",
+      "reason": "Registers synthetic accounts against the real register route; omitting the submission is the shape that failed a hosted CI shard, so it resolves before it registers.",
+      "sites": [{ "file": "deployables/marketplace/e2e/support/auth.ts", "line": 92 }]
+    },
+    {
+      "id": "guest-buy-now-freshness-probe",
+      "label": "Guest buy-now freshness probe",
+      "kind": "direct-register-client",
+      "disposition": "bound",
+      "reason": "Registers a synthetic probe account against the real register route and resolves before it registers.",
+      "sites": [{ "file": "scripts/guest-buy-now-freshness-probe.mjs", "line": 1323 }]
+    },
+    {
+      "id": "stripe-money-smoke-test",
+      "label": "Stripe money smoke test",
+      "kind": "direct-register-client",
+      "disposition": "bound",
+      "reason": "Registers a synthetic seller account against the real register route and resolves before it registers; it no longer names a policy version of its own.",
+      "sites": [{ "file": "scripts/stripe-money-smoke-test.mjs", "line": 167 }]
+    },
+    {
+      "id": "protected-account-administration",
+      "label": "Protected Identity account administration",
+      "kind": "protected-administration",
+      "disposition": "exempt-permanent",
+      "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 42 }]
+    },
+    {
+      "id": "protected-user-administration",
+      "label": "Protected Identity user administration",
+      "kind": "protected-administration",
+      "disposition": "exempt-permanent",
+      "reason": "Permission-guarded operator action; the operator creating the user is not the consenting subject.",
+      "sites": [{ "file": "bounded-contexts/identity/features/users/api/route.ts", "line": 49 }]
+    },
+    {
+      "id": "protected-membership-administration",
+      "label": "Protected membership administration",
+      "kind": "protected-administration",
+      "disposition": "exempt-permanent",
+      "reason": "Grants membership to an existing user on an existing account; creates no identity.",
+      "sites": [{ "file": "bounded-contexts/identity/features/memberships/api/route.ts", "line": 118 }]
+    },
+    {
+      "id": "identity-domain-deciders",
+      "label": "Identity domain deciders",
+      "kind": "domain-decider",
+      "disposition": "exempt-permanent",
+      "reason": "Pure deciders that fold commands into events; no transport, no request, and no consenting subject reaches them.",
+      "sites": [
+        { "file": "bounded-contexts/identity/features/accounts/domain/domain.ts", "line": 1 },
+        { "file": "bounded-contexts/identity/features/users/domain/domain.ts", "line": 1 },
+        { "file": "bounded-contexts/identity/features/memberships/domain/domain.ts", "line": 1 }
+      ]
+    },
+    {
+      "id": "identity-domain-decider-tests",
+      "label": "Identity domain decider tests",
+      "kind": "test-fixture",
+      "disposition": "exempt-permanent",
+      "reason": "Drive the deciders directly to assert command-to-event folding; no transport and no shipping surface.",
+      "sites": [
+        { "file": "bounded-contexts/identity/features/accounts/domain/domain.test.ts", "line": 1 },
+        { "file": "bounded-contexts/identity/features/users/domain/domain.test.ts", "line": 1 },
+        { "file": "bounded-contexts/identity/features/memberships/domain/domain.test.ts", "line": 1 }
+      ]
+    },
+    {
+      "id": "platform-api-bootstrap-reconciliation-db-test",
+      "label": "Platform-API bootstrap reconciliation database test",
+      "kind": "test-fixture",
+      "disposition": "exempt-permanent",
+      "reason": "Seeds pre-existing aggregate state directly through the command handlers so the bootstrap reconciliation it exercises has something to reconcile; no transport and no shipping surface.",
+      "sites": [
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 182 },
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 903 }
+      ]
+    },
+    {
+      "id": "production-platform-admin-bootstrap",
+      "label": "Production platform-admin bootstrap",
+      "kind": "operator-provisioning",
+      "disposition": "exempt-temporary",
+      "reason": "Operator-provisioned admin identity with no human registration moment; revisit when the consent bundle defines an operator-acceptance surface.",
+      "owningIssue": 5684,
+      "sites": [
+        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 69 },
+        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 85 },
+        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 121 }
+      ]
+    },
+    {
+      "id": "admin-qa-actor-fixtures",
+      "label": "Admin-QA actor fixtures",
+      "kind": "operator-provisioning",
+      "disposition": "exempt-temporary",
+      "reason": "Provisions QA actors and already records consent directly; must migrate to the consent bundle once one exists.",
+      "owningIssue": 5684,
+      "sites": [
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 188 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 203 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 233 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 249 }
+      ]
+    },
+    {
+      "id": "development-scenario-seed",
+      "label": "Development / scenario seed",
+      "kind": "seed",
+      "disposition": "exempt-temporary",
+      "reason": "Non-production seed data that records consent directly; must migrate to the consent bundle once one exists.",
+      "owningIssue": 5684,
+      "sites": [
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 272 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 283 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 294 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 305 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 322 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 385 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 455 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 484 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 524 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 542 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 572 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 584 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 596 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 627 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 640 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 655 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 844 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 895 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 944 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 983 }
+      ]
+    }
+  ],
+  "compositions": [
+    {
+      "id": "guest-checkout-account-claim",
+      "label": "Guest checkout account claim",
+      "disposition": "exempt-temporary",
+      "reason": "Composes an Account, User, and Membership out of three unbound primitives without ever reaching createPersonalIdentityForAuth, producing a real owned account. Whether a claimed guest account requires registration consent is a counsel question, not an implementer's call, so the footprint is frozen rather than silently bound: the three member sites are pinned and a fourth member joining the composition must be a reviewed change.",
+      "owningIssue": 5684,
+      "members": [
+        {
+          "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
+          "line": 197,
+          "constructor": "createGuestAccount"
+        },
+        {
+          "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
+          "line": 137,
+          "constructor": "createUser"
+        },
+        {
+          "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
+          "line": 154,
+          "constructor": "claimGuestAccount"
+        }
+      ]
+    }
+  ]
+}
