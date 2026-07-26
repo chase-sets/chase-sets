@@ -97,25 +97,30 @@ export async function loadSeedAggregateState<State, Event extends DomainEvent>(
   input: SeedAggregateStateInput<State, Event>,
 ): Promise<SeedAggregateState<State, Event>> {
   const createdKeyField = input.createdKeyField === undefined ? "key" : input.createdKeyField;
+  // The payload key is a caller-declared field name, never user input, and is
+  // inlined as a literal after validation rather than bound as a parameter:
+  // a parameterised `payload->>$n` blocks the planner from folding the JSON
+  // path, which measurably slowed Catalog's 130-aggregate reconciliation.
+  const parameters: unknown[] = [input.streamId];
+  let keyScanSql = "";
+  if (createdKeyField !== null) {
+    parameters.push(input.createdEventType, input.expectedKey);
+    keyScanSql =
+      `\n        OR (\n          event_type = $2` +
+      `\n          AND payload->>'${assertJsonPayloadKey(createdKeyField)}' = $3`;
+    if (input.keyScope) {
+      parameters.push(input.keyScope.value);
+      keyScanSql += `\n          AND payload->>'${assertJsonPayloadKey(input.keyScope.field)}' = $4`;
+    }
+    keyScanSql += "\n        )";
+  }
+
   const stored = await input.db.query<StoredSeedEventRow>(
     `SELECT stream_id, stream_version, event_type, payload
      FROM event_store_events
-     WHERE stream_id = $1
-        OR (
-          $2::text IS NOT NULL
-          AND event_type = $3
-          AND payload->>$2 = $4
-          AND ($5::text IS NULL OR payload->>$5 = $6)
-        )
+     WHERE stream_id = $1${keyScanSql}
      ORDER BY stream_id, stream_version`,
-    [
-      input.streamId,
-      createdKeyField,
-      input.createdEventType,
-      input.expectedKey,
-      input.keyScope?.field ?? null,
-      input.keyScope?.value ?? null,
-    ],
+    parameters,
   );
 
   const conflictingCreated = stored.rows.find((row) => row.stream_id !== input.streamId);
@@ -413,4 +418,16 @@ function streamSuffix(streamId: string): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+/**
+ * Guards a declared payload field name before it is inlined into SQL. Seed
+ * requirements are authored in-repo, so this can only fail on a coding error;
+ * it exists so the inlining above can never become an injection surface.
+ */
+function assertJsonPayloadKey(field: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(field)) {
+    throw new Error(`Seed aggregate state payload field '${field}' must be a plain identifier.`);
+  }
+  return field;
 }
