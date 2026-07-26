@@ -675,14 +675,14 @@ jobs:
 
           custom_domain="$(terraform output -raw custom_domain)"
           cdn_endpoint="$(terraform output -raw cdn_endpoint)"
-          record_name="${custom_domain%.chasesets.com}"
+          record_name="${custom_domain%.staging.chasesets.com}"
 
           doctl compute cdn list --output json | jq -e \
             --arg custom_domain "$custom_domain" \
             --arg cdn_endpoint "$cdn_endpoint" \
             '.[] | select(.custom_domain == $custom_domain and .endpoint == $cdn_endpoint)' >/dev/null
 
-          doctl compute domain records list chasesets.com --output json | jq -e \
+          doctl compute domain records list staging.chasesets.com --output json | jq -e \
             --arg record_name "$record_name" \
             --arg cdn_endpoint "$cdn_endpoint" \
             '.[] | select(.type == "CNAME" and .name == $record_name and .data == $cdn_endpoint)' >/dev/null
