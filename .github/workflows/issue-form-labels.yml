@@ -14,6 +14,10 @@ concurrency:
 jobs:
   label:
     name: Apply slice form labels
+    # Job-level `if` is evaluated before a runner is assigned, so epics,
+    # decisions, and free-form issues cost nothing. Without this guard every
+    # issue edit repo-wide would spin a checkout + pnpm setup.
+    if: contains(github.event.issue.body, '### Priority')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
