@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -60,6 +60,39 @@ jobs:
     expect(report.violations.map(({ code }) => code)).toEqual(
       expect.arrayContaining(["generated-platform-pull-credential", "non-managed-pull-selector"]),
     );
+  });
+
+  it("rejects a docker-registry producer for a managed platform selector at an arbitrary tracked workflow path", async () => {
+    const root = await trackedFixture({
+      ".github/workflows/arbitrary-path.yml": `name: synthetic docker registry negative
+on: workflow_dispatch
+jobs:
+  arbitrary:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          kubectl create secret docker-registry chase-sets \\
+            --docker-server=registry.digitalocean.com \\
+            --docker-username="$token" \\
+            --docker-password="$token" \\
+            --dry-run=client -o yaml | kubectl apply -f -
+      - run: |
+          pnpm run platform:kubernetes-deployment -- deploy \\
+            --image registry.digitalocean.com/example/private@sha256:${"c".repeat(64)} \\
+            --image-pull-secret chase-sets
+`,
+    });
+
+    const report = auditManagedRegistryAuthority(root);
+    const cli = spawnSync(process.execPath, [path.resolve("scripts/managed-registry-authority-guard.mjs"), "--repository-root", root], {
+      cwd: path.resolve("."),
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+    expect(report.violations.map(({ code }) => code)).toContain("generated-platform-pull-credential");
+    expect(cli.status).toBe(1);
+    expect(cli.stderr).toContain("[generated-platform-pull-credential]");
   });
 
   it("requires bounded managed readiness between arbitrary temporary namespace creation and deployment", async () => {

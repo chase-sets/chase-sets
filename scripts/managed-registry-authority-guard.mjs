@@ -16,7 +16,7 @@ const imagePullSelectorPattern = /--image-pull-secret(?:=|\s+)(?:"([^"]+)"|'([^'
 const helmImagePullSelectorPattern =
   /global\.imagePullSecrets(?:\[[^\]]+\])?\.name(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s\\]+))/g;
 const generatedRegistryCredentialPattern =
-  /\bdoctl\s+registry\s+(?:docker-config|kubernetes-manifest)\b|\bkubectl\s+create\s+secret\s+(?:generic|docker-registry)\b[\s\S]*?(?:\.dockerconfigjson|kubernetes\.io\/dockerconfigjson)/;
+  /\bdoctl\s+registry\s+(?:docker-config|kubernetes-manifest)\b|\bkubectl\s+create\s+secret\s+docker-registry\b|\bkubectl\s+create\s+secret\s+generic\b[\s\S]*?(?:\.dockerconfigjson|kubernetes\.io\/dockerconfigjson)/;
 const namespaceManifestCreatePattern = /\bnamespace-manifest\b[\s\S]*?\|\s*kubectl\s+create\s+-f\s+-/;
 const readinessInvocationPattern = /\bnode\s+(?:\.\/)?scripts\/managed-registry-readiness\.mjs\b/;
 
