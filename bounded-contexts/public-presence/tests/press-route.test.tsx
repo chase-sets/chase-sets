@@ -4,6 +4,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import PressRoute, { loader } from "../routes/marketplace/press";
+import {
+  POLICY_VALUE_KEY_ATTRIBUTE,
+  POLICY_VALUE_STATE_ATTRIBUTE,
+  POLICY_VALUE_UNAVAILABLE_STATE,
+  POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE,
+  POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE,
+  parsePolicyValueKeys,
+} from "../features/help/domain/policy-value-state";
 
 afterEach(() => {
   cleanup();
@@ -55,6 +63,18 @@ describe("press route policy values", () => {
         classification,
         ...(status === undefined ? {} : { status }),
       });
+
+      const expectedKeys = [...data.article.policyValueKeys].sort();
+      const markers = [
+        ...document.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`),
+      ]
+        .map((node) => node.getAttribute(POLICY_VALUE_KEY_ATTRIBUTE))
+        .sort();
+      expect(markers).toEqual(expectedKeys);
+      const aggregate = document.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
+      expect(
+        [...parsePolicyValueKeys(aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort(),
+      ).toEqual(expectedKeys);
     },
   );
 });

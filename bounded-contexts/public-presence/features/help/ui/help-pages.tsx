@@ -27,6 +27,16 @@ import {
   type HelpAudience,
   type HelpCategory,
 } from "../domain/article-catalog";
+import {
+  collectUnresolvedPolicyValueKeys,
+  formatPolicyValueKeys,
+  POLICY_VALUE_KEY_ATTRIBUTE,
+  POLICY_VALUE_STATE_ATTRIBUTE,
+  POLICY_VALUE_UNAVAILABLE_STATE,
+  POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE,
+  POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE,
+  POLICY_VALUES_DEGRADED_STATE,
+} from "../domain/policy-value-state";
 
 const audienceKeys: Record<HelpAudience, string> = {
   buyer: "buyer",
@@ -205,8 +215,18 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
 }
 
 export function CompiledArticleBody({ article }: { article: HelpArticle }) {
+  const unresolvedPolicyValueKeys = collectUnresolvedPolicyValueKeys(article.blocks);
   return (
-    <Surface element="article" elevated>
+    <Surface
+      element="article"
+      elevated
+      {...(unresolvedPolicyValueKeys.length > 0
+        ? {
+            [POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE]: POLICY_VALUES_DEGRADED_STATE,
+            [POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE]: formatPolicyValueKeys(unresolvedPolicyValueKeys),
+          }
+        : {})}
+    >
       <Stack gap={4}>
         {article.blocks.map((block, index) => {
           if (block.type === "heading") {
@@ -271,7 +291,17 @@ function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
     if (inline.type === "code") return <code key={key}>{inline.value}</code>;
     if (inline.type === "policy-value-unavailable") {
       return (
-        <Text key={key} element="span" size="sm" tone="secondary" weight="semibold">
+        <Text
+          key={key}
+          element="span"
+          size="sm"
+          tone="secondary"
+          weight="semibold"
+          {...{
+            [POLICY_VALUE_STATE_ATTRIBUTE]: POLICY_VALUE_UNAVAILABLE_STATE,
+            [POLICY_VALUE_KEY_ATTRIBUTE]: inline.key,
+          }}
+        >
           {t("publicPresence.help.policyValueUnavailable")}
         </Text>
       );

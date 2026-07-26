@@ -29,6 +29,7 @@ import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs";
 import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
+import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
@@ -3382,6 +3383,9 @@ export async function runStructureCheck(options = {}) {
 
   const publicPolicyPostureResult = await validatePublicPolicyPosture({ repoRoot });
   violations.push(...publicPolicyPostureResult.violations);
+
+  const policyValueDiscriminantChokepointResult = validatePolicyValueDiscriminantChokepoint({ repoRoot });
+  violations.push(...policyValueDiscriminantChokepointResult.violations);
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
   for (const violation of workspaceTsconfigResult.violations) {
