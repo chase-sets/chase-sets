@@ -3,15 +3,18 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import {
-  POLICY_VALUE_KEY_ATTRIBUTE,
-  POLICY_VALUE_STATE_ATTRIBUTE,
-  POLICY_VALUE_UNAVAILABLE_STATE,
-  POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE,
-  POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE,
-  parsePolicyValueKeys,
-} from "@chase-sets/public-presence/web";
 import SalesFeesRoute, { headers, loader, meta } from "./sales-fees";
+
+// public-presence's help-article renderer contract (#6115): a machine-readable
+// marker for each unresolved public policy value plus a page-level aggregate.
+// Hardcoded here (not imported) because public-presence's `/web` surface is a
+// deployable-facing shell boundary, not a place for domain constants to leak
+// through — see docs/architecture/bounded-context-structure.md.
+const POLICY_VALUE_STATE_ATTRIBUTE = "data-policy-value-state";
+const POLICY_VALUE_UNAVAILABLE_STATE = "unavailable";
+const POLICY_VALUE_KEY_ATTRIBUTE = "data-policy-value-key";
+const POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE = "data-policy-values-state";
+const POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE = "data-policy-value-keys";
 
 const values = {
   "marketplace-sales-fee.standard.bps": policyValue("bps", 500),
@@ -157,9 +160,8 @@ describe("sales fees route", () => {
       .sort();
     expect(markers).toEqual(expectedKeys);
     const aggregate = document.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
-    expect([...parsePolicyValueKeys(aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort()).toEqual(
-      expectedKeys,
-    );
+    const aggregateKeys = (aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE) ?? "").split(",").sort();
+    expect(aggregateKeys).toEqual(expectedKeys);
   });
 
   it("publishes article metadata and the bounded propagation window", async () => {

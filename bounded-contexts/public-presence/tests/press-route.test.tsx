@@ -72,9 +72,9 @@ describe("press route policy values", () => {
         .sort();
       expect(markers).toEqual(expectedKeys);
       const aggregate = document.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
-      expect([...parsePolicyValueKeys(aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort()).toEqual(
-        expectedKeys,
-      );
+      expect(
+        [...parsePolicyValueKeys(aggregate!.getAttribute(POLICY_VALUES_AGGREGATE_KEYS_ATTRIBUTE)!)].sort(),
+      ).toEqual(expectedKeys);
     },
   );
 });

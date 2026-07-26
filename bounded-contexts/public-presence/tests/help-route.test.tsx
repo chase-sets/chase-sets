@@ -21,7 +21,9 @@ import {
 
 function renderedUnresolvedKeys(article: HelpArticle) {
   const { container } = render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
-  const markers = [...container.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`)]
+  const markers = [
+    ...container.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`),
+  ]
     .map((node) => node.getAttribute(POLICY_VALUE_KEY_ATTRIBUTE))
     .sort();
   const aggregate = container.querySelector(`[${POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE}]`);
