@@ -1,11 +1,31 @@
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import {
+  createSeedAggregateReconciler,
+  loadSeedStreamEvents,
+  reconcileSeedAggregates,
+} from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
-import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError } from "../../features/orders/domain/common";
+import {
+  evolveOrderingOrder,
+  initialOrderingOrderState,
+  type OrderingOrderEvent,
+} from "../../features/orders/domain/domain";
+import {
+  decidePostagePolicy,
+  evolvePostagePolicy,
+  initialPostagePolicyState,
+  type PostagePolicyCommand,
+  type PostagePolicyEvent,
+  type PostagePolicyState,
+} from "../../features/postage-policies/domain/domain";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { createOrderingServices, type OrderingServices } from "./services";
 
@@ -88,40 +108,52 @@ function createSeedContextFor(accountId: AccountId, userId: string) {
   };
 }
 
-async function hasOrderPage(db: PgQueryable, orderId: string) {
-  const result = await db.query<{ exists: boolean }>(
-    "SELECT EXISTS(SELECT 1 FROM ordering_order_pages WHERE order_id = $1) AS exists",
-    [orderId],
-  );
-  return result.rows[0]?.exists ?? false;
+const ORDERING_BOOTSTRAP_LABEL = "Ordering seed bootstrap";
+
+const orderStreamId = (orderId: string) => `ordering.order-${orderId}`;
+const postagePolicyStreamId = (policyId: string) => `ordering.postage-policy-${policyId}`;
+
+/**
+ * Folds one seeded order from its own `ordering.order-*` stream.
+ *
+ * `ordering_order_pages` and `ordering_postage_policy_pages` are UNLOGGED, so
+ * PostgreSQL truncates them on crash recovery while the logged streams survive.
+ * The projection-sourced guards this replaced answered one combined
+ * all-or-nothing question across four independent orders plus a postage policy;
+ * a partially seeded set was therefore either re-authored (duplicate create) or
+ * skipped entirely. Each order is now decided on its own committed events.
+ */
+async function loadSeedOrderState(
+  db: PgQueryable,
+  orderId: string,
+): Promise<Readonly<{ kind: "absent" | "draft" | "active"; status: string | null; eventCount: number }>> {
+  const committed = await loadSeedStreamEvents<OrderingOrderEvent>(db, orderStreamId(orderId));
+  const state = committed.reduce(evolveOrderingOrder, initialOrderingOrderState);
+  return {
+    kind: state.orderId === null ? "absent" : "active",
+    status: state.status,
+    eventCount: committed.length,
+  };
 }
 
-async function hasPostagePolicyPage(db: PgQueryable, policyId: string) {
-  const result = await db.query<{ exists: boolean }>(
-    "SELECT EXISTS(SELECT 1 FROM ordering_postage_policy_pages WHERE policy_id = $1) AS exists",
-    [policyId],
-  );
-  return result.rows[0]?.exists ?? false;
-}
-
-async function getOrderPageStatus(db: PgQueryable, orderId: string) {
-  const result = await db.query<{ status: string }>("SELECT status FROM ordering_order_pages WHERE order_id = $1", [
-    orderId,
-  ]);
-  return result.rows[0]?.status ?? null;
-}
-
-async function listOrderPagesForSource(
+/**
+ * Finds every stream carrying an `ordering.order.created` for one source
+ * reference. The offer-acceptance reaction can author an order with a generated
+ * id before the seed pins its reserved id, so the seed must recognise that twin
+ * from the authoritative streams rather than pick one silently.
+ */
+async function listOrderStreamsForSource(
   db: PgQueryable,
   sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
   sourceReferenceId: string,
-) {
+): Promise<readonly string[]> {
   const result = await db.query<{ order_id: string }>(
-    `SELECT order_id
-     FROM ordering_order_pages
-     WHERE source_type = $1
-       AND source_reference_id = $2
-     ORDER BY order_id ASC`,
+    `SELECT payload->>'orderId' AS order_id
+     FROM event_store_events
+     WHERE event_type = 'ordering.order.created'
+       AND payload->>'sourceType' = $1
+       AND payload->>'sourceReferenceId' = $2
+     ORDER BY 1 ASC`,
     [sourceType, sourceReferenceId],
   );
 
@@ -247,40 +279,20 @@ async function createSupplyBackedSeedOrder(
   }
 }
 
-export async function seedOrderingDatabase(
-  pool: PgTransactionalPool,
-  ordering: OrderingServices = createOrderingServices(pool),
-) {
-  const buyerAccountId = identitySeedIds.collector.accountId;
-
-  try {
-    const [hasCheckoutPending, cancelledOrderStatus, hasAcceptedOfferOrder, hasReviewEligibleOrder] = await Promise.all(
-      [
-        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
-        getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled),
-        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
-        hasOrderPage(ordering.db, reputationReservedSeedIds.orders.reviewEligibleDelivered),
-      ],
-    );
-
-    if (hasCheckoutPending && cancelledOrderStatus === "cancelled" && hasAcceptedOfferOrder && hasReviewEligibleOrder) {
-      console.log("Ordering already contains seed data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Tables may not exist yet. Proceed with seeding.
-  }
-
-  console.log("Starting ordering development seed...\n");
-
-  const buyerContext = createSeedContextFor(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
-  const sellerContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
-  const systemContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
-
-  if (!(await hasPostagePolicyPage(ordering.db, orderingReservedSeedIds.postagePolicies.default))) {
-    await ordering.postagePolicies.commandHandler({
-      streamId: `ordering.postage-policy-${orderingReservedSeedIds.postagePolicies.default}`,
-      command: {
+function buildSeedPostagePolicyReconciler(ordering: OrderingServices, context: EventStoreContext) {
+  return createSeedAggregateReconciler<PostagePolicyState, PostagePolicyCommand, PostagePolicyEvent>({
+    db: ordering.db,
+    contextName: "ordering",
+    bootstrapLabel: ORDERING_BOOTSTRAP_LABEL,
+    aggregateName: "Postage Policy",
+    id: orderingReservedSeedIds.postagePolicies.default,
+    key: "Default postage policy",
+    streamId: postagePolicyStreamId(orderingReservedSeedIds.postagePolicies.default),
+    initialState: initialPostagePolicyState,
+    decide: decidePostagePolicy,
+    evolve: evolvePostagePolicy,
+    steps: [
+      {
         type: "CreatePostagePolicy",
         policyId: orderingReservedSeedIds.postagePolicies.default,
         label: "Default postage policy",
@@ -289,21 +301,77 @@ export async function seedOrderingDatabase(
         effectiveUntil: null,
         createdByUserId: identitySeedIds.demo.userId,
       },
-      context: systemContext,
-    });
-    await ordering.postagePolicies.commandHandler({
-      streamId: `ordering.postage-policy-${orderingReservedSeedIds.postagePolicies.default}`,
-      command: {
+      {
         type: "ActivatePostagePolicy",
         activatedByUserId: identitySeedIds.demo.userId,
         activationReason: "Seed default postage policy.",
       },
-      context: systemContext,
+    ],
+    send: (streamId, command) => ordering.postagePolicies.commandHandler({ streamId, command, context }),
+  });
+}
+
+const seedOrderInventory = [
+  { id: orderingReservedSeedIds.orders.checkoutPending, key: "chk_seed_checkout_pending", expectedStatus: null },
+  { id: orderingReservedSeedIds.orders.cancelled, key: "chk_seed_cancelled", expectedStatus: "cancelled" },
+  {
+    id: orderingReservedSeedIds.orders.acceptedOfferReady,
+    key: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+    expectedStatus: null,
+  },
+  {
+    id: reputationReservedSeedIds.orders.reviewEligibleDelivered,
+    key: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore,
+    expectedStatus: null,
+  },
+] as const;
+
+/**
+ * Reports the Ordering seed's base aggregate state from the authoritative
+ * `ordering.*` streams: the default postage policy plus each reserved order.
+ */
+export async function inspectOrderingSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const ordering = createOrderingServices(pool);
+  const context = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+  const policyReports = await reconcileSeedAggregates([buildSeedPostagePolicyReconciler(ordering, context)], false);
+
+  const orderReports: BcSeedAggregateStateReport[] = [];
+  for (const order of seedOrderInventory) {
+    const state = await loadSeedOrderState(ordering.db, order.id);
+    const complete =
+      state.kind === "active" && (order.expectedStatus === null || state.status === order.expectedStatus);
+    orderReports.push({
+      contextName: "ordering",
+      aggregateName: "Order",
+      id: order.id,
+      key: order.key,
+      streamId: orderStreamId(order.id),
+      kind: state.kind === "absent" ? "absent" : complete ? "active" : "draft",
+      status: state.status,
+      eventCount: state.eventCount,
     });
-    console.log(`  Default postage policy seeded (${orderingReservedSeedIds.postagePolicies.default})`);
   }
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
+  return [...policyReports, ...orderReports];
+}
+
+export async function seedOrderingDatabase(
+  pool: PgTransactionalPool,
+  ordering: OrderingServices = createOrderingServices(pool),
+) {
+  const buyerAccountId = identitySeedIds.collector.accountId;
+
+  console.log("Starting ordering development seed...\n");
+
+  const buyerContext = createSeedContextFor(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
+  const sellerContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+  const systemContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+
+  await buildSeedPostagePolicyReconciler(ordering, systemContext).reconcile(true);
+
+  if ((await loadSeedOrderState(ordering.db, orderingReservedSeedIds.orders.checkoutPending)).kind === "absent") {
     const checkoutLine = await buildCheckoutLine(ordering, checkoutCartLines[0]!);
     if (checkoutLine) {
       await createSupplyBackedSeedOrder(checkoutCartLines[0]!.itemTitle, "checkout order", async () => {
@@ -326,8 +394,8 @@ export async function seedOrderingDatabase(
     }
   }
 
-  const cancelledOrderStatus = await getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled);
-  if (!cancelledOrderStatus) {
+  const cancelledOrder = await loadSeedOrderState(ordering.db, orderingReservedSeedIds.orders.cancelled);
+  if (cancelledOrder.kind === "absent") {
     const cancelledLine = await buildCheckoutLine(ordering, cancelledCartLines[0]!);
     if (cancelledLine) {
       await createSupplyBackedSeedOrder(cancelledCartLines[0]!.itemTitle, "checkout order", async () => {
@@ -354,7 +422,7 @@ export async function seedOrderingDatabase(
     } else {
       logWaitingForActiveSupply(cancelledCartLines[0]!.itemTitle, "checkout order");
     }
-  } else if (cancelledOrderStatus !== "cancelled") {
+  } else if (cancelledOrder.status !== "cancelled") {
     await ordering.orders.cancelPurchase(
       {
         orderId: orderingReservedSeedIds.orders.cancelled,
@@ -365,115 +433,87 @@ export async function seedOrderingDatabase(
     console.log(`  Cancelled order seeded (${orderingReservedSeedIds.orders.cancelled})`);
   }
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
-    const existingAcceptedOfferOrderIds = await listOrderPagesForSource(
-      ordering.db,
-      "offer-acceptance",
-      acceptedOfferSeed.offerId,
-    );
-    if (existingAcceptedOfferOrderIds.length > 0) {
-      console.log(`  Accepted-offer order already seeded (${existingAcceptedOfferOrderIds.join(", ")})`);
-    } else {
-      const acceptedOfferInput = await getAcceptedOfferInput(ordering, acceptedOfferSeed.offerId);
+  await seedAcceptedOfferOrder(ordering, sellerContext, {
+    reservedOrderId: orderingReservedSeedIds.orders.acceptedOfferReady,
+    offer: acceptedOfferSeed,
+    label: "Accepted-offer order",
+    buyerAccountId,
+  });
 
-      if (acceptedOfferInput) {
-        await createSupplyBackedSeedOrder(acceptedOfferSeed.itemTitle, "accepted-offer order", async () => {
-          await ordering.orders.createOrdersFromAcceptedOffer(
-            {
-              offerId: acceptedOfferSeed.offerId,
-              buyerAccountId,
-              sellerAccountId: identitySeedIds.demo.accountId,
-              listingId: acceptedOfferInput.listing_id,
-              inventoryItemId: acceptedOfferInput.inventory_item_id,
-              listingVersion: acceptedOfferInput.listing_version,
-              catalogItemId: acceptedOfferSeed.catalogItemId,
-              productId: acceptedOfferInput.product_id,
-              itemTitle: acceptedOfferSeed.itemTitle,
-              itemSubtitle: acceptedOfferSeed.itemSubtitle,
-              selectedOptions: [...acceptedOfferSeed.selectedOptions],
-              productSummary: acceptedOfferSeed.productSummary,
-              priceAmount: acceptedOfferSeed.priceAmount,
-              marketplaceSalesFeePercentageBps: acceptedOfferInput.marketplace_sales_fee_percentage_bps,
-              marketplaceSalesFeeFixedAmount: acceptedOfferInput.marketplace_sales_fee_fixed_amount,
-              marketplaceSalesFeeCapAmount: acceptedOfferInput.marketplace_sales_fee_cap_amount,
-              marketplaceSalesFeeUnitAmount: acceptedOfferInput.marketplace_sales_fee_unit_amount,
-              sellerNetUnitAmount: acceptedOfferInput.seller_net_unit_amount,
-              termsScheduleId: acceptedOfferInput.terms_schedule_id,
-              termsAgreementId: acceptedOfferInput.terms_agreement_id,
-              termsResolvedAt: acceptedOfferInput.terms_resolved_at,
-              feeQuoteFingerprint: acceptedOfferInput.fee_quote_fingerprint,
-              listingEvidencePolicyId: acceptedOfferInput.listing_evidence_policy_id,
-              listingEvidencePolicyVersion: acceptedOfferInput.listing_evidence_policy_version,
-              listingEvidencePolicyHash: acceptedOfferInput.listing_evidence_policy_hash,
-              listingEvidenceSnapshot: acceptedOfferInput.listing_evidence_snapshot,
-              shippingDestinationSnapshot: seedShippingAddress,
-              quantityRequested: acceptedOfferSeed.quantityRequested,
-              orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
-            },
-            sellerContext,
-          );
-          console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
-        });
-      } else {
-        logWaitingForActiveSupply(acceptedOfferSeed.itemTitle, "accepted-offer order");
-      }
-    }
-  }
-
-  if (!(await hasOrderPage(ordering.db, reputationReservedSeedIds.orders.reviewEligibleDelivered))) {
-    const existingReviewEligibleOrderIds = await listOrderPagesForSource(
-      ordering.db,
-      "offer-acceptance",
-      reviewEligibleOfferSeed.offerId,
-    );
-    if (existingReviewEligibleOrderIds.length > 0) {
-      console.log(`  Review-eligible order already seeded (${existingReviewEligibleOrderIds.join(", ")})`);
-    } else {
-      const reviewEligibleOfferInput = await getAcceptedOfferInput(ordering, reviewEligibleOfferSeed.offerId);
-
-      if (reviewEligibleOfferInput) {
-        await createSupplyBackedSeedOrder(reviewEligibleOfferSeed.itemTitle, "accepted-offer order", async () => {
-          await ordering.orders.createOrdersFromAcceptedOffer(
-            {
-              offerId: reviewEligibleOfferSeed.offerId,
-              buyerAccountId,
-              sellerAccountId: identitySeedIds.demo.accountId,
-              listingId: reviewEligibleOfferInput.listing_id,
-              inventoryItemId: reviewEligibleOfferInput.inventory_item_id,
-              listingVersion: reviewEligibleOfferInput.listing_version,
-              catalogItemId: reviewEligibleOfferSeed.catalogItemId,
-              productId: reviewEligibleOfferInput.product_id,
-              itemTitle: reviewEligibleOfferSeed.itemTitle,
-              itemSubtitle: reviewEligibleOfferSeed.itemSubtitle,
-              selectedOptions: [...reviewEligibleOfferSeed.selectedOptions],
-              productSummary: reviewEligibleOfferSeed.productSummary,
-              priceAmount: reviewEligibleOfferSeed.priceAmount,
-              marketplaceSalesFeePercentageBps: reviewEligibleOfferInput.marketplace_sales_fee_percentage_bps,
-              marketplaceSalesFeeFixedAmount: reviewEligibleOfferInput.marketplace_sales_fee_fixed_amount,
-              marketplaceSalesFeeCapAmount: reviewEligibleOfferInput.marketplace_sales_fee_cap_amount,
-              marketplaceSalesFeeUnitAmount: reviewEligibleOfferInput.marketplace_sales_fee_unit_amount,
-              sellerNetUnitAmount: reviewEligibleOfferInput.seller_net_unit_amount,
-              termsScheduleId: reviewEligibleOfferInput.terms_schedule_id,
-              termsAgreementId: reviewEligibleOfferInput.terms_agreement_id,
-              termsResolvedAt: reviewEligibleOfferInput.terms_resolved_at,
-              feeQuoteFingerprint: reviewEligibleOfferInput.fee_quote_fingerprint,
-              listingEvidencePolicyId: reviewEligibleOfferInput.listing_evidence_policy_id,
-              listingEvidencePolicyVersion: reviewEligibleOfferInput.listing_evidence_policy_version,
-              listingEvidencePolicyHash: reviewEligibleOfferInput.listing_evidence_policy_hash,
-              listingEvidenceSnapshot: reviewEligibleOfferInput.listing_evidence_snapshot,
-              shippingDestinationSnapshot: seedShippingAddress,
-              quantityRequested: reviewEligibleOfferSeed.quantityRequested,
-              orderIdsOverride: [reputationReservedSeedIds.orders.reviewEligibleDelivered],
-            },
-            sellerContext,
-          );
-          console.log(`  Review-eligible order seeded (${reputationReservedSeedIds.orders.reviewEligibleDelivered})`);
-        });
-      } else {
-        logWaitingForActiveSupply(reviewEligibleOfferSeed.itemTitle, "accepted-offer order");
-      }
-    }
-  }
+  await seedAcceptedOfferOrder(ordering, sellerContext, {
+    reservedOrderId: reputationReservedSeedIds.orders.reviewEligibleDelivered,
+    offer: reviewEligibleOfferSeed,
+    label: "Review-eligible order",
+    buyerAccountId,
+  });
 
   console.log("\nOrdering seed complete!");
+}
+
+async function seedAcceptedOfferOrder(
+  ordering: OrderingServices,
+  sellerContext: EventStoreContext,
+  input: Readonly<{
+    reservedOrderId: OrderId;
+    offer: typeof acceptedOfferSeed | typeof reviewEligibleOfferSeed;
+    label: string;
+    buyerAccountId: AccountId;
+  }>,
+): Promise<void> {
+  if ((await loadSeedOrderState(ordering.db, input.reservedOrderId)).kind !== "absent") {
+    return;
+  }
+
+  // The offer-acceptance reaction may already have authored this order under a
+  // generated id. Recognise that committed order from its own stream instead of
+  // creating a second one under the reserved id.
+  const existingOrderIds = await listOrderStreamsForSource(ordering.db, "offer-acceptance", input.offer.offerId);
+  if (existingOrderIds.length > 0) {
+    console.log(`  ${input.label} already seeded (${existingOrderIds.join(", ")})`);
+    return;
+  }
+
+  const offerInput = await getAcceptedOfferInput(ordering, input.offer.offerId);
+  if (!offerInput) {
+    logWaitingForActiveSupply(input.offer.itemTitle, "accepted-offer order");
+    return;
+  }
+
+  await createSupplyBackedSeedOrder(input.offer.itemTitle, "accepted-offer order", async () => {
+    await ordering.orders.createOrdersFromAcceptedOffer(
+      {
+        offerId: input.offer.offerId,
+        buyerAccountId: input.buyerAccountId,
+        sellerAccountId: identitySeedIds.demo.accountId,
+        listingId: offerInput.listing_id,
+        inventoryItemId: offerInput.inventory_item_id,
+        listingVersion: offerInput.listing_version,
+        catalogItemId: input.offer.catalogItemId,
+        productId: offerInput.product_id,
+        itemTitle: input.offer.itemTitle,
+        itemSubtitle: input.offer.itemSubtitle,
+        selectedOptions: [...input.offer.selectedOptions],
+        productSummary: input.offer.productSummary,
+        priceAmount: input.offer.priceAmount,
+        marketplaceSalesFeePercentageBps: offerInput.marketplace_sales_fee_percentage_bps,
+        marketplaceSalesFeeFixedAmount: offerInput.marketplace_sales_fee_fixed_amount,
+        marketplaceSalesFeeCapAmount: offerInput.marketplace_sales_fee_cap_amount,
+        marketplaceSalesFeeUnitAmount: offerInput.marketplace_sales_fee_unit_amount,
+        sellerNetUnitAmount: offerInput.seller_net_unit_amount,
+        termsScheduleId: offerInput.terms_schedule_id,
+        termsAgreementId: offerInput.terms_agreement_id,
+        termsResolvedAt: offerInput.terms_resolved_at,
+        feeQuoteFingerprint: offerInput.fee_quote_fingerprint,
+        listingEvidencePolicyId: offerInput.listing_evidence_policy_id,
+        listingEvidencePolicyVersion: offerInput.listing_evidence_policy_version,
+        listingEvidencePolicyHash: offerInput.listing_evidence_policy_hash,
+        listingEvidenceSnapshot: offerInput.listing_evidence_snapshot,
+        shippingDestinationSnapshot: seedShippingAddress,
+        quantityRequested: input.offer.quantityRequested,
+        orderIdsOverride: [input.reservedOrderId],
+      },
+      sellerContext,
+    );
+    console.log(`  ${input.label} seeded (${input.reservedOrderId})`);
+  });
 }

@@ -39,7 +39,7 @@ import { buildInventoryCollisionSupportReactionHandlers } from "./features/suppo
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
+import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
   createPlatformOperationsServices,
   type PlatformOperationsHostPorts,
@@ -157,4 +157,5 @@ export const module = defineBoundedContextModule<
     }),
   ],
   seed: seedPlatformOperationsDatabase,
+  inspectSeedState: (pool) => inspectPlatformOperationsSeedState(pool),
 });

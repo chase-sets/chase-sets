@@ -1,3 +1,4 @@
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { blueprintSeedRequirements } from "../../features/blueprints/api/seed";
 import { evolveBlueprint, initialBlueprintState, type BlueprintEvent } from "../../features/blueprints/domain/domain";
@@ -168,4 +169,22 @@ function loadRequiredAggregate(db: PgQueryable, requirement: CatalogIntegrationS
         evolve: evolveCategory,
       });
   }
+}
+
+/**
+ * Adapts the Catalog integration seed state to the shared module capability so
+ * seed coverage can be enumerated from the runtime mount list.
+ */
+export async function inspectCatalogSeedState(db: PgQueryable): Promise<readonly BcSeedAggregateStateReport[]> {
+  const states = await inspectCatalogIntegrationSeedState(db);
+  return states.map((state) => ({
+    contextName: "catalog",
+    aggregateName: state.aggregateName,
+    id: state.id,
+    key: state.key,
+    streamId: state.streamId,
+    kind: state.kind,
+    status: state.kind === "absent" ? null : state.status,
+    eventCount: state.eventCount,
+  }));
 }

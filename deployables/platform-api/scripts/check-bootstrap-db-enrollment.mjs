@@ -37,6 +37,26 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       "isolates partition databases and bootstrap advisory locks",
     ]),
   }),
+  "authoritative-seed-resume.db.test.ts": Object.freeze({
+    databaseSuffix: "platform_api_authoritative_seed_resume",
+    cases: Object.freeze([
+      "enumerates stream-sourced seed-state coverage from the runtime mount list",
+      "resumes every converted context after its UNLOGGED guard projections are truncated",
+    ]),
+  }),
+  "inventory-seed-resume.db.test.ts": Object.freeze({
+    databaseSuffix: "platform_api_inventory_seed_resume",
+    cases: Object.freeze([
+      "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+      "appends events only on the first of three same-boot inventory and checkout seed invocations",
+      "resumes inventory from a committed-but-incomplete storage location",
+      "resumes an archived storage location committed before its archive step",
+      "resumes a checkout cart holding only one of its two seeded lines",
+      "fails closed on conflicting retained inventory identity metadata",
+      "fails closed on a terminal retained inventory aggregate",
+      "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+    ]),
+  }),
   "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
     databaseSuffix: "platform_api_catalog_seed_aggregate_state",
     cases: Object.freeze([

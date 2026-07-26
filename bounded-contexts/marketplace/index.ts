@@ -47,7 +47,7 @@ import { marketplaceSupplyProjectionSchemaMigrations } from "./features/listings
 import { marketplaceListingSchemaMigrations } from "./features/listings/read-model/schema";
 import { marketplaceListingReadModelSchemaMigrations } from "./features/listings/read-model/schema";
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
-import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
+import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
@@ -204,4 +204,5 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
     ];
   },
   seed: seedMarketplaceContextDatabase,
+  inspectSeedState: (pool) => inspectMarketplaceSeedState(pool),
 });

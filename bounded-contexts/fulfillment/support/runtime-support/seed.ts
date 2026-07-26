@@ -1,8 +1,23 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { ShipmentLineId, ShipmentStatus } from "../../features/shipments/domain/common";
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import {
+  createSeedAggregateReconciler,
+  loadSeedStreamEvents,
+  reconcileSeedAggregates,
+  type SeedAggregateReconciler,
+} from "@chase-sets/bounded-context-runtime";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ShipmentLineId } from "../../features/shipments/domain/common";
+import {
+  decideFulfillmentShipment,
+  evolveFulfillmentShipment,
+  initialFulfillmentShipmentState,
+  type FulfillmentShipmentCommand,
+  type FulfillmentShipmentEvent,
+  type FulfillmentShipmentState,
+} from "../../features/shipments/domain/domain";
 import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { createFulfillmentServices } from "./services";
+import { createFulfillmentServices, type FulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
@@ -34,17 +49,6 @@ function createSeedContext(): EventStoreContext {
       forAccountId: identitySeedIds.demo.accountId,
     },
   };
-}
-
-async function getShipmentStatus(pool: PgTransactionalPool, shipmentId: string): Promise<ShipmentStatus | null> {
-  const result = await pool.query<{ status: ShipmentStatus }>(
-    `SELECT status
-     FROM fulfillment_shipment_pages
-     WHERE shipment_id = $1`,
-    [shipmentId],
-  );
-
-  return result.rows[0]?.status ?? null;
 }
 
 type OrderSnapshotRow = Omit<OrderSnapshot, "lines">;
@@ -103,265 +107,255 @@ async function loadSeedOrders(
   };
 }
 
+const FULFILLMENT_BOOTSTRAP_LABEL = "Fulfillment seed bootstrap";
+
+const shipmentStreamId = (shipmentId: string) => `fulfillment.shipment-${shipmentId}`;
+
+type SeedShipmentTarget = "awaiting-label" | "label-attached" | "dispatched" | "delivered" | "returned" | "exception";
+
+type SeedShipmentPlan = Readonly<{
+  shipmentId: string;
+  order: "reference" | "review-eligible";
+  createdAt: string;
+  labelReference: string;
+  trackingIdentifier: string;
+  target: SeedShipmentTarget;
+}>;
+
+// One plan per reserved seed shipment. Each plan is the full ordered command
+// sequence for its own `fulfillment.shipment-*` stream, so a shipment
+// interrupted part way through packing resumes from exactly where its stream
+// stops instead of being re-created or mistaken for finished.
+const seedShipmentPlans: readonly SeedShipmentPlan[] = [
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.awaitingLabel,
+    order: "reference",
+    createdAt: "2026-03-22T10:00:00.000Z",
+    labelReference: "lbl_seed_awaiting_label",
+    trackingIdentifier: "1ZSEEDAWAITINGLABEL",
+    target: "awaiting-label",
+  },
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.labelAttached,
+    order: "reference",
+    createdAt: "2026-03-22T10:10:00.000Z",
+    labelReference: "lbl_seed_label_attached",
+    trackingIdentifier: "1ZSEEDLABELATTACHED",
+    target: "label-attached",
+  },
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.dispatchedShipment,
+    order: "reference",
+    createdAt: "2026-03-22T10:20:00.000Z",
+    labelReference: "lbl_seed_dispatched",
+    trackingIdentifier: "1ZSEEDDISPATCHED",
+    target: "dispatched",
+  },
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
+    order: "reference",
+    createdAt: "2026-03-22T10:30:00.000Z",
+    labelReference: "lbl_seed_demo_charizard",
+    trackingIdentifier: "1ZSEEDDELIVERED",
+    target: "delivered",
+  },
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
+    order: "reference",
+    createdAt: "2026-03-22T10:40:00.000Z",
+    labelReference: "lbl_seed_returned",
+    trackingIdentifier: "1ZSEEDRETURNED",
+    target: "returned",
+  },
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
+    order: "reference",
+    createdAt: "2026-03-22T10:50:00.000Z",
+    labelReference: "lbl_seed_exception",
+    trackingIdentifier: "1ZSEEDEXCEPTION",
+    target: "exception",
+  },
+  // The review-eligible order ships and delivers without a support request, so
+  // its review eligibility survives for the marketplace reviews seed.
+  {
+    shipmentId: fulfillmentReservedSeedIds.shipments.reviewEligibleDelivered,
+    order: "review-eligible",
+    createdAt: "2026-03-22T11:00:00.000Z",
+    labelReference: "lbl_seed_review_eligible",
+    trackingIdentifier: "1ZSEEDREVIEWELIGIBLE",
+    target: "delivered",
+  },
+];
+
+const SEED_SHIPMENT_STAGE_AT = "2026-03-22T12:00:00.000Z";
+
+function buildSeedShipmentSteps(plan: SeedShipmentPlan, order: OrderSnapshot): readonly FulfillmentShipmentCommand[] {
+  const steps: FulfillmentShipmentCommand[] = [
+    {
+      type: "CreateShipment",
+      shipmentId: plan.shipmentId as ShipmentId,
+      orderId: order.order_id as OrderId,
+      buyerAccountId: order.buyer_account_id as AccountId,
+      sellerAccountId: order.seller_account_id as AccountId,
+      shippingOption: order.shipping_option,
+      shippingDestinationSnapshot: order.shipping_destination_snapshot,
+      shippingOriginSnapshot: order.shipping_origin_snapshot,
+      lines: order.lines.map((line, index) => ({
+        lineId: `spl_seed_${plan.shipmentId}_${index}` as ShipmentLineId,
+        orderLineId: line.line_id,
+        catalogItemId: line.catalog_catalog_item_id as CatalogItemId,
+        productId: line.product_id as ProductKey,
+        itemTitle: line.item_title,
+        itemSubtitle: line.item_subtitle,
+        productSummary: line.product_summary,
+        quantity: line.quantity,
+      })),
+      createdAt: plan.createdAt,
+    },
+    { type: "StartShipmentPacking", startedAt: SEED_SHIPMENT_STAGE_AT },
+    ...order.lines.map(
+      (_line, index): FulfillmentShipmentCommand => ({
+        type: "ConfirmShipmentPackingLine",
+        lineId: `spl_seed_${plan.shipmentId}_${index}` as ShipmentLineId,
+        confirmedAt: SEED_SHIPMENT_STAGE_AT,
+      }),
+    ),
+    { type: "PrepareShipmentPackage", packageCount: 1, preparedAt: SEED_SHIPMENT_STAGE_AT },
+  ];
+
+  if (plan.target === "awaiting-label") {
+    return steps;
+  }
+
+  steps.push({
+    type: "AttachShipmentLabel",
+    shippingMethod: "standard",
+    carrierName: "UPS",
+    labelReference: plan.labelReference,
+    trackingIdentifier: plan.trackingIdentifier,
+    postageAmountCents: 599,
+    postageCurrency: "USD",
+    attachedAt: SEED_SHIPMENT_STAGE_AT,
+  });
+  if (plan.target === "label-attached") {
+    return steps;
+  }
+
+  steps.push({ type: "DispatchShipment", dispatchedAt: SEED_SHIPMENT_STAGE_AT });
+  switch (plan.target) {
+    case "dispatched":
+      return steps;
+    case "delivered":
+      steps.push({ type: "RecordShipmentDelivery", deliveredAt: SEED_SHIPMENT_STAGE_AT });
+      return steps;
+    case "returned":
+      steps.push({
+        type: "ReturnShipment",
+        reason: "Carrier return to sender",
+        returnedAt: SEED_SHIPMENT_STAGE_AT,
+      });
+      return steps;
+    case "exception":
+      steps.push({
+        type: "RaiseShipmentException",
+        exceptionType: "carrier-delay",
+        notes: "Missed origin scan handoff.",
+        raisedAt: SEED_SHIPMENT_STAGE_AT,
+      });
+      return steps;
+  }
+}
+
+function buildSeedShipmentReconcilers(
+  services: FulfillmentServices,
+  context: EventStoreContext,
+  seedOrders: Readonly<{ referenceOrder: OrderSnapshot; reviewEligibleOrder: OrderSnapshot }>,
+): readonly SeedAggregateReconciler[] {
+  return seedShipmentPlans.map((plan) => {
+    const order = plan.order === "reference" ? seedOrders.referenceOrder : seedOrders.reviewEligibleOrder;
+    return createSeedAggregateReconciler<
+      FulfillmentShipmentState,
+      FulfillmentShipmentCommand,
+      FulfillmentShipmentEvent
+    >({
+      db: services.db,
+      contextName: "fulfillment",
+      bootstrapLabel: FULFILLMENT_BOOTSTRAP_LABEL,
+      aggregateName: "Shipment",
+      id: plan.shipmentId,
+      key: plan.trackingIdentifier,
+      streamId: shipmentStreamId(plan.shipmentId),
+      initialState: initialFulfillmentShipmentState,
+      decide: decideFulfillmentShipment,
+      evolve: evolveFulfillmentShipment,
+      steps: buildSeedShipmentSteps(plan, order),
+      send: (streamId, command) => services.shipments.commandHandler({ streamId, command, context }),
+    });
+  });
+}
+
+async function loadSeedShipmentState(db: PgQueryable, shipmentId: string) {
+  const committed = await loadSeedStreamEvents<FulfillmentShipmentEvent>(db, shipmentStreamId(shipmentId));
+  return { committed, state: committed.reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState) };
+}
+
+/**
+ * Reports the Fulfillment seed's shipment state from the authoritative
+ * `fulfillment.shipment-*` streams.
+ *
+ * `fulfillment_shipment_pages` is UNLOGGED, so PostgreSQL truncates it on crash
+ * recovery while the logged streams survive; the projection-sourced guard this
+ * replaced then read zero rows and replayed `CreateShipment` into an existing
+ * aggregate. State is folded from each shipment's own stream, so it never
+ * depends on the upstream order projection being current.
+ */
+export async function inspectFulfillmentSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const reports: BcSeedAggregateStateReport[] = [];
+
+  for (const plan of seedShipmentPlans) {
+    const { committed, state } = await loadSeedShipmentState(pool, plan.shipmentId);
+    reports.push({
+      contextName: "fulfillment",
+      aggregateName: "Shipment",
+      id: plan.shipmentId,
+      key: plan.trackingIdentifier,
+      streamId: shipmentStreamId(plan.shipmentId),
+      kind: state.shipmentId === null ? "absent" : state.status === plan.target ? "active" : "draft",
+      status: state.shipmentId === null ? null : String(state.status),
+      eventCount: committed.length,
+    });
+  }
+
+  return reports;
+}
+
+async function everySeedShipmentComplete(db: PgQueryable): Promise<boolean> {
+  for (const plan of seedShipmentPlans) {
+    const { state } = await loadSeedShipmentState(db, plan.shipmentId);
+    if (state.status !== plan.target) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
   const services = createFulfillmentServices(pool);
-  const reservedShipmentIds = Object.values(fulfillmentReservedSeedIds.shipments);
 
-  try {
-    const existing = await services.db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM fulfillment_shipment_pages
-       WHERE shipment_id = ANY($1::text[])`,
-      [reservedShipmentIds],
-    );
-    if (Number(existing.rows[0]?.count ?? 0) === reservedShipmentIds.length) {
-      console.log("Fulfillment already contains seed data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
+  // The upstream order snapshot is a precondition only for shipments this seed
+  // has still to author. Requiring it unconditionally would leave the seed
+  // reporting "waiting" forever once delivered shipments move their orders past
+  // `ready-for-fulfillment`.
+  if (await everySeedShipmentComplete(services.db)) {
+    return;
   }
 
   const seedOrders = await loadSeedOrders(pool);
   if (!seedOrders) {
     return;
   }
-  const { referenceOrder, reviewEligibleOrder } = seedOrders;
-  const context = createSeedContext();
 
-  const ensureShipmentCreated = async (order: OrderSnapshot, shipmentId: string, createdAt: string) => {
-    const existingStatus = await getShipmentStatus(pool, shipmentId);
-    if (existingStatus) {
-      return existingStatus;
-    }
-
-    await services.shipments.commandHandler({
-      streamId: `fulfillment.shipment-${shipmentId}`,
-      command: {
-        type: "CreateShipment",
-        shipmentId: shipmentId as ShipmentId,
-        orderId: order.order_id as OrderId,
-        buyerAccountId: order.buyer_account_id as AccountId,
-        sellerAccountId: order.seller_account_id as AccountId,
-        shippingOption: order.shipping_option,
-        shippingDestinationSnapshot: order.shipping_destination_snapshot,
-        shippingOriginSnapshot: order.shipping_origin_snapshot,
-        lines: order.lines.map((line, index) => ({
-          lineId: `spl_seed_${shipmentId}_${index}` as ShipmentLineId,
-          orderLineId: line.line_id,
-          catalogItemId: line.catalog_catalog_item_id as CatalogItemId,
-          productId: line.product_id as ProductKey,
-          itemTitle: line.item_title,
-          itemSubtitle: line.item_subtitle,
-          productSummary: line.product_summary,
-          quantity: line.quantity,
-        })),
-        createdAt,
-      },
-      context,
-    });
-
-    return "awaiting-package";
-  };
-
-  const ensureShipmentPacked = async (order: OrderSnapshot, shipmentId: string, createdAt: string) => {
-    let status = await ensureShipmentCreated(order, shipmentId, createdAt);
-
-    if (status === "awaiting-package") {
-      await services.shipments.commandHandler({
-        streamId: `fulfillment.shipment-${shipmentId}`,
-        command: {
-          type: "StartShipmentPacking",
-          startedAt: new Date().toISOString(),
-        },
-        context,
-      });
-      status = "packing";
-    }
-
-    if (status === "packing") {
-      for (const [index] of order.lines.entries()) {
-        await services.shipments.commandHandler({
-          streamId: `fulfillment.shipment-${shipmentId}`,
-          command: {
-            type: "ConfirmShipmentPackingLine",
-            lineId: `spl_seed_${shipmentId}_${index}` as ShipmentLineId,
-            confirmedAt: new Date().toISOString(),
-          },
-          context,
-        });
-      }
-
-      await services.shipments.commandHandler({
-        streamId: `fulfillment.shipment-${shipmentId}`,
-        command: {
-          type: "PrepareShipmentPackage",
-          packageCount: 1,
-          preparedAt: new Date().toISOString(),
-        },
-        context,
-      });
-      status = "awaiting-label";
-    }
-
-    return status;
-  };
-
-  const ensureShipmentLabeled = async (
-    order: OrderSnapshot,
-    shipmentId: string,
-    createdAt: string,
-    labelReference: string,
-    trackingIdentifier: string,
-  ) => {
-    let status = await ensureShipmentPacked(order, shipmentId, createdAt);
-
-    if (status === "awaiting-label") {
-      await services.shipments.commandHandler({
-        streamId: `fulfillment.shipment-${shipmentId}`,
-        command: {
-          type: "AttachShipmentLabel",
-          shippingMethod: "standard",
-          carrierName: "UPS",
-          labelReference,
-          trackingIdentifier,
-          postageAmountCents: 599,
-          postageCurrency: "USD",
-          attachedAt: new Date().toISOString(),
-        },
-        context,
-      });
-      status = "label-attached";
-    }
-
-    return status;
-  };
-
-  const ensureShipmentDispatched = async (
-    order: OrderSnapshot,
-    shipmentId: string,
-    createdAt: string,
-    labelReference: string,
-    trackingIdentifier: string,
-  ) => {
-    let status = await ensureShipmentLabeled(order, shipmentId, createdAt, labelReference, trackingIdentifier);
-
-    if (status === "label-attached") {
-      await services.shipments.commandHandler({
-        streamId: `fulfillment.shipment-${shipmentId}`,
-        command: {
-          type: "DispatchShipment",
-          dispatchedAt: new Date().toISOString(),
-        },
-        context,
-      });
-      status = "dispatched";
-    }
-
-    return status;
-  };
-
-  const ensureShipmentDelivered = async (
-    order: OrderSnapshot,
-    shipmentId: string,
-    createdAt: string,
-    labelReference: string,
-    trackingIdentifier: string,
-  ) => {
-    let status = await ensureShipmentDispatched(order, shipmentId, createdAt, labelReference, trackingIdentifier);
-
-    if (status === "dispatched" || status === "exception") {
-      await services.shipments.commandHandler({
-        streamId: `fulfillment.shipment-${shipmentId}`,
-        command: {
-          type: "RecordShipmentDelivery",
-          deliveredAt: new Date().toISOString(),
-        },
-        context,
-      });
-      status = "delivered";
-    }
-
-    return status;
-  };
-
-  await ensureShipmentPacked(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.awaitingLabel,
-    "2026-03-22T10:00:00.000Z",
-  );
-
-  await ensureShipmentLabeled(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.labelAttached,
-    "2026-03-22T10:10:00.000Z",
-    "lbl_seed_label_attached",
-    "1ZSEEDLABELATTACHED",
-  );
-
-  await ensureShipmentDispatched(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.dispatchedShipment,
-    "2026-03-22T10:20:00.000Z",
-    "lbl_seed_dispatched",
-    "1ZSEEDDISPATCHED",
-  );
-
-  await ensureShipmentDelivered(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-    "2026-03-22T10:30:00.000Z",
-    "lbl_seed_demo_charizard",
-    "1ZSEEDDELIVERED",
-  );
-
-  let returnedStatus = await ensureShipmentDispatched(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.returnedShipment,
-    "2026-03-22T10:40:00.000Z",
-    "lbl_seed_returned",
-    "1ZSEEDRETURNED",
-  );
-  if (returnedStatus === "dispatched" || returnedStatus === "exception") {
-    await services.shipments.commandHandler({
-      streamId: `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.returnedShipment}`,
-      command: {
-        type: "ReturnShipment",
-        reason: "Carrier return to sender",
-        returnedAt: new Date().toISOString(),
-      },
-      context,
-    });
-    returnedStatus = "returned";
-  }
-
-  let exceptionStatus = await ensureShipmentDispatched(
-    referenceOrder,
-    fulfillmentReservedSeedIds.shipments.exceptionShipment,
-    "2026-03-22T10:50:00.000Z",
-    "lbl_seed_exception",
-    "1ZSEEDEXCEPTION",
-  );
-  if (exceptionStatus !== "exception" && exceptionStatus !== "delivered" && exceptionStatus !== "returned") {
-    await services.shipments.commandHandler({
-      streamId: `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.exceptionShipment}`,
-      command: {
-        type: "RaiseShipmentException",
-        exceptionType: "carrier-delay",
-        notes: "Missed origin scan handoff.",
-        raisedAt: new Date().toISOString(),
-      },
-      context,
-    });
-  }
-
-  // The review-eligible order ships and delivers without a support request, so
-  // its review eligibility survives for the marketplace reviews seed.
-  await ensureShipmentDelivered(
-    reviewEligibleOrder,
-    fulfillmentReservedSeedIds.shipments.reviewEligibleDelivered,
-    "2026-03-22T11:00:00.000Z",
-    "lbl_seed_review_eligible",
-    "1ZSEEDREVIEWELIGIBLE",
-  );
+  await reconcileSeedAggregates(buildSeedShipmentReconcilers(services, createSeedContext(), seedOrders), true);
 }

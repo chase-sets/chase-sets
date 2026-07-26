@@ -33,7 +33,7 @@ import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/sup
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
 import { orderingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedOrderingDatabase } from "./support/runtime-support/seed";
+import { inspectOrderingSeedState, seedOrderingDatabase } from "./support/runtime-support/seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 const orderingContextManifest = contextManifest as BcContextManifest;
@@ -419,4 +419,5 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
     ];
   },
   seed: seedOrderingDatabase,
+  inspectSeedState: (pool) => inspectOrderingSeedState(pool),
 });

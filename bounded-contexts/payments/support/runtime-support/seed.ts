@@ -1,4 +1,18 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  evolvePayment,
+  initialPaymentState,
+  type PaymentEvent,
+  type PaymentState,
+} from "../../features/payments/domain/domain";
+import {
+  evolveRefund,
+  initialRefundState,
+  type RefundEvent,
+  type RefundState,
+} from "../../features/refunds/domain/domain";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
@@ -292,6 +306,110 @@ async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
   );
 }
 
+const PAYMENTS_BOOTSTRAP_LABEL = "Payments seed bootstrap";
+
+const paymentStreamId = (paymentId: string) => `payments.payment-${paymentId}`;
+const refundStreamId = (refundId: string) => `payments.refund-${refundId}`;
+
+/**
+ * Folds one seeded payment from its own `payments.payment-*` stream.
+ *
+ * `payments_payment_pages` is UNLOGGED, so PostgreSQL truncates it on crash
+ * recovery while the logged streams survive. The projection-sourced guard this
+ * replaced answered a single all-or-nothing question across five independent
+ * payments and two refunds; a partially seeded set was therefore re-authored
+ * into existing aggregates. Each payment and refund is now decided on its own
+ * committed events, and the processor session is only opened for a payment the
+ * stream does not already carry.
+ */
+async function loadSeedPaymentState(db: PgQueryable, paymentId: string): Promise<PaymentState> {
+  const committed = await loadSeedStreamEvents<PaymentEvent>(db, paymentStreamId(paymentId));
+  return committed.reduce(evolvePayment, initialPaymentState);
+}
+
+async function loadSeedRefundState(db: PgQueryable, refundId: string): Promise<RefundState> {
+  const committed = await loadSeedStreamEvents<RefundEvent>(db, refundStreamId(refundId));
+  return committed.reduce(evolveRefund, initialRefundState);
+}
+
+const seedPaymentInventory = [
+  { id: paymentsReservedSeedIds.payments.checkoutPending, key: "checkout-pending", expectedStatus: null },
+  {
+    id: paymentsReservedSeedIds.payments.failedModernCheckout,
+    key: "failed-modern-checkout",
+    expectedStatus: "failed",
+  },
+  {
+    id: paymentsReservedSeedIds.payments.cancelledVintageCheckout,
+    key: "cancelled-vintage-checkout",
+    expectedStatus: "cancelled",
+  },
+  {
+    id: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+    key: "accepted-offer-captured",
+    expectedStatus: "captured",
+  },
+  {
+    id: paymentsReservedSeedIds.payments.reviewEligibleCaptured,
+    key: "review-eligible-captured",
+    expectedStatus: "captured",
+  },
+] as const;
+
+const seedRefundInventory = [
+  { id: paymentsReservedSeedIds.refunds.acceptedOfferIssued, key: "accepted-offer-issued" },
+  { id: paymentsReservedSeedIds.refunds.acceptedOfferFailed, key: "accepted-offer-failed" },
+] as const;
+
+/**
+ * Reports the Payments seed's base aggregate state from the authoritative
+ * `payments.*` streams.
+ */
+export async function inspectPaymentsSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const reports: BcSeedAggregateStateReport[] = [];
+
+  for (const payment of seedPaymentInventory) {
+    const committed = await loadSeedStreamEvents<PaymentEvent>(pool, paymentStreamId(payment.id));
+    const state = committed.reduce(evolvePayment, initialPaymentState);
+    const complete =
+      state.paymentId !== null && (payment.expectedStatus === null || state.status === payment.expectedStatus);
+    reports.push({
+      contextName: "payments",
+      aggregateName: "Payment",
+      id: payment.id,
+      key: payment.key,
+      streamId: paymentStreamId(payment.id),
+      kind: state.paymentId === null ? "absent" : complete ? "active" : "draft",
+      status: state.status,
+      eventCount: committed.length,
+    });
+  }
+
+  for (const refund of seedRefundInventory) {
+    const committed = await loadSeedStreamEvents<RefundEvent>(pool, refundStreamId(refund.id));
+    const state = committed.reduce(evolveRefund, initialRefundState);
+    const complete = state.status === "issued" || state.status === "failed";
+    reports.push({
+      contextName: "payments",
+      aggregateName: "Refund",
+      id: refund.id,
+      key: refund.key,
+      streamId: refundStreamId(refund.id),
+      kind: state.refundId === null ? "absent" : complete ? "active" : "draft",
+      status: state.status,
+      eventCount: committed.length,
+    });
+  }
+
+  return reports;
+}
+
+type SeedPaymentProcessorGateway = NonNullable<
+  NonNullable<Parameters<typeof createPaymentsServices>[1]>["processorGateway"]
+>;
+
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   const { createFakePaymentProcessorGateway } = await import("@chase-sets/payment-processing/test-support");
   const processorGateway = createFakePaymentProcessorGateway();
@@ -301,31 +419,33 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
 
   await seedSavedCheckoutInstruments(pool);
 
-  try {
-    const existing = await services.db.query("SELECT COUNT(*) AS count FROM payments_payment_pages");
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Payments already contain data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
-  }
-
-  const pendingCheckoutOrder = await getSeedOrderIfAvailable(
-    pool,
-    orderingReservedSeedIds.orders.checkoutPending,
-    identitySeedIds.collector.accountId,
-  );
-  const acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
-  const reviewEligibleOrder = await getReviewEligibleSeedOrder(pool);
-  if (!pendingCheckoutOrder || !acceptedOfferOrder || !reviewEligibleOrder) {
+  // Upstream order snapshots are a precondition only for payments this seed has
+  // still to author. Requiring them unconditionally fails the reconciliation
+  // passes at `platform-runtime/api.ts:475` and `:494`, because a captured
+  // payment moves its order past `pending-payment`.
+  const paymentsRemaining = !(await everySeedPaymentComplete(services.db));
+  const pendingCheckoutOrder = paymentsRemaining
+    ? await getSeedOrderIfAvailable(
+        pool,
+        orderingReservedSeedIds.orders.checkoutPending,
+        identitySeedIds.collector.accountId,
+      )
+    : null;
+  const acceptedOfferOrder = paymentsRemaining ? await getAcceptedOfferSeedOrder(pool) : null;
+  const reviewEligibleOrder = paymentsRemaining ? await getReviewEligibleSeedOrder(pool) : null;
+  if (paymentsRemaining && (!pendingCheckoutOrder || !acceptedOfferOrder || !reviewEligibleOrder)) {
     return;
   }
 
   const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const sellerContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {
+  const ensurePayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string): Promise<PaymentState> => {
+    const existing = await loadSeedPaymentState(services.db, paymentId);
+    if (existing.paymentId !== null) {
+      return existing;
+    }
+
     const processorPayment = await processorGateway.createPaymentSession({
       paymentId,
       buyerAccountId: order.buyer_account_id as AccountId,
@@ -337,7 +457,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     });
 
     await services.payments.commandHandler({
-      streamId: `payments.payment-${paymentId}`,
+      streamId: paymentStreamId(paymentId),
       command: {
         type: "CreatePayment",
         paymentId,
@@ -398,105 +518,186 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       context: buyerContext,
     });
 
-    return processorPayment;
+    return loadSeedPaymentState(services.db, paymentId);
   };
 
-  await createPayment(
+  if (pendingCheckoutOrder && acceptedOfferOrder && reviewEligibleOrder) {
+    await seedReservedPayments(ensurePayment, services, buyerContext, {
+      pendingCheckoutOrder,
+      acceptedOfferOrder,
+      reviewEligibleOrder,
+    });
+  }
+
+  await seedReservedRefunds(services, processorGateway, sellerContext);
+}
+
+type SeedPaymentEnsurer = (paymentId: PaymentId, order: OrderRow, createdAt: string) => Promise<PaymentState>;
+
+async function everySeedPaymentComplete(db: PgQueryable): Promise<boolean> {
+  for (const payment of seedPaymentInventory) {
+    const state = await loadSeedPaymentState(db, payment.id);
+    if (state.paymentId === null) {
+      return false;
+    }
+    if (payment.expectedStatus !== null && state.status !== payment.expectedStatus) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function seedReservedPayments(
+  ensurePayment: SeedPaymentEnsurer,
+  services: ReturnType<typeof createPaymentsServices>,
+  buyerContext: EventStoreContext,
+  orders: Readonly<{ pendingCheckoutOrder: OrderRow; acceptedOfferOrder: OrderRow; reviewEligibleOrder: OrderRow }>,
+): Promise<void> {
+  const { pendingCheckoutOrder, acceptedOfferOrder, reviewEligibleOrder } = orders;
+
+  await ensurePayment(
     paymentsReservedSeedIds.payments.checkoutPending,
     pendingCheckoutOrder,
     "2026-03-20T10:00:00.000Z",
   );
 
-  await createPayment(
+  const failedPayment = await ensurePayment(
     paymentsReservedSeedIds.payments.failedModernCheckout,
     pendingCheckoutOrder,
     "2026-03-20T10:05:00.000Z",
   );
-  await services.payments.commandHandler({
-    streamId: `payments.payment-${paymentsReservedSeedIds.payments.failedModernCheckout}`,
-    command: {
-      type: "RecordPaymentFailure",
-      processorStatus: "failed",
-      failureCode: "card_declined",
-      failureMessage: "Seeded card decline.",
-      failedAt: "2026-03-20T10:06:00.000Z",
-    },
-    context: buyerContext,
-  });
+  if (failedPayment.status !== "failed") {
+    await services.payments.commandHandler({
+      streamId: paymentStreamId(paymentsReservedSeedIds.payments.failedModernCheckout),
+      command: {
+        type: "RecordPaymentFailure",
+        processorStatus: "failed",
+        failureCode: "card_declined",
+        failureMessage: "Seeded card decline.",
+        failedAt: "2026-03-20T10:06:00.000Z",
+      },
+      context: buyerContext,
+    });
+  }
 
-  await createPayment(
+  const cancelledPayment = await ensurePayment(
     paymentsReservedSeedIds.payments.cancelledVintageCheckout,
     pendingCheckoutOrder,
     "2026-03-20T10:10:00.000Z",
   );
-  await services.payments.commandHandler({
-    streamId: `payments.payment-${paymentsReservedSeedIds.payments.cancelledVintageCheckout}`,
-    command: {
-      type: "CancelPayment",
-      cancelledAt: "2026-03-20T10:11:00.000Z",
-    },
-    context: buyerContext,
-  });
+  if (cancelledPayment.status !== "cancelled") {
+    await services.payments.commandHandler({
+      streamId: paymentStreamId(paymentsReservedSeedIds.payments.cancelledVintageCheckout),
+      command: {
+        type: "CancelPayment",
+        cancelledAt: "2026-03-20T10:11:00.000Z",
+      },
+      context: buyerContext,
+    });
+  }
 
-  const capturedProcessorPayment = await createPayment(
+  const capturedPayment = await ensurePayment(
     paymentsReservedSeedIds.payments.acceptedOfferCaptured,
     acceptedOfferOrder,
     "2026-03-20T11:00:00.000Z",
   );
-  await services.payments.commandHandler({
-    streamId: `payments.payment-${paymentsReservedSeedIds.payments.acceptedOfferCaptured}`,
-    command: {
-      type: "RecordPaymentCapture",
-      processorStatus: "succeeded",
-      capturedAt: "2026-03-20T11:05:00.000Z",
-    },
-    context: buyerContext,
-  });
+  if (capturedPayment.status !== "captured") {
+    await services.payments.commandHandler({
+      streamId: paymentStreamId(paymentsReservedSeedIds.payments.acceptedOfferCaptured),
+      command: {
+        type: "RecordPaymentCapture",
+        processorStatus: "succeeded",
+        capturedAt: "2026-03-20T11:05:00.000Z",
+      },
+      context: buyerContext,
+    });
+  }
 
-  await createPayment(
+  const reviewEligiblePayment = await ensurePayment(
     paymentsReservedSeedIds.payments.reviewEligibleCaptured,
     reviewEligibleOrder,
     "2026-03-20T11:30:00.000Z",
   );
-  await services.payments.commandHandler({
-    streamId: `payments.payment-${paymentsReservedSeedIds.payments.reviewEligibleCaptured}`,
-    command: {
-      type: "RecordPaymentCapture",
-      processorStatus: "succeeded",
-      capturedAt: "2026-03-20T11:35:00.000Z",
-    },
-    context: buyerContext,
-  });
+  if (reviewEligiblePayment.status !== "captured") {
+    await services.payments.commandHandler({
+      streamId: paymentStreamId(paymentsReservedSeedIds.payments.reviewEligibleCaptured),
+      command: {
+        type: "RecordPaymentCapture",
+        processorStatus: "succeeded",
+        capturedAt: "2026-03-20T11:35:00.000Z",
+      },
+      context: buyerContext,
+    });
+  }
+}
+
+/**
+ * Seeds both reserved refunds from the captured payment's own committed stream,
+ * so a refund resumes on a later pass without re-reading an order projection
+ * that the capture has already moved on.
+ */
+async function seedReservedRefunds(
+  services: ReturnType<typeof createPaymentsServices>,
+  processorGateway: SeedPaymentProcessorGateway,
+  sellerContext: EventStoreContext,
+): Promise<void> {
+  const capturedPayment = await loadSeedPaymentState(
+    services.db,
+    paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+  );
+  if (capturedPayment.status !== "captured") {
+    logWaitingForSeedOrder(`payment ${paymentsReservedSeedIds.payments.acceptedOfferCaptured} to be captured`);
+    return;
+  }
+
+  const capturedOrderId = capturedPayment.orderIds[0];
+  const capturedAmount = capturedPayment.amount;
+  const capturedProcessorPaymentReference = capturedPayment.processorPaymentReference;
+  const capturedProcessorName = capturedPayment.processorName;
+  if (!capturedProcessorPaymentReference || !capturedProcessorName || !capturedOrderId || !capturedAmount) {
+    throw new Error(
+      `${PAYMENTS_BOOTSTRAP_LABEL} Payment '${paymentsReservedSeedIds.payments.acceptedOfferCaptured}' has no committed ` +
+        `processor reference to issue seeded refunds against. Stream ` +
+        `'${paymentStreamId(paymentsReservedSeedIds.payments.acceptedOfferCaptured)}'.`,
+    );
+  }
 
   const issueRefund = async (refundId: RefundId, reason: string, requestedAt: string) => {
-    await services.refunds.commandHandler({
-      streamId: `payments.refund-${refundId}`,
-      command: {
-        type: "RequestRefund",
-        refundId,
-        paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
-        orderIds: [acceptedOfferOrder.order_id as OrderId],
-        amount: acceptedOfferOrder.total_amount,
-        currencyCode: normalizeCurrencyCode("usd"),
-        reason,
-        processorName: capturedProcessorPayment.processorName,
-        requestedAt,
-      },
-      context: sellerContext,
-    });
+    const existing = await loadSeedRefundState(services.db, refundId);
+    if (existing.status === "issued" || existing.status === "failed") {
+      return;
+    }
+
+    if (existing.refundId === null) {
+      await services.refunds.commandHandler({
+        streamId: refundStreamId(refundId),
+        command: {
+          type: "RequestRefund",
+          refundId,
+          paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+          orderIds: [capturedOrderId],
+          amount: capturedAmount,
+          currencyCode: normalizeCurrencyCode("usd"),
+          reason,
+          processorName: capturedProcessorName,
+          requestedAt,
+        },
+        context: sellerContext,
+      });
+    }
 
     try {
       const processorRefund = await processorGateway.createRefund({
         refundId,
         paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
-        processorPaymentReference: capturedProcessorPayment.processorPaymentReference,
-        orderIds: [acceptedOfferOrder.order_id as OrderId],
-        amount: acceptedOfferOrder.total_amount,
+        processorPaymentReference: capturedProcessorPaymentReference,
+        orderIds: [capturedOrderId],
+        amount: capturedAmount,
         currencyCode: normalizeCurrencyCode("usd"),
         reason,
       });
       await services.refunds.commandHandler({
-        streamId: `payments.refund-${refundId}`,
+        streamId: refundStreamId(refundId),
         command: {
           type: "RecordRefundIssued",
           processorRefundReference: processorRefund.processorRefundReference,
@@ -507,7 +708,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       });
     } catch (error) {
       await services.refunds.commandHandler({
-        streamId: `payments.refund-${refundId}`,
+        streamId: refundStreamId(refundId),
         command: {
           type: "RecordRefundFailure",
           processorStatus: "failed",

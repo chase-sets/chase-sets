@@ -1,3 +1,5 @@
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -5,7 +7,12 @@ import { createAuthSecretAdapters } from "../auth-support/adapters";
 import { toSessionStreamId, type AuthMethod } from "../../features/sessions/domain/auth-flow";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { createSessionRuntime, type SessionServices } from "../../features/sessions/api/runtime";
-import type { SessionState } from "../../features/sessions/domain/domain";
+import {
+  evolveSession,
+  initialSessionState,
+  type SessionEvent,
+  type SessionState,
+} from "../../features/sessions/domain/domain";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId, SessionId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
@@ -127,4 +134,39 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   });
 
   void sessions.projectors;
+}
+
+const seededAuthSessions = [
+  { sessionId: identitySeedIds.demo.sessionId, key: "demo", expectedStatus: "active" },
+  { sessionId: identitySeedIds.support.sessionId, key: "support", expectedStatus: "active" },
+  { sessionId: identitySeedIds.collector.sessionId, key: "collector", expectedStatus: "expired" },
+] as const;
+
+/**
+ * Reports the Auth seed's session state from the authoritative `auth.*`
+ * streams. Auth has folded its seed decision from `repository.load` since the
+ * original 2026-07-12 report; this exposes the same stream-sourced answer
+ * through the shared module capability so seed coverage can be enumerated from
+ * the runtime mount list.
+ */
+export async function inspectAuthSeedState(pool: PgTransactionalPool): Promise<readonly BcSeedAggregateStateReport[]> {
+  const reports: BcSeedAggregateStateReport[] = [];
+
+  for (const session of seededAuthSessions) {
+    const streamId = toSessionStreamId(session.sessionId);
+    const committed = await loadSeedStreamEvents<SessionEvent>(pool, streamId);
+    const state = committed.reduce(evolveSession, initialSessionState);
+    reports.push({
+      contextName: "auth",
+      aggregateName: "Session",
+      id: session.sessionId,
+      key: session.key,
+      streamId,
+      kind: state.id === null ? "absent" : state.status === session.expectedStatus ? "active" : "draft",
+      status: state.id === null ? null : String(state.status),
+      eventCount: committed.length,
+    });
+  }
+
+  return reports;
 }

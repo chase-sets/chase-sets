@@ -22,3 +22,4 @@ export type {
 } from "./features/import-batches/api/saved-list-import";
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 export { createImportResolutionAttentionSourceFromReadModel } from "./features/import-batches/read-model/seller-attention-source";
+export { inventorySeedIds } from "./support/seed-support/ids";

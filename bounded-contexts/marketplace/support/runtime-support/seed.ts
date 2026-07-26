@@ -1,4 +1,4 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
@@ -24,6 +24,25 @@ import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evi
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
+import {
+  activeListingPhotos,
+  evolveMarketplaceListing,
+  initialMarketplaceListingState,
+  type MarketplaceListingEvent,
+} from "../../features/listings/domain/domain";
+import {
+  evolveMarketplaceOffer,
+  initialMarketplaceOfferState,
+  type MarketplaceOfferEvent,
+} from "../../features/offers/domain/domain";
+import {
+  evolveReview,
+  initialReviewState,
+  type ReviewEvent,
+  type ReviewState,
+} from "../../features/reviews/domain/domain";
 import sharp from "sharp";
 import { seedListingEvidencePolicy } from "../../features/listing-evidence-policy/integrations/seed";
 
@@ -659,6 +678,10 @@ async function acceptReservedSeedOffer(
     priceAmount: offer.priceAmount,
   });
 
+  if ((await loadSeedOfferState(services.db, offer.offerId)).state.status === "accepted") {
+    return;
+  }
+
   const acceptedAt = new Date().toISOString();
   const listingEvidencePolicyHash = "seed:listing-evidence-policy";
   await services.offers.commandHandler({
@@ -709,74 +732,195 @@ function createSeedContextFor(accountId: string, userId: string) {
   };
 }
 
+const MARKETPLACE_BOOTSTRAP_LABEL = "Marketplace seed bootstrap";
+
+const acceptedSeedOfferIds = [
+  marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+  marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore,
+] as const;
+
+const marketplaceListingStreamId = (listingId: string) => `marketplace.listing-${listingId}`;
+const marketplaceOfferStreamId = (offerId: string) => `marketplace.offer-${offerId}`;
+const marketplaceReviewStreamId = (reviewId: string) => `marketplace.review-${reviewId}`;
+
+/**
+ * Folds one seeded Marketplace aggregate from its own `marketplace.*` stream.
+ *
+ * `marketplace_listing_pages`, `marketplace_offer_pages`, and
+ * `marketplace_review_pages` are UNLOGGED, so PostgreSQL truncates them on
+ * crash recovery while the logged streams survive. The projection-sourced
+ * guards this replaced answered one all-or-nothing question across every
+ * listing and offer (and another across both reviews); a partially seeded set
+ * was therefore re-authored into existing aggregates. Each listing, offer, and
+ * review is now decided on its own committed events.
+ */
+async function loadSeedListingState(db: PgQueryable, listingId: string) {
+  const committed = await loadSeedStreamEvents<MarketplaceListingEvent>(db, marketplaceListingStreamId(listingId));
+  return { committed, state: committed.reduce(evolveMarketplaceListing, initialMarketplaceListingState) };
+}
+
+async function loadSeedOfferState(db: PgQueryable, offerId: string) {
+  const committed = await loadSeedStreamEvents<MarketplaceOfferEvent>(db, marketplaceOfferStreamId(offerId));
+  return { committed, state: committed.reduce(evolveMarketplaceOffer, initialMarketplaceOfferState) };
+}
+
+async function loadSeedReviewState(db: PgQueryable, reviewId: string) {
+  const committed = await loadSeedStreamEvents<ReviewEvent>(db, marketplaceReviewStreamId(reviewId));
+  return { committed, state: committed.reduce(evolveReview, initialReviewState) };
+}
+
+const seededReviewInventory = [
+  {
+    reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
+    key: "buyer-to-seller-active",
+    isComplete: (state: ReviewState) => state.revealedAt !== null,
+    describe: (state: ReviewState) => (state.revealedAt === null ? String(state.status) : "revealed"),
+  },
+  {
+    reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
+    key: "seller-to-buyer-withdrawn",
+    isComplete: (state: ReviewState) => state.status === "withdrawn",
+    describe: (state: ReviewState) => String(state.status),
+  },
+] as const;
+
+/**
+ * Reports the Marketplace seed's base aggregate state from the authoritative
+ * `marketplace.*` streams: every seeded listing, offer, and review.
+ */
+export async function inspectMarketplaceSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const reports: BcSeedAggregateStateReport[] = [];
+
+  for (const listing of listings) {
+    const { committed, state } = await loadSeedListingState(pool, listing.listingId);
+    reports.push({
+      contextName: "marketplace",
+      aggregateName: "Listing",
+      id: listing.listingId,
+      key: listing.inventoryItemId,
+      streamId: marketplaceListingStreamId(listing.listingId),
+      kind: state.listingId === null ? "absent" : state.status === listing.finalStatus ? "active" : "draft",
+      status: state.listingId === null ? null : String(state.status),
+      eventCount: committed.length,
+    });
+  }
+
+  for (const offer of offers) {
+    const { committed, state } = await loadSeedOfferState(pool, offer.offerId);
+    const expectedAccepted = acceptedSeedOfferIds.some((offerId) => String(offerId) === String(offer.offerId));
+    const complete = state.offerId !== null && (!expectedAccepted || state.status === "accepted");
+    reports.push({
+      contextName: "marketplace",
+      aggregateName: "Offer",
+      id: offer.offerId,
+      key: offer.catalogItemId,
+      streamId: marketplaceOfferStreamId(offer.offerId),
+      kind: state.offerId === null ? "absent" : complete ? "active" : "draft",
+      status: state.offerId === null ? null : String(state.status),
+      eventCount: committed.length,
+    });
+  }
+
+  for (const review of seededReviewInventory) {
+    const { committed, state } = await loadSeedReviewState(pool, review.reviewId);
+    const complete = review.isComplete(state);
+    reports.push({
+      contextName: "marketplace",
+      aggregateName: "Review",
+      id: review.reviewId,
+      key: review.key,
+      streamId: marketplaceReviewStreamId(review.reviewId),
+      kind: state.reviewId === null ? "absent" : complete ? "active" : "draft",
+      status: state.reviewId === null ? null : review.describe(state),
+      eventCount: committed.length,
+    });
+  }
+
+  return reports;
+}
+
 export async function seedMarketplaceDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
-  try {
-    const existing = await services.db.query(`
-      SELECT
-        (
-          (SELECT COUNT(*) FROM marketplace_listing_pages) +
-          (SELECT COUNT(*) FROM marketplace_offer_pages)
-        ) AS count
-    `);
-
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Marketplace already contains data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
-  }
-
   const context = createSeedContext();
 
   for (const listing of listings) {
     const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
     const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
-    const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
-
-    if (!supply) {
+    const seededListingId = listing.listingId;
+    const persisted = await loadSeedListingState(services.db, seededListingId);
+    if (persisted.state.status === listing.finalStatus) {
       continue;
     }
+    if (
+      persisted.state.listingId !== null &&
+      String(persisted.state.inventoryItemId) !== String(listing.inventoryItemId)
+    ) {
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${seededListingId}' expected inventory item ` +
+          `'${listing.inventoryItemId}', but found '${persisted.state.inventoryItemId ?? "null"}'. ` +
+          `Stream '${marketplaceListingStreamId(seededListingId)}'.`,
+      );
+    }
 
-    const seededListingId = listing.listingId;
-    const createdListing = await services.listings.createListing(
-      {
-        accountId,
-        inventoryItemId: supply.item_id,
-        priceAmount: listing.priceAmount,
-        quantityCap: listing.quantityCap,
-        listingIdOverride: seededListingId,
-        listingPhotoUploads: [],
-      },
-      listingContext,
-    );
+    let feeQuoteFingerprint: string | null = null;
+    if (persisted.state.listingId === null) {
+      const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
+      if (!supply) {
+        continue;
+      }
+
+      const createdListing = await services.listings.createListing(
+        {
+          accountId,
+          inventoryItemId: supply.item_id,
+          priceAmount: listing.priceAmount,
+          quantityCap: listing.quantityCap,
+          listingIdOverride: seededListingId,
+          listingPhotoUploads: [],
+        },
+        listingContext,
+      );
+      feeQuoteFingerprint = createdListing.feeQuoteFingerprint;
+    }
 
     if (listing.finalStatus !== "draft") {
-      const listingState = await services.listings.loadListingState(seededListingId);
-      if (listingState.evidenceRequirements && listingState.evidenceRequirements.requirements.minimumPhotoCount > 0) {
-        await services.listings.addListingPhotos(
+      const beforePublish = await services.listings.loadListingState(seededListingId);
+      if (beforePublish.status === "draft") {
+        if (
+          beforePublish.evidenceRequirements &&
+          beforePublish.evidenceRequirements.requirements.minimumPhotoCount > 0 &&
+          activeListingPhotos(beforePublish.evidence).length <
+            beforePublish.evidenceRequirements.requirements.minimumPhotoCount
+        ) {
+          await services.listings.addListingPhotos(
+            {
+              accountId,
+              listingId: seededListingId,
+              listingPhotoUploads: await buildSeedListingEvidenceUploads(listing, beforePublish.evidenceRequirements),
+            },
+            listingContext,
+          );
+        }
+        await services.listings.publishListing(
           {
             accountId,
             listingId: seededListingId,
-            listingPhotoUploads: await buildSeedListingEvidenceUploads(listing, listingState.evidenceRequirements),
+            feeQuoteFingerprint:
+              feeQuoteFingerprint ?? (await services.listings.loadListingState(seededListingId)).feeQuoteFingerprint,
           },
           listingContext,
         );
       }
-      await services.listings.publishListing(
-        {
-          accountId,
-          listingId: seededListingId,
-          feeQuoteFingerprint: createdListing.feeQuoteFingerprint,
-        },
-        listingContext,
-      );
     }
 
-    if (listing.finalStatus === "paused") {
+    if (
+      listing.finalStatus === "paused" &&
+      (await loadSeedListingState(services.db, seededListingId)).state.status !== "paused"
+    ) {
       await services.listings.pauseListing(
         {
           accountId,
@@ -786,7 +930,10 @@ export async function seedMarketplaceDatabase(
       );
     }
 
-    if (listing.finalStatus === "withdrawn") {
+    if (
+      listing.finalStatus === "withdrawn" &&
+      (await loadSeedListingState(services.db, seededListingId)).state.status !== "withdrawn"
+    ) {
       await services.listings.withdrawListing(
         {
           accountId,
@@ -798,9 +945,12 @@ export async function seedMarketplaceDatabase(
   }
 
   for (const offer of offers) {
+    if ((await loadSeedOfferState(services.db, offer.offerId)).state.offerId !== null) {
+      continue;
+    }
     const buyerAccountId = offer.buyerAccountId ?? identitySeedIds.collector.accountId;
     await services.offers.commandHandler({
-      streamId: `marketplace.offer-${offer.offerId}`,
+      streamId: marketplaceOfferStreamId(offer.offerId),
       command: {
         type: "SubmitOffer",
         offerId: offer.offerId,
@@ -870,14 +1020,16 @@ export async function seedReputationData(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
-  try {
-    const existing = await services.db.query("SELECT COUNT(*) AS count FROM marketplace_review_pages");
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Reputation already contains data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
+  const buyerToSellerReview = await loadSeedReviewState(
+    services.db,
+    reputationReservedSeedIds.reviews.buyerToSellerActive,
+  );
+  const sellerToBuyerReview = await loadSeedReviewState(
+    services.db,
+    reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
+  );
+  if (buyerToSellerReview.state.revealedAt !== null && sellerToBuyerReview.state.status === "withdrawn") {
+    return;
   }
 
   // Seed orders identify by ready_for_fulfillment_at (the payments seed fixes
@@ -921,69 +1073,91 @@ export async function seedReputationData(
     return;
   }
 
-  await services.reviews.commandHandler({
-    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
-    command: {
-      type: "SubmitReview",
-      reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
-      orderId: buyerToSellerOpportunity.order_id as OrderId,
-      authorAccountId: identitySeedIds.collector.accountId,
-      subjectAccountId: buyerToSellerOpportunity.subject_account_id as AccountId,
-      authorRole: buyerToSellerOpportunity.author_role as ReviewRole,
-      rating: 4,
-      feedback: "Packed well and shipped exactly as described.",
-      submittedAt: "2026-03-23T09:00:00.000Z",
-      reviewWindowExpiresAt: addReviewWindowDays(buyerToSellerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
-    },
-    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
-  });
-  await services.reviews.commandHandler({
-    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
-    command: {
-      type: "UpdateReview",
-      rating: 5,
-      feedback: "Packed well, shipped quickly, and matched the listing.",
-      updatedAt: "2026-03-23T10:00:00.000Z",
-    },
-    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
-  });
+  // Each review resumes from its own committed stream, so a review submitted
+  // but not yet revealed (or withdrawn) is repaired rather than re-submitted.
+  const buyerReviewContext = createReputationSeedContext(
+    identitySeedIds.collector.accountId,
+    identitySeedIds.collector.userId,
+  );
+  const buyerReviewStreamId = marketplaceReviewStreamId(reputationReservedSeedIds.reviews.buyerToSellerActive);
+  if (buyerToSellerReview.state.reviewId === null) {
+    await services.reviews.commandHandler({
+      streamId: buyerReviewStreamId,
+      command: {
+        type: "SubmitReview",
+        reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
+        orderId: buyerToSellerOpportunity.order_id as OrderId,
+        authorAccountId: identitySeedIds.collector.accountId,
+        subjectAccountId: buyerToSellerOpportunity.subject_account_id as AccountId,
+        authorRole: buyerToSellerOpportunity.author_role as ReviewRole,
+        rating: 4,
+        feedback: "Packed well and shipped exactly as described.",
+        submittedAt: "2026-03-23T09:00:00.000Z",
+        reviewWindowExpiresAt: addReviewWindowDays(buyerToSellerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
+      },
+      context: buyerReviewContext,
+    });
+  }
+  if (
+    !buyerToSellerReview.committed.some((event) => event.type === "marketplace.review.updated") &&
+    buyerToSellerReview.state.revealedAt === null
+  ) {
+    await services.reviews.commandHandler({
+      streamId: buyerReviewStreamId,
+      command: {
+        type: "UpdateReview",
+        rating: 5,
+        feedback: "Packed well, shipped quickly, and matched the listing.",
+        updatedAt: "2026-03-23T10:00:00.000Z",
+      },
+      context: buyerReviewContext,
+    });
+  }
   // No counterpart seller-to-buyer review is seeded for this direction, so
   // reveal it directly (m108 double-blind reveal): a staging seed review
   // should be visible, not stuck hidden until a 60-day sweep.
-  await services.reviews.commandHandler({
-    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
-    command: {
-      type: "RevealReview",
-      revealedAt: "2026-03-23T10:05:00.000Z",
-      reason: "window-expired",
-    },
-    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
-  });
+  if (buyerToSellerReview.state.revealedAt === null) {
+    await services.reviews.commandHandler({
+      streamId: buyerReviewStreamId,
+      command: {
+        type: "RevealReview",
+        revealedAt: "2026-03-23T10:05:00.000Z",
+        reason: "window-expired",
+      },
+      context: buyerReviewContext,
+    });
+  }
 
-  await services.reviews.commandHandler({
-    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
-    command: {
-      type: "SubmitReview",
-      reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
-      orderId: sellerToBuyerOpportunity.order_id as OrderId,
-      authorAccountId: identitySeedIds.demo.accountId,
-      subjectAccountId: sellerToBuyerOpportunity.subject_account_id as AccountId,
-      authorRole: sellerToBuyerOpportunity.author_role as ReviewRole,
-      rating: 3,
-      feedback: "Responsive but asked for extra packing photos.",
-      submittedAt: "2026-03-23T09:15:00.000Z",
-      reviewWindowExpiresAt: addReviewWindowDays(sellerToBuyerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
-    },
-    context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
-  });
-  await services.reviews.commandHandler({
-    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
-    command: {
-      type: "WithdrawReview",
-      withdrawnAt: "2026-03-23T10:15:00.000Z",
-    },
-    context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
-  });
+  const sellerReviewContext = createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+  const sellerReviewStreamId = marketplaceReviewStreamId(reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn);
+  if (sellerToBuyerReview.state.reviewId === null) {
+    await services.reviews.commandHandler({
+      streamId: sellerReviewStreamId,
+      command: {
+        type: "SubmitReview",
+        reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
+        orderId: sellerToBuyerOpportunity.order_id as OrderId,
+        authorAccountId: identitySeedIds.demo.accountId,
+        subjectAccountId: sellerToBuyerOpportunity.subject_account_id as AccountId,
+        authorRole: sellerToBuyerOpportunity.author_role as ReviewRole,
+        rating: 3,
+        feedback: "Responsive but asked for extra packing photos.",
+        submittedAt: "2026-03-23T09:15:00.000Z",
+        reviewWindowExpiresAt: addReviewWindowDays(sellerToBuyerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
+      },
+      context: sellerReviewContext,
+    });
+  }
+  if (sellerToBuyerReview.state.status !== "withdrawn") {
+    await services.reviews.commandHandler({
+      streamId: sellerReviewStreamId,
+      command: {
+        type: "WithdrawReview",
+        withdrawnAt: "2026-03-23T10:15:00.000Z",
+      },
+      context: sellerReviewContext,
+    });
+  }
 }
 
 export async function seedMarketplaceContextDatabase(

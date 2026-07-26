@@ -30,7 +30,7 @@ import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/rou
 import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaMigrations, paymentsSchemaSql } from "./support/runtime-support/schema";
 import { paymentsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
-import { seedPaymentsDatabase } from "./support/runtime-support/seed";
+import { inspectPaymentsSeedState, seedPaymentsDatabase } from "./support/runtime-support/seed";
 
 const paymentsContextManifest = contextManifest as BcContextManifest;
 
@@ -115,4 +115,5 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
     }),
   ],
   seed: seedPaymentsDatabase,
+  inspectSeedState: (pool) => inspectPaymentsSeedState(pool),
 });

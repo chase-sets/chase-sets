@@ -27,6 +27,24 @@ export {
   seedProfileEnabled,
   seedProfilesOverlap,
 } from "./seeding";
+export {
+  countSeedStreamEvents,
+  createSeedAggregateReconciler,
+  loadSeedAggregateState,
+  loadSeedStreamEvents,
+  planSeedAggregateSteps,
+  reconcileSeedAggregates,
+} from "./seed-aggregate-state";
+export type {
+  SeedAggregateIdentity,
+  SeedAggregateReconciler,
+  SeedAggregateReconcilerInput,
+  SeedAggregateState,
+  SeedAggregateStateInput,
+  SeedAggregateStateKind,
+  SeedAggregateStepPlan,
+  SeedAggregateStepPlanInput,
+} from "./seed-aggregate-state";
 export type {
   ContextProcessSet,
   ContextSubscriptionRunner,

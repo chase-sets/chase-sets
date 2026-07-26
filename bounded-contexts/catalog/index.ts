@@ -10,6 +10,7 @@ import { createCatalogServices } from "./support/authoring-support";
 import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./support/authoring-support";
 import { catalogUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedCatalogDatabase } from "./support/authoring-support";
+import { inspectCatalogSeedState } from "./support/seed-support/catalog-integration-state";
 
 export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
@@ -26,4 +27,5 @@ export const module = defineBoundedContextModule<CatalogServices, PgTransactiona
     "representative-catalog",
   ],
   seed: seedCatalogDatabase,
+  inspectSeedState: (pool) => inspectCatalogSeedState(pool),
 });

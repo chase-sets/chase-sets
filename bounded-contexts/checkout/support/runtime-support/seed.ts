@@ -1,13 +1,28 @@
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createCartReadinessSnapshot, type CartReadinessLine } from "../../features/cart/domain/readiness";
-import type { CheckoutSessionLine } from "../../features/sessions/domain/domain";
+import {
+  evolveCheckoutCart,
+  initialCheckoutCartState,
+  type CheckoutCartEvent,
+} from "../../features/cart/domain/domain";
+import {
+  evolveCheckoutSession,
+  initialCheckoutSessionState,
+  type CheckoutSessionEvent,
+  type CheckoutSessionLine,
+} from "../../features/sessions/domain/domain";
 import { createCheckoutProductDescriptor, type CheckoutVersionSchema } from "./common";
+import type { CartLineId } from "./common";
 import { createCheckoutServices, type CheckoutServices } from "./services";
 import { checkoutSeedIds } from "../seed-support/ids";
+
+const CHECKOUT_SEED_AT = "2026-03-20T12:00:00.000Z";
 
 const rawNearMintVersionSelection = [
   {
@@ -33,6 +48,7 @@ const rawExcellentVersionSelection = [
 
 const demoCartLines = [
   {
+    cartLineId: checkoutSeedIds.cartLines.demoCharizardBaseSetNearMint,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
@@ -47,6 +63,7 @@ const demoCartLines = [
     quantity: 1,
   },
   {
+    cartLineId: checkoutSeedIds.cartLines.demoPikachuJungleExcellent,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
@@ -92,17 +109,6 @@ function demoSellerOptionFor(lockedListingId: string | null): CartReadinessLine[
   };
 }
 
-function withDemoSellerOptionFallback(lines: readonly CartReadinessLine[]): CartReadinessLine[] {
-  return lines.map((line) => {
-    if (line.seller_options.length > 0 || line.fulfillment_mode !== "locked-listing") {
-      return line;
-    }
-
-    const sellerOption = demoSellerOptionFor(line.locked_listing_id);
-    return sellerOption ? { ...line, seller_options: [sellerOption] } : line;
-  });
-}
-
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
     tenantId: "tnt_identity" as TenantId,
@@ -113,23 +119,10 @@ function createSeedContextFor(accountId: AccountId, userId: string) {
   };
 }
 
-async function hasCartLines(db: PgQueryable, buyerAccountId: AccountId) {
-  const result = await db.query<{ count: string }>(
-    "SELECT COUNT(*) AS count FROM checkout_cart_line_pages WHERE buyer_account_id = $1",
-    [buyerAccountId],
-  );
+const CHECKOUT_BOOTSTRAP_LABEL = "Checkout seed bootstrap";
 
-  return Number(result.rows[0]?.count ?? 0) > 0;
-}
-
-async function hasStartedSession(db: PgQueryable) {
-  const result = await db.query<{ exists: boolean }>(
-    "SELECT EXISTS(SELECT 1 FROM checkout_session_pages WHERE session_id = $1) AS exists",
-    [checkoutSeedIds.sessions.startedCart],
-  );
-
-  return result.rows[0]?.exists ?? false;
-}
+const checkoutCartStreamId = (accountId: AccountId) => `checkout.cart-${accountId}`;
+const checkoutSessionStreamId = (sessionId: string) => `checkout.session-${sessionId}`;
 
 async function buildProductId(db: PgQueryable, line: (typeof demoCartLines)[number]) {
   const result = await db.query<{
@@ -156,101 +149,208 @@ async function buildProductId(db: PgQueryable, line: (typeof demoCartLines)[numb
   }).productId;
 }
 
+function seedReadinessLineFor(
+  line: (typeof demoCartLines)[number],
+  lineId: string,
+  productId: string,
+): CartReadinessLine {
+  const sellerOption = demoSellerOptionFor(line.lockedListingId);
+  if (!sellerOption) {
+    throw new Error(`No checkout seed seller option found for ${line.itemTitle}.`);
+  }
+
+  return {
+    line_id: lineId,
+    catalog_catalog_item_id: line.catalogItemId,
+    product_id: productId,
+    item_title: line.itemTitle,
+    quantity: line.quantity,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: line.lockedListingId,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [sellerOption],
+    updated_at: CHECKOUT_SEED_AT,
+  };
+}
+
+function seedSessionLineFor(
+  line: (typeof demoCartLines)[number],
+  lineId: string,
+  productId: string,
+): CheckoutSessionLine {
+  return {
+    listingId: line.lockedListingId,
+    cartLineId: lineId,
+    catalogItemId: line.catalogItemId,
+    productId,
+    itemTitle: line.itemTitle,
+    itemSubtitle: line.itemSubtitle,
+    selectedOptions: [...line.selectedOptions],
+    productSummary: line.productSummary,
+    quantity: line.quantity,
+    fulfillmentMode: "locked-listing",
+    lockedListingId: line.lockedListingId,
+    sellerPreferenceId: null,
+    availabilityState: "available",
+  };
+}
+
+/**
+ * Reconciles the demo buyer's cart from the authoritative `checkout.cart-*`
+ * stream, one line at a time.
+ *
+ * `checkout_cart_line_pages` is UNLOGGED, so PostgreSQL truncates it on crash
+ * recovery while the logged cart stream survives. The projection-sourced guard
+ * this replaced answered a single all-or-nothing question ("does this buyer
+ * have any cart line?") for a set-shaped decision; a cart holding one of its
+ * two seeded lines was therefore either duplicated or left half-seeded. Each
+ * reserved line is now decided on whether that line id is on the stream.
+ */
+async function reconcileSeedCartLines(
+  checkout: CheckoutServices,
+  buyerAccountId: AccountId,
+  buyerContext: ReturnType<typeof createSeedContextFor>,
+  apply: boolean,
+): Promise<readonly SeedCartLineState[]> {
+  const committed = await loadSeedStreamEvents<CheckoutCartEvent>(checkout.db, checkoutCartStreamId(buyerAccountId));
+  const cart = committed.reduce(evolveCheckoutCart, initialCheckoutCartState);
+  const states: SeedCartLineState[] = [];
+
+  for (const line of demoCartLines) {
+    const lineId = line.cartLineId;
+    const existing = cart.lines.find((cartLine) => String(cartLine.lineId) === lineId);
+
+    if (existing) {
+      // Retained metadata must still describe the line the seed asked for.
+      if (existing.lockedListingId !== line.lockedListingId || existing.catalogItemId !== line.catalogItemId) {
+        throw new Error(
+          `${CHECKOUT_BOOTSTRAP_LABEL} Cart Line '${lineId}' expected listing '${line.lockedListingId}' and ` +
+            `catalog item '${line.catalogItemId}', but found listing '${existing.lockedListingId ?? "null"}' and ` +
+            `catalog item '${existing.catalogItemId}'. Stream '${checkoutCartStreamId(buyerAccountId)}'.`,
+        );
+      }
+      states.push({ line, lineId, productId: existing.productId, kind: "active", eventCount: committed.length });
+      continue;
+    }
+
+    if (!apply) {
+      states.push({ line, lineId, productId: null, kind: "absent", eventCount: committed.length });
+      continue;
+    }
+
+    const productId = await buildProductId(checkout.db, line);
+    await checkout.cart.commandHandler({
+      streamId: checkoutCartStreamId(buyerAccountId),
+      command: {
+        type: "AddCartLine",
+        buyerAccountId,
+        lineId: lineId as CartLineId,
+        catalogItemId: line.catalogItemId,
+        productId,
+        itemTitle: line.itemTitle,
+        itemSubtitle: line.itemSubtitle,
+        itemImageUrl: line.itemImageUrl ?? null,
+        selectedOptions: [...line.selectedOptions],
+        productSummary: line.productSummary,
+        quantity: line.quantity,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: line.lockedListingId,
+      },
+      context: buyerContext,
+    });
+    states.push({ line, lineId, productId, kind: "absent", eventCount: committed.length });
+  }
+
+  return states;
+}
+
+type SeedCartLineState = Readonly<{
+  line: (typeof demoCartLines)[number];
+  lineId: string;
+  productId: string | null;
+  kind: "absent" | "active";
+  eventCount: number;
+}>;
+
+async function loadSeedSessionState(
+  checkout: CheckoutServices,
+): Promise<Readonly<{ kind: "absent" | "active"; eventCount: number }>> {
+  const committed = await loadSeedStreamEvents<CheckoutSessionEvent>(
+    checkout.db,
+    checkoutSessionStreamId(checkoutSeedIds.sessions.startedCart),
+  );
+  const session = committed.reduce(evolveCheckoutSession, initialCheckoutSessionState);
+  return { kind: session.sessionId === null ? "absent" : "active", eventCount: committed.length };
+}
+
+/**
+ * Reports the Checkout seed's base aggregate state from the authoritative
+ * `checkout.*` streams: one report per reserved cart line plus the started
+ * checkout session.
+ */
+export async function inspectCheckoutSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const checkout = createCheckoutServices(pool);
+  const buyerAccountId = identitySeedIds.collector.accountId;
+  const buyerContext = createSeedContextFor(buyerAccountId, identitySeedIds.collector.userId);
+  const cartLines = await reconcileSeedCartLines(checkout, buyerAccountId, buyerContext, false);
+  const session = await loadSeedSessionState(checkout);
+
+  return [
+    ...cartLines.map((state) => ({
+      contextName: "checkout",
+      aggregateName: "Cart Line",
+      id: state.lineId,
+      key: state.line.lockedListingId,
+      streamId: checkoutCartStreamId(buyerAccountId),
+      kind: state.kind,
+      status: state.kind === "active" ? "in-cart" : null,
+      eventCount: state.eventCount,
+    })),
+    {
+      contextName: "checkout",
+      aggregateName: "Checkout Session",
+      id: checkoutSeedIds.sessions.startedCart,
+      key: "started-cart",
+      streamId: checkoutSessionStreamId(checkoutSeedIds.sessions.startedCart),
+      kind: session.kind,
+      status: session.kind === "active" ? "started" : null,
+      eventCount: session.eventCount,
+    },
+  ];
+}
+
 export async function seedCheckoutDatabase(
   pool: PgTransactionalPool,
   checkout: CheckoutServices = createCheckoutServices(pool),
 ) {
   const buyerAccountId = identitySeedIds.collector.accountId;
   const buyerContext = createSeedContextFor(buyerAccountId, identitySeedIds.collector.userId);
-  const seededSessionLines: CheckoutSessionLine[] = [];
-  const seededReadinessLines: CartReadinessLine[] = [];
 
-  if (!(await hasCartLines(checkout.db, buyerAccountId))) {
-    console.log("Starting checkout development seed...\n");
-    for (const line of demoCartLines) {
-      const productId = await buildProductId(checkout.db, line);
-      const result = await checkout.cart.addLine(
-        {
-          accountId: buyerAccountId,
-          catalogItemId: line.catalogItemId,
-          productId,
-          itemTitle: line.itemTitle,
-          itemSubtitle: line.itemSubtitle,
-          itemImageUrl: line.itemImageUrl ?? null,
-          selectedOptions: line.selectedOptions,
-          productSummary: line.productSummary,
-          quantity: line.quantity,
-          fulfillmentMode: "locked-listing",
-          lockedListingId: line.lockedListingId,
-        },
-        buyerContext,
-      );
-      seededSessionLines.push({
-        listingId: line.lockedListingId,
-        cartLineId: result.lineId,
-        catalogItemId: line.catalogItemId,
-        productId,
-        itemTitle: line.itemTitle,
-        itemSubtitle: line.itemSubtitle,
-        selectedOptions: [...line.selectedOptions],
-        productSummary: line.productSummary,
-        quantity: line.quantity,
-        fulfillmentMode: "locked-listing",
-        lockedListingId: line.lockedListingId,
-        sellerPreferenceId: null,
-        availabilityState: "available",
-      });
-      const sellerOption = demoSellerOptionFor(line.lockedListingId);
-      if (!sellerOption) {
-        throw new Error(`No checkout seed seller option found for ${line.itemTitle}.`);
-      }
-      seededReadinessLines.push({
-        line_id: result.lineId,
-        catalog_catalog_item_id: line.catalogItemId,
-        product_id: productId,
-        item_title: line.itemTitle,
-        quantity: line.quantity,
-        fulfillment_mode: "locked-listing",
-        locked_listing_id: line.lockedListingId,
-        seller_preference_id: null,
-        availability_state: "available",
-        seller_options: [sellerOption],
-        updated_at: new Date().toISOString(),
-      });
+  console.log("Starting checkout development seed...\n");
+  const cartLines = await reconcileSeedCartLines(checkout, buyerAccountId, buyerContext, true);
+  console.log("  Demo account cart reconciled.");
+
+  const session = await loadSeedSessionState(checkout);
+  if (session.kind === "absent") {
+    const resolvedLines = cartLines.filter(
+      (state): state is SeedCartLineState & Readonly<{ productId: string }> => state.productId !== null,
+    );
+    if (resolvedLines.length !== demoCartLines.length) {
+      throw new Error("Checkout seed could not resolve every seeded cart line before starting a session.");
     }
-    console.log("  Demo account cart seeded.");
-  }
 
-  if (!(await hasStartedSession(checkout.db))) {
-    const projectedCartLines = await checkout.cart.listCartLines(buyerAccountId);
-    const readinessLines =
-      projectedCartLines.length > 0 ? withDemoSellerOptionFallback(projectedCartLines) : seededReadinessLines;
-    const readiness = createCartReadinessSnapshot(readinessLines);
+    const readiness = createCartReadinessSnapshot(
+      resolvedLines.map((state) => seedReadinessLineFor(state.line, state.lineId, state.productId)),
+    );
     if (readiness.status !== "ready") {
       throw new Error("Checkout seed requires ready cart fulfillment before starting a session.");
     }
 
-    const checkoutLines =
-      projectedCartLines.length > 0
-        ? projectedCartLines.map((line) => ({
-            listingId: line.locked_listing_id,
-            cartLineId: line.line_id,
-            catalogItemId: line.catalog_catalog_item_id,
-            productId: line.product_id,
-            itemTitle: line.item_title,
-            itemSubtitle: line.item_subtitle,
-            selectedOptions: [...line.selected_options],
-            productSummary: line.product_summary,
-            quantity: line.quantity,
-            fulfillmentMode: line.fulfillment_mode,
-            lockedListingId: line.locked_listing_id,
-            sellerPreferenceId: line.seller_preference_id,
-            availabilityState: line.availability_state,
-          }))
-        : seededSessionLines;
-
     await checkout.sessions.commandHandler({
-      streamId: `checkout.session-${checkoutSeedIds.sessions.startedCart}`,
+      streamId: checkoutSessionStreamId(checkoutSeedIds.sessions.startedCart),
       command: {
         type: "StartCheckoutSession",
         sessionId: checkoutSeedIds.sessions.startedCart,
@@ -258,8 +358,8 @@ export async function seedCheckoutDatabase(
         sourceType: "cart",
         shippingOption: "standard",
         cartReadinessSnapshot: readiness,
-        lines: checkoutLines,
-        createdAt: new Date().toISOString(),
+        lines: resolvedLines.map((state) => seedSessionLineFor(state.line, state.lineId, state.productId)),
+        createdAt: CHECKOUT_SEED_AT,
       },
       context: buyerContext,
     });

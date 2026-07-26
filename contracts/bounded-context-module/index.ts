@@ -546,6 +546,29 @@ export type BcSeedOptions = Readonly<{
   environmentName?: string | null;
 }>;
 
+/**
+ * How a seed's re-author decision resolved for one base aggregate, folded from
+ * the context's own `event_store_events` streams rather than from a read-model
+ * projection.
+ *
+ * - `absent` nothing authored on the stream yet.
+ * - `draft`  committed but incomplete; the seed resumes the remaining commands.
+ * - `active` complete; the seed appends nothing.
+ */
+export type BcSeedAggregateStateKind = "absent" | "draft" | "active";
+
+export type BcSeedAggregateStateReport = Readonly<{
+  readonly contextName: string;
+  readonly aggregateName: string;
+  readonly id: string;
+  readonly key: string;
+  readonly streamId: string;
+  readonly kind: BcSeedAggregateStateKind;
+  /** Derived aggregate status, or `null` when the stream carries no events. */
+  readonly status: string | null;
+  readonly eventCount: number;
+}>;
+
 export type BcCreateServicesOptions<TPool = unknown> = Readonly<{
   notificationWaiterPool?: TPool;
 }>;
@@ -576,6 +599,18 @@ export interface BcApiModule<
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
   seedProfiles?: readonly EnvironmentDataProfile[];
   seed?(pool: TPool, services?: TServices, options?: BcSeedOptions): Promise<void>;
+  /**
+   * Reports, from the context's authoritative event streams, the state every
+   * base aggregate this context's `seed` authors is currently in. Hosts and
+   * tests enumerate seed coverage from the runtime mount list through this
+   * capability, so a context that seeds without declaring it is visible as an
+   * omission rather than silently trusted.
+   *
+   * Fails closed for the same reasons the seed does: conflicting retained
+   * identity or an unexpected terminal status throws instead of reporting a
+   * state.
+   */
+  inspectSeedState?(pool: TPool, options?: BcSeedOptions): Promise<readonly BcSeedAggregateStateReport[]>;
   /**
    * Context-owned, idempotent reconciliation for required bootstrap state.
    * Platform hosts may invoke this after waiting for another bootstrap that
@@ -617,6 +652,7 @@ export type DefineBoundedContextModuleInput<
   >["buildProjectionGroups"];
   seedProfiles?: readonly EnvironmentDataProfile[];
   seed?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["seed"];
+  inspectSeedState?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["inspectSeedState"];
   reconcileBootstrapState?: BcApiModule<
     TServices,
     TPool,
@@ -657,6 +693,7 @@ export function defineBoundedContextModule<
     ...(input.buildProjectionGroups ? { buildProjectionGroups: input.buildProjectionGroups } : {}),
     ...(input.seedProfiles ? { seedProfiles: input.seedProfiles } : {}),
     ...(input.seed ? { seed: input.seed } : {}),
+    ...(input.inspectSeedState ? { inspectSeedState: input.inspectSeedState } : {}),
     ...(input.reconcileBootstrapState ? { reconcileBootstrapState: input.reconcileBootstrapState } : {}),
   };
 }
