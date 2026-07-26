@@ -80,7 +80,12 @@ function readPublicWebRouteRecords({ rootDir, tracked }) {
   for (const relativePath of tracked.filter((candidate) => candidate.endsWith(".json"))) {
     let document;
     try {
-      document = JSON.parse(readTracked(rootDir, tracked, relativePath, relativePath));
+      const parsed = ts.parseConfigFileTextToJson(
+        relativePath,
+        readTracked(rootDir, tracked, relativePath, relativePath),
+      );
+      if (parsed.error) throw new Error(ts.flattenDiagnosticMessageText(parsed.error.messageText, " "));
+      document = parsed.config;
     } catch (error) {
       failure(relativePath, `malformed JSON (${error instanceof Error ? error.message : String(error)})`);
     }
