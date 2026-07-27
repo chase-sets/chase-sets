@@ -11,6 +11,7 @@ import {
   deriveStaticChangedFiles,
   parseNameStatusZ,
   parseVerifyStaticChain,
+  resolvePnpmInvocation,
   runVerifyStaticScoped,
   selectVerifyStaticLinks,
   verifyStaticSurfaceMapCompleteness,
@@ -153,6 +154,34 @@ describe("verify:static surface-map derivation", () => {
 });
 
 describe("changed-path discovery", () => {
+  it("invokes pnpm portably on Windows instead of spawning a .cmd file directly", () => {
+    expect(
+      resolvePnpmInvocation({
+        env: { npm_execpath: "C:/pnpm/pnpm.cjs" },
+        platform: "win32",
+      }),
+    ).toEqual({
+      executable: process.execPath,
+      argumentPrefix: ["C:/pnpm/pnpm.cjs"],
+      shell: false,
+    });
+    expect(resolvePnpmInvocation({ env: {}, platform: "win32" })).toEqual({
+      executable: "pnpm",
+      argumentPrefix: [],
+      shell: true,
+    });
+    expect(
+      resolvePnpmInvocation({
+        env: { npm_execpath: "C:/pnpm/pnpm.exe" },
+        platform: "win32",
+      }),
+    ).toEqual({
+      executable: "C:/pnpm/pnpm.exe",
+      argumentPrefix: [],
+      shell: false,
+    });
+  });
+
   it("keeps modified, added, deleted, and both sides of renamed paths", () => {
     expect(
       parseNameStatusZ(

@@ -213,11 +213,26 @@ export function selectVerifyStaticLinks({
   return { selected, skipped, fullReason: null };
 }
 
+export function resolvePnpmInvocation({ env = process.env, platform = process.platform } = {}) {
+  if (typeof env.npm_execpath === "string" && env.npm_execpath.length > 0) {
+    if (/\.(?:c|m)?js$/i.test(env.npm_execpath)) {
+      return { executable: process.execPath, argumentPrefix: [env.npm_execpath], shell: false };
+    }
+    return { executable: env.npm_execpath, argumentPrefix: [], shell: false };
+  }
+  return { executable: "pnpm", argumentPrefix: [], shell: platform === "win32" };
+}
+
 function defaultRunLink(link, repoRoot) {
-  const executable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const invocation = resolvePnpmInvocation();
   const args = ["run", link.name];
   if (link.forwarded) args.push(...link.forwarded.split(/\s+/));
-  const result = spawnSync(executable, args, { cwd: repoRoot, stdio: "inherit", windowsHide: true });
+  const result = spawnSync(invocation.executable, [...invocation.argumentPrefix, ...args], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    windowsHide: true,
+    shell: invocation.shell,
+  });
   if (result.error) throw result.error;
   return result.status ?? 1;
 }
