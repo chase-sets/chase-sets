@@ -21,7 +21,7 @@
     "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",
     "./review-scoring-facts": "./review-scoring-facts.ts",
-    "./public-event-payloads": "./public-event-payloads.ts",
+    "./public-event-payloads": "./public-event-payloads/index.ts",
     "./storage": "./storage.ts",
     "./stream-id": "./stream-id.ts",
     "./test-support": "./test-support.ts",
