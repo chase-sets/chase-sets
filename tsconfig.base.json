@@ -403,7 +403,7 @@
         "./contracts/event-core/projector.ts"
       ],
       "@chase-sets/event-core/public-event-payloads": [
-        "./contracts/event-core/public-event-payloads.ts"
+        "./contracts/event-core/public-event-payloads/index.ts"
       ],
       "@chase-sets/event-core/review-scoring-facts": [
         "./contracts/event-core/review-scoring-facts.ts"
