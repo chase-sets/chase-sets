@@ -3,10 +3,10 @@
 //
 // Reads checked-in Terraform and registry sources only. It does not contact
 // DigitalOcean, databases, staging, production, or secret-backed services.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import {
@@ -21,7 +21,10 @@ const DEFAULT_OUT_PATH = "artifacts/release-health/push-wake-capacity-evidence.j
 const PLATFORM_LOCALS_PATH = "infrastructure/digitalocean/platform/locals.tf";
 const PLATFORM_VARIABLES_PATH = "infrastructure/digitalocean/platform/variables.tf";
 const PLATFORM_RUNTIME_VALUES_PATH = "infrastructure/helm/platform/runtime-values.json";
-const SOURCE_CONTEXT_WAKE_REGISTRY_PATH = "infrastructure/platform-runtime/source-context-wake-registry.ts";
+// Registry entries live one module per source context under this directory;
+// the sibling `source-context-wake-registry.ts` is only the static aggregate
+// and holds no entry literals to parse.
+const SOURCE_CONTEXT_WAKE_REGISTRY_SHARD_DIR = "infrastructure/platform-runtime/source-context-wake-registry";
 const CLUSTER_CONNECTION_LIMITS = Object.freeze({
   "db-s-1vcpu-1gb": 19,
   "db-s-1vcpu-2gb": 44,
@@ -51,7 +54,9 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
   const localsSource = readFileSync(resolve(repoRoot, PLATFORM_LOCALS_PATH), "utf8");
   const variablesSource = readFileSync(resolve(repoRoot, PLATFORM_VARIABLES_PATH), "utf8");
   const runtimeValues = JSON.parse(readFileSync(resolve(repoRoot, PLATFORM_RUNTIME_VALUES_PATH), "utf8"));
-  const registrySource = readFileSync(resolve(repoRoot, SOURCE_CONTEXT_WAKE_REGISTRY_PATH), "utf8");
+  const registryShardSources = readSourceContextWakeRegistryShards(
+    resolve(repoRoot, SOURCE_CONTEXT_WAKE_REGISTRY_SHARD_DIR),
+  );
 
   const platformContextNames = extractStringList(localsSource, "platform_context_names");
   const directListenerContexts = extractStringList(localsSource, "worker_listener_source_contexts");
@@ -64,14 +69,19 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
   const api = runtimeValues.components["platform-api"];
   const worker = runtimeValues.components["platform-worker"];
   const bootstrap = runtimeValues.components["platform-bootstrap"];
-  const registryEntries = parseSourceContextWakeRegistryEntries(registrySource);
+  const registryEntries = registryShardSources.flatMap((shardSource) =>
+    parseSourceContextWakeRegistryEntries(shardSource),
+  );
+  if (registryEntries.length === 0) {
+    throw new Error(`No source-context wake registry entries found under '${SOURCE_CONTEXT_WAKE_REGISTRY_SHARD_DIR}'.`);
+  }
 
   return {
     sourcePaths: {
       platformLocals: PLATFORM_LOCALS_PATH,
       platformVariables: PLATFORM_VARIABLES_PATH,
       platformRuntimeValues: PLATFORM_RUNTIME_VALUES_PATH,
-      sourceContextWakeRegistry: SOURCE_CONTEXT_WAKE_REGISTRY_PATH,
+      sourceContextWakeRegistry: SOURCE_CONTEXT_WAKE_REGISTRY_SHARD_DIR,
     },
     platformContextNames,
     directListenerContexts,
@@ -403,9 +413,16 @@ function evaluateExpansion(input) {
   };
 }
 
+export function readSourceContextWakeRegistryShards(directory) {
+  return readdirSync(directory)
+    .filter((fileName) => fileName.endsWith(".ts"))
+    .sort()
+    .map((fileName) => readFileSync(join(directory, fileName), "utf8"));
+}
+
 export function parseSourceContextWakeRegistryEntries(source) {
   return source
-    .split(/\n\s*registryEntry\(\{/)
+    .split(/registryEntry\(\{/)
     .slice(1)
     .map((chunk) => ({
       sourceContextName: extractStringProperty(chunk, "sourceContextName"),

@@ -1,0 +1,33 @@
+import { registryEntry } from "../source-context-wake-registry-entry";
+
+export const fulfillmentWakeRegistryEntry = registryEntry({
+  sourceContextName: "fulfillment",
+  owner: "Fulfillment",
+  rolloutState: "eligible",
+  phase: "phase-2-composite-migration",
+  rolloutWave: "wave-2-commerce-dependencies",
+  priorityLane: "standard",
+  expectedEventVolume: "medium",
+  wakeStoreLoadEstimate: "medium",
+  affectedProjectionNames: [
+    "auth:auth-agent-order-webhook-projection",
+    "fulfillment:fulfillment-shipment-projection",
+    "fulfillment:fulfillment-return-shipment-projection",
+    "inventory:inventory-fulfillment-recovered-item-workflow",
+    "inventory:inventory-fulfillment-restock-workflow",
+    "payments:payments-fulfillment-dispute-evidence-source-projection",
+    "payments:payments-support-refund-effect",
+    "notifications:notifications-source-facts-outbox-projection",
+    "ordering:ordering-fulfillment-cancellation-inputs",
+    "ordering:ordering-order-review-opportunity-projection",
+    "payments:payments-fulfillment-dispute-evidence-source-projection",
+    "pricing:pricing-fulfillment-input-projection",
+    "pricing:pricing-market-trades-projection",
+    "marketplace:marketplace-review-shipment-source-projection",
+    "marketplace:marketplace-seller-metrics-shipment-source-projection",
+    "settlement:settlement-fulfillment-source-projection",
+    "platform-operations:support-shipment-source-projection",
+    "platform-operations:support-return-label-source-projection",
+  ],
+  routeDependencyIds: ["fulfillment.seller-shipment-self-refresh"],
+});

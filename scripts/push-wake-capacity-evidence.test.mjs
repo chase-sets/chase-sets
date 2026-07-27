@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +8,7 @@ import {
   loadPushWakeCapacityInputs,
   parseSourceContextWakeRegistryEntries,
   PUSH_WAKE_CAPACITY_EVIDENCE_VERSION,
+  readSourceContextWakeRegistryShards,
   renderPushWakeCapacityMarkdown,
 } from "./push-wake-capacity-evidence.mjs";
 
@@ -171,6 +172,49 @@ describe("push wake capacity evidence", () => {
         relayFanOutEnabled: false,
       },
     ]);
+  });
+
+  it("parses a per-context shard module whose entry is bound to an export", () => {
+    // Shards assign the call to a named export, so the entry no longer starts
+    // a line. The grammar must key off the `registryEntry({` call alone.
+    expect(
+      parseSourceContextWakeRegistryEntries(
+        [
+          'import { registryEntry } from "../source-context-wake-registry-entry";',
+          "",
+          "export const catalogWakeRegistryEntry = registryEntry({",
+          '  sourceContextName: "catalog",',
+          '  rolloutState: "staging-enabled",',
+          '  rolloutWave: "wave-2-commerce-dependencies",',
+          "  enablement: {",
+          "    eventStoreWakeNotifications: true,",
+          "    relayFanOut: true,",
+          "  },",
+          "});",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        sourceContextName: "catalog",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-2-commerce-dependencies",
+        eventStoreWakeNotificationsEnabled: true,
+        relayFanOutEnabled: true,
+      },
+    ]);
+  });
+
+  it("reads every checked-in registry shard module from the shard directory", () => {
+    const shardSources = readSourceContextWakeRegistryShards(
+      resolve("infrastructure/platform-runtime/source-context-wake-registry"),
+    );
+    const entries = shardSources.flatMap((shardSource) => parseSourceContextWakeRegistryEntries(shardSource));
+
+    expect(shardSources.length).toBeGreaterThan(0);
+    expect(entries).toHaveLength(shardSources.length);
+    expect(entries.map((entry) => entry.sourceContextName)).toContain("checkout");
+    expect(new Set(entries.map((entry) => entry.sourceContextName)).size).toBe(entries.length);
   });
 
   it("writes a redacted JSON evidence record from the CLI", () => {

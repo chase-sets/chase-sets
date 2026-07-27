@@ -1,0 +1,43 @@
+import { registryEntry } from "../source-context-wake-registry-entry";
+
+export const inventoryWakeRegistryEntry = registryEntry({
+  sourceContextName: "inventory",
+  owner: "Inventory",
+  rolloutState: "staging-enabled",
+  enablement: {
+    eventStoreWakeNotifications: true,
+    relayFanOut: true,
+  },
+  phase: "phase-2-composite-migration",
+  rolloutWave: "wave-2-commerce-dependencies",
+  priorityLane: "hot",
+  expectedEventVolume: "high",
+  wakeStoreLoadEstimate: "high",
+  affectedProjectionNames: [
+    "checkout:checkout-inventory-supply-projection",
+    "discovery:discovery-market-projection",
+    "inventory:inventory-hold-collision-projection",
+    "inventory:inventory-hold-projection",
+    "inventory:inventory-item-ledger-projection",
+    "inventory:inventory-item-projection",
+    "inventory:inventory-reservation-projection",
+    "inventory:inventory-recovered-item-projection",
+    "inventory:inventory-restock-decision-projection",
+    "inventory:inventory-storage-location-projection",
+    "notifications:notifications-source-facts-outbox-projection",
+    "marketplace:marketplace-inventory-supply-projection",
+    "notifications:notifications-source-facts-outbox-projection",
+    "ordering:ordering-inventory-reservation-outcomes",
+    "ordering:ordering-inventory-supply-input-projection",
+    "platform-operations:support-inventory-hold-collision",
+    "pricing:pricing-inventory-input-projection",
+    "settlement:settlement-inventory-recovery-workflow",
+  ],
+  routeDependencyIds: [
+    "inventory.import-batch-detail",
+    "inventory.item-adjust-to-detail",
+    "inventory.item-create-to-detail",
+    "inventory.restock-decision-list",
+    "inventory.storage-locations-list",
+  ],
+});

@@ -159,10 +159,6 @@ const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
 );
-const sourceContextWakeRegistry = readFileSync(
-  resolve("infrastructure/platform-runtime/source-context-wake-registry.ts"),
-  "utf8",
-);
 const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.config.ts"), "utf8");
 
 function occurrenceCount(source, needle) {

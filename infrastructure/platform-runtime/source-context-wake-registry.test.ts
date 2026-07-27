@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -115,6 +116,49 @@ describe("source-context wake registry", () => {
       enabledEventStoreWakeContextCount: 11,
       enabledRelayFanOutContextCount: 11,
     });
+  });
+
+  it("composes exactly one shard module per registry entry", () => {
+    const shardDirectory = fileURLToPath(new URL("./source-context-wake-registry", import.meta.url));
+
+    // Membership is derived from the shard directory rather than a hand-kept
+    // list: a module dropped in without being composed into the aggregate, and
+    // a composed entry with no module, must both fail here.
+    expect(shardModuleNames(shardDirectory)).toEqual(
+      [...sourceContextWakeRegistry.map((entry) => entry.sourceContextName)].sort(),
+    );
+  });
+
+  it("names each shard module after the single entry it exports and composes", async () => {
+    const shardDirectory = fileURLToPath(new URL("./source-context-wake-registry", import.meta.url));
+
+    for (const moduleName of shardModuleNames(shardDirectory)) {
+      const shard = (await import(`./source-context-wake-registry/${moduleName}.ts`)) as Record<string, unknown>;
+      const exported = Object.values(shard);
+
+      expect(exported, moduleName).toHaveLength(1);
+      const entry = exported[0] as SourceContextWakeRegistryEntry;
+      expect(entry.sourceContextName, moduleName).toBe(moduleName);
+      // Reference equality: the aggregate composes this module's entry rather
+      // than a re-declared copy of it.
+      expect(sourceContextWakeRegistry).toContain(entry);
+    }
+  });
+
+  it("rejects a shard directory that has drifted from the composed registry", () => {
+    const composedNames = [...sourceContextWakeRegistry.map((entry) => entry.sourceContextName)].sort();
+
+    // Negative controls for the partition above: the same derivation applied to
+    // a directory holding an unwired module, and to one missing a composed
+    // entry, must not agree with the aggregate.
+    const strayDirectory = writeShardFixture([...composedNames, "unwired-context"]);
+    expect(shardModuleNames(strayDirectory)).not.toEqual(composedNames);
+
+    const missingDirectory = writeShardFixture(composedNames.slice(1));
+    expect(shardModuleNames(missingDirectory)).not.toEqual(composedNames);
+
+    const faithfulDirectory = writeShardFixture(composedNames);
+    expect(shardModuleNames(faithfulDirectory)).toEqual(composedNames);
   });
 
   it("matches bounded-context projection and read-after-write route inventory", () => {
@@ -396,6 +440,21 @@ describe("source-context wake registry", () => {
     warn.mockRestore();
   });
 });
+
+function shardModuleNames(directory: string): readonly string[] {
+  return readdirSync(directory)
+    .filter((fileName) => fileName.endsWith(".ts"))
+    .map((fileName) => fileName.replace(/\.ts$/, ""))
+    .sort();
+}
+
+function writeShardFixture(moduleNames: readonly string[]): string {
+  const directory = mkdtempSync(join(tmpdir(), "wake-registry-shards-"));
+  for (const moduleName of moduleNames) {
+    writeFileSync(join(directory, `${moduleName}.ts`), "", "utf8");
+  }
+  return directory;
+}
 
 // Seed/bootstrap scripts are exempt: they have no production wake path and the
 // relay catches up from durable event-store rows regardless of emission.

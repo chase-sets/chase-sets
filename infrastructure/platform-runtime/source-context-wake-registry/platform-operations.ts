@@ -1,0 +1,43 @@
+import { registryEntry } from "../source-context-wake-registry-entry";
+
+export const platformOperationsWakeRegistryEntry = registryEntry({
+  sourceContextName: "platform-operations",
+  owner: "Platform Operations",
+  rolloutState: "staging-enabled",
+  enablement: {
+    eventStoreWakeNotifications: true,
+    relayFanOut: true,
+  },
+  phase: "phase-3-expansion",
+  rolloutWave: "wave-3-platform-expansion",
+  priorityLane: "standard",
+  expectedEventVolume: "medium",
+  wakeStoreLoadEstimate: "low",
+  affectedProjectionNames: [
+    "platform-operations:experience-platform-feedback-projection",
+    "platform-operations:platform-policy-document-projection",
+    "platform-operations:public-doc-review-queue-projection",
+    "platform-operations:reported-content-queue-projection",
+    "platform-operations:risk-alert-queue-projection",
+    "fulfillment:fulfillment-support-return-source-projection",
+    "notifications:notifications-source-facts-outbox-projection",
+    "platform-operations:support-request-projection",
+    "payments:payments-support-refund-effect",
+    "marketplace:marketplace-review-hold-reaction",
+    "marketplace:marketplace-review-moderation-reaction",
+    "marketplace:marketplace-review-scoring-reaction",
+    "marketplace:marketplace-review-support-source-projection",
+    "marketplace:marketplace-seller-metrics-support-source-projection",
+    "ordering:ordering-order-money-timeline-projection",
+    "ordering:ordering-order-review-opportunity-projection",
+    "ordering:ordering-support-cancellation",
+    "settlement:settlement-liability-allocation-reserve-projection",
+    "settlement:settlement-support-hold-lifecycle-projection",
+    "settlement:settlement-support-hold-projection",
+  ],
+  routeDependencyIds: [
+    "platform-operations.platform-feedback-detail-fresh-read",
+    "platform-operations.platform-feedback-list-fresh-read",
+    "platform-operations.support-request-detail-fresh-read",
+  ],
+});

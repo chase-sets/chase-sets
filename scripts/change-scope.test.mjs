@@ -176,6 +176,74 @@ describe("change-scope", () => {
     expect(scope.buildRequired).toBe(true);
   });
 
+  it("classifies every source-context wake registry shard exactly like the pre-split single file", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const workspaces = [
+      workspace(baseDir, "infrastructure", "platform-runtime", "@test/platform-runtime"),
+      workspace(baseDir, "deployables", "platform-api", "@test/app-platform-api", {
+        "@test/platform-runtime": "workspace:*",
+      }),
+    ];
+    // `changedFiles` is the echoed input, not a classification; every other
+    // key must be identical for a shard and for the pre-split single file.
+    const classify = (changedFile) => {
+      const { changedFiles, ...classification } = classifyChanges({
+        baseDir,
+        changedFiles: [changedFile],
+        workspaces,
+      });
+      return classification;
+    };
+    const aggregate = classify("infrastructure/platform-runtime/source-context-wake-registry.ts");
+
+    // The pre-split baseline: the registry feeds platform-api contract
+    // coverage, so it lands in both the directly affected and the test-only
+    // sets. A shard that only matched the workspace directory would drop
+    // @test/app-platform-api from both and silently stop running those tests.
+    expect(aggregate.directlyAffectedWorkspaces).toEqual(["@test/app-platform-api", "@test/platform-runtime"]);
+    expect(aggregate.directlyTestOnlyAffectedWorkspaces).toEqual(["@test/app-platform-api", "@test/platform-runtime"]);
+
+    for (const familyPath of [
+      "infrastructure/platform-runtime/source-context-wake-registry/catalog.ts",
+      "infrastructure/platform-runtime/source-context-wake-registry/commercial-terms.ts",
+      "infrastructure/platform-runtime/source-context-wake-registry-entry.ts",
+    ]) {
+      expect(classify(familyPath), familyPath).toEqual(aggregate);
+    }
+  });
+
+  it("classifies renamed and deleted wake registry shard paths as context metadata routes", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const workspaces = [
+      workspace(baseDir, "infrastructure", "platform-runtime", "@test/platform-runtime"),
+      workspace(baseDir, "deployables", "platform-api", "@test/app-platform-api", {
+        "@test/platform-runtime": "workspace:*",
+      }),
+    ];
+
+    // `listChangedFiles` reports renames and deletions as plain paths, so a
+    // shard that is removed or moved must still route the platform-api
+    // coverage its membership change invalidates.
+    const renamed = classifyChanges({
+      baseDir,
+      workspaces,
+      changedFiles: [
+        "infrastructure/platform-runtime/source-context-wake-registry/catalog.ts",
+        "infrastructure/platform-runtime/source-context-wake-registry/catalog-authoring.ts",
+      ],
+    });
+    const deleted = classifyChanges({
+      baseDir,
+      workspaces,
+      changedFiles: ["infrastructure/platform-runtime/source-context-wake-registry/notifications.ts"],
+    });
+
+    for (const scope of [renamed, deleted]) {
+      expect(scope.directlyAffectedWorkspaces).toEqual(["@test/app-platform-api", "@test/platform-runtime"]);
+      expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@test/app-platform-api", "@test/platform-runtime"]);
+    }
+  });
+
   it("escalates pricing event-subscription metadata to targeted DB admission", () => {
     const scope = classifyChanges({
       changedFiles: ["bounded-contexts/pricing/context.json"],
