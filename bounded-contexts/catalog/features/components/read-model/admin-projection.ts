@@ -5,8 +5,7 @@ import {
   asArray,
   type DimensionRule,
   type FieldRule,
-  loadChoiceCodeMap,
-  loadNameMap,
+  loadAdminProjectionDependencies,
 } from "../../../support/projection-support/read-model-support";
 
 const COMPONENT_STREAM_PREFIX = "catalog.component-";
@@ -52,11 +51,11 @@ export async function refreshCatalogAdminComponentDetailPage(db: PgQueryable, co
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [fieldNames, dimensionNames, optionCodes] = await Promise.all([
-    loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
-    loadNameMap(db, "catalog_dimensions", "dimension_id", "name", dimensionIds),
-    loadChoiceCodeMap(db, optionIds),
-  ]);
+  const { fieldNames, dimensionNames, optionCodes } = await loadAdminProjectionDependencies(db, {
+    fieldIds,
+    dimensionIds,
+    optionIds,
+  });
 
   const namedFieldRules = fieldRules.map((rule) => ({
     fieldId: rule.fieldId,
@@ -183,7 +182,9 @@ async function findComponentIdsByChoice(db: PgQueryable, optionId: string): Prom
 }
 
 async function refreshComponentIds(db: PgQueryable, componentIds: readonly string[]): Promise<void> {
-  await Promise.all(componentIds.map((componentId) => refreshCatalogAdminComponentDetailPage(db, componentId)));
+  for (const componentId of componentIds) {
+    await refreshCatalogAdminComponentDetailPage(db, componentId);
+  }
 }
 
 export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
