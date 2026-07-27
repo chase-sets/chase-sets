@@ -260,9 +260,8 @@ import {
   loadSelectedOptionAuthoringSchema,
   loadPromotionTargetAuthoringSchema,
   buildCatalogIntegrationControlPlaneReadiness,
-  normalizeIntegrationKey,
   isActiveSourceObservationImportProfileVersion,
-  profileConnectorSourceVersion,
+  createCatalogIntegrationProfileVersionResolvers,
 } from "./catalog-integration-control-plane-readiness";
 import {
   toSourceObservationBulkJobEventSnapshot,
@@ -396,6 +395,25 @@ export {
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
+const {
+  requireCatalogImportProfileVersion,
+  requireCatalogImportProfileVersionForJob,
+  requireCatalogReapplyActiveProfileVersion,
+  requireCatalogPromotionProfileVersionForReapply,
+  requireReferenceDataPromotionProfileVersionForReapply,
+  snapshotCatalogProfileVersion,
+  snapshotCatalogReapplyProfileVersion,
+  integrationProfileSnapshotKey,
+  commonProfileSnapshot,
+} = createCatalogIntegrationProfileVersionResolvers({
+  defaultSourceObservationImportProviderKey,
+  isActivePromotionProfileVersion,
+  requireCatalogPromotionProfileVersion,
+  requireReferenceDataPromotionProfileVersion,
+  requireOriginalSourceProfileMarker,
+  sourceMappingFingerprintForProfileVersion: (version) =>
+    catalogProviderSourceMappingFingerprint(requireSourceObservationMappingContract(version)),
+});
 
 // One provider unit's durable sync state within a Catalog sync scope, read
 // back across runs. This is what the scope page renders instead of the
@@ -4117,308 +4135,6 @@ function shouldInvalidateSourceObservationEvent(eventType: string, event: { data
 
 function hasSourcePayloadChunkCount(value: unknown): boolean {
   return !!value && typeof value === "object" && "sourcePayloadChunkCount" in value;
-}
-
-// Serialize typed option aliases to JSON records so they survive the adapter ->
-// option-query record -> resolver hop without losing their typed shape. The
-// resolver maps them back onto the typed `aliases` field on each option DTO.
-
-async function requireCatalogImportProfileVersion(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  providerKey: string | null | undefined,
-  selector?: CatalogProviderProfileVersionSelector | null,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const normalizedProvider = normalizeIntegrationKey(
-    providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
-  );
-  const version = await profileVersions.getActiveProfileVersion(normalizedProvider, selector);
-  if (!version || !isActiveSourceObservationImportProfileVersion(version)) {
-    throw new Error(`Provider '${normalizedProvider}' does not support background import.`);
-  }
-
-  return version;
-}
-
-async function requireCatalogImportProfileVersionForJob(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  providerKey: string | null | undefined,
-  snapshot: SourceObservationIntegrationProfileSnapshot | null,
-  selector?: CatalogProviderProfileVersionSelector | null,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  if (!snapshot) {
-    return requireCatalogImportProfileVersion(profileVersions, providerKey, selector);
-  }
-
-  const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
-  const version = versions.find(
-    (candidate) =>
-      candidate.providerKey === snapshot.providerKey &&
-      candidate.profileKey === snapshot.profileKey &&
-      candidate.profileVersion === snapshot.profileVersion &&
-      (!snapshot.ingestionUnitKey ||
-        catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
-  );
-  if (!version) {
-    throw new Error(
-      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
-    );
-  }
-  if (!version.profile.capabilities.includes("source-observation-import")) {
-    throw new Error(`Provider '${snapshot.providerKey}' does not support background import.`);
-  }
-
-  return version;
-}
-
-async function requireCatalogReapplyActiveProfileVersion(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  providerKey: string | null | undefined,
-  selector?: CatalogProviderProfileVersionSelector | null,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const normalizedProvider = normalizeIntegrationKey(
-    providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
-  );
-  const providerProfile = await profileVersions.getActiveProfileVersion(normalizedProvider, selector);
-  if (providerProfile && isActivePromotionProfileVersion(providerProfile)) {
-    return providerProfile;
-  }
-
-  throw new Error(`Provider '${normalizedProvider}' does not support Catalog Item promotion.`);
-}
-
-async function requireCatalogPromotionProfileVersionForReapply(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  observation: SourceObservationDetailRow,
-  normalized: SourceObservationNormalized,
-  mode: SourceObservationReapplyProfileMode,
-  snapshot: SourceObservationIntegrationProfileSnapshot | null,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  if (mode === "current-active-profile") {
-    if (snapshot) {
-      return requireCatalogPromotionProfileVersionFromSnapshot(profileVersions, snapshot, normalized);
-    }
-    return requireCatalogPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
-  }
-
-  const sourceProfileKey = requireOriginalSourceProfileMarker(
-    observation.source_profile_key,
-    "source profile key",
-    observation.observation_id,
-  ).toLowerCase();
-  const sourceProfileVersion = requireOriginalSourceProfileMarker(
-    observation.source_profile_version,
-    "source profile version",
-    observation.observation_id,
-  );
-  requireOriginalSourceProfileMarker(
-    observation.source_mapping_fingerprint,
-    "source mapping fingerprint",
-    observation.observation_id,
-  );
-
-  const version = (await profileVersions.listProfileVersions(observation.provider_key)).find(
-    (candidate) =>
-      candidate.providerKey === observation.provider_key &&
-      candidate.profileKey === sourceProfileKey &&
-      candidate.profileVersion === sourceProfileVersion,
-  );
-  if (!version) {
-    throw new Error(
-      `Catalog provider profile version ${observation.provider_key}@${sourceProfileVersion} from Source Observation ${observation.observation_id} was not found.`,
-    );
-  }
-
-  assertPromotionProfileCompatible(version, normalized);
-  return version;
-}
-
-async function requireReferenceDataPromotionProfileVersionForReapply(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  observation: SourceObservationDetailRow,
-  normalized:
-    | SourceObservationMagicSetReferenceNormalized
-    | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
-  mode: SourceObservationReapplyProfileMode,
-  snapshot: SourceObservationIntegrationProfileSnapshot | null,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  if (mode === "current-active-profile") {
-    if (snapshot) {
-      return requireReferenceDataPromotionProfileVersionFromSnapshot(profileVersions, snapshot, normalized);
-    }
-    return requireReferenceDataPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
-  }
-
-  const sourceProfileKey = requireOriginalSourceProfileMarker(
-    observation.source_profile_key,
-    "source profile key",
-    observation.observation_id,
-  ).toLowerCase();
-  const sourceProfileVersion = requireOriginalSourceProfileMarker(
-    observation.source_profile_version,
-    "source profile version",
-    observation.observation_id,
-  );
-  requireOriginalSourceProfileMarker(
-    observation.source_mapping_fingerprint,
-    "source mapping fingerprint",
-    observation.observation_id,
-  );
-
-  const version = (await profileVersions.listProfileVersions(observation.provider_key)).find(
-    (candidate) =>
-      candidate.providerKey === observation.provider_key &&
-      candidate.profileKey === sourceProfileKey &&
-      candidate.profileVersion === sourceProfileVersion,
-  );
-  if (!version) {
-    throw new Error(
-      `Catalog provider profile version ${observation.provider_key}@${sourceProfileVersion} from Source Observation ${observation.observation_id} was not found.`,
-    );
-  }
-
-  assertReferenceDataPromotionProfileCompatible(version, normalized);
-  return version;
-}
-
-async function requireCatalogPromotionProfileVersionFromSnapshot(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  snapshot: SourceObservationIntegrationProfileSnapshot,
-  normalized: SourceObservationNormalized,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
-  if (!version) {
-    throw new Error(
-      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
-    );
-  }
-
-  assertPromotionProfileCompatible(version, normalized);
-  return version;
-}
-
-async function requireReferenceDataPromotionProfileVersionFromSnapshot(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  snapshot: SourceObservationIntegrationProfileSnapshot,
-  normalized:
-    | SourceObservationMagicSetReferenceNormalized
-    | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
-): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
-  if (!version) {
-    throw new Error(
-      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
-    );
-  }
-
-  assertReferenceDataPromotionProfileCompatible(version, normalized);
-  return version;
-}
-
-async function findCatalogProfileVersionFromSnapshot(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  snapshot: SourceObservationIntegrationProfileSnapshot,
-): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
-  const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
-  return (
-    versions.find(
-      (candidate) =>
-        candidate.providerKey === snapshot.providerKey &&
-        candidate.profileKey === snapshot.profileKey &&
-        candidate.profileVersion === snapshot.profileVersion &&
-        (!snapshot.ingestionUnitKey ||
-          catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
-    ) ?? null
-  );
-}
-
-function assertPromotionProfileCompatible(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-  normalized: SourceObservationNormalized,
-): void {
-  if (!version.profile.capabilities.includes("catalog-item-promotion")) {
-    throw new Error(`Provider '${version.providerKey}' does not support Catalog Item promotion.`);
-  }
-  if (version.profile.normalizedObservationMapping.kind !== normalized.kind) {
-    throw new Error(
-      `Provider '${version.providerKey}' promotion mapping '${version.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
-    );
-  }
-}
-
-function assertReferenceDataPromotionProfileCompatible(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-  normalized:
-    | SourceObservationMagicSetReferenceNormalized
-    | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
-): void {
-  if (!version.profile.capabilities.includes("reference-data-promotion")) {
-    throw new Error(`Provider '${version.providerKey}' does not support Reference Data promotion.`);
-  }
-  if (version.profile.normalizedObservationMapping.kind !== normalized.kind) {
-    throw new Error(
-      `Provider '${version.providerKey}' reference promotion mapping '${version.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
-    );
-  }
-}
-
-function snapshotCatalogProfileVersion(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-): SourceObservationIntegrationProfileSnapshot {
-  return {
-    providerKey: version.providerKey,
-    profileKey: version.profileKey,
-    profileVersion: version.profileVersion,
-    ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
-    lifecycle: version.lifecycle,
-    connectorKind: version.profile.connector.kind,
-    connectorSourceVersion: profileConnectorSourceVersion(version.profile.connector),
-    sourceMappingFingerprint: catalogProviderSourceMappingFingerprint(requireSourceObservationMappingContract(version)),
-  };
-}
-
-function snapshotCatalogReapplyProfileVersion(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-): SourceObservationIntegrationProfileSnapshot {
-  return snapshotCatalogProfileVersion(version);
-}
-
-function integrationProfileSnapshotKey(
-  snapshot: SourceObservationIntegrationProfileSnapshot | null,
-  owner: string,
-): string {
-  if (!snapshot) {
-    throw new Error(`Source Observation integration job ${owner} is missing profile snapshot.`);
-  }
-  return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}:${snapshot.ingestionUnitKey ?? "legacy-unit"}`;
-}
-
-function commonProfileSnapshot(
-  snapshots: readonly (SourceObservationIntegrationProfileSnapshot | null)[],
-): SourceObservationIntegrationProfileSnapshot | null {
-  let common: SourceObservationIntegrationProfileSnapshot | null = null;
-
-  for (const snapshot of snapshots) {
-    if (!snapshot) {
-      continue;
-    }
-    if (!common) {
-      common = snapshot;
-      continue;
-    }
-    if (
-      snapshot.providerKey !== common.providerKey ||
-      snapshot.profileKey !== common.profileKey ||
-      snapshot.profileVersion !== common.profileVersion ||
-      (snapshot.ingestionUnitKey ?? null) !== (common.ingestionUnitKey ?? null)
-    ) {
-      return null;
-    }
-  }
-
-  return common;
 }
 
 /**
