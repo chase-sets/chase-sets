@@ -59,14 +59,20 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 
 The orchestrator dispatches an issue only when ALL hold:
 
-0. **Placed and classified:** a native **issue type** (`Slice`, `Bug`,
+0. **Placed and classified (`refined ≡ classified`):** an open issue with a
+   native **issue type** (`Slice`, `Bug`,
    `Decision`, `Probe` — `Epic` is never dispatchable), one wave milestone,
-   `priority:*`, `area:*`, `kind:*`, and — when the slice belongs to a
-   capability — attached as a **sub-issue of its epic**. The slice form applies
-   the labels from its dropdowns (`scripts/issue-form-labels.mjs`); issues
-   created by API must set type and labels explicitly. An unclassified slice is
-   backlog, not a dispatch candidate: it cannot be ranked, collision-checked,
-   or rolled up.
+   `priority:*`, `area:*`, and `kind:*`; it is neither
+   `status:tracking-only` nor in `Deferred / Incubation` / `Operations`. The
+   slice form applies the labels from its dropdowns
+   (`scripts/issue-form-labels.mjs`); issues created by API must set type and
+   labels explicitly. An unclassified slice is backlog, not a dispatch
+   candidate: it cannot be ranked or collision-checked. Parent attachment is
+   reported, not gating: when a capability owns the slice's acceptance, attach
+   it as that Epic's native sub-issue. A future parent-or-standalone gate
+   (including any `status:standalone` label) would require a new fixed-scope
+   change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
+   records that it is not current controller behavior.
 1. Repo evidence pointers present (≥2) and non-generic.
 2. Scope fence states at least one explicit non-goal.
 3. Every AC has an evidence method; external-provider contracts name the

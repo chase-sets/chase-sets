@@ -1,4 +1,5 @@
 import process from "node:process";
+import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
 
 // Recomputes the delivery board's Status field from the facts that already
 // exist on each issue: its blocking dependencies, its milestone, and its
@@ -13,31 +14,42 @@ import process from "node:process";
 export const DERIVED_STATUSES = Object.freeze(["Backlog", "Refined", "Blocked"]);
 export const NON_EXECUTABLE_MILESTONES = Object.freeze(["Deferred / Incubation", "Operations"]);
 
-const EPIC_LABEL = "kind:epic";
+export function toBacklogInput(issue) {
+  const issueTypeName = Object.hasOwn(issue, "issueTypeName")
+    ? issue.issueTypeName
+    : (issue.type?.name ?? issue.issueType?.name ?? null);
+  const blockedByCount = Object.hasOwn(issue, "blockedByCount") ? issue.blockedByCount : issue.blockedBy;
+  const hasParent = Object.hasOwn(issue, "hasParent")
+    ? issue.hasParent
+    : Object.hasOwn(issue, "parent")
+      ? issue.parent !== null
+      : undefined;
 
-// The native issue type is authoritative; `kind:epic` remains a fallback
-// because the label predates the type and the orchestrator still reads it.
+  return {
+    number: issue.number,
+    state: typeof issue.state === "string" ? issue.state.toLowerCase() : issue.state,
+    labels: Array.isArray(issue.labels) ? issue.labels.map((label) => label.name ?? label) : issue.labels,
+    issueTypeName,
+    milestoneTitle: issue.milestone?.title ?? null,
+    blockedByCount,
+    hasParent,
+  };
+}
+
+// Kept as a caller-facing compatibility seam; the decision itself lives in
+// backlog-classify.mjs.
 export function isEpic(issue) {
-  const type = issue.type?.name ?? issue.issueType?.name ?? null;
-  if (type) return type === "Epic";
-  return (issue.labels ?? []).some((label) => (label.name ?? label) === EPIC_LABEL);
+  return classifiedEpic(toBacklogInput(issue));
 }
 
 export function deriveStatus(issue) {
-  const labels = (issue.labels ?? []).map((label) => label.name ?? label);
-  if (isEpic(issue)) return null; // epics roll up; they are not dispatchable
+  const input = toBacklogInput(issue);
+  if (classifiedEpic(input)) return null; // epics roll up; they are not dispatchable
+  if (isTrackingOnly(input)) return null; // continuity records keep their existing board value
 
-  if ((issue.blockedBy ?? 0) > 0) return "Blocked";
+  if (input.blockedByCount > 0) return "Blocked";
 
-  const milestone = issue.milestone?.title ?? null;
-  if (!milestone || NON_EXECUTABLE_MILESTONES.includes(milestone)) return "Backlog";
-
-  const refined =
-    labels.some((name) => name.startsWith("priority:")) &&
-    labels.some((name) => name.startsWith("area:")) &&
-    labels.some((name) => name.startsWith("kind:"));
-
-  return refined ? "Refined" : "Backlog";
+  return classified(input) ? "Refined" : "Backlog";
 }
 
 // GitHub's Roadmap layout cannot plot the built-in Milestone field, so the
@@ -62,6 +74,10 @@ export function planDateUpdates(items) {
 export function planStatusUpdates(items) {
   const updates = [];
   for (const item of items) {
+    // Closed items keep their terminal board snapshot. Classification is an
+    // open-backlog contract, so rewriting closed history to Backlog would be a
+    // destructive transition with no dispatch value.
+    if (toBacklogInput(item.issue).state === "closed") continue;
     const next = deriveStatus(item.issue);
     if (next === null) continue;
     // Never clobber a lane-owned state.
@@ -89,7 +105,7 @@ async function graphql(query, variables, token) {
   return payload.data;
 }
 
-const ITEMS_QUERY = `
+export const ITEMS_QUERY = `
 query($project:ID!, $after:String) {
   node(id:$project) {
     ... on ProjectV2 {
@@ -102,7 +118,9 @@ query($project:ID!, $after:String) {
           content {
             ... on Issue {
               number
+              state
               issueType { name }
+              parent { number }
               milestone { title dueOn }
               labels(first:30) { nodes { name } }
               issueDependenciesSummary { blockedBy }
@@ -113,6 +131,24 @@ query($project:ID!, $after:String) {
     }
   }
 }`;
+
+export function projectItemFromNode(node) {
+  if (!node.content?.number) return null;
+  return {
+    itemId: node.id,
+    status: node.status?.name ?? null,
+    targetDate: node.targetDate?.date ? String(node.targetDate.date).slice(0, 10) : null,
+    issue: {
+      number: node.content.number,
+      state: typeof node.content.state === "string" ? node.content.state.toLowerCase() : node.content.state,
+      issueTypeName: Object.hasOwn(node.content, "issueType") ? (node.content.issueType?.name ?? null) : undefined,
+      milestone: node.content.milestone,
+      labels: node.content.labels?.nodes?.map((label) => label.name),
+      blockedByCount: node.content.issueDependenciesSummary?.blockedBy,
+      hasParent: node.content.parent === undefined ? undefined : node.content.parent !== null,
+    },
+  };
+}
 
 async function main() {
   const token = process.env.GITHUB_TOKEN;
@@ -131,19 +167,8 @@ async function main() {
     const data = await graphql(ITEMS_QUERY, { project, after }, token);
     const page = data.node.items;
     for (const node of page.nodes) {
-      if (!node.content?.number) continue;
-      items.push({
-        itemId: node.id,
-        status: node.status?.name ?? null,
-        targetDate: node.targetDate?.date ? String(node.targetDate.date).slice(0, 10) : null,
-        issue: {
-          number: node.content.number,
-          issueType: node.content.issueType,
-          milestone: node.content.milestone,
-          labels: node.content.labels.nodes,
-          blockedBy: node.content.issueDependenciesSummary?.blockedBy ?? 0,
-        },
-      });
+      const item = projectItemFromNode(node);
+      if (item) items.push(item);
     }
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (after);
