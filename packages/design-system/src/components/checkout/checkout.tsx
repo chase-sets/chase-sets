@@ -1,3 +1,4 @@
+// Checkout component exports.
 export * from "./actions";
 export * from "./forms";
 export * from "./marketplace";
