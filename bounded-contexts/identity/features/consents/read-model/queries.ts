@@ -78,6 +78,77 @@ export async function findCurrentConsent(
   return result.rows[0] ?? null;
 }
 
+export type RequestedCurrentConsentRow = CurrentConsentRow &
+  Readonly<{
+    /** The policy key the caller asked about, echoed from the request side of the join. */
+    requested_policy_key: string;
+  }>;
+
+/**
+ * Returns the current recorded-or-withdrawn state for each requested policy key
+ * and the given subject, in one round trip -- the per-bundle read the Consent
+ * Bundle acceptance resolver composes over `findCurrentConsent`'s single-policy
+ * rule.
+ *
+ * The requested keys enter as a joined relation rather than an `IN` list so the
+ * result can be aligned with the caller's ordered bundle without a second pass.
+ * `policy_key` exists on both sides of that join, so every column reference on
+ * either side is table-qualified: an unqualified `policy_key` here would be
+ * ambiguous at best and silently bind to the wrong relation at worst. Keys with
+ * no consent fact simply produce no row; absence is the caller's fail-closed
+ * "not accepted", never a row invented here.
+ */
+export async function findCurrentConsentsForPolicyKeys(
+  db: PgQueryable,
+  params: Readonly<{ userId?: string | null; accountId?: string | null; policyKeys: readonly string[] }>,
+): Promise<readonly RequestedCurrentConsentRow[]> {
+  if (!params.userId && !params.accountId) {
+    return [];
+  }
+  if (params.policyKeys.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<RequestedCurrentConsentRow>(
+    `SELECT requested.policy_key AS requested_policy_key,
+            matched.subject_type,
+            matched.subject_id,
+            matched.user_id,
+            matched.account_id,
+            matched.policy_key,
+            matched.consent_id,
+            matched.policy_version,
+            matched.status,
+            matched.recorded_at,
+            matched.withdrawn_at,
+            matched.updated_at
+     FROM unnest($1::text[]) AS requested(policy_key)
+     JOIN LATERAL (
+       SELECT current_state.subject_type,
+              current_state.subject_id,
+              current_state.user_id,
+              current_state.account_id,
+              current_state.policy_key,
+              current_state.consent_id,
+              current_state.policy_version,
+              current_state.status,
+              current_state.recorded_at,
+              current_state.withdrawn_at,
+              current_state.updated_at
+       FROM identity_consent_current_states AS current_state
+       WHERE current_state.policy_key = requested.policy_key
+         AND (
+           ($2::text IS NOT NULL AND current_state.user_id = $2)
+           OR ($3::text IS NOT NULL AND current_state.account_id = $3)
+         )
+       ORDER BY current_state.updated_at DESC, current_state.consent_id DESC
+       LIMIT 1
+     ) AS matched ON TRUE`,
+    [[...params.policyKeys], params.userId ?? null, params.accountId ?? null],
+  );
+  return result.rows;
+}
+
 export async function getConsent(db: PgQueryable, consentId: string): Promise<ConsentRow | null> {
   const result = await db.query<ConsentRow>(
     `SELECT h.*,

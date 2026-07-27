@@ -1,12 +1,19 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "./domain";
 import type { AggregateRepository } from "./aggregate-repository";
-import type { EventStoreContext, ExpectedStreamVersion, StoredEvent } from "./storage";
+import type { AppendToStreamInput, EventStoreContext, ExpectedStreamVersion, StoredEvent } from "./storage";
 
 export type CommandHandlerInput<Command> = Readonly<{
   streamId: string;
   command: Command;
   context: EventStoreContext;
   expectedVersion?: ExpectedStreamVersion;
+  /**
+   * Streams outside this aggregate whose version this command's append must be
+   * consistent with. The command commits in one all-or-nothing transaction with
+   * every guard, so state a handler read to decide the command cannot change
+   * between that read and the append without the whole command failing.
+   */
+  guards?: readonly AppendToStreamInput[];
 }>;
 
 export type CommandExecutionResult<State, Event extends DomainEvent> = Readonly<{

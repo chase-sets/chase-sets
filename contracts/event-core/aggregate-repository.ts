@@ -3,7 +3,7 @@ import type { AggregateEvolver, DomainEvent } from "./domain";
 import type { AggregateSnapshotStore } from "./aggregate-snapshot-store";
 import type { DomainEventCodec } from "./codec";
 import type { EventStore } from "./event-store";
-import type { EventStoreContext, ExpectedStreamVersion, StoredEvent } from "./storage";
+import type { AppendToStreamInput, EventStoreContext, ExpectedStreamVersion, StoredEvent } from "./storage";
 
 export type LoadedAggregate<State, Event extends DomainEvent> = Readonly<{
   state: State;
@@ -19,6 +19,18 @@ export type AppendDomainEventsInput<Event extends DomainEvent> = Readonly<{
   context: EventStoreContext;
   events: readonly Event[];
   metadata?: JsonObject | ((event: Readonly<Event>, index: number) => JsonObject | undefined);
+  /**
+   * Additional streams this append must be consistent with. Each entry is
+   * passed to `appendToStreams` verbatim alongside this aggregate's own input,
+   * so the whole write is all-or-nothing: if any guarded stream moved since the
+   * caller read it, nothing is appended anywhere.
+   *
+   * Guards carry zero events by design -- they contribute no history, they only
+   * pin a version. A repository handed guards requires a multi-stream event
+   * store and fails closed rather than quietly appending unguarded: a guard
+   * that is not enforced is not a guard.
+   */
+  guards?: readonly AppendToStreamInput[];
 }>;
 
 /**

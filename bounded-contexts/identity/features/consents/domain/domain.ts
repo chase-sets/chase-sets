@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assert, assertNever, type ConsentSubjectType } from "../../../support/runtime-support/common";
+import { assertConsentVersionIsPublished, identityConsentPublicationCorpus } from "./consent-bundle";
 
 export type ConsentState = Readonly<{
   id: ConsentId | null;
@@ -76,6 +77,11 @@ export const decideConsent: AggregateDecider<ConsentState, ConsentCommand, Conse
   switch (command.type) {
     case "RecordConsent":
       assert(state.id === null, "Consent has already been recorded.");
+      // The publication half of the recording admission. Pure, so it holds on
+      // every path into this decider -- route, registration, seed, bootstrap
+      // and fixture alike. The activation half needs the authority stream and
+      // therefore lives one layer out, in `../api/runtime.ts`.
+      assertConsentVersionIsPublished(command.policyKey, command.policyVersion, identityConsentPublicationCorpus);
       return [
         {
           type: "identity.consent.recorded",

@@ -70,13 +70,26 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
         };
       });
 
-      return config.eventStore.appendToStream({
+      const ownInput = {
         streamId: input.streamId,
         ...(input.wakeSourceContextName ? { wakeSourceContextName: input.wakeSourceContextName } : {}),
         expectedVersion: input.expectedVersion,
         context: input.context,
         events: encodedEvents,
-      });
+      };
+
+      const guards = input.guards ?? [];
+      if (guards.length === 0) {
+        return config.eventStore.appendToStream(ownInput);
+      }
+
+      const appendToStreams = config.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new Error("A guarded aggregate append requires an event store that supports appendToStreams.");
+      }
+
+      const results = await appendToStreams([...guards, ownInput]);
+      return results.find((result) => result.streamId === input.streamId)?.storedEvents ?? [];
     },
 
     ...(snapshots

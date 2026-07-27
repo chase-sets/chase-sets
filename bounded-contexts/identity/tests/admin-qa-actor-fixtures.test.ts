@@ -25,6 +25,15 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
   const users = createCommandRecorder();
   const memberships = createCommandRecorder();
   const consents = createCommandRecorder();
+  // Provisioning publishes and activates the version it is about to record
+  // against, because the Consent recording admission has no fixture bypass.
+  const consentActivation = {
+    read: vi.fn(async () => ({ status: "never-activated", activeVersion: null })),
+    register: vi.fn(async () => ({ status: "never-activated", activeVersion: null })),
+    activate: vi.fn(async () => ({ status: "active", activeVersion: "v1" })),
+  };
+  const createPolicyDocument = vi.fn(async () => ({ documentId: "pol_admin_qa_terms", version: 1 }));
+  const resolvePolicy = vi.fn(async () => ({ documentId: null, value: { version: "v1" } }));
 
   return {
     services: {
@@ -32,6 +41,7 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
       users: { commandHandler: users.handler },
       memberships: { commandHandler: memberships.handler },
       consents: { commandHandler: consents.handler },
+      policies: { consentActivation, createPolicyDocument, resolvePolicy },
       db: {
         query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
           const value = String(params?.[0] ?? "");
@@ -45,6 +55,7 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
       memberships: memberships.records,
       consents: consents.records,
     },
+    consentActivation,
   };
 }
 

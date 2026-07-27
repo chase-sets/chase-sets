@@ -26,11 +26,19 @@ import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
   mintRegistrationConsentResolution,
-  resolveRegistrationConsentRequirements,
   verifyRegistrationConsentSubmission,
   type RegistrationConsentRejection,
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
+import {
+  assertAffirmedRequirementsCoverBundle,
+  assertConsentBundleResolved,
+  ConsentBundleSupersededError,
+  ConsentBundleUnresolvedError,
+  identityConsentPublicationCorpus,
+  registrationConsentBundle,
+  resolveConsentBundle,
+} from "./features/consents/domain/consent-bundle";
 import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
@@ -184,6 +192,21 @@ async function createPersonalIdentityForAuth(
     throw new RegistrationConsentRejectedError(verification.rejection);
   }
   const verifiedRegistrationConsent = verification.submission;
+
+  // Second statement, still before any write: bind the affirmed resolution to
+  // the registration bundle as it stands now. This validates; it never
+  // re-resolves. The versions recorded below still come from the signed
+  // resolution -- resolving a version here is exactly how an acceptance ends up
+  // recorded against a version the registering client never saw. What this
+  // rejects is the opposite failure: a genuinely minted resolution that no
+  // longer covers what the bundle requires because an activation landed in
+  // between. Rejecting here, ahead of the display-name reservation and every
+  // aggregate write, is what makes that rejection leave nothing behind.
+  const registrationBundle = await resolveConsentBundle(registrationConsentBundle, {
+    publications: identityConsentPublicationCorpus,
+    authority: services.policies.consentActivation,
+  });
+  assertAffirmedRequirementsCoverBundle(registrationBundle, verifiedRegistrationConsent.resolution.requirements);
 
   const userId = createId("usr") as UserId;
   const accountId = createId("acc") as AccountId;
@@ -777,15 +800,24 @@ export function buildIdentityApi(services: IdentityServices) {
   // The mint. Anonymous by design: knowing what must be agreed to in order to
   // register is public information, and the value's authority comes from the
   // signature, not from who asked for it.
-  app.get("/internal/auth/registration-consent", (c) =>
-    c.json(
+  app.get("/internal/auth/registration-consent", async (c) => {
+    const bundle = await resolveConsentBundle(registrationConsentBundle, {
+      publications: identityConsentPublicationCorpus,
+      authority: services.policies.consentActivation,
+    });
+    // A bundle that could not be assessed mints nothing. There is no fallback
+    // resolution and no "assume empty" arm: failing to answer is not the same
+    // answer as "nothing is required".
+    assertConsentBundleResolved(bundle);
+
+    return c.json(
       mintRegistrationConsentResolution({
-        requirements: resolveRegistrationConsentRequirements(),
+        requirements: bundle.requirements,
         resolvedAt: new Date().toISOString(),
         signingKeys: resolveRegistrationConsentSigningKeys(),
       }),
-    ),
-  );
+    );
+  });
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
@@ -813,6 +845,20 @@ export function buildIdentityApi(services: IdentityServices) {
             },
           },
           400,
+        );
+      }
+
+      // The submitted resolution was genuinely minted; the bundle moved under
+      // it. A conflict, not a bad request: the caller re-resolves and retries.
+      if (error instanceof ConsentBundleSupersededError || error instanceof ConsentBundleUnresolvedError) {
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          },
+          409,
         );
       }
 

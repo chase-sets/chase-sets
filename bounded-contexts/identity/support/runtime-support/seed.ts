@@ -14,6 +14,7 @@ import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
+import { ensureSeededConsentActivation } from "./seeded-consent-activation";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   decideAccount,
@@ -81,6 +82,10 @@ const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
 const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
 const REPRESENTATIVE_SEEDED_AT = "2026-05-27T00:00:00.000Z";
+const SEEDED_CONSENT_POLICY_KEY = "terms-of-service";
+const SEEDED_CONSENT_POLICY_VERSION = "v1";
+const SEEDED_CONSENT_ACTIVATED_AT = "2026-03-03T00:00:00.000Z";
+const SEEDED_CONSENT_ACTIVATION_ACTOR_USER_ID = "usr_identity_seed_bootstrap";
 const scenarioTrustedSellerAccountIds = [identitySeedIds.demo.accountId, identitySeedIds.cardVault.accountId] as const;
 
 const representativeAccounts = [
@@ -669,8 +674,8 @@ function buildScenarioIdentityReconcilers(
           subjectType: "user",
           userId: consent.userId,
           accountId: consent.accountId,
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
+          policyKey: SEEDED_CONSENT_POLICY_KEY,
+          policyVersion: SEEDED_CONSENT_POLICY_VERSION,
           recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
         },
       ]),
@@ -785,6 +790,21 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   if (!shouldSeedScenario && !shouldSeedRepresentative && !shouldSeedAdminQaActorFixtures) {
     console.log("Identity seed skipped for selected data profiles.");
     return;
+  }
+
+  // Both the scenario and representative profiles author Consent facts for a
+  // Consent Bundle member, and recording one is only admitted while that
+  // member's activation authority reports the exact version active. The seed
+  // therefore does what an operator would: publish the value and activate the
+  // key before authoring anything against it. There is no seed-only bypass of
+  // the admission rule.
+  if (shouldSeedScenario || shouldSeedRepresentative) {
+    await ensureSeededConsentActivation(services, context, {
+      policyKey: SEEDED_CONSENT_POLICY_KEY,
+      version: SEEDED_CONSENT_POLICY_VERSION,
+      actorUserId: SEEDED_CONSENT_ACTIVATION_ACTOR_USER_ID,
+      activatedAt: SEEDED_CONSENT_ACTIVATED_AT,
+    });
   }
 
   if (shouldSeedScenario) {
@@ -975,8 +995,8 @@ async function reconcileRepresentativeConsent(
         subjectType: "user",
         userId: account.userId as UserId,
         accountId: account.accountId as AccountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
+        policyKey: SEEDED_CONSENT_POLICY_KEY,
+        policyVersion: SEEDED_CONSENT_POLICY_VERSION,
         recordedAt: REPRESENTATIVE_SEEDED_AT,
       },
       context,
@@ -989,8 +1009,8 @@ async function reconcileRepresentativeConsent(
     subjectType: "user",
     userId: account.userId,
     accountId: account.accountId,
-    policyKey: "terms-of-service",
-    policyVersion: "v1",
+    policyKey: SEEDED_CONSENT_POLICY_KEY,
+    policyVersion: SEEDED_CONSENT_POLICY_VERSION,
     recordedAt: REPRESENTATIVE_SEEDED_AT,
     status: "recorded",
   } as const;

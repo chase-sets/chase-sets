@@ -35,6 +35,18 @@ function createServices() {
     consents: {
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "recorded" } })),
     },
+    policies: {
+      // Registration binds its affirmed resolution to the registration Consent
+      // Bundle before writing anything. Nothing in the shipped policy corpus is
+      // consent-activatable, so no member reaches the authority and `read` is
+      // never called -- it is present here so a regression that starts reading
+      // it fails loudly instead of resolving against a stub.
+      consentActivation: {
+        read: vi.fn(() => {
+          throw new Error("No bundle member is consent-activatable, so the authority must not be read.");
+        }),
+      },
+    },
     projectors: [],
   } as unknown as IdentityServices;
 }

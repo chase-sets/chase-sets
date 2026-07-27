@@ -123,15 +123,6 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/identity",
-      "script": "test",
-      "observedDurationMs": 56346
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/local-email-capture",
       "script": "test",
       "observedDurationMs": 3945
@@ -447,6 +438,15 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/identity",
+      "script": "test:unit",
+      "observedDurationMs": 56346
+    },
+    {
+      "runId": 30054895589,
+      "runAttempt": 1,
+      "jobId": 89364607063,
+      "invocation": "test:unit--test-profile=db",
       "workspace": "@chase-sets/inventory",
       "script": "test:unit",
       "observedDurationMs": 48660
@@ -573,15 +573,6 @@
       "runAttempt": 1,
       "jobId": 89380059115,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/identity",
-      "script": "test",
-      "observedDurationMs": 40563
-    },
-    {
-      "runId": 30060154233,
-      "runAttempt": 1,
-      "jobId": 89380059115,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/public-presence",
       "script": "test",
       "observedDurationMs": 47845
@@ -675,6 +666,15 @@
       "workspace": "@chase-sets/fulfillment",
       "script": "test:unit",
       "observedDurationMs": 38332
+    },
+    {
+      "runId": 30060154233,
+      "runAttempt": 1,
+      "jobId": 89380059115,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/identity",
+      "script": "test:unit",
+      "observedDurationMs": 40563
     },
     {
       "runId": 30060154233,

@@ -937,7 +937,7 @@ describe("closed duration scheduling contracts", () => {
     ]);
     expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
     expect(fifoMs).toBe(882_800);
-    expect(lptMs).toBe(793_300);
-    expect(reduction).toBe("10.1");
+    expect(lptMs).toBe(793_100);
+    expect(reduction).toBe("10.2");
   });
 });

@@ -342,7 +342,27 @@ Notes:
 - **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
 - **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
 - Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
-- The authority is the identity Consent recording needs; the elimination sweep for consent-activation races, the Consent Bundle that composes several authorities for one surface, and the call sites that consume a guard are each owned elsewhere and do not exist yet.
+- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and consumes their guards; the elimination sweep for consent-activation races is owned elsewhere and does not exist yet.
+
+### Consent Bundle
+
+A **Consent Bundle** is the ordered set of policies one surface asks a subject to agree to, together with the scope the resulting [[Consent]] facts are recorded at.
+
+Two bundles exist: **registration** (Terms of Service, then Privacy Policy — user-scoped, affirmed by the person creating the identity) and **seller-onboarding** (Seller Agreement, then Payments Terms — account-scoped, recorded by an authorized account member with the acting user captured).
+
+Examples:
+
+- The registration bundle, resolved into a [[Registration Consent Resolution]] at the moment someone starts creating an identity
+- The seller-onboarding bundle, defined here and not yet wired to any seller surface
+
+Notes:
+
+- **A member is not a requirement.** The member list is a closed declaration of what belongs to a surface. A member becomes REQUIRED only when its published artifact is consent-activatable *and* its [[Consent Activation Authority]] reports it active. Adding a member to a bundle requires nothing on its own.
+- **Order is part of the contract.** The declared member order is the order requirements resolve in, and a minted registration resolution signs that order — reordering is tampering, not a different encoding.
+- **An empty requirement set is a value, not a disabled mode.** Every member of the shipped corpus is non-activatable today, so both bundles resolve to an empty ordered set. Nothing reads that emptiness to decide whether a resolution, a guard, or the invariant applies.
+- **Satisfaction is aggregate state.** A bundle is satisfied only when every requirement is held at its exact required version by a Consent in the `recorded` state. A consent container that exists but is empty, partial, withdrawn, or superseded leaves the bundle unsatisfied.
+- Requirement derivation reads event streams; acceptance reporting reads the projection. A lagging or truncated projection can only ever make a bundle read as not-yet-satisfied.
+- Seller-bundle *wiring* — gating listing publication on it — is reserved for the seller-gating slice (issue 5694) and does not exist at this head.
 
 ### Registration Consent Resolution
 

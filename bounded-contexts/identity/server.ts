@@ -59,9 +59,28 @@ export {
   type TermsAcceptanceStatus,
 } from "./features/consents/api/terms-acceptance-resolver";
 export {
+  identityConsentActiveVersionPolicies,
+  identityPaymentsTermsPolicy,
+  identityPrivacyPolicyPolicy,
+  identitySellerAgreementPolicy,
   identityTermsOfServicePolicy,
-  type TermsOfServicePolicyValue,
+  type ConsentActiveVersionPolicyValue,
 } from "./features/consents/domain/terms-of-service-policy";
+export {
+  CONSENT_BUNDLE_KEYS,
+  consentBundles,
+  registrationConsentBundle,
+  resolveConsentBundle,
+  sellerOnboardingConsentBundle,
+  type ConsentBundle,
+  type ConsentBundleKey,
+  type ConsentBundleRequirement,
+  type ConsentBundleResolution,
+} from "./features/consents/domain/consent-bundle";
+export {
+  resolveConsentBundleAcceptance,
+  type ConsentBundleAcceptanceStatus,
+} from "./features/consents/read-model/consent-acceptance";
 export {
   isRegistrationConsentRejectionCode,
   REGISTRATION_CONSENT_AFFIRMATION_REQUIRED_CODE,

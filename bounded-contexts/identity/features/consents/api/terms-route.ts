@@ -5,6 +5,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import { ConsentVersionNotActivatedError, ConsentVersionNotPublishedError } from "../domain/consent-bundle";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
 import { resolveTermsAcceptanceStatus } from "../read-model/terms-acceptance";
 import type { ConsentServices } from "./runtime";
@@ -74,20 +75,31 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
     }
 
     const consentId = createId("cns");
-    await deps.consents.commandHandler({
-      streamId: `identity.consent-${consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId,
-        subjectType: "user",
-        userId: actor.userId as UserId,
-        accountId: actor.accountId as AccountId,
-        policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-        policyVersion: before.requiredVersion,
-        recordedAt: new Date().toISOString(),
-      },
-      context,
-    });
+    try {
+      await deps.consents.commandHandler({
+        streamId: `identity.consent-${consentId}`,
+        command: {
+          type: "RecordConsent",
+          consentId,
+          subjectType: "user",
+          userId: actor.userId as UserId,
+          accountId: actor.accountId as AccountId,
+          policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+          policyVersion: before.requiredVersion,
+          recordedAt: new Date().toISOString(),
+        },
+        context,
+      });
+    } catch (error) {
+      // The active-version policy document says a version is required; the
+      // Consent Activation Authority says whether agreeing to it can be
+      // recorded. Until it does, this surface has nothing to record and says
+      // so, rather than writing an acceptance of an unactivated version.
+      if (error instanceof ConsentVersionNotPublishedError || error instanceof ConsentVersionNotActivatedError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 409);
+      }
+      throw error;
+    }
 
     const after = await resolveTermsAcceptanceStatus(deps.db, deps.policies, {
       userId: actor.userId,

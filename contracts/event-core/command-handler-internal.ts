@@ -8,8 +8,13 @@ export function createCommandHandler<State, Command, Event extends DomainEvent>(
   return async (input) => {
     const loaded = await config.repository.load(input.streamId);
     const newEvents = await config.decide(loaded.state, input.command);
+    const guards = input.guards ?? [];
 
-    if (newEvents.length === 0) {
+    // A suppressed command still has to honour its guards: the caller read
+    // guarded state to decide there was nothing to do, and that decision is
+    // only sound if the state it read has not moved. Skipping the append here
+    // would make such a guard silently inert.
+    if (newEvents.length === 0 && guards.length === 0) {
       return {
         state: loaded.state,
         version: loaded.version,
@@ -25,6 +30,7 @@ export function createCommandHandler<State, Command, Event extends DomainEvent>(
       expectedVersion,
       context: input.context,
       events: newEvents,
+      ...(guards.length > 0 ? { guards } : {}),
     });
     recordCommittedEvents(storedEvents, config.commitSourceContextName);
     const state = applyEvents(loaded.state, config.evolve, newEvents);

@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/consents/read-model/consent-bundle.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/consents/read-model/consent-bundle.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   },
   "exports": {
     ".": "./index.ts",

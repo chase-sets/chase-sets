@@ -34,7 +34,10 @@ import {
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
+import {
+  createIdentityTermsAcceptanceResolver,
+  identityConsentActiveVersionPolicies,
+} from "@chase-sets/identity/server";
 import {
   createImportResolutionAttentionSourceFromReadModel,
   type InventoryDraftListingCreator,
@@ -324,7 +327,9 @@ export function createPlatformApiHost(
     policyConsoleCrossContextSources.push({
       contextName: "identity",
       db: identityPool,
-      definitions: [identityTermsOfServicePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      definitions: Object.values(
+        identityConsentActiveVersionPolicies,
+      ) as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.identity as { policies?: PolicyConsoleWritePort } | undefined,
       ),

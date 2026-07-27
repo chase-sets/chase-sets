@@ -1,9 +1,13 @@
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
+import { ensureSeededConsentActivation } from "./seeded-consent-activation";
 import type { IdentityServices } from "./services";
 
 const ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT = "2026-07-13T00:00:00.000Z";
+const ADMIN_QA_ACTOR_FIXTURE_CONSENT_POLICY_KEY = "terms-of-service";
+const ADMIN_QA_ACTOR_FIXTURE_CONSENT_VERSION = "v1";
+const ADMIN_QA_ACTOR_FIXTURES_ACTIVATION_ACTOR_USER_ID = "usr_admin_qa_actor_fixtures";
 
 export type AdminQaActorFixtureSignInHost = "/access/sign-in" | "/catalog/sign-in";
 
@@ -164,6 +168,18 @@ export async function provisionAdminQaActorFixtures(
   const context = createIdentityBootstrapContext();
   const results: AdminQaActorFixtureResult[] = [];
 
+  // These fixtures record a Consent for a Consent Bundle member, and that is
+  // only admitted while the member's activation authority reports the exact
+  // version active. Provisioning therefore publishes and activates the version
+  // it is about to record against, explicitly, rather than reaching around the
+  // admission rule.
+  await ensureSeededConsentActivation(services, context, {
+    policyKey: ADMIN_QA_ACTOR_FIXTURE_CONSENT_POLICY_KEY,
+    version: ADMIN_QA_ACTOR_FIXTURE_CONSENT_VERSION,
+    actorUserId: ADMIN_QA_ACTOR_FIXTURES_ACTIVATION_ACTOR_USER_ID,
+    activatedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
+  });
+
   for (const fixture of ADMIN_QA_ACTOR_FIXTURES) {
     results.push(await provisionAdminQaActorFixture(services, context, fixture));
   }
@@ -251,8 +267,8 @@ async function provisionAdminQaActorFixture(
         subjectType: "user",
         userId: fixture.userId,
         accountId: fixture.accountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
+        policyKey: ADMIN_QA_ACTOR_FIXTURE_CONSENT_POLICY_KEY,
+        policyVersion: ADMIN_QA_ACTOR_FIXTURE_CONSENT_VERSION,
         recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
       },
       context,
