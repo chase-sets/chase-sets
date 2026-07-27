@@ -222,25 +222,49 @@ const aggregateProjection = {
   Category: { table: "catalog_categories", idColumn: "category_id" },
 } as const;
 
-async function recoverCatalogIntegrationSeedProjections(services: CatalogServices): Promise<void> {
-  const projectionChecks = await Promise.all(
-    Object.entries(aggregateProjection).map(async ([aggregateName, projection]) => {
-      const requirements = catalogIntegrationSeedRequirements.filter(
-        (requirement) => requirement.aggregateName === aggregateName,
-      );
-      const result = await services.db.query<Readonly<{ id: string; key: string; status: string }>>(
-        `SELECT ${projection.idColumn} AS id, key, status
-         FROM ${projection.table}
-         WHERE ${projection.idColumn} = ANY($1::text[])`,
-        [requirements.map(({ id }) => id)],
-      );
-      const activeById = new Map(
-        result.rows.filter(({ status }) => status === "active").map(({ id, key }) => [id, key]),
-      );
-      return requirements.every(({ id, key }) => activeById.get(id) === key);
-    }),
+export async function areCatalogIntegrationSeedProjectionsCurrent(db: CatalogServices["db"]): Promise<boolean> {
+  // Bootstrap already owns the host-wide advisory-lock client. Read the complete
+  // Catalog prerequisite snapshot with one additional checkout instead of
+  // stampeding a cold pool with one acquisition per aggregate kind.
+  const queryValues: unknown[] = [];
+  const projectionQueries = Object.entries(aggregateProjection).map(([aggregateName, projection]) => {
+    const requirements = catalogIntegrationSeedRequirements.filter(
+      (requirement) => requirement.aggregateName === aggregateName,
+    );
+    const aggregateNameParameter = queryValues.push(aggregateName);
+    const idsParameter = queryValues.push(requirements.map(({ id }) => id));
+
+    return `SELECT $${aggregateNameParameter}::text AS aggregate_name,
+                   ${projection.idColumn} AS id,
+                   key,
+                   status
+            FROM ${projection.table}
+            WHERE ${projection.idColumn} = ANY($${idsParameter}::text[])`;
+  });
+  const result = await db.query<Readonly<{ aggregate_name: string; id: string; key: string; status: string }>>(
+    projectionQueries.join("\nUNION ALL\n"),
+    queryValues,
   );
-  if (projectionChecks.every(Boolean)) {
+  const activeProjectionKeys = new Map<string, Map<string, string>>();
+  for (const row of result.rows) {
+    if (row.status !== "active") {
+      continue;
+    }
+    const activeById = activeProjectionKeys.get(row.aggregate_name) ?? new Map<string, string>();
+    activeById.set(row.id, row.key);
+    activeProjectionKeys.set(row.aggregate_name, activeById);
+  }
+
+  return Object.keys(aggregateProjection).every((aggregateName) => {
+    const activeById = activeProjectionKeys.get(aggregateName);
+    return catalogIntegrationSeedRequirements
+      .filter((requirement) => requirement.aggregateName === aggregateName)
+      .every(({ id, key }) => activeById?.get(id) === key);
+  });
+}
+
+async function recoverCatalogIntegrationSeedProjections(services: CatalogServices): Promise<void> {
+  if (await areCatalogIntegrationSeedProjectionsCurrent(services.db)) {
     return;
   }
 
@@ -278,18 +302,20 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
   fields: FieldIds,
 ): Promise<void> {
   const requiredFieldKeys = Object.keys(fields);
-  const [activeFields, activeReferenceTypes] = await Promise.all([
-    services.db.query<{ key: string }>(
-      `SELECT key FROM catalog_fields WHERE status = 'active' AND key = ANY($1::text[])`,
-      [requiredFieldKeys],
-    ),
-    services.db.query<{ key: string }>(
-      `SELECT key FROM catalog_reference_types WHERE status = 'active' AND key = ANY($1::text[])`,
-      [["expansion", "set"]],
-    ),
-  ]);
+  const activeDependencies = await services.db.query<Readonly<{ dependency_kind: "field" | "reference"; key: string }>>(
+    `SELECT 'field' AS dependency_kind, key
+     FROM catalog_fields
+     WHERE status = 'active' AND key = ANY($1::text[])
+     UNION ALL
+     SELECT 'reference', key
+     FROM catalog_reference_types
+     WHERE status = 'active' AND key = ANY($2::text[])`,
+    [requiredFieldKeys, ["expansion", "set"]],
+  );
+  const activeFieldCount = activeDependencies.rows.filter(({ dependency_kind }) => dependency_kind === "field").length;
+  const activeReferenceTypeCount = activeDependencies.rows.length - activeFieldCount;
 
-  if (activeFields.rows.length !== requiredFieldKeys.length || activeReferenceTypes.rows.length !== 2) {
+  if (activeFieldCount !== requiredFieldKeys.length || activeReferenceTypeCount !== 2) {
     console.log("Catalog display template seed deferred until Field and Reference Type projections are active.");
     return;
   }
@@ -305,10 +331,7 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
 async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
   const services = createCatalogServices(pool);
   const targetCatalogItemId = catalogSeedIds.items.pikachuJungle as CatalogItemId;
-  const [hasAnyCatalogItem, retainedScenarioItemIds] = await Promise.all([
-    hasAnyCatalogItemCreatedEvent(services.db),
-    loadRetainedScenarioCatalogItemIds(services.db),
-  ]);
+  const { hasAnyCatalogItem, retainedScenarioItemIds } = await loadCatalogScenarioSeedState(services.db);
 
   if (hasAnyCatalogItem) {
     console.log("Catalog scenario items already exist. Reconciling exact integration prerequisites.");
@@ -348,16 +371,31 @@ function catalogItemStreamId(catalogItemId: CatalogItemId): string {
   return `catalog.item-${catalogItemId}`;
 }
 
-async function hasAnyCatalogItemCreatedEvent(db: CatalogServices["db"]): Promise<boolean> {
-  const result = await db.query<Readonly<{ exists: boolean }>>(
+async function loadCatalogScenarioSeedState(
+  db: CatalogServices["db"],
+): Promise<Readonly<{ hasAnyCatalogItem: boolean; retainedScenarioItemIds: Set<CatalogItemId> }>> {
+  const streamIds = scenarioCatalogItemIds.map(catalogItemStreamId);
+  const result = await db.query<Readonly<{ has_any_catalog_item: boolean; retained_stream_ids: string[] }>>(
     `SELECT EXISTS (
        SELECT 1
        FROM event_store_events
        WHERE event_type = 'catalog.catalog-item.created'
-       LIMIT 1
-     ) AS exists`,
+     ) AS has_any_catalog_item,
+     ARRAY(
+       SELECT DISTINCT stream_id
+       FROM event_store_events
+       WHERE event_type = 'catalog.catalog-item.created'
+         AND stream_id = ANY($1::text[])
+     ) AS retained_stream_ids`,
+    [streamIds],
   );
-  return result.rows[0]?.exists ?? false;
+  const state = result.rows[0];
+  return {
+    hasAnyCatalogItem: state?.has_any_catalog_item ?? false,
+    retainedScenarioItemIds: new Set(
+      (state?.retained_stream_ids ?? []).map((streamId) => streamId.replace(/^catalog\.item-/u, "") as CatalogItemId),
+    ),
+  };
 }
 
 async function loadRetainedScenarioCatalogItemIds(db: CatalogServices["db"]): Promise<Set<CatalogItemId>> {

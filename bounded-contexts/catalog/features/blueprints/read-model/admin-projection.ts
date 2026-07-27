@@ -6,8 +6,7 @@ import {
   asStringArray,
   type DimensionRule,
   type FieldRule,
-  loadChoiceCodeMap,
-  loadNameMap,
+  loadAdminProjectionDependencies,
 } from "../../../support/projection-support/read-model-support";
 
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -59,12 +58,12 @@ export async function refreshCatalogAdminBlueprintDetailPage(db: PgQueryable, bl
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [componentNames, fieldNames, dimensionNames, optionCodes] = await Promise.all([
-    loadNameMap(db, "catalog_components", "component_id", "name", componentIds),
-    loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
-    loadNameMap(db, "catalog_dimensions", "dimension_id", "name", dimensionIds),
-    loadChoiceCodeMap(db, optionIds),
-  ]);
+  const { componentNames, fieldNames, dimensionNames, optionCodes } = await loadAdminProjectionDependencies(db, {
+    componentIds,
+    fieldIds,
+    dimensionIds,
+    optionIds,
+  });
 
   const namedComponents = componentIds.map((componentId) => ({
     componentId,
@@ -217,7 +216,9 @@ async function findBlueprintIdsByComponent(db: PgQueryable, componentId: string)
 }
 
 async function refreshBlueprintIds(db: PgQueryable, blueprintIds: readonly string[]): Promise<void> {
-  await Promise.all(blueprintIds.map((blueprintId) => refreshCatalogAdminBlueprintDetailPage(db, blueprintId)));
+  for (const blueprintId of blueprintIds) {
+    await refreshCatalogAdminBlueprintDetailPage(db, blueprintId);
+  }
 }
 
 export function buildCatalogAdminBlueprintProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
