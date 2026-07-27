@@ -1,0 +1,103 @@
+import {
+  type McpServiceDescriptor,
+  booleanProperty,
+  idempotencyKeyProperty,
+  mutationInput,
+  objectSchema,
+  readTool,
+  resource,
+  service,
+  stringProperty,
+  writeTool,
+} from "@chase-sets/platform-runtime/mcp-contracts/builders";
+
+export const identityService = {
+  ...service(
+    "identity",
+    "Identity",
+    "bounded-contexts/identity",
+    "Accounts, users, memberships, invitations, consent, and API keys.",
+    "accounts.view",
+    ["account"],
+    {
+      packageName: "@chase-sets/identity",
+    },
+  ),
+  tools: [
+    {
+      ...readTool(
+        "identity",
+        "get-account",
+        "Get Account",
+        "Read account profile, status, and membership summary.",
+        "accounts.view",
+        objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
+        "account",
+        ["Use when an agent needs account profile facts or status."],
+      ),
+      availability: "available",
+    },
+    readTool(
+      "identity",
+      "list-memberships",
+      "List Memberships",
+      "List account memberships and role permissions.",
+      "memberships.view",
+      objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
+      "membership",
+      ["Use before inviting, changing, or revoking team access."],
+    ),
+    writeTool(
+      "identity",
+      "invite-member",
+      "Invite Member",
+      "Send a membership invitation for an account.",
+      "memberships.manage",
+      objectSchema(
+        {
+          accountId: stringProperty("Authenticated account scope."),
+          email: stringProperty("Invitee email address."),
+          roleKey: stringProperty("Role to grant.", ["owner", "manager", "fulfillment", "viewer"]),
+          idempotencyKey: idempotencyKeyProperty(),
+          confirmationText: stringProperty("Exact user or policy confirmation text."),
+          dryRun: booleanProperty("Validate the invitation without sending it."),
+        },
+        ["accountId", "email", "roleKey", "idempotencyKey", "confirmationText"],
+      ),
+      "membership",
+      ["Use for explicit account administration requests."],
+    ),
+    writeTool(
+      "identity",
+      "revoke-api-key",
+      "Revoke API Key",
+      "Revoke an account API key.",
+      "security.manage",
+      mutationInput("apiKeyId", "API key to revoke."),
+      "api-key",
+      ["Use for confirmed credential rotation or incident response."],
+      "destructive",
+    ),
+  ],
+  resources: [
+    {
+      ...resource(
+        "identity",
+        "chase-sets://identity/{accountId}/account",
+        "Account",
+        "Account profile, badge, and lifecycle read model.",
+        "accounts.view",
+        ["Use when an agent needs account profile facts or status."],
+      ),
+      availability: "available",
+    },
+    resource(
+      "identity",
+      "chase-sets://identity/{accountId}/memberships",
+      "Memberships",
+      "Account membership and permission read model.",
+      "memberships.view",
+      ["Use before any team or role mutation."],
+    ),
+  ],
+} as const satisfies McpServiceDescriptor;

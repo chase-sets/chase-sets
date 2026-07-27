@@ -693,6 +693,9 @@
       "@chase-sets/platform-runtime/mcp-contracts": [
         "./infrastructure/platform-runtime/mcp-contracts.ts"
       ],
+      "@chase-sets/platform-runtime/mcp-contracts/*": [
+        "./infrastructure/platform-runtime/mcp-contracts/*.ts"
+      ],
       "@chase-sets/platform-runtime/mcp-protocol": [
         "./infrastructure/platform-runtime/mcp-protocol.ts"
       ],

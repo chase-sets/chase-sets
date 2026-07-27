@@ -1,0 +1,70 @@
+import {
+  type McpServiceDescriptor,
+  emptySchema,
+  mutationInput,
+  objectSchema,
+  readTool,
+  resource,
+  service,
+  stringProperty,
+  writeTool,
+} from "@chase-sets/platform-runtime/mcp-contracts/builders";
+
+export const authService = {
+  ...service(
+    "auth",
+    "Auth",
+    "bounded-contexts/auth",
+    "Sessions, account selection, authentication methods, and actor resolution.",
+    "security.manage",
+    ["session"],
+    {
+      packageName: "@chase-sets/auth",
+    },
+  ),
+  tools: [
+    readTool(
+      "auth",
+      "resolve-actor",
+      "Resolve Actor",
+      "Resolve the current actor and selected account from an agent session.",
+      "accounts.view",
+      emptySchema,
+      "actor",
+      ["Use as the first step in account-scoped agent flows."],
+    ),
+    readTool(
+      "auth",
+      "list-sessions",
+      "List Sessions",
+      "List active sessions visible to a security operator.",
+      "security.manage",
+      objectSchema({ userId: stringProperty("User identifier.") }),
+      "session",
+      ["Use when investigating account access or stale sessions."],
+      "operator",
+    ),
+    writeTool(
+      "auth",
+      "revoke-session",
+      "Revoke Session",
+      "Revoke an active authentication session.",
+      "security.manage",
+      mutationInput("sessionId", "Session to revoke."),
+      "session",
+      ["Use only for explicit account security remediation."],
+      "destructive",
+      "operator",
+    ),
+  ],
+  resources: [
+    resource(
+      "auth",
+      "chase-sets://auth/actor",
+      "Current Actor",
+      "Actor, account, and permission facts for the current agent session.",
+      "accounts.view",
+      ["Use to understand the account and permission boundary before calling tools."],
+    ),
+  ],
+} as const satisfies McpServiceDescriptor;
