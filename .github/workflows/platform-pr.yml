@@ -171,6 +171,7 @@ jobs:
       - name: Run static checks
         env:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
+          FORMAT_CHECK_SCOPE: full
         run: pnpm run verify:static
 
   typecheck:
