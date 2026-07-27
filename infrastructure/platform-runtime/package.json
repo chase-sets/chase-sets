@@ -24,6 +24,7 @@
     "./mcp": "./mcp.ts",
     "./mcp-audit-log": "./mcp-audit-log.ts",
     "./mcp-contracts": "./mcp-contracts.ts",
+    "./mcp-contracts/*": "./mcp-contracts/*.ts",
     "./mcp-protocol": "./mcp-protocol.ts",
     "./mcp-tool-call-limiter": "./mcp-tool-call-limiter.ts",
     "./projection-hot-lag-evidence": "./projection-hot-lag-evidence.ts",

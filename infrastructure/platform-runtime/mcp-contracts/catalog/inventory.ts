@@ -1,0 +1,353 @@
+import {
+  type McpJsonSchema,
+  type McpJsonSchemaProperty,
+  type McpServiceDescriptor,
+  accountScopedListOutputSchema,
+  arrayProperty,
+  booleanProperty,
+  idempotencyKeyProperty,
+  integerProperty,
+  mutationInput,
+  objectSchema,
+  readTool,
+  resource,
+  service,
+  stringProperty,
+  writeTool,
+} from "@chase-sets/platform-runtime/mcp-contracts/builders";
+
+const importSourceProfileOutputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Inventory import source profile.",
+  additionalProperties: true,
+  required: [
+    "sourceKey",
+    "label",
+    "kind",
+    "adapterVersion",
+    "displayNameValueKeys",
+    "values",
+    "externalReferenceCandidates",
+    "selectedOptionInference",
+  ],
+  properties: {
+    sourceKey: stringProperty("Configured import source key."),
+    label: stringProperty("Human-readable import source label."),
+    kind: stringProperty("Import source transport kind.", ["csv", "api"]),
+    adapterVersion: integerProperty("Version of the import adapter contract."),
+    nativePassthrough: booleanProperty("Whether rows pass through native Chase Sets CSV fields."),
+    displayNameValueKeys: arrayProperty("Value keys that make a row display name.", stringProperty("Value key.")),
+    rowNoteValueKeys: arrayProperty("Value keys used to build review notes.", stringProperty("Value key.")),
+    values: arrayProperty("Value mappings accepted by this source.", {
+      type: "object",
+      description: "Import value mapping.",
+      additionalProperties: true,
+      required: ["targetKey"],
+      properties: {
+        targetKey: stringProperty("Normalized target value key."),
+      },
+    }),
+    externalReferenceCandidates: arrayProperty("External reference candidates inferred from source rows.", {
+      type: "object",
+      description: "External reference candidate rule.",
+      additionalProperties: true,
+      required: ["providerKey", "externalKeyPrefix", "targetIntent"],
+      properties: {
+        providerKey: stringProperty("External provider key."),
+        externalKeyPrefix: stringProperty("Prefix used for external reference keys."),
+        targetIntent: stringProperty("How this external reference should be resolved."),
+      },
+    }),
+    selectedOptionInference: arrayProperty("Catalog option inference rules for source rows.", {
+      type: "object",
+      description: "Selected option inference rule.",
+      additionalProperties: true,
+      required: ["dimensionKey", "headers"],
+      properties: {
+        dimensionKey: stringProperty("Catalog dimension key."),
+        headers: arrayProperty("Source headers used for the dimension.", stringProperty("Source header.")),
+      },
+    }),
+  },
+};
+
+const inventoryImportSourcesOutputSchema = objectSchema(
+  {
+    items: arrayProperty("Supported inventory import source profiles.", importSourceProfileOutputProperty),
+    total: integerProperty("Total supported source profile count."),
+  },
+  ["items", "total"],
+);
+
+const importBatchRowOutputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Inventory import batch row.",
+  additionalProperties: true,
+  required: [
+    "row_id",
+    "batch_id",
+    "row_number",
+    "status",
+    "quantity_mode",
+    "resolution_status",
+    "validation_errors",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    row_id: stringProperty("Import batch row identifier."),
+    batch_id: stringProperty("Import batch identifier."),
+    row_number: integerProperty("Source row number."),
+    status: stringProperty("Import row status.", ["accepted", "rejected", "committed"]),
+    quantity_mode: stringProperty("How row quantities affect stock.", ["add", "replace"]),
+    resolution_status: stringProperty("Catalog resolution status.", ["native", "resolved", "unresolved"]),
+    validation_errors: arrayProperty("Validation errors for the row.", stringProperty("Validation error.")),
+    created_at: stringProperty("Creation timestamp."),
+    updated_at: stringProperty("Last update timestamp."),
+  },
+};
+
+const inventoryImportBatchDetailOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    batch_id: stringProperty("Import batch identifier."),
+    account_id: stringProperty("Account that owns the import batch."),
+    status: stringProperty("Import batch status.", ["uploaded", "committed"]),
+    source_key: stringProperty("Configured import source key."),
+    adapter_version: integerProperty("Version of the import adapter contract."),
+    quantity_mode: stringProperty("How row quantities affect stock.", ["add", "replace"]),
+    total_count: integerProperty("Total row count."),
+    accepted_count: integerProperty("Accepted row count."),
+    rejected_count: integerProperty("Rejected row count."),
+    committed_count: integerProperty("Committed row count."),
+    created_at: stringProperty("Creation timestamp."),
+    updated_at: stringProperty("Last update timestamp."),
+    rows: arrayProperty("Import batch rows.", importBatchRowOutputProperty),
+  },
+  required: [
+    "batch_id",
+    "account_id",
+    "status",
+    "source_key",
+    "adapter_version",
+    "quantity_mode",
+    "total_count",
+    "accepted_count",
+    "rejected_count",
+    "committed_count",
+    "created_at",
+    "updated_at",
+    "rows",
+  ],
+};
+
+export const inventoryService = {
+  ...service(
+    "inventory",
+    "Inventory",
+    "bounded-contexts/inventory",
+    "Inventory items, holds, reservations, and storage locations.",
+    "inventory.view",
+    ["inventory-item"],
+    {
+      packageName: "@chase-sets/inventory",
+    },
+  ),
+  tools: [
+    {
+      ...readTool(
+        "inventory",
+        "list-items",
+        "List Inventory Items",
+        "List inventory items, hold-derived availability, and sale readiness for an account.",
+        "inventory.view",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            catalogItemId: stringProperty("Optional Catalog Item natural key filter."),
+            productId: stringProperty("Optional resolved Product natural key filter."),
+            storageLocationId: stringProperty(
+              "Optional storage location filter (ULID). Alternative to storageLocationName.",
+            ),
+            storageLocationName: stringProperty(
+              "Optional storage location filter by exact name (case-insensitive). Alternative to storageLocationId; if the name matches more than one location, the tool returns a disambiguation error listing the candidate ids.",
+            ),
+            status: stringProperty("Deprecated alias for availability.", ["available", "held", "out-of-stock"]),
+            availability: stringProperty("Optional hold-derived availability filter.", [
+              "available",
+              "held",
+              "out-of-stock",
+            ]),
+            limit: integerProperty("Maximum items to return."),
+            offset: integerProperty("Result offset."),
+          },
+          ["accountId"],
+        ),
+        "inventory-item",
+        ["Use before creating or updating listings, pricing recommendations, or stock holds."],
+      ),
+      availability: "available",
+      outputSchema: accountScopedListOutputSchema("Inventory item rows visible to the actor."),
+    },
+    {
+      ...readTool(
+        "inventory",
+        "list-import-sources",
+        "List Inventory Import Sources",
+        "List supported inventory import source profiles, field mappings, external reference candidates, and option inference rules.",
+        "inventory.view",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+          },
+          ["accountId"],
+        ),
+        "import-source-profile",
+        ["Use before creating an import batch so agents can choose the right sourceKey and row shape."],
+      ),
+      availability: "available",
+      outputSchema: inventoryImportSourcesOutputSchema,
+    },
+    {
+      ...writeTool(
+        "inventory",
+        "create-import-batch",
+        "Create Inventory Import Batch",
+        "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+        "inventory.manage",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            sourceKey: stringProperty("Configured import source key."),
+            quantityMode: stringProperty("How row quantities should affect stock.", ["add", "replace"]),
+            csvText: stringProperty("CSV text to parse through the configured source profile."),
+            parsedRows: arrayProperty("Pre-parsed rows to normalize through the configured source profile.", {
+              type: "object",
+              description: "Parsed row with rowNumber and string values.",
+              additionalProperties: true,
+            }),
+            defaultStorageLocationId: stringProperty(
+              "Default Inventory Storage Location (ULID) for rows that omit one. Alternative to defaultStorageLocationName.",
+            ),
+            defaultStorageLocationName: stringProperty(
+              "Default Inventory Storage Location name (case-insensitive, active locations only) for rows that omit one. Alternative to defaultStorageLocationId; if the name matches more than one active location, the tool returns a disambiguation error listing the candidate ids.",
+            ),
+            sourceFilename: stringProperty("Original file or connector source name."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact user or policy confirmation text."),
+            dryRun: booleanProperty("Validate the action without committing it."),
+          },
+          ["accountId", "sourceKey", "quantityMode", "idempotencyKey", "confirmationText"],
+        ),
+        "import-batch",
+        ["Use after source rows are fetched and before committing stock or draft listings."],
+      ),
+      availability: "available",
+      outputSchema: inventoryImportBatchDetailOutputSchema,
+    },
+    {
+      ...readTool(
+        "inventory",
+        "get-import-batch",
+        "Get Inventory Import Batch",
+        "Read import batch match results, validation errors, and committed inventory/listing ids.",
+        "inventory.view",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            batchId: stringProperty("Import batch identifier."),
+          },
+          ["accountId", "batchId"],
+        ),
+        "import-batch",
+        ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
+      ),
+      availability: "available",
+      outputSchema: inventoryImportBatchDetailOutputSchema,
+    },
+    {
+      ...writeTool(
+        "inventory",
+        "commit-import-batch",
+        "Commit Inventory Import Batch",
+        "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+        "inventory.manage",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            batchId: stringProperty("Import batch identifier."),
+            reason: stringProperty("Business reason for the action."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact user or policy confirmation text."),
+            dryRun: booleanProperty("Validate the action without committing it."),
+          },
+          ["accountId", "batchId", "reason", "idempotencyKey", "confirmationText"],
+        ),
+        "import-batch",
+        ["Use only after reviewing match outcomes and confirming rejected rows should remain in review."],
+      ),
+      availability: "available",
+      outputSchema: inventoryImportBatchDetailOutputSchema,
+    },
+    {
+      ...writeTool(
+        "inventory",
+        "adjust-item",
+        "Adjust Inventory Item",
+        "Adjust inventory item quantity through the stock ledger while preserving active hold constraints.",
+        "inventory.manage",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            inventoryItemId: stringProperty("Inventory item to adjust."),
+            quantityDelta: integerProperty("Signed quantity adjustment. Positive adds stock; negative removes stock."),
+            reason: stringProperty("Business reason for the stock adjustment."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact user or policy confirmation text."),
+            dryRun: booleanProperty("Validate the action without committing it."),
+          },
+          ["accountId", "inventoryItemId", "quantityDelta", "reason", "idempotencyKey", "confirmationText"],
+        ),
+        "inventory-item",
+        ["Use for explicit stock corrections after checking active holds and ledger history."],
+      ),
+      availability: "available",
+    },
+    writeTool(
+      "inventory",
+      "archive-location",
+      "Archive Storage Location",
+      "Archive a storage location no longer in use.",
+      "inventory.manage",
+      mutationInput("storageLocationId", "Storage location to archive."),
+      "storage-location",
+      ["Use only after confirming no active inventory depends on the location."],
+      "destructive",
+    ),
+  ],
+  resources: [
+    {
+      ...resource(
+        "inventory",
+        "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+        "Inventory Item",
+        "Seller-owned inventory item state, hold-derived availability, and stock ledger.",
+        "inventory.view",
+        ["Use before pricing, listing, stock holds, or adjustment actions."],
+      ),
+      availability: "available",
+    },
+    {
+      ...resource(
+        "inventory",
+        "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+        "Inventory Import Batch",
+        "Review-first inventory import batch with product match and draft listing outcomes.",
+        "inventory.view",
+        ["Use after an agent creates or commits an import batch."],
+      ),
+      availability: "available",
+    },
+  ],
+} as const satisfies McpServiceDescriptor;
