@@ -410,6 +410,35 @@ describe("format-check execution controls", () => {
     expect(harness.stdout.join("\n")).toContain("FORMAT_CHECK_SCOPE=full");
   });
 
+  it("proves CI's full-tree override catches unformatted unchanged files omitted by the scoped path", async () => {
+    const root = createFixtureRoot();
+    writeFixture(root, "src/changed.js", "const changed = true;\n");
+    writeFixture(root, "src/unchanged.js", "const unchanged={value:1}\n");
+    const scopedEnvironment = cleanEnvironment({
+      CHANGED_FILES_JSON: '["src/changed.js"]',
+    });
+
+    const scopedStatus = await runFormatCheck({
+      repoRoot: root,
+      argv: ["--changed"],
+      env: scopedEnvironment,
+      runPrettier: (args) => runFixturePrettier(root, args),
+      stdout: () => {},
+      stderr: () => {},
+    });
+    const ciStatus = await runFormatCheck({
+      repoRoot: root,
+      argv: ["--changed"],
+      env: { ...scopedEnvironment, FORMAT_CHECK_SCOPE: "full" },
+      runPrettier: (args) => runFixturePrettier(root, args),
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(scopedStatus).toBe(0);
+    expect(ciStatus).toBe(1);
+  });
+
   it("preserves paths exactly and chunks a 2,000-file diff below the Windows-safe argument budget", () => {
     const files = Array.from(
       { length: 2_000 },
