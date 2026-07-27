@@ -1071,6 +1071,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformPrWorkflow).toContain("changed_files_json: ${{ steps.scope.outputs.changed_files_json }}");
     expect(staticStep).toContain("CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}");
+    expect(staticStep).toContain("FORMAT_CHECK_SCOPE: full");
     expect(staticStep).toContain("pnpm run verify:static");
   });
 
