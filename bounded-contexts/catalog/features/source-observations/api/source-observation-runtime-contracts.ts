@@ -1,8 +1,11 @@
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { type DurableJobRecord } from "@chase-sets/platform-runtime/durable-job-store";
-import { type DurableJobWorkUnitSummary } from "@chase-sets/platform-runtime/durable-job-work-units";
+import { type DurableJobRecord, type DurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
+import {
+  type DurableJobWorkUnitStore,
+  type DurableJobWorkUnitSummary,
+} from "@chase-sets/platform-runtime/durable-job-work-units";
 import { type JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import { type CatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
@@ -379,6 +382,45 @@ export type CatalogSyncRunFanoutResult = Readonly<{
 }>;
 
 export type CatalogSyncRunDurableJobRecord = DurableJobRecord<
+  CatalogSyncRunPayload,
+  CatalogSyncRunFanoutProgress,
+  CatalogSyncRunFanoutResult
+>;
+
+// The durable stores the composition root builds once and hands to every
+// Source Observation sub-runtime that needs them. Named here so each
+// sub-runtime declares the real store type instead of a structural stand-in.
+export type SourceObservationBulkReviewJobStore = DurableJobStore<
+  SourceObservationBulkJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationBulkJobResult,
+  SourceObservationBulkJob
+>;
+
+export type SourceObservationBulkReviewWorkUnitStore = DurableJobWorkUnitStore<
+  SourceObservationBulkJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationBulkJobResult,
+  SourceObservationBulkWorkUnitPayload,
+  SourceObservationBulkWorkUnitResult
+>;
+
+export type SourceObservationIntegrationJobStore = DurableJobStore<
+  SourceObservationIntegrationJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJob
+>;
+
+export type SourceObservationIntegrationWorkUnitStore = DurableJobWorkUnitStore<
+  SourceObservationIntegrationJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationWorkUnitPayload,
+  SourceObservationIntegrationJobOutcome
+>;
+
+export type CatalogSyncRunJobStore = DurableJobStore<
   CatalogSyncRunPayload,
   CatalogSyncRunFanoutProgress,
   CatalogSyncRunFanoutResult
