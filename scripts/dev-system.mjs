@@ -19,6 +19,7 @@ import {
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
+import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import {
   applySandboxEnv,
@@ -704,9 +705,11 @@ async function runDev(targetName = "all") {
 
 async function runDown() {
   prefixedConsole("dev", `Stopping sandbox ${sandbox.id}...`);
-  await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down"], {
+  await stopComposePostgresCleanly({
+    invocation: dockerComposeInvocation,
     env: sandboxEnv,
-    prefix: "docker",
+    run: runCommand,
+    observe: (observation) => prefixedConsole("postgres", observation),
   });
 }
 

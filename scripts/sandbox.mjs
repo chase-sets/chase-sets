@@ -8,6 +8,7 @@ import {
   ensureWorktreeSandboxEnvironment,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
+import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 
 const command = process.argv[2] ?? "doctor";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -32,6 +33,7 @@ function runDocker(args, options = {}) {
     env: {
       ...process.env,
       ...sandboxEnv,
+      ...options.env,
     },
     encoding: options.encoding ?? "utf8",
     stdio: options.stdio ?? "inherit",
@@ -93,7 +95,22 @@ function printCompose() {
 }
 
 function composeDown(removeVolumes = false) {
-  runDocker(buildDockerComposeArgs(sandbox, ["down", ...(removeVolumes ? ["-v"] : [])]));
+  const invocation = {
+    command: "docker",
+    args: buildDockerComposeArgs(sandbox),
+  };
+
+  if (removeVolumes) {
+    runDocker([...invocation.args, "down", "-v"]);
+    return;
+  }
+
+  return stopComposePostgresCleanly({
+    invocation,
+    env: sandboxEnv,
+    run: (_command, args, options) => runDocker(args, options),
+    observe: (observation) => console.log(observation),
+  });
 }
 
 function listComposeProjects() {
@@ -212,7 +229,7 @@ try {
   } else if (command === "compose") {
     printCompose();
   } else if (command === "down") {
-    composeDown(false);
+    await composeDown(false);
   } else if (command === "clean") {
     composeDown(true);
   } else if (command === "list") {
