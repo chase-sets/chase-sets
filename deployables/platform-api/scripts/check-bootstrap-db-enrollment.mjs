@@ -86,6 +86,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
 });
 
 const partitionFileNames = Object.freeze(Object.keys(bootstrapDbEnrollmentManifest));
+const dbPartitionScriptNamePattern = /^test:db:\d+$/;
 const listenerMethodNames = new Set(["listen", "serve"]);
 const scriptKinds = new Map([
   [".js", ts.ScriptKind.JS],
@@ -245,12 +246,65 @@ function resolveLocalTestImport(importerPath, specifier, testDirectory) {
   );
 }
 
+function referencedDbTestFileNames(command) {
+  return [...command.matchAll(/__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]);
+}
+
 export function checkBootstrapDbEnrollment({ platformApiRoot } = {}) {
   const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const testDirectory = resolve(root, "__tests__");
   const violations = [];
   const discoveredCases = new Map();
   const filesToInspect = [];
+  let packageScripts = {};
+
+  try {
+    packageScripts = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).scripts ?? {};
+  } catch (error) {
+    violations.push(`${resolve(root, "package.json")} could not be read: ${error.message}`);
+  }
+
+  const partitionMemberships = new Map(partitionFileNames.map((fileName) => [fileName, []]));
+  const partitionScripts = Object.entries(packageScripts).filter(
+    ([name, command]) => dbPartitionScriptNamePattern.test(name) && typeof command === "string",
+  );
+  if (partitionScripts.length === 0) {
+    violations.push("package.json must publish at least one numbered test:db:* partition script");
+  }
+  for (const [scriptName, command] of partitionScripts) {
+    for (const fileName of referencedDbTestFileNames(command)) {
+      const memberships = partitionMemberships.get(fileName);
+      if (!memberships) {
+        violations.push(`${scriptName} references unmanifested bootstrap DB file '${fileName}'`);
+        continue;
+      }
+      memberships.push(scriptName);
+    }
+  }
+  for (const [fileName, memberships] of partitionMemberships) {
+    if (memberships.length !== 1) {
+      violations.push(
+        `${fileName} must appear in exactly one numbered test:db:* partition script; found ${memberships.length}${
+          memberships.length > 0 ? ` (${memberships.join(", ")})` : ""
+        }`,
+      );
+    }
+  }
+  for (const scriptName of ["test:unit", "test:fast"]) {
+    const command = packageScripts[scriptName];
+    if (typeof command !== "string") {
+      violations.push(`package.json must publish ${scriptName}`);
+      continue;
+    }
+    const excludedFiles = new Set(
+      [...command.matchAll(/--exclude(?:=|\s+)__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]),
+    );
+    for (const fileName of partitionFileNames) {
+      if (!excludedFiles.has(fileName)) {
+        violations.push(`${scriptName} must exclude __tests__/${fileName}`);
+      }
+    }
+  }
 
   const legacyPath = resolve(testDirectory, "bootstrap-integration.test.ts");
   if (existsSync(legacyPath)) {
@@ -335,6 +389,7 @@ export function checkBootstrapDbEnrollment({ platformApiRoot } = {}) {
     caseCount: [...discoveredCases.values()].reduce((total, enrollments) => total + enrollments.length, 0),
     expectedCaseCount: expectedCases.size,
     inspectedFiles: [...inspectedFiles].sort(),
+    partitionUnitCount: partitionScripts.length,
     violations,
   };
 }
@@ -347,7 +402,7 @@ export function formatBootstrapDbEnrollmentResult(result) {
     ].join("\n");
   }
 
-  return `Platform API bootstrap DB enrollment passed: ${result.caseCount}/${result.expectedCaseCount} cases across ${partitionFileNames.length} partitions; ${result.inspectedFiles.length} source files inspected.`;
+  return `Platform API bootstrap DB enrollment passed: ${result.caseCount}/${result.expectedCaseCount} cases across ${partitionFileNames.length} files and ${result.partitionUnitCount} execution units; ${result.inspectedFiles.length} source files inspected.`;
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

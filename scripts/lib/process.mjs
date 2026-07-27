@@ -134,8 +134,11 @@ function wirePrefixedStream(stream, prefix) {
 
 export function spawnCommand(command, args, options = {}) {
   const inheritedEnvironment = options.inheritEnv === false ? {} : process.env;
-  const child = spawn(command, args, {
+  const platform = options.platform ?? process.platform;
+  const spawnImpl = options.spawnImpl ?? spawn;
+  const child = spawnImpl(command, args, {
     cwd: options.cwd ?? repoRoot,
+    ...(options.timeoutMs !== undefined && platform !== "win32" ? { detached: true } : {}),
     env: {
       ...inheritedEnvironment,
       FORCE_COLOR: process.env.FORCE_COLOR ?? "1",
@@ -156,13 +159,16 @@ export function spawnCommand(command, args, options = {}) {
 export function terminateProcessTree(
   child,
   signal = "SIGTERM",
-  { platform = process.platform, spawnSyncImpl = spawnSync } = {},
+  { killImpl = process.kill, platform = process.platform, processGroup = false, spawnSyncImpl = spawnSync } = {},
 ) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) {
+  if (!child) {
     return false;
   }
 
-  if (platform === "win32" && child.pid) {
+  if (platform === "win32") {
+    if (child.exitCode !== null || child.signalCode !== null || !child.pid) {
+      return false;
+    }
     const result = spawnSyncImpl("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true,
@@ -173,6 +179,21 @@ export function terminateProcessTree(
     return result.status === 0;
   }
 
+  if (processGroup && child.pid) {
+    try {
+      killImpl(-child.pid, signal);
+      return true;
+    } catch (error) {
+      if (error?.code === "ESRCH") {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return false;
+  }
   return child.kill(signal);
 }
 
@@ -194,20 +215,23 @@ function parseTimeoutMs(value) {
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawnCommand(command, args, options);
     const timeoutMs = parseTimeoutMs(options.timeoutMs);
     const timeoutKillGraceMs = parseTimeoutMs(options.timeoutKillGraceMs) ?? 1_000;
+    const child = spawnCommand(command, args, options);
+    const timeoutUsesProcessGroup = timeoutMs !== undefined && process.platform !== "win32";
     let settled = false;
     let timedOut = false;
     let timeoutId;
     let forceKillId;
 
-    function clearTimers() {
+    function clearTimers({ preserveForceKill = false } = {}) {
       if (timeoutId) {
         clearTimeout(timeoutId);
+        timeoutId = undefined;
       }
-      if (forceKillId) {
+      if (forceKillId && !preserveForceKill) {
         clearTimeout(forceKillId);
+        forceKillId = undefined;
       }
     }
 
@@ -218,7 +242,9 @@ export function runCommand(command, args, options = {}) {
     if (timeoutMs) {
       timeoutId = setTimeout(() => {
         timedOut = true;
-        const killed = child.kill("SIGTERM");
+        const killed = terminateProcessTree(child, "SIGTERM", {
+          processGroup: timeoutUsesProcessGroup,
+        });
         if (!killed && !settled) {
           settled = true;
           clearTimers();
@@ -226,9 +252,14 @@ export function runCommand(command, args, options = {}) {
           return;
         }
 
-        forceKillId = setTimeout(() => {
-          child.kill("SIGKILL");
-        }, timeoutKillGraceMs);
+        if (timeoutUsesProcessGroup) {
+          forceKillId = setTimeout(() => {
+            forceKillId = undefined;
+            terminateProcessTree(child, "SIGKILL", {
+              processGroup: true,
+            });
+          }, timeoutKillGraceMs);
+        }
       }, timeoutMs);
     }
 
@@ -248,12 +279,13 @@ export function runCommand(command, args, options = {}) {
       }
 
       settled = true;
-      clearTimers();
       if (timedOut) {
+        clearTimers({ preserveForceKill: timeoutUsesProcessGroup });
         reject(timeoutError());
         return;
       }
 
+      clearTimers();
       if (code === 0) {
         resolve();
         return;

@@ -553,6 +553,33 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(false);
   });
 
+  it("routes a test-only change enrolled only in a non-default DB partition", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/platform-api/__tests__/partition-two.db.test.ts"],
+      workspaces: [
+        {
+          ...workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
+          packageJson: {
+            name: "@test/platform-api",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: {
+              "test:unit":
+                "vitest run --exclude __tests__/partition-one.db.test.ts --exclude __tests__/partition-two.db.test.ts",
+              "test:db:1": "vitest run __tests__/partition-one.db.test.ts",
+              "test:db:2": "vitest run __tests__/partition-two.db.test.ts",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/platform-api"]);
+    expect(scope.dbTestsRequired).toBe(true);
+  });
+
   it("requires DB tests only for affected workspaces that publish a DB test script", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

@@ -103,7 +103,7 @@ jobs:
         id: coverage
         run: |
           set +e
-          timeout 8m node ./scripts/run-workspaces.mjs test:db --concurrency=2 -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          timeout 8m node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 -- --coverage --coverage.reporter=text --coverage.reporter=lcov
           db_status=$?
           if [ "$db_status" -ne 0 ]; then
             echo "DB coverage finished with status ${db_status}; keeping coverage non-blocking."

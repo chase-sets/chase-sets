@@ -31,6 +31,7 @@ const summaryRootKeys = [
   "tasks",
 ];
 export const DEFAULT_TEST_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+export const DB_TEST_SCRIPT_SELECTOR = "test:db*";
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -357,7 +358,7 @@ function filterWorkspaces(workspaces, options) {
       return false;
     }
 
-    if (typeof workspace.packageJson.scripts?.[scriptName] !== "string") {
+    if (workspaceScriptNames(workspace, scriptName).length === 0) {
       return false;
     }
 
@@ -372,6 +373,21 @@ function filterWorkspaces(workspaces, options) {
 
     return true;
   });
+}
+
+function workspaceScriptNames(workspace, scriptName) {
+  const scripts = workspace.packageJson.scripts ?? {};
+  if (scriptName !== DB_TEST_SCRIPT_SELECTOR) {
+    return typeof scripts[scriptName] === "string" ? [scriptName] : [];
+  }
+
+  const partitionScripts = Object.keys(scripts)
+    .filter((name) => name.startsWith("test:db:") && typeof scripts[name] === "string")
+    .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
+  if (partitionScripts.length > 0) {
+    return partitionScripts;
+  }
+  return typeof scripts["test:db"] === "string" ? ["test:db"] : [];
 }
 
 async function runWorkspace(workspace, options) {
@@ -410,7 +426,9 @@ async function runConcurrent(tasks, options) {
       }
 
       try {
-        await runWorkspace(workspace, options);
+        for (const scriptName of task.scriptNames ?? [options.scriptName]) {
+          await runWorkspace(workspace, { ...options, scriptName });
+        }
       } catch (error) {
         if (taskResult) {
           taskResult.outcome = "failed";
@@ -525,7 +543,9 @@ export async function runWorkspaceScripts(options) {
 
   if (parsed.scriptName.startsWith("test")) {
     const includeTestDatabaseUrl =
-      parsed.scriptName === "test:db" || (parsed.scriptName === "test" && parsed.excludeTestProfile !== "db");
+      parsed.scriptName === "test:db" ||
+      parsed.scriptName === DB_TEST_SCRIPT_SELECTOR ||
+      (parsed.scriptName === "test" && parsed.excludeTestProfile !== "db");
     loadEnvironment({
       includeTestDatabaseUrl,
     });
@@ -542,7 +562,10 @@ export async function runWorkspaceScripts(options) {
   const workspaces = filterWorkspaces(allWorkspaces, parsed);
   const tasks = durationScheduled
     ? scheduleEligibleWorkspaces(workspaces, registry, parsed.scriptName)
-    : workspaces.map((workspace) => ({ workspace }));
+    : workspaces.map((workspace) => ({
+        workspace,
+        scriptNames: workspaceScriptNames(workspace, parsed.scriptName),
+      }));
 
   if (durationScheduled && (parsed.concurrency > 64 || tasks.length > 256)) {
     throw new Error("Duration-scheduled invocations require concurrency at most 64 and at most 256 eligible tasks.");

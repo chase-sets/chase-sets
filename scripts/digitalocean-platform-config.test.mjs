@@ -1246,7 +1246,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(fastCoverageStep).toContain("node ./scripts/run-workspaces.mjs test --exclude-test-profile=db");
     expect(fastCoverageStep).toContain("node ./scripts/run-workspaces.mjs test:unit --test-profile=db");
     expect(fastCoverageStep).toContain("--coverage --coverage.reporter=text --coverage.reporter=lcov");
-    expect(dbCoverageStep).toContain("node ./scripts/run-workspaces.mjs test:db --concurrency=2");
+    expect(dbCoverageStep).toContain('node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2');
     expect(dbCoverageStep).toContain("--coverage --coverage.reporter=text --coverage.reporter=lcov");
     expect(coverageSummaryStep).toContain(
       "--status=non-db:${{ needs['coverage-fast'].outputs.fast_status || 'not-run' }}",
