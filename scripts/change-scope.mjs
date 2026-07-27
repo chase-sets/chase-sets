@@ -385,11 +385,17 @@ export function classifyChanges({
   const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);
   const workspaceByName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
 
+  function dbTestScripts(workspace) {
+    return Object.entries(workspace?.packageJson.scripts ?? {})
+      .filter(([name, command]) => typeof command === "string" && (name === "test:db" || name.startsWith("test:db:")))
+      .map(([, command]) => command);
+  }
+
   function workspaceRequiresDbForTestOnlyChange(workspaceName) {
     const workspace = workspaceByName.get(workspaceName);
     const scripts = workspace?.packageJson.scripts ?? {};
-    const testDbScript = scripts["test:db"];
-    if (typeof testDbScript !== "string") {
+    const testDbScripts = dbTestScripts(workspace);
+    if (testDbScripts.length === 0) {
       return false;
     }
 
@@ -401,14 +407,14 @@ export function classifyChanges({
     const workspaceDir = normalizePath(path.relative(baseDir, workspace.dir));
     return (testOnlyFilesByWorkspace.get(workspaceName) ?? [])
       .map((filePath) => filePath.slice(`${workspaceDir}/`.length))
-      .some((relativeFilePath) => testDbScript.includes(relativeFilePath));
+      .some((relativeFilePath) => testDbScripts.some((script) => script.includes(relativeFilePath)));
   }
 
   const unitTestsRequired = affectedWorkspaces.length > 0;
   const dbTestsRequired =
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
-      return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
+      return dbTestScripts(workspace).length > 0;
     }) || [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange);
   return {
     changedFiles: normalizedFiles,

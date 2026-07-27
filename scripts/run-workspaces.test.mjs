@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
+  DB_TEST_SCRIPT_SELECTOR,
   DEFAULT_TEST_COMMAND_TIMEOUT_MS,
   loadTestEnvironment,
   parseRunWorkspacesArgs,
@@ -111,6 +112,56 @@ describe("run-workspaces", () => {
     });
 
     expect(maxActive).toBe(2);
+  });
+
+  it("runs DB partition siblings serially while preserving global workspace concurrency", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const activeByWorkspace = new Map();
+    const maxActiveByWorkspace = new Map();
+    const runs = [];
+
+    await runWorkspaceScripts({
+      argv: [DB_TEST_SCRIPT_SELECTOR, "--concurrency=2"],
+      buildInvocation,
+      listWorkspaces: () => [
+        workspace(
+          "@test/partitioned",
+          {
+            "test:db": "aggregate",
+            "test:db:1": "partition one",
+            "test:db:2": "partition two",
+          },
+          "db",
+        ),
+        workspace("@test/ordinary", { "test:db": "ordinary" }, "db"),
+      ],
+      loadEnvironment: () => {},
+      run: async (_command, args) => {
+        const workspaceName = args[1];
+        const scriptName = args[3];
+        runs.push({ workspaceName, scriptName });
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        const workspaceActive = (activeByWorkspace.get(workspaceName) ?? 0) + 1;
+        activeByWorkspace.set(workspaceName, workspaceActive);
+        maxActiveByWorkspace.set(
+          workspaceName,
+          Math.max(maxActiveByWorkspace.get(workspaceName) ?? 0, workspaceActive),
+        );
+        await delay(10);
+        activeByWorkspace.set(workspaceName, workspaceActive - 1);
+        active -= 1;
+      },
+    });
+
+    expect(maxActive).toBe(2);
+    expect(maxActiveByWorkspace.get("@test/partitioned")).toBe(1);
+    expect(runs.filter(({ workspaceName }) => workspaceName === "@test/partitioned")).toEqual([
+      { workspaceName: "@test/partitioned", scriptName: "test:db:1" },
+      { workspaceName: "@test/partitioned", scriptName: "test:db:2" },
+    ]);
+    expect(runs).toContainEqual({ workspaceName: "@test/ordinary", scriptName: "test:db" });
   });
 
   it("respects include and exclude test profiles", async () => {

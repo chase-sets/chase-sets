@@ -278,7 +278,7 @@ jobs:
           echo "PostgreSQL max_locks_per_transaction is now ${effective}."
 
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs test:db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})

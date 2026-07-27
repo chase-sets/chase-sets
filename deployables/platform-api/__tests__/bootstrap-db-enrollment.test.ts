@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,6 +37,25 @@ async function createFixture(transform: (sources: Map<string, string>) => void =
 
   transform(sources);
   await Promise.all([...sources].map(([fileName, source]) => writeFile(join(testDirectory, fileName), source)));
+  const partitionFiles = Object.keys(bootstrapDbEnrollmentManifest);
+  const excludeArguments = partitionFiles.map((fileName) => `--exclude __tests__/${fileName}`).join(" ");
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        "test:fast": `vitest run ${excludeArguments}`,
+        "test:unit": `vitest run ${excludeArguments}`,
+        "test:db:1": `vitest run ${partitionFiles
+          .slice(0, Math.ceil(partitionFiles.length / 2))
+          .map((fileName) => `__tests__/${fileName}`)
+          .join(" ")}`,
+        "test:db:2": `vitest run ${partitionFiles
+          .slice(Math.ceil(partitionFiles.length / 2))
+          .map((fileName) => `__tests__/${fileName}`)
+          .join(" ")}`,
+      },
+    }),
+  );
   return root;
 }
 
@@ -85,6 +104,36 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(checkBootstrapDbEnrollment({ platformApiRoot: root }).violations).toEqual(
       expect.arrayContaining([expect.stringContaining(`belongs in ${sourceFile}, not ${targetFile}`)]),
+    );
+  });
+
+  it.each(["omitted", "duplicated"])("rejects a DB file %s across package-script partitions", async (mutation) => {
+    const root = await createFixture();
+    const packageJsonPath = join(root, "package.json");
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+    const fileName = Object.keys(bootstrapDbEnrollmentManifest)[0]!;
+    if (mutation === "omitted") {
+      packageJson.scripts["test:db:1"] = packageJson.scripts["test:db:1"].replace(`__tests__/${fileName}`, "");
+    } else {
+      packageJson.scripts["test:db:2"] += ` __tests__/${fileName}`;
+    }
+    await writeFile(packageJsonPath, JSON.stringify(packageJson));
+
+    expect(checkBootstrapDbEnrollment({ platformApiRoot: root }).violations).toEqual(
+      expect.arrayContaining([expect.stringContaining(fileName)]),
+    );
+  });
+
+  it.each(["test:unit", "test:fast"])("rejects a DB file missing from the %s exclude list", async (scriptName) => {
+    const root = await createFixture();
+    const packageJsonPath = join(root, "package.json");
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+    const fileName = Object.keys(bootstrapDbEnrollmentManifest)[0]!;
+    packageJson.scripts[scriptName] = packageJson.scripts[scriptName].replace(`--exclude __tests__/${fileName}`, "");
+    await writeFile(packageJsonPath, JSON.stringify(packageJson));
+
+    expect(checkBootstrapDbEnrollment({ platformApiRoot: root }).violations).toEqual(
+      expect.arrayContaining([expect.stringContaining(`${scriptName} must exclude __tests__/${fileName}`)]),
     );
   });
 
