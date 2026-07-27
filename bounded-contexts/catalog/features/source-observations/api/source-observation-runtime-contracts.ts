@@ -827,6 +827,13 @@ export type BulkReviewJobServices = Readonly<{
   getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
+// One provider unit's durable sync state within a Catalog sync scope, read
+// back across runs. This is what the scope page renders instead of the
+// transient per-run child-job list: state survives after the run that
+// produced it is gone, so a failed provider can be retried (via
+// `lastJobId` + the existing `retryIntegrationJob`) without re-running the
+// whole scope, and a settled provider stays visibly settled until something
+// changes.
 export type CatalogScopeSyncUnitStateReadModel = Readonly<{
   providerKey: string;
   unitKey: string;
@@ -1034,11 +1041,25 @@ export type SourceObservationServices = SourceObservationCommandServices &
   SourceObservationRetentionServices &
   SourceObservationProjectorServices;
 
+/**
+ * Persistence sink for alias candidates produced during Source Observation
+ * intake. Injected from the composition root so the source
+ * observation runtime stays decoupled from the alias-equivalence runtime;
+ * defaults to the read-model upsert keyed off the shared `deps.db`.
+ */
 export type SourceObservationAliasCandidateSink = (
   candidates: readonly CatalogAliasCandidate[],
   observedAt: string,
 ) => Promise<void>;
 
+/**
+ * Drives accepted-alias writes and retractions during promotion/reapply.
+ * Injected from the composition root so the source observation runtime
+ * stays decoupled from the alias-equivalence aggregate. The reader defaults to
+ * the read-model over the shared `deps.db`; only the alias command handler
+ * (owned by the alias runtime) must be supplied. When omitted, promotion writes
+ * no alias facts so minimal/legacy callers are unaffected.
+ */
 export type SourceObservationAliasPromotion =
   | PromotionAliasServices
   | Readonly<{ catalogAliasCommandHandler: PromotionAliasServices["catalogAliasCommandHandler"] }>;
