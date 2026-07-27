@@ -1369,147 +1369,147 @@
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_BUSINESS_SIGNING_KEY_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#11",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
       "secretName": "VOYAGE_API_KEY",
       "purpose": "terraform-infra"
     },
@@ -1551,14 +1551,14 @@
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Register verification provider webhooks#10",
+      "stepAnchor": "name:Register verification provider webhooks#11",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Register verification provider webhooks#10",
+      "stepAnchor": "name:Register verification provider webhooks#11",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },
@@ -1733,154 +1733,147 @@
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes registry pull secret#11",
-      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-merge-gate-verification.yml",
-      "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_BUSINESS_SIGNING_KEY_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#10",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "VOYAGE_API_KEY",
       "purpose": "terraform-infra"
     },
@@ -1922,14 +1915,14 @@
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Register gate provider webhooks#9",
+      "stepAnchor": "name:Register gate provider webhooks#10",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
-      "stepAnchor": "name:Register gate provider webhooks#9",
+      "stepAnchor": "name:Register gate provider webhooks#10",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },
@@ -2615,168 +2608,168 @@
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EASYPOST_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SCRYDEX_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SCRYDEX_TEAM_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SES_AWS_ACCESS_KEY_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SES_AWS_SECRET_ACCESS_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SES_SOURCE_ARN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "STRIPE_CONNECT_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "VOYAGE_API_KEY",
       "purpose": "terraform-infra"
     },
@@ -4953,21 +4946,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Abort production Argo Rollouts#47",
+      "stepAnchor": "name:Abort production Argo Rollouts#46",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Abort production Argo Rollouts#47",
+      "stepAnchor": "name:Abort production Argo Rollouts#46",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Abort production Argo Rollouts#47",
+      "stepAnchor": "name:Abort production Argo Rollouts#46",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5003,27 +4996,6 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production environment DNS#18",
-      "secretName": "SPACES_SECRET_KEY",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "name:Apply production Kubernetes registry pull secret#35",
-      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "name:Apply production Kubernetes registry pull secret#35",
-      "secretName": "SPACES_ACCESS_ID",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "name:Apply production Kubernetes registry pull secret#35",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5051,42 +5023,42 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#48",
+      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#47",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#48",
+      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#47",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#48",
+      "stepAnchor": "name:Capture post-cutover production Kubernetes diagnostics#47",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#37",
+      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#36",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#37",
+      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#36",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#37",
+      "stepAnchor": "name:Capture production Kubernetes deploy diagnostics#36",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5163,21 +5135,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#56",
+      "stepAnchor": "name:Classify production deployment failure#55",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#56",
+      "stepAnchor": "name:Classify production deployment failure#55",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#56",
+      "stepAnchor": "name:Classify production deployment failure#55",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5296,35 +5268,35 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Deploy production Kubernetes release#36",
+      "stepAnchor": "name:Deploy production Kubernetes release#35",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Deploy production Kubernetes release#36",
+      "stepAnchor": "name:Deploy production Kubernetes release#35",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Deploy production Kubernetes release#36",
+      "stepAnchor": "name:Deploy production Kubernetes release#35",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Deploy production Kubernetes release#36",
+      "stepAnchor": "name:Deploy production Kubernetes release#35",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Deploy production Kubernetes release#36",
+      "stepAnchor": "name:Deploy production Kubernetes release#35",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5541,21 +5513,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Mark production release#50",
+      "stepAnchor": "name:Mark production release#49",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Mark production release#50",
+      "stepAnchor": "name:Mark production release#49",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Mark production release#50",
+      "stepAnchor": "name:Mark production release#49",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5597,42 +5569,42 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Production post-deploy readiness gate#42",
+      "stepAnchor": "name:Production post-deploy readiness gate#41",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Production post-deploy readiness gate#42",
+      "stepAnchor": "name:Production post-deploy readiness gate#41",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Production post-deploy readiness gate#42",
+      "stepAnchor": "name:Production post-deploy readiness gate#41",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Promote production Argo Rollouts#46",
+      "stepAnchor": "name:Promote production Argo Rollouts#45",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Promote production Argo Rollouts#46",
+      "stepAnchor": "name:Promote production Argo Rollouts#45",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Promote production Argo Rollouts#46",
+      "stepAnchor": "name:Promote production Argo Rollouts#45",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5660,189 +5632,189 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Remove managed Postgres CA#43",
+      "stepAnchor": "name:Remove managed Postgres CA#42",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Remove managed Postgres CA#43",
+      "stepAnchor": "name:Remove managed Postgres CA#42",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Remove managed Postgres CA#43",
+      "stepAnchor": "name:Remove managed Postgres CA#42",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#55",
+      "stepAnchor": "name:Resolve CI retry metadata#54",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#55",
+      "stepAnchor": "name:Resolve CI retry metadata#54",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#55",
+      "stepAnchor": "name:Resolve CI retry metadata#54",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#54",
+      "stepAnchor": "name:Resolve release health metadata#53",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#54",
+      "stepAnchor": "name:Resolve release health metadata#53",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#54",
+      "stepAnchor": "name:Resolve release health metadata#53",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#53",
+      "stepAnchor": "name:Resolve terminal release state#52",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#53",
+      "stepAnchor": "name:Resolve terminal release state#52",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#53",
+      "stepAnchor": "name:Resolve terminal release state#52",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Roll back production Kubernetes release#49",
+      "stepAnchor": "name:Roll back production Kubernetes release#48",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Roll back production Kubernetes release#49",
+      "stepAnchor": "name:Roll back production Kubernetes release#48",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Roll back production Kubernetes release#49",
+      "stepAnchor": "name:Roll back production Kubernetes release#48",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Smoke check#44",
+      "stepAnchor": "name:Smoke check#43",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Stage 1 production canary#45",
+      "stepAnchor": "name:Stage 1 production canary#44",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Stage 1 production canary#45",
+      "stepAnchor": "name:Stage 1 production canary#44",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Stage 1 production canary#45",
+      "stepAnchor": "name:Stage 1 production canary#44",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Stage 1 production canary#45",
+      "stepAnchor": "name:Stage 1 production canary#44",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Stage 1 production canary#45",
+      "stepAnchor": "name:Stage 1 production canary#44",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6038,21 +6010,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Verify production DOKS live hosts and certificate#39",
+      "stepAnchor": "name:Verify production DOKS live hosts and certificate#38",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Verify production DOKS live hosts and certificate#39",
+      "stepAnchor": "name:Verify production DOKS live hosts and certificate#38",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Verify production DOKS live hosts and certificate#39",
+      "stepAnchor": "name:Verify production DOKS live hosts and certificate#38",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6080,77 +6052,77 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Wait for production domains#40",
+      "stepAnchor": "name:Wait for production domains#39",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Wait for production domains#40",
+      "stepAnchor": "name:Wait for production domains#39",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Wait for production domains#40",
+      "stepAnchor": "name:Wait for production domains#39",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Wait for production domains#40",
+      "stepAnchor": "name:Wait for production domains#39",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Wait for production domains#40",
+      "stepAnchor": "name:Wait for production domains#39",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write promoted release handoff#51",
+      "stepAnchor": "name:Write promoted release handoff#50",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write promoted release handoff#51",
+      "stepAnchor": "name:Write promoted release handoff#50",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write promoted release handoff#51",
+      "stepAnchor": "name:Write promoted release handoff#50",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#57",
+      "stepAnchor": "name:Write release health summary#56",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#57",
+      "stepAnchor": "name:Write release health summary#56",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#57",
+      "stepAnchor": "name:Write release health summary#56",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6640,21 +6612,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Abort staging Argo Rollouts#50",
+      "stepAnchor": "name:Abort staging Argo Rollouts#49",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Abort staging Argo Rollouts#50",
+      "stepAnchor": "name:Abort staging Argo Rollouts#49",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Abort staging Argo Rollouts#50",
+      "stepAnchor": "name:Abort staging Argo Rollouts#49",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6682,27 +6654,6 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Apply staging Kubernetes registry pull secret#32",
-      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
-      "stepAnchor": "name:Apply staging Kubernetes registry pull secret#32",
-      "secretName": "SPACES_ACCESS_ID",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
-      "stepAnchor": "name:Apply staging Kubernetes registry pull secret#32",
-      "secretName": "SPACES_SECRET_KEY",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#31",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
@@ -6724,77 +6675,77 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Await staging projection convergence#42",
+      "stepAnchor": "name:Await staging projection convergence#41",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#34",
+      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#33",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#34",
+      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#33",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#34",
+      "stepAnchor": "name:Capture staging Kubernetes deploy diagnostics#33",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6843,21 +6794,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#51",
+      "stepAnchor": "name:Classify staging deployment failure#50",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#51",
+      "stepAnchor": "name:Classify staging deployment failure#50",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#51",
+      "stepAnchor": "name:Classify staging deployment failure#50",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6927,56 +6878,56 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Deploy staging Kubernetes release#33",
+      "stepAnchor": "name:Deploy staging Kubernetes release#32",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Deploy staging Kubernetes release#33",
+      "stepAnchor": "name:Deploy staging Kubernetes release#32",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Deploy staging Kubernetes release#33",
+      "stepAnchor": "name:Deploy staging Kubernetes release#32",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Deploy staging Kubernetes release#33",
+      "stepAnchor": "name:Deploy staging Kubernetes release#32",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Deploy staging Kubernetes release#33",
+      "stepAnchor": "name:Deploy staging Kubernetes release#32",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Dispatch advisory staging evidence#37",
+      "stepAnchor": "name:Dispatch advisory staging evidence#36",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Dispatch advisory staging evidence#37",
+      "stepAnchor": "name:Dispatch advisory staging evidence#36",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Dispatch advisory staging evidence#37",
+      "stepAnchor": "name:Dispatch advisory staging evidence#36",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7081,42 +7032,42 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#41",
+      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#40",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#41",
+      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#40",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#41",
+      "stepAnchor": "name:Install Playwright Chromium for staging critical flows#40",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#53",
+      "stepAnchor": "name:Mark staging applied#52",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#53",
+      "stepAnchor": "name:Mark staging applied#52",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#53",
+      "stepAnchor": "name:Mark staging applied#52",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7144,42 +7095,42 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Promote staging Argo Rollouts#49",
+      "stepAnchor": "name:Promote staging Argo Rollouts#48",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Promote staging Argo Rollouts#49",
+      "stepAnchor": "name:Promote staging Argo Rollouts#48",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Promote staging Argo Rollouts#49",
+      "stepAnchor": "name:Promote staging Argo Rollouts#48",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#54",
+      "stepAnchor": "name:Record staging completion#53",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#54",
+      "stepAnchor": "name:Record staging completion#53",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#54",
+      "stepAnchor": "name:Record staging completion#53",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7207,252 +7158,252 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Resolve Playwright Chromium version#39",
+      "stepAnchor": "name:Resolve Playwright Chromium version#38",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Resolve Playwright Chromium version#39",
+      "stepAnchor": "name:Resolve Playwright Chromium version#38",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Resolve Playwright Chromium version#39",
+      "stepAnchor": "name:Resolve Playwright Chromium version#38",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Smoke check#38",
+      "stepAnchor": "name:Smoke check#37",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging account-cart freshness canary#46",
+      "stepAnchor": "name:Staging account-cart freshness canary#45",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging account-cart freshness canary#46",
+      "stepAnchor": "name:Staging account-cart freshness canary#45",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging account-cart freshness canary#46",
+      "stepAnchor": "name:Staging account-cart freshness canary#45",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Buy Now freshness probes#43",
+      "stepAnchor": "name:Staging Buy Now freshness probes#42",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "STRIPE_CONNECT_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Staging Stripe money smoke#48",
+      "stepAnchor": "name:Staging Stripe money smoke#47",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
     },
@@ -7760,35 +7711,35 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Wait for staging ingress URLs#36",
+      "stepAnchor": "name:Wait for staging ingress URLs#35",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Wait for staging ingress URLs#36",
+      "stepAnchor": "name:Wait for staging ingress URLs#35",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Wait for staging ingress URLs#36",
+      "stepAnchor": "name:Wait for staging ingress URLs#35",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Wait for staging ingress URLs#36",
+      "stepAnchor": "name:Wait for staging ingress URLs#35",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Wait for staging ingress URLs#36",
+      "stepAnchor": "name:Wait for staging ingress URLs#35",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -8649,56 +8600,56 @@
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Seed staging Kubernetes scenario data#10",
+      "stepAnchor": "name:Seed staging Kubernetes scenario data#9",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Seed staging Kubernetes scenario data#10",
+      "stepAnchor": "name:Seed staging Kubernetes scenario data#9",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "MARKETPLACE_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "stepAnchor": "name:Staging marketplace critical flows#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
@@ -10919,14 +10870,14 @@
       "jobId": "publish",
       "stepAnchor": "name:Publish representative snapshot set#4",
       "secretName": "SEED_PACKS_SPACES_ACCESS_ID",
-      "purpose": "spaces-evidence"
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/representative-catalog-snapshot.yml",
       "jobId": "publish",
       "stepAnchor": "name:Publish representative snapshot set#4",
       "secretName": "SEED_PACKS_SPACES_SECRET_KEY",
-      "purpose": "spaces-evidence"
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/project-status-sync.yml",

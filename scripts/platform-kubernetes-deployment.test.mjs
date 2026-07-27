@@ -99,7 +99,7 @@ describe("platform Kubernetes deployment", () => {
       release: "chase-sets-platform",
       namespace: "chase-sets-platform",
       image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
-      imagePullSecret: "registry-chase-sets",
+      imagePullSecret: "chase-sets",
       timeout: "60m",
       jobName: "staging-scenario-seed-proof",
       envOverrides: {
@@ -114,7 +114,7 @@ describe("platform Kubernetes deployment", () => {
 
     expect(manifest.spec.activeDeadlineSeconds).toBe(scenarioSeedMaxActiveDeadlineSeconds);
     expect(manifest.spec.backoffLimit).toBe(0);
-    expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "registry-chase-sets" }]);
+    expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(manifest.spec.template.spec.serviceAccountName).toBe(
       "chase-sets-platform-chase-sets-platform-scenario-seed-quiesce",
     );
@@ -160,7 +160,10 @@ describe("platform Kubernetes deployment", () => {
     });
     const [serviceAccount, role, roleBinding] = manifest.items;
 
-    expect(serviceAccount).toMatchObject({ kind: "ServiceAccount" });
+    expect(serviceAccount).toMatchObject({
+      kind: "ServiceAccount",
+      imagePullSecrets: [{ name: "chase-sets" }],
+    });
     expect(role.rules).toEqual([
       {
         apiGroups: ["apps"],
@@ -186,7 +189,7 @@ describe("platform Kubernetes deployment", () => {
       release: "chase-sets-platform",
       namespace: "chase-sets-platform",
       image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
-      imagePullSecret: "registry-chase-sets",
+      imagePullSecret: "chase-sets",
       timeout: "60m",
       jobName: "staging-advisory-scenario-seed",
       quiesceWorkers: false,
@@ -196,6 +199,7 @@ describe("platform Kubernetes deployment", () => {
     const env = new Map(container.env.map((entry) => [entry.name, entry]));
 
     expect(manifest.spec.template.spec.serviceAccountName).toBeUndefined();
+    expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(container.args).toEqual(["pnpm --filter @chase-sets/app-platform-api run bootstrap:production"]);
     expect(env.has("CHASE_SETS_QUIESCE_DEPLOYMENTS")).toBe(false);
     expect(env.has("CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE")).toBe(false);
@@ -326,19 +330,27 @@ describe("platform Kubernetes deployment", () => {
       "global.image.tag=release-sha",
       "--set-string",
       "global.image.digest=",
+      "--set-string",
+      "global.imagePullSecrets[0].name=chase-sets",
     ]);
   });
 
-  it("can pass a Kubernetes image pull secret to Helm", () => {
+  it("pins Helm to the provider-managed Kubernetes image pull authority", () => {
     expect(
       buildHelmUpgradeArgs({
         release: "production-platform",
         namespace: "production",
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
-        imagePullSecret: "registry-chase-sets",
+        imagePullSecret: "chase-sets",
       }),
-    ).toEqual(expect.arrayContaining(["--set-string", "global.imagePullSecrets[0].name=registry-chase-sets"]));
+    ).toEqual(expect.arrayContaining(["--set-string", "global.imagePullSecrets[0].name=chase-sets"]));
+    expect(() =>
+      buildHelmUpgradeArgs({
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        imagePullSecret: "generated-registry-secret",
+      }),
+    ).toThrow("provider-managed 'chase-sets' authority");
   });
 
   it("can pass non-secret runtime environment overrides to Helm", () => {
@@ -482,7 +494,7 @@ describe("platform Kubernetes deployment", () => {
       "--image",
       "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha@sha256:4db059aed0e208b2ab1ebe0e8cbb562070d3962fc21d0f088af85a9942e76d86",
       "--image-pull-secret",
-      "registry-chase-sets",
+      "chase-sets",
       "--runtime-env",
       "DEPLOYMENT_ENVIRONMENT=staging",
       "--runtime-env",

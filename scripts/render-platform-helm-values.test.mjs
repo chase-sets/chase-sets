@@ -114,7 +114,7 @@ describe("render platform Helm values", () => {
       secretName: "chase-sets-preview-postgres",
       storage: { emptyDir: {} },
     });
-    expect(values.global.imagePullSecrets).toEqual([]);
+    expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(values.global.envOverrides).toEqual({});
   });
 
@@ -816,6 +816,39 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("hasKey $envOverrides .name");
     expect(chartText).toContain("previewPostgres:");
     expect(chartText).toContain("preview-postgres");
+  });
+
+  it("threads the managed registry authority through every private workload render and custom ServiceAccount", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const [helper, deployment, job, rollout, serviceAccount, rbac] = readChartFiles([
+      "templates/_helpers.tpl",
+      "templates/deployment.yaml",
+      "templates/job.yaml",
+      "templates/rollout.yaml",
+      "templates/serviceaccount.yaml",
+      "templates/rbac.yaml",
+    ]);
+    const privateComponents = Object.entries(values.components)
+      .filter(([, component]) => component.enabled)
+      .map(([name, component]) => ({ name, kind: component.kind }));
+
+    expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
+    expect(privateComponents).toEqual([
+      { name: "public-web", kind: "service" },
+      { name: "marketplace", kind: "service" },
+      { name: "admin-web", kind: "service" },
+      { name: "platform-api", kind: "service" },
+      { name: "platform-worker", kind: "worker" },
+      { name: "platform-bootstrap", kind: "job" },
+    ]);
+    expect(helper).toContain('{{ include "chase-sets-platform.imagePullSecrets" $root }}');
+    for (const workloadTemplate of [deployment, job, rollout]) {
+      expect(workloadTemplate).toContain('{{ include "chase-sets-platform.podSpec"');
+    }
+    for (const customServiceAccountTemplate of [serviceAccount, rbac]) {
+      expect(customServiceAccountTemplate).toContain(".Values.global.imagePullSecrets");
+      expect(customServiceAccountTemplate).toContain("imagePullSecrets:");
+    }
   });
 
   it("models proportional Argo Rollouts with isolated nginx routes and readiness analysis", () => {

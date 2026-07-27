@@ -1367,32 +1367,6 @@ jobs:
             --deployment-environment staging \
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
-      - name: Apply staging Kubernetes registry pull secret
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: env.SHOULD_DEPLOY != 'false'
-        run: |
-          set -euo pipefail
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            echo "DigitalOcean Container Registry is required before staging Kubernetes deploys can pull images." >&2
-            exit 1
-          fi
-
-          registry_pull_secret_name="registry-${registry_name}"
-          docker_config="$(mktemp)"
-          trap 'rm -f "$docker_config"' EXIT
-          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
-          kubectl create secret generic "$registry_pull_secret_name" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --from-file=.dockerconfigjson="$docker_config" \
-            --type=kubernetes.io/dockerconfigjson \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
-
       - name: Deploy staging Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -1448,7 +1422,7 @@ jobs:
           # while the worker fleet is available to drain projections.
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
@@ -3370,32 +3344,6 @@ jobs:
             --deployment-environment production \
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
-      - name: Apply production Kubernetes registry pull secret
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: env.SHOULD_DEPLOY != 'false'
-        run: |
-          set -euo pipefail
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            echo "DigitalOcean Container Registry is required before production Kubernetes deploys can pull images." >&2
-            exit 1
-          fi
-
-          registry_pull_secret_name="registry-${registry_name}"
-          docker_config="$(mktemp)"
-          trap 'rm -f "$docker_config"' EXIT
-          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
-          kubectl create secret generic "$registry_pull_secret_name" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --from-file=.dockerconfigjson="$docker_config" \
-            --type=kubernetes.io/dockerconfigjson \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
-
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -3455,7 +3403,7 @@ jobs:
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --image-pull-secret chase-sets \
             --observability-exporter-endpoint "$observability_exporter_endpoint" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
