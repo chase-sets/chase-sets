@@ -20,7 +20,7 @@ import {
   onePieceSealedProductObservation,
   onePieceSetReferenceObservation,
   pokemonObservation,
-} from "./runtime-test-harness";
+} from "./seeding/runtime-test-harness";
 
 describe("source observation runtime: promotion and reapply", () => {
   it("resolves exactly one YGOJSON boxed Set Reference Record and blocks missing or ambiguous evidence", async () => {

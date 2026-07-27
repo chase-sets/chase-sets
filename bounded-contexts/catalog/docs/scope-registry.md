@@ -42,7 +42,7 @@ Catalog Scope Record is canonical Catalog identity. Provider Scope Mapping is th
 
 ## Destructive Reset And Merge Candidate v2 (#3807)
 
-`CatalogSyncScope` v2 (#3794) and the Catalog Merge Candidate identity re-key (#3799) both require pre-launch destructive reset/rebuild of Catalog Merge Candidate review state. `bounded-contexts/catalog/features/source-observations/api/catalog-scope-merge-candidate-reset.ts` is the P0 plan and machinery both slices must reference before any destructive execution:
+`CatalogSyncScope` v2 (#3794) and the Catalog Merge Candidate identity re-key (#3799) both require pre-launch destructive reset/rebuild of Catalog Merge Candidate review state. `bounded-contexts/catalog/features/source-observations/api/promotion/catalog-scope-merge-candidate-reset.ts` is the P0 plan and machinery both slices must reference before any destructive execution:
 
 - **Reset targets** (`catalogScopeMergeCandidateResetSurfacePolicies`): `catalog_merge_candidates`, `catalog_merge_candidate_observations`, unreviewed `catalog_provider_scope_mappings` rows (`review_status = 'proposed'`), and the `catalog.merge-candidate-*` event streams (`event_store_streams` / `event_store_events`). Old Merge Candidate streams encode the pre-reset candidate identity and are wiped rather than replayed forward.
 - **Preserved surfaces** (`catalogScopeMergeCandidatePreservedSurfaces`): `catalog_scope_records` in full, every reviewed `catalog_provider_scope_mappings` row (`accepted`, `auto-accepted`, `rejected`, `revoked`), `catalog_source_observations` in full, and promoted Catalog Items/aliases/external references. `resetCatalogMergeCandidateDerivedState` asserts these row counts are unchanged after every reset run and throws instead of committing an unsafe reset.

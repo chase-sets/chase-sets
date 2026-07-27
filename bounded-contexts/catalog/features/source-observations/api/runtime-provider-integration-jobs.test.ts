@@ -3,7 +3,7 @@ import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import { createCatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { createCatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
 import { createSourceObservationRuntime } from "./runtime";
 import {
@@ -17,7 +17,7 @@ import {
   integrationJobRow,
   tcgdexProfileSnapshot,
   tcgdexProfileVersion,
-} from "./runtime-test-harness";
+} from "./seeding/runtime-test-harness";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
 

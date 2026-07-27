@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
-import { runCatalogIntegrationDryRun } from "../../catalog-integration-engine";
-import type { CatalogIntegrationDryRunResult } from "../../catalog-integration-engine";
-import { createCatalogProviderCredentialReadiness } from "../../catalog-integration-credential-readiness";
-import { defineCatalogIntegrationUnitKey } from "../../integration-unit";
+import { runCatalogIntegrationDryRun } from "../../governance/catalog-integration-engine";
+import type { CatalogIntegrationDryRunResult } from "../../governance/catalog-integration-engine";
+import { createCatalogProviderCredentialReadiness } from "../../governance/catalog-integration-credential-readiness";
+import { defineCatalogIntegrationUnitKey } from "../../governance/integration-unit";
 import { getActiveCatalogProviderIntegrationProfileVersion } from "../registry";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../profile-types";
 import {
@@ -12,10 +12,10 @@ import {
   fetchTcgdexSetObservationPayloads,
   listTcgdexLanguageOptions,
   type TcgdexObservationPayload,
-} from "../../tcgdex-client";
-import { matchTcgdexEnglishEndpointEntity } from "../../tcgdex-alias-extraction";
-import { buildEnglishEndpointOptionAlias, ENGLISH_ALIAS_LANGUAGE_CODE } from "../../provider-option-aliases";
-import type { CatalogAliasTypeKey } from "../../catalog-integration-data-governance";
+} from "../tcgdex-client";
+import { matchTcgdexEnglishEndpointEntity } from "../tcgdex-alias-extraction";
+import { buildEnglishEndpointOptionAlias, ENGLISH_ALIAS_LANGUAGE_CODE } from "../provider-option-aliases";
+import type { CatalogAliasTypeKey } from "../../governance/catalog-integration-data-governance";
 import type {
   ProviderAdapter,
   ProviderImportPlan,

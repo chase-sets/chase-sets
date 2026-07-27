@@ -16,22 +16,22 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
-import { normalizeCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
-import { createCatalogIntegrationDryRunProofRegistry } from "./catalog-integration-dry-run-proofs";
-import { type CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { normalizeCatalogProviderSourceObservation } from "./promotion/provider-source-observation-normalizer";
+import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
+import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import {
   buildCatalogLifecycleImpactReadModel,
   buildCatalogReplayReapplyImpactReadModel,
   toCatalogAdminProfileVersionPointer,
   unitKeyForCatalogProviderProfileVersion,
   type CatalogIntegrationImpactJobSample,
-} from "./catalog-integration-impact-analysis";
+} from "./governance/catalog-integration-impact-analysis";
 import type {
   CatalogAdminReplayReapplyImpactSummaryReadModel,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
-} from "./admin-control-plane-read-model-contracts";
+} from "./admin/admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationIntegrationJobOutcome,
@@ -44,7 +44,7 @@ import {
   notEvaluatedDuplicatePreventionPreview,
   duplicatePreventionCandidatePreview,
   buildCatalogIntegrationControlPlaneReadiness,
-} from "./catalog-integration-control-plane-readiness";
+} from "./governance/catalog-integration-control-plane-readiness";
 import {
   profileSelectorFromScope,
   jobMatchesContext,

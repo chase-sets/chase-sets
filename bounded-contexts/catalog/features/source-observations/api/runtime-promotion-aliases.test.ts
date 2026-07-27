@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createSourceObservationRuntime } from "./runtime";
-import { context, createChangedObservationRefreshHarness } from "./runtime-test-harness";
+import { context, createChangedObservationRefreshHarness } from "./seeding/runtime-test-harness";
 import { buildCatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
 import { catalogAliasStreamId, type CatalogAliasCommand } from "../../alias-equivalence/domain/domain";
-import type { PromotionAliasCandidate, PromotionPublishedAlias } from "./provider-promotion-alias-planner";
-import type { PromotionAliasServices } from "./provider-promotion-alias-writer";
+import type { PromotionAliasCandidate, PromotionPublishedAlias } from "./promotion/provider-promotion-alias-planner";
+import type { PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 
 // ---------------------------------------------------------------------------
 // Promotion alias wiring (#1909): exercises the full runtime path that turns an

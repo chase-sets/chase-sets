@@ -7,9 +7,9 @@ import type {
   CatalogProviderMappingSourceContract,
   CatalogProviderProfileFixtureContract,
   CatalogProviderProfileLifecycle,
-} from "../provider-integration-mapping-contract";
-import type { CatalogIntegrationUnitKey } from "../integration-unit";
-import type { CatalogProviderSourceObservationMappingContract } from "../provider-source-observation-normalizer";
+} from "./provider-integration-mapping-contract";
+import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
+import type { CatalogProviderSourceObservationMappingContract } from "../promotion/provider-source-observation-normalizer";
 
 export type CatalogProviderCapability =
   | "provider-option-query"

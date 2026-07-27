@@ -22,11 +22,11 @@ import {
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
-import { createCatalogIntegrationDryRunProofRegistry } from "./catalog-integration-dry-run-proofs";
+import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
 import {
   createCatalogIntegrationRolloutControlPolicyFromEnv,
   type CatalogIntegrationRolloutControlPolicy,
-} from "./catalog-integration-rollout-controls";
+} from "./governance/catalog-integration-rollout-controls";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import { createReferenceCardsProviderAdapter } from "./provider-adapters/reference-cards";
 import { createTcgdexProviderAdapter } from "./provider-adapters/tcgdex";
@@ -38,7 +38,7 @@ import { createScryfallProviderAdapter } from "./provider-adapters/scryfall";
 import { createYgoprodeckProviderAdapter } from "./provider-adapters/ygoprodeck";
 import { createYgojsonProviderAdapter } from "./provider-adapters/ygojson";
 import { createScrydexOnePieceProviderAdapter } from "./provider-adapters/scrydex-one-piece";
-import { normalizeCatalogControlPlaneTelemetryEvent } from "./catalog-integration-observability";
+import { normalizeCatalogControlPlaneTelemetryEvent } from "./governance/catalog-integration-observability";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
@@ -67,11 +67,11 @@ import {
   listTcgdexExpansionsThroughAdapter,
   queryProviderIntegrationOptions,
   listProviderIntegrationOptions,
-} from "./provider-option-queries";
+} from "./providers/provider-option-queries";
 import {
   loadSelectedOptionAuthoringSchema,
   loadPromotionTargetAuthoringSchema,
-} from "./catalog-integration-control-plane-readiness";
+} from "./governance/catalog-integration-control-plane-readiness";
 import {
   toSourceObservationBulkJobEventSnapshot,
   toSourceObservationIntegrationJobEventSnapshot,

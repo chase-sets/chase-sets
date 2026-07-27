@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 
 const runtimePath = "bounded-contexts/catalog/features/source-observations/api/runtime.ts";
 const transportClientPaths = [
-  "bounded-contexts/catalog/features/source-observations/api/tcgdex-client.ts",
-  "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-catalog-client.ts",
-  "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-client.ts",
+  "bounded-contexts/catalog/features/source-observations/api/providers/tcgdex-client.ts",
+  "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-catalog-client.ts",
+  "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
 ];
 const executableMappingImportPattern = new RegExp(
   String.raw`from ["']\.\/(tcgdex|tcgplayer|scrydex)-executable-mapping-contract["']`,
@@ -20,7 +20,8 @@ const executableMappingImportPattern = new RegExp(
 // raw provider set-name / product-line-name equality check, the deleted
 // `providerHints` escape hatch, or the scope reference's raw id/name (raw-name
 // scope resolution is forbidden: coordinates come from accepted mappings only).
-const scopePlannerPath = "bounded-contexts/catalog/features/source-observations/api/catalog-sync-scope-planner.ts";
+const scopePlannerPath =
+  "bounded-contexts/catalog/features/source-observations/api/providers/catalog-sync-scope-planner.ts";
 const scopePlannerDefaultParticipationFunctionNames = [
   "unitMatchesCatalogSyncScope",
   "eligibilityBlockers",

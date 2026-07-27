@@ -3,11 +3,11 @@ import {
   runCatalogIntegrationDryRun,
   type CatalogIntegrationDryRunResult,
   type CatalogIntegrationObservationFact,
-} from "../../catalog-integration-engine";
-import { createCatalogProviderCredentialReadiness } from "../../catalog-integration-credential-readiness";
-import { defineCatalogIntegrationUnitKey } from "../../integration-unit";
+} from "../../governance/catalog-integration-engine";
+import { createCatalogProviderCredentialReadiness } from "../../governance/catalog-integration-credential-readiness";
+import { defineCatalogIntegrationUnitKey } from "../../governance/integration-unit";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../profile-types";
-import { assembleCatalogProviderIngestionUnitProfileSections } from "../../provider-profile-sections";
+import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider-profile-sections";
 import {
   TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
@@ -24,11 +24,11 @@ import type {
   TcgplayerAutomationProductDetail,
   TcgplayerAutomationProductSearchProduct,
   TcgplayerAutomationProductSku,
-} from "../../tcgplayer-automation-catalog-client";
+} from "../tcgplayer-automation-catalog-client";
 import {
   TCGPLAYER_AUTOMATION_DOMAINS,
   TCGPLAYER_AUTOMATION_RETRYABLE_STATUS_CODES,
-} from "../../tcgplayer-automation-client";
+} from "../tcgplayer-automation-client";
 import type {
   CatalogIntegrationUnitDescriptor,
   ProviderAdapter,

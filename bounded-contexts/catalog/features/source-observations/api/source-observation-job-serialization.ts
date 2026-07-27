@@ -21,7 +21,10 @@ import {
 } from "../../scope-sync-state/domain/state";
 import { type SourceObservationFilterScope } from "../read-model/queries";
 import { type CatalogProviderProfileVersionSelector } from "./provider-integration-profiles";
-import { type CatalogSyncProviderParticipationPreview, type CatalogSyncScope } from "./catalog-sync-scope-planner";
+import {
+  type CatalogSyncProviderParticipationPreview,
+  type CatalogSyncScope,
+} from "./providers/catalog-sync-scope-planner";
 import type { ProviderImportPlan } from "./provider-adapters/provider-adapter";
 import { OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE } from "./source-observation-runtime-contracts";
 import type {
@@ -59,7 +62,7 @@ import type {
   SourceObservationIntegrationImportPreviewTarget,
   SourceObservationProviderUsageEvidence,
 } from "./source-observation-runtime-contracts";
-import { normalizeReapplyProfileMode } from "./catalog-integration-control-plane-readiness";
+import { normalizeReapplyProfileMode } from "./governance/catalog-integration-control-plane-readiness";
 
 // --- Durable per-scope sync state -----------------------------------------
 //

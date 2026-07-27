@@ -69,8 +69,8 @@ import { tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContrac
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
-} from "../tcgplayer-automation-catalog-client";
-import { tcgplayerAutomationResponseFixtures } from "../tcgplayer-automation-response-fixtures.test-data";
+} from "../providers/tcgplayer-automation-catalog-client";
+import { tcgplayerAutomationResponseFixtures } from "../providers/tcgplayer-automation-response-fixtures.test-data";
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;

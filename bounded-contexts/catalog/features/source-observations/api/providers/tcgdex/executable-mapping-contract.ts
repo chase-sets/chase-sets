@@ -4,7 +4,7 @@ import type {
   CatalogProviderMappingEvidenceOwner,
   CatalogProviderMappingEvidenceUse,
   CatalogProviderMappingValueExpression,
-} from "../../provider-integration-mapping-contract";
+} from "../provider-integration-mapping-contract";
 
 export const tcgdexPokemonCardSourceObservationMappingContract = {
   providerKey: "tcgdex",

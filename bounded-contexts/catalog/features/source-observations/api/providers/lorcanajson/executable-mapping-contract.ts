@@ -7,7 +7,7 @@ import {
   type CatalogProviderMappingEvidenceUse,
   type CatalogProviderMappingValueExpression,
   type CatalogProviderSourceObservationContract,
-} from "../../provider-integration-mapping-contract";
+} from "../provider-integration-mapping-contract";
 
 const lorcanajsonSourceContract = {
   owner: "chase-sets/catalog",

@@ -1001,43 +1001,43 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-defer/jobs",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-promote",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-promote/jobs",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /reapply",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/preview",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/runs",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/state",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/preview",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/resume",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/retry",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /merge-candidates/generate",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/defer",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/ignore",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Ha7da7073f776#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST H3ed75dd87de3#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST H6e2a3b4d7d87#1",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /bulk-promote/preview",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/impact",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/preview",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:PATCH /provider-profiles/:providerKey/:profileVersion/sections/:section",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/activate",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/clone",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/deprecate",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/dry-run",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/retire",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/rollback",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/source-observation-review-routes.ts:POST /:id/promote",
-        "api-route:bounded-contexts/catalog/features/source-observations/api/source-observation-review-routes.ts:POST /:id/reject"
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-defer/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-promote",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-promote/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /reapply",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/runs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/state",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /integration-jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /integration-jobs/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /integration-jobs/:jobId/resume",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /integration-jobs/:jobId/retry",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /merge-candidates/generate",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/defer",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/ignore",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Ha7da7073f776#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H3ed75dd87de3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H6e2a3b4d7d87#1",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /bulk-promote/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/impact",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:PATCH /provider-profiles/:providerKey/:profileVersion/sections/:section",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/activate",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/clone",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/deprecate",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/dry-run",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/retire",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/rollback",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts:POST /:id/promote",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts:POST /:id/reject"
       ],
       "visibleDestination": {
         "routeId": "integrations",
@@ -1046,11 +1046,11 @@
       "proof": {
         "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
-          "bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
-          "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
-          "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",
-          "bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-modules/route-integration-jobs.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-modules/route-provider-profile-admin.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-modules/route-review-controls.test.ts",
           "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
         ]
       }
@@ -1061,13 +1061,13 @@
       "risk": "informational",
       "strategy": "non-user-visible",
       "surfaces": [
-        "api-route:bounded-contexts/catalog/features/source-observations/api/control-plane-telemetry-routes.ts:POST /control-plane-events"
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/control-plane-telemetry-routes.ts:POST /control-plane-events"
       ],
       "exception": {
         "owner": "catalog",
         "reviewBy": "2026-09-30",
         "issue": "#1816",
-        "reason": "Source Observation control-plane telemetry records redaction-safe operator evidence and returns only an acknowledgement; no user-visible workbench read depends on the POST result. bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts proves supported telemetry is recorded and unsupported/private telemetry labels are rejected before recording."
+        "reason": "Source Observation control-plane telemetry records redaction-safe operator evidence and returns only an acknowledgement; no user-visible workbench read depends on the POST result. bounded-contexts/catalog/features/source-observations/api/route-modules/route-review-controls.test.ts proves supported telemetry is recorded and unsupported/private telemetry labels are rejected before recording."
       }
     },
     {
@@ -1117,14 +1117,16 @@
       "risk": "internal",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-client.ts:POST Hf9aa1b4b1d8d#1"
+        "api-client:bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts:POST Hf9aa1b4b1d8d#1"
       ],
       "visibleDestination": {
         "description": "The TCGplayer automation runtime consumes provider POST responses synchronously inside Catalog import/review jobs and returns the parsed provider response snapshot to the source-observation workflow without a browser projection read."
       },
       "proof": {
         "authoritativeResponse": "TcgplayerAutomationDomainHttpClient.post returns the parsed provider response after retry/cooldown recovery and redacts exhausted provider diagnostics before surfacing them to operators.",
-        "tests": ["bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-client.test.ts"]
+        "tests": [
+          "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.test.ts"
+        ]
       }
     },
     {
