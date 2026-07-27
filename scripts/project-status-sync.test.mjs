@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { deriveStatus, deriveTargetDate, isEpic, planDateUpdates, planStatusUpdates } from "./project-status-sync.mjs";
+import { classified } from "./backlog-classify.mjs";
+import {
+  deriveStatus,
+  deriveTargetDate,
+  isEpic,
+  ITEMS_QUERY,
+  planDateUpdates,
+  planStatusUpdates,
+  projectItemFromNode,
+  toBacklogInput,
+} from "./project-status-sync.mjs";
 
 function issue(overrides = {}) {
   return {
     number: 1,
+    state: "open",
     milestone: { title: "Wave 2" },
     labels: [{ name: "priority:p1" }, { name: "area:catalog" }, { name: "kind:product" }],
     blockedBy: 0,
+    hasParent: false,
     ...overrides,
   };
 }
@@ -73,6 +85,83 @@ describe("project status sync", () => {
   it("skips epics entirely", () => {
     const items = [{ itemId: "a", status: null, issue: issue({ labels: [{ name: "kind:epic" }] }) }];
     expect(planStatusUpdates(items)).toEqual([]);
+  });
+
+  it("does not rewrite a closed item's terminal board snapshot to Backlog", () => {
+    const items = [{ itemId: "a", status: "Refined", issue: issue({ number: 6150, state: "closed" }) }];
+    expect(planStatusUpdates(items)).toEqual([]);
+  });
+
+  it("skips tracking-only items instead of silently moving them to Backlog", () => {
+    // Live counterexample #6058 is fully classified, parentless, and tracking-only.
+    const trackingOnly = issue({
+      number: 6058,
+      blockedBy: 1,
+      labels: [
+        { name: "priority:p1" },
+        { name: "area:identity" },
+        { name: "kind:test" },
+        { name: "status:tracking-only" },
+      ],
+    });
+    expect(deriveStatus(trackingOnly)).toBeNull();
+    expect(planStatusUpdates([{ itemId: "a", status: "Refined", issue: trackingOnly }])).toEqual([]);
+  });
+
+  it("derives truthful parent state from the board query path even when the parent is a Slice", () => {
+    expect(ITEMS_QUERY).toContain("parent { number }");
+    const item = projectItemFromNode({
+      id: "item-1",
+      status: { name: "Backlog" },
+      targetDate: null,
+      content: {
+        number: 6169,
+        state: "OPEN",
+        issueType: { name: "Slice" },
+        parent: { number: 6100 },
+        milestone: { title: "Wave 1" },
+        labels: { nodes: [{ name: "priority:p1" }, { name: "area:ops" }, { name: "kind:tech-debt" }] },
+        issueDependenciesSummary: { blockedBy: 0 },
+      },
+    });
+
+    expect(item.issue.hasParent).toBe(true);
+    expect(toBacklogInput(item.issue).hasParent).toBe(true);
+    expect(classified(toBacklogInput(item.issue))).toBe(true);
+  });
+
+  it("fails closed when the board query path omits parent state", () => {
+    const item = projectItemFromNode({
+      id: "item-1",
+      content: {
+        number: 6169,
+        state: "OPEN",
+        issueType: { name: "Slice" },
+        milestone: { title: "Wave 1" },
+        labels: { nodes: [{ name: "priority:p1" }, { name: "area:ops" }, { name: "kind:tech-debt" }] },
+        issueDependenciesSummary: { blockedBy: 0 },
+      },
+    });
+    expect(() => classified(toBacklogInput(item.issue))).toThrowError(
+      expect.objectContaining({ name: "BacklogClassificationInputError", field: "hasParent" }),
+    );
+  });
+
+  it("fails closed when the board query path omits native issue type state", () => {
+    const item = projectItemFromNode({
+      id: "item-1",
+      content: {
+        number: 6169,
+        state: "OPEN",
+        parent: null,
+        milestone: { title: "Wave 1" },
+        labels: { nodes: [{ name: "priority:p1" }, { name: "area:ops" }, { name: "kind:tech-debt" }] },
+        issueDependenciesSummary: { blockedBy: 0 },
+      },
+    });
+    expect(() => classified(toBacklogInput(item.issue))).toThrowError(
+      expect.objectContaining({ name: "BacklogClassificationInputError", field: "issueTypeName" }),
+    );
   });
 });
 

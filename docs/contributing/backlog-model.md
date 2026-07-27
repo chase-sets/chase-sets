@@ -18,7 +18,7 @@ Five levels. Only three are GitHub objects.
 | **Strategy pillar** | this file (below) | why we build anything | ~yearly |
 | **Outcome wave** | GitHub **milestone** | what is usable next, and when | quarterly |
 | **Epic** | GitHub issue, type **Epic** | what capability this completes | per capability |
-| **Slice** | GitHub issue, type **Slice**, sub-issue of its epic | what one lane delivers | daily |
+| **Slice** | GitHub issue, type **Slice**, normally a sub-issue of its epic | what one lane delivers | daily |
 | **Bug** | GitHub issue, type **Bug** | what is broken now | as found |
 | **Decision** | GitHub issue, type **Decision** | what blocks a slice from starting | as surfaced |
 | **Probe** | GitHub issue, type **Probe** | what evidence a slice needs before dispatch | as surfaced |
@@ -118,17 +118,49 @@ prompted it ships? If no, it belongs in the epic body.
 
 ## Refined vs. backlog
 
-Issue type + `priority` + `area` + `kind` + milestone + epic parent are what
-make a slice **refined**. Their absence is not a data-quality failure — it is the honest
-state of far-horizon work.
+**Refined ≡ classified.** `scripts/backlog-classify.mjs` is the executable
+definition used by the roadmap and delivery-board status jobs. An issue is
+classified only when all of these hold:
 
-- **Refined** — passes the definition of ready. Only refined slices are
-  dispatchable.
-- **Backlog** — captured, placed in a wave, not yet refined. Normal for
-  Wave 5+, `Deferred / Incubation`, and anything beyond the current horizon.
+- state is open;
+- native issue type is not `Epic` (an untyped legacy `kind:epic` label is the
+  fallback; a native type always wins);
+- it has none of `status:tracking-only`;
+- it has an executable wave milestone (not `Deferred / Incubation` or
+  `Operations`); and
+- it has at least one label from each of `priority:*`, `area:*`, and `kind:*`.
+
+Unknown or malformed inputs fail closed. `status:tracking-only` issues are
+continuity records, not backlog; generated status reports them separately and
+the board sync leaves their current status untouched.
+
+- **Refined / classified** — passes the current classification gate.
+- **Backlog** — captured but not classified. Normal for far-horizon work.
+
+Parent attachment is **reported, not gating**: the roadmap shows classified
+issues with no native parent per wave and in total, but `hasParent` does not
+change classification. Attach a slice to its capability epic whenever one owns
+its acceptance. A future parent-or-standalone gate, including any possible
+`status:standalone` vocabulary, would require a new fixed-scope decision and
+implementation; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
+explicitly records that this flip is not current behavior or part of its
+controller-alignment work.
 
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
+
+### Out-of-band dispatch consumer
+
+The installed host-scope
+`C:\Users\ToddS\.claude\skills\milestone-orchestrator\SKILL.md` is an
+out-of-band consumer of the refined predicate. This repository change is inert
+for its dispatch semantics: until the aligned controller release is
+independently reviewed and installed under
+[#6174](https://github.com/chase-sets/chase-sets/issues/6174), that installed
+skill still uses its own milestone + `priority:*` + `area:*` + `kind:*`
+definition and can consider a fully labelled `status:tracking-only` issue a
+candidate. The roadmap and board jobs exclude that issue now; the controller
+will align only after the future operator action.
 
 ## Rollup and progress
 

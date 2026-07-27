@@ -30,8 +30,12 @@ for.
 
 ## Rules
 
-- One epic per coherent feature inside the milestone; small standalone slices
-  may attach directly without an epic.
+- One epic per coherent feature inside the milestone. Attach slices to the Epic
+  that owns their acceptance whenever one exists. Parent attachment is reported,
+  not gating, under the current `refined ≡ classified` contract. A future
+  parent-or-standalone gate (and any `status:standalone` label) would require a
+  new fixed-scope change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
+  records that it is not current behavior.
 - A milestone closes when all non-parked children close AND exit-criteria
   evidence is linked from the closing comment.
 - Reprioritization is a tracking-issue comment plus milestone description

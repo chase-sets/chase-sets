@@ -73,9 +73,16 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
-   - every slice classified with a wave milestone + `priority:*` + `area:*` +
-     `kind:*` (the slice form's dropdowns do this; API-created issues must set
-     them);
+   - every open slice classified (`refined ≡ classified`) with a wave milestone
+     + `priority:*` + `area:*` + `kind:*`, excluding Epics,
+     `status:tracking-only`, `Deferred / Incubation`, and `Operations` (the
+     slice form's dropdowns set the labels; API-created issues must set type and
+     labels explicitly);
+   - parent attachment is reported, not gating: attach a slice to the Epic that
+     owns its acceptance when one exists. A future parent-or-standalone gate
+     and any `status:standalone` label require a new fixed-scope change;
+     [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
+     this is not current behavior;
    - **no new label** unless it fits the four families in the backlog model.
      Sequencing inside a workstream is the epic's chain DAG — `phase:*`,
      `stage:*`, `series:*`, and `tier:*` families are banned, having produced
