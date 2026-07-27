@@ -1,13 +1,15 @@
 import { configDefaults, defineConfig } from "vitest/config";
+import { heavySlotVitestGlobalSetupPath } from "./scripts/lib/heavy-slot.mjs";
 
 // Canonical vitest shape for every workspace (issue #1420). Workspace configs
 // import one of these factories with a small override object instead of
 // cloning a config body, so the standard shape has exactly one definition.
 //
 // Override semantics are deliberately simple: keys under `test` replace the
-// base values (no array concatenation surprises), except `exclude`, which
-// always appends to the safe defaults. Top-level vite options (plugins,
-// resolve) pass straight through.
+// base values (no array concatenation surprises), except `exclude` and
+// `globalSetup`, which compose with the safe defaults. The canonical
+// heavy-slot guard always runs before consumer setup. Top-level vite options
+// (plugins, resolve) pass straight through.
 
 export const boundedContextTestInclude = [
   "features/**/*.test.ts",
@@ -31,6 +33,7 @@ export function defineWorkspaceTestConfig(overrides = {}) {
       hookTimeout: 120_000,
       testTimeout: 120_000,
       ...testOverrides,
+      globalSetup: [heavySlotVitestGlobalSetupPath, ...[testOverrides.globalSetup ?? []].flat()],
       exclude: [...configDefaults.exclude, "**/dist/**", ...(testOverrides.exclude ?? [])],
     },
   });

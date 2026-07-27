@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getFileInfo } from "prettier";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 export const FORMAT_CHECK_SCOPE_ENV = "FORMAT_CHECK_SCOPE";
 export const FULL_TREE_SCOPE = "full";
@@ -227,15 +228,20 @@ export async function runFormatCheck({
   execGit,
   getFileInfoImpl,
   statImpl,
+  acquireSlot = acquireHeavySlot,
   runPrettier = (args) => defaultRunPrettier(args, repoRoot),
   stdout = console.log,
   stderr = console.warn,
 } = {}) {
+  const runFullTree = (message) => {
+    acquireSlot("script-battery");
+    message();
+    return runPrettier(fullTreeArgs());
+  };
   const requestedMode = parseMode(argv);
   if (requestedMode === "full" || env[FORMAT_CHECK_SCOPE_ENV] === FULL_TREE_SCOPE) {
     const reason = requestedMode === "full" ? "default" : `${FORMAT_CHECK_SCOPE_ENV}=${FULL_TREE_SCOPE}`;
-    stdout(`[FORMAT_CHECK_FULL_TREE] Running the full-tree format check (${reason}).`);
-    return runPrettier(fullTreeArgs());
+    return runFullTree(() => stdout(`[FORMAT_CHECK_FULL_TREE] Running the full-tree format check (${reason}).`));
   }
 
   let derived;
@@ -243,16 +249,16 @@ export async function runFormatCheck({
     derived = deriveChangedFiles({ repoRoot, env, execGit });
   } catch (error) {
     const code = error instanceof ChangedFilesDerivationError ? error.code : "FORMAT_CHECK_DERIVATION_FAILED";
-    stderr(`[${code}] ${error.message}. Running the full-tree format check.`);
-    return runPrettier(fullTreeArgs());
+    return runFullTree(() => stderr(`[${code}] ${error.message}. Running the full-tree format check.`));
   }
 
   if (changesFormattingControls(derived.files)) {
-    stdout(
-      `[FORMAT_CHECK_CONTROL_FILE_CHANGED] ${derived.source} includes a formatter control file; ` +
-        "running the full-tree format check.",
+    return runFullTree(() =>
+      stdout(
+        `[FORMAT_CHECK_CONTROL_FILE_CHANGED] ${derived.source} includes a formatter control file; ` +
+          "running the full-tree format check.",
+      ),
     );
-    return runPrettier(fullTreeArgs());
   }
 
   let filtered;
@@ -265,8 +271,7 @@ export async function runFormatCheck({
     });
   } catch (error) {
     const code = error instanceof ChangedFilesDerivationError ? error.code : "FORMAT_CHECK_FILE_FILTER_FAILED";
-    stderr(`[${code}] ${error.message}. Running the full-tree format check.`);
-    return runPrettier(fullTreeArgs());
+    return runFullTree(() => stderr(`[${code}] ${error.message}. Running the full-tree format check.`));
   }
 
   if (derived.files.length === 0) {

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { heavySlotScriptBatteryGlobalSetupPath } from "./scripts/lib/heavy-slot-script-battery.mjs";
 
 // Single vitest configuration for every script-level test under scripts/.
 // verify:static invokes this once instead of spawning one vitest process per
@@ -7,6 +8,7 @@ import { defineConfig } from "vitest/config";
 // here automatically and must not become their own chain entries.
 export default defineConfig({
   test: {
+    globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
     include: ["scripts/**/*.test.mjs"],
   },
 });

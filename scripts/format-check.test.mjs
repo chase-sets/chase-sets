@@ -66,14 +66,17 @@ function fakeFileStat() {
 
 function createRunnerHarness() {
   const prettierCalls = [];
+  const acquiredKinds = [];
   const stdout = [];
   const stderr = [];
   return {
+    acquiredKinds,
     prettierCalls,
     stdout,
     stderr,
     options: {
       repoRoot,
+      acquireSlot: (kind) => acquiredKinds.push(kind),
       runPrettier: (args) => {
         prettierCalls.push(args);
         return 0;
@@ -244,6 +247,7 @@ describe("format-check fail-closed discovery", () => {
     });
 
     expect(harness.prettierCalls).toEqual([["--check", "--ignore-unknown", "--", "src/explicit file.ts"]]);
+    expect(harness.acquiredKinds).toEqual([]);
     expect(harness.stdout.join("\n")).toContain("from CHANGED_FILES_JSON");
   });
 
@@ -267,6 +271,7 @@ describe("format-check fail-closed discovery", () => {
     });
 
     expect(harness.stderr.join("\n")).toContain("[FORMAT_CHECK_CHANGED_FILES_INVALID]");
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
   });
 
@@ -370,6 +375,7 @@ describe("format-check execution controls", () => {
     });
 
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
     expect(harness.stdout.join("\n")).toContain("[FORMAT_CHECK_FULL_TREE]");
   });
 
@@ -407,6 +413,7 @@ describe("format-check execution controls", () => {
     });
 
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
     expect(harness.stdout.join("\n")).toContain("FORMAT_CHECK_SCOPE=full");
   });
 

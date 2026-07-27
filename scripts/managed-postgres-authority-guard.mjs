@@ -4,6 +4,7 @@ import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const MANIFEST_PATH = "scripts/managed-postgres-authority-manifest.json";
 const SCHEMA_PATH = "scripts/managed-postgres-authority-manifest.schema.json";
@@ -912,6 +913,7 @@ async function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  acquireHeavySlot("script-battery");
   main().catch(() => {
     process.stdout.write(
       `${JSON.stringify({

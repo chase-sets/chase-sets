@@ -19,6 +19,7 @@ import {
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import {
@@ -34,6 +35,7 @@ const modeArguments = process.argv.slice(3);
 const representativeRefresh = modeArguments.includes("--representative");
 const replayRepresentativeRefresh = modeArguments.includes("--replay");
 const target = modeArguments.find((argument) => !argument.startsWith("--")) ?? "all";
+if (mode === "dev" && target === "browser-e2e") acquireHeavySlot("script-battery");
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
