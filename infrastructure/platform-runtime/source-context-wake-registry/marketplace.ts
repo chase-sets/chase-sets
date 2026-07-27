@@ -1,0 +1,60 @@
+import { registryEntry } from "../source-context-wake-registry-entry";
+
+export const marketplaceWakeRegistryEntry = registryEntry({
+  sourceContextName: "marketplace",
+  owner: "Marketplace",
+  // Wave-1 remainder, staging-enabled after checkout's staging push-loop
+  // evidence (push-wake-slo-load-proof.md). Production stays inert via the
+  // environment kill switches; the wave-1 listener URLs and connection
+  // budget already cover this context (locals.tf).
+  rolloutState: "staging-enabled",
+  enablement: {
+    eventStoreWakeNotifications: true,
+    relayFanOut: true,
+  },
+  phase: "phase-1-checkout-hot-path",
+  rolloutWave: "wave-1-checkout-hot-path",
+  priorityLane: "hot",
+  expectedEventVolume: "high",
+  wakeStoreLoadEstimate: "high",
+  affectedProjectionNames: [
+    "checkout:checkout-marketplace-listing-options-projection",
+    "checkout:checkout-seller-accounts-projection",
+    "checkout:checkout.sell-list-projection",
+    "discovery:discovery-market-projection",
+    "discovery:discovery-product-alert-notification-projection",
+    "identity:identity-founder-claim-reaction",
+    "marketplace:marketplace-identity-account-projection",
+    "marketplace:marketplace-listing-projection",
+    "marketplace:marketplace-offer-projection",
+    "marketplace:marketplace-review-hold-projection",
+    "marketplace:marketplace-review-projection",
+    "marketplace:marketplace-review-notification-projection",
+    "marketplace:platform-policy-document-projection",
+    "notifications:notifications-source-facts-outbox-projection",
+    "ordering:ordering-marketplace-offer-acceptance",
+    "ordering:ordering-marketplace-supply-input-projection",
+    "ordering:ordering-order-review-opportunity-projection",
+    "platform-operations:reported-content-queue-projection",
+    "platform-operations:risk-alert-queue-projection",
+    "pricing:pricing-market-input-projection",
+    "pricing:pricing-repricing-evaluation-reaction",
+    "settlement:settlement-account-risk-source-projection",
+  ],
+  routeDependencyIds: [
+    "marketplace.import-listing-inventory-handoff",
+    "marketplace.listing-availability-self-refresh",
+    "marketplace.listing-create-from-list-to-detail",
+    "marketplace.listing-create-to-detail",
+    "marketplace.listing-fee-lock-self-refresh",
+    "marketplace.listing-inventory-self-refresh",
+    "marketplace.listing-list-self-refresh",
+    "marketplace.listing-stock-location-self-refresh",
+    "marketplace.offer-match-accept-to-detail",
+    "marketplace.offer-match-seller-control-list-refresh",
+    "marketplace.order-capacity-self-refresh",
+    "marketplace.review-reply-to-detail",
+    "marketplace.review-submit-to-detail",
+    "marketplace.submitted-offer-detail",
+  ],
+});

@@ -11,9 +11,15 @@ const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
 const docsOnlyPatterns = [/^docs\//, /^artifacts\//, /^\.codex\//, /^README\.md$/, /^AGENTS\.md$/, /^.*\.md$/];
 const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/];
+// The source-context wake registry is a static aggregate over per-context
+// shard modules plus a shared entry builder. Every member of that file
+// family must classify exactly like the pre-split single file did, including
+// the platform-api contract coverage it feeds; a shard-only match would
+// silently stop running those tests on a rollout-state change.
 const contextMetadataRoutePatterns = [
   /^bounded-contexts\/[^/]+\/context\.json$/,
-  /^infrastructure\/platform-runtime\/source-context-wake-registry\.ts$/,
+  /^infrastructure\/platform-runtime\/source-context-wake-registry(?:-entry)?\.ts$/,
+  /^infrastructure\/platform-runtime\/source-context-wake-registry\/[^/]+\.ts$/,
   /^docs\/architecture\/push-first-projection-migration\.md$/,
 ];
 
