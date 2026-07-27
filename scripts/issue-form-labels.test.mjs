@@ -389,6 +389,7 @@ describe("issue form label workflow structure", () => {
   });
 
   it("does not swallow script failures at an advisory boundary", () => {
+    expect(labelJob["continue-on-error"]).toBeUndefined();
     expect(labelJob.steps.every((step) => step["continue-on-error"] === undefined)).toBe(true);
     const applyStep = labelJob.steps.find((step) => step.name === "Apply form labels");
     expect(applyStep.run.trim()).toBe("node ./scripts/issue-form-labels.mjs");
