@@ -1,37 +1,23 @@
 import { createHash } from "node:crypto";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
-import type { CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
-  DurableJobHandoffError,
   isDurableJobHandoffError,
-  runDurableJobSideEffect,
-  type DurableJobEvent,
-  type DurableJobExecutionContext,
-  type DurableJobPublicSnapshot,
-  type DurableJobRecord,
-  type DurableJobStatus,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
-  isDurableJobWorkUnitTerminalAccepted,
-  type DurableJobWorkUnitClaim,
-  type DurableJobWorkUnitTerminalOutcome,
-  type DurableJobWorkUnitStore,
   type DurableJobWorkUnitRecord,
-  type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
@@ -43,7 +29,6 @@ import type { ReferenceRelationship } from "../../reference-data/domain/domain";
 import {
   catalogScopeSyncUnitIsFastForwardable,
   computeCatalogSyncScopeKey,
-  type CatalogScopeSyncScopeDescriptor,
   type CatalogScopeSyncUnitObservedStatus,
   type CatalogScopeSyncUnitState,
 } from "../../scope-sync-state/domain/state";
@@ -65,7 +50,6 @@ import {
   isPokemonCardSourceObservationNormalized,
   isPokemonCatalogItemSourceObservationNormalized,
   isYugiohCatalogItemSourceObservationNormalized,
-  type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationLorcanaCardPrintNormalized,
   type SourceObservationLorcanaSetReferenceNormalized,
@@ -81,18 +65,15 @@ import {
   type SourceObservationPokemonSealedProductNormalized,
   type SourceObservationYugiohSealedProductNormalized,
   type SourceObservationPromotionProfileEvidence,
-  type SourceObservationState,
 } from "../domain/domain";
 import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
   type CatalogMergeCandidateCommand,
-  type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
   type CatalogMergeCandidateReviewActor,
   type CatalogMergeCandidateReviewSnapshot,
-  type CatalogMergeCandidateState,
 } from "../domain/catalog-merge-candidate";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
 import {
@@ -110,35 +91,18 @@ import {
   summarizeSourceObservationReplayImpact,
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
-  type SourceObservationIntegrationScopeRow,
   type SourceObservationListRow,
-  type SourceObservationPromotionPreview,
-  type SourceObservationReapplyPreview,
 } from "../read-model/queries";
 import {
   buildCatalogMergeCandidatesFromObservations,
   type CatalogMergeCandidateMatchBatch,
-  type CatalogMergeCandidateMatchExclusion,
-  type CatalogMergeCandidateMatchResult,
 } from "./catalog-merge-candidate-matcher";
 import {
   listAcceptedProviderScopeMappingsByScopeRecord,
   listAcceptedProviderScopeMappingsForProviders,
 } from "../../provider-scope-mapping/read-model/queries";
-import {
-  planCatalogMergeCandidatePromotionCommands,
-  type CatalogMergeCandidatePromotionCommandPlanResult,
-  type CatalogMergeCandidatePromotionCandidate,
-  type CatalogMergeCandidatePromotionCatalogMapping,
-  type CatalogMergeCandidatePromotionAssetPlan,
-} from "./catalog-merge-candidate-promotion-planner";
-import {
-  normalizeTcgdexImageAsset,
-  type TcgdexExpansionOption,
-  type TcgdexLanguageOption,
-  type TcgdexObservationPayload,
-  type TcgdexSeriesOption,
-} from "./tcgdex-client";
+import { planCatalogMergeCandidatePromotionCommands } from "./catalog-merge-candidate-promotion-planner";
+import { normalizeTcgdexImageAsset, type TcgdexObservationPayload } from "./tcgdex-client";
 import {
   extractApprovedLorcanaImageEvidence,
   normalizeLorcanaImageAsset,
@@ -146,46 +110,30 @@ import {
 } from "./product-asset-normalization";
 import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
-import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
 import { writePromotionAliases, type PromotionAliasServices } from "./provider-promotion-alias-writer";
 import { createPromotionAliasReader } from "./provider-promotion-alias-reader";
 import type { PromotionAliasTargetResolution } from "./provider-promotion-alias-planner";
 import {
   buildTcgplayerAutomationSourceObservationPayload,
-  type TcgplayerAutomationCatalogClient,
   type TcgplayerAutomationProductDetail,
 } from "./tcgplayer-automation-catalog-client";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
-  getActiveCatalogProviderIntegrationProfileVersion,
   getCatalogProviderIntegrationProfileVersion,
-  listCatalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
-import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
   catalogProviderSourceMappingFingerprint,
   normalizeCatalogProviderSourceObservation,
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import { createCatalogIntegrationDryRunProofRegistry } from "./catalog-integration-dry-run-proofs";
 import {
-  createCatalogIntegrationDryRunProofRegistry,
-  type CatalogIntegrationDryRunProofRegistry,
-} from "./catalog-integration-dry-run-proofs";
-import {
-  catalogProviderCredentialReadinessToTransportDiagnostic,
-  type CatalogProviderCredentialReadiness,
-  type CatalogProviderCredentialRequirement,
-  type CatalogProviderCredentialReadinessState,
-} from "./catalog-integration-credential-readiness";
-import {
-  CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicyFromEnv,
   type CatalogIntegrationRolloutControlPolicy,
-  type CatalogIntegrationRolloutControlSnapshot,
 } from "./catalog-integration-rollout-controls";
 import {
   buildCatalogLifecycleImpactReadModel,
@@ -207,851 +155,247 @@ import type {
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
 } from "./admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
-import {
-  createReferenceCardsProviderAdapter,
-  REFERENCE_CARDS_PROFILE_VERSION,
-} from "./provider-adapters/reference-cards";
-import {
-  createTcgdexProviderAdapter,
-  TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-} from "./provider-adapters/tcgdex";
-import {
-  createTcgplayerProviderAdapter,
-  TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  type TcgplayerProviderPayload,
-} from "./provider-adapters/tcgplayer";
-import {
-  createMtgjsonProviderAdapter,
-  MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-  type MtgjsonProviderPayload,
-} from "./provider-adapters/mtgjson";
-import {
-  createLorcanajsonProviderAdapter,
-  LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-  type LorcanajsonProviderPayload,
-} from "./provider-adapters/lorcanajson";
-import {
-  createLorcastProviderAdapter,
-  LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-  type LorcastProviderPayload,
-} from "./provider-adapters/lorcast";
-import {
-  createScryfallProviderAdapter,
-  SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-  type ScryfallProviderPayload,
-} from "./provider-adapters/scryfall";
-import {
-  createYgoprodeckProviderAdapter,
-  YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-  type YgoprodeckProviderPayload,
-} from "./provider-adapters/ygoprodeck";
-import {
-  createYgojsonProviderAdapter,
-  YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
-  YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
-  type YgojsonProviderPayload,
-} from "./provider-adapters/ygojson";
-import {
-  createScrydexOnePieceProviderAdapter,
-  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
-  SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  type ScrydexOnePieceCredentials,
-  type ScrydexOnePieceProviderPayload,
-} from "./provider-adapters/scrydex-one-piece";
+import { createReferenceCardsProviderAdapter } from "./provider-adapters/reference-cards";
+import { createTcgdexProviderAdapter } from "./provider-adapters/tcgdex";
+import { createTcgplayerProviderAdapter } from "./provider-adapters/tcgplayer";
+import { createMtgjsonProviderAdapter } from "./provider-adapters/mtgjson";
+import { createLorcanajsonProviderAdapter } from "./provider-adapters/lorcanajson";
+import { createLorcastProviderAdapter } from "./provider-adapters/lorcast";
+import { createScryfallProviderAdapter } from "./provider-adapters/scryfall";
+import { createYgoprodeckProviderAdapter } from "./provider-adapters/ygoprodeck";
+import { createYgojsonProviderAdapter } from "./provider-adapters/ygojson";
+import { createScrydexOnePieceProviderAdapter } from "./provider-adapters/scrydex-one-piece";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
-  ProviderOptionAlias,
   ProviderPayloadEnvelope,
-  ProviderTransportDiagnostic,
-  ProviderUsageEstimate,
 } from "./provider-adapters/provider-adapter";
 import {
   listCatalogProviderIntegrationOptionsFromProfiles,
   type CatalogProviderIntegrationOption,
 } from "./provider-option-query-resolver";
-import type { ProviderOptionAliasRecord } from "./provider-option-aliases";
-import {
-  createPgCatalogProviderOptionQueryCacheStore,
-  queryCatalogProviderIntegrationOptionsWithCache,
-  type CatalogProviderOptionQueryPage,
-} from "./provider-option-query-cache";
-import {
-  normalizeCatalogControlPlaneTelemetryEvent,
-  type CatalogControlPlaneTelemetryEventInput,
-  type SourceObservationTelemetry,
-} from "./catalog-integration-observability";
+import { normalizeCatalogControlPlaneTelemetryEvent } from "./catalog-integration-observability";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
   type CatalogProviderPromotionCommandPlanResult,
 } from "./provider-promotion-command-planner";
-import {
-  resolveCatalogProviderDuplicatePrevention,
-  type CatalogProviderDuplicatePreventionEvidenceSummary,
-} from "./provider-duplicate-prevention-resolver";
+import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
 import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
+import {
+  staticCatalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionLookupKey,
+  SourceObservationIntegrationJobLifecycleCommandError,
+  OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
+} from "./source-observation-runtime-contracts";
+import type {
+  CatalogProviderIntegrationProfileVersionReader,
+  SourceObservationAliasCandidateSink,
+  SourceObservationAliasPromotion,
+  SourceObservationServices,
+  SourceObservationBulkJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationBulkJobResult,
+  SourceObservationBulkJob,
+  SourceObservationBulkWorkUnitPayload,
+  SourceObservationBulkWorkUnitResult,
+  SourceObservationIntegrationJobPayload,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJob,
+  CatalogSyncRunPayload,
+  CatalogSyncRunFanoutProgress,
+  CatalogSyncRunFanoutResult,
+  SourceObservationIntegrationWorkUnitPayload,
+  SourceObservationIntegrationJobOutcome,
+  SourceObservationRecordInput,
+  CatalogMergeCandidateGenerationResult,
+  CatalogMergeCandidateActionResult,
+  SourceObservationDuplicatePreventionCandidatePreview,
+  RepresentativeCatalogProductAssetSource,
+  SourceObservationPromotionTargetResult,
+  SourceObservationProgressHandler,
+  DurableSideEffectRunner,
+  BulkSourceObservationPromotionResult,
+  BulkSourceObservationPromotionOutcome,
+  SourceObservationReapplyProfileMode,
+  SourceObservationIntegrationProfileSnapshot,
+  BulkSourceObservationReapplyResult,
+  BulkSourceObservationReapplyOutcome,
+  SourceObservationBulkJobAction,
+  SourceObservationJobRunContext,
+  SourceObservationIntegrationJobScope,
+  SourceObservationIntegrationImportPreview,
+  CatalogSyncRun,
+  CatalogSyncRunDurableJobRecord,
+  CatalogSyncRunChildJobLink,
+  CatalogSyncRunSelectedUnitSnapshot,
+  CatalogScopeSyncUnitStateReadModel,
+  CatalogSyncRunChildJob,
+  SourceObservationIntegrationJobAction,
+  SourceObservationIntegrationDurableJobRecord,
+  ProviderAdapterIntegrationImportTarget,
+  ProviderIntegrationImportTargetOptionScope,
+  SourceObservationIntegrationImportPreviewTarget,
+  ProviderAdapterImportProgress,
+} from "./source-observation-runtime-contracts";
+import {
+  scrydexOnePieceCredentialsFromEnv,
+  recordBulkReviewWorkUnitTelemetry,
+  recordBulkReviewControlPlaneTelemetry,
+  recordIntegrationJobTelemetry,
+  sourceObservationIntegrationJobTelemetryResult,
+  recordIntegrationJobControlPlaneTelemetry,
+  providerOptionAliasesToJson,
+  listTcgdexLanguagesThroughAdapter,
+  listTcgdexSeriesThroughAdapter,
+  listTcgdexExpansionsThroughAdapter,
+  queryProviderIntegrationOptions,
+  listProviderIntegrationOptions,
+  defaultSourceObservationImportProviderKeyFromVersions,
+} from "./provider-option-queries";
+import {
+  notEvaluatedDuplicatePreventionPreview,
+  duplicatePreventionCandidatePreview,
+  normalizeReapplyProfileMode,
+  loadSelectedOptionAuthoringSchema,
+  loadPromotionTargetAuthoringSchema,
+  buildCatalogIntegrationControlPlaneReadiness,
+  normalizeIntegrationKey,
+  isActiveSourceObservationImportProfileVersion,
+  profileConnectorSourceVersion,
+} from "./catalog-integration-control-plane-readiness";
+import {
+  toSourceObservationBulkJobEventSnapshot,
+  toSourceObservationIntegrationJobEventSnapshot,
+  toCatalogSyncRunFanoutEventSnapshot,
+  normalizeOptionalKey,
+  normalizeCandidateGenerationScope,
+  profileSelectorFromScope,
+  jobMatchesContext,
+  toSourceObservationIntegrationJob,
+  isImpactBlockingJob,
+  impactJobProviderKey,
+  toSourceObservationBulkJob,
+  uniqueObservationIds,
+  bulkProgress,
+  runSourceObservationSideEffectImmediately,
+  summarizePromotionOutcomes,
+  summarizeReapplyOutcomes,
+  normalizeBulkJobScope,
+  isJobRunCancelled,
+  toClaimedSourceObservationBulkJobFromWorkUnitClaim,
+  throwIfJobRunCancelled,
+  createSourceObservationWorkUnitSideEffectRunner,
+  failedBulkWorkUnitOutcome,
+  workUnitTerminalState,
+  requireSourceObservationJobClaim,
+  SourceObservationJobCancelledError,
+  bulkResultOutcomes,
+  isReapplyOutcome,
+  isPromotionOutcome,
+  parseJsonField,
+  formatDateLike,
+  normalizeIntegrationJobScope,
+  selectedCatalogSyncRunUnits,
+  catalogSyncRunIdempotencyKey,
+  catalogSyncRunFanoutProgress,
+  catalogScopeSyncStateDescriptor,
+  compactStringRecord,
+  recordFromUnknownStringRecord,
+  catalogScopeSyncObservedStatusFromChildLink,
+  childExecutionScopesMatch,
+  catalogSyncRunChildStatus,
+  catalogSyncRunProgress,
+  catalogSyncRunOperatorStatus,
+  reusableActiveIntegrationJobOperatorStatuses,
+  integrationScopeToObservationScope,
+  isDurableJobClaimExpired,
+  integrationJobOperatorStatus,
+  retryableIntegrationJobResult,
+  isOperatorCancelledIntegrationJob,
+  toClaimedSourceObservationIntegrationJob,
+  integrationReapplyOutcomeFromBulkOutcome,
+  summarizeIntegrationJobOutcomes,
+  createSourceObservationSideEffectRunner,
+  integrationImportPreviewTargetFromPlan,
+  providerUsageEvidenceFromImportPlan,
+  toSourceObservationJobEvent,
+  terminalPromotionOutcomeFromEvents,
+  sourceObservationRetentionCutoff,
+} from "./source-observation-job-serialization";
+import type { ClaimedSourceObservationIntegrationJob } from "./source-observation-job-serialization";
+export type {
+  BulkSourceObservationPromotionOutcome,
+  BulkSourceObservationPromotionResult,
+  BulkSourceObservationReapplyOutcome,
+  BulkSourceObservationReapplyResult,
+  BulkSourceObservationProgress,
+  SourceObservationBulkJobAction,
+  SourceObservationBulkJobStatus,
+  SourceObservationBulkJob,
+  SourceObservationJobEvent,
+  SourceObservationPromotionOutcomeRecord,
+  SourceObservationBulkJobResult,
+  SourceObservationJobRunContext,
+  SourceObservationIntegrationJobAction,
+  SourceObservationReapplyProfileMode,
+  SourceObservationIntegrationJobScope,
+  RepresentativeCatalogProductAssetSource,
+  SourceObservationIntegrationProfileSnapshot,
+  SourceObservationIntegrationJobOutcome,
+  SourceObservationProviderUsageEvidence,
+  SourceObservationIntegrationImportPreviewTarget,
+  SourceObservationIntegrationImportPreview,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJobOperatorStatus,
+  SourceObservationIntegrationJobLifecycleCommandErrorCode,
+  SourceObservationIntegrationJobConsistency,
+  SourceObservationIntegrationJob,
+  CatalogSyncRunChildStatus,
+  CatalogSyncRunOperatorStatus,
+  CatalogSyncRunSelectedUnitSnapshot,
+  CatalogSyncRunChildJobLink,
+  CatalogSyncRunChildJob,
+  CatalogSyncRunProgress,
+  CatalogSyncRunConsistency,
+  CatalogSyncRun,
+  SourceObservationIntegrationOption,
+  SourceObservationSelectedOptionAuthoringSchema,
+  SourceObservationPromotionTargetAuthoringSchema,
+  SourceObservationPromotionTargetAuthoringRecord,
+  SourceObservationDuplicatePreventionCandidatePreview,
+  CatalogIntegrationControlPlaneReadiness,
+  CatalogIntegrationControlPlaneUnitReadiness,
+  CatalogIntegrationControlPlaneDiagnostic,
+  CatalogIntegrationControlPlaneDryRunEvidence,
+  SourceObservationCommandServices,
+  ProviderAdapterServices,
+  ProviderOptionQueryServices,
+  ProviderProfileAdminServices,
+  CatalogIntegrationEngineServices,
+  SourceObservationReviewServices,
+  PromotionReapplyServices,
+  BulkReviewJobServices,
+  CatalogScopeSyncUnitStateReadModel,
+  IntegrationJobServices,
+  SourceObservationReadServices,
+  CatalogMergeCandidateGenerationResult,
+  CatalogMergeCandidateActionResult,
+  CatalogMergeCandidateServices,
+  ControlPlaneTelemetryServices,
+  SourceObservationRetentionServices,
+  SourceObservationProjectorServices,
+  SourceObservationServices,
+  SourceObservationAliasCandidateSink,
+  SourceObservationAliasPromotion,
+} from "./source-observation-runtime-contracts";
+export {
+  SourceObservationIntegrationJobLifecycleCommandError,
+  isSourceObservationIntegrationJobLifecycleCommandError,
+} from "./source-observation-runtime-contracts";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
-
-type CatalogProviderIntegrationProfileVersionReader = Pick<
-  CatalogProviderIntegrationProfileVersionStore,
-  "listProfileVersions" | "getActiveProfileVersion"
->;
-
-function catalogProviderProfileVersionLookupKey(
-  providerKey: string,
-  profileKey: string,
-  profileVersion: string,
-): string {
-  return `${providerKey.trim().toLowerCase()}\u0000${profileKey.trim().toLowerCase()}\u0000${profileVersion.trim()}`;
-}
-
-const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegrationProfileVersionReader = {
-  listProfileVersions: async (providerKey?: string | null) => {
-    const normalizedProviderKey = providerKey?.trim().toLowerCase() ?? "";
-    const versions = listCatalogProviderIntegrationProfileVersions();
-    return normalizedProviderKey
-      ? versions.filter((version) => version.providerKey.trim().toLowerCase() === normalizedProviderKey)
-      : versions;
-  },
-  getActiveProfileVersion: async (providerKey: string, selector?: CatalogProviderProfileVersionSelector | null) =>
-    getActiveCatalogProviderIntegrationProfileVersion(providerKey, selector),
-};
-
-export type BulkSourceObservationPromotionOutcome = Readonly<{
-  observationId: string;
-  status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
-  catalogItemId: CatalogItemId | null;
-  referenceRecordId?: ReferenceRecordId | null;
-  reason: string | null;
-}>;
-
-export type BulkSourceObservationPromotionResult = Readonly<{
-  requested: number;
-  promoted: number;
-  rejected?: number;
-  deferred?: number;
-  skipped: number;
-  failed: number;
-  outcomes: readonly BulkSourceObservationPromotionOutcome[];
-}>;
-
-export type BulkSourceObservationReapplyOutcome = Readonly<{
-  observationId: string;
-  status: "reapplied" | "skipped" | "failed";
-  catalogItemId: CatalogItemId | null;
-  referenceRecordId?: ReferenceRecordId | null;
-  reason: string | null;
-}>;
-
-export type BulkSourceObservationReapplyResult = Readonly<{
-  requested: number;
-  reapplied: number;
-  skipped: number;
-  failed: number;
-  outcomes: readonly BulkSourceObservationReapplyOutcome[];
-}>;
-
-export type BulkSourceObservationProgress = Readonly<{
-  phase: "queued" | "processing" | "completed" | "failed";
-  completed: number;
-  total: number;
-  currentName: string | null;
-  status:
-    | BulkSourceObservationPromotionOutcome["status"]
-    | BulkSourceObservationReapplyOutcome["status"]
-    | "imported"
-    | null;
-}>;
-
-type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
-type DurableSideEffectRunner = <T>(work: (signal: AbortSignal) => Promise<T>) => Promise<T>;
-type SourceObservationRecordInput = Omit<
-  Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
-  "type"
->;
-
-export type SourceObservationBulkJobAction = "promote" | "reject" | "defer" | "reapply";
-
-export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
-
-type SourceObservationBulkJobPayload = Readonly<{
-  action: SourceObservationBulkJobAction;
-  selectionMode: "ids" | "filter";
-  observationIds: readonly string[];
-  scope: SourceObservationFilterScope;
-  reason: string | null;
-  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-}>;
-
-type SourceObservationBulkWorkUnitPayload = Readonly<{
-  observationId: string;
-  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-}>;
-
-type SourceObservationBulkWorkUnitResult = BulkSourceObservationPromotionOutcome | BulkSourceObservationReapplyOutcome;
-
-export type SourceObservationBulkJob = Readonly<{
-  jobId: string;
-  action: SourceObservationBulkJobAction;
-  selectionMode: "ids" | "filter";
-  observationIds: readonly string[];
-  scope: SourceObservationFilterScope;
-  reason: string | null;
-  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
-  status: SourceObservationBulkJobStatus;
-  progress: BulkSourceObservationProgress;
-  result: SourceObservationBulkJobResult | null;
-  errorMessage: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  updatedAt: string;
-}>;
-
-export type SourceObservationJobEvent<TJob> = Readonly<{
-  sequence: number;
-  eventName: "status";
-  job: TJob;
-  createdAt: string;
-}>;
-
-export type SourceObservationPromotionOutcomeRecord = Readonly<{
-  outcomeId: string;
-  jobId: string;
-  eventSequence: number;
-  terminalState: "completed" | "partial" | "failed";
-  requested: number;
-  promoted: number;
-  skipped: number;
-  failed: number;
-  outcomes: readonly BulkSourceObservationPromotionOutcome[];
-  errorMessage: string | null;
-  recordedAt: string;
-}>;
-
-export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
-
-export type SourceObservationJobRunContext = Readonly<{
-  signal?: AbortSignal;
-  throwIfLeaseLost?: () => void;
-}>;
-
-export type SourceObservationIntegrationJobAction = "import" | "reapply";
-
-export type SourceObservationReapplyProfileMode = "original-source-profile" | "current-active-profile";
-
-export type SourceObservationIntegrationJobScope = Readonly<{
-  provider?: string;
-  profileKey?: string;
-  ingestionUnitKey?: string;
-  language?: string;
-  seriesId?: string;
-  setId?: string;
-  productLineId?: string;
-  setName?: string;
-  productId?: string;
-  planningFingerprint?: string;
-}>;
-
-export type RepresentativeCatalogProductAssetSource = Readonly<{
-  body: Uint8Array;
-  contentType: string;
-  sourceUrl: string | null;
-  sourceHash: string;
-}>;
-
-type SourceObservationIntegrationJobPayload = Readonly<{
-  action: SourceObservationIntegrationJobAction;
-  scope: SourceObservationIntegrationJobScope;
-  syncRunId?: string | null;
-  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-}>;
-
-export type SourceObservationIntegrationProfileSnapshot = Readonly<{
-  providerKey: string;
-  profileKey: string;
-  profileVersion: string;
-  ingestionUnitKey?: string | null;
-  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
-  connectorKind: string;
-  connectorSourceVersion: string | null;
-  sourceMappingFingerprint: string;
-}>;
-
-type SourceObservationIntegrationWorkUnitPayload = Readonly<{
-  observationId: string;
-  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-}>;
-
-type ProviderAdapterIntegrationImportTarget = Readonly<{
-  targetId: string;
-  name: string;
-  scopeKey: string;
-  values: Readonly<Record<string, string>>;
-  languageCode: string;
-}>;
-
-type ProviderIntegrationImportTargetOptionScope = "expansion" | "set-name";
-
-type ProviderAdapterImportProgress = Readonly<{
-  currentName: string | null;
-  completed: number;
-  total: number;
-}>;
-
-export type SourceObservationIntegrationJobOutcome = Readonly<{
-  providerKey: string;
-  languageCode: string;
-  expansionId: string | null;
-  status: "imported" | "reapplied" | "skipped" | "failed";
-  observed: number;
-  reapplied: number;
-  reason: string | null;
-  providerUsageEvidence?: SourceObservationProviderUsageEvidence | null;
-}>;
-
-export type SourceObservationProviderUsageEvidence = Readonly<{
-  unitKey: string;
-  requestStrategy: ProviderUsageEstimate["requestStrategy"];
-  estimateState: ProviderUsageEstimate["estimateState"];
-  estimatedRequestCount: number | null;
-  estimateReason: string | null;
-  actualRequestCount: number | null;
-  /**
-   * For bulk-first imports, the number of distinct response-page source URLs.
-   * Each observed page URL is also one provider request, so this intentionally
-   * aliases actualRequestCount instead of claiming an independent measurement.
-   */
-  pageCount: number | null;
-  /** Unavailable until the import fetch path emits an observed cache outcome. */
-  cacheHitCount: number | null;
-  /** Unavailable until the import fetch path emits an observed cache outcome. */
-  cacheMissCount: number | null;
-  usageCheckState: ProviderUsageEstimate["usageCheckState"];
-  creditDiagnostic: string | null;
-  degradedDiagnostic: string | null;
-  bulkFirstConfirmed: boolean | null;
-  perRecordFallbackReason: string | null;
-  selectedFields: readonly string[];
-  pageSize: number | null;
-}>;
-
-export type SourceObservationIntegrationImportPreviewTarget = Readonly<{
-  targetId: string;
-  name: string;
-  languageCode: string;
-  scopeKey: string;
-  planKey: string;
-  estimatedPayloads: number | null;
-  transportSteps: readonly string[];
-  usageEstimate: ProviderUsageEstimate | null;
-}>;
-
-export type SourceObservationIntegrationImportPreview = Readonly<{
-  action: "import";
-  providerKey: string;
-  scope: SourceObservationIntegrationJobScope;
-  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
-  targetCount: number;
-  targets: readonly SourceObservationIntegrationImportPreviewTarget[];
-}>;
-
-export type SourceObservationIntegrationJobResult = Readonly<{
-  requested: number;
-  imported: number;
-  observed: number;
-  reapplied: number;
-  skipped: number;
-  failed: number;
-  outcomes: readonly SourceObservationIntegrationJobOutcome[];
-}>;
-
-type SourceObservationIntegrationDurableJobRecord = DurableJobRecord<
-  SourceObservationIntegrationJobPayload,
-  BulkSourceObservationProgress,
-  SourceObservationIntegrationJobResult
->;
-
-type CatalogSyncRunPayload = Readonly<{
-  runVersion: "catalog-sync-run-v1";
-  idempotencyKey: string;
-  scope: CatalogSyncScope;
-  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[];
-  preview: CatalogSyncProviderParticipationPreview;
-}>;
-
-type CatalogSyncRunFanoutProgress = Readonly<{
-  phase: "queued" | "processing" | "completed" | "failed";
-  completed: number;
-  total: number;
-  currentName: string | null;
-  status: "child-job-enqueued" | "child-job-failed" | null;
-}>;
-
-type CatalogSyncRunFanoutResult = Readonly<{
-  childJobs: readonly CatalogSyncRunChildJobLink[];
-}>;
-
-type CatalogSyncRunDurableJobRecord = DurableJobRecord<
-  CatalogSyncRunPayload,
-  CatalogSyncRunFanoutProgress,
-  CatalogSyncRunFanoutResult
->;
-
-export type SourceObservationIntegrationJobOperatorStatus =
-  | "queued"
-  | "running"
-  | "stale"
-  | "retried"
-  | "partial"
-  | "failed"
-  | "cancelled"
-  | "completed";
-
-export type SourceObservationIntegrationJobLifecycleCommandErrorCode =
-  | "job_not_found"
-  | "unsupported_action"
-  | "unsupported_state";
-
-export class SourceObservationIntegrationJobLifecycleCommandError extends Error {
-  public readonly code: SourceObservationIntegrationJobLifecycleCommandErrorCode;
-
-  constructor(code: SourceObservationIntegrationJobLifecycleCommandErrorCode, message: string) {
-    super(message);
-    this.name = "SourceObservationIntegrationJobLifecycleCommandError";
-    this.code = code;
-  }
-}
-
-export function isSourceObservationIntegrationJobLifecycleCommandError(
-  error: unknown,
-): error is SourceObservationIntegrationJobLifecycleCommandError {
-  return error instanceof SourceObservationIntegrationJobLifecycleCommandError;
-}
-
-const OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE = "Operator cancelled provider import job.";
-
-export type SourceObservationIntegrationJobConsistency = Readonly<{
-  duplicateSubmissionPolicy: "reuse-active-job";
-  profileSnapshotPolicy: "snapshotted-at-enqueue";
-  retryResumePolicy: "skip-completed-outcomes";
-  partialFailurePolicy: "mixed-outcomes";
-  workUnitClaimPolicy: "leased-job-turns" | "leased-work-units";
-}>;
-
-export type SourceObservationIntegrationJob = Readonly<{
-  jobId: string;
-  syncRunId: string | null;
-  action: SourceObservationIntegrationJobAction;
-  scope: SourceObservationIntegrationJobScope;
-  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
-  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
-  status: SourceObservationBulkJobStatus;
-  operatorStatus: SourceObservationIntegrationJobOperatorStatus;
-  consistency: SourceObservationIntegrationJobConsistency;
-  progress: BulkSourceObservationProgress;
-  result: SourceObservationIntegrationJobResult | null;
-  errorMessage: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  updatedAt: string;
-}>;
-
-export type CatalogSyncRunChildStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "partial"
-  | "failed"
-  | "cancelled"
-  | "stale"
-  | "retried"
-  | "reused-active-job";
-
-export type CatalogSyncRunOperatorStatus = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
-
-export type CatalogSyncRunSelectedUnitSnapshot = Readonly<{
-  providerKey: string;
-  unitKey: string;
-  profileKey: string;
-  profileVersion: string;
-  displayName: string;
-  role: CatalogSyncProviderParticipationPreview["units"][number]["role"];
-  requirement: CatalogSyncProviderParticipationPreview["units"][number]["requirement"];
-  childExecutionScope: SourceObservationIntegrationJobScope;
-}>;
-
-export type CatalogSyncRunChildJobLink = Readonly<{
-  providerKey: string;
-  unitKey: string;
-  profileKey: string;
-  profileVersion: string;
-  displayName: string;
-  childExecutionScope: SourceObservationIntegrationJobScope;
-  childJobId: string | null;
-  // "reused-settled-child-job": the durable per-scope sync state showed this
-  // unit already settled with an unchanged child execution scope, so the
-  // fan-out skipped a new provider call and pointed the child link at the
-  // prior completed job — the "Sync scope on a settled scope is a fast
-  // no-op" behavior.
-  syncRunLinkState:
-    | "attached-to-child-payload"
-    | "reused-active-child-job"
-    | "reused-settled-child-job"
-    | "child-enqueue-failed";
-  errorMessage: string | null;
-}>;
-
-export type CatalogSyncRunChildJob = CatalogSyncRunChildJobLink &
-  Readonly<{
-    status: CatalogSyncRunChildStatus;
-    job: SourceObservationIntegrationJob | null;
-  }>;
-
-export type CatalogSyncRunProgress = Readonly<{
-  childJobs: Readonly<{
-    total: number;
-    queued: number;
-    running: number;
-    completed: number;
-    partial: number;
-    failed: number;
-    cancelled: number;
-    stale: number;
-  }>;
-  providerTargets: Readonly<{
-    completed: number;
-    total: number;
-  }>;
-}>;
-
-export type CatalogSyncRunConsistency = Readonly<{
-  duplicateSubmissionPolicy: "reuse-active-sync-run";
-  childScopePolicy: "deterministic-from-provider-participation-preview";
-  profileSnapshotPolicy: "selected-active-provider-units-snapshotted-at-enqueue";
-  childRetryResumeCancelPolicy: "delegated-to-provider-import-jobs";
-  partialFailurePolicy: "visible-per-provider-child-job";
-}>;
-
-export type CatalogSyncRun = Readonly<{
-  syncRunId: string;
-  scope: CatalogSyncScope;
-  status: CatalogSyncRunOperatorStatus;
-  progress: CatalogSyncRunProgress;
-  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[];
-  childJobs: readonly CatalogSyncRunChildJob[];
-  consistency: CatalogSyncRunConsistency;
-  preview: CatalogSyncProviderParticipationPreview;
-  errorMessage: string | null;
-  createdAt: string;
-  updatedAt: string;
-}>;
-
-export type SourceObservationIntegrationOption = Readonly<{
-  providerKey: string;
-  queryKind: string;
-  value: string;
-  label: string;
-  description: string | null;
-  parentValue: string | null;
-  imageUrl: string | null;
-  aliases: readonly ProviderOptionAliasRecord[];
-  metadata: Readonly<Record<string, JsonValue>>;
-}>;
-
-export type SourceObservationSelectedOptionAuthoringSchema = Readonly<{
-  dimensions: readonly Readonly<{
-    dimensionId: string;
-    dimensionKey: string;
-    dimensionName: string;
-    status: string;
-    options: readonly Readonly<{
-      optionId: string;
-      optionKey: string;
-      optionLabel: string;
-      status: string;
-    }>[];
-  }>[];
-}>;
-
-export type SourceObservationPromotionTargetAuthoringSchema = Readonly<{
-  blueprints: readonly SourceObservationPromotionTargetAuthoringRecord[];
-  categories: readonly SourceObservationPromotionTargetAuthoringRecord[];
-  fields: readonly SourceObservationPromotionTargetAuthoringRecord[];
-}>;
-
-export type SourceObservationPromotionTargetAuthoringRecord = Readonly<{
-  id: string;
-  key: string;
-  name: string;
-  status: string;
-}>;
-
-export type SourceObservationDuplicatePreventionCandidatePreview = Readonly<{
-  status: "matched" | "none" | "blocked" | "review-only" | "not-evaluated";
-  ruleKey: string | null;
-  candidateCount: number;
-  candidateCatalogItemIds: readonly CatalogItemId[];
-  diagnosticText: string | null;
-  evidenceSummary: CatalogProviderDuplicatePreventionEvidenceSummary | null;
-  evidenceSummaries: readonly CatalogProviderDuplicatePreventionEvidenceSummary[];
-}>;
-
-export type CatalogIntegrationControlPlaneReadiness = Readonly<{
-  generatedAt: string;
-  rolloutControls: CatalogIntegrationRolloutControlSnapshot;
-  units: readonly CatalogIntegrationControlPlaneUnitReadiness[];
-}>;
-
-export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
-  unitKey: string;
-  providerKey: string;
-  displayName: string;
-  productDomain: string;
-  productForm: string;
-  ingestionPurpose: string | null;
-  profileVersion: string;
-  semanticReadiness: "ready" | "blocked";
-  credentialReadiness: "ready" | "blocked" | "not-required";
-  credentialReadinessState: CatalogProviderCredentialReadinessState;
-  credentialRequirement: CatalogProviderCredentialRequirement;
-  credentialDiagnosticCode: string | null;
-  transportReadiness: "ready" | "blocked";
-  fixtureValidationStatus: "ready" | "blocked";
-  dryRunStatus: "completed" | "blocked";
-  observationFacts: number;
-  diagnosticCounts: Readonly<{
-    info: number;
-    warning: number;
-    error: number;
-  }>;
-  diagnostics: readonly CatalogIntegrationControlPlaneDiagnostic[];
-  latestDiagnosticText: string | null;
-  dryRunEvidence: readonly CatalogIntegrationControlPlaneDryRunEvidence[];
-}>;
-
-export type CatalogIntegrationControlPlaneDiagnostic = Readonly<{
-  code: string;
-  severity: "info" | "warning" | "error";
-  message: string;
-  unitKey: string | null;
-  retryAfterSeconds: number | null;
-  source: "catalog" | "provider-adapter";
-}>;
-
-export type CatalogIntegrationControlPlaneDryRunEvidence = Readonly<{
-  externalKey: string;
-  sourceUrl: string | null;
-  sourceHash: string | null;
-  normalizedFacts: Readonly<Record<string, string>>;
-}>;
-
-export type SourceObservationCommandServices = Readonly<{
-  commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
-}>;
-
-export type ProviderAdapterServices = Readonly<{
-  providerAdapterRegistry: ProviderAdapterRegistry;
-}>;
-
-export type ProviderOptionQueryServices = Readonly<{
-  listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
-  listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
-  listTcgdexExpansions: (input: {
-    languageCode: string;
-    seriesId?: string | null;
-  }) => Promise<readonly TcgdexExpansionOption[]>;
-  queryIntegrationOptions: (input: {
-    providerKey: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    queryKind: string;
-    languageCode?: string | null;
-    parentValue?: string | null;
-    cursor?: string | null;
-    limit?: number | null;
-    forceRefresh?: boolean | null;
-    cacheOnly?: boolean | null;
-  }) => Promise<CatalogProviderOptionQueryPage>;
-  listIntegrationOptions: (input: {
-    providerKey: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    queryKind: string;
-    languageCode?: string | null;
-    parentValue?: string | null;
-  }) => Promise<readonly SourceObservationIntegrationOption[]>;
-}>;
-
-export type ProviderProfileAdminServices = Readonly<{
-  getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
-  getPromotionTargetAuthoringSchema: () => Promise<SourceObservationPromotionTargetAuthoringSchema>;
-}>;
-
-export type CatalogIntegrationEngineServices = Readonly<{
-  previewDuplicatePreventionCandidates: (input: {
-    providerKey: string;
-    profileVersion: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    payload: JsonValue;
-    observedAt?: string;
-  }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
-  previewReplayReapplyImpact: (input: {
-    providerKey: string;
-    profileVersion: string;
-    scope: SourceObservationFilterScope;
-    context?: EventStoreContext | null;
-  }) => Promise<CatalogAdminReplayReapplyImpactSummaryReadModel>;
-  previewProviderProfileLifecycleImpact: (input: {
-    providerKey: string;
-    profileVersion: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    operation: CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
-    context?: EventStoreContext | null;
-  }) => Promise<CatalogAdminRollbackRetirementImpactSummaryReadModel>;
-  getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
-  getCatalogIntegrationRolloutControls: () => CatalogIntegrationRolloutControlSnapshot;
-  assertCatalogIntegrationRolloutAllowed: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
-  importProviderAdapterForReplay: (input: {
-    adapter: ProviderAdapter;
-    profileVersion: CatalogProviderIntegrationProfileVersionRecord;
-    scope: SourceObservationIntegrationJobScope;
-    context: EventStoreContext;
-  }) => Promise<readonly SourceObservationIntegrationJobOutcome[]>;
-  reconcilePromotedObservationForReplay: (input: {
-    observationId: string;
-    context: EventStoreContext;
-    productAssetSource: RepresentativeCatalogProductAssetSource;
-  }) => Promise<
-    Readonly<{
-      catalogItemId: CatalogItemId;
-      promotionProfileKey: string;
-      promotionProfileVersion: string;
-      promotionPlanFingerprints: readonly string[];
-    }>
-  >;
-}>;
-
-export type SourceObservationReviewServices = Readonly<{
-  promoteObservation: (input: {
-    observationId: string;
-    context: EventStoreContext;
-    productAssetSource?: RepresentativeCatalogProductAssetSource | null;
-  }) => Promise<SourceObservationPromotionTargetResult>;
-  rejectObservation: (input: {
-    observationId: string;
-    reason: string;
-    context: EventStoreContext;
-  }) => Promise<{ observationId: string; status: "rejected" }>;
-}>;
-
-type SourceObservationPromotionTargetResult = Readonly<{
-  observationId: string;
-  catalogItemId: CatalogItemId | null;
-  referenceRecordId?: ReferenceRecordId | null;
-}>;
-
-export type PromotionReapplyServices = Readonly<{
-  promoteObservations: (input: {
-    observationIds: readonly string[];
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-  previewPromoteObservations: (input: {
-    observationIds: readonly string[];
-  }) => Promise<SourceObservationPromotionPreview>;
-  previewPromoteObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-  }) => Promise<SourceObservationPromotionPreview>;
-  promoteObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-  previewReapplyObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-  }) => Promise<SourceObservationReapplyPreview>;
-  reapplyObservations: (input: {
-    observationIds: readonly string[];
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-    reapplyProfileMode: SourceObservationReapplyProfileMode;
-    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  }) => Promise<BulkSourceObservationReapplyResult>;
-  reapplyObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationReapplyResult>;
-  rejectObservations: (input: {
-    observationIds: readonly string[];
-    reason: string;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-  rejectObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-    reason: string;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-  deferObservations: (input: {
-    observationIds: readonly string[];
-    reason: string;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-  deferObservationScope: (input: {
-    scope: SourceObservationFilterScope;
-    reason: string;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<BulkSourceObservationPromotionResult>;
-}>;
-
-export type BulkReviewJobServices = Readonly<{
-  enqueueBulkReviewJob: (input: {
-    action: SourceObservationBulkJobAction;
-    observationIds?: readonly string[];
-    scope?: SourceObservationFilterScope;
-    reason?: string | null;
-    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationBulkJob>;
-  getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
-  listBulkReviewJobEvents: (
-    jobId: string,
-    afterSequence?: number,
-  ) => Promise<readonly SourceObservationJobEvent<SourceObservationBulkJob>[]>;
-  getBulkReviewPromotionOutcome: (jobId: string) => Promise<SourceObservationPromotionOutcomeRecord | null>;
-  waitForBulkReviewJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
-  listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
-  processNextBulkReviewJob: (
-    input: {
-      claimOwnerId: string;
-      claimTtlMs: number;
-      workflowMaxActiveClaims?: number;
-      jobMaxActiveClaims?: number;
-      laneName?: string | null;
-    } & SourceObservationJobRunContext,
-  ) => Promise<number>;
-  getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
-}>;
 
 // One provider unit's durable sync state within a Catalog sync scope, read
 // back across runs. This is what the scope page renders instead of the
@@ -1060,212 +404,6 @@ export type BulkReviewJobServices = Readonly<{
 // `lastJobId` + the existing `retryIntegrationJob`) without re-running the
 // whole scope, and a settled provider stays visibly settled until something
 // changes.
-export type CatalogScopeSyncUnitStateReadModel = Readonly<{
-  providerKey: string;
-  unitKey: string;
-  displayName: string;
-  role: string;
-  requirement: string;
-  state: CatalogScopeSyncUnitState;
-  lastSyncRunId: string | null;
-  lastJobId: string | null;
-  lastOperatorStatus: string | null;
-  observedCount: number | null;
-  changedCount: number | null;
-  requestedCount: number | null;
-  failedCount: number | null;
-  errorMessage: string | null;
-  lastStartedAt: string | null;
-  lastCompletedAt: string | null;
-  updatedAt: string;
-}>;
-
-export type IntegrationJobServices = Readonly<{
-  previewCatalogSyncScope: (input: {
-    scope: CatalogSyncScope;
-    context: EventStoreContext;
-    includeOperationalGates?: boolean;
-    acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
-  }) => Promise<CatalogSyncProviderParticipationPreview>;
-  enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
-  getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
-  getCatalogScopeSyncState: (input: {
-    scope: CatalogSyncScope;
-    context: EventStoreContext;
-  }) => Promise<readonly CatalogScopeSyncUnitStateReadModel[]>;
-  previewIntegrationImport: (input: {
-    scope: SourceObservationIntegrationJobScope;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationIntegrationImportPreview>;
-  enqueueIntegrationJob: (input: {
-    action: SourceObservationIntegrationJobAction;
-    scope: SourceObservationIntegrationJobScope;
-    syncRunId?: string | null;
-    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationIntegrationJob>;
-  retryIntegrationJob: (input: {
-    jobId: string;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationIntegrationJob>;
-  resumeIntegrationJob: (input: {
-    jobId: string;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationIntegrationJob>;
-  cancelIntegrationJob: (input: {
-    jobId: string;
-    context: EventStoreContext;
-  }) => Promise<SourceObservationIntegrationJob>;
-  getIntegrationJob: (
-    jobId: string,
-    context?: EventStoreContext | null,
-  ) => Promise<SourceObservationIntegrationJob | null>;
-  listIntegrationJobEvents: (
-    jobId: string,
-    afterSequence?: number,
-  ) => Promise<readonly SourceObservationJobEvent<SourceObservationIntegrationJob>[]>;
-  waitForIntegrationJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
-  listActiveIntegrationJobs: (input: {
-    context?: EventStoreContext | null;
-  }) => Promise<readonly SourceObservationIntegrationJob[]>;
-  listRecentIntegrationJobs: (input: {
-    context?: EventStoreContext | null;
-    limit?: number;
-  }) => Promise<readonly SourceObservationIntegrationJob[]>;
-  processNextIntegrationJob: (
-    input: {
-      claimOwnerId: string;
-      claimTtlMs: number;
-      workflowMaxActiveClaims?: number;
-      jobMaxActiveClaims?: number;
-      laneName?: string | null;
-    } & SourceObservationJobRunContext,
-  ) => Promise<number>;
-  getIntegrationWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
-}>;
-
-export type SourceObservationReadServices = Readonly<{
-  listSourceObservations: (
-    params?: Parameters<typeof listSourceObservations>[1],
-  ) => ReturnType<typeof listSourceObservations>;
-  listCatalogMergeCandidates: (
-    params?: Parameters<typeof listCatalogMergeCandidates>[1],
-  ) => ReturnType<typeof listCatalogMergeCandidates>;
-  listIntegrationScopes: (params?: {
-    provider?: string;
-    language?: string;
-    productLineId?: string;
-    seriesId?: string;
-    expansionId?: string;
-    setId?: string;
-  }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
-  getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
-}>;
-
-export type CatalogMergeCandidateGenerationResult = Readonly<{
-  syncRunId: string | null;
-  scope: SourceObservationFilterScope;
-  observationCount: number;
-  matchedObservationCount: number;
-  excludedObservationCount: number;
-  candidateCount: number;
-  candidates: readonly CatalogMergeCandidateMatchResult[];
-  exclusions: readonly CatalogMergeCandidateMatchExclusion[];
-}>;
-
-export type CatalogMergeCandidateActionResult = Readonly<{
-  candidateId: string;
-  action: "promote" | "split" | "update" | "ignore" | "defer";
-  version: number;
-  status: CatalogMergeCandidateState["status"];
-  statusReason: string | null;
-  snapshot: CatalogMergeCandidateReviewSnapshot | null;
-  splitCandidate?: Readonly<{
-    candidateId: string;
-    version: number;
-    status: CatalogMergeCandidateState["status"];
-    statusReason: string | null;
-    snapshot: CatalogMergeCandidateReviewSnapshot | null;
-  }>;
-}>;
-
-export type CatalogMergeCandidateServices = Readonly<{
-  generateCatalogMergeCandidates: (input: {
-    syncRunId?: string | null;
-    scope?: SourceObservationFilterScope;
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateGenerationResult>;
-  promoteCatalogMergeCandidate: (input: {
-    candidateId: string;
-    reason: string;
-    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateActionResult>;
-  splitCatalogMergeCandidate: (input: {
-    candidateId: string;
-    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
-    splitCandidateId: string;
-    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
-    reason: string;
-    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateActionResult>;
-  updateCatalogMergeCandidate: (input: {
-    candidateId: string;
-    snapshot: CatalogMergeCandidateReviewSnapshot;
-    reason: string;
-    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateActionResult>;
-  ignoreCatalogMergeCandidate: (input: {
-    candidateId: string;
-    reason: string;
-    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateActionResult>;
-  deferCatalogMergeCandidate: (input: {
-    candidateId: string;
-    reason: string;
-    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
-    context: EventStoreContext;
-  }) => Promise<CatalogMergeCandidateActionResult>;
-  previewCatalogMergeCandidatePromotionPlan: (input: {
-    candidate: CatalogMergeCandidatePromotionCandidate;
-    catalog: CatalogMergeCandidatePromotionCatalogMapping;
-    createCatalogItemId?: CatalogItemId | null;
-    assetPlan?: CatalogMergeCandidatePromotionAssetPlan | null;
-  }) => CatalogMergeCandidatePromotionCommandPlanResult;
-}>;
-
-export type ControlPlaneTelemetryServices = Readonly<{
-  recordControlPlaneTelemetry: (event: CatalogControlPlaneTelemetryEventInput) => void;
-}>;
-
-export type SourceObservationRetentionServices = Readonly<{
-  pruneSourceObservationJobRetention: (input?: {
-    completedBefore?: string | Date;
-    limit?: number;
-  }) => Promise<{ bulkReviewJobs: number; integrationJobs: number }>;
-}>;
-
-export type SourceObservationProjectorServices = Readonly<{
-  projectors: readonly ProjectionHandlerSet[];
-}>;
-
-export type SourceObservationServices = SourceObservationCommandServices &
-  ProviderAdapterServices &
-  ProviderOptionQueryServices &
-  ProviderProfileAdminServices &
-  CatalogIntegrationEngineServices &
-  SourceObservationReviewServices &
-  PromotionReapplyServices &
-  BulkReviewJobServices &
-  IntegrationJobServices &
-  SourceObservationReadServices &
-  CatalogMergeCandidateServices &
-  ControlPlaneTelemetryServices &
-  SourceObservationRetentionServices &
-  SourceObservationProjectorServices;
 
 /**
  * Persistence sink for alias candidates produced during Source Observation
@@ -1273,10 +411,6 @@ export type SourceObservationServices = SourceObservationCommandServices &
  * observation runtime stays decoupled from the alias-equivalence runtime;
  * defaults to the read-model upsert keyed off the shared `deps.db`.
  */
-export type SourceObservationAliasCandidateSink = (
-  candidates: readonly CatalogAliasCandidate[],
-  observedAt: string,
-) => Promise<void>;
 
 /**
  * Drives accepted-alias writes and retractions during promotion/reapply.
@@ -1286,9 +420,6 @@ export type SourceObservationAliasCandidateSink = (
  * (owned by the alias runtime) must be supplied. When omitted, promotion writes
  * no alias facts so minimal/legacy callers are unaffected.
  */
-export type SourceObservationAliasPromotion =
-  | PromotionAliasServices
-  | Readonly<{ catalogAliasCommandHandler: PromotionAliasServices["catalogAliasCommandHandler"] }>;
 
 export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
@@ -4988,1325 +4119,9 @@ function hasSourcePayloadChunkCount(value: unknown): boolean {
   return !!value && typeof value === "object" && "sourcePayloadChunkCount" in value;
 }
 
-function recordIntegrationJobTelemetry(
-  telemetry: SourceObservationTelemetry | undefined,
-  jobKind: SourceObservationIntegrationJobAction,
-  result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
-): void {
-  telemetry?.recordIntegrationJob?.({ jobKind, result });
-}
-
-function recordBulkReviewWorkUnitTelemetry(
-  telemetry: SourceObservationTelemetry | undefined,
-  jobKind: SourceObservationBulkJobAction,
-  result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
-): void {
-  telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });
-}
-
-function recordIntegrationJobControlPlaneTelemetry(
-  telemetry: SourceObservationTelemetry | undefined,
-  job: ClaimedSourceObservationIntegrationJob,
-  result: SourceObservationIntegrationJobResult | null,
-  fallbackResult?: "failed",
-): void {
-  if (job.action !== "import") {
-    return;
-  }
-
-  const failed = fallbackResult === "failed" || (result?.failed ?? 0) > 0;
-  telemetry?.recordControlPlaneEvent?.(
-    normalizeCatalogControlPlaneTelemetryEvent({
-      eventName: failed ? "catalog_control_plane.import_failed" : "catalog_control_plane.import_completed",
-      providerKey: job.scope.provider ?? job.profileSnapshot?.providerKey ?? null,
-      scopeId: integrationScopeTelemetryRef(job.scope),
-      profileRef: integrationProfileTelemetryRef(job.profileSnapshot),
-      jobRefState: "present",
-      observationStatus: result ? "mixed" : "unknown",
-      observationCount: result?.observed ?? result?.imported ?? null,
-      promotionResult: failed ? "failed" : "completed",
-      blockerCategory: failed ? "provider-transport" : null,
-      roleBucket: "unknown",
-    }),
-  );
-}
-
-function recordBulkReviewControlPlaneTelemetry(
-  telemetry: SourceObservationTelemetry | undefined,
-  job: ClaimedSourceObservationBulkJob,
-  outcome: SourceObservationBulkWorkUnitResult,
-): void {
-  if (job.action !== "promote") {
-    return;
-  }
-
-  const failed = outcome.status === "failed";
-  telemetry?.recordControlPlaneEvent?.(
-    normalizeCatalogControlPlaneTelemetryEvent({
-      eventName: failed ? "catalog_control_plane.promotion_failed" : "catalog_control_plane.promotion_completed",
-      providerKey: job.scope.provider ?? null,
-      scopeId: promotionScopeTelemetryRef(job.scope),
-      jobRefState: "present",
-      observationStatus: failed ? "unknown" : "promoted",
-      observationCount: 1,
-      promotionResult: failed ? "failed" : "completed",
-      promotionCount: failed ? 0 : 1,
-      blockerCategory: failed ? "promotion-conflict" : null,
-      roleBucket: "unknown",
-    }),
-  );
-}
-
-function sourceObservationIntegrationJobTelemetryResult(
-  result: SourceObservationIntegrationJobResult,
-): "completed" | "failed" | "skipped" {
-  if (result.failed > 0) {
-    return "failed";
-  }
-  if (result.skipped > 0 && result.observed === 0 && result.reapplied === 0) {
-    return "skipped";
-  }
-  return "completed";
-}
-
-function integrationScopeTelemetryRef(scope: SourceObservationIntegrationJobScope): string | null {
-  const segments = [scope.language, scope.productLineId, scope.seriesId, scope.setId, scope.productId].filter(
-    (segment): segment is string => Boolean(segment),
-  );
-
-  return segments.length > 0 ? segments.join(":") : null;
-}
-
-function promotionScopeTelemetryRef(scope: SourceObservationFilterScope): string | null {
-  const segments = [
-    scope.provider,
-    scope.language,
-    scope.productLineId,
-    scope.seriesId,
-    scope.expansionId ?? scope.setId,
-    scope.status,
-  ].filter((segment): segment is string => Boolean(segment));
-
-  return segments.length > 0 ? segments.join(":") : null;
-}
-
-function integrationProfileTelemetryRef(profile: SourceObservationIntegrationProfileSnapshot | null): string | null {
-  return profile ? `${profile.profileKey}:${profile.profileVersion}` : null;
-}
-
-async function listProviderIntegrationOptions(
-  input: {
-    providerKey: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    queryKind: string;
-    languageCode?: string | null;
-    parentValue?: string | null;
-  },
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
-  profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
-  providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
-    createReferenceCardsProviderAdapter(),
-    createTcgdexProviderAdapter({
-      loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
-    }),
-    createTcgplayerProviderAdapter({
-      loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: tcgplayerAutomationCatalogClient,
-    }),
-    createMtgjsonProviderAdapter(),
-    createLorcanajsonProviderAdapter(),
-    createLorcastProviderAdapter(),
-    createScryfallProviderAdapter(),
-    createYgoprodeckProviderAdapter(),
-    createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
-  ]),
-): Promise<readonly SourceObservationIntegrationOption[]> {
-  const versions = await profileVersions.listProfileVersions();
-  const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);
-  const selectedVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, {
-    providerKey: input.providerKey,
-    queryKind: input.queryKind,
-    profileKey: input.profileKey,
-    ingestionUnitKey: input.ingestionUnitKey,
-  });
-  const selectedOptionUnitKey = selectedVersion ? catalogProviderProfileVersionIngestionUnitKey(selectedVersion) : null;
-  return listCatalogProviderIntegrationOptionsFromProfiles({
-    profiles: (selectedVersion ? [selectedVersion] : activeOptionQueryVersions).map((version) => version.profile),
-    providerKey: input.providerKey,
-    queryKind: input.queryKind,
-    languageCode: input.languageCode,
-    parentValue: input.parentValue,
-    defaultProviderKey: await defaultSourceObservationImportProviderKey(profileVersions),
-    transports: {
-      listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listTcgdexSeries: ({ languageCode }) =>
-        listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
-      listTcgdexExpansions: ({ languageCode, seriesId }) =>
-        listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-      listTcgplayerProductLines: () =>
-        listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
-          unitKey: selectedOptionUnitKey,
-        }),
-      listTcgplayerSetNames: ({ productLineId }) =>
-        listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
-          productLineId,
-          unitKey: selectedOptionUnitKey,
-        }),
-      listTcgplayerProducts: ({ setName }) =>
-        listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
-          setName,
-          unitKey: selectedOptionUnitKey,
-        }),
-      listTcgplayerSkus: ({ productId }) =>
-        listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
-          productId,
-          unitKey: selectedOptionUnitKey,
-        }),
-      listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listMtgjsonCards: ({ setCode }) =>
-        listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-      listLorcanajsonSets: () => listLorcanajsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listLorcanajsonCards: ({ setCode }) =>
-        listLorcanajsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-      listLorcastSets: () => listLorcastSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listLorcastCards: ({ setCode }) =>
-        listLorcastCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-      listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listScryfallCards: ({ setCode }) =>
-        listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-      listScrydexOnePieceSets: () => listScrydexOnePieceSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listScrydexOnePieceCards: ({ setId }) =>
-        listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-      listScrydexOnePieceSealedProducts: ({ setId }) =>
-        listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-      listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listScrydexLorcanaCards: ({ setId }) =>
-        listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-      listScrydexLorcanaSealedProducts: ({ setId }) =>
-        listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-      listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listYgoprodeckCards: ({ setCode }) =>
-        listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-      listYgojsonSets: () => listYgojsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-      listYgojsonSealedProducts: () => listYgojsonSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry),
-    },
-  });
-}
-
-async function queryProviderIntegrationOptions(
-  input: {
-    providerKey: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-    queryKind: string;
-    languageCode?: string | null;
-    parentValue?: string | null;
-    cursor?: string | null;
-    limit?: number | null;
-    forceRefresh?: boolean | null;
-    cacheOnly?: boolean | null;
-  },
-  db: PgQueryable | null,
-  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy | null,
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
-  profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
-  providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
-    createReferenceCardsProviderAdapter(),
-    createTcgdexProviderAdapter({
-      loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
-    }),
-    createTcgplayerProviderAdapter({
-      loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: tcgplayerAutomationCatalogClient,
-    }),
-    createMtgjsonProviderAdapter(),
-    createLorcanajsonProviderAdapter(),
-    createLorcastProviderAdapter(),
-    createScryfallProviderAdapter(),
-    createYgoprodeckProviderAdapter(),
-    createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
-  ]),
-  telemetry?: SourceObservationTelemetry,
-): Promise<CatalogProviderOptionQueryPage> {
-  const decision = rolloutControlPolicy?.decide({
-    capability: "provider-option-query",
-    providerKey: input.providerKey,
-  });
-  const blockingControls = decision?.controls ?? [];
-  const rolloutCacheOnly =
-    blockingControls.length > 0 &&
-    blockingControls.every((control) => control.controlId === "provider-option-queries-cache-only");
-  if (decision && !decision.allowed && !rolloutCacheOnly) {
-    throw new CatalogIntegrationRolloutControlError(decision);
-  }
-  const cacheOnly = input.cacheOnly === true || rolloutCacheOnly;
-
-  const versions = await profileVersions.listProfileVersions();
-  const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);
-  const providerKey = input.providerKey.trim().toLowerCase();
-  const queryKind = input.queryKind.trim().toLowerCase();
-  const profileVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, {
-    providerKey,
-    queryKind,
-    profileKey: input.profileKey,
-    ingestionUnitKey: input.ingestionUnitKey,
-  });
-  const selectedOptionUnitKey = profileVersion ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : null;
-  const liveVersions = profileVersion
-    ? activeOptionQueryVersions.filter(
-        (version) =>
-          version.providerKey === profileVersion.providerKey &&
-          version.profileKey === profileVersion.profileKey &&
-          version.profileVersion === profileVersion.profileVersion,
-      )
-    : activeOptionQueryVersions;
-
-  try {
-    const page = await queryCatalogProviderIntegrationOptionsWithCache({
-      request: {
-        providerKey,
-        profileKey: profileVersion?.profileKey ?? "catalog-providers",
-        profileVersion:
-          profileVersion?.profileVersion ??
-          `catalog-providers:${activeOptionQueryVersions
-            .map(
-              (version) =>
-                `${version.providerKey}/${version.profileKey}@${version.profileVersion}:${catalogProviderProfileVersionIngestionUnitKey(
-                  version,
-                )}`,
-            )
-            .join("|")}`,
-        ingestionUnitKey: profileVersion ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : "catalog",
-        queryKind,
-        languageCode: input.languageCode,
-        parentValue: input.parentValue,
-        cursor: input.cursor,
-        limit: input.limit,
-        forceRefresh: input.forceRefresh,
-        cacheOnly,
-      },
-      cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
-      loadLive: () =>
-        listCatalogProviderIntegrationOptionsFromProfiles({
-          profiles: liveVersions.map((version) => version.profile),
-          providerKey: input.providerKey,
-          queryKind: input.queryKind,
-          languageCode: input.languageCode,
-          parentValue: input.parentValue,
-          defaultProviderKey: defaultSourceObservationImportProviderKeyFromVersions(activeOptionQueryVersions),
-          transports: {
-            listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listTcgdexSeries: ({ languageCode }) =>
-              listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
-            listTcgdexExpansions: ({ languageCode, seriesId }) =>
-              listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-            listTcgplayerProductLines: () =>
-              listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
-                unitKey: selectedOptionUnitKey,
-              }),
-            listTcgplayerSetNames: ({ productLineId }) =>
-              listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
-                productLineId,
-                unitKey: selectedOptionUnitKey,
-              }),
-            listTcgplayerProducts: ({ setName }) =>
-              listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
-                setName,
-                unitKey: selectedOptionUnitKey,
-              }),
-            listTcgplayerSkus: ({ productId }) =>
-              listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
-                productId,
-                unitKey: selectedOptionUnitKey,
-              }),
-            listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listMtgjsonCards: ({ setCode }) =>
-              listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-            listLorcanajsonSets: () => listLorcanajsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listLorcanajsonCards: ({ setCode }) =>
-              listLorcanajsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-            listLorcastSets: () => listLorcastSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listLorcastCards: ({ setCode }) =>
-              listLorcastCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-            listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listScryfallCards: ({ setCode }) =>
-              listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-            listScrydexOnePieceSets: () => listScrydexOnePieceSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listScrydexOnePieceCards: ({ setId }) =>
-              listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-            listScrydexOnePieceSealedProducts: ({ setId }) =>
-              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-            listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listScrydexLorcanaCards: ({ setId }) =>
-              listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-            listScrydexLorcanaSealedProducts: ({ setId }) =>
-              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
-            listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listYgoprodeckCards: ({ setCode }) =>
-              listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
-            listYgojsonSets: () => listYgojsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
-            listYgojsonSealedProducts: () =>
-              listYgojsonSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry),
-          },
-        }),
-    });
-    telemetry?.recordProviderOptionQuery?.({
-      providerKey,
-      queryKind,
-      cacheStatus: page.cache.status,
-      cacheSource: page.cache.source,
-      result: "success",
-      degraded: page.cache.degraded,
-      cacheOnly: page.cache.cacheOnly,
-      forceRefresh: page.cache.forceRefresh,
-    });
-    return page;
-  } catch (error) {
-    telemetry?.recordProviderOptionQuery?.({
-      providerKey,
-      queryKind,
-      cacheStatus: "error",
-      cacheSource: "none",
-      result: "failure",
-      degraded: true,
-      cacheOnly,
-      forceRefresh: input.forceRefresh === true,
-    });
-    throw error;
-  }
-}
-
-function profileVersionForProviderOptionQuery(
-  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
-  input: Readonly<{
-    providerKey: string;
-    queryKind: string;
-    profileKey?: string | null;
-    ingestionUnitKey?: string | null;
-  }>,
-): CatalogProviderIntegrationProfileVersionRecord | null {
-  const providerKey = input.providerKey.trim().toLowerCase();
-  const queryKind = input.queryKind.trim().toLowerCase();
-  if (queryKind === "providers" || queryKind === "provider") {
-    return null;
-  }
-  const selector = {
-    profileKey: input.profileKey,
-    ingestionUnitKey: input.ingestionUnitKey,
-  };
-  const matchingVersions = versions.filter(
-    (version) =>
-      version.providerKey.trim().toLowerCase() === providerKey &&
-      (!selector.profileKey || version.profileKey.trim().toLowerCase() === selector.profileKey.trim().toLowerCase()) &&
-      (!selector.ingestionUnitKey ||
-        catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() ===
-          selector.ingestionUnitKey.trim().toLowerCase()) &&
-      version.profile.optionQueries.some(
-        (query) => query.queryKind === queryKind || (query.queryKeySynonyms ?? []).includes(queryKind),
-      ),
-  );
-  if (matchingVersions.length === 0) {
-    return null;
-  }
-  if (matchingVersions.length === 1) {
-    return matchingVersions[0] ?? null;
-  }
-
-  throw new Error(
-    `Catalog provider '${providerKey}' has multiple active profile units for option query '${queryKind}'. Select a profileKey or ingestionUnitKey.`,
-  );
-}
-
-function defaultSourceObservationImportProviderKeyFromVersions(
-  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
-): string {
-  return versions[0]?.providerKey ?? "catalog";
-}
-
-async function listTcgdexLanguagesThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly TcgdexLanguageOption[]> {
-  const records = await listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry);
-  return records.map((record) => ({ languageCode: stringRecordValue(record, "languageCode") || "en" }));
-}
-
-async function listTcgdexSeriesThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { languageCode: string },
-): Promise<readonly TcgdexSeriesOption[]> {
-  const records = await listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, input);
-  return records.map((record) => ({
-    seriesId: stringRecordValue(record, "seriesId") || "",
-    name: stringRecordValue(record, "name") || "",
-    logoUrl: stringRecordValue(record, "logoUrl"),
-  }));
-}
-
-async function listTcgdexExpansionsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { languageCode: string; seriesId?: string | null },
-): Promise<readonly TcgdexExpansionOption[]> {
-  const records = await listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, input);
-  return records.map((record) => ({
-    expansionId: stringRecordValue(record, "expansionId") || "",
-    name: stringRecordValue(record, "name") || "",
-    seriesId: stringRecordValue(record, "seriesId"),
-    seriesName: stringRecordValue(record, "seriesName"),
-    logoUrl: stringRecordValue(record, "logoUrl"),
-    symbolUrl: stringRecordValue(record, "symbolUrl"),
-    cardCount: numberRecordValue(record, "cardCount"),
-    officialCardCount: numberRecordValue(record, "officialCardCount"),
-  }));
-}
-
-async function listTcgdexLanguageOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "languages",
-  });
-  return result.items.map((item) => ({ languageCode: item.value }));
-}
-
-async function listTcgdexSeriesOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { languageCode: string },
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "series",
-    parentValues: { languageCode: input.languageCode },
-  });
-  return result.items.map((item) => ({
-    seriesId: item.value,
-    name: item.label,
-    aliases: providerOptionAliasesToJson(item.aliases),
-    logoUrl: item.metadata?.logoUrl ?? null,
-  }));
-}
-
-async function listTcgdexExpansionOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { languageCode: string; seriesId?: string | null },
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "expansions",
-    parentValues: { languageCode: input.languageCode, seriesId: input.seriesId ?? "" },
-  });
-  return result.items.map((item) => ({
-    expansionId: item.value,
-    name: item.label,
-    seriesId: item.parentValue ?? null,
-    seriesName: item.metadata?.seriesName ?? null,
-    aliases: providerOptionAliasesToJson(item.aliases),
-    logoUrl: item.metadata?.logoUrl ?? null,
-    symbolUrl: item.metadata?.symbolUrl ?? null,
-    cardCount: numberFromString(item.metadata?.cardCount),
-    officialCardCount: numberFromString(item.metadata?.officialCardCount),
-  }));
-}
-
-function requireTcgdexAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<TcgdexObservationPayload> {
-  return providerAdapterRegistry.require("tcgdex") as ProviderAdapter<TcgdexObservationPayload>;
-}
-
-async function listMtgjsonSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireMtgjsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setCode: item.value,
-    name: item.label,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    totalSetSize: numberFromString(item.metadata?.totalSetSize),
-    type: item.metadata?.type ?? null,
-    mtgjsonVersion: item.metadata?.mtgjsonVersion ?? null,
-  }));
-}
-
-async function listMtgjsonCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setCode: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setCode) {
-    throw new Error("MTGJSON card option queries require a set code parent value.");
-  }
-
-  const result = await requireMtgjsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { setCode: input.setCode },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    setCode: item.metadata?.setCode ?? input.setCode,
-    setName: item.metadata?.setName ?? null,
-    collectorNumber: item.metadata?.collectorNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    layout: item.metadata?.layout ?? null,
-    scryfallId: item.metadata?.scryfallId ?? null,
-  }));
-}
-
-function requireMtgjsonAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<MtgjsonProviderPayload> {
-  return providerAdapterRegistry.require("mtgjson") as ProviderAdapter<MtgjsonProviderPayload>;
-}
-
-async function listLorcanajsonSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireLorcanajsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setId: item.metadata?.setId ?? item.value,
-    setCode: item.value,
-    name: item.label,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    prereleaseDate: item.metadata?.prereleaseDate ?? null,
-    type: item.metadata?.type ?? null,
-    setNumber: item.metadata?.setNumber ?? null,
-    cardCount: numberFromString(item.metadata?.cardCount),
-    formatVersion: item.metadata?.formatVersion ?? null,
-    generatedOn: item.metadata?.generatedOn ?? null,
-  }));
-}
-
-async function listLorcanajsonCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setCode: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setCode) {
-    throw new Error("LorcanaJSON card option queries require a set code parent value.");
-  }
-
-  const result = await requireLorcanajsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { setCode: input.setCode },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    setCode: item.metadata?.setCode ?? input.setCode,
-    setName: item.metadata?.setName ?? null,
-    cardNumber: item.metadata?.cardNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    cardType: item.metadata?.cardType ?? null,
-    inkColor: item.metadata?.inkColor ?? null,
-    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
-    imageUrl: item.metadata?.imageUrl ?? null,
-  }));
-}
-
-function requireLorcanajsonAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<LorcanajsonProviderPayload> {
-  return providerAdapterRegistry.require("lorcanajson") as ProviderAdapter<LorcanajsonProviderPayload>;
-}
-
-async function listLorcastSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireLorcastAdapter(providerAdapterRegistry).listOptions({
-    unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setId: item.metadata?.setId ?? item.value,
-    setCode: item.value,
-    name: item.label,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    prereleaseDate: item.metadata?.prereleaseDate ?? null,
-    cacheGuidance: item.metadata?.cacheGuidance ?? null,
-  }));
-}
-
-async function listLorcastCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setCode: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setCode) {
-    throw new Error("Lorcast card option queries require a set code parent value.");
-  }
-
-  const result = await requireLorcastAdapter(providerAdapterRegistry).listOptions({
-    unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { setCode: input.setCode },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    setId: item.metadata?.setId ?? null,
-    setCode: item.metadata?.setCode ?? input.setCode,
-    setName: item.metadata?.setName ?? null,
-    cardNumber: item.metadata?.cardNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    cardType: item.metadata?.cardType ?? null,
-    inkColor: item.metadata?.inkColor ?? null,
-    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
-    imageUrl: item.metadata?.imageUrl ?? null,
-    releaseDate: item.metadata?.releaseDate ?? null,
-  }));
-}
-
-function requireLorcastAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<LorcastProviderPayload> {
-  return providerAdapterRegistry.require("lorcast") as ProviderAdapter<LorcastProviderPayload>;
-}
-
-async function listScryfallSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireScryfallAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setCode: item.value,
-    name: item.label,
-    setId: item.metadata?.setId ?? null,
-    setType: item.metadata?.setType ?? null,
-    releasedAt: item.metadata?.releasedAt ?? null,
-    cardCount: numberFromString(item.metadata?.cardCount),
-    digital: booleanFromString(item.metadata?.digital),
-  }));
-}
-
-async function listScryfallCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setCode: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setCode) {
-    throw new Error("Scryfall card option queries require a set code parent value.");
-  }
-
-  const result = await requireScryfallAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { setCode: input.setCode },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    setCode: item.metadata?.setCode ?? input.setCode,
-    oracleId: item.metadata?.oracleId ?? null,
-    setName: item.metadata?.setName ?? null,
-    collectorNumber: item.metadata?.collectorNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    imageStatus: item.metadata?.imageStatus ?? null,
-    imageUrl: null,
-  }));
-}
-
-function requireScryfallAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<ScryfallProviderPayload> {
-  return providerAdapterRegistry.require("scryfall") as ProviderAdapter<ScryfallProviderPayload>;
-}
-
-async function listScrydexOnePieceSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    expansionId: item.value,
-    name: item.label,
-    code: item.metadata?.code ?? null,
-    total: numberFromString(item.metadata?.total),
-    releaseDate: item.metadata?.releaseDate ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-async function listScrydexOnePieceCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setId) {
-    throw new Error("Scrydex One Piece card option queries require a selected set.");
-  }
-
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { expansionId: input.setId, setId: input.setId },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    number: item.metadata?.number ?? null,
-    printedNumber: item.metadata?.printedNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    rarityCode: item.metadata?.rarityCode ?? null,
-    type: item.metadata?.type ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setId) {
-    throw new Error("Scrydex One Piece sealed-product option queries require a selected set.");
-  }
-
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "sealed-products",
-    parentValues: { expansionId: input.setId, setId: input.setId },
-  });
-  return result.items.map((item) => ({
-    sealedProductId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    type: item.metadata?.type ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-async function listScrydexLorcanaSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    expansionId: item.value,
-    name: item.label,
-    code: item.metadata?.code ?? null,
-    total: numberFromString(item.metadata?.total),
-    releaseDate: item.metadata?.releaseDate ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-async function listScrydexLorcanaCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setId) {
-    throw new Error("Scrydex Lorcana card option queries require a selected set.");
-  }
-
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { expansionId: input.setId, setId: input.setId },
-  });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    number: item.metadata?.number ?? null,
-    printedNumber: item.metadata?.printedNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    rarityCode: item.metadata?.rarityCode ?? null,
-    type: item.metadata?.type ?? null,
-    inkColor: item.metadata?.inkColor ?? null,
-    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setId) {
-    throw new Error("Scrydex Lorcana sealed-product option queries require a selected set.");
-  }
-
-  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
-    unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "sealed-products",
-    parentValues: { expansionId: input.setId, setId: input.setId },
-  });
-  return result.items.map((item) => ({
-    sealedProductId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    type: item.metadata?.type ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
-}
-
-function requireScrydexOnePieceAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<ScrydexOnePieceProviderPayload> {
-  return providerAdapterRegistry.require("scrydex") as ProviderAdapter<ScrydexOnePieceProviderPayload>;
-}
-
-async function listYgoprodeckSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireYgoprodeckAdapter(providerAdapterRegistry).listOptions({
-    unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setName: item.value,
-    setCode: item.metadata?.setCode ?? null,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    cardCount: numberFromString(item.metadata?.cardCount),
-  }));
-}
-
-async function listYgoprodeckCardOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setCode: string | null },
-): Promise<readonly JsonValue[]> {
-  if (!input.setCode) {
-    throw new Error("YGOPRODeck card option queries require a selected set name or set code.");
-  }
-
-  const result = await requireYgoprodeckAdapter(providerAdapterRegistry).listOptions({
-    unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "cards",
-    parentValues: { setName: input.setCode, setCode: input.setCode },
-  });
-  return result.items.map((item) => ({
-    cardPrintId: item.value,
-    name: item.label,
-    setName: item.metadata?.setName ?? input.setCode,
-    setCode: item.metadata?.setCode ?? null,
-    cardId: item.metadata?.cardId ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    cardType: item.metadata?.cardType ?? null,
-    frameType: item.metadata?.frameType ?? null,
-    race: item.metadata?.race ?? null,
-    attribute: item.metadata?.attribute ?? null,
-    archetype: item.metadata?.archetype ?? null,
-    imageEvidenceAvailable: booleanFromString(item.metadata?.imageEvidenceAvailable),
-  }));
-}
-
-function requireYgoprodeckAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<YgoprodeckProviderPayload> {
-  return providerAdapterRegistry.require("ygoprodeck") as ProviderAdapter<YgoprodeckProviderPayload>;
-}
-
-async function listYgojsonSetOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireYgojsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sets",
-  });
-  return result.items.map((item) => ({
-    setId: item.value,
-    name: item.label,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    localeCount: numberFromString(item.metadata?.localeCount),
-    printCount: numberFromString(item.metadata?.printCount),
-    packContentEvidenceCount: numberFromString(item.metadata?.packContentEvidenceCount),
-    yugipediaId: item.metadata?.yugipediaId ?? null,
-  }));
-}
-
-async function listYgojsonSealedProductOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): Promise<readonly JsonValue[]> {
-  const result = await requireYgojsonAdapter(providerAdapterRegistry).listOptions({
-    unitKey: YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
-    optionKind: "sealed-products",
-  });
-  return result.items.map((item) => ({
-    sealedProductId: item.value,
-    name: item.label,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    localeCount: numberFromString(item.metadata?.localeCount),
-    boxOfSetCount: numberFromString(item.metadata?.boxOfSetCount),
-    packContentEvidenceCount: numberFromString(item.metadata?.packContentEvidenceCount),
-    yugipediaId: item.metadata?.yugipediaId ?? null,
-  }));
-}
-
-function requireYgojsonAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<YgojsonProviderPayload> {
-  return providerAdapterRegistry.require("ygojson") as ProviderAdapter<YgojsonProviderPayload>;
-}
-
-async function listTcgplayerProductLineOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { unitKey?: string | null } = {},
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "product-lines",
-  });
-  return result.items.map((item) => ({
-    productLineId: numberFromString(item.value),
-    productLineName: item.label,
-    productLineUrlName: item.metadata?.productLineUrlName ?? null,
-    isDirect: booleanFromString(item.metadata?.isDirect),
-  }));
-}
-
-async function listTcgplayerSetNameOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { productLineId: number; unitKey?: string | null },
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "set-names",
-    parentValues: { productLineId: String(input.productLineId) },
-  });
-  return result.items.map((item) => ({
-    setNameId: numberFromString(item.metadata?.setNameId),
-    categoryId: numberFromString(item.metadata?.categoryId),
-    name: item.label,
-    cleanSetName: item.value,
-    urlName: item.metadata?.urlName ?? null,
-    abbreviation: item.metadata?.abbreviation ?? null,
-    releaseDate: item.metadata?.releaseDate ?? null,
-    isSupplemental: booleanFromString(item.metadata?.isSupplemental),
-    active: booleanFromString(item.metadata?.active),
-  }));
-}
-
-async function listTcgplayerProductOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setName: string; unitKey?: string | null },
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "products",
-    parentValues: { setName: input.setName },
-  });
-  return result.items.map((item) => ({
-    productId: numberFromString(item.value),
-    productName: item.label,
-    productLineId: numberFromString(item.metadata?.productLineId),
-    productLineName: item.metadata?.productLineName ?? null,
-    productTypeName: item.metadata?.productTypeName ?? null,
-    setId: numberFromString(item.metadata?.setId),
-    setName: item.metadata?.setName ?? input.setName,
-    rarityName: item.metadata?.rarityName ?? null,
-    sealed: booleanFromString(item.metadata?.sealed),
-  }));
-}
-
-async function listTcgplayerSkuOptionRecordsThroughAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { productId: number; unitKey?: string | null },
-): Promise<readonly JsonValue[]> {
-  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    optionKind: "skus",
-    parentValues: { productId: String(input.productId) },
-  });
-  return result.items.map((item) => ({
-    sku: numberFromString(item.value),
-    condition: item.metadata?.condition ?? null,
-    variant: item.metadata?.variant ?? null,
-    language: item.metadata?.language ?? null,
-  }));
-}
-
-function requireTcgplayerAdapter(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-): ProviderAdapter<TcgplayerProviderPayload> {
-  return providerAdapterRegistry.require("tcgplayer") as ProviderAdapter<TcgplayerProviderPayload>;
-}
-
-function stringRecordValue(record: JsonValue, key: string): string | null {
-  if (!isJsonRecord(record)) {
-    return null;
-  }
-  const value = record[key];
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    const normalized = String(value).trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-  return null;
-}
-
 // Serialize typed option aliases to JSON records so they survive the adapter ->
 // option-query record -> resolver hop without losing their typed shape. The
 // resolver maps them back onto the typed `aliases` field on each option DTO.
-function providerOptionAliasesToJson(aliases: readonly ProviderOptionAlias[] | undefined): JsonValue {
-  return (aliases ?? []).map((alias) => ({
-    aliasText: alias.aliasText,
-    aliasLanguageCode: alias.aliasLanguageCode,
-    aliasType: alias.aliasType,
-    confidence: alias.confidence,
-    reviewStatus: alias.reviewStatus,
-    sourceCategory: alias.sourceCategory,
-    ...(alias.evidence ? { evidence: alias.evidence } : {}),
-  }));
-}
-
-function numberRecordValue(record: JsonValue, key: string): number | null {
-  return numberFromString(stringRecordValue(record, key));
-}
-
-function numberFromString(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function booleanFromString(value: string | null | undefined): boolean | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true") {
-    return true;
-  }
-  if (normalized === "false") {
-    return false;
-  }
-  return null;
-}
-
-function scrydexOnePieceCredentialsFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): ScrydexOnePieceCredentials | undefined {
-  const apiKey = env.SCRYDEX_API_KEY?.trim() || "";
-  const teamId = env.SCRYDEX_TEAM_ID?.trim() || "";
-
-  return apiKey && teamId ? { apiKey, teamId } : undefined;
-}
-
-async function buildCatalogIntegrationControlPlaneReadiness(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  dryRunProofRegistry: CatalogIntegrationDryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry(),
-  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
-): Promise<CatalogIntegrationControlPlaneReadiness> {
-  const units: CatalogIntegrationControlPlaneUnitReadiness[] = [];
-  const rolloutControls = rolloutControlPolicy.snapshot();
-
-  for (const providerKey of providerAdapterRegistry.listProviderKeys()) {
-    const adapter = providerAdapterRegistry.require(providerKey);
-    const [descriptors, transportDiagnostics, credentialReadiness] = await Promise.all([
-      adapter.listIntegrationUnits(),
-      adapter.getTransportDiagnostics(),
-      adapter.getCredentialReadiness(),
-    ]);
-
-    for (const descriptor of descriptors) {
-      const dryRun = (await dryRunProofRegistry.get(descriptor.unitKey)?.()) ?? null;
-      const dryRunDiagnostics =
-        dryRun?.diagnostics.map((diagnostic) => ({
-          code: diagnostic.code,
-          severity: diagnostic.severity,
-          message: diagnostic.diagnosticText,
-          unitKey: diagnostic.unitKey,
-          retryAfterSeconds: undefined,
-        })) ?? [];
-      const unitCredentialReadiness = selectUnitCredentialReadiness(credentialReadiness, descriptor.unitKey);
-      const credentialDiagnostics = unitCredentialReadiness
-        .map(catalogProviderCredentialReadinessToTransportDiagnostic)
-        .filter((diagnostic): diagnostic is ProviderTransportDiagnostic => diagnostic !== null);
-      const providerDiagnostics = [
-        ...transportDiagnostics.filter(
-          (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,
-        ),
-        ...credentialDiagnostics,
-      ].map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "provider-adapter"));
-      const rolloutDiagnostics = rolloutControlDiagnosticsForUnit(rolloutControlPolicy, {
-        providerKey: descriptor.providerKey,
-        unitKey: descriptor.unitKey,
-      });
-      const catalogDiagnostics = dryRunDiagnostics.map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "catalog"));
-      const unitDiagnostics = [...providerDiagnostics, ...catalogDiagnostics, ...rolloutDiagnostics];
-      const errorCount = countDiagnostics(unitDiagnostics, "error");
-      const dryRunErrorCount = countDiagnostics(catalogDiagnostics, "error");
-      const credentialStatus = summarizeUnitCredentialReadiness(unitCredentialReadiness);
-      const transportRolloutBlocked = rolloutControlPolicy.decide({
-        capability: "provider-transport",
-        providerKey: descriptor.providerKey,
-        unitKey: descriptor.unitKey,
-      }).allowed
-        ? false
-        : true;
-
-      units.push({
-        unitKey: descriptor.unitKey,
-        providerKey: descriptor.providerKey,
-        displayName: descriptor.displayName,
-        productDomain: descriptor.productDomain,
-        productForm: descriptor.productForm,
-        ingestionPurpose: descriptor.ingestionPurpose ?? null,
-        profileVersion: descriptor.profileVersion ?? "",
-        semanticReadiness: dryRun && dryRunErrorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
-        credentialReadiness: credentialStatus.readiness,
-        credentialReadinessState: credentialStatus.state,
-        credentialRequirement: credentialStatus.requirement,
-        credentialDiagnosticCode: credentialStatus.diagnosticCode,
-        transportReadiness:
-          !transportRolloutBlocked && countDiagnostics(providerDiagnostics, "error") === 0 ? "ready" : "blocked",
-        fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",
-        dryRunStatus: dryRun && dryRunErrorCount === 0 ? "completed" : "blocked",
-        observationFacts: dryRun?.observations.length ?? 0,
-        diagnosticCounts: {
-          info: countDiagnostics(unitDiagnostics, "info"),
-          warning: countDiagnostics(unitDiagnostics, "warning"),
-          error: errorCount,
-        },
-        diagnostics: unitDiagnostics,
-        latestDiagnosticText: unitDiagnostics.at(-1)?.message ?? null,
-        dryRunEvidence:
-          dryRun?.observations.map((observation) => ({
-            externalKey: observation.externalKey,
-            sourceUrl: observation.sourceUrl ?? null,
-            sourceHash: observation.sourceHash ?? null,
-            normalizedFacts: observation.normalizedFacts,
-          })) ?? [],
-      });
-    }
-  }
-
-  return {
-    generatedAt: new Date().toISOString(),
-    rolloutControls,
-    units,
-  };
-}
-
-function rolloutControlDiagnosticsForUnit(
-  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy,
-  input: Readonly<{ providerKey: string; unitKey: string }>,
-): readonly CatalogIntegrationControlPlaneDiagnostic[] {
-  const controls = [
-    rolloutControlPolicy.decide({
-      capability: "provider-transport",
-      providerKey: input.providerKey,
-      unitKey: input.unitKey,
-    }),
-    rolloutControlPolicy.decide({
-      capability: "provider-option-query",
-      providerKey: input.providerKey,
-      unitKey: input.unitKey,
-    }),
-    rolloutControlPolicy.decide({
-      capability: "import",
-      providerKey: input.providerKey,
-      unitKey: input.unitKey,
-    }),
-  ].flatMap((decision) => decision.controls);
-  const uniqueControls = new Map(controls.map((control) => [control.controlId, control]));
-
-  return [...uniqueControls.values()].map((control) => ({
-    code: "catalog-integration-rollout-control-denied",
-    severity: control.severity === "error" ? "error" : "warning",
-    message: control.message,
-    unitKey: input.unitKey,
-    retryAfterSeconds: null,
-    source: "catalog",
-  }));
-}
-
-function selectUnitCredentialReadiness(
-  readiness: readonly CatalogProviderCredentialReadiness[],
-  unitKey: string,
-): readonly CatalogProviderCredentialReadiness[] {
-  const attributed = readiness.filter((item) => item.unitKey === unitKey);
-  return attributed.length > 0 ? attributed : readiness.filter((item) => !item.unitKey);
-}
-
-function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCredentialReadiness[]): Readonly<{
-  readiness: "ready" | "blocked" | "not-required";
-  state: CatalogProviderCredentialReadinessState;
-  requirement: CatalogProviderCredentialRequirement;
-  diagnosticCode: string | null;
-}> {
-  if (readiness.length === 0) {
-    return {
-      readiness: "blocked",
-      state: "unknown",
-      requirement: "required",
-      diagnosticCode: "adapter-authentication-failed",
-    };
-  }
-
-  const blocker = readiness.find((item) => item.importBlocking);
-  if (blocker) {
-    return {
-      readiness: "blocked",
-      state: blocker.state,
-      requirement: blocker.requirement,
-      diagnosticCode: blocker.diagnosticCode,
-    };
-  }
-
-  const required = readiness.find((item) => item.requirement === "required");
-  if (required) {
-    return {
-      readiness: "ready",
-      state: required.state,
-      requirement: required.requirement,
-      diagnosticCode: required.diagnosticCode,
-    };
-  }
-
-  const notRequired = readiness.find((item) => item.state === "not-required");
-  return {
-    readiness: "not-required",
-    state: notRequired?.state ?? "unknown",
-    requirement: notRequired?.requirement ?? "not-required",
-    diagnosticCode: notRequired?.diagnosticCode ?? null,
-  };
-}
-
-function countDiagnostics(
-  diagnostics: readonly Pick<CatalogIntegrationControlPlaneDiagnostic, "severity">[],
-  severity: CatalogIntegrationControlPlaneDiagnostic["severity"],
-): number {
-  return diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
-}
-
-function toControlPlaneDiagnostic(
-  diagnostic: Pick<ProviderTransportDiagnostic, "code" | "severity" | "message" | "unitKey" | "retryAfterSeconds">,
-  source: CatalogIntegrationControlPlaneDiagnostic["source"],
-): CatalogIntegrationControlPlaneDiagnostic {
-  return {
-    code: diagnostic.code,
-    severity: diagnostic.severity,
-    message: diagnostic.message,
-    unitKey: diagnostic.unitKey ?? null,
-    retryAfterSeconds: diagnostic.retryAfterSeconds ?? null,
-    source,
-  };
-}
-
-function normalizeIntegrationKey(value: string): string {
-  return value.trim().toLowerCase();
-}
 
 async function requireCatalogImportProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
@@ -6604,188 +4419,6 @@ function commonProfileSnapshot(
   }
 
   return common;
-}
-
-function profileConnectorSourceVersion(
-  connector: CatalogProviderIntegrationProfileVersionRecord["profile"]["connector"],
-): string | null {
-  if ("sourceRepository" in connector) {
-    return connector.sourceRepository.commit;
-  }
-  if ("sourceContractDocument" in connector) {
-    return connector.sourceContractDocument;
-  }
-
-  return null;
-}
-
-function normalizeReapplyProfileMode(
-  mode: SourceObservationReapplyProfileMode | null | undefined,
-): SourceObservationReapplyProfileMode | null {
-  return mode === "current-active-profile" || mode === "original-source-profile" ? mode : null;
-}
-
-function isActiveSourceObservationImportProfileVersion(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-): boolean {
-  return (
-    version.active &&
-    version.lifecycle === "active" &&
-    version.profile.status === "active" &&
-    version.profile.capabilities.includes("source-observation-import")
-  );
-}
-
-function isActiveProviderOptionQueryProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
-  return (
-    version.active &&
-    version.lifecycle === "active" &&
-    version.profile.status === "active" &&
-    version.profile.capabilities.includes("provider-option-query")
-  );
-}
-
-async function loadSelectedOptionAuthoringSchema(
-  db: PgQueryable,
-): Promise<SourceObservationSelectedOptionAuthoringSchema> {
-  const result = await db.query<{
-    dimension_id: string;
-    dimension_key: string;
-    dimension_name: string;
-    dimension_status: string;
-    option_id: string | null;
-    option_key: string | null;
-    option_label: string | null;
-    option_status: string | null;
-    display_order: number | null;
-  }>(
-    `SELECT
-       dimension.dimension_id,
-       dimension.key AS dimension_key,
-       dimension.name AS dimension_name,
-       dimension.status AS dimension_status,
-       option.option_id,
-       option.code AS option_key,
-       option.label AS option_label,
-       option.status AS option_status,
-       option.display_order
-     FROM catalog_dimensions AS dimension
-     LEFT JOIN catalog_dimension_options AS option
-       ON option.dimension_id = dimension.dimension_id
-     ORDER BY dimension.key ASC, option.display_order ASC, option.code ASC`,
-  );
-
-  const dimensions = new Map<string, SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]>();
-  const optionsByDimensionId = new Map<
-    string,
-    SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]["options"][number][]
-  >();
-
-  for (const row of result.rows) {
-    if (!dimensions.has(row.dimension_id)) {
-      dimensions.set(row.dimension_id, {
-        dimensionId: row.dimension_id,
-        dimensionKey: row.dimension_key,
-        dimensionName: row.dimension_name,
-        status: row.dimension_status,
-        options: [],
-      });
-      optionsByDimensionId.set(row.dimension_id, []);
-    }
-
-    if (row.option_id) {
-      optionsByDimensionId.get(row.dimension_id)?.push({
-        optionId: row.option_id,
-        optionKey: row.option_key ?? row.option_id,
-        optionLabel: row.option_label ?? row.option_key ?? row.option_id,
-        status: row.option_status ?? "unknown",
-      });
-    }
-  }
-
-  return {
-    dimensions: [...dimensions.values()].map((dimension) => ({
-      ...dimension,
-      options: optionsByDimensionId.get(dimension.dimensionId) ?? [],
-    })),
-  };
-}
-
-async function loadPromotionTargetAuthoringSchema(
-  db: PgQueryable,
-): Promise<SourceObservationPromotionTargetAuthoringSchema> {
-  const [blueprints, categories, fields] = await Promise.all([
-    loadPromotionTargetAuthoringRecords(db, "catalog_blueprints", "blueprint_id"),
-    loadPromotionTargetAuthoringRecords(db, "catalog_categories", "category_id"),
-    loadPromotionTargetAuthoringRecords(db, "catalog_fields", "field_id"),
-  ]);
-
-  return { blueprints, categories, fields };
-}
-
-async function loadPromotionTargetAuthoringRecords(
-  db: PgQueryable,
-  tableName: "catalog_blueprints" | "catalog_categories" | "catalog_fields",
-  idColumnName: "blueprint_id" | "category_id" | "field_id",
-): Promise<readonly SourceObservationPromotionTargetAuthoringRecord[]> {
-  const result = await db.query<{
-    id: string;
-    key: string;
-    name: string;
-    status: string;
-  }>(
-    `SELECT ${idColumnName} AS id, key, name, status
-     FROM ${tableName}
-     ORDER BY key ASC`,
-  );
-
-  return result.rows.map((row) => ({
-    id: row.id,
-    key: row.key,
-    name: row.name,
-    status: row.status,
-  }));
-}
-
-function duplicatePreventionCandidatePreview(
-  result: Awaited<ReturnType<typeof resolveCatalogProviderDuplicatePrevention>>,
-): SourceObservationDuplicatePreventionCandidatePreview {
-  if (result.status === "none") {
-    return {
-      status: "none",
-      ruleKey: null,
-      candidateCount: 0,
-      candidateCatalogItemIds: [],
-      diagnosticText: null,
-      evidenceSummary: null,
-      evidenceSummaries: result.evidenceSummaries,
-    };
-  }
-
-  const candidateCatalogItemIds = result.status === "matched" ? [result.catalogItemId] : result.candidateCatalogItemIds;
-  return {
-    status: result.status,
-    ruleKey: result.ruleKey,
-    candidateCount: candidateCatalogItemIds.length,
-    candidateCatalogItemIds,
-    diagnosticText: result.status === "blocked" ? result.diagnosticText : null,
-    evidenceSummary: result.evidenceSummary,
-    evidenceSummaries: [result.evidenceSummary],
-  };
-}
-
-function notEvaluatedDuplicatePreventionPreview(
-  diagnosticText: string,
-): SourceObservationDuplicatePreventionCandidatePreview {
-  return {
-    status: "not-evaluated",
-    ruleKey: null,
-    candidateCount: 0,
-    candidateCatalogItemIds: [],
-    diagnosticText,
-    evidenceSummary: null,
-    evidenceSummaries: [],
-  };
 }
 
 /**
@@ -8032,967 +5665,5 @@ function catalogMergeCandidateReviewActor(context: EventStoreContext): CatalogMe
   return {
     userId: context.audit.performedByUserId ? String(context.audit.performedByUserId) : null,
     accountId: context.audit.forAccountId ? String(context.audit.forAccountId) : null,
-  };
-}
-
-type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
-  Readonly<{
-    eventContext: EventStoreContext;
-    claimOwnerId: string;
-  }>;
-
-type ClaimedSourceObservationIntegrationJob = SourceObservationIntegrationJob &
-  Readonly<{
-    eventContext: EventStoreContext;
-    claimOwnerId: string;
-  }>;
-
-function toSourceObservationBulkJob(
-  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
-): SourceObservationBulkJob {
-  return {
-    jobId: job.jobId,
-    action: job.payload.action,
-    selectionMode: job.payload.selectionMode,
-    observationIds: job.payload.observationIds,
-    scope: normalizeBulkJobScope(job.payload.scope),
-    reason: job.payload.reason,
-    profileSnapshot: job.payload.profileSnapshot ?? null,
-    reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
-    status: job.status,
-    progress: job.progress,
-    result: job.result,
-    errorMessage: job.errorMessage,
-    createdAt: job.createdAt,
-    startedAt: job.startedAt,
-    completedAt: job.completedAt,
-    updatedAt: job.updatedAt,
-  };
-}
-
-function toSourceObservationBulkJobEventSnapshot(
-  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
-): SourceObservationBulkJob {
-  const snapshot = toSourceObservationBulkJob(job);
-  return snapshot.status === "completed" || snapshot.status === "failed"
-    ? snapshot
-    : {
-        ...snapshot,
-        result: null,
-      };
-}
-
-function toClaimedSourceObservationBulkJob(
-  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
-): ClaimedSourceObservationBulkJob {
-  const eventContext = job.eventContext;
-  const claimOwnerId = job.claimOwnerId;
-  if (!eventContext || !claimOwnerId) {
-    throw new Error("Source Observation bulk job is missing claim context.");
-  }
-
-  return {
-    ...toSourceObservationBulkJob(job),
-    eventContext,
-    claimOwnerId,
-  };
-}
-
-function toClaimedSourceObservationBulkJobFromWorkUnitClaim(
-  claim: DurableJobWorkUnitClaim<
-    SourceObservationBulkJobPayload,
-    BulkSourceObservationProgress,
-    SourceObservationBulkJobResult,
-    SourceObservationBulkWorkUnitPayload,
-    SourceObservationBulkWorkUnitResult
-  >,
-): ClaimedSourceObservationBulkJob {
-  const eventContext = claim.job.eventContext;
-  if (!eventContext) {
-    throw new Error("Source Observation bulk job is missing claim context.");
-  }
-
-  return {
-    ...toSourceObservationBulkJob(claim.job),
-    eventContext,
-    claimOwnerId: claim.claimOwnerId,
-  };
-}
-
-function toSourceObservationIntegrationJob(
-  job: DurableJobRecord<
-    SourceObservationIntegrationJobPayload,
-    BulkSourceObservationProgress,
-    SourceObservationIntegrationJobResult
-  >,
-): SourceObservationIntegrationJob {
-  const action = job.payload.action;
-  const result = job.result;
-  return {
-    jobId: job.jobId,
-    syncRunId: job.payload.syncRunId ?? null,
-    action,
-    scope: normalizeIntegrationJobScope(job.payload.scope),
-    profileSnapshot: job.payload.profileSnapshot ?? null,
-    reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
-    status: job.status,
-    operatorStatus: integrationJobOperatorStatus(job),
-    consistency: {
-      duplicateSubmissionPolicy: "reuse-active-job",
-      profileSnapshotPolicy: "snapshotted-at-enqueue",
-      retryResumePolicy: "skip-completed-outcomes",
-      partialFailurePolicy: "mixed-outcomes",
-      workUnitClaimPolicy: action === "reapply" ? "leased-work-units" : "leased-job-turns",
-    },
-    progress: job.progress,
-    result,
-    errorMessage: job.errorMessage,
-    createdAt: job.createdAt,
-    startedAt: job.startedAt,
-    completedAt: job.completedAt,
-    updatedAt: job.updatedAt,
-  };
-}
-
-function integrationJobOperatorStatus(
-  job: SourceObservationIntegrationDurableJobRecord,
-): SourceObservationIntegrationJobOperatorStatus {
-  if (isOperatorCancelledIntegrationJob(job)) {
-    return "cancelled";
-  }
-  if (job.status === "completed") {
-    return integrationJobCompletedOperatorStatus(job);
-  }
-  if (job.status === "failed") {
-    return "failed";
-  }
-  if (job.progress.phase === "completed") {
-    return integrationJobCompletedOperatorStatus(job);
-  }
-  if (job.progress.phase === "failed") {
-    return "failed";
-  }
-  if (integrationJobHasActiveProgress(job)) {
-    if (isDurableJobClaimExpired(job)) {
-      return "stale";
-    }
-    return "running";
-  }
-  if (job.status === "running" && isDurableJobClaimExpired(job)) {
-    return "stale";
-  }
-
-  return job.status;
-}
-
-const reusableActiveIntegrationJobOperatorStatuses = new Set<SourceObservationIntegrationJobOperatorStatus>([
-  "queued",
-  "running",
-]);
-
-function integrationJobCompletedOperatorStatus(
-  job: SourceObservationIntegrationDurableJobRecord,
-): SourceObservationIntegrationJobOperatorStatus {
-  if (job.result && job.result.failed > 0) {
-    return "partial";
-  }
-
-  return "completed";
-}
-
-function integrationJobHasActiveProgress(job: SourceObservationIntegrationDurableJobRecord): boolean {
-  return job.status === "running" || (job.status === "queued" && job.progress.phase !== "queued");
-}
-
-function isOperatorCancelledIntegrationJob(job: Readonly<{ status: DurableJobStatus; errorMessage: string | null }>) {
-  return job.status === "failed" && job.errorMessage === OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE;
-}
-
-function isDurableJobClaimExpired(job: Readonly<{ claimedUntil: string | null }>) {
-  if (!job.claimedUntil) {
-    return true;
-  }
-
-  const claimedUntil = Date.parse(job.claimedUntil);
-  return !Number.isFinite(claimedUntil) || claimedUntil <= Date.now();
-}
-
-function retryableIntegrationJobResult(
-  result: SourceObservationIntegrationJobResult | null,
-  requestedFallback: number,
-): SourceObservationIntegrationJobResult {
-  if (!result) {
-    return summarizeIntegrationJobOutcomes(Math.max(0, requestedFallback), []);
-  }
-
-  return summarizeIntegrationJobOutcomes(
-    result.requested,
-    result.outcomes.filter((outcome) => outcome.status !== "failed"),
-  );
-}
-
-function toSourceObservationIntegrationJobEventSnapshot(
-  job: DurableJobRecord<
-    SourceObservationIntegrationJobPayload,
-    BulkSourceObservationProgress,
-    SourceObservationIntegrationJobResult
-  >,
-): SourceObservationIntegrationJob {
-  const snapshot = toSourceObservationIntegrationJob(job);
-  return snapshot.status === "completed" || snapshot.status === "failed"
-    ? snapshot
-    : {
-        ...snapshot,
-        result: null,
-      };
-}
-
-function toCatalogSyncRunFanoutEventSnapshot(
-  job: CatalogSyncRunDurableJobRecord,
-): DurableJobPublicSnapshot<CatalogSyncRunFanoutProgress, CatalogSyncRunFanoutResult> {
-  return {
-    jobId: job.jobId,
-    jobKind: job.jobKind,
-    status: job.status,
-    progress: job.progress,
-    result: job.result,
-    errorMessage: job.errorMessage,
-    createdAt: job.createdAt,
-    startedAt: job.startedAt,
-    completedAt: job.completedAt,
-    updatedAt: job.updatedAt,
-  };
-}
-
-function selectedCatalogSyncRunUnits(
-  preview: CatalogSyncProviderParticipationPreview,
-): readonly CatalogSyncRunSelectedUnitSnapshot[] {
-  return preview.units
-    .filter((unit) => unit.selected && unit.eligibility === "eligible" && unit.childExecutionScope)
-    .map((unit) => ({
-      providerKey: unit.providerKey,
-      unitKey: unit.unitKey,
-      profileKey: unit.profileKey,
-      profileVersion: unit.profileVersion,
-      displayName: unit.displayName,
-      role: unit.role,
-      requirement: unit.requirement,
-      childExecutionScope: normalizeIntegrationJobScope(unit.childExecutionScope ?? {}),
-    }))
-    .sort((left, right) => left.unitKey.localeCompare(right.unitKey));
-}
-
-function catalogSyncRunIdempotencyKey(
-  context: EventStoreContext,
-  scope: CatalogSyncScope,
-  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[],
-): string {
-  return createHash("sha256")
-    .update(
-      stableJsonStringify({
-        tenantId: context.tenantId,
-        forAccountId: context.audit?.forAccountId ?? null,
-        performedByUserId: context.audit?.performedByUserId ?? null,
-        scope,
-        selectedUnits,
-      }),
-    )
-    .digest("hex");
-}
-
-function catalogSyncRunFanoutProgress(
-  completed: number,
-  total: number,
-  currentName: string | null,
-  status: CatalogSyncRunFanoutProgress["status"],
-  phase: CatalogSyncRunFanoutProgress["phase"],
-): CatalogSyncRunFanoutProgress {
-  return {
-    phase,
-    completed,
-    total,
-    currentName,
-    status,
-  };
-}
-
-function catalogSyncRunChildStatus(
-  link: CatalogSyncRunChildJobLink,
-  job: SourceObservationIntegrationJob | null,
-): CatalogSyncRunChildStatus {
-  if (link.syncRunLinkState === "reused-settled-child-job") {
-    return "completed";
-  }
-  if (!job) {
-    return link.syncRunLinkState === "child-enqueue-failed" ? "failed" : "queued";
-  }
-  if (link.syncRunLinkState === "reused-active-child-job" && job.status === "queued") {
-    return "reused-active-job";
-  }
-  return job.operatorStatus;
-}
-
-// --- Durable per-scope sync state -----------------------------------------
-//
-// CatalogSyncRun/SourceObservationIntegrationJob are transient per-run durable
-// jobs: once a run's rows are pruned by retention, its cross-provider history
-// is gone. `catalog_scope_sync_state` is the durable read model that survives
-// across runs — one row per (scope, provider unit) — updated at two points:
-// right after a run's fan-out (`recordCatalogScopeSyncStateForRun`, covering
-// the never-synced -> pending/settled/failed transition for every selected
-// unit in one shot) and when an individual child job reaches a terminal
-// status or is retried (`recordCatalogScopeSyncStateForChildJob`, covering
-// pending/running -> settled/failed and failed -> pending on retry).
-// CatalogSyncScope v2 carries the canonical scope record id, so the durable row
-// is keyed on a hash of the v2 scope descriptor (productDomain / productForm /
-// languageCode / referenceKind / scopeRecordId) via `computeCatalogSyncScopeKey`.
-
-function catalogScopeSyncStateDescriptor(scope: CatalogSyncScope): CatalogScopeSyncScopeDescriptor {
-  return {
-    productDomain: scope.productDomain,
-    productForm: scope.productForm ?? null,
-    languageCode: scope.languageCode ?? null,
-    referenceKind: scope.reference.kind,
-    scopeRecordId: scope.reference.scopeRecordId,
-  };
-}
-
-function compactStringRecord(
-  scope: Readonly<Record<string, string | null | undefined>> | null | undefined,
-): Readonly<Record<string, string>> {
-  if (!scope) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(scope).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0,
-    ),
-  );
-}
-
-function recordFromUnknownStringRecord(value: unknown): Readonly<Record<string, string>> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
-}
-
-function catalogScopeSyncObservedStatusFromChildLink(
-  link: CatalogSyncRunChildJobLink,
-  job: SourceObservationIntegrationJob | null,
-): CatalogScopeSyncUnitObservedStatus {
-  if (link.syncRunLinkState === "reused-settled-child-job") {
-    return "reused-settled-job";
-  }
-  if (!job) {
-    return link.syncRunLinkState === "child-enqueue-failed" ? "enqueue-failed" : "queued";
-  }
-  if (link.syncRunLinkState === "reused-active-child-job" && job.status === "queued") {
-    return "queued";
-  }
-  return job.operatorStatus;
-}
-
-function childExecutionScopesMatch(
-  a: SourceObservationIntegrationJobScope,
-  b: SourceObservationIntegrationJobScope,
-): boolean {
-  return JSON.stringify(normalizeIntegrationJobScope(a)) === JSON.stringify(normalizeIntegrationJobScope(b));
-}
-
-function catalogSyncRunProgress(
-  childJobs: readonly CatalogSyncRunChildJob[],
-  selectedUnitCount: number,
-): CatalogSyncRunProgress {
-  const providerTargetTotals = childJobs.reduce(
-    (totals, childJob) => {
-      const progress = childJob.job?.progress;
-      return {
-        completed: totals.completed + (progress?.completed ?? (isCatalogSyncRunTerminalChild(childJob) ? 1 : 0)),
-        total: totals.total + (progress?.total ?? 1),
-      };
-    },
-    { completed: 0, total: 0 },
-  );
-
-  return {
-    childJobs: {
-      total: selectedUnitCount,
-      queued: childJobs.filter((childJob) => childJob.status === "queued" || childJob.status === "reused-active-job")
-        .length,
-      running: childJobs.filter((childJob) => childJob.status === "running").length,
-      completed: childJobs.filter((childJob) => childJob.status === "completed").length,
-      partial: childJobs.filter((childJob) => childJob.status === "partial").length,
-      failed: childJobs.filter((childJob) => childJob.status === "failed").length,
-      cancelled: childJobs.filter((childJob) => childJob.status === "cancelled").length,
-      stale: childJobs.filter((childJob) => childJob.status === "stale").length,
-    },
-    providerTargets: {
-      completed: providerTargetTotals.completed,
-      total: providerTargetTotals.total || selectedUnitCount,
-    },
-  };
-}
-
-function catalogSyncRunOperatorStatus(
-  childJobs: readonly CatalogSyncRunChildJob[],
-  selectedUnitCount: number,
-  fanoutStatus: DurableJobStatus,
-): CatalogSyncRunOperatorStatus {
-  if (childJobs.length === 0) {
-    return fanoutStatus === "failed" ? "failed" : "queued";
-  }
-
-  const failed = childJobs.some((childJob) => childJob.status === "failed");
-  const cancelled = childJobs.some((childJob) => childJob.status === "cancelled");
-  const partial = childJobs.some((childJob) => childJob.status === "partial");
-  const active = childJobs.some(
-    (childJob) =>
-      childJob.status === "queued" ||
-      childJob.status === "running" ||
-      childJob.status === "stale" ||
-      childJob.status === "retried" ||
-      childJob.status === "reused-active-job",
-  );
-  const running = childJobs.some(
-    (childJob) =>
-      childJob.status === "running" ||
-      childJob.status === "stale" ||
-      childJob.status === "retried" ||
-      childJob.status === "partial",
-  );
-  const completed = childJobs.filter((childJob) => childJob.status === "completed").length;
-
-  if (active) {
-    return completed === 0 && !running ? "queued" : "running";
-  }
-  if (cancelled && completed === 0 && !partial) {
-    return "cancelled";
-  }
-  if (failed || partial || cancelled || childJobs.length < selectedUnitCount) {
-    return completed > 0 || partial ? "partial" : "failed";
-  }
-
-  return "completed";
-}
-
-function isCatalogSyncRunTerminalChild(childJob: CatalogSyncRunChildJob): boolean {
-  return (
-    childJob.status === "completed" ||
-    childJob.status === "partial" ||
-    childJob.status === "failed" ||
-    childJob.status === "cancelled"
-  );
-}
-
-function toClaimedSourceObservationIntegrationJob(
-  job: DurableJobRecord<
-    SourceObservationIntegrationJobPayload,
-    BulkSourceObservationProgress,
-    SourceObservationIntegrationJobResult
-  >,
-): ClaimedSourceObservationIntegrationJob {
-  const eventContext = job.eventContext;
-  const claimOwnerId = job.claimOwnerId;
-  if (!eventContext || !claimOwnerId) {
-    throw new Error("Source Observation integration job is missing claim context.");
-  }
-
-  return {
-    ...toSourceObservationIntegrationJob(job),
-    eventContext,
-    claimOwnerId,
-  };
-}
-
-function toSourceObservationJobEvent<TJob>(
-  event: DurableJobEvent<unknown, BulkSourceObservationProgress, unknown, TJob>,
-): SourceObservationJobEvent<TJob> {
-  return {
-    sequence: event.sequence,
-    eventName: event.eventName,
-    job: event.job,
-    createdAt: event.createdAt,
-  };
-}
-
-function terminalPromotionOutcomeFromEvents(
-  jobId: string,
-  events: readonly SourceObservationJobEvent<SourceObservationBulkJob>[],
-): SourceObservationPromotionOutcomeRecord | null {
-  let terminalEvent: SourceObservationJobEvent<SourceObservationBulkJob> | undefined;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.job.action === "promote" && (event.job.status === "completed" || event.job.status === "failed")) {
-      terminalEvent = event;
-      break;
-    }
-  }
-  if (!terminalEvent) {
-    return null;
-  }
-
-  const result = terminalEvent.job.result;
-  const promotionResult = result && "promoted" in result ? result : null;
-  const requested = promotionResult?.requested ?? terminalEvent.job.progress.total;
-  const promoted = promotionResult?.promoted ?? 0;
-  const skipped = promotionResult?.skipped ?? 0;
-  const recordedFailed = promotionResult?.failed ?? 0;
-  const failed =
-    terminalEvent.job.status === "failed" || !promotionResult
-      ? Math.max(recordedFailed, requested - promoted - skipped)
-      : recordedFailed;
-  const terminalState =
-    terminalEvent.job.status === "failed" || (failed > 0 && promoted === 0)
-      ? "failed"
-      : failed > 0
-        ? "partial"
-        : "completed";
-
-  return {
-    outcomeId: `${jobId}:${terminalEvent.sequence}`,
-    jobId,
-    eventSequence: terminalEvent.sequence,
-    terminalState,
-    requested,
-    promoted,
-    skipped,
-    failed,
-    outcomes: promotionResult?.outcomes ?? [],
-    errorMessage: terminalEvent.job.errorMessage,
-    recordedAt: terminalEvent.createdAt,
-  };
-}
-
-async function requireSourceObservationJobClaim(
-  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
-) {
-  const outcome = await succeeded;
-  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
-    throw new Error("Source Observation job claim was lost before the status update completed.");
-  }
-}
-
-function sourceObservationRetentionCutoff(daysAgo: number): Date {
-  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-}
-
-function jobMatchesContext(
-  job: Readonly<{ eventContext: EventStoreContext | null }>,
-  context: EventStoreContext,
-): boolean {
-  return (
-    job.eventContext?.tenantId === context.tenantId &&
-    job.eventContext?.audit?.forAccountId === context.audit?.forAccountId &&
-    job.eventContext?.audit?.performedByUserId === context.audit?.performedByUserId
-  );
-}
-
-function isImpactBlockingJob(status: string, action: "import" | "reapply" | SourceObservationBulkJobAction): boolean {
-  return action !== "reject" && action !== "defer" && (status === "queued" || status === "running");
-}
-
-function impactJobProviderKey(job: SourceObservationIntegrationJob): string | null {
-  return job.profileSnapshot?.providerKey ?? job.scope.provider ?? null;
-}
-
-function parseJsonField<T>(value: unknown, fieldName: string): T {
-  if (typeof value === "string") {
-    return JSON.parse(value) as T;
-  }
-
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  throw new Error(`Bulk review job ${fieldName} is not valid JSON.`);
-}
-
-function formatDateLike(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : String(value);
-}
-
-function normalizeBulkJobScope(scope: SourceObservationFilterScope): SourceObservationFilterScope {
-  return {
-    search: scope.search?.trim() || undefined,
-    status: scope.status?.trim() || undefined,
-    provider: scope.provider?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-  };
-}
-
-function normalizeIntegrationJobScope(
-  scope: SourceObservationIntegrationJobScope,
-): SourceObservationIntegrationJobScope {
-  return {
-    provider: scope.provider?.trim() || undefined,
-    profileKey: scope.profileKey?.trim() || undefined,
-    ingestionUnitKey: scope.ingestionUnitKey?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    seriesId: scope.seriesId?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-    productLineId: scope.productLineId?.trim() || undefined,
-    setName: scope.setName?.trim() || undefined,
-    productId: scope.productId?.trim() || undefined,
-    planningFingerprint: scope.planningFingerprint?.trim() || undefined,
-  };
-}
-
-function normalizeOptionalKey(value: string | null | undefined): string | null {
-  const normalized = value?.trim();
-  return normalized ? normalized : null;
-}
-
-function normalizeCandidateGenerationScope(
-  scope: SourceObservationFilterScope,
-  syncRunId: string | null,
-): SourceObservationFilterScope {
-  return {
-    ...scope,
-    syncRunId: syncRunId ?? scope.syncRunId,
-  };
-}
-
-function stableJsonStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJsonStringify).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
-      .join(",")}}`;
-  }
-
-  return JSON.stringify(value) ?? "null";
-}
-
-function profileSelectorFromScope(
-  scope: Readonly<{ profileKey?: string | null; ingestionUnitKey?: string | null }>,
-): CatalogProviderProfileVersionSelector | null {
-  const profileKey = scope.profileKey?.trim();
-  const ingestionUnitKey = scope.ingestionUnitKey?.trim();
-  return profileKey || ingestionUnitKey
-    ? {
-        ...(profileKey ? { profileKey } : {}),
-        ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
-      }
-    : null;
-}
-
-function integrationScopeToObservationScope(scope: SourceObservationIntegrationJobScope): SourceObservationFilterScope {
-  return {
-    provider: scope.provider?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    productLineId: scope.productLineId?.trim() || undefined,
-    seriesId: scope.seriesId?.trim() || undefined,
-    expansionId: scope.setId?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-  };
-}
-
-function uniqueObservationIds(observationIds: readonly string[]): string[] {
-  return Array.from(
-    new Set(
-      observationIds.map((observationId) => observationId.trim()).filter((observationId) => observationId.length > 0),
-    ),
-  );
-}
-
-function summarizePromotionOutcomes(
-  requested: number,
-  outcomes: readonly BulkSourceObservationPromotionOutcome[],
-): BulkSourceObservationPromotionResult {
-  return {
-    requested,
-    promoted: outcomes.filter((outcome) => outcome.status === "promoted").length,
-    rejected: outcomes.filter((outcome) => outcome.status === "rejected").length,
-    deferred: outcomes.filter((outcome) => outcome.status === "deferred").length,
-    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
-    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
-    outcomes,
-  };
-}
-
-function summarizeReapplyOutcomes(
-  requested: number,
-  outcomes: readonly BulkSourceObservationReapplyOutcome[],
-): BulkSourceObservationReapplyResult {
-  return {
-    requested,
-    reapplied: outcomes.filter((outcome) => outcome.status === "reapplied").length,
-    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
-    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
-    outcomes,
-  };
-}
-
-function bulkResultOutcomes(
-  result: SourceObservationBulkJobResult | null,
-): readonly SourceObservationBulkWorkUnitResult[] {
-  return result?.outcomes ?? [];
-}
-
-function isPromotionOutcome(
-  outcome: SourceObservationBulkWorkUnitResult,
-): outcome is BulkSourceObservationPromotionOutcome {
-  return (
-    outcome.status === "promoted" ||
-    outcome.status === "rejected" ||
-    outcome.status === "deferred" ||
-    outcome.status === "skipped" ||
-    outcome.status === "failed"
-  );
-}
-
-function isReapplyOutcome(
-  outcome: SourceObservationBulkWorkUnitResult,
-): outcome is BulkSourceObservationReapplyOutcome {
-  return outcome.status === "reapplied" || outcome.status === "skipped" || outcome.status === "failed";
-}
-
-function workUnitTerminalState(outcome: SourceObservationBulkWorkUnitResult): "completed" | "failed" | "skipped" {
-  if (outcome.status === "failed") {
-    return "failed";
-  }
-  if (outcome.status === "skipped") {
-    return "skipped";
-  }
-  return "completed";
-}
-
-function failedBulkWorkUnitOutcome(
-  action: SourceObservationBulkJobAction,
-  observationId: string,
-  reason: string,
-): SourceObservationBulkWorkUnitResult {
-  return action === "reapply"
-    ? {
-        observationId,
-        status: "failed",
-        catalogItemId: null,
-        reason,
-      }
-    : {
-        observationId,
-        status: "failed",
-        catalogItemId: null,
-        reason,
-      };
-}
-
-class SourceObservationJobCancelledError extends Error {
-  constructor() {
-    super("Source Observation job run was cancelled.");
-  }
-}
-
-function createSourceObservationSideEffectRunner<TResult>(
-  jobContext: DurableJobExecutionContext<BulkSourceObservationProgress, TResult>,
-): DurableSideEffectRunner {
-  return (work) =>
-    runDurableJobSideEffect(jobContext, work, {
-      renewIntervalMs: 5_000,
-      claimLostMessage: "Source Observation job claim was lost while applying a side effect.",
-    });
-}
-
-function createSourceObservationWorkUnitSideEffectRunner<
-  TJobPayload,
-  TJobProgress,
-  TJobResult,
-  TUnitPayload,
-  TUnitResult,
->(
-  store: DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult>,
-  claim: DurableJobWorkUnitClaim<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult>,
-  input: Readonly<{
-    claimTtlMs: number;
-    signal?: AbortSignal;
-    throwIfLeaseLost?: () => void;
-  }>,
-): DurableSideEffectRunner {
-  return async (work) => {
-    const abortController = new AbortController();
-    const abortFromParent = () => abortController.abort();
-    if (input.signal?.aborted) {
-      abortController.abort();
-    } else {
-      input.signal?.addEventListener("abort", abortFromParent, { once: true });
-    }
-
-    let claimActive = true;
-    const renewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
-    const renewalTimer = setInterval(() => {
-      try {
-        input.throwIfLeaseLost?.();
-      } catch {
-        claimActive = false;
-        abortController.abort();
-        return;
-      }
-
-      void store
-        .renewClaim({
-          jobId: claim.job.jobId,
-          unitId: claim.unit.unitId,
-          claimOwnerId: claim.claimOwnerId,
-          claimToken: claim.claimToken,
-          claimTtlMs: input.claimTtlMs,
-        })
-        .then((renewed) => {
-          claimActive = claimActive && renewed;
-          if (!renewed) {
-            abortController.abort();
-          }
-        })
-        .catch(() => {
-          claimActive = false;
-          abortController.abort();
-        });
-    }, renewIntervalMs);
-    renewalTimer.unref?.();
-
-    try {
-      if (!claimActive || abortController.signal.aborted) {
-        throw new DurableJobHandoffError("Source Observation work unit claim was lost.");
-      }
-      const result = await work(abortController.signal);
-      if (!claimActive || abortController.signal.aborted) {
-        throw new DurableJobHandoffError("Source Observation work unit claim was lost.");
-      }
-      return result;
-    } finally {
-      clearInterval(renewalTimer);
-      input.signal?.removeEventListener("abort", abortFromParent);
-    }
-  };
-}
-
-function runSourceObservationSideEffectImmediately<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  return work(new AbortController().signal);
-}
-
-function isJobRunCancelled(context: SourceObservationJobRunContext): boolean {
-  return context.signal?.aborted ?? false;
-}
-
-function throwIfJobRunCancelled(context: SourceObservationJobRunContext): void {
-  if (context.signal?.aborted) {
-    throw new SourceObservationJobCancelledError();
-  }
-
-  try {
-    context.throwIfLeaseLost?.();
-  } catch (error) {
-    throw new SourceObservationJobCancelledError();
-  }
-}
-
-function summarizeIntegrationJobOutcomes(
-  requested: number,
-  outcomes: readonly SourceObservationIntegrationJobOutcome[],
-): SourceObservationIntegrationJobResult {
-  return {
-    requested,
-    imported: outcomes.filter((outcome) => outcome.status === "imported").length,
-    observed: outcomes.reduce((total, outcome) => total + outcome.observed, 0),
-    reapplied: outcomes.reduce((total, outcome) => total + outcome.reapplied, 0),
-    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
-    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
-    outcomes,
-  };
-}
-
-function integrationImportPreviewTargetFromPlan(input: {
-  targetId: string;
-  name: string;
-  languageCode: string;
-  plan: ProviderImportPlan;
-}): SourceObservationIntegrationImportPreviewTarget {
-  return {
-    targetId: input.targetId,
-    name: input.name,
-    languageCode: input.languageCode,
-    scopeKey: input.plan.scope.scopeKey,
-    planKey: input.plan.planKey,
-    estimatedPayloads: input.plan.estimatedPayloads ?? null,
-    transportSteps: input.plan.transportSteps,
-    usageEstimate: input.plan.usageEstimate ?? null,
-  };
-}
-
-function providerUsageEvidenceFromImportPlan(
-  plan: ProviderImportPlan,
-  requestKeys: ReadonlySet<string>,
-): SourceObservationProviderUsageEvidence | null {
-  const estimate = plan.usageEstimate;
-  if (!estimate) {
-    return null;
-  }
-
-  const actualRequestCount = requestKeys.size > 0 ? requestKeys.size : null;
-  // Bulk-first adapters attach the fetched response page URL to every payload.
-  // Distinct provenance URLs therefore measure both requests and fetched pages.
-  const pageCount = estimate.requestStrategy === "bulk-first" ? actualRequestCount : null;
-  return {
-    unitKey: plan.unitKey,
-    requestStrategy: estimate.requestStrategy,
-    estimateState: estimate.estimateState,
-    estimatedRequestCount: estimate.estimatedRequestCount,
-    estimateReason: estimate.estimateReason,
-    actualRequestCount,
-    pageCount,
-    cacheHitCount: null,
-    cacheMissCount: null,
-    usageCheckState: estimate.usageCheckState,
-    creditDiagnostic: estimate.creditDiagnostic,
-    degradedDiagnostic: estimate.degradedDiagnostic,
-    bulkFirstConfirmed:
-      actualRequestCount === null
-        ? null
-        : estimate.requestStrategy === "bulk-first" && !estimate.perRecordFallbackReason,
-    perRecordFallbackReason: estimate.perRecordFallbackReason,
-    selectedFields: estimate.selectedFields,
-    pageSize: estimate.pageSize,
-  };
-}
-
-function integrationReapplyOutcomeFromBulkOutcome(
-  job: SourceObservationIntegrationJob,
-  observationId: string,
-  outcome: BulkSourceObservationReapplyOutcome | undefined,
-  defaultProviderKey: string,
-): SourceObservationIntegrationJobOutcome {
-  return {
-    providerKey: job.scope.provider || defaultProviderKey,
-    languageCode: job.scope.language || "",
-    expansionId: observationId,
-    status: outcome?.status ?? "failed",
-    observed: 0,
-    reapplied: outcome?.status === "reapplied" ? 1 : 0,
-    reason: outcome?.reason ?? (outcome ? null : "No reapply outcome."),
-  };
-}
-
-function bulkProgress(
-  completed: number,
-  total: number,
-  currentName: string | null = null,
-  status: BulkSourceObservationProgress["status"] = null,
-  phase: BulkSourceObservationProgress["phase"] = "processing",
-): BulkSourceObservationProgress {
-  return {
-    phase,
-    completed,
-    total,
-    currentName,
-    status,
   };
 }
