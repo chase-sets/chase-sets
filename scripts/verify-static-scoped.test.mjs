@@ -87,13 +87,13 @@ describe("verify:static surface-map derivation", () => {
     const completeness = verifyStaticSurfaceMapCompleteness(chain);
 
     expect(chain).toHaveLength(30);
-    expect(completeness).toEqual({ missing: [], extra: [] });
+    expect(completeness).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === MAY_NARROW),
-    ).toHaveLength(21);
+    ).toHaveLength(19);
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === ALWAYS_RUN),
-    ).toHaveLength(9);
+    ).toHaveLength(11);
     for (const entry of Object.values(VERIFY_STATIC_SURFACES)) {
       expect(entry.evidence.length).toBeGreaterThan(0);
       expect(entry.rule).toBeTruthy();
@@ -141,6 +141,40 @@ describe("verify:static surface-map derivation", () => {
     }).selected;
 
     expect(selected).toEqual(chain);
+  });
+
+  it("rejects MAY_NARROW entries without a non-empty include and selects them fail-closed", () => {
+    const chain = [
+      { name: "check:missing-include", command: "pnpm run check:missing-include", forwarded: "" },
+      { name: "check:empty-include", command: "pnpm run check:empty-include", forwarded: "" },
+    ];
+    const surfaces = {
+      "check:missing-include": {
+        classification: MAY_NARROW,
+        rule: "invalid missing include",
+        evidence: ["fixture:1"],
+      },
+      "check:empty-include": {
+        classification: MAY_NARROW,
+        rule: "invalid empty include",
+        evidence: ["fixture:2"],
+        include: [],
+      },
+    };
+
+    expect(verifyStaticSurfaceMapCompleteness(chain, surfaces).invalidMayNarrow).toEqual([
+      "check:missing-include",
+      "check:empty-include",
+    ]);
+    expect(
+      selectVerifyStaticLinks({
+        chain,
+        changedFiles: ["docs/only-this.md"],
+        repoRoot,
+        surfaces,
+        dependencies: noFanoutDependencies(),
+      }).selected,
+    ).toEqual(chain);
   });
 
   it("keeps the hosted static job on the unconditional full-chain entrypoint", () => {
@@ -234,6 +268,7 @@ describe("changed-path discovery", () => {
       source: "git merge-base",
       files: ["bounded-contexts/catalog/old.ts", "nebula/new.ts"],
     });
+    expect(calls.at(1)).toEqual(["merge-base", "refs/remotes/origin/main", "HEAD"]);
     expect(calls.at(-1)).toEqual([
       "diff",
       "--name-status",
@@ -243,6 +278,30 @@ describe("changed-path discovery", () => {
       "base123...HEAD",
       "--",
     ]);
+  });
+
+  it("ignores a stray local origin/main branch and derives from the remote-tracking ref", () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "verify-static-remote-main-"));
+    temporaryDirectories.push(rootDir);
+    execGit(rootDir, ["init"]);
+    execGit(rootDir, ["config", "user.email", "fixture@example.invalid"]);
+    execGit(rootDir, ["config", "user.name", "Fixture"]);
+
+    writeFixture(rootDir, "docs/base.md", "base\n");
+    execGit(rootDir, ["add", "."]);
+    execGit(rootDir, ["commit", "-m", "base"]);
+    execGit(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+    const changedPath = "contracts/auth-context/index.ts";
+    writeFixture(rootDir, changedPath, "export const changed = true;\n");
+    execGit(rootDir, ["add", "."]);
+    execGit(rootDir, ["commit", "-m", "change auth context"]);
+    execGit(rootDir, ["update-ref", "refs/heads/origin/main", "HEAD"]);
+
+    expect(deriveStaticChangedFiles({ repoRoot: rootDir, env: cleanEnvironment() })).toEqual({
+      source: "git merge-base",
+      files: [changedPath],
+    });
   });
 });
 
@@ -286,9 +345,9 @@ describe("soundness corpus", () => {
       ],
     },
     {
-      change: "guard implementation only",
-      paths: ["scripts/check-structure/catalog-localization-keyset-tripwire.mjs"],
-      fullFailures: ["check:structure", "test:scripts"],
+      change: "no-legacy-forms guard implementation only",
+      paths: ["scripts/check-no-legacy-forms.mjs"],
+      fullFailures: ["check:no-legacy-forms", "check:structure", "test:scripts"],
     },
     {
       change: "ledger only",
@@ -329,6 +388,43 @@ describe("soundness corpus", () => {
     expect(selected).toEqual(expect.arrayContaining(alwaysRun));
     expect(selected).toContain("check:localization");
     expect(selected).not.toContain("check:no-legacy-forms");
+  });
+
+  it.each(["scripts/check-no-legacy-forms.mjs", "scripts/lib/files.mjs"])(
+    "%s forces the complete chain for guard and sibling tooling changes",
+    (changedPath) => {
+      const chain = currentChain();
+      const plan = selectVerifyStaticLinks({
+        chain,
+        changedFiles: [changedPath],
+        repoRoot,
+        dependencies: noFanoutDependencies(),
+      });
+
+      expect(plan.selected).toEqual(chain);
+      expect(plan.fullReason).toContain("scripts/** changed");
+    },
+  );
+
+  it.each([
+    ["operator locale suffix", "contracts/localization/locales/en/catalog.ts", "check:operator-surface-pm"],
+    [
+      "operator nested catalog locale",
+      "contracts/localization/locales/en/catalog/support.ts",
+      "check:operator-surface-pm",
+    ],
+    ["agent connector auth graph", "contracts/auth-context/index.ts", "check:agent-connector-packaging"],
+    [
+      "developer help copy guard",
+      "bounded-contexts/public-presence/features/help/domain/public-copy-guard.mjs",
+      "check:developer-articles",
+    ],
+    ["developer platform graph", "infrastructure/platform-runtime/mcp-contracts.ts", "check:developer-articles"],
+    ["developer auth graph", "contracts/auth-context/index.ts", "check:developer-articles"],
+    ["design-system primitive graph", "contracts/primitives/money.ts", "check:design-system-export-coverage"],
+    ["design-system compiler API", "packages/typescript-compiler-api/index.mjs", "check:design-system-component-index"],
+  ])("%s selects %s", (_probe, changedPath, expectedLink) => {
+    expect(selectedNames([changedPath])).toContain(expectedLink);
   });
 
   it("replays the real #5745 discovery locale-key defect through Git discovery at its actual path", () => {

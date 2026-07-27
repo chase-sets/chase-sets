@@ -118,10 +118,14 @@ export const VERIFY_STATIC_SURFACES = {
     ],
   },
   "check:agent-connector-packaging": {
-    classification: MAY_NARROW,
-    rule: "agent-connector API docs or platform-runtime implementation",
-    evidence: ["scripts/generate-agent-connector-packaging.mjs:24-38"],
-    include: prefix("docs/api/agent-connectors", "infrastructure/platform-runtime"),
+    classification: ALWAYS_RUN,
+    rule: "runtime value-import graph reaches contracts and infrastructure beyond a finite declared surface",
+    evidence: [
+      "scripts/generate-agent-connector-packaging.mjs:34-38",
+      "infrastructure/platform-runtime/agent-connector-packaging.ts:1-10",
+      "infrastructure/platform-runtime/mcp.ts:24-50",
+      "infrastructure/platform-runtime/agent-guardrails.ts:1",
+    ],
   },
   "check:public-policies": {
     classification: ALWAYS_RUN,
@@ -129,12 +133,11 @@ export const VERIFY_STATIC_SURFACES = {
     evidence: ["bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.ts:28-39"],
   },
   "check:developer-articles": {
-    classification: MAY_NARROW,
-    rule: "developer-portal domain artifacts",
+    classification: ALWAYS_RUN,
+    rule: "compiler follows help, platform-runtime, and auth-context value-import graphs",
     evidence: [
-      "bounded-contexts/public-presence/features/developer-portal/integrations/compile-developer-articles.mjs:19-21,55-85",
+      "bounded-contexts/public-presence/features/developer-portal/integrations/compile-developer-articles.mjs:5-7,16-30",
     ],
-    include: prefix("bounded-contexts/public-presence/features/developer-portal/domain"),
   },
   "check:docs-index": {
     classification: ALWAYS_RUN,
@@ -148,18 +151,25 @@ export const VERIFY_STATIC_SURFACES = {
   },
   "check:design-system-component-index": {
     classification: MAY_NARROW,
-    rule: "design-system sources/index or production consumers in bounded contexts and deployables",
+    rule: "design-system sources/index, TypeScript compiler API, or production consumers",
     evidence: [
       "scripts/generate-design-system-component-index.mjs:8,42-48,66-73",
+      "scripts/check-design-system-dead-exports.mjs:5",
       "scripts/check-design-system-dead-exports.mjs:188-223",
     ],
-    include: prefix("packages/design-system", "bounded-contexts", "deployables"),
+    include: prefix("packages/design-system", "packages/typescript-compiler-api", "bounded-contexts", "deployables"),
   },
   "check:design-system-export-coverage": {
     classification: MAY_NARROW,
-    rule: "packages/design-system/** or the export-coverage guard itself",
-    evidence: ["scripts/check-design-system-export-coverage.mjs:423-448"],
-    include: [...prefix("packages/design-system"), ...exact("scripts/check-design-system-export-coverage.mjs")],
+    rule: "design-system runtime graph, including contracts/primitives, or the export-coverage guard itself",
+    evidence: [
+      "scripts/check-design-system-export-coverage.mjs:423-448",
+      "packages/design-system/src/components/forms/number-field.tsx:5-9",
+    ],
+    include: [
+      ...prefix("packages/design-system", "contracts/primitives"),
+      ...exact("scripts/check-design-system-export-coverage.mjs"),
+    ],
   },
   "check:package-export-targets": {
     classification: MAY_NARROW,
@@ -211,7 +221,13 @@ export const VERIFY_STATIC_SURFACES = {
     classification: MAY_NARROW,
     rule: "bounded-context UI or catalog locale sources",
     evidence: ["scripts/check-operator-surface-pm-content.mjs:20-32,236-248"],
-    include: [...regex("^bounded-contexts/[^/]+/(?:.+/)?ui/", "^contracts/localization/locales/[^/]+/catalog/")],
+    include: [
+      ...regex(
+        "^bounded-contexts/[^/]+/(?:.+/)?ui/",
+        "^contracts/localization/locales/.+/catalog/.*\\.ts$",
+        "^contracts/localization/locales/.+/catalog\\.ts$",
+      ),
+    ],
   },
   "test:scripts": {
     classification: ALWAYS_RUN,

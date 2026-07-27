@@ -111,17 +111,17 @@ export function deriveStaticChangedFiles({
 
   let mergeBase;
   try {
-    mergeBase = execGit(["merge-base", "origin/main", "HEAD"]).trim();
+    mergeBase = execGit(["merge-base", "refs/remotes/origin/main", "HEAD"]).trim();
   } catch {
     throw new StaticScopeDerivationError(
       "STATIC_SCOPE_MERGE_BASE_FAILED",
-      "could not derive the merge-base for origin/main and HEAD",
+      "could not derive the merge-base for refs/remotes/origin/main and HEAD",
     );
   }
   if (!mergeBase) {
     throw new StaticScopeDerivationError(
       "STATIC_SCOPE_MERGE_BASE_FAILED",
-      "the merge-base for origin/main and HEAD was empty",
+      "the merge-base for refs/remotes/origin/main and HEAD was empty",
     );
   }
 
@@ -158,6 +158,10 @@ export function verifyStaticSurfaceMapCompleteness(chain, surfaces = VERIFY_STAT
   return {
     missing: [...chainNames].filter((name) => !Object.hasOwn(surfaces, name)),
     extra: Object.keys(surfaces).filter((name) => !chainNames.has(name)),
+    invalidMayNarrow: [...chainNames].filter((name) => {
+      const entry = surfaces[name];
+      return entry?.classification === MAY_NARROW && (!Array.isArray(entry.include) || entry.include.length === 0);
+    }),
   };
 }
 
@@ -184,12 +188,16 @@ export function selectVerifyStaticLinks({
     return { selected: [], skipped: chain.map((link) => ({ link, rule: "empty derived diff" })), fullReason: null };
   }
 
-  const fullReason =
-    forceFull || allWorkspacesAffected(changedFiles, repoRoot, dependencies)
-      ? forceFull
-        ? "changed-file derivation failed closed"
-        : "classifyChanges affected every workspace (derived root-runtime fanout)"
-      : null;
+  const scriptsChanged = changedFiles.some((filePath) =>
+    linkSurfaceMatches({ include: [{ kind: "prefix", value: "scripts" }] }, [filePath]),
+  );
+  const fullReason = forceFull
+    ? "changed-file derivation failed closed"
+    : scriptsChanged
+      ? "scripts/** changed (guard and tooling changes require the full static chain)"
+      : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
+        ? "classifyChanges affected every workspace (derived root-runtime fanout)"
+        : null;
   if (fullReason) return { selected: chain, skipped: [], fullReason };
 
   const selected = [];
@@ -203,6 +211,8 @@ export function selectVerifyStaticLinks({
     if (
       entry.classification === ALWAYS_RUN ||
       entry.classification !== MAY_NARROW ||
+      !Array.isArray(entry.include) ||
+      entry.include.length === 0 ||
       linkSurfaceMatches(entry, changedFiles)
     ) {
       selected.push(link);
