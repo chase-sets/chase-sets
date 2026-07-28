@@ -87,8 +87,15 @@ function participantOf(streamId: string, consentOrdinal: (streamId: string) => n
  * measures, so both entry points honour the same injection.
  */
 function faultInjectingEventStore(inner: EventStore, fault: FaultControl): EventStore {
+  // Only Consent streams take an ordinal, and each keeps the first position it
+  // was seen at, so "consent-2" names the same member of the ordered bundle
+  // whether the composition writes it as its own append or as one participant
+  // of a shared batch.
   const consentOrder: string[] = [];
   const consentOrdinal = (streamId: string) => {
+    if (!streamId.startsWith("identity.consent-")) {
+      return 0;
+    }
     if (!consentOrder.includes(streamId)) {
       consentOrder.push(streamId);
     }
@@ -217,7 +224,7 @@ describeDb("registration atomicity and convergence", () => {
   }
 
   async function postState(harness: Harness) {
-    const events = await harness.eventStore.readAll({ limit: 5_000 });
+    const events = await harness.eventStore.readAll({ limit: 500 });
     const streamsWithPrefix = (prefix: string) => [
       ...new Set(events.filter((event: StoredEvent) => event.streamId.startsWith(prefix)).map((e) => e.streamId)),
     ];

@@ -258,7 +258,7 @@ describeDb("registration operation recovery", () => {
   }
 
   async function streamIds(prefix: string) {
-    const events = await eventStore.readAll({ limit: 5_000 });
+    const events = await eventStore.readAll({ limit: 500 });
     return [...new Set(events.filter((e: StoredEvent) => e.streamId.startsWith(prefix)).map((e) => e.streamId))];
   }
 
@@ -290,7 +290,7 @@ describeDb("registration operation recovery", () => {
 
   it("appends nothing and fails closed when the claimed bundle disagrees on a policy version", async () => {
     const partial = await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
-    const before = await eventStore.readAll({ limit: 5_000 });
+    const before = await eventStore.readAll({ limit: 500 });
 
     const disagreed = await register([TERMS_V2, PRIVACY_V3]);
 
@@ -298,7 +298,7 @@ describeDb("registration operation recovery", () => {
     expect((disagreed.body.error as { code?: string } | undefined)?.code).toBe(
       "registration_operation_consent_disagreement",
     );
-    const after = await eventStore.readAll({ limit: 5_000 });
+    const after = await eventStore.readAll({ limit: 500 });
     expect(after.length, "a version disagreement must append nothing").toBe(before.length);
     expect(await streamIds("identity.user-")).toEqual([]);
     expect(await streamIds("identity.membership-")).toEqual([]);
@@ -308,12 +308,12 @@ describeDb("registration operation recovery", () => {
 
   it("appends nothing when the claimed bundle disagrees on requirement count", async () => {
     await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
-    const before = await eventStore.readAll({ limit: 5_000 });
+    const before = await eventStore.readAll({ limit: 500 });
 
     const disagreed = await register([TERMS_V1]);
 
     expect(disagreed.status).toBe(409);
-    expect(await eventStore.readAll({ limit: 5_000 })).toHaveLength(before.length);
+    expect(await eventStore.readAll({ limit: 500 })).toHaveLength(before.length);
   });
 
   it("reclaims a reservation left behind before operations were recorded, when its account never committed", async () => {
