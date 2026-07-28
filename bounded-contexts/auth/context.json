@@ -1,6 +1,7 @@
 {
   "contextName": "auth",
   "packageName": "@chase-sets/auth",
+  "localeCatalogs": ["contracts/localization/locales/en/auth.ts"],
   "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",

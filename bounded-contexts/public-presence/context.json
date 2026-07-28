@@ -1,6 +1,7 @@
 {
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
+  "localeCatalogs": ["contracts/localization/locales/en/public-presence.ts"],
   "ownedNouns": [
     "public-presence",
     "waitlist-signup",

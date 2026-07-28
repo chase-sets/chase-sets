@@ -1,6 +1,7 @@
 {
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
+  "localeCatalogs": ["contracts/localization/locales/en/settlement.ts"],
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",

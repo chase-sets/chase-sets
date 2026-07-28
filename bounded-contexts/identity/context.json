@@ -1,6 +1,7 @@
 {
   "contextName": "identity",
   "packageName": "@chase-sets/identity",
+  "localeCatalogs": ["contracts/localization/locales/en/identity.ts"],
   "ownedNouns": [
     "user",
     "account",

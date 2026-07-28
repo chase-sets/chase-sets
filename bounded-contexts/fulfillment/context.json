@@ -1,6 +1,7 @@
 {
   "contextName": "fulfillment",
   "packageName": "@chase-sets/fulfillment",
+  "localeCatalogs": ["contracts/localization/locales/en/fulfillment.ts"],
   "ownedNouns": ["shipment", "return-shipment"],
   "streamPrefix": "fulfillment.",
   "apiBasePath": "/api/marketplace",

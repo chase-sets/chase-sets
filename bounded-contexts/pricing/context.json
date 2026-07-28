@@ -1,6 +1,7 @@
 {
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
+  "localeCatalogs": ["contracts/localization/locales/en/pricing.ts"],
   "ownedNouns": [
     "market-price",
     "market-price-snapshot",

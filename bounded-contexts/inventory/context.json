@@ -1,6 +1,7 @@
 {
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
+  "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
   "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "recovered-item", "storage-location"],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",

@@ -1,6 +1,7 @@
 {
   "contextName": "notifications",
   "packageName": "@chase-sets/notifications",
+  "localeCatalogs": ["contracts/localization/locales/en/notifications.ts"],
   "ownedNouns": [
     "notification-center",
     "notification-feed-item",

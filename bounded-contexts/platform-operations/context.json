@@ -1,6 +1,7 @@
 {
   "contextName": "platform-operations",
   "packageName": "@chase-sets/platform-operations",
+  "localeCatalogs": ["contracts/localization/locales/en/platform-operations.ts"],
   "ownedNouns": [
     "projection-operation",
     "platform-operation-attention",

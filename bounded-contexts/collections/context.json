@@ -1,6 +1,7 @@
 {
   "contextName": "collections",
   "packageName": "@chase-sets/collections",
+  "localeCatalogs": ["contracts/localization/locales/en/collections.ts"],
   "ownedNouns": [
     "saved-list",
     "saved-list-line",
