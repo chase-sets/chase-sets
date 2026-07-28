@@ -88,6 +88,19 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Re
       contextName: "target",
       apiBasePath: "/target",
       streamPrefix: "target.",
+      eventSubscriptions: [
+        {
+          sourceContextName: "source",
+          projectionName: "pages",
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: ["pages"],
+          eventTypes: ["source.structure-changed", "source.marker"],
+          streamPrefixes: ["source."],
+          batchSize: 10,
+          checkpointBatchSize: 1,
+          projectionCascadeChunkSize: CASCADE_CHUNK_SIZE,
+        },
+      ],
       projectionGroups: [
         {
           projectionName: "pages",

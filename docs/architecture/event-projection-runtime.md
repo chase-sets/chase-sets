@@ -12,7 +12,10 @@ Push acceleration is live in staging; production and previews keep event-store w
 
 - A source context owns the event stream and publishes facts.
 - A target context declares subscriptions in `context.json`.
-- The shared bounded-context runtime creates subscription runners from those declarations.
+- `BcApiModule` exposes the normalized event subscription and reaction declarations to both platform hosts.
+- The shared bounded-context runtime fails an active mount when a declaration has no matching built handler. A self-sourced projection may use a same-named local projector; reactions and cross-context projections may not.
+- Source-only mounts skip this reconciliation because their target-side handlers are intentionally not constructed.
+- After reconciliation, the shared bounded-context runtime creates subscription runners without changing their subscription or checkpoint identity.
 - The platform worker runs projection groups as independent consumer runners.
 - Checkpoints are stored per `projectionName:sourceContextName:version`.
 - Poison handling is stream-isolated by default: one bad stream blocks only that projection plus stream.

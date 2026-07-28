@@ -95,6 +95,14 @@ function createModule(
     streamPrefix: `${contextName}.`,
     schemaSql: "",
     apiMounts: options.apiMounts ?? [],
+    eventSubscriptions: (options.subscriptions ?? []).map((subscription) => ({
+      sourceContextName: subscription.sourceContextName,
+      projectionName: subscription.projectionName,
+      subscriptionVersion: subscription.subscriptionVersion,
+      projectionHandlerSetNames: [subscription.projectionName],
+      eventTypes: subscription.eventTypes,
+      order: subscription.order,
+    })),
     createServices: () => ({ contextName }),
     buildApis: () => options.apiRouters ?? [],
     buildSubscriptions: () => options.subscriptions ?? [],
@@ -370,6 +378,40 @@ describe("platform host api registry", () => {
         },
       }),
     ).toThrow(/missing a pool for context 'auth'/);
+  });
+
+  it("fails API host mounting when an active module exposes an unresolved declaration", () => {
+    const registry = [
+      {
+        contextName: "inventory",
+        packageName: "@test/inventory",
+        manifest: {
+          contextName: "inventory",
+          apiDeployables: ["platform-api"],
+          apiRuntimeProfiles: ["public"],
+        },
+        module: {
+          ...createModule("inventory"),
+          eventSubscriptions: [
+            {
+              sourceContextName: "catalog",
+              projectionName: "inventory-missing-projection",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["inventory-missing-projection"],
+            },
+          ],
+        },
+      },
+    ] as const satisfies ApiContextRegistry;
+
+    expect(() =>
+      createApiHost(registry, "platform-api", {
+        pools: { inventory: createPool() as never },
+        runtimeProfile: "public",
+      }),
+    ).toThrow(
+      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'inventory-missing-projection', but no registered handler or self-sourced local projector can resolve it.",
+    );
   });
 
   it("mounts and explicitly seeds source runtime contexts without activating their APIs or subscriptions", async () => {
@@ -726,6 +768,43 @@ describe("platform host api registry", () => {
 });
 
 describe("platform host worker registry", () => {
+  it("fails worker host mounting when an active module exposes an unresolved declaration", () => {
+    const registry = [
+      {
+        contextName: "notifications",
+        packageName: "@test/notifications",
+        manifest: {
+          contextName: "notifications",
+          runtimeDeployables: ["platform-worker"],
+          workerRuntimeProfiles: ["public"],
+        },
+        module: {
+          ...createModule("notifications"),
+          eventReactions: [
+            {
+              sourceContextName: "identity",
+              reactionName: "notifications-missing-reaction",
+              subscriptionVersion: 1,
+              reactionHandlerSetNames: ["notifications-missing-reaction"],
+              idempotencyPolicy: "idempotent-command-dispatch",
+              retryPolicy: "retry-from-last-checkpoint",
+              failurePolicy: "surface-as-reaction-failure",
+            },
+          ],
+        },
+      },
+    ] as const satisfies WorkerContextRegistry;
+
+    expect(() =>
+      createWorkerHost(registry, "platform-worker", {
+        pools: { notifications: createPool() as never },
+        runtimeProfile: "public",
+      }),
+    ).toThrow(
+      "Context 'notifications' declares an event reaction from source context 'identity' for reaction 'notifications-missing-reaction', but no registered handler can resolve it.",
+    );
+  });
+
   it("mounts source runtime contexts without activating their subscriptions", () => {
     const registry = [
       {

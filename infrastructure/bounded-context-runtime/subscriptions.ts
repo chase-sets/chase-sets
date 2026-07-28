@@ -1338,6 +1338,7 @@ export function resolveModuleSubscriptions(
       resolveDeclaredProjectionGroups(entry).map((group) => [group.projectionName, group.sourceContextNames]),
     );
     const declaredSubscriptions = entry.module.buildSubscriptions?.(entry.services) ?? [];
+    validateModuleSubscriptionDeclarations(entry, declaredSubscriptions);
     const inlineProjectionNames = new Set(
       entry.projectionHandlerSets.filter((set) => set.inlineApply === true).map((set) => set.projectionName),
     );
@@ -1379,6 +1380,75 @@ export function resolveModuleSubscriptions(
   }
 
   return sortSubscriptionRunners(runners);
+}
+
+function validateModuleSubscriptionDeclarations(
+  entry: MountedContextRuntimeEntry,
+  builtSubscriptions: readonly BcEventSubscription[],
+): void {
+  const eventSubscriptions = entry.module.eventSubscriptions ?? [];
+  const eventReactions = entry.module.eventReactions ?? [];
+
+  for (const subscription of builtSubscriptions.filter(
+    (candidate) => (candidate.handlerKind ?? "projection") === "projection",
+  )) {
+    const declaration = eventSubscriptions.find(
+      (candidate) =>
+        candidate.sourceContextName === subscription.sourceContextName &&
+        candidate.projectionName === subscription.projectionName,
+    );
+    if (!declaration) {
+      throw new Error(
+        `Context '${entry.contextName}' built an event subscription from source context '${subscription.sourceContextName}' for projection '${subscription.projectionName}', but its exposed eventSubscriptions declarations do not contain it.`,
+      );
+    }
+  }
+
+  for (const subscription of builtSubscriptions.filter((candidate) => candidate.handlerKind === "reaction")) {
+    const reactionName = subscription.reactionName ?? subscription.projectionName;
+    const declaration = eventReactions.find(
+      (candidate) =>
+        candidate.sourceContextName === subscription.sourceContextName && candidate.reactionName === reactionName,
+    );
+    if (!declaration) {
+      throw new Error(
+        `Context '${entry.contextName}' built an event reaction from source context '${subscription.sourceContextName}' for reaction '${reactionName}', but its exposed eventReactions declarations do not contain it.`,
+      );
+    }
+  }
+
+  for (const declaration of eventSubscriptions) {
+    const hasRegisteredHandler = builtSubscriptions.some(
+      (subscription) =>
+        (subscription.handlerKind ?? "projection") === "projection" &&
+        subscription.sourceContextName === declaration.sourceContextName &&
+        subscription.projectionName === declaration.projectionName,
+    );
+    const hasSelfSourcedLocalProjector =
+      declaration.sourceContextName === entry.contextName &&
+      entry.projectionHandlerSets.some((set) => set.projectionName === declaration.projectionName);
+
+    if (!hasRegisteredHandler && !hasSelfSourcedLocalProjector) {
+      throw new Error(
+        `Context '${entry.contextName}' declares an event subscription from source context '${declaration.sourceContextName}' for projection '${declaration.projectionName}', but no registered handler or self-sourced local projector can resolve it.`,
+      );
+    }
+  }
+
+  for (const declaration of eventReactions) {
+    const hasRegisteredHandler = builtSubscriptions.some(
+      (subscription) =>
+        subscription.handlerKind === "reaction" &&
+        subscription.sourceContextName === declaration.sourceContextName &&
+        (subscription.reactionName ?? subscription.projectionName) === declaration.reactionName,
+    );
+
+    if (!hasRegisteredHandler) {
+      throw new Error(
+        `Context '${entry.contextName}' declares an event reaction from source context '${declaration.sourceContextName}' for reaction '${declaration.reactionName}', but no registered handler can resolve it.`,
+      );
+    }
+  }
 }
 
 function resolveDeclaredProjectionGroups(entry: MountedContextRuntimeEntry): readonly BcProjectionGroup[] {
