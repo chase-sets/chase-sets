@@ -9,6 +9,7 @@ import pg from "pg";
 import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } from "./browser-e2e-evidence.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
+  acquireDevSystemHeavySlot,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
@@ -35,7 +36,7 @@ const modeArguments = process.argv.slice(3);
 const representativeRefresh = modeArguments.includes("--representative");
 const replayRepresentativeRefresh = modeArguments.includes("--replay");
 const target = modeArguments.find((argument) => !argument.startsWith("--")) ?? "all";
-if (mode === "dev" && target === "browser-e2e") acquireHeavySlot("script-battery");
+acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);

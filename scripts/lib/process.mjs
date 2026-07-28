@@ -7,6 +7,7 @@ import { repoRoot } from "./repo.mjs";
 const minimalProcessEnvironmentNames = new Set(
   [
     "APPDATA",
+    "CHASE_SETS_HEAVY_SLOT_ID",
     "CI",
     "COMSPEC",
     "FORCE_COLOR",

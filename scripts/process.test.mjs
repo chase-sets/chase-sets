@@ -208,6 +208,7 @@ describe("process helpers", () => {
   });
 
   it("starts an isolated sentinel child without ambient database selectors or Space credentials", async () => {
+    vi.stubEnv("CHASE_SETS_HEAVY_SLOT_ID", "0123456789abcdef0123456789abcdef");
     vi.stubEnv("PGHOST", "localhost");
     vi.stubEnv("PGHOSTADDR", "203.0.113.41");
     vi.stubEnv("PGDATABASE", "hostile");
@@ -239,5 +240,6 @@ describe("process helpers", () => {
     expect(env).not.toHaveProperty("PGHOSTADDR");
     expect(env).not.toHaveProperty("RELEASE_EVIDENCE_SPACES_SECRET_KEY");
     expect(env).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
+    expect(env).toHaveProperty("CHASE_SETS_HEAVY_SLOT_ID", "0123456789abcdef0123456789abcdef");
   });
 });

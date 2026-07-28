@@ -65,7 +65,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.ok(result.entrypoints.length >= 10, `expected a derived inventory, received ${result.entrypoints.length}`);
+  assert.equal(result.entrypoints.length, 71);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -101,6 +101,86 @@ test("fails through real tracked-file discovery when a derived entry point loses
   writeFileSync(path.join(root, "scripts", "managed-postgres-authority-guard.mjs"), guarded);
   writeFileSync(path.join(root, "scripts", "run-workspaces.mjs"), guarded);
   assert.deepEqual(checkHeavySlotCoverage(root).violations, []);
+});
+
+test("fails closed for an unreviewed tracked Node package-script entry point", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-unreviewed-node-fixture-"));
+  temporaryRoots.push(root);
+  initializeTrackedFixture(root, {
+    "package.json": JSON.stringify({
+      private: true,
+      scripts: {
+        "test:soak": "node ./scripts/mega-soak-runner.mjs",
+      },
+    }),
+    "scripts/mega-soak-runner.mjs": 'console.log("unguarded");\n',
+  });
+
+  const result = checkHeavySlotCoverage(root);
+  assert.deepEqual(result.entrypoints, ["scripts/mega-soak-runner.mjs"]);
+  assert.deepEqual(result.unresolved, []);
+  assert.match(result.violations.join("\n"), /mega-soak-runner\.mjs does not activate/);
+});
+
+test("keeps an explicitly reviewed cheap Node package-script entry point out of the heavy inventory", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-cheap-node-fixture-"));
+  temporaryRoots.push(root);
+  initializeTrackedFixture(root, {
+    "package.json": JSON.stringify({
+      private: true,
+      scripts: {
+        "check:docs-index": "node ./scripts/check-docs-index.mjs",
+      },
+    }),
+    "scripts/check-docs-index.mjs": 'console.log("cheap");\n',
+  });
+
+  assert.deepEqual(checkHeavySlotCoverage(root), {
+    entrypoints: [],
+    unresolved: [],
+    violations: [],
+  });
+});
+
+test("structurally rejects a dev-system guard whose browser target condition can never acquire", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-dev-system-structure-fixture-"));
+  temporaryRoots.push(root);
+  const canonicalHelper = [
+    "export function isBrowserE2eTarget(targetName) {",
+    '  return targetName === "browser-e2e" || targetName === "browser-e2e-production";',
+    "}",
+    "export function acquireDevSystemHeavySlot(mode, targetName, acquireSlot) {",
+    '  if (mode !== "dev" || !isBrowserE2eTarget(targetName)) return false;',
+    '  return acquireSlot("script-battery");',
+    "}",
+    "",
+  ].join("\n");
+  initializeTrackedFixture(root, {
+    "package.json": JSON.stringify({
+      private: true,
+      scripts: {
+        "dev:browser-e2e": "node ./scripts/dev-system.mjs dev browser-e2e",
+      },
+    }),
+    "scripts/dev-system.mjs": [
+      'import { acquireDevSystemHeavySlot } from "./dev-system-config.mjs";',
+      'import { acquireHeavySlot } from "./lib/heavy-slot.mjs";',
+      'const mode = process.argv[2] ?? "dev";',
+      'const target = process.argv[3] ?? "all";',
+      "acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);",
+      "",
+    ].join("\n"),
+    "scripts/dev-system-config.mjs": canonicalHelper,
+    "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
+  });
+
+  assert.deepEqual(checkHeavySlotCoverage(root).violations, []);
+
+  writeFileSync(
+    path.join(root, "scripts", "dev-system-config.mjs"),
+    canonicalHelper.replace("!isBrowserE2eTarget(targetName)", 'targetName !== "never-a-browser-target"'),
+  );
+  assert.match(checkHeavySlotCoverage(root).violations.join("\n"), /dev-system\.mjs does not activate/);
 });
 
 test("derives explicit-file DB lifecycle configs instead of treating them as cheap focused runs", () => {
