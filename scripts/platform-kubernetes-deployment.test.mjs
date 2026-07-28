@@ -93,6 +93,36 @@ function rollbackWorkloadList(image = rollbackImageRef) {
           },
         },
       },
+      {
+        apiVersion: "batch/v1",
+        kind: "Job",
+        metadata: {
+          name: "proof-chase-sets-platform-platform-bootstrap",
+          annotations: {
+            "helm.sh/hook": "pre-install,pre-upgrade",
+          },
+          labels: {
+            "app.kubernetes.io/instance": "proof",
+            "app.kubernetes.io/component": "platform-bootstrap",
+          },
+        },
+        spec: {
+          template: {
+            spec: {
+              containers: [
+                {
+                  name: "platform-bootstrap",
+                  image: `registry.digitalocean.com/chase-sets/chase-sets-platform@${failedCandidateDigest}`,
+                },
+              ],
+            },
+          },
+        },
+        status: {
+          failed: 1,
+          conditions: [{ type: "Failed", status: "True" }],
+        },
+      },
     ],
   });
 }
@@ -1273,7 +1303,7 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
-  it("binds failed candidate and failed atomic rollback recovery to the captured successful LKG revision", async () => {
+  it("ignores a retained failed Helm hook Job while binding recovery to the captured successful LKG revision", async () => {
     const captureCalls = [];
     const capturedHistory = [{ revision: 228, status: "deployed", description: "Upgrade complete" }];
     const target = await captureKubernetesRollbackTarget({
@@ -1341,6 +1371,7 @@ describe("platform Kubernetes deployment", () => {
         resultingRevision: 231,
         observedTag: rollbackTag,
         observedDigest: rollbackDigest,
+        workloadIdentities: [{ kind: "Deployment", component: "platform-worker" }],
       },
     });
     const helmRollback = rollbackCalls.find((call) => call.command === "helm" && call.args[0] === "rollback");

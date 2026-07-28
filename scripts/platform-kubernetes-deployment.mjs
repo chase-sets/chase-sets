@@ -787,6 +787,7 @@ async function readApplicationWorkloadIdentities(options) {
       .map(([component]) => component),
   );
   const observed = list.items
+    .filter((item) => !Object.hasOwn(item?.metadata?.annotations ?? {}, "helm.sh/hook"))
     .filter((item) => declaredComponents.has(item?.metadata?.labels?.["app.kubernetes.io/component"]))
     .map(normalizeWorkloadIdentity)
     .sort(compareWorkloadIdentity);
