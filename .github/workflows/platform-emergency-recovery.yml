@@ -33,6 +33,10 @@ on:
         description: Required for rollback-readiness and rollback.
         required: false
         type: string
+      rollback_revision:
+        description: Exact successful Helm revision; required for rollback mode.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -65,6 +69,7 @@ jobs:
           RECOVERY_PULL_REQUEST: ${{ inputs.recovery_pr }}
           ROLLBACK_RELEASE_TAG: ${{ inputs.release_tag }}
           ROLLBACK_IMAGE_REF: ${{ inputs.image_ref }}
+          CHASE_SETS_HELM_ROLLBACK_REVISION: ${{ inputs.rollback_revision }}
         run: pnpm run emergency-recovery:guide
 
       - name: Upload emergency recovery summary

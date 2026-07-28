@@ -2357,6 +2357,10 @@ jobs:
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
       rollback_reference: ${{ steps.production_rollback.outputs.rollback_reference || '' }}
+      rollback_source_revision: ${{ steps.production_rollback.outputs.rollback_source_revision || '' }}
+      rollback_resulting_revision: ${{ steps.production_rollback.outputs.rollback_resulting_revision || '' }}
+      rollback_observed_tag: ${{ steps.production_rollback.outputs.rollback_observed_tag || '' }}
+      rollback_observed_digest: ${{ steps.production_rollback.outputs.rollback_observed_digest || '' }}
       root_cause_code: ${{ steps.production_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.production_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
       affected_component: ${{ steps.production_failure_classification.outputs.affected_component || 'unknown' }}
@@ -3161,7 +3165,8 @@ jobs:
               | tail -n 1
           )"
           if [ -z "$release_tag" ]; then
-            echo "Production marker ${last_known_good_commit} has no release-* tag; rollback readiness will fail closed." >&2
+            echo "Production marker ${last_known_good_commit} has no release-* tag; refusing mutation without rollback identity." >&2
+            exit 1
           fi
 
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
@@ -3170,11 +3175,21 @@ jobs:
             exit 1
           fi
 
+          doctl registry login --expiry-seconds 3600
+          release_image_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_tag}"
+          rollback_digest="$(docker buildx imagetools inspect "$release_image_ref" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Last-known-good release image ${release_image_ref} did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+
           mkdir -p artifacts/release-health
           target_path="artifacts/release-health/production-rollback-target.json"
           node ./scripts/platform-kubernetes-deployment.mjs capture-rollback-target \
             --registry-name="$registry_name" \
             --repository="$PLATFORM_IMAGE_REPOSITORY" \
+            --tag="$last_known_good_commit" \
+            --digest="$rollback_digest" \
             --last-known-good-commit="$last_known_good_commit" \
             --release-tag="$release_tag" \
             --namespace="$CHASE_SETS_KUBERNETES_NAMESPACE" \
@@ -3182,13 +3197,7 @@ jobs:
             --out="$target_path" \
             --github-output="$GITHUB_OUTPUT"
 
-          image_ref="$(jq -r '.imageRef // ""' "$target_path")"
-          doctl registry login --expiry-seconds 3600
-          if [ -n "$image_ref" ] && docker buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
-            image_exists=true
-          else
-            image_exists=false
-          fi
+          image_exists=true
 
           smoke_verified=false
           if [ -n "$release_tag" ] && git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
@@ -3744,7 +3753,10 @@ jobs:
           pnpm run platform:kubernetes-deployment -- rollback \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
+            --revision "${{ steps.rollback_target.outputs.rollback_source_revision }}" \
+            --rollback-target "artifacts/release-health/production-rollback-target.json" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
+            --runtime-env DEPLOYMENT_ENVIRONMENT=production \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
             --out "$rollback_record" \
             --github-output "$GITHUB_OUTPUT"
@@ -3767,6 +3779,10 @@ jobs:
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           rollback_result="$(jq -r '.result // "unknown"' "$rollback_record")"
           rollback_reason="$(jq -r '.reason // empty' "$rollback_record")"
+          rollback_source_revision="$(jq -r '.rollbackIdentity.sourceRevision // empty' "$rollback_record")"
+          rollback_resulting_revision="$(jq -r '.rollbackIdentity.resultingRevision // empty' "$rollback_record")"
+          rollback_observed_tag="$(jq -r '.rollbackIdentity.observedTag // empty' "$rollback_record")"
+          rollback_observed_digest="$(jq -r '.rollbackIdentity.observedDigest // empty' "$rollback_record")"
           {
             echo "completed_at=${completed_at}"
             echo "result=${rollback_result}"
@@ -3777,11 +3793,14 @@ jobs:
             {
               echo "## Automated production rollback"
               echo
-              echo "A post-cutover production verification step failed. Helm rolled the production Kubernetes release back to the previous revision."
+              echo "A post-cutover production verification step failed. Helm restored the captured successful production revision and every application workload matched its image identity."
               echo
               echo "- Target commit: ${{ steps.rollback_target.outputs.last_known_good_commit }}"
+              echo "- Source Helm revision: ${rollback_source_revision}"
+              echo "- Resulting Helm revision: ${rollback_resulting_revision}"
               echo "- Release tag: ${{ steps.rollback_target.outputs.rollback_release_tag }}"
-              echo "- Image: ${{ steps.rollback_target.outputs.rollback_image_ref }}"
+              echo "- Observed image tag: ${rollback_observed_tag}"
+              echo "- Observed image digest: ${rollback_observed_digest}"
               echo "- Workloads: ${{ steps.rollback_target.outputs.rollback_components }}"
               echo "- Reference: ${rollback_reference}"
             } >> "$GITHUB_STEP_SUMMARY"
@@ -3929,14 +3948,22 @@ jobs:
           AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
           PRODUCTION_MARKER_UPDATED: ${{ steps.production_marker.outputs.marker_updated || 'false' }}
           PRODUCTION_ROLLBACK_RESULT: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
+          ROLLBACK_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
+          ROLLBACK_OBSERVED_DIGEST: ${{ steps.production_rollback.outputs.rollback_observed_digest || '' }}
         run: |
           set -euo pipefail
           if [ "$PRODUCTION_ROLLBACK_RESULT" = "success" ]; then
             terminal="rolled-back"
+            terminal_commit="$ROLLBACK_TARGET_COMMIT"
+            terminal_digest="$ROLLBACK_OBSERVED_DIGEST"
           elif [ "$PRODUCTION_MARKER_UPDATED" = "true" ]; then
             terminal="promoted"
+            terminal_commit="$RELEASE_COMMIT"
+            terminal_digest="$RELEASE_IMAGE_DIGEST"
           else
             terminal="failed"
+            terminal_commit="$RELEASE_COMMIT"
+            terminal_digest="$RELEASE_IMAGE_DIGEST"
           fi
 
           pending_commit=""
@@ -3955,6 +3982,8 @@ jobs:
             --arg digest "$RELEASE_IMAGE_DIGEST" \
             --arg mode "$RELEASE_STATE_MODE" \
             --arg terminal "$terminal" \
+            --arg terminalCommit "$terminal_commit" \
+            --arg terminalDigest "$terminal_digest" \
             --arg pending "$pending_commit" \
             --argjson count "$coalesced_count" \
             '[{type:"active", commit:$commit, imageDigest:$digest, mode:$mode}]
@@ -3962,7 +3991,7 @@ jobs:
                   {type:"pending", commit:$pending, mode:"automatic"},
                   {type:"coalesced", commit:$pending, count:$count}
                 ] end)
-              + [{type:$terminal, commit:$commit, imageDigest:$digest, mode:$mode}]')"
+              + [{type:$terminal, commit:$terminalCommit, imageDigest:$terminalDigest, mode:$mode}]')"
           echo "transitions=${transitions}" >> "$GITHUB_OUTPUT"
           echo "Terminal release outcome: ${terminal}; pending latest: ${pending_commit:-none}; coalesced commits: ${coalesced_count}."
 
@@ -4121,6 +4150,11 @@ jobs:
           RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback' || github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
           RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}
           RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
+          ROLLBACK_SOURCE_REVISION: ${{ steps.production_rollback.outputs.rollback_source_revision || '' }}
+          ROLLBACK_RESULTING_REVISION: ${{ steps.production_rollback.outputs.rollback_resulting_revision || '' }}
+          ROLLBACK_OBSERVED_TAG: ${{ steps.production_rollback.outputs.rollback_observed_tag || '' }}
+          ROLLBACK_OBSERVED_DIGEST: ${{ steps.production_rollback.outputs.rollback_observed_digest || '' }}
+          ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}
           PRODUCTION_RECOVERY_MODE: ${{ needs.resolve-release.outputs.production_recovery_mode }}
           PRODUCTION_RECOVERY_REASON: ${{ needs.resolve-release.outputs.production_recovery_reason }}
           ROLLBACK_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result || 'failure' }}

@@ -5,10 +5,13 @@ import {
   abortPlatformRollouts,
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
+  buildApplicationWorkloadIdentityArgs,
+  buildHelmHistoryArgs,
   buildHelmRollbackArgs,
   buildHelmStatusArgs,
   buildHelmUninstallArgs,
   buildHelmUpgradeArgs,
+  buildHelmValuesArgs,
   buildWaveExposureHelmSetArgs,
   buildKubernetesRollbackTarget,
   buildNamespaceDeleteArgs,
@@ -18,6 +21,7 @@ import {
   buildScenarioSeedAccessManifest,
   buildScenarioSeedJobManifest,
   copyPreviewWildcardTlsSecret,
+  captureKubernetesRollbackTarget,
   deployPlatformToKubernetes,
   helmReleaseExists,
   parsePlatformImageRef,
@@ -41,6 +45,87 @@ const sampleValues = {
     disabled: { enabled: false, kind: "service" },
   },
 };
+
+const rollbackDigest = "sha256:635b93388d32b865330e1ccb068a5effcd7a492326e597c9f72c48886f1f9680";
+const rollbackTag = "c0bd688d64bd5140fcbd2790489717a042e5432b";
+const failedCandidateDigest = "sha256:389894cef6b5ebc5dd63d1b3b5aada76264a8d353d8fa4852018bafe9496292d";
+const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platform@${rollbackDigest}`;
+const rollbackValues = {
+  global: {
+    image: {
+      registry: "registry.digitalocean.com",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+    },
+  },
+  components: {
+    "platform-worker": { enabled: true, kind: "worker" },
+    "platform-bootstrap": { enabled: true, kind: "job", job: { hook: { enabled: true } } },
+  },
+};
+
+function helmHistory(entries) {
+  return JSON.stringify(entries);
+}
+
+function rollbackWorkloadList(image = rollbackImageRef) {
+  return JSON.stringify({
+    apiVersion: "v1",
+    kind: "List",
+    items: [
+      {
+        apiVersion: "apps/v1",
+        kind: "Deployment",
+        metadata: {
+          name: "proof-chase-sets-platform-platform-worker",
+          labels: {
+            "app.kubernetes.io/instance": "proof",
+            "app.kubernetes.io/component": "platform-worker",
+          },
+        },
+        spec: {
+          template: {
+            spec: {
+              containers: [{ name: "platform-worker", image }],
+            },
+          },
+        },
+      },
+      {
+        apiVersion: "batch/v1",
+        kind: "Job",
+        metadata: {
+          name: "proof-chase-sets-platform-platform-bootstrap",
+          annotations: {
+            "helm.sh/hook": "pre-install,pre-upgrade",
+          },
+          labels: {
+            "app.kubernetes.io/instance": "proof",
+            "app.kubernetes.io/component": "platform-bootstrap",
+          },
+        },
+        spec: {
+          template: {
+            spec: {
+              containers: [
+                {
+                  name: "platform-bootstrap",
+                  image: `registry.digitalocean.com/chase-sets/chase-sets-platform@${failedCandidateDigest}`,
+                },
+              ],
+            },
+          },
+        },
+        status: {
+          failed: 1,
+          conditions: [{ type: "Failed", status: "True" }],
+        },
+      },
+    ],
+  });
+}
 
 function successfulSpawn(calls) {
   return (command, args, options) => {
@@ -974,19 +1059,35 @@ describe("platform Kubernetes deployment", () => {
     ).toThrow("Runtime env override name");
   });
 
-  it("builds Helm rollback arguments with an optional revision", () => {
-    expect(buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m" })).toEqual([
-      "rollback",
-      "staging-platform",
-      "--namespace",
-      "staging",
-      "--wait",
-      "--timeout",
-      "5m",
-    ]);
+  it("requires an exact positive Helm rollback revision", () => {
+    expect(() => buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m" })).toThrow(
+      "revision must be a positive Helm revision",
+    );
     expect(
       buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m", revision: "7" }),
-    ).toContain("7");
+    ).toEqual(["rollback", "staging-platform", "7", "--namespace", "staging", "--wait", "--timeout", "5m"]);
+  });
+
+  it("builds the exact history, values, and workload identity reads used by rollback", () => {
+    expect(buildHelmHistoryArgs({ release: "proof", namespace: "production" })).toEqual([
+      "history",
+      "proof",
+      "--namespace",
+      "production",
+      "--output",
+      "json",
+    ]);
+    expect(buildHelmValuesArgs({ release: "proof", namespace: "production", revision: 228 })).toContain("228");
+    expect(buildApplicationWorkloadIdentityArgs({ release: "proof", namespace: "production" })).toEqual([
+      "get",
+      "deployments.apps,jobs.batch,rollouts.argoproj.io",
+      "--namespace",
+      "production",
+      "--selector",
+      "app.kubernetes.io/instance=proof",
+      "--output",
+      "json",
+    ]);
   });
 
   it("builds Helm status arguments for release existence checks", () => {
@@ -1158,44 +1259,298 @@ describe("platform Kubernetes deployment", () => {
 
   it("rolls back with Helm and reuses rollout status waits", async () => {
     const calls = [];
-    await rollbackPlatformOnKubernetes({
-      values: sampleValues,
+    const before = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "failed", description: "Upgrade failed" },
+    ];
+    const after = [...before, { revision: 5, status: "deployed", description: "Rollback to 3" }];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
       release: "proof",
       namespace: "staging",
       timeout: "30s",
       revision: "3",
-      spawn: successfulSpawn(calls),
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 0, stdout: helmHistory(before) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: helmHistory(before) },
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: helmHistory(after) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        { code: 0, stdout: helmHistory(after) },
+      ]),
     });
 
+    expect(result).toMatchObject({
+      result: "success",
+      rollbackIdentity: {
+        sourceRevision: 3,
+        resultingRevision: 5,
+        observedTag: rollbackTag,
+        observedDigest: rollbackDigest,
+      },
+    });
     expect(calls[0]).toMatchObject({
       command: "helm",
       args: ["status", "proof", "--namespace", "staging"],
     });
-    expect(calls[1]).toMatchObject({
+    expect(calls.find((call) => call.args[0] === "rollback")).toMatchObject({
       command: "helm",
       args: ["rollback", "proof", "3", "--namespace", "staging", "--wait", "--timeout", "30s"],
     });
-    expect(calls.slice(2).every((call) => call.args[0] === "rollout")).toBe(true);
+  });
+
+  it("ignores a retained failed Helm hook Job while binding recovery to the captured successful LKG revision", async () => {
+    const captureCalls = [];
+    const capturedHistory = [{ revision: 228, status: "deployed", description: "Upgrade complete" }];
+    const target = await captureKubernetesRollbackTarget({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-20260727120000-c0bd688d",
+      checkedAt: "2026-07-27T12:00:00.000Z",
+      spawn: completedSpawn(captureCalls, [
+        { code: 0, stdout: helmHistory(capturedHistory) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        { code: 0, stdout: helmHistory(capturedHistory) },
+      ]),
+    });
+    expect(target).toMatchObject({
+      schemaVersion: "platform-kubernetes-rollback-target/v2",
+      sourceRevision: 228,
+      sourceStatus: "deployed",
+      observedTag: rollbackTag,
+      observedDigest: rollbackDigest,
+      workloadIdentities: [{ kind: "Deployment", component: "platform-worker" }],
+    });
+
+    const beforeExternalRollback = [
+      { revision: 228, status: "superseded", description: "Upgrade complete" },
+      { revision: 229, status: "failed", description: "Upgrade failed" },
+      { revision: 230, status: "failed", description: "Rollback to 228" },
+    ];
+    const afterExternalRollback = [
+      ...beforeExternalRollback,
+      { revision: 231, status: "deployed", description: "Rollback to 228" },
+    ];
+    const rollbackCalls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      timeout: "30s",
+      revision: "228",
+      rollbackTarget: target,
+      spawn: completedSpawn(rollbackCalls, [
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 0, stdout: helmHistory(beforeExternalRollback) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: helmHistory(beforeExternalRollback) },
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: helmHistory(afterExternalRollback) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        { code: 0, stdout: helmHistory(afterExternalRollback) },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      result: "success",
+      rollbackIdentity: {
+        sourceRevision: 228,
+        resultingRevision: 231,
+        observedTag: rollbackTag,
+        observedDigest: rollbackDigest,
+        workloadIdentities: [{ kind: "Deployment", component: "platform-worker" }],
+      },
+    });
+    const helmRollback = rollbackCalls.find((call) => call.command === "helm" && call.args[0] === "rollback");
+    expect(helmRollback.args).toEqual([
+      "rollback",
+      "proof",
+      "228",
+      "--namespace",
+      "production",
+      "--wait",
+      "--timeout",
+      "30s",
+    ]);
+    expect(helmRollback.args).not.toContain("229");
+  });
+
+  it("refuses ambiguous target capture and last-known-good digest disagreement", async () => {
+    await expect(
+      captureKubernetesRollbackTarget({
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: rollbackTag,
+        digest: rollbackDigest,
+        lastKnownGoodCommit: rollbackTag,
+        releaseTag: "release-proof",
+        spawn: completedSpawn(
+          [],
+          [
+            {
+              code: 0,
+              stdout: helmHistory([
+                { revision: 227, status: "deployed", description: "invalid duplicate" },
+                { revision: 228, status: "deployed", description: "current" },
+              ]),
+            },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("exactly one deployed Helm revision");
+
+    const mismatchedValues = structuredClone(rollbackValues);
+    mismatchedValues.global.image.digest = `sha256:${"3".repeat(64)}`;
+    await expect(
+      captureKubernetesRollbackTarget({
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: rollbackTag,
+        digest: rollbackDigest,
+        lastKnownGoodCommit: rollbackTag,
+        releaseTag: "release-proof",
+        spawn: completedSpawn(
+          [],
+          [
+            {
+              code: 0,
+              stdout: helmHistory([{ revision: 228, status: "deployed", description: "Upgrade complete" }]),
+            },
+            { code: 0, stdout: JSON.stringify(mismatchedValues) },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("does not match captured rollback identity");
+  });
+
+  it.each([
+    {
+      name: "absent source revision",
+      completions: [
+        { code: 0, stdout: '{"name":"proof"}' },
+        {
+          code: 0,
+          stdout: helmHistory([{ revision: 229, status: "failed", description: "candidate failed" }]),
+        },
+      ],
+      reason: "revision 228 is absent",
+    },
+    {
+      name: "failed source revision",
+      completions: [
+        { code: 0, stdout: '{"name":"proof"}' },
+        {
+          code: 0,
+          stdout: helmHistory([{ revision: 228, status: "failed", description: "candidate failed" }]),
+        },
+      ],
+      reason: "not a successful deployed or superseded revision",
+    },
+    {
+      name: "history movement during validation",
+      completions: [
+        { code: 0, stdout: '{"name":"proof"}' },
+        {
+          code: 0,
+          stdout: helmHistory([
+            { revision: 228, status: "superseded", description: "LKG" },
+            { revision: 230, status: "failed", description: "atomic rollback failed" },
+          ]),
+        },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        {
+          code: 0,
+          stdout: helmHistory([
+            { revision: 228, status: "superseded", description: "LKG" },
+            { revision: 230, status: "failed", description: "atomic rollback failed" },
+            { revision: 231, status: "pending-upgrade", description: "concurrent movement" },
+          ]),
+        },
+      ],
+      reason: "history moved during pre-rollback validation",
+    },
+  ])("fails closed on $name before invoking Helm rollback", async ({ completions, reason }) => {
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      revision: "228",
+      spawn: completedSpawn(calls, completions),
+    });
+
+    expect(result.result).toBe("failure");
+    expect(result.reason).toContain(reason);
+    expect(calls.some((call) => call.command === "helm" && call.args[0] === "rollback")).toBe(false);
   });
 
   it("waits for Deployments when Helm restores a revision from before Argo activation", async () => {
     const calls = [];
+    const historicalValues = {
+      ...rollbackValues,
+      components: {
+        "public-web": { enabled: true, kind: "service", rollout: { enabled: false } },
+        marketplace: { enabled: true, kind: "service", rollout: { enabled: false } },
+        "platform-worker": { enabled: true, kind: "worker" },
+      },
+    };
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
     const notFound = (name) =>
       `Error from server (NotFound): rollouts.argoproj.io "proof-chase-sets-platform-${name}" not found`;
+    const workloadItems = JSON.parse(rollbackWorkloadList()).items;
+    for (const component of ["public-web", "marketplace"]) {
+      workloadItems.push({
+        kind: "Deployment",
+        metadata: {
+          name: `proof-chase-sets-platform-${component}`,
+          labels: { "app.kubernetes.io/instance": "proof", "app.kubernetes.io/component": component },
+        },
+        spec: { template: { spec: { containers: [{ name: component, image: rollbackImageRef }] } } },
+      });
+    }
     const result = await rollbackPlatformOnKubernetes({
-      values: sampleValues,
+      values: historicalValues,
       rolloutsEnabled: true,
       release: "proof",
       namespace: "staging",
       timeout: "30s",
+      revision: "3",
       spawn: completedSpawn(calls, [
-        { code: 0 },
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 0, stdout: helmHistory(before) },
+        { code: 0, stdout: JSON.stringify(historicalValues) },
+        { code: 0, stdout: helmHistory(before) },
         { code: 0 },
         { code: 0 },
         { code: 1, stderr: notFound("public-web") },
         { code: 0 },
         { code: 1, stderr: notFound("marketplace") },
         { code: 0 },
+        { code: 0, stdout: helmHistory(after) },
+        { code: 0, stdout: JSON.stringify(historicalValues) },
+        { code: 0, stdout: JSON.stringify({ apiVersion: "v1", kind: "List", items: workloadItems }) },
+        { code: 0, stdout: helmHistory(after) },
       ]),
     });
 
@@ -1211,8 +1566,18 @@ describe("platform Kubernetes deployment", () => {
       release: "proof",
       namespace: "production",
       timeout: "30s",
+      revision: "3",
       spawn: completedSpawn(calls, [
         { code: 0, stdout: '{"name":"proof"}' },
+        {
+          code: 0,
+          stdout: helmHistory([{ revision: 3, status: "deployed", description: "Upgrade complete" }]),
+        },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        {
+          code: 0,
+          stdout: helmHistory([{ revision: 3, status: "deployed", description: "Upgrade complete" }]),
+        },
         { code: 1, stderr: "rollback timed out" },
       ]),
     });
@@ -1224,7 +1589,76 @@ describe("platform Kubernetes deployment", () => {
       namespace: "production",
     });
     expect(result.reason).toContain("helm rollback proof");
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(5);
+  });
+
+  it("keeps readiness failure blocking after an exact-revision rollback command succeeds", async () => {
+    const history = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      timeout: "30s",
+      revision: "3",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: '{"name":"proof"}' },
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0 },
+          { code: 1, stderr: "deployment exceeded its progress deadline" },
+        ],
+      ),
+    });
+
+    expect(result).toMatchObject({
+      result: "failure",
+      rollbackIdentity: { sourceRevision: 3, resultingRevision: null },
+    });
+    expect(result.reason).toContain("kubectl rollout status deployment/proof-chase-sets-platform-platform-worker");
+  });
+
+  it("rejects ready workloads that still run the failed candidate digest", async () => {
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      timeout: "30s",
+      revision: "3",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: '{"name":"proof"}' },
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0 },
+          { code: 0 },
+          { code: 0, stdout: helmHistory(after) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          {
+            code: 0,
+            stdout: rollbackWorkloadList(
+              `registry.digitalocean.com/chase-sets/chase-sets-platform@${failedCandidateDigest}`,
+            ),
+          },
+        ],
+      ),
+    });
+
+    expect(result).toMatchObject({
+      result: "failure",
+      rollbackIdentity: { sourceRevision: 3, resultingRevision: 4 },
+    });
+    expect(result.reason).toContain("does not match");
+    expect(result.reason).toContain(rollbackDigest);
   });
 
   it("detects whether a Helm release exists without logging status output", async () => {
@@ -1561,20 +1995,25 @@ describe("platform Kubernetes deployment", () => {
         namespace: "production",
         registryName: "chase-sets",
         repository: "chase-sets-platform",
+        tag: "a".repeat(40),
+        digest: rollbackDigest,
         releaseTag: "release-20260705120000-abcdef12",
         lastKnownGoodCommit: "a".repeat(40),
+        sourceRevision: 228,
+        sourceStatus: "deployed",
+        sourceDescription: "Upgrade complete",
         checkedAt: "2026-07-05T12:00:00.000Z",
       }),
     ).toEqual({
-      schemaVersion: "platform-kubernetes-rollback-target/v1",
+      schemaVersion: "platform-kubernetes-rollback-target/v2",
       capturedAt: "2026-07-05T12:00:00.000Z",
       release: "proof",
       namespace: "production",
       registryName: "chase-sets",
       repository: "chase-sets-platform",
-      tag: "release-20260705120000-abcdef12",
-      digest: "",
-      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260705120000-abcdef12",
+      tag: "a".repeat(40),
+      digest: rollbackDigest,
+      imageRef: rollbackImageRef,
       componentNames: [
         "proof-chase-sets-platform-marketplace",
         "proof-chase-sets-platform-platform-bootstrap",
@@ -1583,6 +2022,12 @@ describe("platform Kubernetes deployment", () => {
       ],
       lastKnownGoodCommit: "a".repeat(40),
       releaseTag: "release-20260705120000-abcdef12",
+      sourceRevision: 228,
+      sourceStatus: "deployed",
+      sourceDescription: "Upgrade complete",
+      observedTag: "a".repeat(40),
+      observedDigest: rollbackDigest,
+      workloadIdentities: [],
     });
   });
 });

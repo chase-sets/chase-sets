@@ -1783,6 +1783,40 @@ describe("DigitalOcean platform configuration", () => {
       expect(workflow).toContain("CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m");
       expect(workflow).not.toMatch(/app-platform|App Platform/);
     }
+    expect(platformEmergencyRecoveryWorkflow).toContain("rollback_revision");
+    expect(platformEmergencyRecoveryWorkflow).toContain(
+      "CHASE_SETS_HELM_ROLLBACK_REVISION: ${{ inputs.rollback_revision }}",
+    );
+  });
+
+  it("captures production rollback identity before mutation and passes the exact successful revision", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const captureStep = workflowStep(productionJob, "Capture production rollback target");
+    const deployStep = workflowStep(productionJob, "Deploy production Kubernetes release");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    const releaseStateStep = workflowStep(productionJob, "Resolve terminal release state");
+    const releaseHealthStep = workflowStep(productionJob, "Write release health summary");
+
+    expect(platformProductionWorkflow.indexOf("- name: Capture production rollback target")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release"),
+    );
+    expect(captureStep).toContain("capture-rollback-target");
+    expect(captureStep).toContain('--tag="$last_known_good_commit"');
+    expect(captureStep).toContain('--digest="$rollback_digest"');
+    expect(captureStep).toContain('rollback_digest="$(docker buildx imagetools inspect');
+    expect(deployStep).toContain("platform:kubernetes-deployment -- deploy");
+    expect(rollbackStep).toContain('--revision "${{ steps.rollback_target.outputs.rollback_source_revision }}"');
+    expect(rollbackStep).toContain('--rollback-target "artifacts/release-health/production-rollback-target.json"');
+    expect(rollbackStep).toContain("--runtime-env DEPLOYMENT_ENVIRONMENT=production");
+    expect(rollbackStep).not.toContain("Helm rolled the production Kubernetes release back to the previous revision");
+    expect(releaseStateStep).toContain('terminal_commit="$ROLLBACK_TARGET_COMMIT"');
+    expect(releaseStateStep).toContain('terminal_digest="$ROLLBACK_OBSERVED_DIGEST"');
+    expect(releaseHealthStep).toContain(
+      "ROLLBACK_SOURCE_REVISION: ${{ steps.production_rollback.outputs.rollback_source_revision || '' }}",
+    );
+    expect(releaseHealthStep).toContain(
+      "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
+    );
   });
 
   it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
@@ -1901,7 +1935,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(rollbackStep).toContain("--runtime-env DEPLOYMENT_ENVIRONMENT=staging");
     expect(rollbackStep).toContain('--out "$rollback_record"');
     expect(rollbackStep).toContain('--github-output "$GITHUB_OUTPUT"');
-    expect(rollbackStep).toContain('args+=(--revision "$ROLLBACK_REVISION")');
+    expect(rollbackStep).toContain('--revision "$ROLLBACK_REVISION"');
+    expect(rollbackStep).not.toContain('if [ -n "$ROLLBACK_REVISION" ]');
     expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(uploadStep).toContain("platform-staging-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(platformStagingHelmRecoveryWorkflow).not.toContain("environment: production");
