@@ -9,6 +9,7 @@
     "invitation",
     "api-key",
     "consent",
+    "registration-operation",
     "founders-cohort",
     "shipping-address",
     "user-preference"

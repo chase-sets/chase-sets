@@ -397,6 +397,38 @@ Notes:
   requirement list is non-empty, a path with no way to show someone what they are agreeing to fails
   closed rather than recording an agreement nobody made.
 
+### Registration Operation
+
+A **Registration Operation** is one attempt to create a personal identity for one verified contact,
+identified server-side so that the attempt can be recognized again.
+
+Identity derives it from the normalized verified contact the caller already supplies — the email when
+one is present, otherwise the phone — namespaced and versioned. It is never derived from the
+Registration Consent Submission: that value's signature covers only the bundle key, the requirements
+and the resolution time, so two unrelated registrations minted in the same second over an empty
+requirement list produce identical bytes, and an identity derived from them would fuse two different
+people onto one account.
+
+The operation is claimed exactly once, on its own command-side stream, as a participant of the same
+all-or-nothing append that writes the Account, the User, the Membership and every Consent in the
+ordered bundle.
+
+Notes:
+
+- Deriving the operation changes no caller signature. Every personal-identity path already supplies
+  exactly one of email or phone, and already pre-checks that contact against a projection before
+  registering — the operation is what makes that intent race-free rather than merely likely.
+- The claim is command-side only and belongs to no projection group. Enrolling it would place the
+  convergence anchor under a truncating reset strategy.
+- A retry of the same operation converges on the claimed ids and completes whatever is missing; it
+  never mints a second account and never receives a display-name conflict. A registration for a
+  different contact is a different operation and remains fully independent.
+- The Account Display Name Reservation a registration writes is bound to the operation that wrote it,
+  because that row cannot join the event append. A retry of the same operation reclaims its own row;
+  no other operation can.
+- An operation already claimed against a different ordered consent bundle fails closed and appends
+  nothing, rather than recording agreement to versions nobody in that operation affirmed.
+
 ## Account Address Book
 
 ### Shipping Address

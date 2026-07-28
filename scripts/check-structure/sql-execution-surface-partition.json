@@ -1268,6 +1268,7 @@
     "bounded-contexts/identity/support/runtime-support/common.ts",
     "bounded-contexts/identity/support/runtime-support/index.ts",
     "bounded-contexts/identity/support/runtime-support/registration-consent-signing.ts",
+    "bounded-contexts/identity/support/runtime-support/registration-operation.ts",
     "bounded-contexts/identity/support/runtime-support/retention-policy.ts",
     "bounded-contexts/identity/support/runtime-support/schema.ts",
     "bounded-contexts/identity/support/runtime-support/seed.ts",
