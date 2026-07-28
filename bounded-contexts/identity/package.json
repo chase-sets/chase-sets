@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/consents/api/consent-recording-authorization.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {

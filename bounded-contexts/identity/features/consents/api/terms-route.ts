@@ -5,6 +5,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import { authorizeConsentForActor } from "../domain/consent-recording-authorization";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
 import { resolveTermsAcceptanceStatus } from "../read-model/terms-acceptance";
 import type { ConsentServices } from "./runtime";
@@ -87,6 +88,7 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
         recordedAt: new Date().toISOString(),
       },
       context,
+      authorization: authorizeConsentForActor(context),
     });
 
     const after = await resolveTermsAcceptanceStatus(deps.db, deps.policies, {

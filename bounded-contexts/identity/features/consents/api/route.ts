@@ -4,6 +4,7 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import { authorizeConsentForActor } from "../domain/consent-recording-authorization";
 import type { ConsentServices } from "./runtime";
 
 function authenticationRequired() {
@@ -92,6 +93,7 @@ export function consentRoutes(services: ConsentServices) {
       streamId: `identity.consent-${consentId}`,
       command: { type: "WithdrawConsent", withdrawnAt: new Date().toISOString() },
       context,
+      authorization: authorizeConsentForActor(context),
     });
     return c.json({
       id: consentId,
