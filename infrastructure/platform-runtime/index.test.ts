@@ -410,7 +410,7 @@ describe("platform host api registry", () => {
         runtimeProfile: "public",
       }),
     ).toThrow(
-      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'inventory-missing-projection', but no registered handler or self-sourced local projector can resolve it.",
+      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'inventory-missing-projection', but no registered handler can resolve it.",
     );
   });
 
