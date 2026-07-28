@@ -349,6 +349,7 @@
     "infrastructure/bounded-context-runtime/seed-aggregate-state.ts",
     "infrastructure/bounded-context-runtime/subscription-store.ts",
     "infrastructure/bounded-context-runtime/subscriptions.ts",
+    "infrastructure/bounded-context-runtime/test-support.ts",
     "infrastructure/event-core-postgres/aggregate-snapshot-store.ts",
     "infrastructure/event-core-postgres/catalog-mirror.ts",
     "infrastructure/event-core-postgres/event-store.ts",
@@ -377,7 +378,6 @@
   ],
   "unprovableForm": [
     "deployables/platform-api/src/preview-postgres.ts",
-    "infrastructure/bounded-context-runtime/test-support.ts",
     "infrastructure/platform-runtime/projection-wake-relay.ts",
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],

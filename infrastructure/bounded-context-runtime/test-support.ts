@@ -18,10 +18,6 @@ import {
 } from "./index";
 import { createOwnedDatabaseUrl, ensureOwnedPostgresDatabases, parseOwnedDatabaseUrl } from "./provisioning";
 
-type QueryablePool = PgTransactionalPool & {
-  query: <TRow = unknown>(sql: string, params?: readonly unknown[]) => Promise<{ rows: TRow[] }>;
-};
-
 type TestHonoEnv = {
   Variables: {
     actor: unknown;
@@ -63,6 +59,7 @@ type MockResetTarget = Readonly<{
   mockReset: () => unknown;
 }>;
 
+const testSchemaResetConcurrency = 2;
 const testDatabaseExtensions: Readonly<Record<string, readonly string[]>> = {
   discovery: ["vector"],
 };
@@ -259,7 +256,7 @@ export async function ensureMultiContextTestDatabases(
   adminDatabaseUrl: string,
   databaseUrls: Readonly<Record<string, string>>,
 ): Promise<void> {
-  const adminPool = createPgPool(adminDatabaseUrl) as QueryablePool;
+  const adminPool: PgTransactionalPool = createPgPool(adminDatabaseUrl);
 
   try {
     await ensureOwnedPostgresDatabases(adminPool, databaseUrls);
@@ -278,7 +275,7 @@ export async function ensureMultiContextTestDatabases(
     const extensionAdminUrl = new URL(adminDatabaseUrl);
     extensionAdminUrl.pathname = `/${spec.databaseName}`;
 
-    const extensionPool = createPgPool(extensionAdminUrl.toString()) as QueryablePool;
+    const extensionPool: PgTransactionalPool = createPgPool(extensionAdminUrl.toString());
 
     try {
       for (const extensionName of extensions) {
@@ -304,13 +301,13 @@ export function createMultiContextTestPools<TContextName extends string>(
 export async function resetMultiContextTestSchemas(pools: Readonly<Record<string, unknown>>): Promise<void> {
   const uniquePools = [...new Set(Object.values(pools).filter(isPgTransactionalPool))];
 
-  await Promise.all(
-    uniquePools.map((pool) =>
-      (pool as QueryablePool).query(
-        "DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;",
-      ),
-    ),
-  );
+  await forEachWithConcurrency(uniquePools, testSchemaResetConcurrency, (pool) => {
+    const resetPool: PgTransactionalPool = pool;
+
+    return resetPool.query(
+      "DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;",
+    );
+  });
 }
 
 export async function closeMultiContextTestPools(pools: Readonly<Record<string, unknown>>): Promise<void> {
@@ -323,6 +320,34 @@ export async function closeMultiContextTestPools(pools: Readonly<Record<string, 
 
 function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
   return Boolean(value && typeof value === "object" && "query" in value);
+}
+
+async function forEachWithConcurrency<T>(
+  values: readonly T[],
+  concurrency: number,
+  action: (value: T) => Promise<unknown>,
+): Promise<void> {
+  let nextIndex = 0;
+  let firstFailure: Readonly<{ error: unknown }> | undefined;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (nextIndex < values.length) {
+        const value = values[nextIndex];
+        nextIndex += 1;
+
+        try {
+          await action(value!);
+        } catch (error) {
+          firstFailure ??= { error };
+        }
+      }
+    }),
+  );
+
+  if (firstFailure) {
+    throw firstFailure.error;
+  }
 }
 
 export type MountedContextTestDefinition<
