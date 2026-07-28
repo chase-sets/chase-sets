@@ -3,6 +3,8 @@ import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
 import { mintRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 // Registration reaches the aggregate writes only with a server-minted
@@ -66,8 +68,22 @@ describe("identity internal auth routes", () => {
     expect(response.status).toBe(201);
     const eventStore = services.eventStore as InMemoryEventStore;
     const [accountStreamId] = eventStore.streamIdsWithPrefix("identity.account-");
-    expect(eventStore.streams.get(accountStreamId)?.[0].payload).toEqual(
-      expect.objectContaining({ name: "", displayName: "PokeBash TCG" }),
+    const accountId = accountStreamId.slice("identity.account-".length) as AccountId;
+
+    // Registration composes this command literally and folds it through the
+    // Account decider, so what it appended must be exactly what that decider
+    // yields for it: the personal display name stays the display name and never
+    // becomes the account's legal name.
+    expect(
+      (eventStore.streams.get(accountStreamId) ?? []).map((event) => ({ type: event.eventType, data: event.payload })),
+    ).toEqual(
+      decideAccount(initialAccountState, {
+        type: "CreateAccount",
+        accountId,
+        name: "",
+        accountType: "personal",
+        displayName: "PokeBash TCG",
+      }),
     );
   });
 
