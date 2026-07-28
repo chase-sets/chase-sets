@@ -415,14 +415,22 @@ ordered bundle.
 
 Notes:
 
-- Deriving the operation changes no caller signature. Every personal-identity path already supplies
-  exactly one of email or phone, and already pre-checks that contact against a projection before
-  registering — the operation is what makes that intent race-free rather than merely likely.
+- Deriving the operation changes no caller signature. Every personal-identity path already supplies a
+  verified email or phone and pre-checks that contact against a projection before registering. Email
+  is the stable operation contact when both are present, so an email-only retry still converges — the
+  operation is what makes that intent race-free rather than merely likely.
 - The claim is command-side only and belongs to no projection group. Enrolling it would place the
   convergence anchor under a truncating reset strategy.
 - A retry of the same operation converges on the claimed ids and completes whatever is missing; it
   never mints a second account and never receives a display-name conflict. A registration for a
   different contact is a different operation and remains fully independent.
+- Recovery first validates the claim's exact one-event history and then rehydrates every existing
+  participant. An Account, User, Membership, or Consent is complete only when its identity, claim
+  linkage, metadata, and required final state agree; a contradictory participant fails closed and is
+  never skipped merely because its stream exists.
+- Recovery is claim-anchored. A claim-less reservation may be reclaimed only while its Account has no
+  committed events. Once a claim-less Account exists, registration does not adopt it or grant another
+  owner Membership.
 - The Account Display Name Reservation a registration writes is bound to the operation that wrote it,
   because that row cannot join the event append. A retry of the same operation reclaims its own row;
   no other operation can.

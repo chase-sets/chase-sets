@@ -167,9 +167,7 @@ describeDb("registration atomicity and convergence", () => {
     await pool.query(identityAccountSchemaSql);
   }
 
-  function createHarness(): Harness {
-    const fault: FaultControl = { position: null };
-    const eventStore = faultInjectingEventStore(createPostgresEventStore({ pool }), fault);
+  function createServices(eventStore: EventStore): IdentityServices {
     const deps = {
       eventStore,
       checkpointStore: createPostgresProjectionStore({ db: pool }),
@@ -186,7 +184,13 @@ describeDb("registration atomicity and convergence", () => {
       projectors: [],
     } as unknown as IdentityServices;
 
-    return { services, fault, eventStore };
+    return services;
+  }
+
+  function createHarness(): Harness {
+    const fault: FaultControl = { position: null };
+    const eventStore = faultInjectingEventStore(createPostgresEventStore({ pool }), fault);
+    return { services: createServices(eventStore), fault, eventStore };
   }
 
   function safeJson(text: string): Record<string, unknown> {
@@ -283,6 +287,65 @@ describeDb("registration atomicity and convergence", () => {
     expect(state.reservations).toEqual([
       { display_name_key: "pokebash tcg", account_id: retried.body.accountId as string },
     ]);
+  });
+
+  it("rolls back earlier participants when a late Consent moves inside the real PostgreSQL append", async () => {
+    const inner = createPostgresEventStore({ pool });
+    let realAppendAttempted = false;
+    let lateStreamId = "";
+    let earlierStreamIds: readonly string[] = [];
+    const eventStore: EventStore = {
+      ...inner,
+      appendToStreams: async (inputs) => {
+        const lateConsent = [...inputs]
+          .reverse()
+          .find((input) => input.streamId.startsWith("identity.consent-") && input.events.length > 0);
+        if (!lateConsent) {
+          throw new Error("The registration batch must include a late Consent participant.");
+        }
+        const lateEvent = lateConsent.events[0];
+        if (!lateEvent) {
+          throw new Error("The late Consent participant must carry its recording event.");
+        }
+        lateStreamId = lateConsent.streamId;
+        earlierStreamIds = inputs
+          .filter((input) => input.streamId !== lateConsent.streamId)
+          .map((input) => input.streamId);
+
+        await inner.appendToStream({
+          ...lateConsent,
+          expectedVersion: "no_stream",
+          events: [lateEvent],
+        });
+
+        try {
+          realAppendAttempted = true;
+          return await inner.appendToStreams!(inputs);
+        } catch {
+          throw Object.assign(new Error("Injected late-participant version conflict."), {
+            code: "infrastructure_failure",
+          });
+        }
+      },
+    };
+    const harness: Harness = {
+      services: createServices(eventStore),
+      fault: { position: null },
+      eventStore,
+    };
+
+    const failed = await register(harness, {});
+
+    expect(failed.status).toBe(500);
+    expect(realAppendAttempted, "the real PostgreSQL multi-stream append must execute").toBe(true);
+    expect(await inner.readStream({ streamId: lateStreamId })).toHaveLength(1);
+    for (const streamId of earlierStreamIds) {
+      expect(
+        await inner.readStream({ streamId }),
+        `${streamId} must roll back after the late expected-version conflict`,
+      ).toEqual([]);
+    }
+    expect((await postState(harness)).reservations).toEqual([]);
   });
 
   it("converges when the same operation is registered again after success", async () => {

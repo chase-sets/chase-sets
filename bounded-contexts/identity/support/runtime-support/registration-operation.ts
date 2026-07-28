@@ -83,6 +83,18 @@ export type ReadRegistrationOperationClaim = Readonly<{
 }>;
 
 /**
+ * The claim stream is the authority for every participant id used during
+ * recovery. A malformed or contradictory history must therefore be
+ * distinguishable from an operation that has never been claimed.
+ */
+export class RegistrationOperationClaimHistoryError extends Error {
+  constructor() {
+    super("The registration operation claim history is invalid.");
+    this.name = "RegistrationOperationClaimHistoryError";
+  }
+}
+
+/**
  * Exactly one of email or phone is present on every production registration
  * path, and both are pre-checked against a projection by their caller before
  * registration is attempted -- so one-identity-per-verified-contact is already
@@ -124,18 +136,102 @@ export function deriveRegistrationOperation(
 
 export async function readRegistrationOperationClaim(
   eventStore: EventStore,
-  streamId: string,
+  operation: RegistrationOperation,
 ): Promise<ReadRegistrationOperationClaim | null> {
-  const storedEvents = await eventStore.readStream({ streamId });
-  const claimed = storedEvents.find((event) => event.eventType === REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE);
-  if (!claimed) {
+  const storedEvents = await eventStore.readStream({ streamId: operation.streamId });
+  if (storedEvents.length === 0) {
     return null;
   }
 
+  const claimEvent = storedEvents[0];
+  if (
+    storedEvents.length !== 1 ||
+    !claimEvent ||
+    claimEvent.streamVersion !== 1 ||
+    claimEvent.eventType !== REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE
+  ) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+
+  const claim = parseRegistrationOperationClaim(claimEvent.payload);
+  if (
+    claim.operationKeyDigest !== operation.keyDigest ||
+    claim.operationKeyVersion !== REGISTRATION_OPERATION_KEY_VERSION ||
+    claim.contactType !== operation.contactType
+  ) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+
   return {
-    version: storedEvents[storedEvents.length - 1].streamVersion,
-    claim: claimed.payload as unknown as RegistrationOperationClaim,
+    version: claimEvent.streamVersion,
+    claim,
   };
+}
+
+export function normalizeRegistrationDisplayNameKey(displayName: string): string {
+  return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function parseRegistrationOperationClaim(payload: unknown): RegistrationOperationClaim {
+  if (!isRecord(payload)) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+
+  const operationKeyDigest = requiredString(payload.operationKeyDigest);
+  const operationKeyVersion = requiredString(payload.operationKeyVersion);
+  const contactType = payload.contactType;
+  const accountId = requiredString(payload.accountId);
+  const userId = requiredString(payload.userId);
+  const membershipId = requiredString(payload.membershipId);
+  const displayName = requiredString(payload.displayName);
+  const displayNameKey = requiredString(payload.displayNameKey);
+  const claimedAt = requiredString(payload.claimedAt);
+  if (
+    (contactType !== "email" && contactType !== "phone") ||
+    displayNameKey !== normalizeRegistrationDisplayNameKey(displayName) ||
+    !Number.isFinite(Date.parse(claimedAt)) ||
+    !Array.isArray(payload.consents)
+  ) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+
+  const consents = payload.consents.map((value) => {
+    if (!isRecord(value)) {
+      throw new RegistrationOperationClaimHistoryError();
+    }
+    return {
+      consentId: requiredString(value.consentId) as ConsentId,
+      policyKey: requiredString(value.policyKey),
+      policyVersion: requiredString(value.policyVersion),
+    };
+  });
+  if (new Set(consents.map((consent) => consent.consentId)).size !== consents.length) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+
+  return {
+    operationKeyDigest,
+    operationKeyVersion,
+    contactType,
+    accountId: accountId as AccountId,
+    userId: userId as UserId,
+    membershipId: membershipId as MembershipId,
+    displayName,
+    displayNameKey,
+    consents,
+    claimedAt,
+  };
+}
+
+function requiredString(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new RegistrationOperationClaimHistoryError();
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

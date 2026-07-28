@@ -4,7 +4,12 @@ import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, EventStoreContext, ExpectedStreamVersion } from "@chase-sets/event-core/storage";
+import type {
+  AppendToStreamInput,
+  EventStoreContext,
+  ExpectedStreamVersion,
+  StoredEvent,
+} from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -13,6 +18,8 @@ import {
   formatGrantableRoleKeys,
   IdentityDomainError,
   normalizeEmail,
+  normalizeLabel,
+  normalizePhoneNumber,
   parseGrantableRoleKey,
   type GrantableRoleKey,
   type PermissionKey,
@@ -54,10 +61,12 @@ import {
 } from "./features/consents/domain/domain";
 import {
   deriveRegistrationOperation,
+  normalizeRegistrationDisplayNameKey,
   readRegistrationOperationClaim,
   registrationOperationConsentBundleAgrees,
   REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE,
   REGISTRATION_OPERATION_KEY_VERSION,
+  RegistrationOperationClaimHistoryError,
   type RegistrationOperation,
   type RegistrationOperationClaim,
   type RegistrationOperationConsent,
@@ -131,7 +140,7 @@ export class RegistrationConsentRejectedError extends Error {
 }
 
 export function normalizeAccountDisplayNameKey(displayName: string) {
-  return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+  return normalizeRegistrationDisplayNameKey(displayName);
 }
 
 type IdentityMutationSnapshot = Readonly<{
@@ -299,8 +308,7 @@ async function releaseUnclaimedDisplayNameReservation(
   params: Readonly<{
     accountId: AccountId;
     displayName: string;
-    operationStreamId: string;
-    operationKey: string;
+    operation: RegistrationOperation;
   }>,
 ) {
   const displayNameKey = normalizeAccountDisplayNameKey(params.displayName);
@@ -309,7 +317,7 @@ async function releaseUnclaimedDisplayNameReservation(
   }
 
   try {
-    const claimed = await readRegistrationOperationClaim(eventStore, params.operationStreamId);
+    const claimed = await readRegistrationOperationClaim(eventStore, params.operation);
     if (claimed?.claim.accountId === params.accountId) {
       return;
     }
@@ -319,7 +327,7 @@ async function releaseUnclaimedDisplayNameReservation(
         WHERE display_name_key = $1
           AND operation_key = $2
           AND account_id = $3`,
-      [displayNameKey, params.operationKey, params.accountId],
+      [displayNameKey, params.operation.key, params.accountId],
     );
   } catch {
     // Cleanup is an optimization, never a gate, and it must never replace the
@@ -330,8 +338,60 @@ async function releaseUnclaimedDisplayNameReservation(
 type RegistrationParticipant<State> = Readonly<{
   streamId: string;
   version: number;
+  storedEvents: readonly StoredEvent[];
   state: State;
 }>;
+
+type RegistrationParticipantHistory = Readonly<{
+  creationEventType: string;
+  allowedEventTypes: ReadonlySet<string>;
+}>;
+
+const accountRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.account.created",
+  allowedEventTypes: new Set([
+    "identity.account.created",
+    "identity.account.profile-updated",
+    "identity.account.suspended",
+    "identity.account.reactivated",
+    "identity.account.closed",
+    "identity.account.founders-window-opened",
+    "identity.account.badge-assigned",
+    "identity.account.badge-removed",
+  ]),
+};
+
+const userRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.user.created",
+  allowedEventTypes: new Set([
+    "identity.user.created",
+    "identity.user.profile-updated",
+    "identity.user.contact-method-added",
+    "identity.user.contact-method-verified",
+    "identity.user.auth-method-enabled",
+    "identity.user.auth-method-disabled",
+    "identity.user.password-credential-attached",
+    "identity.user.passkey-registered",
+    "identity.user.social-login-linked",
+    "identity.user.suspended",
+    "identity.user.reactivated",
+  ]),
+};
+
+const membershipRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.membership.granted",
+  allowedEventTypes: new Set([
+    "identity.membership.granted",
+    "identity.membership.role-changed",
+    "identity.membership.revoked",
+    "identity.membership.reinstated",
+  ]),
+};
+
+const consentRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.consent.recorded",
+  allowedEventTypes: new Set(["identity.consent.recorded", "identity.consent.withdrawn"]),
+};
 
 /**
  * Rehydrate one participant stream from the command side.
@@ -348,17 +408,37 @@ async function readRegistrationParticipant<State, Event extends DomainEvent>(
   streamId: string,
   initialState: State,
   evolve: (state: Readonly<State>, event: Readonly<Event>) => State,
+  history: RegistrationParticipantHistory,
+  disagreement: () => Error,
 ): Promise<RegistrationParticipant<State>> {
   const storedEvents = await eventStore.readStream({ streamId });
+  if (storedEvents.length > 0) {
+    const firstEvent = storedEvents[0];
+    const creationCount = storedEvents.filter((event) => event.eventType === history.creationEventType).length;
+    if (
+      !firstEvent ||
+      firstEvent.eventType !== history.creationEventType ||
+      creationCount !== 1 ||
+      storedEvents.some((event, index) => event.streamVersion !== index + 1) ||
+      storedEvents.some((event) => !history.allowedEventTypes.has(event.eventType))
+    ) {
+      throw disagreement();
+    }
+  }
 
-  return {
-    streamId,
-    version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
-    state: storedEvents.reduce(
-      (folded, storedEvent) => evolve(folded, { type: storedEvent.eventType, data: storedEvent.payload } as Event),
-      initialState,
-    ),
-  };
+  try {
+    return {
+      streamId,
+      version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
+      storedEvents,
+      state: storedEvents.reduce(
+        (folded, storedEvent) => evolve(folded, { type: storedEvent.eventType, data: storedEvent.payload } as Event),
+        initialState,
+      ),
+    };
+  } catch {
+    throw disagreement();
+  }
 }
 
 function registrationParticipantInput(
@@ -425,11 +505,24 @@ export class RegistrationOperationConsentDisagreementError extends Error {
   }
 }
 
+/**
+ * Raised when the claim itself or a non-Consent participant contradicts the
+ * registration operation. Recovery cannot use ids from poisoned authority or
+ * silently skip an aggregate that is not in its required final state.
+ */
+export class RegistrationOperationParticipantDisagreementError extends Error {
+  constructor() {
+    super("This registration operation contains a participant that disagrees with its claim.");
+    this.name = "RegistrationOperationParticipantDisagreementError";
+  }
+}
+
 type RegistrationIdentity = Readonly<{
   accountId: AccountId;
   userId: UserId;
   membershipId: MembershipId;
   displayName: string;
+  displayNameKey: string;
   consents: readonly RegistrationOperationConsent[];
 }>;
 
@@ -481,9 +574,18 @@ async function createPersonalIdentityForAuth(
   const email = params.email?.trim() ?? "";
   const phone = params.phone?.trim() ?? "";
   const requirements = verifiedRegistrationConsent.resolution.requirements;
+  const proposedDisplayName = normalizeLabel(params.displayName) || email || phone;
 
   for (let attempt = 1; ; attempt += 1) {
-    const claimed = await readRegistrationOperationClaim(eventStore, operation.streamId);
+    let claimed: Awaited<ReturnType<typeof readRegistrationOperationClaim>>;
+    try {
+      claimed = await readRegistrationOperationClaim(eventStore, operation);
+    } catch (error) {
+      if (error instanceof RegistrationOperationClaimHistoryError) {
+        throw new RegistrationOperationParticipantDisagreementError();
+      }
+      throw error;
+    }
     if (claimed && !registrationOperationConsentBundleAgrees(claimed.claim, requirements)) {
       throw new RegistrationOperationConsentDisagreementError();
     }
@@ -494,19 +596,31 @@ async function createPersonalIdentityForAuth(
           userId: claimed.claim.userId,
           membershipId: claimed.claim.membershipId,
           displayName: claimed.claim.displayName,
+          displayNameKey: claimed.claim.displayNameKey,
           consents: claimed.claim.consents,
         }
       : {
           accountId: createId("acc") as AccountId,
           userId: createId("usr") as UserId,
           membershipId: createId("mbr") as MembershipId,
-          displayName: params.displayName.trim() || email || phone,
+          displayName: proposedDisplayName,
+          displayNameKey: normalizeAccountDisplayNameKey(proposedDisplayName),
           consents: requirements.map((requirement) => ({
             consentId: createId("cns") as ConsentId,
             policyKey: requirement.policyKey,
             policyVersion: requirement.version,
           })),
         };
+
+    const plan = await planPersonalIdentityRegistration({
+      eventStore,
+      params,
+      operation,
+      identity,
+      claimedVersion: claimed?.version ?? null,
+      email,
+      phone,
+    });
 
     await reservePersonalAccountDisplayName(services, eventStore, {
       accountId: identity.accountId,
@@ -521,9 +635,7 @@ async function createPersonalIdentityForAuth(
         params,
         operation,
         identity,
-        claimedVersion: claimed?.version ?? null,
-        email,
-        phone,
+        plan,
       });
     } catch (error) {
       // Whichever way this attempt ends, it committed nothing, so the
@@ -534,8 +646,7 @@ async function createPersonalIdentityForAuth(
       await releaseUnclaimedDisplayNameReservation(services, eventStore, {
         accountId: identity.accountId,
         displayName: identity.displayName,
-        operationStreamId: operation.streamId,
-        operationKey: operation.key,
+        operation,
       });
 
       // The loser of the claim race rolled back every stream in its batch,
@@ -551,21 +662,36 @@ async function createPersonalIdentityForAuth(
   }
 }
 
+type RegistrationConsentPlan = Readonly<{
+  consent: RegistrationOperationConsent;
+  participant: RegistrationParticipant<ConsentState>;
+  consentEvents: readonly ConsentEvent[];
+  consentState: ConsentState;
+}>;
+
+type PersonalIdentityRegistrationPlan = Readonly<{
+  claimedVersion: number | null;
+  claim: RegistrationOperationClaim;
+  account: RegistrationParticipant<AccountState>;
+  accountEvents: readonly AccountEvent[];
+  accountState: AccountState;
+  user: RegistrationParticipant<UserState>;
+  userEvents: readonly UserEvent[];
+  userState: UserState;
+  membership: RegistrationParticipant<MembershipState>;
+  membershipEvents: readonly MembershipEvent[];
+  membershipState: MembershipState;
+  consentPlans: readonly RegistrationConsentPlan[];
+}>;
+
 /**
- * One all-or-nothing append covering the registration-operation claim, the
- * account, the user, the membership, and every Consent in the ordered bundle.
- *
- * Every participant is present in the batch even when it needs no new events:
- * a zero-event input is an enforced pure version guard, so a stream that moved
- * between the read above and this append rolls the whole registration back
- * instead of letting it commit against state it never saw. A participant that
- * already carries its events contributes nothing and is simply completed --
- * streams are append-only, so recovery rolls forward rather than tombstoning an
- * account and burning its display name forever.
+ * Read and semantically validate every participant before the display-name
+ * reservation is touched. Empty event streams are missing participants; a
+ * present stream must have one valid creation event, only known lifecycle
+ * events, the claimed identity and metadata, and the required final state.
  */
-async function appendPersonalIdentityRegistration(
+async function planPersonalIdentityRegistration(
   args: Readonly<{
-    services: IdentityServices;
     eventStore: EventStore & Readonly<{ appendToStreams: NonNullable<EventStore["appendToStreams"]> }>;
     params: Readonly<{
       givenName?: string;
@@ -579,27 +705,35 @@ async function appendPersonalIdentityRegistration(
     email: string;
     phone: string;
   }>,
-) {
+): Promise<PersonalIdentityRegistrationPlan> {
   const { eventStore, identity, operation, params } = args;
   const { accountId, userId, membershipId, displayName } = identity;
+  const participantDisagreement = () => new RegistrationOperationParticipantDisagreementError();
+  const consentDisagreement = () => new RegistrationOperationConsentDisagreementError();
 
   const account = await readRegistrationParticipant<AccountState, AccountEvent>(
     eventStore,
     `identity.account-${accountId}`,
     initialAccountState,
     evolveAccount,
+    accountRegistrationHistory,
+    participantDisagreement,
   );
   const user = await readRegistrationParticipant<UserState, UserEvent>(
     eventStore,
     `identity.user-${userId}`,
     initialUserState,
     evolveUser,
+    userRegistrationHistory,
+    participantDisagreement,
   );
   const membership = await readRegistrationParticipant<MembershipState, MembershipEvent>(
     eventStore,
     `identity.membership-${membershipId}`,
     initialMembershipState,
     evolveMembership,
+    membershipRegistrationHistory,
+    participantDisagreement,
   );
   const consents = await Promise.all(
     identity.consents.map(async (consent) => ({
@@ -609,13 +743,63 @@ async function appendPersonalIdentityRegistration(
         `identity.consent-${consent.consentId}`,
         initialConsentState,
         evolveConsent,
+        consentRegistrationHistory,
+        consentDisagreement,
       ),
     })),
   );
 
+  if (
+    account.storedEvents.length > 0 &&
+    (account.state.id !== accountId ||
+      account.state.status !== "active" ||
+      account.storedEvents.some((event) => event.eventType === "identity.account.closed") ||
+      account.state.accountType !== "personal" ||
+      typeof account.state.name !== "string" ||
+      account.state.displayName !== displayName ||
+      normalizeAccountDisplayNameKey(account.state.displayName) !== identity.displayNameKey)
+  ) {
+    throw participantDisagreement();
+  }
+  if (
+    user.storedEvents.length > 0 &&
+    (user.state.id !== userId ||
+      user.state.status !== "active" ||
+      !registrationUserContactAgrees(user.state, operation))
+  ) {
+    throw participantDisagreement();
+  }
+  if (
+    membership.storedEvents.length > 0 &&
+    (membership.state.id !== membershipId ||
+      membership.state.status !== "active" ||
+      membership.state.roleKey !== "owner" ||
+      membership.state.userId !== userId ||
+      membership.state.accountId !== accountId)
+  ) {
+    throw participantDisagreement();
+  }
+  for (const { consent, participant } of consents) {
+    if (
+      participant.storedEvents.length > 0 &&
+      (participant.state.id !== consent.consentId ||
+        participant.state.status !== "recorded" ||
+        participant.state.subjectType !== "user" ||
+        participant.state.userId !== userId ||
+        participant.state.accountId !== accountId ||
+        participant.state.policyKey !== consent.policyKey ||
+        participant.state.policyVersion !== consent.policyVersion ||
+        participant.state.recordedAt === null ||
+        !Number.isFinite(Date.parse(participant.state.recordedAt)) ||
+        participant.state.withdrawnAt !== null)
+    ) {
+      throw consentDisagreement();
+    }
+  }
+
   let accountState = account.state;
   const accountEvents: AccountEvent[] = [];
-  if (accountState.id === null) {
+  if (account.storedEvents.length === 0) {
     const created = decideAccount(accountState, {
       type: "CreateAccount",
       accountId,
@@ -642,7 +826,8 @@ async function appendPersonalIdentityRegistration(
 
   let userState = user.state;
   const userEvents: UserEvent[] = [];
-  if (userState.id === null) {
+  if (user.storedEvents.length === 0) {
+    const phoneIsOperationContact = operation.contactType === "phone";
     const created = decideUser(userState, {
       type: "CreateUser",
       userId,
@@ -650,7 +835,7 @@ async function appendPersonalIdentityRegistration(
       givenName: params.givenName,
       familyName: params.familyName,
       primaryEmail: args.email || null,
-      ...(args.phone
+      ...(phoneIsOperationContact
         ? {
             primaryContactMethod: {
               contactMethodId: createId("ctm"),
@@ -665,6 +850,32 @@ async function appendPersonalIdentityRegistration(
     userState = created.reduce(evolveUser, userState);
   }
   if (args.phone) {
+    let phoneContact = userState.contactMethods.find(
+      (contact) => contact.type === "phone" && normalizePhoneNumber(contact.value) === normalizePhoneNumber(args.phone),
+    );
+    if (!phoneContact) {
+      const contactMethodId = createId("ctm");
+      const added = decideUser(userState, {
+        type: "AddContactMethod",
+        contactMethodId,
+        contactMethodType: "phone",
+        value: args.phone,
+      });
+      userEvents.push(...added);
+      userState = added.reduce(evolveUser, userState);
+      phoneContact = userState.contactMethods.find((contact) => contact.contactMethodId === contactMethodId);
+    }
+    if (phoneContact?.verifiedAt === null) {
+      const verified = decideUser(userState, {
+        type: "VerifyContactMethod",
+        contactMethodId: phoneContact.contactMethodId,
+        verifiedAt: new Date().toISOString(),
+      });
+      userEvents.push(...verified);
+      userState = verified.reduce(evolveUser, userState);
+    }
+  }
+  if (args.phone) {
     const enabled = decideUser(userState, { type: "EnableAuthMethod", authMethod: "sms-code" });
     userEvents.push(...enabled);
     userState = enabled.reduce(evolveUser, userState);
@@ -672,7 +883,7 @@ async function appendPersonalIdentityRegistration(
 
   let membershipState = membership.state;
   const membershipEvents: MembershipEvent[] = [];
-  if (membershipState.id === null) {
+  if (membership.storedEvents.length === 0) {
     const granted = decideMembership(membershipState, {
       type: "GrantMembership",
       membershipId,
@@ -707,7 +918,7 @@ async function appendPersonalIdentityRegistration(
   const consentPlans = consents.map(({ consent, participant }) => {
     let consentState = participant.state;
     const consentEvents: ConsentEvent[] = [];
-    if (consentState.id === null && consentAuthorization) {
+    if (participant.storedEvents.length === 0 && consentAuthorization) {
       const recorded = decideAuthorizedConsent(consentState, {
         command: {
           type: "RecordConsent",
@@ -735,28 +946,93 @@ async function appendPersonalIdentityRegistration(
     userId,
     membershipId,
     displayName,
-    displayNameKey: normalizeAccountDisplayNameKey(displayName),
+    displayNameKey: identity.displayNameKey,
     consents: identity.consents,
     claimedAt: new Date().toISOString(),
   };
 
+  return {
+    claimedVersion: args.claimedVersion,
+    claim,
+    account,
+    accountEvents,
+    accountState,
+    user,
+    userEvents,
+    userState,
+    membership,
+    membershipEvents,
+    membershipState,
+    consentPlans,
+  };
+}
+
+function registrationUserContactAgrees(state: UserState, operation: RegistrationOperation): boolean {
+  const primaryContact = state.contactMethods[0];
+  if (
+    !primaryContact ||
+    typeof primaryContact.contactMethodId !== "string" ||
+    primaryContact.contactMethodId.trim().length === 0 ||
+    typeof primaryContact.value !== "string"
+  ) {
+    return false;
+  }
+  if (operation.contactType === "email") {
+    return (
+      normalizeEmail(state.primaryEmail ?? "") === operation.contactValue &&
+      primaryContact?.type === "email" &&
+      normalizeEmail(primaryContact.value) === operation.contactValue
+    );
+  }
+
+  return (
+    primaryContact.type === "phone" &&
+    normalizePhoneNumber(primaryContact.value) === operation.contactValue &&
+    typeof primaryContact.verifiedAt === "string" &&
+    Number.isFinite(Date.parse(primaryContact.verifiedAt))
+  );
+}
+
+/**
+ * One all-or-nothing append covering the registration-operation claim, the
+ * account, the user, the membership, and every Consent in the ordered bundle.
+ * Existing participants contribute zero-event version guards, so a late writer
+ * rolls back every earlier participant in this transaction.
+ */
+async function appendPersonalIdentityRegistration(
+  args: Readonly<{
+    services: IdentityServices;
+    eventStore: EventStore & Readonly<{ appendToStreams: NonNullable<EventStore["appendToStreams"]> }>;
+    params: Readonly<{ context: EventStoreContext }>;
+    operation: RegistrationOperation;
+    identity: RegistrationIdentity;
+    plan: PersonalIdentityRegistrationPlan;
+  }>,
+) {
+  const { eventStore, identity, operation, params, plan } = args;
+  const { accountId, userId, membershipId } = identity;
   const results = await eventStore.appendToStreams([
     registrationParticipantInput(
       operation.streamId,
-      args.claimedVersion === null ? "no_stream" : args.claimedVersion,
-      args.claimedVersion === null
-        ? [{ type: REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE, data: claim as unknown as JsonObject }]
+      plan.claimedVersion === null ? "no_stream" : plan.claimedVersion,
+      plan.claimedVersion === null
+        ? [{ type: REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE, data: plan.claim as unknown as JsonObject }]
         : [],
       params.context,
     ),
-    registrationParticipantInput(account.streamId, account.version, accountEvents, params.context),
-    registrationParticipantInput(user.streamId, user.version, userEvents, params.context),
-    registrationParticipantInput(membership.streamId, membership.version, membershipEvents, params.context),
-    ...consentPlans.map((plan) =>
+    registrationParticipantInput(plan.account.streamId, plan.account.version, plan.accountEvents, params.context),
+    registrationParticipantInput(plan.user.streamId, plan.user.version, plan.userEvents, params.context),
+    registrationParticipantInput(
+      plan.membership.streamId,
+      plan.membership.version,
+      plan.membershipEvents,
+      params.context,
+    ),
+    ...plan.consentPlans.map((consentPlan) =>
       registrationParticipantInput(
-        plan.participant.streamId,
-        plan.participant.version,
-        plan.consentEvents,
+        consentPlan.participant.streamId,
+        consentPlan.participant.version,
+        consentPlan.consentEvents,
         params.context,
       ),
     ),
@@ -764,27 +1040,31 @@ async function appendPersonalIdentityRegistration(
 
   const snapshots: IdentityMutationSnapshot[] = [
     mutationSnapshot("account", accountId, {
-      version: committedParticipantVersion(results, account.streamId, account.version),
-      state: accountState,
+      version: committedParticipantVersion(results, plan.account.streamId, plan.account.version),
+      state: plan.accountState,
     }),
     mutationSnapshot("membership", membershipId, {
-      version: committedParticipantVersion(results, membership.streamId, membership.version),
-      state: membershipState,
+      version: committedParticipantVersion(results, plan.membership.streamId, plan.membership.version),
+      state: plan.membershipState,
     }),
-    ...consentPlans.map((plan) =>
+    ...plan.consentPlans.map((consentPlan) =>
       mutationSnapshot(
         "consent",
-        plan.consent.consentId,
+        consentPlan.consent.consentId,
         {
-          version: committedParticipantVersion(results, plan.participant.streamId, plan.participant.version),
-          state: plan.consentState,
+          version: committedParticipantVersion(
+            results,
+            consentPlan.participant.streamId,
+            consentPlan.participant.version,
+          ),
+          state: consentPlan.consentState,
         },
         { fallbackStatus: "recorded" },
       ),
     ),
     mutationSnapshot("user", userId, {
-      version: committedParticipantVersion(results, user.streamId, user.version),
-      state: userState,
+      version: committedParticipantVersion(results, plan.user.streamId, plan.user.version),
+      state: plan.userState,
     }),
   ];
 
@@ -1350,6 +1630,18 @@ export function buildIdentityApi(services: IdentityServices) {
           {
             error: {
               code: "registration_operation_consent_disagreement",
+              message: error.message,
+            },
+          },
+          409,
+        );
+      }
+
+      if (error instanceof RegistrationOperationParticipantDisagreementError) {
+        return c.json(
+          {
+            error: {
+              code: "registration_operation_participant_disagreement",
               message: error.message,
             },
           },
