@@ -26,6 +26,7 @@ describe("delivery health conclusion normalization", () => {
     [{ conclusion: "failure" }, "deterministic-failure"],
     [{ conclusion: "cancelled", reason: "candidate superseded by latest main" }, "intentional-superseded/coalesced"],
     [{ conclusion: "cancelled", reason: "cancelled by newer candidate" }, "cancelled-by-newer-candidate"],
+    [{ conclusion: "cancelled", displaced: true }, "automatic-concurrency-displaced"],
     [{ conclusion: "skipped", eligible: false }, "skipped/not-eligible"],
     [{ conclusion: "cancelled" }, "unknown"],
   ])("normalizes %j", (input, expected) => {
@@ -132,6 +133,104 @@ describe("delivery-health/v1", () => {
     expect(result.markdown).toContain(
       "Intentional outcomes remain visible and are excluded from success denominators.",
     );
+  });
+
+  it("keeps manual and non-main verification outside release assurance while retaining trigger identity", () => {
+    const source = representativeSource();
+    source.ephemeralRuns = [
+      run(29_788_571_657, "workflow_dispatch", "failure", {
+        head_branch: "codex/issue-5828",
+        jobs: [ephemeralJob("failure")],
+      }),
+      run(29_788_571_658, "workflow_run", "failure", {
+        head_branch: "main",
+        jobs: [ephemeralJob("failure")],
+      }),
+      run(29_788_571_659, "workflow_run", "success", {
+        head_branch: "codex/proof",
+        jobs: [ephemeralJob("success")],
+      }),
+    ];
+
+    const result = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    });
+    const record = result.record;
+    expect(record.windows.rolling24h.releases.ephemeral).toMatchObject({
+      automaticRuns: 1,
+      manualRuns: 1,
+      nonMainAutomaticRuns: 1,
+      numerator: 0,
+      denominator: 1,
+      failure: 1,
+    });
+
+    const persisted = JSON.parse(JSON.stringify(record));
+    expect(persisted.query.sourceRuns.ephemeralVerification).toEqual([
+      { id: 29_788_571_657, event: "workflow_dispatch", head_branch: "codex/issue-5828" },
+      { id: 29_788_571_658, event: "workflow_run", head_branch: "main" },
+      { id: 29_788_571_659, event: "workflow_run", head_branch: "codex/proof" },
+    ]);
+    expect(result.markdown).toContain("1 manual proofs; 1 non-main automatic runs");
+  });
+
+  it("reports concurrency-displaced automatic verification outside numerator and denominator", () => {
+    const source = representativeSource();
+    source.ephemeralRuns = [
+      run(530, "workflow_run", "success", { head_branch: "main", jobs: [ephemeralJob("success")] }),
+      run(531, "workflow_run", "cancelled", { head_branch: "main", jobs: [ephemeralJob("cancelled")] }),
+    ];
+
+    const ephemeral = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record.windows.rolling24h.releases.ephemeral;
+
+    expect(ephemeral).toMatchObject({
+      automaticRuns: 2,
+      displaced: 1,
+      numerator: 1,
+      denominator: 1,
+      successRate: 1,
+      outcomes: { "automatic-concurrency-displaced": 1, success: 1 },
+    });
+  });
+
+  it("keeps automatic main reruns eligible and names their retry-pass outcome", () => {
+    const source = representativeSource();
+    source.ephemeralRuns = [
+      run(532, "workflow_run", "success", {
+        head_branch: "main",
+        run_attempt: 2,
+        jobs: [ephemeralJob("success")],
+      }),
+    ];
+
+    const ephemeral = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record.windows.rolling24h.releases.ephemeral;
+
+    expect(ephemeral).toMatchObject({
+      automaticRuns: 1,
+      eligible: 1,
+      numerator: 1,
+      denominator: 1,
+      outcomes: { "retry-pass/flake": 1 },
+    });
   });
 
   it("keeps cancellations visible without reducing actual-release success", () => {
@@ -516,6 +615,7 @@ function run(id, event, conclusion, overrides = {}) {
   return {
     id,
     event,
+    head_branch: "main",
     conclusion,
     run_attempt: 1,
     created_at: iso(50),

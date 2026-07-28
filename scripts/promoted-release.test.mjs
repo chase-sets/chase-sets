@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildPromotedReleaseRecord, validatePromotedReleaseRecord } from "./promoted-release.mjs";
+import {
+  buildPromotedReleaseRecord,
+  readPromotedReleaseRecord,
+  validatePromotedReleaseRecord,
+} from "./promoted-release.mjs";
 
 const valid = {
   schemaVersion: "promoted-release/v1",
@@ -21,7 +25,7 @@ describe("promoted release contract", () => {
     ).toEqual({ record: valid, errors: [] });
   });
 
-  it("pins validation to the triggering producer run and attempt", () => {
+  it("accepts the exact triggering producer run and attempt", () => {
     expect(
       validatePromotedReleaseRecord(valid, {
         producerRunId: "123",
@@ -29,24 +33,52 @@ describe("promoted release contract", () => {
         environment: "production",
       }),
     ).toEqual([]);
-    expect(validatePromotedReleaseRecord(valid, { producerRunId: "456", environment: "production" })).toContain(
-      "producerRunId does not match the triggering Platform Deploy run.",
-    );
-    expect(validatePromotedReleaseRecord(valid, { producerRunId: "123", producerRunAttempt: "3" })).toContain(
-      "producerRunAttempt does not match the triggering Platform Deploy run attempt.",
-    );
   });
 
   it.each([
-    ["failed activation", { promotionResult: "failed" }, "promotionResult must be promoted."],
-    ["malformed digest", { imageDigest: "latest" }, "imageDigest must be an immutable sha256 digest."],
     [
-      "wrong repository",
+      "wrong producer run",
+      { producerRunId: "456" },
+      { producerRunId: "123" },
+      "producerRunId does not match the triggering Platform Deploy run.",
+    ],
+    [
+      "wrong producer run attempt",
+      { producerRunAttempt: "3" },
+      { producerRunAttempt: "2" },
+      "producerRunAttempt does not match the triggering Platform Deploy run attempt.",
+    ],
+  ])("rejects %s", (_name, expected, actual, error) => {
+    expect(
+      validatePromotedReleaseRecord({ ...valid, ...actual }, { ...expected, environment: "production" }),
+    ).toContain(error);
+  });
+
+  it("reports an absent canonical handoff with the named disposition", async () => {
+    await expect(
+      readPromotedReleaseRecord(new URL("./fixtures/promoted-release-does-not-exist.json", import.meta.url)),
+    ).rejects.toThrow("promoted-release-handoff-absent");
+  });
+
+  it.each([
+    ["non-promoted activation", { promotionResult: "failed" }, "promotionResult must be promoted."],
+    ["malformed digest", { imageDigest: "latest" }, "imageDigest must be an immutable sha256 digest."],
+    ["absent digest", { imageDigest: "" }, "imageDigest must be an immutable sha256 digest."],
+    [
+      "non-allowlisted repository",
       { imageRepository: "ghcr.io/example/platform" },
       "imageRepository must be an allowlisted Chase Sets DigitalOcean repository.",
     ],
-    ["wrong environment", { environment: "staging" }, "environment must be production."],
+    ["non-production environment", { environment: "staging" }, "environment must be production."],
+    ["malformed release commit", { releaseCommit: "main" }, "releaseCommit must be a 40-character Git commit SHA."],
+    ["malformed tree hash", { treeHash: "tree" }, "treeHash must be a 40-character Git tree SHA."],
   ])("rejects %s", (_name, override, error) => {
     expect(validatePromotedReleaseRecord({ ...valid, ...override })).toContain(error);
+  });
+
+  it("rejects an environment that differs from the expected consumer environment", () => {
+    expect(validatePromotedReleaseRecord(valid, { environment: "staging" })).toContain(
+      "environment does not match expected staging.",
+    );
   });
 });

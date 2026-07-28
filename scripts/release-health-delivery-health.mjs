@@ -19,6 +19,7 @@ const FAILURE_OUTCOMES = new Set(["deterministic-failure"]);
 const INTENTIONAL_OUTCOMES = new Set([
   "intentional-superseded/coalesced",
   "cancelled-by-newer-candidate",
+  "automatic-concurrency-displaced",
   "skipped/not-eligible",
 ]);
 const SLI_MARKER_PATTERN = /<!--\s*delivery-health-sli\/v1\s+({[\s\S]*?})\s*-->/;
@@ -46,6 +47,7 @@ export async function readDeliveryHealthPolicy(path = DELIVERY_HEALTH_POLICY_PAT
 
 export function normalizeDeliveryConclusion(input = {}) {
   const reason = `${input.reason ?? ""} ${input.attemptReason ?? ""}`.toLowerCase();
+  if (input.displaced === true) return "automatic-concurrency-displaced";
   if (/supersed|coalesc/.test(reason)) return "intentional-superseded/coalesced";
   if (/newer|stale-release|stale-candidate/.test(reason)) return "cancelled-by-newer-candidate";
   const conclusion = String(input.conclusion ?? "").toLowerCase();
@@ -217,6 +219,13 @@ export function buildDeliveryHealth(input) {
         releaseDispatch: normalized.dispatchRuns.map((run) => run.id),
         platformDeploy: normalized.deployRuns.map((run) => run.id),
         ephemeralVerification: normalized.ephemeralRuns.map((run) => run.id),
+      },
+      sourceRuns: {
+        ephemeralVerification: normalized.ephemeralRuns.map((run) => ({
+          id: run.id,
+          event: run.event ?? null,
+          head_branch: run.head_branch ?? run.headBranch ?? null,
+        })),
       },
     },
     completeness,
@@ -471,7 +480,6 @@ function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
     window,
     runTimestamp,
   );
-  ephemeralRuns = selectMetricSeries(ephemeralRuns, window, runTimestamp);
   const actualOutcomes = actualRuns.map((run) => actualReleaseOutcome(run));
   const actualCounts = countBy(actualOutcomes, (entry) => entry.outcome);
   const actualNumerator = sumOutcomes(actualCounts, SUCCESS_OUTCOMES);
@@ -479,7 +487,7 @@ function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
   const actualDenominator = actualNumerator + actualFailures;
   const staging = summarizeStage(actualRuns, "staging");
   const production = summarizeStage(actualRuns, "production");
-  const ephemeral = summarizeEphemeral(ephemeralRuns);
+  const ephemeral = summarizeEphemeral(ephemeralRuns, window);
   return {
     dispatch: summarizeRuns(dispatchRuns),
     actual: {
@@ -554,28 +562,52 @@ function summarizeStage(runs, stage) {
   };
 }
 
-function summarizeEphemeral(runs) {
-  const entries = runs.map((run) => {
+function summarizeEphemeral(runs, window) {
+  const automaticRuns = runs.filter(
+    (run) => run.event === "workflow_run" && (run.head_branch ?? run.headBranch) === "main",
+  );
+  const manualRuns = runs.filter((run) => run.event === "workflow_dispatch");
+  const nonMainAutomaticRuns = runs.filter(
+    (run) => run.event === "workflow_run" && (run.head_branch ?? run.headBranch) !== "main",
+  );
+  const entries = automaticRuns.map((run) => {
     const job = (run.jobs ?? []).find((candidate) =>
       /verify release in ephemeral namespace/i.test(candidate.name ?? ""),
     );
-    const eligible = (job?.conclusion ?? run.conclusion) !== "skipped";
+    const conclusion = job?.conclusion ?? run.conclusion;
     return {
-      eligible,
-      conclusion: job?.conclusion ?? run.conclusion,
+      run,
+      conclusion,
       runAttempt: run.run_attempt ?? run.runAttempt,
+      displaced: conclusion === "cancelled",
     };
   });
-  const eligible = entries.filter((entry) => entry.eligible);
-  const outcomes = countBy(entries, (entry) => normalizeDeliveryConclusion(entry));
+  const classified = entries.map((entry) => ({ ...entry, outcome: normalizeDeliveryConclusion(entry) }));
+  const metricEntries = selectMetricSeries(
+    classified.filter((entry) => SUCCESS_OUTCOMES.has(entry.outcome) || FAILURE_OUTCOMES.has(entry.outcome)),
+    window,
+    (entry) => runTimestamp(entry.run),
+  );
+  const outcomes = {
+    ...countBy(metricEntries, (entry) => entry.outcome),
+    ...countBy(
+      classified.filter((entry) => !SUCCESS_OUTCOMES.has(entry.outcome) && !FAILURE_OUTCOMES.has(entry.outcome)),
+      (entry) => entry.outcome,
+    ),
+  };
   const numerator = sumOutcomes(outcomes, SUCCESS_OUTCOMES);
   const failures = sumOutcomes(outcomes, FAILURE_OUTCOMES);
   const denominator = numerator + failures;
   return {
-    eligible: eligible.length,
+    automaticRuns: automaticRuns.length,
+    manualRuns: manualRuns.length,
+    nonMainAutomaticRuns: nonMainAutomaticRuns.length,
+    otherRuns: runs.length - automaticRuns.length - manualRuns.length - nonMainAutomaticRuns.length,
+    eligible: denominator,
     success: numerator,
     failure: failures,
-    skipped: entries.length - eligible.length,
+    skipped: outcomes["skipped/not-eligible"] ?? 0,
+    displaced: outcomes["automatic-concurrency-displaced"] ?? 0,
     outcomes,
     numerator,
     denominator,
@@ -732,6 +764,7 @@ export function renderDeliveryHealthMarkdown(record) {
     `- PRs: ${current.prs.created} created; ${current.prs.merged} merged; ${current.prs.stillOpen} still open; reviews ${current.prs.reviews.submitted} submitted / ${current.prs.reviews.approved} approved.`,
     `- Platform PR: ${current.prs.platformPr.pullRequest.cancellations + current.prs.platformPr.mergeGroup.cancellations} cancellations; ${current.prs.platformPr.combined.retries} retries. Intentional outcomes remain visible and are excluded from success denominators.`,
     `- Release: ${current.releases.dispatch.runCount} dispatch candidates; ${current.releases.actual.runCount} actual decisions; ${current.releases.actual.preMutationFailures} pre-mutation failures; ${current.releases.actual.supersededOrCoalesced} superseded/coalesced.`,
+    `- Ephemeral verification: ${current.releases.ephemeral.automaticRuns} automatic main runs; ${current.releases.ephemeral.manualRuns} manual proofs; ${current.releases.ephemeral.nonMainAutomaticRuns} non-main automatic runs; ${current.releases.ephemeral.displaced} concurrency-displaced runs.`,
     `- Staging: ${formatRate(current.releases.staging)}; duration p50/p90 ${formatSeconds(current.releases.staging.durationSeconds.p50)} / ${formatSeconds(current.releases.staging.durationSeconds.p90)}.`,
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
     "",

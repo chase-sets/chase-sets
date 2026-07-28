@@ -17,8 +17,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: platform-ephemeral-verification-${{ github.event.workflow_run.id || inputs.release_ref || github.sha }}
-  cancel-in-progress: false
+  # Exactly one automatic verification may execute at a time on the shared
+  # staging cluster. A newer promoted release displaces the older automatic
+  # run; manual proof runs keep independent identities and never coalesce.
+  group: ${{ github.event_name == 'workflow_run' && 'platform-ephemeral-verification-automatic' || format('platform-ephemeral-verification-manual-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_run' }}
 
 jobs:
   select-promoted-release:
@@ -79,13 +82,17 @@ jobs:
       EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
       EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Check out trusted workflow code
+        id: trusted_checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          ref: ${{ inputs.release_ref || 'main' }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.repository.default_branch || inputs.release_ref || 'main' }}
 
       - name: Download promoted release handoff
+        id: handoff_download
         if: github.event_name == 'workflow_run'
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: promoted-release
@@ -93,12 +100,34 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      - name: Validate promoted release handoff
+        id: handoff
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          handoff_file="artifacts/promoted-release/promoted-release.json"
+          echo "failure_phase=promoted-release-handoff-invalid" >> "$GITHUB_OUTPUT"
+          if [ ! -f "$handoff_file" ]; then
+            echo "failure_phase=promoted-release-handoff-absent" >> "$GITHUB_OUTPUT"
+            echo "::error title=promoted-release-handoff-absent::Eligible Platform Deploy run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }} did not publish the canonical promoted release handoff."
+            exit 1
+          fi
+          node ./scripts/promoted-release.mjs validate \
+            --file "$handoff_file" \
+            --expected-producer-run-id "${{ github.event.workflow_run.id }}" \
+            --expected-producer-run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --expected-environment production \
+            --github-output "$GITHUB_OUTPUT"
+          echo "failure_phase=" >> "$GITHUB_OUTPUT"
+
       - name: Resolve release commit
         id: release
+        env:
+          VALIDATED_RELEASE_COMMIT: ${{ steps.handoff.outputs.release_commit }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            release_commit="$(jq -r '.releaseCommit // empty' artifacts/promoted-release/promoted-release.json)"
+            release_commit="$VALIDATED_RELEASE_COMMIT"
           else
             release_commit="$(git rev-parse HEAD)"
           fi
@@ -107,20 +136,31 @@ jobs:
             exit 1
           fi
           git checkout --detach "$release_commit"
+          checked_out_commit="$(git rev-parse HEAD)"
+          if [ "$checked_out_commit" != "$release_commit" ]; then
+            echo "Checked out commit ${checked_out_commit} does not match validated release ${release_commit}." >&2
+            exit 1
+          fi
           echo "release_commit=${release_commit}" >> "$GITHUB_OUTPUT"
           echo "Verifying release ${release_commit} in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
 
-      - uses: ./.github/actions/setup-pnpm-workspace
+      - name: Install release workspace
+        id: workspace
+        uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
 
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - name: Set up Terraform
+        id: terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+      - name: Set up doctl
+        id: doctl
+        uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
         with:
@@ -130,20 +170,15 @@ jobs:
         id: image
         env:
           RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          HANDOFF_IMAGE: ${{ steps.handoff.outputs.image }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.digest }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            node ./scripts/promoted-release.mjs validate \
-              --file artifacts/promoted-release/promoted-release.json \
-              --expected-producer-run-id "${{ github.event.workflow_run.id }}" \
-              --expected-producer-run-attempt "${{ github.event.workflow_run.run_attempt }}" \
-              --expected-environment production \
-              --github-output "$GITHUB_OUTPUT"
-            artifact_commit="$(jq -r '.releaseCommit' artifacts/promoted-release/promoted-release.json)"
-            if [ "$artifact_commit" != "$RELEASE_COMMIT" ]; then
-              echo "Promoted release artifact commit changed during validation." >&2
-              exit 1
-            fi
+            echo "image=${HANDOFF_IMAGE}" >> "$GITHUB_OUTPUT"
+            echo "image_repository=${HANDOFF_IMAGE}" >> "$GITHUB_OUTPUT"
+            echo "digest=${HANDOFF_DIGEST}" >> "$GITHUB_OUTPUT"
+            echo "Resolved validated immutable release image ${HANDOFF_IMAGE}@${HANDOFF_DIGEST}."
             exit 0
           fi
 
@@ -153,7 +188,8 @@ jobs:
             exit 1
           fi
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${RELEASE_COMMIT}"
+          image_repository="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}"
+          image="${image_repository}:${RELEASE_COMMIT}"
           # Manual proof resolves a known promoted tag before any namespace or
           # cluster mutation. Automatic verification always uses the producer's
           # exact promoted-release/v1 repository and immutable digest above.
@@ -167,10 +203,12 @@ jobs:
             exit 1
           fi
           echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "image_repository=${image_repository}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           echo "Resolved immutable release image ${image}@${digest}."
 
       - name: Configure verification Kubernetes context
+        id: kube_context
         working-directory: infrastructure/digitalocean/doks
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -209,6 +247,7 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
 
       - name: Reset verification namespace
+        id: namespace
         run: |
           set -euo pipefail
           kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true --timeout=5m
@@ -219,10 +258,12 @@ jobs:
             chasesets.com/workflow-run="${{ github.run_id }}"
 
       - name: Wait for managed registry authority
+        id: registry_authority
         timeout-minutes: 3
         run: node ./scripts/managed-registry-readiness.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --timeout-seconds 120
 
       - name: Register verification provider webhooks
+        id: provider_create
         env:
           PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
@@ -230,6 +271,7 @@ jobs:
         run: node ./scripts/provider-webhook-lifecycle.mjs create --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --base-url "$PLATFORM_API_BASE_URL"
 
       - name: Apply verification Kubernetes runtime secrets
+        id: runtime_secrets
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -351,30 +393,103 @@ jobs:
           SMOKE_SELLER_DISPLAY_NAME: Stripe Verification ${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
+      - name: Delete verification provider webhooks
+        id: provider_teardown
+        if: always() && steps.provider_create.outcome != 'skipped'
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
+
+      - name: Delete verification Kubernetes namespace
+        id: namespace_teardown
+        if: always() && steps.namespace.outcome != 'skipped'
+        run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m
+
       - name: Write ephemeral verification evidence
         if: always()
         env:
+          TRIGGER: ${{ github.event_name }}
           RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          PRODUCER_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}
+          PRODUCER_RUN_ATTEMPT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.run_attempt || '' }}
+          PERSISTENT_STAGING_RESULT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || 'unknown' }}
+          JOB_STATUS: ${{ job.status }}
+          HANDOFF_FAILURE_PHASE: ${{ steps.handoff.outputs.failure_phase }}
+          TRUSTED_CHECKOUT_OUTCOME: ${{ steps.trusted_checkout.outcome }}
+          HANDOFF_OUTCOME: ${{ steps.handoff.outcome }}
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
+          TERRAFORM_OUTCOME: ${{ steps.terraform.outcome }}
+          DOCTL_OUTCOME: ${{ steps.doctl.outcome }}
+          IMAGE_OUTCOME: ${{ steps.image.outcome }}
+          KUBE_CONTEXT_OUTCOME: ${{ steps.kube_context.outcome }}
+          NAMESPACE_OUTCOME: ${{ steps.namespace.outcome }}
+          REGISTRY_AUTHORITY_OUTCOME: ${{ steps.registry_authority.outcome }}
+          PROVIDER_CREATE_OUTCOME: ${{ steps.provider_create.outcome }}
+          RUNTIME_SECRETS_OUTCOME: ${{ steps.runtime_secrets.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DOMAINS_OUTCOME: ${{ steps.domains.outcome }}
           REPRESENTATIVE_OUTCOME: ${{ steps.representative.outcome }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           STRIPE_OUTCOME: ${{ steps.stripe.outcome }}
-          PERSISTENT_STAGING_RESULT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || 'unknown' }}
+          PROVIDER_TEARDOWN_OUTCOME: ${{ steps.provider_teardown.outcome }}
+          NAMESPACE_TEARDOWN_OUTCOME: ${{ steps.namespace_teardown.outcome }}
         run: |
           mkdir -p artifacts/ephemeral-verification
           node <<'NODE'
           const fs = require("node:fs");
-          const outcomes = [process.env.DEPLOY_OUTCOME, process.env.REPRESENTATIVE_OUTCOME, process.env.SMOKE_OUTCOME, process.env.STRIPE_OUTCOME];
+          const terminalPhases = [
+            ["trusted-default-branch-checkout", process.env.TRUSTED_CHECKOUT_OUTCOME],
+            [process.env.HANDOFF_FAILURE_PHASE || "promoted-release-handoff-validation", process.env.HANDOFF_OUTCOME],
+            ["release-commit-checkout", process.env.RELEASE_OUTCOME],
+            ["release-workspace-install", process.env.WORKSPACE_OUTCOME],
+            ["terraform-setup", process.env.TERRAFORM_OUTCOME],
+            ["doctl-setup", process.env.DOCTL_OUTCOME],
+            ["promoted-release-image-resolution", process.env.IMAGE_OUTCOME],
+            ["kubernetes-context", process.env.KUBE_CONTEXT_OUTCOME],
+            ["namespace-reset", process.env.NAMESPACE_OUTCOME],
+            ["registry-authority", process.env.REGISTRY_AUTHORITY_OUTCOME],
+            ["provider-registration", process.env.PROVIDER_CREATE_OUTCOME],
+            ["runtime-secrets", process.env.RUNTIME_SECRETS_OUTCOME],
+            ["release-deploy", process.env.DEPLOY_OUTCOME],
+            ["ingress-readiness", process.env.DOMAINS_OUTCOME],
+            ["representative-commerce-state", process.env.REPRESENTATIVE_OUTCOME],
+            ["platform-smoke", process.env.SMOKE_OUTCOME],
+            ["stripe-money-smoke", process.env.STRIPE_OUTCOME],
+            ["provider-teardown", process.env.PROVIDER_TEARDOWN_OUTCOME],
+            ["namespace-teardown", process.env.NAMESPACE_TEARDOWN_OUTCOME],
+          ];
+          const failedPhase = terminalPhases.find(([, outcome]) => ["failure", "cancelled"].includes(outcome));
+          const failurePhase =
+            failedPhase?.[0] ?? (process.env.JOB_STATUS === "success" ? null : "workflow-cancelled-or-setup");
+          const cleanupRequired =
+            process.env.PROVIDER_CREATE_OUTCOME !== "skipped" || process.env.NAMESPACE_OUTCOME !== "skipped";
+          const cleanupFailed =
+            ["failure", "cancelled"].includes(process.env.PROVIDER_TEARDOWN_OUTCOME) ||
+            ["failure", "cancelled"].includes(process.env.NAMESPACE_TEARDOWN_OUTCOME);
+          const teardownResult = cleanupRequired ? (cleanupFailed ? "failure" : "success") : "not-required";
           const record = {
             schemaVersion: "ephemeral-verification/v1",
-            releaseCommit: process.env.RELEASE_COMMIT,
+            releaseCommit: process.env.RELEASE_COMMIT || null,
+            imageRepository: process.env.IMAGE_REPOSITORY || null,
+            imageDigest: process.env.IMAGE_DIGEST || null,
+            producerRunId: process.env.PRODUCER_RUN_ID || null,
+            producerRunAttempt: process.env.PRODUCER_RUN_ATTEMPT || null,
+            trigger: process.env.TRIGGER,
             namespace: process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
             workflowRunId: process.env.GITHUB_RUN_ID,
             workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
-            result: outcomes.every((outcome) => outcome === "success") ? "success" : "failure",
+            result: failurePhase === null ? "success" : "failure",
+            failurePhase,
+            teardownResult,
             persistentStagingResult: process.env.PERSISTENT_STAGING_RESULT,
+            persistentStagingRetained:
+              process.env.TRIGGER === "workflow_run" && process.env.PERSISTENT_STAGING_RESULT === "success",
             workloads: ["representative-commerce-state", "platform-smoke", "stripe-money-smoke"],
-            persistentStagingRetained: true,
             checkedAt: new Date().toISOString(),
           };
           fs.writeFileSync("artifacts/ephemeral-verification/ephemeral-verification.json", `${JSON.stringify(record, null, 2)}\n`);
@@ -384,19 +499,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ephemeral-verification-${{ steps.release.outputs.release_commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ephemeral-verification-${{ steps.release.outputs.release_commit || 'unknown' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/ephemeral-verification
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
-
-      - name: Delete verification provider webhooks
-        if: always()
-        env:
-          PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
-        run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
-
-      - name: Delete verification Kubernetes namespace
-        if: always()
-        run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m
