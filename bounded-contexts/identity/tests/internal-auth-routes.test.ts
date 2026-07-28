@@ -3,6 +3,7 @@ import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
 import { mintRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 // Registration reaches the aggregate writes only with a server-minted
 // resolution, so these route tests resolve one the same way a caller does.
@@ -19,6 +20,7 @@ function registrationConsent() {
 
 function createServices() {
   return {
+    eventStore: createInMemoryEventStore(),
     db: {
       query: vi.fn(),
     },
@@ -62,14 +64,10 @@ describe("identity internal auth routes", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(services.accounts.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          type: "CreateAccount",
-          name: "",
-          displayName: "PokeBash TCG",
-        }),
-      }),
+    const eventStore = services.eventStore as InMemoryEventStore;
+    const [accountStreamId] = eventStore.streamIdsWithPrefix("identity.account-");
+    expect(eventStore.streams.get(accountStreamId)?.[0].payload).toEqual(
+      expect.objectContaining({ name: "", displayName: "PokeBash TCG" }),
     );
   });
 
@@ -95,8 +93,7 @@ describe("identity internal auth routes", () => {
         message: "Display name is already taken.",
       },
     });
-    expect(services.accounts.commandHandler).not.toHaveBeenCalled();
-    expect(services.users.commandHandler).not.toHaveBeenCalled();
+    expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.")).toEqual([]);
   });
 
   it("registers passkey credential facts without requiring an actor request context", async () => {

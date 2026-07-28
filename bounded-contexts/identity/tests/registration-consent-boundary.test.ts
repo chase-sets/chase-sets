@@ -12,6 +12,7 @@ import {
   type SignedRegistrationConsentResolution,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 const TERMS_V1: RegistrationConsentRequirement = {
   policyKey: "terms-of-service",
@@ -26,8 +27,11 @@ const PRIVACY_V3: RegistrationConsentRequirement = {
 
 function createServices() {
   return {
+    // Registration composes its participants into one all-or-nothing append, so
+    // the store itself is what these assertions observe.
+    eventStore: createInMemoryEventStore(),
     db: {
-      // The display-name uniqueness read finds nothing; the reservation insert
+      // The display-name uniqueness read finds nothing; the reservation upsert
       // returns its row so registration proceeds to the aggregate writes.
       query: vi.fn(async (sql: string) => ({
         rows: sql.includes("INSERT INTO identity_account_display_name_reservations")
@@ -35,18 +39,8 @@ function createServices() {
           : [],
       })),
     },
-    accounts: {
-      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
-    },
     users: {
       getUserBySocialLogin: vi.fn(async () => null),
-      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
-    },
-    memberships: {
-      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
-    },
-    consents: {
-      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "recorded" } })),
     },
     policies: {
       // A newer version is active in the resolver than the one any resolution
@@ -55,6 +49,10 @@ function createServices() {
     },
     projectors: [],
   } as unknown as IdentityServices;
+}
+
+function store(services: IdentityServices) {
+  return services.eventStore as InMemoryEventStore;
 }
 
 function mint(
@@ -86,18 +84,17 @@ async function register(
 }
 
 function expectNoIdentityWritten(services: IdentityServices) {
-  expect(services.accounts.commandHandler, "no account may be written").not.toHaveBeenCalled();
-  expect(services.users.commandHandler, "no user may be written").not.toHaveBeenCalled();
-  expect(services.memberships.commandHandler, "no membership may be written").not.toHaveBeenCalled();
-  expect(services.consents.commandHandler, "no consent may be written").not.toHaveBeenCalled();
+  expect(store(services).streamIdsWithPrefix("identity."), "no identity stream may be written").toEqual([]);
   expect(services.db.query, "no display-name reservation may be written").not.toHaveBeenCalled();
 }
 
 function recordedConsents(services: IdentityServices) {
-  return vi
-    .mocked(services.consents.commandHandler)
-    .mock.calls.map(([call]) => call.command as { policyKey: string; policyVersion: string })
-    .map((command) => ({ policyKey: command.policyKey, policyVersion: command.policyVersion }));
+  const eventStore = store(services);
+  return eventStore
+    .streamIdsWithPrefix("identity.consent-")
+    .flatMap((streamId) => eventStore.streams.get(streamId) ?? [])
+    .map((event) => event.payload as unknown as { policyKey: string; policyVersion: string })
+    .map((payload) => ({ policyKey: payload.policyKey, policyVersion: payload.policyVersion }));
 }
 
 describe("registration consent resolution boundary", () => {
@@ -248,8 +245,8 @@ describe("registration consent resolution boundary", () => {
     });
 
     expect(status).toBe(201);
-    expect(services.accounts.commandHandler).toHaveBeenCalled();
-    expect(services.memberships.commandHandler).toHaveBeenCalled();
+    expect(store(services).streamIdsWithPrefix("identity.account-")).toHaveLength(1);
+    expect(store(services).streamIdsWithPrefix("identity.membership-")).toHaveLength(1);
     expect(recordedConsents(services)).toEqual([]);
   });
 

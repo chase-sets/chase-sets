@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS identity_account_display_name_reservations (
   display_name_key text PRIMARY KEY,
   account_id text NOT NULL UNIQUE,
   display_name text NOT NULL,
+  operation_key text NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );`;
 
@@ -34,6 +35,16 @@ export const identityAccountSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS identity_accounts_founder_number_uk
          ON identity_accounts (founder_number)
          WHERE founder_number IS NOT NULL;`,
+    ],
+  },
+  {
+    migrationId: "20260728_identity_display_name_reservation_operation_key",
+    description:
+      "Bind each display-name reservation to the Registration Operation that wrote it, so a retry of that operation reclaims its own row and no other operation can.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE identity_account_display_name_reservations
+         ADD COLUMN IF NOT EXISTS operation_key text NULL;`,
     ],
   },
 ];
