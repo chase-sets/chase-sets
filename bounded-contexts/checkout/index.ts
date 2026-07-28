@@ -57,48 +57,25 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       manifest: contextManifest,
       handlers: {
         "catalog.checkout-catalog-item-projection": () => buildCheckoutCatalogProjectionHandlers(services.db),
-        "catalog.checkout-marketplace-listing-options-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
-        },
-        "marketplace.checkout-marketplace-listing-options-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
-        },
-        "ordering.checkout-marketplace-listing-options-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
-        },
-        "marketplace.checkout-seller-accounts-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
-        },
-        "marketplace.checkout.sell-list-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
-        },
-        "settlement.checkout.sell-list-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
-        },
-        "checkout.checkout.sell-list-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
-        },
-        "inventory.checkout-inventory-supply-projection": {
-          buildHandlers: () => buildCheckoutInventorySupplyProjectionHandlers(services.db),
-        },
-        "identity.checkout-seller-accounts-projection": {
-          buildHandlers: () => buildCheckoutIdentitySellerAccountsProjectionHandlers(services.db),
-        },
-        "payments.checkout.payment-summary-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutPaymentSummaryProjectionHandlers(services.db),
-        },
-        "payments.checkout.payment-affordance-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildCheckoutPaymentAffordanceProjectionHandlers(services.db),
-        },
+        "catalog.checkout-marketplace-listing-options-projection": () =>
+          buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+        "marketplace.checkout-marketplace-listing-options-projection": () =>
+          buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+        "ordering.checkout-marketplace-listing-options-projection": () =>
+          buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+        "marketplace.checkout-seller-accounts-projection": () =>
+          buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
+        "marketplace.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
+        "settlement.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
+        "checkout.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
+        "inventory.checkout-inventory-supply-projection": () =>
+          buildCheckoutInventorySupplyProjectionHandlers(services.db),
+        "identity.checkout-seller-accounts-projection": () =>
+          buildCheckoutIdentitySellerAccountsProjectionHandlers(services.db),
+        "payments.checkout.payment-summary-projection": () =>
+          buildCheckoutPaymentSummaryProjectionHandlers(services.db),
+        "payments.checkout.payment-affordance-projection": () =>
+          buildCheckoutPaymentAffordanceProjectionHandlers(services.db),
       },
     }),
 });

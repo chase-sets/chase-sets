@@ -8,7 +8,9 @@ import {
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
   type BcContextManifest,
+  type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
+  type BcEventSubscriptionHandlerRegistrations,
 } from "./index";
 
 const manifest: BcContextManifest = {
@@ -126,7 +128,40 @@ describe("buildEventSubscriptionsFromManifest", () => {
     );
   });
 
-  it("can filter shared handler maps to a subscription declaration's eventTypes", () => {
+  it("uses a declaration-borne subscription name and filters shared handlers to declared event types", () => {
+    const sharedHandlers: ProjectorHandlerMap = {
+      "catalog.catalog-item.published": async () => undefined,
+      "catalog.catalog-item.retired": async () => undefined,
+    };
+    const buildHandlers = vi.fn(() => sharedHandlers);
+
+    const [subscription] = buildEventSubscriptionsFromManifest({
+      contextName: "inventory",
+      manifest: {
+        eventSubscriptions: [
+          {
+            ...manifest.eventSubscriptions![0],
+            subscriptionName: "inventory.catalog-publication-projection",
+            filterToEventTypes: true,
+          },
+        ],
+      },
+      handlers: {
+        "catalog.inventory-catalog-item-projection": buildHandlers,
+      },
+    });
+
+    expect(buildHandlers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionName: "inventory.catalog-publication-projection",
+        filterToEventTypes: true,
+      }),
+    );
+    expect(subscription?.subscriptionName).toBe("inventory.catalog-publication-projection");
+    expect(Object.keys(subscription?.handlers ?? {})).toEqual(["catalog.catalog-item.published"]);
+  });
+
+  it("keeps derived naming and unfiltered handlers when declaration options are absent", () => {
     const sharedHandlers: ProjectorHandlerMap = {
       "catalog.catalog-item.published": async () => undefined,
       "catalog.catalog-item.retired": async () => undefined,
@@ -136,15 +171,16 @@ describe("buildEventSubscriptionsFromManifest", () => {
       contextName: "inventory",
       manifest,
       handlers: {
-        "catalog.inventory-catalog-item-projection": {
-          subscriptionName: "inventory.catalog-item-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => sharedHandlers,
-        },
+        "catalog.inventory-catalog-item-projection": () => sharedHandlers,
       },
     });
 
-    expect(Object.keys(subscription?.handlers ?? {})).toEqual(["catalog.catalog-item.published"]);
+    expect(subscription?.subscriptionName).toBe("inventory.catalog-item-projection");
+    expect(subscription?.handlers).toBe(sharedHandlers);
+    expect(Object.keys(subscription?.handlers ?? {})).toEqual([
+      "catalog.catalog-item.published",
+      "catalog.catalog-item.retired",
+    ]);
   });
 
   it("normalizes JSON-imported source context mount gating", () => {
@@ -300,6 +336,83 @@ describe("buildEventReactionsFromManifest", () => {
     ).toThrow(
       "Context 'inventory' is missing an eventReactions declaration for 'ordering' -> 'inventory-missing-reaction'.",
     );
+  });
+
+  it("uses declaration-borne reaction naming and event-type filtering", () => {
+    const createdHandler = vi.fn(async () => undefined);
+    const cancelledHandler = vi.fn(async () => undefined);
+    const buildHandlers = vi.fn(() =>
+      defineEventReactionHandlers({
+        "ordering.order.created": createdHandler,
+        "ordering.order.cancelled": cancelledHandler,
+      }),
+    );
+    const [reaction] = buildEventReactionsFromManifest({
+      contextName: "inventory",
+      manifest: {
+        eventReactions: [
+          {
+            ...manifest.eventReactions![0],
+            subscriptionName: "inventory.reservation-effects",
+            filterToEventTypes: true,
+          },
+        ],
+      },
+      handlers: {
+        "ordering.inventory-order-reservation-workflow": buildHandlers,
+      },
+    });
+
+    expect(buildHandlers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionName: "inventory.reservation-effects",
+        filterToEventTypes: true,
+      }),
+    );
+    expect(reaction?.subscriptionName).toBe("inventory.reservation-effects");
+    expect(reaction?.handlers).toEqual({
+      "ordering.order.created": createdHandler,
+    });
+  });
+
+  it("keeps derived reaction naming and unfiltered handlers when declaration options are absent", () => {
+    const sharedHandlers = defineEventReactionHandlers({
+      "ordering.order.created": vi.fn(async () => undefined),
+      "ordering.order.cancelled": vi.fn(async () => undefined),
+    });
+    const [reaction] = buildEventReactionsFromManifest({
+      contextName: "inventory",
+      manifest,
+      handlers: {
+        "ordering.inventory-order-reservation-workflow": () => sharedHandlers,
+      },
+    });
+
+    expect(reaction?.subscriptionName).toBe("inventory.order-reservation-workflow");
+    expect(reaction?.handlers).toBe(sharedHandlers);
+    expect(Object.keys(reaction?.handlers ?? {})).toEqual(["ordering.order.created", "ordering.order.cancelled"]);
+  });
+});
+
+describe("event handler registration types", () => {
+  it("rejects declaration options on subscription and reaction handler registrations", () => {
+    const subscriptionRegistrations: BcEventSubscriptionHandlerRegistrations = {
+      "catalog.inventory-catalog-item-projection": {
+        // @ts-expect-error subscriptionName is manifest declaration metadata, not handler registration metadata.
+        subscriptionName: "inventory.catalog-item-projection",
+        buildHandlers: () => ({}),
+      },
+    };
+    const reactionRegistrations: BcEventReactionHandlerRegistrations = {
+      "ordering.inventory-order-reservation-workflow": {
+        // @ts-expect-error filterToEventTypes is manifest declaration metadata, not handler registration metadata.
+        filterToEventTypes: true,
+        buildHandlers: () => ({}),
+      },
+    };
+
+    expect(subscriptionRegistrations).toBeDefined();
+    expect(reactionRegistrations).toBeDefined();
   });
 });
 

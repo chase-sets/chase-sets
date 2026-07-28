@@ -19,6 +19,7 @@
       "sourceContextName": "ordering",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.ordering-facts-projection",
       "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "order": 20,
       "projectionHandlerSetNames": ["notifications-ordering-facts-projection"]
@@ -27,6 +28,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.fulfillment-facts-projection",
       "eventTypes": ["fulfillment.shipment.delivered"],
       "order": 30,
       "projectionHandlerSetNames": ["notifications-fulfillment-facts-projection"]
@@ -35,6 +37,7 @@
       "sourceContextName": "inventory",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.inventory-facts-projection",
       "eventTypes": ["inventory.hold.consumed", "inventory.restock-decision.pending"],
       "order": 40,
       "projectionHandlerSetNames": ["notifications-inventory-facts-projection"]
@@ -44,6 +47,7 @@
       "sourceContextMount": "when-mounted",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.settlement-facts-projection",
       "eventTypes": ["settlement.payout-readiness.recorded"],
       "order": 50,
       "projectionHandlerSetNames": ["notifications-settlement-facts-projection"]
@@ -52,6 +56,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.marketplace-facts-projection",
       "eventTypes": ["marketplace.seller-listing-availability.enabled"],
       "order": 60,
       "projectionHandlerSetNames": ["notifications-marketplace-facts-projection"]
@@ -60,6 +65,7 @@
       "sourceContextName": "customer-feedback",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.customer-feedback-facts-projection",
       "eventTypes": [
         "customer-feedback.case.attention-requested",
         "customer-feedback.case.follow-up-requested",
@@ -72,6 +78,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "notifications.support-dispute-facts-projection",
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.response-recorded",

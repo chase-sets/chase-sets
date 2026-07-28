@@ -101,104 +101,59 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
         manifest: marketplaceContextManifest,
         handlers: {
           "catalog.marketplace-catalog-item-projection": () => buildMarketplaceCatalogProjectionHandlers(services.db),
-          "catalog.marketplace-listing-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
-          },
-          "identity.marketplace-identity-account-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => accountProjectionHandlers,
-          },
+          "catalog.marketplace-listing-projection": () => buildMarketplaceListingProjectionHandlers(services.db),
+          "identity.marketplace-identity-account-projection": () => accountProjectionHandlers,
           "inventory.marketplace-inventory-supply-projection": () =>
             buildMarketplaceInventoryProjectionHandlers(services.db, {
               onInventoryItemChanged: services.listings.reconcileInventoryCapacity,
             }),
-          "marketplace.marketplace-identity-account-projection": {
-            subscriptionName: "marketplace.review-account-projection",
-            filterToEventTypes: true,
-            buildHandlers: () => accountProjectionHandlers,
-          },
-          "marketplace.marketplace-listing-projection": {
-            subscriptionName: "marketplace.self-listing-projection",
-            filterToEventTypes: true,
-            buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
-          },
-          "identity.marketplace-review-account-source-projection": {
-            subscriptionName: "marketplace.review-account-source-projection",
-            buildHandlers: () => buildReviewAccountProjectionHandlers(services.db),
-          },
-          "ordering.marketplace-review-order-source-projection": {
-            subscriptionName: "marketplace.review-order-source-projection",
-            buildHandlers: () =>
-              buildReviewOrderSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
-          },
-          "fulfillment.marketplace-review-shipment-source-projection": {
-            subscriptionName: "marketplace.review-shipment-source-projection",
-            buildHandlers: () =>
-              buildReviewShipmentSourceProjectionHandlers(services.db, {
-                onDeliveredShipment: services.reviews.recordDeliveredShipmentReviewEligibility,
-              }),
-          },
-          "platform-operations.marketplace-review-support-source-projection": {
-            subscriptionName: "marketplace.review-support-source-projection",
-            buildHandlers: () =>
-              buildReviewSupportSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
-          },
-          "ordering.marketplace-seller-metrics-order-source-projection": {
-            subscriptionName: "marketplace.seller-metrics-order-source-projection",
-            buildHandlers: () =>
-              buildSellerMetricsOrderSourceProjectionHandlers(services.db, {
-                resolvePolicy: services.policies.resolvePolicy,
-              }),
-          },
-          "fulfillment.marketplace-seller-metrics-shipment-source-projection": {
-            subscriptionName: "marketplace.seller-metrics-shipment-source-projection",
-            buildHandlers: () =>
-              buildSellerMetricsShipmentSourceProjectionHandlers(services.db, {
-                resolvePolicy: services.policies.resolvePolicy,
-              }),
-          },
-          "platform-operations.marketplace-seller-metrics-support-source-projection": {
-            subscriptionName: "marketplace.seller-metrics-support-source-projection",
-            buildHandlers: () =>
-              buildSellerMetricsSupportSourceProjectionHandlers(services.db, {
-                resolvePolicy: services.policies.resolvePolicy,
-              }),
-          },
-          "settlement.marketplace-settlement-negative-balance-projection": {
-            buildHandlers: () => buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
-            filterToEventTypes: true,
-          },
+          "marketplace.marketplace-identity-account-projection": () => accountProjectionHandlers,
+          "marketplace.marketplace-listing-projection": () => buildMarketplaceListingProjectionHandlers(services.db),
+          "identity.marketplace-review-account-source-projection": () =>
+            buildReviewAccountProjectionHandlers(services.db),
+          "ordering.marketplace-review-order-source-projection": () =>
+            buildReviewOrderSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
+          "fulfillment.marketplace-review-shipment-source-projection": () =>
+            buildReviewShipmentSourceProjectionHandlers(services.db, {
+              onDeliveredShipment: services.reviews.recordDeliveredShipmentReviewEligibility,
+            }),
+          "platform-operations.marketplace-review-support-source-projection": () =>
+            buildReviewSupportSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
+          "ordering.marketplace-seller-metrics-order-source-projection": () =>
+            buildSellerMetricsOrderSourceProjectionHandlers(services.db, {
+              resolvePolicy: services.policies.resolvePolicy,
+            }),
+          "fulfillment.marketplace-seller-metrics-shipment-source-projection": () =>
+            buildSellerMetricsShipmentSourceProjectionHandlers(services.db, {
+              resolvePolicy: services.policies.resolvePolicy,
+            }),
+          "platform-operations.marketplace-seller-metrics-support-source-projection": () =>
+            buildSellerMetricsSupportSourceProjectionHandlers(services.db, {
+              resolvePolicy: services.policies.resolvePolicy,
+            }),
+          "settlement.marketplace-settlement-negative-balance-projection": () =>
+            buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
         },
       }),
       ...buildEventReactionsFromManifest({
         contextName: "marketplace",
         manifest: marketplaceContextManifest,
         handlers: {
-          "platform-operations.marketplace-review-hold-reaction": {
-            filterToEventTypes: true,
-            buildHandlers: () =>
-              buildReviewHoldReactionHandlers({
-                recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,
-                recordSupportRequestTerminal: services.reviews.recordSupportRequestTerminal,
-              }),
-          },
-          "platform-operations.marketplace-review-scoring-reaction": {
-            filterToEventTypes: true,
-            buildHandlers: () =>
-              buildReviewScoringReactionHandlers({
-                recordSupportFact: services.reviews.recordReviewScoringSupportFact,
-              }),
-          },
-          "platform-operations.marketplace-review-moderation-reaction": {
-            filterToEventTypes: true,
-            buildHandlers: () =>
-              buildReviewModerationReactionHandlers({
-                operatorWithdrawReview: services.reviews.operatorWithdrawReview,
-                operatorRedactReviewFeedback: services.reviews.operatorRedactReviewFeedback,
-                operatorWithdrawReviewReply: services.reviews.operatorWithdrawReviewReply,
-              }),
-          },
+          "platform-operations.marketplace-review-hold-reaction": () =>
+            buildReviewHoldReactionHandlers({
+              recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,
+              recordSupportRequestTerminal: services.reviews.recordSupportRequestTerminal,
+            }),
+          "platform-operations.marketplace-review-scoring-reaction": () =>
+            buildReviewScoringReactionHandlers({
+              recordSupportFact: services.reviews.recordReviewScoringSupportFact,
+            }),
+          "platform-operations.marketplace-review-moderation-reaction": () =>
+            buildReviewModerationReactionHandlers({
+              operatorWithdrawReview: services.reviews.operatorWithdrawReview,
+              operatorRedactReviewFeedback: services.reviews.operatorRedactReviewFeedback,
+              operatorWithdrawReviewReply: services.reviews.operatorWithdrawReviewReply,
+            }),
         },
       }),
     ];

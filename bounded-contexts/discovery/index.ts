@@ -44,65 +44,25 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
       manifest: contextManifest,
       handlers: {
         "discovery.discovery-product-alert-page-projection": () => buildProductAlertPageProjectionHandlers(services.db),
-        "collections.discovery-saved-list-picker-projection": {
-          subscriptionName: "discovery.collections-saved-list-picker-projection",
-          buildHandlers: () => buildDiscoverySavedListPickerProjectionHandlers(services.db),
-        },
-        "catalog.discovery-category-projection": {
-          subscriptionName: "discovery.catalog-category-projection",
-          buildHandlers: () => buildDiscoveryCategoryProjectionHandlers(services.db),
-        },
-        "catalog.discovery-search-item-projection": {
-          subscriptionName: "discovery.catalog-search-projection",
-          buildHandlers: () => buildDiscoverySearchItemProjectionHandlers(services.db),
-        },
-        "catalog.discovery-item-detail-projection": {
-          subscriptionName: "discovery.catalog-detail-projection",
-          buildHandlers: () => buildDiscoveryItemDetailProjectionHandlers(services.db),
-        },
-        "catalog.discovery-google-shopping-feed-row-projection": {
-          subscriptionName: "discovery.catalog-google-shopping-feed-row-projection",
-          buildHandlers: () => buildGoogleShoppingFeedRowProjectionHandlers(services.db),
-        },
-        "catalog.discovery-market-projection": {
-          subscriptionName: "discovery.catalog-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "identity.discovery-market-projection": {
-          subscriptionName: "discovery.identity-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "inventory.discovery-market-projection": {
-          subscriptionName: "discovery.inventory-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "checkout.discovery-market-projection": {
-          subscriptionName: "discovery.checkout-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "marketplace.discovery-market-projection": {
-          subscriptionName: "discovery.marketplace-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "ordering.discovery-market-projection": {
-          subscriptionName: "discovery.ordering-market-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => marketProjectionHandlers,
-        },
-        "marketplace.discovery-product-alert-notification-projection": {
-          subscriptionName: "discovery.marketplace-product-alert-notifications",
-          buildHandlers: (subscription) =>
-            buildProductAlertNotificationProjectionHandlers(
-              services.db,
-              services.notificationOutbox,
-              subscription.projectionName,
-            ),
-        },
+        "collections.discovery-saved-list-picker-projection": () =>
+          buildDiscoverySavedListPickerProjectionHandlers(services.db),
+        "catalog.discovery-category-projection": () => buildDiscoveryCategoryProjectionHandlers(services.db),
+        "catalog.discovery-search-item-projection": () => buildDiscoverySearchItemProjectionHandlers(services.db),
+        "catalog.discovery-item-detail-projection": () => buildDiscoveryItemDetailProjectionHandlers(services.db),
+        "catalog.discovery-google-shopping-feed-row-projection": () =>
+          buildGoogleShoppingFeedRowProjectionHandlers(services.db),
+        "catalog.discovery-market-projection": () => marketProjectionHandlers,
+        "identity.discovery-market-projection": () => marketProjectionHandlers,
+        "inventory.discovery-market-projection": () => marketProjectionHandlers,
+        "checkout.discovery-market-projection": () => marketProjectionHandlers,
+        "marketplace.discovery-market-projection": () => marketProjectionHandlers,
+        "ordering.discovery-market-projection": () => marketProjectionHandlers,
+        "marketplace.discovery-product-alert-notification-projection": (subscription) =>
+          buildProductAlertNotificationProjectionHandlers(
+            services.db,
+            services.notificationOutbox,
+            subscription.projectionName,
+          ),
       },
     });
   },

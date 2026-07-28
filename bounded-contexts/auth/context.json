@@ -86,6 +86,7 @@
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "order": 40,
       "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]
@@ -95,6 +96,7 @@
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "order": 50,
       "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]
@@ -104,6 +106,7 @@
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["payments.refund-issued"],
       "order": 60,
       "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]

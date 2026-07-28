@@ -112,18 +112,9 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
         contextName: "ordering",
         manifest: orderingContextManifest,
         handlers: {
-          "identity.ordering-account-projection": {
-            subscriptionName: "ordering.identity-account-projection",
-            buildHandlers: () => buildOrderingAccountProjectionHandlers(services.db),
-          },
-          "marketplace.ordering-marketplace-supply-input-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => marketplaceSupplyHandlers,
-          },
-          "catalog.ordering-marketplace-supply-input-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => marketplaceSupplyHandlers,
-          },
+          "identity.ordering-account-projection": () => buildOrderingAccountProjectionHandlers(services.db),
+          "marketplace.ordering-marketplace-supply-input-projection": () => marketplaceSupplyHandlers,
+          "catalog.ordering-marketplace-supply-input-projection": () => marketplaceSupplyHandlers,
           "inventory.ordering-inventory-supply-input-projection": () =>
             buildOrderingInventorySupplyProjectionHandlers(services.db),
           "fulfillment.ordering-fulfillment-cancellation-inputs": () =>
@@ -131,34 +122,13 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
               onOrderCapacityReleased: ({ sellerAccountId, context }) =>
                 services.orders.reconcileSellerOrderCapacitySignal(sellerAccountId, context),
             }),
-          "ordering.ordering-order-review-opportunity-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => reputationHandlers,
-          },
-          "fulfillment.ordering-order-review-opportunity-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => reputationHandlers,
-          },
-          "platform-operations.ordering-order-review-opportunity-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => reputationHandlers,
-          },
-          "marketplace.ordering-order-review-opportunity-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => reputationHandlers,
-          },
-          "payments.ordering-order-money-timeline-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => moneyTimelineHandlers,
-          },
-          "platform-operations.ordering-order-money-timeline-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => moneyTimelineHandlers,
-          },
-          "settlement.ordering-order-money-timeline-projection": {
-            filterToEventTypes: true,
-            buildHandlers: () => moneyTimelineHandlers,
-          },
+          "ordering.ordering-order-review-opportunity-projection": () => reputationHandlers,
+          "fulfillment.ordering-order-review-opportunity-projection": () => reputationHandlers,
+          "platform-operations.ordering-order-review-opportunity-projection": () => reputationHandlers,
+          "marketplace.ordering-order-review-opportunity-projection": () => reputationHandlers,
+          "payments.ordering-order-money-timeline-projection": () => moneyTimelineHandlers,
+          "platform-operations.ordering-order-money-timeline-projection": () => moneyTimelineHandlers,
+          "settlement.ordering-order-money-timeline-projection": () => moneyTimelineHandlers,
         },
       }),
       ...buildEventReactionsFromManifest({
@@ -214,106 +184,101 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
           // order into a cancelled state; the refund and inventory-hold release
           // follow from `ordering.order.cancelled`. Without this, a cancel-order
           // resolution would leave the order fulfillable while its refund fired.
-          "platform-operations.ordering-support-cancellation": {
-            filterToEventTypes: true,
-            buildHandlers: () => buildOrderingSupportCancellationReactionHandlers(services.orders.commandHandler),
-          },
-          "marketplace.ordering-marketplace-offer-acceptance": {
-            filterToEventTypes: true,
-            buildHandlers: () =>
-              buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
-                onOfferAccepted: async (params) => {
-                  if (params.acceptanceBatchId) {
-                    const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
-                    const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
-                    if (batchRows.length < expectedSize) {
-                      return;
-                    }
-                    if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
-                      return;
-                    }
-
-                    await services.orders.createOrdersFromAcceptedOfferBatch(
-                      {
-                        acceptanceBatchId: params.acceptanceBatchId,
-                        offers: batchRows.map((row) => ({
-                          offerId: row.offer_id,
-                          buyerAccountId: row.buyer_account_id as AccountId,
-                          sellerAccountId: row.seller_account_id as AccountId,
-                          listingId: row.listing_id,
-                          inventoryItemId: row.inventory_item_id,
-                          listingVersion: row.listing_version,
-                          catalogItemId: row.catalog_catalog_item_id,
-                          productId: row.product_id,
-                          itemTitle: row.item_title,
-                          itemSubtitle: row.item_subtitle,
-                          selectedOptions: [...row.selected_options],
-                          productSummary: row.product_summary,
-                          priceAmount: row.price_amount,
-                          marketplaceSalesFeePercentageBps: row.marketplace_sales_fee_percentage_bps,
-                          marketplaceSalesFeeFixedAmount: row.marketplace_sales_fee_fixed_amount,
-                          marketplaceSalesFeeCapAmount: row.marketplace_sales_fee_cap_amount,
-                          marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
-                          sellerNetUnitAmount: row.seller_net_unit_amount,
-                          shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
-                          shippingDestinationSnapshot: row.shipping_destination_snapshot,
-                          termsScheduleId: row.terms_schedule_id,
-                          termsAgreementId: row.terms_agreement_id,
-                          termsResolvedAt: row.terms_resolved_at,
-                          feeQuoteFingerprint: row.fee_quote_fingerprint,
-                          listingEvidencePolicyId: row.listing_evidence_policy_id,
-                          listingEvidencePolicyVersion: row.listing_evidence_policy_version,
-                          listingEvidencePolicyHash: row.listing_evidence_policy_hash,
-                          listingEvidenceSnapshot: row.listing_evidence_snapshot,
-                          quantityRequested: row.quantity_requested,
-                        })),
-                      },
-                      params.context,
-                    );
+          "platform-operations.ordering-support-cancellation": () =>
+            buildOrderingSupportCancellationReactionHandlers(services.orders.commandHandler),
+          "marketplace.ordering-marketplace-offer-acceptance": () =>
+            buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
+              onOfferAccepted: async (params) => {
+                if (params.acceptanceBatchId) {
+                  const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
+                  const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
+                  if (batchRows.length < expectedSize) {
+                    return;
+                  }
+                  if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
                     return;
                   }
 
-                  if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
-                    return;
-                  }
-
-                  await services.orders.createOrdersFromAcceptedOffer(
+                  await services.orders.createOrdersFromAcceptedOfferBatch(
                     {
-                      offerId: params.offerId,
-                      buyerAccountId: params.buyerAccountId as AccountId,
-                      sellerAccountId: params.sellerAccountId as AccountId,
-                      listingId: params.listingId,
-                      inventoryItemId: params.inventoryItemId,
-                      listingVersion: params.listingVersion,
-                      catalogItemId: params.catalogItemId,
-                      productId: params.productId,
-                      itemTitle: params.itemTitle,
-                      itemSubtitle: params.itemSubtitle,
-                      selectedOptions: [...params.selectedOptions],
-                      productSummary: params.productSummary,
-                      priceAmount: params.priceAmount,
-                      marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
-                      marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
-                      marketplaceSalesFeeCapAmount: params.marketplaceSalesFeeCapAmount,
-                      marketplaceSalesFeeUnitAmount: params.marketplaceSalesFeeUnitAmount,
-                      sellerNetUnitAmount: params.sellerNetUnitAmount,
-                      termsScheduleId: params.termsScheduleId,
-                      termsAgreementId: params.termsAgreementId,
-                      termsResolvedAt: params.termsResolvedAt,
-                      feeQuoteFingerprint: params.feeQuoteFingerprint,
-                      listingEvidencePolicyId: params.listingEvidencePolicyId,
-                      listingEvidencePolicyVersion: params.listingEvidencePolicyVersion,
-                      listingEvidencePolicyHash: params.listingEvidencePolicyHash,
-                      listingEvidenceSnapshot: params.listingEvidenceSnapshot,
-                      shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
-                      shippingDestinationSnapshot: params.shippingDestinationSnapshot,
-                      quantityRequested: params.quantityRequested,
+                      acceptanceBatchId: params.acceptanceBatchId,
+                      offers: batchRows.map((row) => ({
+                        offerId: row.offer_id,
+                        buyerAccountId: row.buyer_account_id as AccountId,
+                        sellerAccountId: row.seller_account_id as AccountId,
+                        listingId: row.listing_id,
+                        inventoryItemId: row.inventory_item_id,
+                        listingVersion: row.listing_version,
+                        catalogItemId: row.catalog_catalog_item_id,
+                        productId: row.product_id,
+                        itemTitle: row.item_title,
+                        itemSubtitle: row.item_subtitle,
+                        selectedOptions: [...row.selected_options],
+                        productSummary: row.product_summary,
+                        priceAmount: row.price_amount,
+                        marketplaceSalesFeePercentageBps: row.marketplace_sales_fee_percentage_bps,
+                        marketplaceSalesFeeFixedAmount: row.marketplace_sales_fee_fixed_amount,
+                        marketplaceSalesFeeCapAmount: row.marketplace_sales_fee_cap_amount,
+                        marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
+                        sellerNetUnitAmount: row.seller_net_unit_amount,
+                        shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
+                        shippingDestinationSnapshot: row.shipping_destination_snapshot,
+                        termsScheduleId: row.terms_schedule_id,
+                        termsAgreementId: row.terms_agreement_id,
+                        termsResolvedAt: row.terms_resolved_at,
+                        feeQuoteFingerprint: row.fee_quote_fingerprint,
+                        listingEvidencePolicyId: row.listing_evidence_policy_id,
+                        listingEvidencePolicyVersion: row.listing_evidence_policy_version,
+                        listingEvidencePolicyHash: row.listing_evidence_policy_hash,
+                        listingEvidenceSnapshot: row.listing_evidence_snapshot,
+                        quantityRequested: row.quantity_requested,
+                      })),
                     },
                     params.context,
                   );
-                },
-              }),
-          },
+                  return;
+                }
+
+                if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
+                  return;
+                }
+
+                await services.orders.createOrdersFromAcceptedOffer(
+                  {
+                    offerId: params.offerId,
+                    buyerAccountId: params.buyerAccountId as AccountId,
+                    sellerAccountId: params.sellerAccountId as AccountId,
+                    listingId: params.listingId,
+                    inventoryItemId: params.inventoryItemId,
+                    listingVersion: params.listingVersion,
+                    catalogItemId: params.catalogItemId,
+                    productId: params.productId,
+                    itemTitle: params.itemTitle,
+                    itemSubtitle: params.itemSubtitle,
+                    selectedOptions: [...params.selectedOptions],
+                    productSummary: params.productSummary,
+                    priceAmount: params.priceAmount,
+                    marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
+                    marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
+                    marketplaceSalesFeeCapAmount: params.marketplaceSalesFeeCapAmount,
+                    marketplaceSalesFeeUnitAmount: params.marketplaceSalesFeeUnitAmount,
+                    sellerNetUnitAmount: params.sellerNetUnitAmount,
+                    termsScheduleId: params.termsScheduleId,
+                    termsAgreementId: params.termsAgreementId,
+                    termsResolvedAt: params.termsResolvedAt,
+                    feeQuoteFingerprint: params.feeQuoteFingerprint,
+                    listingEvidencePolicyId: params.listingEvidencePolicyId,
+                    listingEvidencePolicyVersion: params.listingEvidencePolicyVersion,
+                    listingEvidencePolicyHash: params.listingEvidencePolicyHash,
+                    listingEvidenceSnapshot: params.listingEvidenceSnapshot,
+                    shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
+                    shippingDestinationSnapshot: params.shippingDestinationSnapshot,
+                    quantityRequested: params.quantityRequested,
+                  },
+                  params.context,
+                );
+              },
+            }),
           "payments.ordering-payment-capture": () =>
             defineEventReactionHandlers<ChaseSetsEventPayloads>({
               "payments.payment-created": async (event) => {

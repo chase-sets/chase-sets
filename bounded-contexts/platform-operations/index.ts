@@ -86,73 +86,41 @@ export const module = defineBoundedContextModule<
       contextName: "platform-operations",
       manifest: platformOperationsContextManifest,
       handlers: {
-        "ordering.support-affected-line-amount-projection": {
-          subscriptionName: "support.affected-line-amount-projection",
-          buildHandlers: () => buildSupportAffectedLineAmountProjectionHandlers(services.db, "ordering"),
-        },
-        "payments.support-affected-line-amount-projection": {
-          subscriptionName: "support.affected-line-amount-projection",
-          buildHandlers: () => buildSupportAffectedLineAmountProjectionHandlers(services.db, "payments"),
-        },
-        "ordering.support-order-source-projection": {
-          subscriptionName: "support.order-source-projection",
-          buildHandlers: () => buildSupportOrderSourceProjectionHandlers(services.db),
-        },
-        "fulfillment.support-shipment-source-projection": {
-          subscriptionName: "support.shipment-source-projection",
-          buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
-        },
-        "fulfillment.support-return-label-source-projection": {
-          subscriptionName: "support.return-label-source-projection",
-          buildHandlers: () => buildSupportReturnLabelSourceProjectionHandlers(services.db),
-        },
-        "marketplace.reported-content-queue-projection": {
-          subscriptionName: "platform-operations.reported-content-queue-projection",
-          buildHandlers: () => buildMarketplaceReportedContentProjectionHandlers(services.db),
-        },
-        "platform-operations.reported-content-queue-projection": {
-          subscriptionName: "platform-operations.reported-content-queue-projection",
-          buildHandlers: () => buildPlatformOperationsReportedContentProjectionHandlers(services.db),
-        },
-        "commercial-terms.public-doc-review-queue-projection": {
-          subscriptionName: "platform-operations.public-doc-review-queue-projection",
-          buildHandlers: () => buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
-        },
-        "commercial-terms.commercial-terms-effective-date-attention-projection": {
-          subscriptionName: "platform-operations.commercial-terms-effective-date-attention-projection",
-          buildHandlers: () => buildCommercialTermsEffectiveDateAttentionProjectionHandlers(services.db),
-        },
-        "platform-operations.public-doc-review-queue-projection": {
-          subscriptionName: "platform-operations.public-doc-review-queue-projection",
-          buildHandlers: () => buildPlatformOperationsPublicDocReviewProjectionHandlers(services.db),
-        },
-        "identity.risk-alert-queue-projection": {
-          subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildIdentityRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
-        },
-        "marketplace.risk-alert-queue-projection": {
-          subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () =>
-            buildMarketplaceRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
-        },
-        "payments.risk-alert-queue-projection": {
-          subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildPaymentsRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
-        },
-        "platform-operations.risk-alert-queue-projection": {
-          subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildPlatformOperationsRiskAlertProjectionHandlers(services.db),
-        },
+        "ordering.support-affected-line-amount-projection": () =>
+          buildSupportAffectedLineAmountProjectionHandlers(services.db, "ordering"),
+        "payments.support-affected-line-amount-projection": () =>
+          buildSupportAffectedLineAmountProjectionHandlers(services.db, "payments"),
+        "ordering.support-order-source-projection": () => buildSupportOrderSourceProjectionHandlers(services.db),
+        "fulfillment.support-shipment-source-projection": () =>
+          buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
+        "fulfillment.support-return-label-source-projection": () =>
+          buildSupportReturnLabelSourceProjectionHandlers(services.db),
+        "marketplace.reported-content-queue-projection": () =>
+          buildMarketplaceReportedContentProjectionHandlers(services.db),
+        "platform-operations.reported-content-queue-projection": () =>
+          buildPlatformOperationsReportedContentProjectionHandlers(services.db),
+        "commercial-terms.public-doc-review-queue-projection": () =>
+          buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
+        "commercial-terms.commercial-terms-effective-date-attention-projection": () =>
+          buildCommercialTermsEffectiveDateAttentionProjectionHandlers(services.db),
+        "platform-operations.public-doc-review-queue-projection": () =>
+          buildPlatformOperationsPublicDocReviewProjectionHandlers(services.db),
+        "identity.risk-alert-queue-projection": () =>
+          buildIdentityRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
+        "marketplace.risk-alert-queue-projection": () =>
+          buildMarketplaceRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
+        "payments.risk-alert-queue-projection": () =>
+          buildPaymentsRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
+        "platform-operations.risk-alert-queue-projection": () =>
+          buildPlatformOperationsRiskAlertProjectionHandlers(services.db),
       },
     }),
     ...buildEventReactionsFromManifest({
       contextName: "platform-operations",
       manifest: platformOperationsContextManifest,
       handlers: {
-        "inventory.support-inventory-hold-collision": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildInventoryCollisionSupportReactionHandlers(services.supportRequests),
-        },
+        "inventory.support-inventory-hold-collision": () =>
+          buildInventoryCollisionSupportReactionHandlers(services.supportRequests),
       },
     }),
   ],

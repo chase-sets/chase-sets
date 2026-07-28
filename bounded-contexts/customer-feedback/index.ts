@@ -50,18 +50,12 @@ export const module = defineBoundedContextModule<
       contextName: "customer-feedback",
       manifest: customerFeedbackContextManifest,
       handlers: {
-        "customer-feedback.customer-feedback-feedback-case-opening": {
-          filterToEventTypes: true,
-          buildHandlers: () => ({
-            ...buildFeedbackCaseOpeningReactionHandlers(services.cases.openFromSubmission),
-            ...buildFeedbackCaseRedactionReactionHandlers(services.cases.protectFromResponseRedaction),
-          }),
-        },
-        "notifications.customer-feedback-notification-delivery-recording": {
-          filterToEventTypes: true,
-          buildHandlers: () =>
-            buildNotificationDeliveryReactionHandlers(services.cases.executeByCaseId, services.eventStore),
-        },
+        "customer-feedback.customer-feedback-feedback-case-opening": () => ({
+          ...buildFeedbackCaseOpeningReactionHandlers(services.cases.openFromSubmission),
+          ...buildFeedbackCaseRedactionReactionHandlers(services.cases.protectFromResponseRedaction),
+        }),
+        "notifications.customer-feedback-notification-delivery-recording": () =>
+          buildNotificationDeliveryReactionHandlers(services.cases.executeByCaseId, services.eventStore),
       },
     }),
 });
