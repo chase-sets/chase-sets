@@ -39,18 +39,9 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
       contextName: "auth",
       manifest: contextManifest,
       handlers: {
-        [`ordering.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
-          filterToEventTypes: true,
-          buildHandlers: () => buildAgentWebhookHandlers(services),
-        },
-        [`fulfillment.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
-          filterToEventTypes: true,
-          buildHandlers: () => buildAgentWebhookHandlers(services),
-        },
-        [`payments.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
-          filterToEventTypes: true,
-          buildHandlers: () => buildAgentWebhookHandlers(services),
-        },
+        [`ordering.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: () => buildAgentWebhookHandlers(services),
+        [`fulfillment.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: () => buildAgentWebhookHandlers(services),
+        [`payments.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: () => buildAgentWebhookHandlers(services),
         "identity.auth-identity-account-projection": () => buildAuthIdentityAccountProjectionHandlers(services.db),
         "identity.auth-identity-user-projection": () => buildAuthIdentityUserProjectionHandlers(services.db),
         "identity.auth-identity-membership-projection": () =>

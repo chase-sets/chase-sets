@@ -546,6 +546,30 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function validateEventDeclarationOptions(declaration, declarationLabel) {
+  const diagnostics = [];
+  const addDiagnostic = (message) => {
+    diagnostics.push(`${declarationLabel}: ${message}`);
+  };
+
+  if (!isPlainObject(declaration)) {
+    return diagnostics;
+  }
+
+  if (
+    "subscriptionName" in declaration &&
+    (typeof declaration.subscriptionName !== "string" || declaration.subscriptionName.trim().length === 0)
+  ) {
+    addDiagnostic("subscriptionName must be a non-empty string when provided");
+  }
+
+  if ("filterToEventTypes" in declaration && !isBoolean(declaration.filterToEventTypes)) {
+    addDiagnostic("filterToEventTypes must be a boolean when provided");
+  }
+
+  return diagnostics;
+}
+
 export function validateProjectionGroupOwnershipReset(projectionGroup, projectionGroupLabel) {
   const diagnostics = [];
   const addDiagnostic = (message) => {
@@ -609,6 +633,8 @@ export function validateEventReactionDeclaration(reaction, reactionLabel) {
     addDiagnostic("event reaction must be an object");
     return diagnostics;
   }
+
+  diagnostics.push(...validateEventDeclarationOptions(reaction, reactionLabel));
 
   if (typeof reaction.sourceContextName !== "string" || reaction.sourceContextName.length === 0) {
     addDiagnostic("sourceContextName must be a non-empty string");
@@ -1612,6 +1638,10 @@ export async function runStructureCheck(options = {}) {
       if (!isEventSubscriptionDeclaration(subscription)) {
         addPathViolation(subscriptionLabel, "event subscription must be an object");
         continue;
+      }
+
+      for (const diagnostic of validateEventDeclarationOptions(subscription, subscriptionLabel)) {
+        violations.push(diagnostic);
       }
 
       if (typeof subscription.sourceContextName !== "string" || subscription.sourceContextName.length === 0) {

@@ -39,10 +39,8 @@ export const module = defineBoundedContextModule<CommercialTermsServices, PgTran
       contextName: "commercial-terms",
       manifest: commercialTermsContextManifest,
       handlers: {
-        "identity.commercial-terms-founders-window-reaction": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildFoundersWindowReactionHandlers(services.agreements),
-        },
+        "identity.commercial-terms-founders-window-reaction": () =>
+          buildFoundersWindowReactionHandlers(services.agreements),
       },
     }),
   ],

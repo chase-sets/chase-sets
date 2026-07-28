@@ -68,6 +68,7 @@
       "sourceContextName": "identity",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -84,6 +85,7 @@
       "sourceContextName": "catalog",
       "projectionName": "marketplace-listing-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,
       "projectionHandlerSetNames": ["marketplace-listing-projection"]
@@ -92,6 +94,8 @@
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-listing-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "marketplace.self-listing-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.photos-added",
@@ -140,6 +144,8 @@
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 3,
+      "subscriptionName": "marketplace.review-account-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -160,6 +166,7 @@
       "sourceContextName": "identity",
       "projectionName": "marketplace-review-account-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "marketplace.review-account-source-projection",
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -174,6 +181,7 @@
       "sourceContextName": "ordering",
       "projectionName": "marketplace-review-order-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "marketplace.review-order-source-projection",
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
@@ -187,6 +195,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "marketplace-review-shipment-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "marketplace.review-shipment-source-projection",
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.dispatched",
@@ -201,6 +210,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "marketplace-review-support-source-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "marketplace.review-support-source-projection",
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -214,6 +224,7 @@
       "sourceContextName": "settlement",
       "projectionName": "marketplace-settlement-negative-balance-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["settlement.wallet.negative-balance-collections-opened"],
       "order": 91,
       "projectionHandlerSetNames": ["marketplace-settlement-negative-balance-projection"]
@@ -222,6 +233,7 @@
       "sourceContextName": "ordering",
       "projectionName": "marketplace-seller-metrics-order-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "marketplace.seller-metrics-order-source-projection",
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.cancelled",
@@ -234,6 +246,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "marketplace-seller-metrics-shipment-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "marketplace.seller-metrics-shipment-source-projection",
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.dispatched"],
       "order": 96,
       "projectionHandlerSetNames": ["marketplace-seller-metrics-shipment-source-projection"]
@@ -242,6 +255,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "marketplace-seller-metrics-support-source-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "marketplace.seller-metrics-support-source-projection",
       "eventTypes": ["support.support-request.resolved"],
       "order": 97,
       "projectionHandlerSetNames": ["marketplace-seller-metrics-support-source-projection"]
@@ -252,6 +266,7 @@
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-hold-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -267,6 +282,7 @@
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-moderation-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "order": 92,
       "reactionHandlerSetNames": ["marketplace-review-moderation-reaction"],
@@ -278,6 +294,7 @@
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-scoring-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",

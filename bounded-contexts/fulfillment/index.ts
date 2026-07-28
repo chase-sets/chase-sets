@@ -33,41 +33,32 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       manifest: contextManifest,
       handlers: {
         "identity.fulfillment-account-projection": () => buildFulfillmentAccountProjectionHandlers(services.db),
-        "ordering.fulfillment-order-source-projection": {
-          buildHandlers: () =>
-            buildFulfillmentOrderProjectionHandlers(services.db, {
-              onReadyForFulfillment: async (params) => {
-                await services.shipments.createShipmentForReadyOrder(params);
-              },
-              onOrderCancelled: async (params) => {
-                await services.shipments.cancelShipmentForCancelledOrder(params);
-              },
-            }),
-          filterToEventTypes: true,
-        },
-        "payments.fulfillment-payment-fraud-source-projection": {
-          buildHandlers: () =>
-            buildFulfillmentOrderProjectionHandlers(services.db, {
-              onFraudWarningReceived: async (params) => {
-                await services.shipments.cancelShipmentForCancelledOrder({
-                  orderId: params.orderId,
-                  cancelledAt: params.receivedAt,
-                  context: params.context,
-                });
-              },
-            }),
-          filterToEventTypes: true,
-        },
-        "platform-operations.fulfillment-support-return-source-projection": {
-          buildHandlers: () =>
-            buildFulfillmentSupportReturnSourceProjectionHandlers(services.db, {
-              onResolved: (input, context) =>
-                services.returnShipments.supportReturnLabels.issueForResolution(input, context),
-              onCancelled: (input, context) =>
-                services.returnShipments.supportReturnLabels.voidForCancellation(input, context),
-            }),
-          filterToEventTypes: true,
-        },
+        "ordering.fulfillment-order-source-projection": () =>
+          buildFulfillmentOrderProjectionHandlers(services.db, {
+            onReadyForFulfillment: async (params) => {
+              await services.shipments.createShipmentForReadyOrder(params);
+            },
+            onOrderCancelled: async (params) => {
+              await services.shipments.cancelShipmentForCancelledOrder(params);
+            },
+          }),
+        "payments.fulfillment-payment-fraud-source-projection": () =>
+          buildFulfillmentOrderProjectionHandlers(services.db, {
+            onFraudWarningReceived: async (params) => {
+              await services.shipments.cancelShipmentForCancelledOrder({
+                orderId: params.orderId,
+                cancelledAt: params.receivedAt,
+                context: params.context,
+              });
+            },
+          }),
+        "platform-operations.fulfillment-support-return-source-projection": () =>
+          buildFulfillmentSupportReturnSourceProjectionHandlers(services.db, {
+            onResolved: (input, context) =>
+              services.returnShipments.supportReturnLabels.issueForResolution(input, context),
+            onCancelled: (input, context) =>
+              services.returnShipments.supportReturnLabels.voidForCancellation(input, context),
+          }),
       },
     }),
   seed: seedFulfillmentDatabase,

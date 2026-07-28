@@ -28,6 +28,7 @@
       "sourceContextName": "ordering",
       "projectionName": "fulfillment-order-source-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
@@ -41,6 +42,7 @@
       "sourceContextName": "payments",
       "projectionName": "fulfillment-payment-fraud-source-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
@@ -53,6 +55,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "fulfillment-support-return-source-projection",
       "subscriptionVersion": 2,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.affected-line-items-recorded",

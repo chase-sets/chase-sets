@@ -118,6 +118,7 @@
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.cancelled",
@@ -130,6 +131,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "order": 70,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
@@ -138,6 +140,7 @@
       "sourceContextName": "identity",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["identity.account.badge-assigned"],
       "order": 80,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
@@ -146,6 +149,7 @@
       "sourceContextName": "payments",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["payments.payment-fraud-warning-received"],
       "order": 90,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
@@ -155,6 +159,7 @@
       "sourceContextMount": "when-mounted",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["authenticity.case.opened", "authenticity.case.verdict-recorded"],
       "order": 100,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
@@ -163,6 +168,7 @@
       "sourceContextName": "settlement",
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
       "order": 110,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
@@ -173,6 +179,7 @@
       "sourceContextName": "marketplace",
       "reactionName": "pricing-repricing-evaluation-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -191,6 +198,7 @@
       "sourceContextName": "pricing",
       "reactionName": "pricing-repricing-evaluation-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["pricing.market-price.estimated"],
       "order": 32,
       "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"],

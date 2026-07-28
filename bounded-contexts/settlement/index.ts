@@ -76,26 +76,15 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
       handlers: {
         "payments.settlement-payment-input-projection": () =>
           buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets, services.protectionCoverage),
-        "platform-operations.settlement-support-hold-projection": {
-          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
-          filterToEventTypes: true,
-        },
-        "payments.settlement-support-hold-projection": {
-          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
-          filterToEventTypes: true,
-        },
-        "settlement.settlement-support-hold-projection": {
-          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
-          filterToEventTypes: true,
-        },
-        "platform-operations.settlement-liability-allocation-reserve-projection": {
-          buildHandlers: () => buildSettlementCoverageReservationHandlers(services.protectionCoverage),
-          filterToEventTypes: true,
-        },
-        "platform-operations.settlement-support-hold-lifecycle-projection": {
-          buildHandlers: () => buildSupportHoldLifecycleReactionHandlers(services.supportHoldLifecycle),
-          filterToEventTypes: true,
-        },
+        "platform-operations.settlement-support-hold-projection": () =>
+          buildSettlementSupportHoldProjectionHandlers(services.db),
+        "payments.settlement-support-hold-projection": () => buildSettlementSupportHoldProjectionHandlers(services.db),
+        "settlement.settlement-support-hold-projection": () =>
+          buildSettlementSupportHoldProjectionHandlers(services.db),
+        "platform-operations.settlement-liability-allocation-reserve-projection": () =>
+          buildSettlementCoverageReservationHandlers(services.protectionCoverage),
+        "platform-operations.settlement-support-hold-lifecycle-projection": () =>
+          buildSupportHoldLifecycleReactionHandlers(services.supportHoldLifecycle),
         "fulfillment.settlement-fulfillment-source-projection": () =>
           buildSettlementFulfillmentSourceProjectionHandlers(services.db),
         "inventory.settlement-inventory-recovery-workflow": () => ({
@@ -125,24 +114,14 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
             );
           },
         }),
-        "identity.settlement-account-risk-source-projection": {
-          subscriptionName: "settlement.identity-account-risk-source-projection",
-          buildHandlers: () =>
-            buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
-        },
-        "marketplace.settlement-account-risk-source-projection": {
-          subscriptionName: "settlement.marketplace-review-account-risk-source-projection",
-          buildHandlers: () =>
-            buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
-              policies: services.policies,
-            }),
-        },
-        "payments.settlement-account-risk-source-projection": {
-          subscriptionName: "settlement.payments-fraud-account-risk-source-projection",
-          buildHandlers: () =>
-            buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
-          filterToEventTypes: true,
-        },
+        "identity.settlement-account-risk-source-projection": () =>
+          buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
+        "marketplace.settlement-account-risk-source-projection": () =>
+          buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
+            policies: services.policies,
+          }),
+        "payments.settlement-account-risk-source-projection": () =>
+          buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
       },
     }),
   seedProfiles: ["critical-bootstrap", "scenario-seed"],

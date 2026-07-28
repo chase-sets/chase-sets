@@ -55,6 +55,7 @@
       "sourceContextName": "collections",
       "projectionName": "discovery-saved-list-picker-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "discovery.collections-saved-list-picker-projection",
       "eventTypes": [
         "collections.saved-list.created",
         "collections.saved-list.details-changed",
@@ -73,6 +74,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "discovery.catalog-category-projection",
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -93,6 +95,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
       "subscriptionVersion": 9,
+      "subscriptionName": "discovery.catalog-search-projection",
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -143,6 +146,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-item-detail-projection",
       "subscriptionVersion": 3,
+      "subscriptionName": "discovery.catalog-detail-projection",
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -194,6 +198,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-google-shopping-feed-row-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "discovery.catalog-google-shopping-feed-row-projection",
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.field-value-set",
@@ -215,6 +220,8 @@
       "sourceContextName": "identity",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "discovery.identity-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -231,6 +238,8 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "discovery.catalog-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,
       "projectionHandlerSetNames": ["discovery-market-projection"]
@@ -239,6 +248,8 @@
       "sourceContextName": "inventory",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "discovery.inventory-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "inventory.storage-location.created",
         "inventory.storage-location.updated",
@@ -258,6 +269,8 @@
       "sourceContextName": "checkout",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "discovery.checkout-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "checkout.sell-list.line-added",
         "checkout.sell-list.line-quantity-set",
@@ -271,6 +284,8 @@
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "discovery.marketplace-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -305,6 +320,8 @@
       "sourceContextName": "ordering",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "discovery.ordering-market-projection",
+      "filterToEventTypes": true,
       "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "order": 31,
       "projectionHandlerSetNames": ["discovery-market-projection"]
@@ -313,6 +330,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "discovery.marketplace-product-alert-notifications",
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",

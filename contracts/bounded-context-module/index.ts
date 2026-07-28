@@ -162,6 +162,8 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly sourceContextName: string;
   readonly projectionName: string;
   readonly subscriptionVersion: number;
+  readonly subscriptionName?: string;
+  readonly filterToEventTypes?: boolean;
   readonly projectionHandlerSetNames: readonly string[];
   readonly sourceContextMount?: BcSourceContextMount;
   readonly eventTypes?: readonly string[];
@@ -200,6 +202,8 @@ export type BcEventReactionDeclaration = Readonly<{
   readonly sourceContextName: string;
   readonly reactionName: string;
   readonly subscriptionVersion: number;
+  readonly subscriptionName?: string;
+  readonly filterToEventTypes?: boolean;
   readonly reactionHandlerSetNames: readonly string[];
   readonly sourceContextMount?: BcSourceContextMount;
   readonly idempotencyPolicy: BcReactionIdempotencyPolicy;
@@ -322,12 +326,7 @@ export type BcEventSubscriptionHandlerMapBuilder<TEventPayloads extends EventPay
 ) => ProjectorHandlerMap | BcEventSubscriptionHandlerMap<TEventPayloads>;
 
 export type BcEventSubscriptionHandlerRegistration<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
-  | BcEventSubscriptionHandlerMapBuilder<TEventPayloads>
-  | Readonly<{
-      subscriptionName?: string;
-      buildHandlers: BcEventSubscriptionHandlerMapBuilder<TEventPayloads>;
-      filterToEventTypes?: boolean;
-    }>;
+  BcEventSubscriptionHandlerMapBuilder<TEventPayloads>;
 
 export type BcEventSubscriptionHandlerRegistrations<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
   Readonly<Record<string, BcEventSubscriptionHandlerRegistration<TEventPayloads>>>;
@@ -359,15 +358,10 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
     }
 
     const normalizedDeclaration = normalizeEventSubscriptionDeclaration(contextName, declaration);
-    const normalizedRegistration = normalizeEventSubscriptionHandlerRegistration(
-      contextName,
-      projectionName,
-      registration,
-    );
-    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(normalizedDeclaration));
+    const handlerMap = coerceProjectorHandlerMap(registration(normalizedDeclaration));
 
     return {
-      subscriptionName: normalizedRegistration.subscriptionName,
+      subscriptionName: normalizedDeclaration.subscriptionName ?? defaultSubscriptionName(contextName, projectionName),
       handlerKind: "projection",
       sourceContextName: normalizedDeclaration.sourceContextName,
       ...(normalizedDeclaration.sourceContextMount
@@ -375,9 +369,10 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
         : {}),
       projectionName: normalizedDeclaration.projectionName,
       subscriptionVersion: normalizedDeclaration.subscriptionVersion,
-      handlers: normalizedRegistration.filterToEventTypes
-        ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
-        : handlerMap,
+      handlers:
+        (normalizedDeclaration.filterToEventTypes ?? false)
+          ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
+          : handlerMap,
       eventTypes: normalizedDeclaration.eventTypes,
       streamPrefixes: normalizedDeclaration.streamPrefixes,
       errorPolicy: normalizedDeclaration.errorPolicy,
@@ -397,12 +392,7 @@ export type BcEventReactionHandlerMapBuilder<TEventPayloads extends EventPayload
 ) => ProjectorHandlerMap | BcEventSubscriptionHandlerMap<TEventPayloads>;
 
 export type BcEventReactionHandlerRegistration<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
-  | BcEventReactionHandlerMapBuilder<TEventPayloads>
-  | Readonly<{
-      subscriptionName?: string;
-      buildHandlers: BcEventReactionHandlerMapBuilder<TEventPayloads>;
-      filterToEventTypes?: boolean;
-    }>;
+  BcEventReactionHandlerMapBuilder<TEventPayloads>;
 
 export type BcEventReactionHandlerRegistrations<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<
   Record<string, BcEventReactionHandlerRegistration<TEventPayloads>>
@@ -434,11 +424,10 @@ export function buildEventReactionsFromManifest<TEventPayloads extends EventPayl
     }
 
     const normalizedDeclaration = normalizeEventReactionDeclaration(contextName, declaration);
-    const normalizedRegistration = normalizeEventReactionHandlerRegistration(contextName, reactionName, registration);
-    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(normalizedDeclaration));
+    const handlerMap = coerceProjectorHandlerMap(registration(normalizedDeclaration));
 
     return {
-      subscriptionName: normalizedRegistration.subscriptionName,
+      subscriptionName: normalizedDeclaration.subscriptionName ?? defaultSubscriptionName(contextName, reactionName),
       handlerKind: "reaction",
       sourceContextName: normalizedDeclaration.sourceContextName,
       ...(normalizedDeclaration.sourceContextMount
@@ -447,9 +436,10 @@ export function buildEventReactionsFromManifest<TEventPayloads extends EventPayl
       projectionName: normalizedDeclaration.reactionName,
       reactionName: normalizedDeclaration.reactionName,
       subscriptionVersion: normalizedDeclaration.subscriptionVersion,
-      handlers: normalizedRegistration.filterToEventTypes
-        ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
-        : handlerMap,
+      handlers:
+        (normalizedDeclaration.filterToEventTypes ?? false)
+          ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
+          : handlerMap,
       idempotencyPolicy: normalizedDeclaration.idempotencyPolicy,
       retryPolicy: normalizedDeclaration.retryPolicy,
       failurePolicy: normalizedDeclaration.failurePolicy,
@@ -892,54 +882,6 @@ function parseEventReactionKey(reactionKey: string): Readonly<{ sourceContextNam
   return {
     sourceContextName: reactionKey.slice(0, separatorIndex),
     reactionName: reactionKey.slice(separatorIndex + 1),
-  };
-}
-
-function normalizeEventSubscriptionHandlerRegistration(
-  contextName: string,
-  projectionName: string,
-  registration: BcEventSubscriptionHandlerRegistration,
-): Readonly<{
-  subscriptionName: string;
-  buildHandlers: BcEventSubscriptionHandlerMapBuilder;
-  filterToEventTypes: boolean;
-}> {
-  if (typeof registration === "function") {
-    return {
-      subscriptionName: defaultSubscriptionName(contextName, projectionName),
-      buildHandlers: registration,
-      filterToEventTypes: false,
-    };
-  }
-
-  return {
-    subscriptionName: registration.subscriptionName ?? defaultSubscriptionName(contextName, projectionName),
-    buildHandlers: registration.buildHandlers,
-    filterToEventTypes: registration.filterToEventTypes ?? false,
-  };
-}
-
-function normalizeEventReactionHandlerRegistration(
-  contextName: string,
-  reactionName: string,
-  registration: BcEventReactionHandlerRegistration,
-): Readonly<{
-  subscriptionName: string;
-  buildHandlers: BcEventReactionHandlerMapBuilder;
-  filterToEventTypes: boolean;
-}> {
-  if (typeof registration === "function") {
-    return {
-      subscriptionName: defaultSubscriptionName(contextName, reactionName),
-      buildHandlers: registration,
-      filterToEventTypes: false,
-    };
-  }
-
-  return {
-    subscriptionName: registration.subscriptionName ?? defaultSubscriptionName(contextName, reactionName),
-    buildHandlers: registration.buildHandlers,
-    filterToEventTypes: registration.filterToEventTypes ?? false,
   };
 }
 

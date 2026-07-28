@@ -14,6 +14,7 @@
       "sourceContextName": "identity",
       "projectionName": "ordering-account-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "ordering.identity-account-projection",
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -28,6 +29,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 2,
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -48,6 +50,7 @@
       "sourceContextName": "catalog",
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 31,
       "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
@@ -87,6 +90,7 @@
       "sourceContextName": "ordering",
       "projectionName": "ordering-order-review-opportunity-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["ordering.order.created"],
       "order": 69,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
@@ -95,6 +99,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "ordering-order-review-opportunity-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered"],
       "order": 71,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
@@ -103,6 +108,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "ordering-order-review-opportunity-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -115,6 +121,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "ordering-order-review-opportunity-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
       "order": 73,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
@@ -123,6 +130,7 @@
       "sourceContextName": "payments",
       "projectionName": "ordering-order-money-timeline-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "payments.refund-requested",
         "payments.refund-issued",
@@ -136,6 +144,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "ordering-order-money-timeline-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -149,6 +158,7 @@
       "sourceContextName": "settlement",
       "projectionName": "ordering-order-money-timeline-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "order": 76,
       "projectionHandlerSetNames": ["ordering-order-money-timeline-projection"]
@@ -174,6 +184,7 @@
       "sourceContextName": "marketplace",
       "reactionName": "ordering-marketplace-offer-acceptance",
       "subscriptionVersion": 3,
+      "filterToEventTypes": true,
       "eventTypes": ["marketplace.offer.accepted"],
       "order": 50,
       "reactionHandlerSetNames": ["ordering-marketplace-offer-acceptance"],
@@ -201,6 +212,7 @@
       "sourceContextName": "platform-operations",
       "reactionName": "ordering-support-cancellation",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["support.support-request.resolved"],
       "order": 65,
       "reactionHandlerSetNames": ["ordering-support-cancellation"],

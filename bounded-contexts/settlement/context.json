@@ -41,6 +41,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "settlement-liability-allocation-reserve-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["support.support-request.platform-coverage-requested.v1"],
       "order": 12,
       "projectionHandlerSetNames": ["settlement-liability-allocation-reserve-projection"]
@@ -49,6 +50,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "settlement-support-hold-lifecycle-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -62,6 +64,7 @@
       "sourceContextName": "settlement",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "order": 13,
       "projectionHandlerSetNames": ["settlement-support-hold-projection"]
@@ -70,6 +73,7 @@
       "sourceContextName": "payments",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "payments.payment-disputed",
         "payments.payment-fraud-warning-received",
@@ -83,6 +87,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.escalated",
@@ -120,6 +125,7 @@
       "sourceContextName": "identity",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "settlement.identity-account-risk-source-projection",
       "eventTypes": [
         "identity.account.created",
         "identity.account.badge-assigned",
@@ -135,6 +141,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 2,
+      "subscriptionName": "settlement.marketplace-review-account-risk-source-projection",
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.review.submitted",
@@ -155,6 +162,8 @@
       "sourceContextName": "payments",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
+      "subscriptionName": "settlement.payments-fraud-account-risk-source-projection",
+      "filterToEventTypes": true,
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-disputed",

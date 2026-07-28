@@ -47,6 +47,7 @@
       "sourceContextName": "platform-operations",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.resolved",
         "support.support-request.return-delivered",
@@ -61,6 +62,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "fulfillment.return-shipment.requested.v2",
         "fulfillment.return-shipment.label-ready.v1",
@@ -73,6 +75,7 @@
       "sourceContextName": "ordering",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["ordering.order.cancelled"],
       "order": 20,
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
@@ -89,6 +92,8 @@
       "sourceContextName": "payments",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
+      "subscriptionName": "payments.payment-capture-cancellation-refund-effect",
+      "filterToEventTypes": true,
       "eventTypes": ["payments.payment-captured"],
       "order": 21,
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]

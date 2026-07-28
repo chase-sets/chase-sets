@@ -34,53 +34,32 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
       contextName: "notifications",
       manifest: contextManifest,
       handlers: {
-        [`ordering.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.ordering-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsOrderingProjectionHandlers(services.notificationOutbox, subscription.projectionName),
-        },
-        [`fulfillment.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.fulfillment-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsFulfillmentProjectionHandlers(services.notificationOutbox, subscription.projectionName),
-        },
-        [`inventory.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.inventory-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsInventoryProjectionHandlers(services.notificationOutbox, subscription.projectionName),
-        },
-        [`settlement.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.settlement-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsSettlementProjectionHandlers(services.notificationOutbox, subscription.projectionName),
-          // NOTE: settlement.support-hold.{placed,released,consumed}.v1 routing is implemented and
-          // unit-tested in support-dispute-notifications.ts, but wiring the subscription is gated on the
-          // settlement support-hold lifecycle facts (and their glossary noun) landing from the settlement
-          // slice. Merge buildNotificationsSettlementSupportHoldProjectionHandlers here and add the three
-          // event types to the settlement subscription in context.json once those facts are on main.
-        },
-        [`marketplace.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.marketplace-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsMarketplaceProjectionHandlers(services.notificationOutbox, subscription.projectionName),
-        },
-        [`customer-feedback.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.customer-feedback-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsCustomerFeedbackProjectionHandlers(
-              services.notificationOutbox,
-              subscription.projectionName,
-            ),
-        },
-        [`platform-operations.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
-          subscriptionName: "notifications.support-dispute-facts-projection",
-          buildHandlers: (subscription) =>
-            buildNotificationsSupportDisputeProjectionHandlers(
-              services.notificationOutbox,
-              services.supportCaseDirectory,
-              subscription.projectionName,
-            ),
-        },
+        [`ordering.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsOrderingProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        [`fulfillment.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsFulfillmentProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        [`inventory.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsInventoryProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        // NOTE: settlement.support-hold.{placed,released,consumed}.v1 routing is implemented and
+        // unit-tested in support-dispute-notifications.ts, but wiring the subscription is gated on the
+        // settlement support-hold lifecycle facts (and their glossary noun) landing from the settlement
+        // slice. Merge buildNotificationsSettlementSupportHoldProjectionHandlers here and add the three
+        // event types to the settlement subscription in context.json once those facts are on main.
+        [`settlement.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsSettlementProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        [`marketplace.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsMarketplaceProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        [`customer-feedback.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsCustomerFeedbackProjectionHandlers(
+            services.notificationOutbox,
+            subscription.projectionName,
+          ),
+        [`platform-operations.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsSupportDisputeProjectionHandlers(
+            services.notificationOutbox,
+            services.supportCaseDirectory,
+            subscription.projectionName,
+          ),
       },
     }),
 });

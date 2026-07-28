@@ -34,10 +34,8 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
       contextName: "identity",
       manifest: identityContextManifest,
       handlers: {
-        "marketplace.identity-founder-claim-reaction": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildFounderClaimReactionHandlers(services.foundersCohort.claimFounderNumber),
-        },
+        "marketplace.identity-founder-claim-reaction": () =>
+          buildFounderClaimReactionHandlers(services.foundersCohort.claimFounderNumber),
       },
     }),
   seedProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],

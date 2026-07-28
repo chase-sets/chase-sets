@@ -47,6 +47,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.photos-added",
@@ -70,6 +71,7 @@
       "sourceContextName": "ordering",
       "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "order": 21,
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
@@ -78,6 +80,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "checkout-seller-accounts-projection",
       "subscriptionVersion": 2,
+      "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -97,6 +100,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 2,
+      "filterToEventTypes": true,
       "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.accepted"],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
@@ -105,6 +109,7 @@
       "sourceContextName": "settlement",
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["settlement.payout-readiness.recorded"],
       "order": 24,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
@@ -113,6 +118,7 @@
       "sourceContextName": "checkout",
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "checkout.sell-list.line-added",
         "checkout.sell-list.line-quantity-set",
@@ -145,6 +151,7 @@
       "sourceContextName": "catalog",
       "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 11,
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
@@ -187,6 +194,7 @@
       "sourceContextName": "payments",
       "projectionName": "checkout.payment-summary-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-captured",
@@ -202,6 +210,7 @@
       "sourceContextName": "payments",
       "projectionName": "checkout.payment-affordance-projection",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["payments.checkout-affordances-published"],
       "order": 26,
       "projectionHandlerSetNames": ["checkout.payment-affordance-projection"]

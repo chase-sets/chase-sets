@@ -1,5 +1,6 @@
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import { createHash } from "node:crypto";
 import {
   buildProjectionInterestIndex,
   lookupProjectionInterests,
@@ -70,6 +71,57 @@ describe("platform worker projection wake interest graph", () => {
       checkpointKey: "checkout.session-projection:checkout:v1",
       subscriptionVersion: 1,
     });
+  });
+
+  it("preserves the complete manifest-built subscription fingerprint, checkpoint identities, and shared names", () => {
+    const runtime = createPlatformWorkerHost("public");
+    const rawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
+      (entry.module.buildSubscriptions?.(entry.services) ?? []).map((subscription) => ({
+        targetContextName: entry.contextName,
+        subscription,
+      })),
+    );
+    const sharedNames = summarizeSharedSubscriptionNames(rawSubscriptions.map(({ subscription }) => subscription));
+    const rawCheckpointIdentities = rawSubscriptions
+      .map(
+        ({ subscription }) =>
+          `${subscription.projectionName}:${subscription.sourceContextName}:v${subscription.subscriptionVersion}`,
+      )
+      .sort();
+
+    expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
+      count: 227,
+      sha256: "28f9ae0df1be009951b81916825dbb73fdfddea79bec26c3acd97ab72cef06fc",
+    });
+    expect(
+      fingerprint(
+        rawSubscriptions.map(({ targetContextName, subscription }) => ({
+          targetContextName,
+          subscription: fingerprintObject(subscription),
+        })),
+      ),
+    ).toEqual({
+      count: 141,
+      sha256: "3d52f9d7181c6799451d242d271b330909645646b35dc7b5e8d28491a06e5395",
+    });
+    expect({
+      count: rawCheckpointIdentities.length,
+      sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
+    }).toEqual({
+      count: 141,
+      sha256: "02f546dd333c96b44f53935fd66e9b01b159b133a561ed00b722f69c85c2127c",
+    });
+    expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
+      count: 227,
+      sha256: "d5fca85318714b4641a71b9625fe341dffbdfe42c0fdffe943bef26aa68ca7f8",
+    });
+    expect(sharedNames).toMatchObject({
+      distinctNames: 110,
+      distinctSharedNames: 18,
+      runnersUsingSharedNames: 49,
+    });
+    expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
+    expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
   });
 
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {
@@ -266,4 +318,67 @@ function createUnusedPool() {
     query: fail,
     connect: fail,
   } as never;
+}
+
+type FingerprintRecord = Readonly<Record<string, unknown>>;
+
+function fingerprintObject(value: FingerprintRecord) {
+  const fieldNames = Object.keys(value)
+    .filter((fieldName) => typeof value[fieldName] !== "function")
+    .sort();
+  const handlerEventTypes = isRecord(value.handlers) ? Object.keys(value.handlers).sort() : [];
+
+  return {
+    fieldNames,
+    fields: Object.fromEntries(fieldNames.map((fieldName) => [fieldName, stableValue(value[fieldName])])),
+    handlerEventTypes,
+  };
+}
+
+function fingerprint(values: readonly unknown[]) {
+  const serialized = JSON.stringify(
+    [...values].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+  );
+  return {
+    count: values.length,
+    sha256: sha256(serialized),
+  };
+}
+
+function summarizeSharedSubscriptionNames(subscriptions: readonly Readonly<{ subscriptionName: string }>[]) {
+  const counts = new Map<string, number>();
+  for (const subscription of subscriptions) {
+    counts.set(subscription.subscriptionName, (counts.get(subscription.subscriptionName) ?? 0) + 1);
+  }
+  const sharedNames = [...counts.entries()].filter(([, count]) => count > 1);
+
+  return {
+    distinctNames: counts.size,
+    distinctSharedNames: sharedNames.length,
+    runnersUsingSharedNames: sharedNames.reduce((total, [, count]) => total + count, 0),
+    values: Object.fromEntries(sharedNames),
+  };
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue);
+  }
+  if (!isRecord(value)) {
+    return typeof value === "function" ? "<function>" : value;
+  }
+
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, stableValue(value[key])]),
+  );
+}
+
+function isRecord(value: unknown): value is FingerprintRecord {
+  return typeof value === "object" && value !== null;
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

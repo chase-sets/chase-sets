@@ -46,6 +46,7 @@
       "sourceContextName": "identity",
       "reactionName": "commercial-terms-founders-window-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["identity.account.founders-window-opened"],
       "order": 11,
       "reactionHandlerSetNames": ["commercial-terms-founders-window-reaction"],

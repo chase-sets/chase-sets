@@ -75,23 +75,14 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
         "ordering.payments-order-input-projection": () => buildPaymentsOrderInputProjectionHandlers(services.db),
         "fulfillment.payments-fulfillment-dispute-evidence-source-projection": () =>
           buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(services.db),
-        "platform-operations.payments-support-refund-effect": {
-          buildHandlers: () => buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
-          filterToEventTypes: true,
-        },
-        "fulfillment.payments-support-refund-effect": {
-          buildHandlers: () => buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
-          filterToEventTypes: true,
-        },
-        "ordering.payments-order-cancellation-refund-effect": {
-          buildHandlers: () => buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
-          filterToEventTypes: true,
-        },
-        "payments.payments-order-cancellation-refund-effect": {
-          subscriptionName: "payments.payment-capture-cancellation-refund-effect",
-          buildHandlers: () => buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
-          filterToEventTypes: true,
-        },
+        "platform-operations.payments-support-refund-effect": () =>
+          buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+        "fulfillment.payments-support-refund-effect": () =>
+          buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+        "ordering.payments-order-cancellation-refund-effect": () =>
+          buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
+        "payments.payments-order-cancellation-refund-effect": () =>
+          buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
         "identity.payments-account-risk-source-projection": () =>
           buildPaymentsIdentityAccountRiskSourceProjectionHandlers(services.db),
         "payments.payments-account-risk-source-projection": () =>

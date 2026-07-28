@@ -43,6 +43,7 @@
       "sourceContextName": "marketplace",
       "reactionName": "identity-founder-claim-reaction",
       "subscriptionVersion": 1,
+      "filterToEventTypes": true,
       "eventTypes": ["marketplace.listing.created", "marketplace.offer.submitted"],
       "order": 10,
       "reactionHandlerSetNames": ["identity-founder-claim-reaction"],
