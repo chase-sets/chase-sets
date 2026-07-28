@@ -235,6 +235,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-catalog-assets-state-repair.yml": "release",
     "platform-seed-packs-apply.yml": "release",
     "platform-ci-flake-digest.yml": "ci",
+    "platform-compose-boot-smoke.yml": "release",
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
     "platform-delivery-health.yml": "ci",

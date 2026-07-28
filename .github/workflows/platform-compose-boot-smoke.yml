@@ -1,0 +1,253 @@
+name: Platform Compose Boot Smoke
+
+# Terminal-path contract (all state is runner-local and credential-free):
+#   success/failure -> Actions records the enforcing job/run conclusion; the
+#     always() diagnostics and teardown run before the ephemeral runner exits.
+#   timeout/force cancellation after worker start -> GitHub records the
+#     timeout/cancelled conclusion; always() keeps diagnostics and teardown
+#     reachable, and runner destruction is the independent local-container
+#     backstop if cancellation interrupts a finalizer.
+#   cancellation before worker start -> GitHub records cancellation; no runner,
+#     checkout, image, container, volume, provider, or cluster state exists.
+#   skipped PR caller -> a skipped job is ineligible evidence, never a pass.
+
+on:
+  workflow_call:
+    inputs:
+      target_sha:
+        description: Exact immutable commit whose tree the Compose stack must test.
+        required: true
+        type: string
+      expected_base_sha:
+        description: Exact immutable base commit that must be an ancestor of target_sha.
+        required: true
+        type: string
+      drill:
+        description: Terminal-path drill. Callers use none.
+        required: false
+        default: none
+        type: string
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact immutable commit whose tree the Compose stack must test.
+        required: true
+        type: string
+      expected_base_sha:
+        description: Exact immutable base commit that must be an ancestor of target_sha.
+        required: true
+        type: string
+      drill:
+        description: Terminal-path drill for post-merge cancellation evidence.
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - await-cancellation
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Compose Boot Smoke | target=${{ inputs.target_sha }} | base=${{ inputs.expected_base_sha }} | event=${{ github.event_name }} | ref=${{ github.ref }} | trigger=${{ github.sha }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Job-level so every docker compose invocation (boot, status, logs,
+      # teardown) can interpolate docker-compose.pr-smoke.yml -- a step-level
+      # value here broke the diagnostic steps on the first real run.
+      CHASE_SETS_COMPOSE_SMOKE_IMAGE: chase-sets-platform:compose-smoke
+    steps:
+      # This is intentionally inline: it runs in the runner's empty workspace,
+      # before actions/checkout can materialize target_sha. Its executable
+      # negative controls extract and run this exact block.
+      - name: Validate immutable target provenance
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
+          REPOSITORY_URL: https://github.com/${{ github.repository }}.git
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_REF: ${{ github.ref }}
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error title=Invalid Compose target provenance::$1"
+            echo "$1" >&2
+            exit 1
+          }
+
+          if [ -z "$TARGET_SHA" ]; then
+            fail "target_sha is required and cannot be empty."
+          fi
+          if ! printf '%s' "$TARGET_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            fail "target_sha must be a lowercase 40-character hexadecimal commit SHA (received '$TARGET_SHA')."
+          fi
+          if [ -z "$EXPECTED_BASE_SHA" ]; then
+            fail "expected_base_sha is required and cannot be empty."
+          fi
+          if ! printf '%s' "$EXPECTED_BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            fail "expected_base_sha must be a lowercase 40-character hexadecimal commit SHA (received '$EXPECTED_BASE_SHA')."
+          fi
+
+          git init --quiet
+          git remote add origin "$REPOSITORY_URL"
+
+          if ! git fetch --quiet --no-tags --no-recurse-submodules origin "$TARGET_SHA" >/dev/null 2>&1; then
+            fail "target_sha object does not exist in the repository: $TARGET_SHA."
+          fi
+          if ! git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            fail "target_sha object is not a commit: $TARGET_SHA."
+          fi
+
+          if ! git fetch --quiet --no-tags --no-recurse-submodules origin "$EXPECTED_BASE_SHA" >/dev/null 2>&1; then
+            fail "expected_base_sha object does not exist in the repository: $EXPECTED_BASE_SHA."
+          fi
+          if ! git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" 2>/dev/null; then
+            fail "expected_base_sha object is not a commit: $EXPECTED_BASE_SHA."
+          fi
+
+          if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$TARGET_SHA"; then
+            fail "expected_base_sha is not an ancestor of target_sha (base=$EXPECTED_BASE_SHA target=$TARGET_SHA)."
+          fi
+
+          {
+            echo "## Compose exact-target proof"
+            echo
+            echo "| Field | Immutable/run value |"
+            echo "|---|---|"
+            echo "| target_sha | \`$TARGET_SHA\` |"
+            echo "| expected_base_sha | \`$EXPECTED_BASE_SHA\` |"
+            echo "| github.event_name | \`$TRIGGER_EVENT\` |"
+            echo "| github.ref | \`$TRIGGER_REF\` |"
+            echo "| github.sha | \`$TRIGGER_SHA\` |"
+            echo
+            echo "**Tree under test:** \`target_sha\` (\`$TARGET_SHA\`). The trigger ref and \`github.sha\` are attribution only; they are not silently substituted for the tree under test."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Empty placeholders keep diagnostics and teardown non-masking when an
+      # earlier setup/render/image-build step fails. The real renderer and
+      # ingress processes overwrite them on the positive path.
+      - name: Prepare Compose diagnostic paths
+        run: |
+          mkdir -p artifacts/compose-smoke/env
+          touch \
+            artifacts/compose-smoke/env/platform-bootstrap.env \
+            artifacts/compose-smoke/env/platform-api.env \
+            artifacts/compose-smoke/env/platform-worker.env \
+            artifacts/compose-smoke/env/public-web.env \
+            artifacts/compose-smoke/env/marketplace.env \
+            artifacts/compose-smoke/env/admin-web.env \
+            artifacts/compose-smoke/ingress-landing.log \
+            artifacts/compose-smoke/ingress-marketplace.log \
+            artifacts/compose-smoke/ingress-admin.log
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      # Rendering before the image build preserves the original command body
+      # while ensuring docker compose diagnostics can parse the stack if the
+      # image build itself is the real failure.
+      - name: Render compose boot+smoke environment
+        run: node ./scripts/platform-compose-smoke.mjs render-env-all --out-dir artifacts/compose-smoke/env
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        id: buildx
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        if: steps.buildx.outcome == 'failure'
+
+      - name: Build runtime image
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --pull \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=max \
+            --load \
+            --tag chase-sets-platform:compose-smoke \
+            .
+
+      - name: Boot compose stack
+        run: docker compose -f docker-compose.pr-smoke.yml up --detach --wait --wait-timeout 300
+
+      # Post-merge cancellation proof: dispatch with await-cancellation, wait
+      # until this step starts, then force-cancel the run. The always() status
+      # and teardown steps below remain reachable; runner destruction is the
+      # independent backstop for these credential-free local containers.
+      - name: Await force-cancellation drill
+        if: inputs.drill == 'await-cancellation'
+        run: |
+          echo "Cancellation drill is armed after the stack booted; force-cancel this run now."
+          while true; do
+            sleep 5
+          done
+
+      - name: Compose service status
+        if: always()
+        run: docker compose -f docker-compose.pr-smoke.yml ps
+
+      # The compose stack has no ingress, so a small path-based proxy per
+      # domain stands in for the real one (see the comment atop
+      # scripts/platform-compose-ingress.mjs): platform-smoke.mjs makes the
+      # same `/api`, `/ucp`, `/mcp` calls a browser would make against a
+      # cluster preview's landing/marketplace/admin origins, and those calls
+      # must resolve to platform-api, not the web app container.
+      - name: Start compose ingress proxies
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/compose-smoke
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18180 --label landing --web-target http://localhost:18192 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-landing.log 2>&1 &
+          disown
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18181 --label marketplace --web-target http://localhost:18193 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-marketplace.log 2>&1 &
+          disown
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18182 --label admin --web-target http://localhost:18194 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-admin.log 2>&1 &
+          disown
+          sleep 1
+
+      - name: Smoke check
+        env:
+          # Matches scripts/platform-compose-smoke.mjs's composeSmokeAdminEmail /
+          # composeSmokeAdminPassword constants -- these are compose-local
+          # placeholder credentials, never a real secret.
+          PLATFORM_ADMIN_EMAIL: compose-smoke@chasesets.test
+          PLATFORM_ADMIN_PASSWORD: compose-smoke-not-a-real-secret
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_REQUIRE_SOCIAL_LOGIN: "false"
+          SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "false"
+          SMOKE_REQUIRE_FULFILLMENT_POSTAGE: "false"
+          SMOKE_WAITLIST_EMAIL: ops+compose-smoke-run-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SOURCE: compose-smoke
+          SMOKE_UTM_CAMPAIGN: run-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+        run: |
+          pnpm run smoke:platform -- \
+            http://localhost:18180 \
+            http://localhost:18182 \
+            http://localhost:18181
+
+      - name: Compose boot logs
+        if: failure()
+        run: docker compose -f docker-compose.pr-smoke.yml logs --no-color
+
+      - name: Compose ingress proxy logs
+        if: failure()
+        run: cat artifacts/compose-smoke/ingress-*.log
+
+      - name: Compose teardown
+        if: always()
+        run: docker compose -f docker-compose.pr-smoke.yml down --volumes --remove-orphans
