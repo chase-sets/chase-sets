@@ -246,18 +246,20 @@ doctl registry login --expiry-seconds 3600
 TARGET_DIGEST="$(docker buildx imagetools inspect "$IMAGE_REF" --format '{{.Manifest.Digest}}')"
 helm history chase-sets-platform --namespace chase-sets-platform --output json \
   | tee artifacts/recovery/pre-rollback-helm-history.json
-TARGET_REVISION=""
+TARGET_REVISIONS=()
 while read -r revision; do
-  revision_digest="$(helm get values chase-sets-platform --namespace chase-sets-platform \
-    --revision "$revision" --output json | jq -r '.global.image.digest // empty')"
-  if [ "$revision_digest" = "$TARGET_DIGEST" ]; then
-    TARGET_REVISION="$revision"
-    break
+  revision_values="$(helm get values chase-sets-platform --namespace chase-sets-platform \
+    --revision "$revision" --all --output json)"
+  revision_tag="$(jq -r '.global.image.tag // empty' <<<"$revision_values")"
+  revision_digest="$(jq -r '.global.image.digest // empty' <<<"$revision_values")"
+  if [ "$revision_tag" = "$TARGET_COMMIT" ] && [ "$revision_digest" = "$TARGET_DIGEST" ]; then
+    TARGET_REVISIONS+=("$revision")
   fi
-done < <(jq -r 'sort_by(.revision | tonumber) | reverse | .[].revision' artifacts/recovery/pre-rollback-helm-history.json)
-test -n "$TARGET_REVISION"
+done < <(jq -r '[.[] | select(.status == "deployed" or .status == "superseded")] | sort_by(.revision | tonumber) | .[].revision' artifacts/recovery/pre-rollback-helm-history.json)
+test "${#TARGET_REVISIONS[@]}" -eq 1
+TARGET_REVISION="${TARGET_REVISIONS[0]}"
 helm get values chase-sets-platform --namespace chase-sets-platform \
-  --revision "$TARGET_REVISION" --output json \
+  --revision "$TARGET_REVISION" --all --output json \
   | jq '{image: .global.image}' > artifacts/recovery/target-revision-image.json
 ```
 
@@ -269,7 +271,8 @@ gh workflow run platform-emergency-recovery.yml --ref main \
   --field emergency_reference="$INCIDENT_REFERENCE" \
   --field target_commit="$TARGET_COMMIT" \
   --field release_tag="$RELEASE_TAG" \
-  --field image_ref="$IMAGE_REF"
+  --field image_ref="$IMAGE_REF" \
+  --field rollback_revision="$TARGET_REVISION"
 
 gh workflow run platform-rollback-readiness.yml --ref main \
   --field mode=rollback \
@@ -293,7 +296,7 @@ pnpm run platform:kubernetes-deployment -- rollback \
 jq -e '.result == "success"' artifacts/recovery/production-rollback.json >/dev/null
 ```
 
-The helper executes `helm rollback chase-sets-platform <revision> --namespace chase-sets-platform --wait --timeout 15m` and waits for all source-owned workloads. Preserve both histories and the workload image evidence:
+The helper executes `helm rollback chase-sets-platform <revision> --namespace chase-sets-platform --wait --timeout 15m`, rejects failed or missing source revisions, and verifies the resulting history, Helm tag/digest, and every application workload image before returning success. Preserve both histories and the workload image evidence:
 
 ```bash
 helm history chase-sets-platform --namespace chase-sets-platform --output json \

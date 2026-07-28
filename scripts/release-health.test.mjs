@@ -53,6 +53,75 @@ describe("release health summary", () => {
     expect(failed.record.releaseState?.terminalOutcome).toBe("failed");
   });
 
+  it("records observed rollback revisions and workload identities and fails closed when they are absent", () => {
+    const digest = `sha256:${"6".repeat(64)}`;
+    const workloadIdentities = [
+      {
+        kind: "Deployment",
+        name: "chase-sets-platform-worker",
+        component: "platform-worker",
+        images: [
+          {
+            container: "platform-worker",
+            containerType: "application",
+            image: `registry.digitalocean.com/chase-sets/chase-sets-platform@${digest}`,
+          },
+        ],
+      },
+    ];
+    const observed = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      recoveryMode: "rollback",
+      recoveryReference: "ROLLBACK-6261",
+      recoveryTargetCommit: "c".repeat(40),
+      rollbackSourceRevision: 228,
+      rollbackResultingRevision: 231,
+      rollbackObservedTag: "c".repeat(40),
+      rollbackObservedDigest: digest,
+      rollbackWorkloadIdentities: workloadIdentities,
+    });
+
+    expect(observed.passesReleaseHealthGate).toBe(true);
+    expect(observed.record.recovery.rollbackIdentity).toEqual({
+      sourceRevision: 228,
+      resultingRevision: 231,
+      observedTag: "c".repeat(40),
+      observedDigest: digest,
+      workloadIdentities,
+    });
+
+    const missing = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      recoveryMode: "rollback",
+      recoveryTargetCommit: "c".repeat(40),
+    });
+    expect(missing.passesReleaseHealthGate).toBe(false);
+    expect(missing.errors).toEqual(
+      expect.arrayContaining([
+        "rollbackSourceRevision must be a positive Helm revision for rollback recovery.",
+        "rollbackResultingRevision must be a positive Helm revision for rollback recovery.",
+        "rollbackObservedTag is required for rollback recovery.",
+        "rollbackObservedDigest must be a sha256 digest for rollback recovery.",
+        "rollbackWorkloadIdentities must contain every application workload for rollback recovery.",
+      ]),
+    );
+
+    const mismatchedTag = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      recoveryMode: "rollback",
+      recoveryTargetCommit: "c".repeat(40),
+      rollbackSourceRevision: 228,
+      rollbackResultingRevision: 231,
+      rollbackObservedTag: "d".repeat(40),
+      rollbackObservedDigest: digest,
+      rollbackWorkloadIdentities: workloadIdentities,
+    });
+    expect(mismatchedTag.passesReleaseHealthGate).toBe(false);
+    expect(mismatchedTag.errors).toContain(
+      "rollbackObservedTag must match recoveryTargetCommit for rollback recovery.",
+    );
+  });
+
   it("builds a production release health record", () => {
     const result = buildReleaseHealthRecord({
       releaseCommit: "a".repeat(40),
@@ -668,6 +737,24 @@ describe("release health summary", () => {
       RECOVERY_MODE: "rollback",
       RECOVERY_REFERENCE: "ROLLBACK-1",
       RECOVERY_TARGET_COMMIT: "c".repeat(40),
+      ROLLBACK_SOURCE_REVISION: "228",
+      ROLLBACK_RESULTING_REVISION: "231",
+      ROLLBACK_OBSERVED_TAG: "c".repeat(40),
+      ROLLBACK_OBSERVED_DIGEST: `sha256:${"6".repeat(64)}`,
+      ROLLBACK_WORKLOAD_IDENTITIES: JSON.stringify([
+        {
+          kind: "Deployment",
+          name: "proof-worker",
+          component: "platform-worker",
+          images: [
+            {
+              container: "platform-worker",
+              containerType: "application",
+              image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"6".repeat(64)}`,
+            },
+          ],
+        },
+      ]),
       ROLLBACK_READINESS_RESULT: "success",
       PRODUCTION_RESTORE_POINT_RESULT: "success",
       PRODUCTION_RESTORE_POINT_TYPE: "digitalocean-database-fork",
@@ -735,6 +822,24 @@ describe("release health summary", () => {
       recoveryMode: "rollback",
       recoveryReference: "ROLLBACK-1",
       recoveryTargetCommit: "c".repeat(40),
+      rollbackSourceRevision: 228,
+      rollbackResultingRevision: 231,
+      rollbackObservedTag: "c".repeat(40),
+      rollbackObservedDigest: `sha256:${"6".repeat(64)}`,
+      rollbackWorkloadIdentities: [
+        {
+          kind: "Deployment",
+          name: "proof-worker",
+          component: "platform-worker",
+          images: [
+            {
+              container: "platform-worker",
+              containerType: "application",
+              image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"6".repeat(64)}`,
+            },
+          ],
+        },
+      ],
       rollbackReadinessResult: "success",
       productionRestorePointResult: "success",
       productionRestorePointType: "digitalocean-database-fork",

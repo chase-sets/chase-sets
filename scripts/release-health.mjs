@@ -131,6 +131,20 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     recoveryReference: readOption(argv, "--recovery-reference") ?? readEnv("RECOVERY_REFERENCE", env) ?? null,
     recoveryTargetCommit:
       readOption(argv, "--recovery-target-commit") ?? readEnv("RECOVERY_TARGET_COMMIT", env) ?? null,
+    rollbackSourceRevision: normalizeOptionalInteger(
+      readOption(argv, "--rollback-source-revision") ?? readEnv("ROLLBACK_SOURCE_REVISION", env),
+      "ROLLBACK_SOURCE_REVISION",
+    ),
+    rollbackResultingRevision: normalizeOptionalInteger(
+      readOption(argv, "--rollback-resulting-revision") ?? readEnv("ROLLBACK_RESULTING_REVISION", env),
+      "ROLLBACK_RESULTING_REVISION",
+    ),
+    rollbackObservedTag: readOption(argv, "--rollback-observed-tag") ?? readEnv("ROLLBACK_OBSERVED_TAG", env) ?? null,
+    rollbackObservedDigest:
+      readOption(argv, "--rollback-observed-digest") ?? readEnv("ROLLBACK_OBSERVED_DIGEST", env) ?? null,
+    rollbackWorkloadIdentities: parseJsonList(
+      readOption(argv, "--rollback-workload-identities") ?? readEnv("ROLLBACK_WORKLOAD_IDENTITIES", env) ?? "[]",
+    ),
     productionRecoveryMode:
       readOption(argv, "--production-recovery-mode") ?? readEnv("PRODUCTION_RECOVERY_MODE", env) ?? "unknown",
     productionRecoveryReason:
@@ -242,6 +256,7 @@ export function buildReleaseHealthRecord(input) {
   if (isNonEmptyString(input.recoveryTargetCommit) && !isCommitSha(input.recoveryTargetCommit)) {
     errors.push("recoveryTargetCommit must be a 40-character Git commit SHA when provided.");
   }
+  validateRollbackIdentity(input, recoveryMode, errors);
   if (
     isNonEmptyString(input.releaseAttemptPhase) &&
     !["queue", "staging", "canary", "production", "review"].includes(input.releaseAttemptPhase.trim())
@@ -340,6 +355,16 @@ export function buildReleaseHealthRecord(input) {
       mode: recoveryMode,
       reference: emptyToNull(input.recoveryReference ?? input.emergencyReference),
       targetCommit: emptyToNull(input.recoveryTargetCommit),
+      rollbackIdentity:
+        recoveryMode === "rollback"
+          ? {
+              sourceRevision: input.rollbackSourceRevision ?? null,
+              resultingRevision: input.rollbackResultingRevision ?? null,
+              observedTag: emptyToNull(input.rollbackObservedTag),
+              observedDigest: emptyToNull(input.rollbackObservedDigest),
+              workloadIdentities: normalizeRollbackWorkloadIdentities(input.rollbackWorkloadIdentities),
+            }
+          : null,
       productionRecoveryMode: input.productionRecoveryMode ?? "unknown",
       productionRecoveryReason: emptyToNull(input.productionRecoveryReason),
       rollbackReadinessResult: normalizeResult(input.rollbackReadinessResult),
@@ -816,6 +841,100 @@ function validateReleaseStateTransitions(transitions, errors) {
       errors.push(`releaseStateTransitions[${index}].count must be a positive integer.`);
     }
   }
+}
+
+function validateRollbackIdentity(input, recoveryMode, errors) {
+  if (recoveryMode !== "rollback") {
+    return;
+  }
+  if (!isCommitSha(input.recoveryTargetCommit)) {
+    errors.push("recoveryTargetCommit is required for rollback recovery.");
+  }
+  if (!Number.isInteger(input.rollbackSourceRevision) || input.rollbackSourceRevision < 1) {
+    errors.push("rollbackSourceRevision must be a positive Helm revision for rollback recovery.");
+  }
+  if (!Number.isInteger(input.rollbackResultingRevision) || input.rollbackResultingRevision < 1) {
+    errors.push("rollbackResultingRevision must be a positive Helm revision for rollback recovery.");
+  } else if (
+    Number.isInteger(input.rollbackSourceRevision) &&
+    input.rollbackResultingRevision <= input.rollbackSourceRevision
+  ) {
+    errors.push("rollbackResultingRevision must be newer than rollbackSourceRevision.");
+  }
+  if (!isNonEmptyString(input.rollbackObservedTag)) {
+    errors.push("rollbackObservedTag is required for rollback recovery.");
+  } else if (
+    isCommitSha(input.recoveryTargetCommit) &&
+    input.rollbackObservedTag.trim() !== input.recoveryTargetCommit.trim()
+  ) {
+    errors.push("rollbackObservedTag must match recoveryTargetCommit for rollback recovery.");
+  }
+  if (!/^sha256:[0-9a-f]{64}$/i.test(String(input.rollbackObservedDigest ?? ""))) {
+    errors.push("rollbackObservedDigest must be a sha256 digest for rollback recovery.");
+  }
+  if (!Array.isArray(input.rollbackWorkloadIdentities) || input.rollbackWorkloadIdentities.length === 0) {
+    errors.push("rollbackWorkloadIdentities must contain every application workload for rollback recovery.");
+    return;
+  }
+  const keys = new Set();
+  for (const [index, workload] of input.rollbackWorkloadIdentities.entries()) {
+    if (
+      !isNonEmptyString(workload?.kind) ||
+      !isNonEmptyString(workload?.name) ||
+      !isNonEmptyString(workload?.component)
+    ) {
+      errors.push(`rollbackWorkloadIdentities[${index}] must identify kind, name, and component.`);
+      continue;
+    }
+    const key = `${workload.kind.trim()}/${workload.name.trim()}`;
+    if (keys.has(key)) {
+      errors.push(`rollbackWorkloadIdentities contains duplicate ${key}.`);
+    }
+    keys.add(key);
+    if (!Array.isArray(workload.images) || workload.images.length === 0) {
+      errors.push(`rollbackWorkloadIdentities[${index}].images must not be empty.`);
+      continue;
+    }
+    let matchingPrimaryImages = 0;
+    for (const [imageIndex, image] of workload.images.entries()) {
+      if (
+        !isNonEmptyString(image?.container) ||
+        !["application", "init"].includes(image?.containerType) ||
+        !isNonEmptyString(image?.image)
+      ) {
+        errors.push(
+          `rollbackWorkloadIdentities[${index}].images[${imageIndex}] must identify container, containerType, and image.`,
+        );
+        continue;
+      }
+      if (image.containerType === "application" && image.container.trim() === workload.component.trim()) {
+        matchingPrimaryImages += 1;
+        if (!image.image.trim().endsWith(`@${input.rollbackObservedDigest}`)) {
+          errors.push(
+            `rollbackWorkloadIdentities[${index}].images[${imageIndex}] does not match rollbackObservedDigest.`,
+          );
+        }
+      }
+    }
+    if (matchingPrimaryImages !== 1) {
+      errors.push(
+        `rollbackWorkloadIdentities[${index}] must contain exactly one canonical component application image.`,
+      );
+    }
+  }
+}
+
+function normalizeRollbackWorkloadIdentities(value) {
+  return (Array.isArray(value) ? value : []).map((workload) => ({
+    kind: String(workload.kind).trim(),
+    name: String(workload.name).trim(),
+    component: String(workload.component).trim(),
+    images: (Array.isArray(workload.images) ? workload.images : []).map((image) => ({
+      container: String(image.container).trim(),
+      containerType: image.containerType,
+      image: String(image.image).trim(),
+    })),
+  }));
 }
 
 function normalizeReleaseStateTransition(transition) {

@@ -20,6 +20,7 @@ export function parseEmergencyRecoveryGuideArgs(argv, env = process.env) {
     recoveryPullRequest: readOption(argv, "--recovery-pr") ?? readEnv("RECOVERY_PULL_REQUEST", env),
     releaseTag: readOption(argv, "--release-tag") ?? readEnv("ROLLBACK_RELEASE_TAG", env),
     imageRef: readOption(argv, "--image-ref") ?? readEnv("ROLLBACK_IMAGE_REF", env),
+    rollbackRevision: readOption(argv, "--rollback-revision") ?? readEnv("CHASE_SETS_HELM_ROLLBACK_REVISION", env),
     kubernetesRelease:
       readOption(argv, "--kubernetes-release") ??
       readEnv("CHASE_SETS_HELM_RELEASE", env) ??
@@ -63,6 +64,9 @@ export function buildEmergencyRecoveryGuide(input) {
   if (["rollback-readiness", "rollback"].includes(mode) && !normalizeString(input.imageRef)) {
     blockers.push("Rollback recovery requires the target production image reference.");
   }
+  if (mode === "rollback" && !isPositiveRevision(input.rollbackRevision)) {
+    blockers.push("Rollback recovery requires an exact positive Helm revision.");
+  }
   if (["revert", "fix-forward"].includes(mode) && !normalizeString(input.recoveryPullRequest)) {
     blockers.push("Revert and fix-forward recovery require a recovery pull request reference.");
   }
@@ -87,6 +91,7 @@ export function buildEmergencyRecoveryGuide(input) {
     recoveryPullRequest: normalizeString(input.recoveryPullRequest),
     releaseTag: normalizeString(input.releaseTag),
     imageRef: normalizeString(input.imageRef),
+    rollbackRevision: isPositiveRevision(input.rollbackRevision) ? Number(input.rollbackRevision) : null,
     lockBypassAllowed,
     kubernetesRollback,
     nextActions: nextActions(mode, lockBypassAllowed, kubernetesRollback.commandText),
@@ -117,27 +122,37 @@ function buildKubernetesRollback(input) {
   const release = normalizeString(input.kubernetesRelease) ?? DEFAULT_EMERGENCY_KUBERNETES_RELEASE;
   const namespace = normalizeString(input.kubernetesNamespace) ?? DEFAULT_EMERGENCY_KUBERNETES_NAMESPACE;
   const timeout = normalizeString(input.kubernetesTimeout) ?? DEFAULT_EMERGENCY_KUBERNETES_TIMEOUT;
-  const command = [
-    "pnpm",
-    "run",
-    "platform:kubernetes-deployment",
-    "--",
-    "rollback",
-    "--release",
-    release,
-    "--namespace",
-    namespace,
-    "--timeout",
-    timeout,
-  ];
+  const revision = isPositiveRevision(input.rollbackRevision) ? String(input.rollbackRevision) : "";
+  const command = revision
+    ? [
+        "pnpm",
+        "run",
+        "platform:kubernetes-deployment",
+        "--",
+        "rollback",
+        "--release",
+        release,
+        "--namespace",
+        namespace,
+        "--revision",
+        revision,
+        "--timeout",
+        timeout,
+      ]
+    : null;
   return {
     platform: "doks",
     release,
     namespace,
     timeout,
     command,
-    commandText: command.join(" "),
+    commandText: command?.join(" ") ?? null,
   };
+}
+
+function isPositiveRevision(value) {
+  const revision = Number(String(value ?? ""));
+  return Number.isInteger(revision) && revision > 0;
 }
 
 function nextActions(mode, lockBypassAllowed, kubernetesRollbackCommand) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
 import {
   buildDoksIngressValues,
@@ -13,7 +13,7 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
-export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
+export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v2";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
 export const managedRegistryPullSecretName = "chase-sets";
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
@@ -396,17 +396,50 @@ export function buildHelmRollbackArgs(options = {}) {
   const release = requiredOption(options.release ?? defaultRelease, "release");
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
-  const revision = options.revision;
+  const revision = positiveHelmRevision(options.revision, "revision");
+
+  return ["rollback", release, String(revision), "--namespace", namespace, "--wait", "--timeout", timeout];
+}
+
+export function buildHelmHistoryArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+
+  return ["history", release, "--namespace", namespace, "--output", "json"];
+}
+
+export function buildHelmValuesArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const revision = positiveHelmRevision(options.revision, "revision");
 
   return [
-    "rollback",
+    "get",
+    "values",
     release,
-    ...(revision ? [String(revision)] : []),
     "--namespace",
     namespace,
-    "--wait",
-    "--timeout",
-    timeout,
+    "--revision",
+    String(revision),
+    "--all",
+    "--output",
+    "json",
+  ];
+}
+
+export function buildApplicationWorkloadIdentityArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+
+  return [
+    "get",
+    "deployments.apps,jobs.batch,rollouts.argoproj.io",
+    "--namespace",
+    namespace,
+    "--selector",
+    `app.kubernetes.io/instance=${release}`,
+    "--output",
+    "json",
   ];
 }
 
@@ -530,6 +563,7 @@ export function buildDeploymentEvidence(options = {}) {
     result: options.result ?? "unknown",
     ...(options.reason ? { reason: options.reason } : {}),
     workloads,
+    ...(options.rollbackIdentity ? { rollbackIdentity: options.rollbackIdentity } : {}),
   };
 }
 
@@ -564,7 +598,7 @@ export function buildKubernetesDiagnosticsRecord(options = {}) {
 export function buildKubernetesRollbackTarget(options = {}) {
   const registryName = requiredOption(options.registryName, "registryName");
   const repository = requiredOption(options.repository, "repository");
-  const tag = options.tag ?? options.releaseTag ?? "";
+  const tag = options.tag ?? "";
   const digest = options.digest ?? "";
   const workloads = options.workloads ?? platformKubernetesWorkloads(options);
 
@@ -581,7 +615,284 @@ export function buildKubernetesRollbackTarget(options = {}) {
     componentNames: [...workloads.deployments, ...(workloads.rollouts ?? []), ...workloads.jobs].sort(),
     lastKnownGoodCommit: options.lastKnownGoodCommit ?? "",
     releaseTag: options.releaseTag ?? "",
+    sourceRevision: options.sourceRevision ?? null,
+    sourceStatus: options.sourceStatus ?? null,
+    sourceDescription: options.sourceDescription ?? null,
+    observedTag: options.observedTag ?? tag,
+    observedDigest: options.observedDigest ?? digest,
+    workloadIdentities: options.workloadIdentities ?? [],
   };
+}
+
+export async function captureKubernetesRollbackTarget(options = {}) {
+  const expectedIdentity = expectedRollbackImageIdentity(options);
+  const lastKnownGoodCommit = requiredOption(options.lastKnownGoodCommit, "lastKnownGoodCommit");
+  if (!/^[0-9a-f]{40}$/i.test(lastKnownGoodCommit)) {
+    throw new Error("lastKnownGoodCommit must be a 40-character Git commit SHA.");
+  }
+  if (expectedIdentity.tag !== lastKnownGoodCommit) {
+    throw new Error("Captured Helm image tag must equal lastKnownGoodCommit.");
+  }
+  requiredOption(options.releaseTag, "releaseTag");
+  const initialHistory = await readHelmHistory(options);
+  const deployed = initialHistory.filter((entry) => entry.status === "deployed");
+  if (deployed.length !== 1) {
+    throw new Error(
+      `Rollback target capture requires exactly one deployed Helm revision; observed ${deployed.length}.`,
+    );
+  }
+  const source = deployed[0];
+  const historyHead = initialHistory.at(-1);
+  if (!historyHead || historyHead.revision !== source.revision) {
+    throw new Error(
+      `Deployed Helm revision ${source.revision} is not the current history head ${historyHead?.revision ?? "absent"}.`,
+    );
+  }
+
+  const values = await readHelmRevisionValues({ ...options, revision: source.revision });
+  const observedIdentity = platformImageIdentityFromValues(values);
+  assertPlatformImageIdentity(observedIdentity, expectedIdentity, `Helm revision ${source.revision}`);
+  const workloadIdentities = await readApplicationWorkloadIdentities({
+    ...options,
+    values,
+    expectedImageRef: observedIdentity.imageRef,
+  });
+  const stableHistory = await readHelmHistory(options);
+  assertHelmHistoryUnchanged(initialHistory, stableHistory, "rollback target capture");
+
+  return buildKubernetesRollbackTarget({
+    ...options,
+    tag: observedIdentity.tag,
+    digest: observedIdentity.digest,
+    sourceRevision: source.revision,
+    sourceStatus: source.status,
+    sourceDescription: source.description,
+    observedTag: observedIdentity.tag,
+    observedDigest: observedIdentity.digest,
+    workloadIdentities,
+    values,
+  });
+}
+
+function expectedRollbackImageIdentity(options) {
+  const registryName = requiredOption(options.registryName, "registryName");
+  const repository = requiredOption(options.repository, "repository");
+  const tag = requiredOption(options.tag, "tag");
+  const digest = requiredSha256Digest(options.digest, "digest");
+  return {
+    registry: "registry.digitalocean.com",
+    registryName,
+    repository,
+    tag,
+    digest,
+    imageRef: platformImageReference({ registryName, repository, tag, digest }),
+  };
+}
+
+function platformImageIdentityFromValues(values) {
+  const image = values?.global?.image;
+  if (!image || typeof image !== "object") {
+    throw new Error("Helm values do not contain global.image.");
+  }
+  const registry = requiredOption(image.registry, "global.image.registry");
+  const registryName = requiredOption(image.registryName, "global.image.registryName");
+  const repository = requiredOption(image.repository, "global.image.repository");
+  const tag = requiredOption(image.tag, "global.image.tag");
+  const digest = requiredSha256Digest(image.digest, "global.image.digest");
+  return {
+    registry,
+    registryName,
+    repository,
+    tag,
+    digest,
+    imageRef: `${registry}/${registryName}/${repository}@${digest}`,
+  };
+}
+
+function assertPlatformImageIdentity(observed, expected, label) {
+  for (const field of ["registry", "registryName", "repository", "tag", "digest", "imageRef"]) {
+    if (observed[field] !== expected[field]) {
+      throw new Error(
+        `${label} ${field} ${JSON.stringify(observed[field])} does not match captured rollback identity ${JSON.stringify(expected[field])}.`,
+      );
+    }
+  }
+}
+
+async function readHelmHistory(options) {
+  const result = await runProcess({
+    command: options.helmPath ?? "helm",
+    args: buildHelmHistoryArgs(options),
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const history = parseJsonCommandOutput(result.stdout, "Helm history");
+  if (!Array.isArray(history) || history.length === 0) {
+    throw new Error("Helm history must contain at least one revision.");
+  }
+  const normalized = history
+    .map((entry, index) => {
+      if (!entry || typeof entry !== "object") {
+        throw new Error(`Helm history entry ${index} must be an object.`);
+      }
+      return {
+        revision: positiveHelmRevision(entry.revision, `Helm history entry ${index} revision`),
+        status: requiredOption(
+          String(entry.status ?? "")
+            .trim()
+            .toLowerCase(),
+          `Helm history entry ${index} status`,
+        ),
+        description: String(entry.description ?? "").trim(),
+      };
+    })
+    .sort((left, right) => left.revision - right.revision);
+  const revisions = new Set(normalized.map((entry) => entry.revision));
+  if (revisions.size !== normalized.length) {
+    throw new Error("Helm history contains duplicate revisions.");
+  }
+  return normalized;
+}
+
+async function readHelmRevisionValues(options) {
+  const result = await runProcess({
+    command: options.helmPath ?? "helm",
+    args: buildHelmValuesArgs(options),
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const values = parseJsonCommandOutput(result.stdout, `Helm values for revision ${options.revision}`);
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    throw new Error(`Helm values for revision ${options.revision} must be a JSON object.`);
+  }
+  return values;
+}
+
+async function readApplicationWorkloadIdentities(options) {
+  const result = await runProcess({
+    command: options.kubectlPath ?? "kubectl",
+    args: buildApplicationWorkloadIdentityArgs(options),
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const list = parseJsonCommandOutput(result.stdout, "application workload inventory");
+  if (!list || !Array.isArray(list.items)) {
+    throw new Error("Application workload inventory must contain an items array.");
+  }
+
+  const expected = expectedPersistentApplicationWorkloads(options.values, options.release ?? defaultRelease);
+  const declaredComponents = new Set(
+    Object.entries(options.values?.components ?? {})
+      .filter(([, component]) => component?.enabled)
+      .map(([component]) => component),
+  );
+  const observed = list.items
+    .filter((item) => declaredComponents.has(item?.metadata?.labels?.["app.kubernetes.io/component"]))
+    .map(normalizeWorkloadIdentity)
+    .sort(compareWorkloadIdentity);
+  const expectedKeys = expected.map(workloadIdentityKey).sort();
+  const observedKeys = observed.map(workloadIdentityKey).sort();
+  if (JSON.stringify(observedKeys) !== JSON.stringify(expectedKeys)) {
+    throw new Error(
+      `Application workload inventory does not match the Helm revision; expected ${expectedKeys.join(", ") || "none"}, observed ${observedKeys.join(", ") || "none"}.`,
+    );
+  }
+  if (observed.length === 0) {
+    throw new Error("Application workload inventory is empty.");
+  }
+
+  for (const workload of observed) {
+    if (workload.images.length === 0) {
+      throw new Error(`${workload.kind}/${workload.name} has no container image identities.`);
+    }
+    const primaryImages = workload.images.filter(
+      (image) => image.containerType === "application" && image.container === workload.component,
+    );
+    if (primaryImages.length !== 1) {
+      throw new Error(
+        `${workload.kind}/${workload.name} must expose exactly one canonical ${workload.component} application container; observed ${primaryImages.length}.`,
+      );
+    }
+    if (primaryImages[0].image !== options.expectedImageRef) {
+      throw new Error(
+        `${workload.kind}/${workload.name} container ${primaryImages[0].container} image ${primaryImages[0].image} does not match ${options.expectedImageRef}.`,
+      );
+    }
+  }
+  return observed;
+}
+
+function expectedPersistentApplicationWorkloads(values, release) {
+  const workloads = [];
+  for (const [componentName, component] of Object.entries(values?.components ?? {})) {
+    if (!component?.enabled) {
+      continue;
+    }
+    const name = kubernetesComponentName(release, componentName);
+    if (component.kind === "service" || component.kind === "worker") {
+      workloads.push({
+        kind: component.kind === "service" && component.rollout?.enabled ? "Rollout" : "Deployment",
+        name,
+      });
+    } else if (component.kind === "job" && !component.job?.hook?.enabled) {
+      workloads.push({ kind: "Job", name });
+    }
+  }
+  return workloads.sort(compareWorkloadIdentity);
+}
+
+function normalizeWorkloadIdentity(item) {
+  const kind = requiredOption(item?.kind, "workload kind");
+  const name = requiredOption(item?.metadata?.name, "workload name");
+  const podSpec = item?.spec?.template?.spec;
+  if (!podSpec || typeof podSpec !== "object") {
+    throw new Error(`${kind}/${name} does not contain spec.template.spec.`);
+  }
+  const images = [
+    ...(podSpec.initContainers ?? []).map((container) => ({
+      container: requiredOption(container?.name, `${kind}/${name} init container name`),
+      containerType: "init",
+      image: requiredOption(container?.image, `${kind}/${name} init container image`),
+    })),
+    ...(podSpec.containers ?? []).map((container) => ({
+      container: requiredOption(container?.name, `${kind}/${name} container name`),
+      containerType: "application",
+      image: requiredOption(container?.image, `${kind}/${name} container image`),
+    })),
+  ].sort((left, right) =>
+    `${left.containerType}/${left.container}`.localeCompare(`${right.containerType}/${right.container}`, "en"),
+  );
+  return {
+    kind,
+    name,
+    component: requiredOption(
+      item?.metadata?.labels?.["app.kubernetes.io/component"],
+      `${kind}/${name} component label`,
+    ),
+    images,
+  };
+}
+
+function compareWorkloadIdentity(left, right) {
+  return workloadIdentityKey(left).localeCompare(workloadIdentityKey(right), "en");
+}
+
+function workloadIdentityKey(workload) {
+  return `${workload.kind}/${workload.name}`;
+}
+
+function parseJsonCommandOutput(stdout, label) {
+  try {
+    return JSON.parse(String(stdout ?? ""));
+  } catch (error) {
+    throw new Error(`${label} did not return valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function assertHelmHistoryUnchanged(before, after, phase) {
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    throw new Error(`Helm history moved during ${phase}; refusing ambiguous rollback evidence.`);
+  }
 }
 
 export async function deployPlatformToKubernetes(options = {}) {
@@ -884,7 +1195,14 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
 export async function rollbackPlatformOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
-  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  let workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  const rollbackIdentity = {
+    sourceRevision: null,
+    resultingRevision: null,
+    observedTag: null,
+    observedDigest: null,
+    workloadIdentities: [],
+  };
   let releaseExists;
   try {
     releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
@@ -895,6 +1213,7 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
       result: "failure",
       reason: diagnosticFailureReason(error),
       workloads,
+      rollbackIdentity,
     });
   }
 
@@ -905,13 +1224,39 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
       result: "skipped",
       reason: "helm-release-not-found",
       workloads,
+      rollbackIdentity,
     });
   }
 
   try {
+    const sourceRevision = positiveHelmRevision(options.revision, "revision");
+    rollbackIdentity.sourceRevision = sourceRevision;
+    const initialHistory = await readHelmHistory({ ...options, helmPath });
+    const source = initialHistory.find((entry) => entry.revision === sourceRevision);
+    if (!source) {
+      throw new Error(`Requested rollback revision ${sourceRevision} is absent from Helm history.`);
+    }
+    if (!["deployed", "superseded"].includes(source.status)) {
+      throw new Error(
+        `Requested rollback revision ${sourceRevision} is ${source.status}, not a successful deployed or superseded revision.`,
+      );
+    }
+    const beforeHead = initialHistory.at(-1);
+    if (!beforeHead) {
+      throw new Error("Helm history has no current head revision.");
+    }
+
+    const sourceValues = await readHelmRevisionValues({ ...options, helmPath, revision: sourceRevision });
+    workloads = options.workloads ?? platformKubernetesWorkloads({ ...options, values: sourceValues });
+    const sourceIdentity = platformImageIdentityFromValues(sourceValues);
+    const expected = rollbackExpectation(options.rollbackTarget, sourceRevision, sourceIdentity);
+    assertPlatformImageIdentity(sourceIdentity, expected.imageIdentity, `Helm revision ${sourceRevision}`);
+    const stablePreRollbackHistory = await readHelmHistory({ ...options, helmPath });
+    assertHelmHistoryUnchanged(initialHistory, stablePreRollbackHistory, "pre-rollback validation");
+
     await runProcess({
       command: helmPath,
-      args: buildHelmRollbackArgs(options),
+      args: buildHelmRollbackArgs({ ...options, revision: sourceRevision }),
       spawn: options.spawn,
     });
     await waitForPlatformWorkloads({
@@ -921,6 +1266,62 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
       acceptedRolloutPhases: ["Healthy"],
       detectRollbackKinds: true,
     });
+
+    const resultingHistory = await readHelmHistory({ ...options, helmPath });
+    const newEntries = resultingHistory.filter((entry) => entry.revision > beforeHead.revision);
+    if (newEntries.length !== 1 || newEntries[0].revision !== beforeHead.revision + 1) {
+      throw new Error(
+        `Helm history moved ambiguously during rollback; expected only revision ${beforeHead.revision + 1}, observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
+      );
+    }
+    const resulting = newEntries[0];
+    rollbackIdentity.resultingRevision = resulting.revision;
+    const retainedSource = resultingHistory.find((entry) => entry.revision === sourceRevision);
+    if (
+      !retainedSource ||
+      !["deployed", "superseded"].includes(retainedSource.status) ||
+      retainedSource.description !== source.description
+    ) {
+      throw new Error(`Captured source revision ${sourceRevision} moved or disappeared during rollback.`);
+    }
+    if (resulting.status !== "deployed") {
+      throw new Error(`Resulting Helm revision ${resulting.revision} is ${resulting.status}, not deployed.`);
+    }
+    if (resulting.description !== `Rollback to ${sourceRevision}`) {
+      throw new Error(
+        `Resulting Helm revision ${resulting.revision} description ${JSON.stringify(resulting.description)} does not identify source revision ${sourceRevision}.`,
+      );
+    }
+
+    const resultingValues = await readHelmRevisionValues({
+      ...options,
+      helmPath,
+      revision: resulting.revision,
+    });
+    const observedIdentity = platformImageIdentityFromValues(resultingValues);
+    assertPlatformImageIdentity(
+      observedIdentity,
+      expected.imageIdentity,
+      `Resulting Helm revision ${resulting.revision}`,
+    );
+    const workloadIdentities = await readApplicationWorkloadIdentities({
+      ...options,
+      kubectlPath,
+      values: resultingValues,
+      expectedImageRef: observedIdentity.imageRef,
+    });
+    if (
+      expected.workloadIdentities &&
+      JSON.stringify(workloadIdentities) !== JSON.stringify(expected.workloadIdentities)
+    ) {
+      throw new Error("Observed application workload identities do not match the pre-mutation rollback capture.");
+    }
+    rollbackIdentity.observedTag = observedIdentity.tag;
+    rollbackIdentity.observedDigest = observedIdentity.digest;
+    rollbackIdentity.workloadIdentities = workloadIdentities;
+
+    const stableResultingHistory = await readHelmHistory({ ...options, helmPath });
+    assertHelmHistoryUnchanged(resultingHistory, stableResultingHistory, "post-rollback identity validation");
   } catch (error) {
     return buildDeploymentEvidence({
       ...options,
@@ -928,6 +1329,7 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
       result: "failure",
       reason: diagnosticFailureReason(error),
       workloads,
+      rollbackIdentity,
     });
   }
 
@@ -936,7 +1338,45 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     action: "rollback",
     result: "success",
     workloads,
+    rollbackIdentity,
   });
+}
+
+function rollbackExpectation(target, sourceRevision, sourceIdentity) {
+  if (!target) {
+    return { imageIdentity: sourceIdentity, workloadIdentities: null };
+  }
+  if (target.schemaVersion !== PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION) {
+    throw new Error(`Rollback target schemaVersion must be ${PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION}.`);
+  }
+  if (positiveHelmRevision(target.sourceRevision, "rollback target sourceRevision") !== sourceRevision) {
+    throw new Error(
+      `Requested rollback revision ${sourceRevision} does not match captured source revision ${target.sourceRevision}.`,
+    );
+  }
+  if (target.sourceStatus !== "deployed") {
+    throw new Error(`Captured rollback source revision was ${target.sourceStatus ?? "absent"}, not deployed.`);
+  }
+  if (!Array.isArray(target.workloadIdentities) || target.workloadIdentities.length === 0) {
+    throw new Error("Captured rollback target workload identities are absent.");
+  }
+  const imageIdentity = {
+    registry: "registry.digitalocean.com",
+    registryName: requiredOption(target.registryName, "rollback target registryName"),
+    repository: requiredOption(target.repository, "rollback target repository"),
+    tag: requiredOption(target.observedTag, "rollback target observedTag"),
+    digest: requiredSha256Digest(target.observedDigest, "rollback target observedDigest"),
+    imageRef: requiredOption(target.imageRef, "rollback target imageRef"),
+  };
+  if (target.tag !== imageIdentity.tag || target.digest !== imageIdentity.digest) {
+    throw new Error("Captured rollback target top-level tag/digest disagree with its observed Helm identity.");
+  }
+  if (target.lastKnownGoodCommit !== imageIdentity.tag || !/^[0-9a-f]{40}$/i.test(target.lastKnownGoodCommit ?? "")) {
+    throw new Error("Captured rollback target commit disagrees with its observed Helm tag.");
+  }
+  requiredOption(target.releaseTag, "rollback target releaseTag");
+  assertPlatformImageIdentity(sourceIdentity, imageIdentity, `Captured source revision ${sourceRevision}`);
+  return { imageIdentity, workloadIdentities: target.workloadIdentities };
 }
 
 function diagnosticFailureReason(error) {
@@ -1267,6 +1707,22 @@ function requiredOption(value, name) {
   return value;
 }
 
+function positiveHelmRevision(value, name) {
+  const normalized = typeof value === "number" ? value : Number(String(value ?? ""));
+  if (!Number.isInteger(normalized) || normalized < 1) {
+    throw new Error(`${name} must be a positive Helm revision.`);
+  }
+  return normalized;
+}
+
+function requiredSha256Digest(value, name) {
+  const normalized = requiredOption(value, name);
+  if (!/^sha256:[0-9a-f]{64}$/i.test(String(normalized))) {
+    throw new Error(`${name} must be a sha256 digest.`);
+  }
+  return String(normalized).toLowerCase();
+}
+
 function runProcess(options) {
   const spawnImpl = options.spawn ?? spawn;
 
@@ -1363,7 +1819,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1390,8 +1846,11 @@ export function parseArgs(argv, env = process.env) {
     kubectlPath: readOption(rest, "--kubectl", env.KUBECTL_PATH ?? "kubectl"),
     registryName: readOption(rest, "--registry-name", env.DIGITALOCEAN_CONTAINER_REGISTRY_NAME),
     repository: readOption(rest, "--repository", env.PLATFORM_IMAGE_REPOSITORY),
+    tag: readOption(rest, "--tag", env.ROLLBACK_IMAGE_TAG),
+    digest: readOption(rest, "--digest", env.ROLLBACK_IMAGE_DIGEST),
     lastKnownGoodCommit: readOption(rest, "--last-known-good-commit", env.LAST_KNOWN_GOOD_COMMIT ?? ""),
     releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
+    rollbackTargetPath: readOption(rest, "--rollback-target", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
     jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
@@ -1497,7 +1956,10 @@ async function main(argv, env = process.env) {
   }
 
   if (options.command === "rollback") {
-    const evidence = await rollbackPlatformOnKubernetes(options);
+    const rollbackTarget = options.rollbackTargetPath
+      ? parseJsonCommandOutput(readFileSync(options.rollbackTargetPath, "utf8"), "rollback target file")
+      : undefined;
+    const evidence = await rollbackPlatformOnKubernetes({ ...options, rollbackTarget });
     if (options.outPath) {
       const { writeJsonRecord } = await import("./lib/output-file.mjs");
       await writeJsonRecord(options.outPath, evidence);
@@ -1505,13 +1967,18 @@ async function main(argv, env = process.env) {
     writeGithubOutput(options.githubOutputPath, {
       result: evidence.result,
       rollback_skip_reason: evidence.reason ?? "",
+      rollback_source_revision: evidence.rollbackIdentity?.sourceRevision ?? "",
+      rollback_resulting_revision: evidence.rollbackIdentity?.resultingRevision ?? "",
+      rollback_observed_tag: evidence.rollbackIdentity?.observedTag ?? "",
+      rollback_observed_digest: evidence.rollbackIdentity?.observedDigest ?? "",
+      rollback_workload_identities: JSON.stringify(evidence.rollbackIdentity?.workloadIdentities ?? []),
     });
     console.log(JSON.stringify(evidence, null, 2));
-    return 0;
+    return evidence.result === "failure" ? 1 : 0;
   }
 
   if (options.command === "capture-rollback-target") {
-    const target = buildKubernetesRollbackTarget(options);
+    const target = await captureKubernetesRollbackTarget(options);
     if (options.outPath) {
       const { writeJsonRecord } = await import("./lib/output-file.mjs");
       await writeJsonRecord(options.outPath, target);
@@ -1523,6 +1990,7 @@ async function main(argv, env = process.env) {
       rollback_repository: target.repository,
       rollback_components: target.componentNames.join(","),
       rollback_registry_name: target.registryName,
+      rollback_source_revision: target.sourceRevision,
       rollback_target_commit: target.lastKnownGoodCommit,
       rollback_release_tag: target.releaseTag,
       last_known_good_commit: target.lastKnownGoodCommit,

@@ -33,6 +33,8 @@ describe("emergency recovery guide", () => {
         release: "chase-sets-platform",
         namespace: "chase-sets-platform",
         timeout: "15m",
+        command: null,
+        commandText: null,
       },
       result: "ready",
     });
@@ -105,6 +107,7 @@ describe("emergency recovery guide", () => {
         CHASE_SETS_HELM_RELEASE: "release-from-env",
         CHASE_SETS_KUBERNETES_NAMESPACE: "namespace-from-env",
         CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: "20m",
+        CHASE_SETS_HELM_ROLLBACK_REVISION: "228",
       }),
     ).toMatchObject({
       outPath: "artifacts/release-health/emergency-recovery-guide.json",
@@ -114,6 +117,7 @@ describe("emergency recovery guide", () => {
       kubernetesRelease: "release-from-env",
       kubernetesNamespace: "namespace-from-env",
       kubernetesTimeout: "20m",
+      rollbackRevision: "228",
     });
   });
 
@@ -124,14 +128,28 @@ describe("emergency recovery guide", () => {
       targetCommit,
       releaseTag: "release-20260601120000-01234567",
       imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260601120000-01234567",
+      rollbackRevision: "228",
       checkedAt: "2026-06-01T12:00:00.000Z",
     });
 
     expect(result.record.kubernetesRollback.commandText).toBe(
-      "pnpm run platform:kubernetes-deployment -- rollback --release chase-sets-platform --namespace chase-sets-platform --timeout 15m",
+      "pnpm run platform:kubernetes-deployment -- rollback --release chase-sets-platform --namespace chase-sets-platform --revision 228 --timeout 15m",
     );
     expect(result.record.nextActions).toEqual(
       expect.arrayContaining([expect.stringContaining("Execute the source-owned DOKS rollback")]),
     );
+  });
+
+  it("blocks rollback mode when no exact Helm revision is provided", () => {
+    const result = buildEmergencyRecoveryGuide({
+      mode: "rollback",
+      emergencyReference: "INC-2026-06-01-001",
+      targetCommit,
+      releaseTag: "release-20260601120000-01234567",
+      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260601120000-01234567",
+    });
+
+    expect(result.passesEmergencyRecoveryGuide).toBe(false);
+    expect(result.record.blockers).toContain("Rollback recovery requires an exact positive Helm revision.");
   });
 });

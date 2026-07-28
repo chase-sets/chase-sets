@@ -12,9 +12,8 @@ on:
         required: true
         type: string
       rollback_revision:
-        description: Optional Helm revision to roll back to. Leave blank to use Helm's previous revision.
-        required: false
-        default: ""
+        description: Exact successful Helm revision to restore. Implicit history selection is forbidden.
+        required: true
         type: string
 
 permissions:
@@ -199,14 +198,12 @@ jobs:
             platform:kubernetes-deployment -- rollback
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
             --release "$CHASE_SETS_HELM_RELEASE"
+            --revision "$ROLLBACK_REVISION"
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
             --runtime-env DEPLOYMENT_ENVIRONMENT=staging
             --out "$rollback_record"
             --github-output "$GITHUB_OUTPUT"
           )
-          if [ -n "$ROLLBACK_REVISION" ]; then
-            args+=(--revision "$ROLLBACK_REVISION")
-          fi
           pnpm run "${args[@]}"
 
       - name: Capture post-recovery Helm diagnostics
