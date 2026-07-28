@@ -33,6 +33,11 @@ export const VERIFY_STATIC_SURFACES = {
     evidence: ["scripts/check-github-actions-runtime.mjs:6-7,24-36,406-413"],
     include: prefix(".github"),
   },
+  "check:identity-creation-positions": {
+    classification: ALWAYS_RUN,
+    rule: "scans every git-tracked file for each command byte sequence derived from the Identity domain anchors",
+    evidence: ["scripts/identity-creation-position-guard.mjs:79-120,301-363"],
+  },
   "check:managed-postgres-authority": {
     classification: ALWAYS_RUN,
     rule: "workflow steps transitively resolve arbitrary executables and package scripts",

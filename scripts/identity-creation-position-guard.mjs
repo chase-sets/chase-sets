@@ -6,6 +6,7 @@ import {
   collectOpenSchemaObjectPaths,
   validateAgainstSchema,
 } from "./check-structure/identity-creation-path-registry.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const defaultRegistryPath = "scripts/identity-creation-positions.json";
 const defaultSchemaPath = "scripts/identity-creation-positions.schema.json";
@@ -531,5 +532,6 @@ function main() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  acquireHeavySlot("script-battery");
   main();
 }

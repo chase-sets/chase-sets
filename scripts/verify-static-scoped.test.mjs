@@ -86,14 +86,14 @@ describe("verify:static surface-map derivation", () => {
     const chain = currentChain();
     const completeness = verifyStaticSurfaceMapCompleteness(chain);
 
-    expect(chain).toHaveLength(30);
+    expect(chain).toHaveLength(31);
     expect(completeness).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === MAY_NARROW),
     ).toHaveLength(19);
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === ALWAYS_RUN),
-    ).toHaveLength(11);
+    ).toHaveLength(12);
     for (const entry of Object.values(VERIFY_STATIC_SURFACES)) {
       expect(entry.evidence.length).toBeGreaterThan(0);
       expect(entry.rule).toBeTruthy();
