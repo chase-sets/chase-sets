@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -144,6 +145,367 @@ function listBoundedContexts(workspaces) {
       };
     })
     .sort((left, right) => left.contextName.localeCompare(right.contextName));
+}
+
+const localizationRoot = "contracts/localization/locales";
+const englishLocaleRoot = `${localizationRoot}/en`;
+
+function gitErrorMessage(error) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+export function listTrackedLocaleModulePaths(rootDir, options = {}) {
+  const execGit = options.execGit ?? execFileSync;
+  let output;
+
+  try {
+    output = execGit("git", ["ls-files", "--", localizationRoot], {
+      cwd: rootDir,
+      encoding: "utf8",
+    });
+  } catch (error) {
+    throw new Error(`Failed to discover tracked localization modules with git ls-files: ${gitErrorMessage(error)}`);
+  }
+
+  const trackedPaths = String(output)
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(normalizePath)
+    .filter((filePath) => filePath.endsWith(".ts"))
+    .sort((left, right) => left.localeCompare(right));
+
+  if (trackedPaths.length === 0) {
+    throw new Error(`Git discovery returned no tracked localization TypeScript modules under ${localizationRoot}.`);
+  }
+
+  return trackedPaths;
+}
+
+function unwrapExpression(expression) {
+  let current = expression;
+
+  while (
+    ts.isAsExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current)
+  ) {
+    current = current.expression;
+  }
+
+  return current;
+}
+
+function staticPropertyName(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrapExpression(name.expression);
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+      return expression.text;
+    }
+  }
+
+  return null;
+}
+
+function staticCatalogKeys(initializer) {
+  const expression = unwrapExpression(initializer);
+  if (!ts.isObjectLiteralExpression(expression) || expression.properties.length === 0) {
+    return null;
+  }
+
+  const keys = [];
+  for (const property of expression.properties) {
+    if (!ts.isPropertyAssignment(property)) {
+      return null;
+    }
+
+    const key = staticPropertyName(property.name);
+    if (key === null) {
+      return null;
+    }
+    keys.push(key);
+  }
+
+  return keys;
+}
+
+function hasExportModifier(node) {
+  return ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+}
+
+export function analyzeLocaleCatalogModule({ filePath, ownerLabel, source }) {
+  const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const catalogDeclarations = new Map();
+  const exportedNames = new Map();
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+          continue;
+        }
+
+        const keys = staticCatalogKeys(declaration.initializer);
+        if (keys !== null) {
+          catalogDeclarations.set(declaration.name.text, keys);
+          if (hasExportModifier(statement)) {
+            exportedNames.set(declaration.name.text, declaration.name.text);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement) && !statement.moduleSpecifier && statement.exportClause) {
+      if (!ts.isNamedExports(statement.exportClause)) {
+        continue;
+      }
+
+      for (const element of statement.exportClause.elements) {
+        exportedNames.set(element.propertyName?.text ?? element.name.text, element.name.text);
+      }
+    }
+  }
+
+  const candidates = [...catalogDeclarations.entries()]
+    .filter(([localName]) => exportedNames.has(localName))
+    .map(([localName, keys]) => ({
+      exportName: exportedNames.get(localName),
+      keys,
+    }));
+
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Localization module "${filePath}" must export exactly one statically keyed catalog object; found ${candidates.length}.`,
+    );
+  }
+
+  return {
+    filePath,
+    ownerLabel,
+    exportName: candidates[0].exportName,
+    keys: candidates[0].keys,
+  };
+}
+
+export function assertNoLocaleCatalogKeyCollisions(modules) {
+  const ownersByKey = new Map();
+
+  for (const module of modules) {
+    for (const key of module.keys) {
+      const previous = ownersByKey.get(key);
+      if (previous) {
+        throw new Error(
+          `Duplicate localization key "${key}" in "${previous.filePath}" (owner: ${previous.ownerLabel}) and "${module.filePath}" (owner: ${module.ownerLabel}).`,
+        );
+      }
+      ownersByKey.set(key, module);
+    }
+  }
+}
+
+function localeOutputExportName(outputPath) {
+  if (outputPath === `${englishLocaleRoot}.ts`) {
+    return "englishTranslations";
+  }
+
+  const namespacePath = outputPath.slice(`${englishLocaleRoot}/`.length, -".ts".length);
+  return `${toIdentifier(namespacePath)}EnglishTranslations`;
+}
+
+function buildLocaleCatalogOwnership(contexts, knownModulePaths) {
+  const declarations = new Map();
+
+  for (const context of contexts) {
+    if (!Object.hasOwn(context.manifest, "localeCatalogs")) {
+      continue;
+    }
+
+    if (
+      !Array.isArray(context.manifest.localeCatalogs) ||
+      context.manifest.localeCatalogs.some((entry) => typeof entry !== "string")
+    ) {
+      throw new Error(
+        `Invalid localeCatalogs in ${normalizePath(context.manifestPath)}: expected an array of tracked module paths.`,
+      );
+    }
+
+    for (const entry of context.manifest.localeCatalogs) {
+      const modulePath = normalizePath(entry).replace(/^\.\//, "");
+      if (!knownModulePaths.has(modulePath)) {
+        throw new Error(
+          `Invalid localeCatalogs entry "${entry}" in ${normalizePath(context.manifestPath)}: no tracked or generated locale module exists at that path.`,
+        );
+      }
+
+      const previous = declarations.get(modulePath);
+      if (previous) {
+        throw new Error(
+          `Locale catalog "${modulePath}" is declared by both ${previous.manifestPath} and ${normalizePath(context.manifestPath)}.`,
+        );
+      }
+
+      declarations.set(modulePath, {
+        contextName: context.contextName,
+        manifestPath: normalizePath(context.manifestPath),
+      });
+    }
+  }
+
+  return declarations;
+}
+
+function localeModuleOwnerLabel(filePath, ownershipDeclarations) {
+  let candidate = filePath;
+
+  while (candidate.startsWith(`${englishLocaleRoot}/`)) {
+    const owner = ownershipDeclarations.get(candidate);
+    if (owner) {
+      return `${owner.contextName} via ${owner.manifestPath}`;
+    }
+
+    const parentDirectory = normalizePath(path.posix.dirname(candidate));
+    if (parentDirectory === englishLocaleRoot) {
+      break;
+    }
+    candidate = `${parentDirectory}.ts`;
+  }
+
+  return filePath;
+}
+
+function buildLocaleMergeContent(outputPath, members, rootDir) {
+  const outputAbsolutePath = path.resolve(rootDir, outputPath);
+  const imports = members.map(
+    (member) =>
+      `import { ${member.exportName} } from "${normalizeImportPath(outputAbsolutePath, path.resolve(rootDir, member.filePath)).replace(/\.ts$/, "")}";`,
+  );
+  const spreads = members.map((member) => `  ...${member.exportName},`);
+  const exportName = localeOutputExportName(outputPath);
+  const keyType =
+    outputPath === `${englishLocaleRoot}.ts`
+      ? `\nexport type EnglishTranslationKey = keyof typeof ${exportName};\n`
+      : "";
+
+  return `${generatedRegistryComment}
+${imports.join("\n")}
+
+export const ${exportName} = {
+${spreads.join("\n")}
+} as const;
+${keyType}`;
+}
+
+function buildLocaleCatalogPlan(contexts, trackedModulePaths, rootDir) {
+  const englishTrackedPaths = trackedModulePaths.filter(
+    (filePath) => filePath === `${englishLocaleRoot}.ts` || filePath.startsWith(`${englishLocaleRoot}/`),
+  );
+  const unsupportedPaths = trackedModulePaths.filter((filePath) => !englishTrackedPaths.includes(filePath));
+
+  if (unsupportedPaths.length > 0) {
+    throw new Error(
+      `Tracked localization modules are outside the supported English tree: ${unsupportedPaths.join(", ")}.`,
+    );
+  }
+
+  if (englishTrackedPaths.length === 0) {
+    throw new Error(`Git discovery found no tracked English modules under ${englishLocaleRoot}.`);
+  }
+
+  const namespaceDirectories = new Set(
+    englishTrackedPaths
+      .filter((filePath) => filePath.startsWith(`${englishLocaleRoot}/`))
+      .flatMap((filePath) => {
+        const directories = [];
+        let directory = normalizePath(path.posix.dirname(filePath));
+        while (directory.startsWith(englishLocaleRoot)) {
+          directories.push(directory);
+          if (directory === englishLocaleRoot) {
+            break;
+          }
+          directory = normalizePath(path.posix.dirname(directory));
+        }
+        return directories;
+      }),
+  );
+  const outputPaths = [...namespaceDirectories]
+    .map((directory) => `${directory}.ts`)
+    .sort((left, right) => left.localeCompare(right));
+  const outputPathSet = new Set(outputPaths);
+  for (const outputPath of outputPaths.filter((candidate) => englishTrackedPaths.includes(candidate))) {
+    const currentContent = readFileSync(path.join(rootDir, outputPath), "utf8");
+    if (!currentContent.startsWith(generatedRegistryComment)) {
+      throw new Error(
+        `Tracked localization merge "${outputPath}" is not a generated artifact; refusing to overwrite it.`,
+      );
+    }
+  }
+  const leafPaths = englishTrackedPaths.filter((filePath) => !outputPathSet.has(filePath));
+  const knownModulePaths = new Set([...trackedModulePaths, ...outputPaths]);
+  const ownershipDeclarations = buildLocaleCatalogOwnership(contexts, knownModulePaths);
+  const leafModules = leafPaths.map((filePath) => {
+    let source;
+    try {
+      source = readFileSync(path.join(rootDir, filePath), "utf8");
+    } catch (error) {
+      throw new Error(`Failed to read tracked localization module "${filePath}": ${gitErrorMessage(error)}`);
+    }
+
+    return analyzeLocaleCatalogModule({
+      filePath,
+      ownerLabel: localeModuleOwnerLabel(filePath, ownershipDeclarations),
+      source,
+    });
+  });
+
+  assertNoLocaleCatalogKeyCollisions(leafModules);
+
+  const outputs = outputPaths.map((outputPath) => {
+    const namespaceDirectory = outputPath.slice(0, -".ts".length);
+    const members = [
+      ...leafModules.filter((module) => path.posix.dirname(module.filePath) === namespaceDirectory),
+      ...outputPaths
+        .filter(
+          (candidate) =>
+            candidate !== outputPath &&
+            path.posix.dirname(candidate) === namespaceDirectory &&
+            candidate.slice(0, -".ts".length).startsWith(`${namespaceDirectory}/`),
+        )
+        .map((candidate) => ({
+          exportName: localeOutputExportName(candidate),
+          filePath: candidate,
+        })),
+    ].sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+    if (members.length === 0) {
+      throw new Error(`Generated localization merge "${outputPath}" has no discovered members.`);
+    }
+
+    return {
+      outputPath,
+      content: buildLocaleMergeContent(outputPath, members, rootDir),
+    };
+  });
+
+  return {
+    leafModules,
+    outputs,
+    stats: {
+      scanned: leafModules.length,
+      total: trackedModulePaths.length,
+      generated: outputs.length,
+      explicitlyExcluded: 0,
+    },
+  };
 }
 
 function toIdentifier(value) {
@@ -327,6 +689,25 @@ function syncDeployableRegistries(workspaces, options) {
   }
 }
 
+function syncLocaleCatalogs(workspaces, options) {
+  const { check, drift, rootDir } = options;
+  const trackedModulePaths =
+    options.trackedLocaleFiles ?? listTrackedLocaleModulePaths(rootDir, { execGit: options.execGit });
+  const contexts = listBoundedContexts(workspaces);
+  const plan = buildLocaleCatalogPlan(contexts, trackedModulePaths, rootDir);
+
+  for (const output of plan.outputs) {
+    const outputPath = path.join(rootDir, output.outputPath);
+    if (check) {
+      checkExpectedFile(outputPath, output.content, drift, rootDir);
+    } else {
+      writeFileEnsured(outputPath, output.content);
+    }
+  }
+
+  return plan.stats;
+}
+
 function buildEventCorePostgresSchemaContent(schemaSql) {
   return `${generatedSchemaComment}export const eventCorePostgresSchemaSql =\n  ${JSON.stringify(
     normalizeLineEndings(schemaSql),
@@ -369,6 +750,13 @@ export function syncWorkspaceMetadata(options = {}) {
   const workspaces = options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir });
   const drift = [];
 
+  const localeCatalogs = syncLocaleCatalogs(workspaces, {
+    check,
+    drift,
+    rootDir,
+    trackedLocaleFiles: options.trackedLocaleFiles,
+    execGit: options.execGit,
+  });
   syncTsconfigBase(workspaces, { check, drift, rootDir });
   syncDeployableRegistries(workspaces, { check, drift, rootDir });
   syncEventCorePostgresSchema({ check, drift, rootDir });
@@ -383,7 +771,7 @@ export function syncWorkspaceMetadata(options = {}) {
     );
   }
 
-  return { checked: check, drift };
+  return { checked: check, drift, localeCatalogs };
 }
 
 function parseArgs(args) {
@@ -401,6 +789,9 @@ function parseArgs(args) {
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const result = syncWorkspaceMetadata(options);
+  console.log(
+    `Localization catalog discovery: scanned=${result.localeCatalogs.scanned}/${result.localeCatalogs.total}; generated=${result.localeCatalogs.generated}; explicitly-excluded=${result.localeCatalogs.explicitlyExcluded}.`,
+  );
   console.log(result.checked ? "Workspace metadata is current." : "Workspace metadata synchronized.");
 }
 

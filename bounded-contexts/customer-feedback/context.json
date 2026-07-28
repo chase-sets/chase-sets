@@ -1,6 +1,7 @@
 {
   "contextName": "customer-feedback",
   "packageName": "@chase-sets/customer-feedback",
+  "localeCatalogs": ["contracts/localization/locales/en/customer-feedback.ts"],
   "ownedNouns": [
     "customer-satisfaction",
     "csat-survey",

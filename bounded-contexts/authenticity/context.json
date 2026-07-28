@@ -1,6 +1,7 @@
 {
   "contextName": "authenticity",
   "packageName": "@chase-sets/authenticity",
+  "localeCatalogs": ["contracts/localization/locales/en/authenticity.ts"],
   "ownedNouns": ["authenticity-case"],
   "streamPrefix": "authenticity.",
   "apiBasePath": "/api/authenticity",

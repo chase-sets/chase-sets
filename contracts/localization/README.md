@@ -5,7 +5,8 @@ Chase Sets launches with English only, but user-facing copy must go through the 
 ## Runtime
 
 - Shared localization primitives live in `contracts/localization`.
-- English copy is split by owning context under `contracts/localization/locales/en/<context>.ts` (for example `en/checkout.ts`, `en/payments.ts`). `contracts/localization/locales/en.ts` imports every per-context file and spreads them into one `englishTranslations` catalog; it holds no copy of its own. Catalog is large enough that its own file, `en/catalog.ts`, does the same merge one level down from per-slice files under `en/catalog/` (`en/catalog/blueprints.ts`, `en/catalog/catalog-items.ts`, and so on).
+- English copy is split by owning context under `contracts/localization/locales/en/<context>.ts` (for example `en/checkout.ts`, `en/payments.ts`). The committed merge modules at `contracts/localization/locales/en.ts` and `en/catalog.ts` are generated from tracked modules discovered with `git ls-files`; they hold no copy of their own. A namespace directory produces its matching merge module, so Catalog's files under `en/catalog/` feed `en/catalog.ts`, which then feeds the root English catalog. Cross-module duplicate keys fail generation with both owning modules named.
+- A bounded context can label its owned merge member with the optional `localeCatalogs` array in `context.json`; declarations never determine membership. The `admin-web`, `experience`, `localization`, `reputation`, and `support` namespaces have no single matching bounded-context owner, so collision diagnostics fall back to their tracked module paths.
 - Import `t` from `@chase-sets/localization` anywhere user-facing text is composed:
 
 ```ts
@@ -33,7 +34,7 @@ Callers that need telemetry can create a translator with `createTranslator({ onM
 
 ## Adding Copy
 
-1. Add the English value to the owning context's file under `contracts/localization/locales/en/` (for example `en/checkout.ts`), or the matching per-slice file under `en/catalog/` for Catalog keys. Do not add copy directly to the merge files `en.ts` or `en/catalog.ts`.
+1. Add the English value to the owning context's file under `contracts/localization/locales/en/` (for example `en/checkout.ts`), or the matching per-slice file under `en/catalog/` for Catalog keys. For a new English namespace, add and track its module and declare it in the owning context's optional `localeCatalogs` array when one owner exists. The `./locales/en/*` package export resolves new namespace subpaths without another manifest edit. Do not edit the generated merge files `en.ts` or `en/catalog.ts`; run `pnpm run sync:workspace-metadata` after adding, removing, or renaming a tracked module.
 2. Use a namespaced key that follows ownership:
    - `checkout.features.cart.ui.cartPage.check.out`
    - `catalog.support.shellSupport.ui.lifecycleControls.cancel`
@@ -43,7 +44,7 @@ Callers that need telemetry can create a translator with `createTranslator({ onM
 
 ## Adding Locales
 
-1. Add a locale file beside `locales/en.ts`.
+1. Extend the committed-artifact generator for the locale and add its root file beside `locales/en.ts`.
 2. Add the locale code to `supportedLocales` and `translationCatalogs` in `contracts/localization/index.ts`.
 3. Keep every locale file key-complete with English, including the same `{placeholder}` token names.
 4. Update app locale resolution when a user or operator locale preference exists. Until then, `defaultLocale` is `en`.

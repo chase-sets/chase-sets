@@ -935,6 +935,10 @@ async function loadContextManifests() {
       );
     }
 
+    if ("localeCatalogs" in manifest && !isStringArray(manifest.localeCatalogs)) {
+      addPathViolation(`${relativeRoot}/context.json`, "localeCatalogs must be an array of strings when provided");
+    }
+
     if (!isStringArray(manifest.publicExports)) {
       addPathViolation(`${relativeRoot}/context.json`, "publicExports must be an array of strings");
     }

@@ -1,6 +1,7 @@
 {
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
+  "localeCatalogs": ["contracts/localization/locales/en/ordering.ts"],
   "ownedNouns": ["order", "postage-policy", "tax quote", "tax nexus readiness"],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",

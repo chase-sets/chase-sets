@@ -1,6 +1,7 @@
 {
   "contextName": "commercial-terms",
   "packageName": "@chase-sets/commercial-terms",
+  "localeCatalogs": ["contracts/localization/locales/en/commercial-terms.ts"],
   "ownedNouns": [
     "commercial-terms-schedule",
     "commercial-agreement",

@@ -1,6 +1,7 @@
 {
   "contextName": "checkout",
   "packageName": "@chase-sets/checkout",
+  "localeCatalogs": ["contracts/localization/locales/en/checkout.ts"],
   "ownedNouns": ["cart", "sell list", "checkout session"],
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",

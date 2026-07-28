@@ -1,6 +1,7 @@
 {
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
+  "localeCatalogs": ["contracts/localization/locales/en/payments.ts"],
   "ownedNouns": ["payment", "refund"],
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",

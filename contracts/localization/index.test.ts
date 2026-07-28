@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EnglishTranslationKey } from "./locales/en";
 import {
   createTranslator,
   coerceLocalizedTextMap,
@@ -12,6 +13,12 @@ import {
   supportedLocales,
   translationCatalogs,
 } from "./index";
+
+const knownEnglishTranslationKey: EnglishTranslationKey = "localization.testGreeting";
+// @ts-expect-error EnglishTranslationKey must remain a literal union.
+const bogusEnglishTranslationKey: EnglishTranslationKey = "not.a.real.translation.key";
+void knownEnglishTranslationKey;
+void bogusEnglishTranslationKey;
 
 function interpolationTokens(value: string) {
   return [...value.matchAll(/\{([A-Za-z0-9_.-]+)\}/g)].map((match) => match[1]).sort();

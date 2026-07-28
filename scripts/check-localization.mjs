@@ -1,11 +1,13 @@
 import ts from "@chase-sets/typescript-compiler-api";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { repoRoot } from "./lib/repo.mjs";
+import { listTrackedLocaleModulePaths } from "./sync-workspace-metadata.mjs";
 
-const englishFilePaths = [
-  "contracts/localization/locales/en.ts",
-  ...walkLocalizationFiles("contracts/localization/locales/en"),
-];
+const englishFilePaths = listTrackedLocaleModulePaths(repoRoot).filter(
+  (filePath) =>
+    filePath === "contracts/localization/locales/en.ts" || filePath.startsWith("contracts/localization/locales/en/"),
+);
 const englishKeys = new Set(
   englishFilePaths.flatMap((filePath) =>
     [...fs.readFileSync(filePath, "utf8").matchAll(/^  "([^"]+)":/gm)].map((match) => match[1]),
@@ -99,18 +101,6 @@ if (violations.length > 0) {
 }
 
 console.log(`Localization check passed for ${files.length} source files.`);
-
-function walkLocalizationFiles(directory) {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = `${directory}/${entry.name}`;
-
-    if (entry.isDirectory()) {
-      return walkLocalizationFiles(entryPath);
-    }
-
-    return entry.isFile() && entry.name.endsWith(".ts") ? [entryPath] : [];
-  });
-}
 
 function isCheckedSourceFile(file) {
   const normalized = file.replaceAll("\\", "/");

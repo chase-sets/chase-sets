@@ -1,6 +1,7 @@
 {
   "contextName": "catalog",
   "packageName": "@chase-sets/catalog",
+  "localeCatalogs": ["contracts/localization/locales/en/catalog.ts"],
   "ownedNouns": [
     "catalog-item",
     "category",

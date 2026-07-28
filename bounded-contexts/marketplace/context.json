@@ -1,6 +1,7 @@
 {
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
+  "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
     "listing",
     "listing-evidence-policy",

@@ -480,8 +480,8 @@
       "@chase-sets/localization/locales/en": [
         "./contracts/localization/locales/en.ts"
       ],
-      "@chase-sets/localization/locales/en/public-presence": [
-        "./contracts/localization/locales/en/public-presence.ts"
+      "@chase-sets/localization/locales/en/*": [
+        "./contracts/localization/locales/en/*.ts"
       ],
       "@chase-sets/market-estimate-display": [
         "./contracts/market-estimate-display/index.ts"
