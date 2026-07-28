@@ -690,8 +690,15 @@ async function appendPersonalIdentityRegistration(
   // itself: the context check the handler performs, and the command check the
   // authorized decider performs. Recording Consent through the unauthorized
   // decider would silently reopen the write-authorization boundary.
-  const consentAuthorization = authorizeConsentForSelfRegistration(userId, accountId);
-  assertConsentAuthorizationForContext(consentAuthorization, params.context);
+  //
+  // Reached on exactly the requests that record Consent, which is what the
+  // runtime handler does too. Asserting it on a bundle with no requirements
+  // would reject registrations that record no Consent at all and therefore
+  // never had a write to authorize.
+  const consentAuthorization = consents.length > 0 ? authorizeConsentForSelfRegistration(userId, accountId) : null;
+  if (consentAuthorization) {
+    assertConsentAuthorizationForContext(consentAuthorization, params.context);
+  }
 
   // Each Consent is recorded at exactly the policy key and version carried in
   // the verified resolution, in its signed order. Never from raw client input,
@@ -700,7 +707,7 @@ async function appendPersonalIdentityRegistration(
   const consentPlans = consents.map(({ consent, participant }) => {
     let consentState = participant.state;
     const consentEvents: ConsentEvent[] = [];
-    if (consentState.id === null) {
+    if (consentState.id === null && consentAuthorization) {
       const recorded = decideAuthorizedConsent(consentState, {
         command: {
           type: "RecordConsent",
