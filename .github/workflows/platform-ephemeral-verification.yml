@@ -175,9 +175,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "image=${HANDOFF_IMAGE}" >> "$GITHUB_OUTPUT"
-            echo "image_repository=${HANDOFF_IMAGE}" >> "$GITHUB_OUTPUT"
-            echo "digest=${HANDOFF_DIGEST}" >> "$GITHUB_OUTPUT"
+            {
+              echo "image=${HANDOFF_IMAGE}"
+              echo "image_repository=${HANDOFF_IMAGE}"
+              echo "digest=${HANDOFF_DIGEST}"
+            } >> "$GITHUB_OUTPUT"
             echo "Resolved validated immutable release image ${HANDOFF_IMAGE}@${HANDOFF_DIGEST}."
             exit 0
           fi
@@ -202,9 +204,11 @@ jobs:
             echo "Promoted release image ${image} did not resolve to an immutable sha256 digest (got '${digest}')." >&2
             exit 1
           fi
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          echo "image_repository=${image_repository}" >> "$GITHUB_OUTPUT"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          {
+            echo "image=${image}"
+            echo "image_repository=${image_repository}"
+            echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved immutable release image ${image}@${digest}."
 
       - name: Configure verification Kubernetes context
