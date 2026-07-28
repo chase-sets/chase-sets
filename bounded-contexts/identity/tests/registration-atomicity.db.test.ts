@@ -324,8 +324,38 @@ describeDb("registration atomicity and convergence", () => {
       expect(state.users, `iteration ${iteration}`).toHaveLength(1);
       expect(state.memberships, `iteration ${iteration}`).toHaveLength(1);
       expect(state.consents, `iteration ${iteration}`).toHaveLength(BUNDLE.length);
-      expect(state.reservations, `iteration ${iteration}`).toHaveLength(1);
+      expect(state.reservations, `iteration ${iteration}`).toEqual([
+        { display_name_key: "pokebash tcg", account_id: left.body.accountId as string },
+      ]);
     }
+  });
+
+  it("leaves no reservation behind when concurrent attempts propose different display names", async () => {
+    const harness = createHarness();
+
+    // Same contact, so the same operation -- but two callers derived different
+    // display names for it. Exactly one wins; the loser adopts the winner's
+    // account and must not keep holding the name it proposed.
+    const [left, right] = await Promise.all([
+      register(harness, { displayName: "PokeBash TCG" }),
+      register(harness, { displayName: "PokeBash Trading" }),
+    ]);
+
+    expect(left.status).toBe(201);
+    expect(right.status).toBe(201);
+    expect(right.body.accountId).toBe(left.body.accountId);
+
+    const state = await postState(harness);
+    expect(state.accounts).toHaveLength(1);
+    expect(state.reservations, "the losing attempt's display name must be released").toHaveLength(1);
+    expect(state.reservations[0].account_id).toBe(left.body.accountId);
+
+    // The name the loser proposed is free for an unrelated registration.
+    const other = await register(harness, {
+      email: "other@pokebash.example",
+      displayName: state.reservations[0].display_name_key === "pokebash tcg" ? "PokeBash Trading" : "PokeBash TCG",
+    });
+    expect(other.status).toBe(201);
   });
 
   it("keeps registrations for different contacts fully independent", async () => {

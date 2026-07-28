@@ -279,14 +279,19 @@ async function reclaimStrandedDisplayNameReservation(
 }
 
 /**
- * Drop this operation's own reservation after an attempt that committed
+ * Drop the reservation this attempt took, once it is known to have committed
  * nothing, so a failed registration leaves the table exactly as it found it.
  *
- * Guarded three ways -- the operation, the account it minted, and a re-read of
- * the claim -- because a concurrent attempt for the same operation may have
- * won in the meantime, and deleting the winner's row would strand its name.
+ * The account it minted is the discriminator. Two attempts for one operation
+ * share an operation key, so the key alone cannot tell this attempt's row from
+ * a concurrent winner's -- and the winner's row must survive, or its committed
+ * account loses its display name. A row whose account is the claimed account is
+ * therefore left alone; anything else belonged to an attempt that committed
+ * nothing, including a losing attempt that reserved a different display name
+ * before adopting the winner's.
+ *
  * Best effort by construction: if it fails, the row is still bound to this
- * operation and a retry still reclaims it.
+ * operation and a retry of it still reclaims it.
  */
 async function releaseUnclaimedDisplayNameReservation(
   services: IdentityServices,
@@ -304,7 +309,8 @@ async function releaseUnclaimedDisplayNameReservation(
   }
 
   try {
-    if (await readRegistrationOperationClaim(eventStore, params.operationStreamId)) {
+    const claimed = await readRegistrationOperationClaim(eventStore, params.operationStreamId);
+    if (claimed?.claim.accountId === params.accountId) {
       return;
     }
 
@@ -520,6 +526,18 @@ async function createPersonalIdentityForAuth(
         phone,
       });
     } catch (error) {
+      // Whichever way this attempt ends, it committed nothing, so the
+      // reservation it took has to go before anything else happens. The loser
+      // of a claim race may have reserved a different display name than the
+      // winner settled on, and that row would otherwise hold a name forever on
+      // behalf of an account that never existed.
+      await releaseUnclaimedDisplayNameReservation(services, eventStore, {
+        accountId: identity.accountId,
+        displayName: identity.displayName,
+        operationStreamId: operation.streamId,
+        operationKey: operation.key,
+      });
+
       // The loser of the claim race rolled back every stream in its batch,
       // including the ones it would have created. The next pass re-reads the
       // committed claim, adopts the winner's ids, and returns the winner's
@@ -528,12 +546,6 @@ async function createPersonalIdentityForAuth(
         continue;
       }
 
-      await releaseUnclaimedDisplayNameReservation(services, eventStore, {
-        accountId: identity.accountId,
-        displayName: identity.displayName,
-        operationStreamId: operation.streamId,
-        operationKey: operation.key,
-      });
       throw error;
     }
   }
