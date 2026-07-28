@@ -210,6 +210,13 @@
       "reason": "This API snapshot fixture verifies the membership mutation returned by invitation acceptance for an existing user."
     },
     {
+      "path": "bounded-contexts/identity/tests/internal-auth-routes.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This internal-route assertion pins the exact account command personal registration composes, by comparing the appended account event against the Account decider's output for that literal."
+    },
+    {
       "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
       "command": "CreateAccount",
       "occurrences": 1,
