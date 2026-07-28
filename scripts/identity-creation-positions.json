@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "positions": [
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "bound",
+      "reason": "The personal-identity constructor verifies the required server-minted registration consent submission before this account command can run.",
+      "composition": "personal-identity-registration"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Guest checkout creates the account member of its owned-identity composition without a personal registration surface; counsel owns whether that composition requires registration consent.",
+      "ownerIssue": 5684,
+      "composition": "guest-checkout-account-claim"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "bound",
+      "reason": "The personal-identity constructor verifies the required server-minted registration consent submission before this user command can run.",
+      "composition": "personal-identity-registration"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Guest checkout creates the user member of its owned-identity composition without a personal registration surface; counsel owns whether that composition requires registration consent.",
+      "ownerIssue": 5684,
+      "composition": "guest-checkout-account-claim"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "bound",
+      "reason": "The personal-identity constructor verifies the required server-minted registration consent submission before this owner-membership command can run.",
+      "composition": "personal-identity-registration"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Guest checkout grants the membership member of its owned-identity composition without a personal registration surface; counsel owns whether that composition requires registration consent.",
+      "ownerIssue": 5684,
+      "composition": "guest-checkout-account-claim"
+    },
+    {
+      "path": "bounded-contexts/identity/api.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "Invitation acceptance grants an existing user membership in an existing account and does not create a new identity.",
+      "composition": "invitation-acceptance"
+    },
+    {
+      "path": "bounded-contexts/identity/features/accounts/api/route.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "This permission-guarded Identity administration route creates an account for an operator and is not a personal registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/accounts/domain/domain.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 7,
+      "disposition": "test-fixture",
+      "reason": "These fixtures drive the Account decider directly to verify command-to-event behavior without a transport or registration subject."
+    },
+    {
+      "path": "bounded-contexts/identity/features/accounts/domain/domain.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "domain-declaration",
+      "reason": "This is the authoritative Account command declaration from which the guard derives the CreateAccount token."
+    },
+    {
+      "path": "bounded-contexts/identity/features/memberships/api/route.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "This permission-guarded administration route grants membership to an existing user and account and creates no identity."
+    },
+    {
+      "path": "bounded-contexts/identity/features/memberships/domain/domain.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 5,
+      "disposition": "test-fixture",
+      "reason": "These fixtures drive the Membership decider directly to verify command-to-event behavior without a transport or registration subject."
+    },
+    {
+      "path": "bounded-contexts/identity/features/memberships/domain/domain.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "domain-declaration",
+      "reason": "This is the authoritative Membership command declaration from which the guard derives the GrantMembership token."
+    },
+    {
+      "path": "bounded-contexts/identity/features/users/api/route.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "This permission-guarded Identity administration route creates a user for an operator and is not a personal registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/users/domain/domain.test.ts",
+      "command": "CreateUser",
+      "occurrences": 2,
+      "disposition": "test-fixture",
+      "reason": "These fixtures drive the User decider directly to verify command-to-event behavior without a transport or registration subject."
+    },
+    {
+      "path": "bounded-contexts/identity/features/users/domain/domain.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "domain-declaration",
+      "reason": "This is the authoritative User command declaration from which the guard derives the CreateUser token."
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "The admin-QA fixture provisions an account and records consent directly; it must migrate when the consent bundle defines the operator surface.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "The admin-QA fixture provisions a user and records consent directly; it must migrate when the consent bundle defines the operator surface.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "The admin-QA fixture grants the provisioned actor membership and records consent directly; it must migrate with the owned fixture composition.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Production bootstrap provisions the platform-admin account without a human registration moment; the future operator-acceptance surface owns reassessment.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Production bootstrap provisions the platform-admin user without a human registration moment; the future operator-acceptance surface owns reassessment.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-temporary",
+      "reason": "Production bootstrap grants platform-admin membership without a human registration moment; the future operator-acceptance surface owns reassessment.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "command": "CreateAccount",
+      "occurrences": 6,
+      "disposition": "exempt-temporary",
+      "reason": "Development and scenario seeding creates non-production accounts and records consent directly; it must migrate with the consent bundle.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "command": "CreateUser",
+      "occurrences": 6,
+      "disposition": "exempt-temporary",
+      "reason": "Development and scenario seeding creates non-production users and records consent directly; it must migrate with the consent bundle.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "command": "GrantMembership",
+      "occurrences": 6,
+      "disposition": "exempt-temporary",
+      "reason": "Development and scenario seeding grants non-production memberships and records consent directly; it must migrate with the consent bundle.",
+      "ownerIssue": 5684
+    },
+    {
+      "path": "bounded-contexts/identity/tests/admin-qa-actor-fixtures.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 2,
+      "disposition": "test-fixture",
+      "reason": "These assertions inspect the concrete membership commands emitted by the admin-QA fixture composition."
+    },
+    {
+      "path": "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This API snapshot fixture verifies the membership mutation returned by invitation acceptance for an existing user."
+    },
+    {
+      "path": "bounded-contexts/identity/tests/internal-auth-routes.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This internal-route assertion verifies that personal registration emits the expected account command after consent verification."
+    },
+    {
+      "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This database fixture seeds an existing account aggregate so production bootstrap reconciliation has authoritative state to inspect."
+    },
+    {
+      "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This database fixture seeds an existing user aggregate so production bootstrap reconciliation has authoritative state to inspect."
+    }
+  ]
+}
