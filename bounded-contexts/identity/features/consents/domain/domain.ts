@@ -1,6 +1,10 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assert, assertNever, type ConsentSubjectType } from "../../../support/runtime-support/common";
+import {
+  assertConsentCommandAuthorization,
+  type ConsentRecordingAuthorization,
+} from "./consent-recording-authorization";
 
 export type ConsentState = Readonly<{
   id: ConsentId | null;
@@ -43,6 +47,11 @@ export type WithdrawConsentCommand = Readonly<{
 }>;
 
 export type ConsentCommand = RecordConsentCommand | WithdrawConsentCommand;
+
+export type AuthorizedConsentCommand = Readonly<{
+  command: ConsentCommand;
+  authorization: ConsentRecordingAuthorization;
+}>;
 
 export type ConsentRecordedEvent = DomainEvent<
   "identity.consent.recorded",
@@ -116,6 +125,14 @@ export const decideConsent: AggregateDecider<ConsentState, ConsentCommand, Conse
     default:
       return assertNever(command);
   }
+};
+
+export const decideAuthorizedConsent: AggregateDecider<ConsentState, AuthorizedConsentCommand, ConsentEvent> = (
+  state,
+  input,
+) => {
+  assertConsentCommandAuthorization(state, input.command, input.authorization);
+  return decideConsent(state, input.command);
 };
 
 export const evolveConsent: AggregateEvolver<ConsentState, ConsentEvent> = (state, event) => {

@@ -330,6 +330,18 @@ Notes:
 - Consents must be auditable.
 - A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
+### Consent Recording Authorization
+
+A **Consent Recording Authorization** is the trusted, explicit admission value that binds a Consent recording or withdrawal to the authoritative request identity.
+
+Notes:
+
+- The authorization is never derived from the Consent command.
+- The authorized-actor form is derived from the request audit User and Account.
+- Self-registration can authorize only the User and Account identifiers minted by that registration while running as the Identity bootstrap principal.
+- Provisioning can authorize only its explicitly selected User and Account while running as the Identity bootstrap principal.
+- Shared guest-checkout and Identity bootstrap principals are never Consent subjects.
+
 ### Consent Activation Authority
 
 A **Consent Activation Authority** is the single event-sourced answer to "is this consent-capable policy key activated, at which version, and what token guards that answer". There is exactly one per policy key, and its identity is derived from the policy key alone — so it exists, and can be guarded against, before the key has ever been activated.

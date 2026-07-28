@@ -1,4 +1,5 @@
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import type { IdentityServices } from "./services";
@@ -256,6 +257,7 @@ async function provisionAdminQaActorFixture(
         recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
       },
       context,
+      authorization: authorizeConsentForProvisioning(fixture.userId, fixture.accountId),
     });
     createdConsent = true;
   }

@@ -5,6 +5,10 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import {
+  authorizeConsentForActor,
+  ConsentRecordingAuthorizationError,
+} from "../domain/consent-recording-authorization";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
 import { resolveTermsAcceptanceStatus } from "../read-model/terms-acceptance";
 import type { ConsentServices } from "./runtime";
@@ -74,20 +78,28 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
     }
 
     const consentId = createId("cns");
-    await deps.consents.commandHandler({
-      streamId: `identity.consent-${consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId,
-        subjectType: "user",
-        userId: actor.userId as UserId,
-        accountId: actor.accountId as AccountId,
-        policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-        policyVersion: before.requiredVersion,
-        recordedAt: new Date().toISOString(),
-      },
-      context,
-    });
+    try {
+      await deps.consents.commandHandler({
+        streamId: `identity.consent-${consentId}`,
+        command: {
+          type: "RecordConsent",
+          consentId,
+          subjectType: "user",
+          userId: actor.userId as UserId,
+          accountId: actor.accountId as AccountId,
+          policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+          policyVersion: before.requiredVersion,
+          recordedAt: new Date().toISOString(),
+        },
+        context,
+        authorization: authorizeConsentForActor(context),
+      });
+    } catch (error) {
+      if (error instanceof ConsentRecordingAuthorizationError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 403);
+      }
+      throw error;
+    }
 
     const after = await resolveTermsAcceptanceStatus(deps.db, deps.policies, {
       userId: actor.userId,

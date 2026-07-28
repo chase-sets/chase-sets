@@ -3,8 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/consents/api/consent-recording-authorization.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/consents/api/consent-recording-authorization.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {

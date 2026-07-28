@@ -24,6 +24,7 @@ import { validateInvitationAcceptanceToken } from "./features/invitations/domain
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
+import { authorizeConsentForSelfRegistration } from "./features/consents/domain/consent-recording-authorization";
 import {
   mintRegistrationConsentResolution,
   resolveRegistrationConsentRequirements,
@@ -188,6 +189,7 @@ async function createPersonalIdentityForAuth(
   const userId = createId("usr") as UserId;
   const accountId = createId("acc") as AccountId;
   const membershipId = createId("mbr") as MembershipId;
+  const consentAuthorization = authorizeConsentForSelfRegistration(userId, accountId);
   const email = params.email?.trim() ?? "";
   const phone = params.phone?.trim() ?? "";
   const displayName = params.displayName.trim() || email || phone;
@@ -281,6 +283,7 @@ async function createPersonalIdentityForAuth(
         recordedAt: new Date().toISOString(),
       },
       context: params.context,
+      authorization: consentAuthorization,
     });
     snapshots.push(mutationSnapshot("consent", consentId, consentResult, { fallbackStatus: "recorded" }));
   }

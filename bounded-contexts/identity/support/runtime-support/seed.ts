@@ -39,6 +39,7 @@ import {
   type ConsentEvent,
   type ConsentState,
 } from "../../features/consents/domain/domain";
+import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
 import {
   decideInvitation,
   evolveInvitation,
@@ -346,7 +347,13 @@ function buildScenarioIdentityReconcilers(
       send: (streamId, command) => services.memberships.commandHandler({ streamId, command, context }),
     });
 
-  const consentReconciler = (id: string, key: string, steps: readonly ConsentCommand[]) =>
+  const consentReconciler = (
+    id: string,
+    key: string,
+    userId: UserId,
+    accountId: AccountId,
+    steps: readonly ConsentCommand[],
+  ) =>
     createSeedAggregateReconciler<ConsentState, ConsentCommand, ConsentEvent>({
       db: services.db,
       contextName: "identity",
@@ -359,7 +366,13 @@ function buildScenarioIdentityReconcilers(
       decide: decideConsent,
       evolve: evolveConsent,
       steps,
-      send: (streamId, command) => services.consents.commandHandler({ streamId, command, context }),
+      send: (streamId, command) =>
+        services.consents.commandHandler({
+          streamId,
+          command,
+          context,
+          authorization: authorizeConsentForProvisioning(userId, accountId),
+        }),
     });
 
   const invitationReconciler = (id: string, key: string, steps: readonly InvitationCommand[]) =>
@@ -662,7 +675,7 @@ function buildScenarioIdentityReconcilers(
     ),
 
     ...[demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
-      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, [
+      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, consent.userId, consent.accountId, [
         {
           type: "RecordConsent",
           consentId: consent.consentId,
@@ -980,6 +993,7 @@ async function reconcileRepresentativeConsent(
         recordedAt: REPRESENTATIVE_SEEDED_AT,
       },
       context,
+      authorization: authorizeConsentForProvisioning(account.userId as UserId, account.accountId as AccountId),
     });
     return;
   }
