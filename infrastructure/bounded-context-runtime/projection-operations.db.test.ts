@@ -65,6 +65,18 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
       contextName: "target",
       apiBasePath: "/target",
       streamPrefix: "target.",
+      eventSubscriptions: [
+        {
+          sourceContextName: "source",
+          projectionName: "items",
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: ["items"],
+          eventTypes: ["source.item-recorded"],
+          streamPrefixes: ["source.item-"],
+          batchSize: 10,
+          checkpointBatchSize: 1,
+        },
+      ],
       projectionGroups: [
         {
           projectionName: "items",
@@ -92,6 +104,20 @@ function createReactionTargetModule(): BcApiModule<TestServices, PgTransactional
       contextName: "target",
       apiBasePath: "/target",
       streamPrefix: "target.",
+      eventReactions: [
+        {
+          sourceContextName: "source",
+          reactionName: "orders-reaction",
+          subscriptionVersion: 1,
+          reactionHandlerSetNames: ["orders-reaction"],
+          idempotencyPolicy: "idempotent-command-dispatch",
+          retryPolicy: "retry-from-last-checkpoint",
+          failurePolicy: "surface-as-reaction-failure",
+          eventTypes: ["source.order-requested"],
+          streamPrefixes: ["source.order-request-"],
+          errorPolicy: "global-strict",
+        },
+      ],
       projectionGroups: [
         {
           projectionName: "orders-reaction",

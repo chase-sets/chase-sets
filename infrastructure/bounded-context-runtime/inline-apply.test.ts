@@ -262,6 +262,14 @@ describe("inline apply eligibility validation", () => {
           contextName: "checkout",
           apiBasePath: "/api/checkout",
           streamPrefix: "checkout.",
+          eventSubscriptions: [
+            {
+              sourceContextName: "checkout",
+              projectionName: "checkout.pages",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["checkout.pages"],
+            },
+          ],
           projectionGroups: [
             {
               projectionName: "checkout.pages",

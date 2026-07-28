@@ -590,6 +590,8 @@ export interface BcApiModule<
   readonly apiMounts: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
+  readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
+  readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
   createServices(pool: TPool, ports: THostPorts, options?: BcCreateServicesOptions<TPool>): TServices;
   buildApis(services: TServices): readonly TRouter[];
@@ -684,6 +686,8 @@ export function defineBoundedContextModule<
     apiMounts: manifest.apiMounts ?? [],
     anonymousRoutes: manifest.anonymousRoutes ?? [],
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.eventSubscriptions ? { eventSubscriptions: manifest.eventSubscriptions } : {}),
+    ...(manifest.eventReactions ? { eventReactions: manifest.eventReactions } : {}),
     ...(manifest.projectionGroups ? { projectionGroups: manifest.projectionGroups } : {}),
     createServices: input.createServices,
     buildApis: input.buildApis,

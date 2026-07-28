@@ -52,6 +52,26 @@ const AGENT_WEBHOOK_TARGETS = [
 ] as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("boots every public-profile context and resolves the Checkout session declaration locally", () => {
+    const runtime = createPlatformWorkerHost("public");
+    const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName).sort();
+    const registryContextNames = workerContextRegistry.map((entry) => entry.contextName).sort();
+
+    expect(mountedContextNames).toEqual(registryContextNames);
+    expect(runtime.mountedContexts.every((entry) => entry.mountRole === "active")).toBe(true);
+    expect(
+      runtime.subscriptionRunners.find(
+        (runner) =>
+          runner.targetContextName === "checkout" &&
+          runner.sourceContextName === "checkout" &&
+          runner.projectionName === "checkout.session-projection",
+      ),
+    ).toMatchObject({
+      checkpointKey: "checkout.session-projection:checkout:v1",
+      subscriptionVersion: 1,
+    });
+  });
+
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {
     const runtime = createPlatformWorkerHost("landing");
 

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventSubscriptionsFromManifest,
+  type BcApiModule,
+  type BcEventReactionDeclaration,
+} from "@chase-sets/bounded-context-module";
 import {
   createEventCoreMock,
   createEventCorePostgresMock,
@@ -38,6 +42,213 @@ describe("bounded context subscription runner", () => {
     resetMockPoolState();
   });
 
+  it("fails startup when a subscription declaration has no registered handler or local projector", () => {
+    const targetPool = createMockPool();
+
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "inventory",
+          module: {
+            contextName: "inventory",
+            eventSubscriptions: [
+              {
+                sourceContextName: "catalog",
+                projectionName: "foo.bar-projection",
+                subscriptionVersion: 1,
+                projectionHandlerSetNames: ["foo.bar-projection"],
+              },
+            ],
+            buildSubscriptions: () => [],
+          } as unknown as BcApiModule,
+          services: {},
+          pool: targetPool as never,
+          projectionHandlerSets: [],
+        },
+      ]),
+    ).toThrow(
+      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'foo.bar-projection', but no registered handler or self-sourced local projector can resolve it.",
+    );
+  });
+
+  it("fails startup when a reaction declaration has no registered handler", () => {
+    const reactionDeclaration = {
+      sourceContextName: "identity",
+      reactionName: "send-welcome-email",
+      subscriptionVersion: 3,
+      reactionHandlerSetNames: ["send-welcome-email"],
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+    } as const satisfies BcEventReactionDeclaration;
+    const notificationModule = Object.assign(
+      {
+        contextName: "notifications",
+        buildSubscriptions() {
+          return [];
+        },
+      },
+      { eventReactions: [reactionDeclaration] },
+    ) as unknown as BcApiModule;
+
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "notifications",
+          module: notificationModule,
+          services: {},
+          pool: createMockPool() as never,
+          projectionHandlerSets: [],
+        },
+      ]),
+    ).toThrow(
+      "Context 'notifications' declares an event reaction from source context 'identity' for reaction 'send-welcome-email', but no registered handler can resolve it.",
+    );
+  });
+
+  it("resolves a self-sourced declaration through its local projector", () => {
+    const pool = createMockPool();
+    const [runner] = resolveModuleSubscriptions([
+      {
+        contextName: "checkout",
+        module: {
+          contextName: "checkout",
+          eventSubscriptions: [
+            {
+              sourceContextName: "checkout",
+              projectionName: "checkout.session-projection",
+              subscriptionVersion: 7,
+              projectionHandlerSetNames: ["checkout.session-projection"],
+            },
+          ],
+          buildSubscriptions: () => [],
+        } as unknown as BcApiModule,
+        services: {},
+        pool: pool as never,
+        projectionHandlerSets: [
+          {
+            projectionName: "checkout.session-projection",
+            handlers: {
+              "checkout.session.started": async () => undefined,
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(runner).toMatchObject({
+      targetContextName: "checkout",
+      sourceContextName: "checkout",
+      projectionName: "checkout.session-projection",
+      subscriptionVersion: 1,
+    });
+  });
+
+  it("does not let a same-named local projector resolve a cross-context declaration", () => {
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "marketplace",
+          module: {
+            contextName: "marketplace",
+            eventSubscriptions: [
+              {
+                sourceContextName: "checkout",
+                projectionName: "checkout-something-projection",
+                subscriptionVersion: 1,
+                projectionHandlerSetNames: ["checkout-something-projection"],
+              },
+            ],
+            buildSubscriptions: () => [],
+          } as unknown as BcApiModule,
+          services: {},
+          pool: createMockPool() as never,
+          projectionHandlerSets: [
+            {
+              projectionName: "checkout-something-projection",
+              handlers: {
+                "marketplace.listing.published": async () => undefined,
+              },
+            },
+          ],
+        },
+      ]),
+    ).toThrow(
+      "Context 'marketplace' declares an event subscription from source context 'checkout' for projection 'checkout-something-projection', but no registered handler or self-sourced local projector can resolve it.",
+    );
+  });
+
+  it("fails when exposed declaration discovery is empty despite a manifest-built handler", () => {
+    const manifest = {
+      eventSubscriptions: [
+        {
+          sourceContextName: "catalog",
+          projectionName: "inventory-catalog-item-projection",
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+        },
+      ],
+    };
+    const builtSubscriptions = buildEventSubscriptionsFromManifest({
+      contextName: "inventory",
+      manifest,
+      handlers: {
+        "catalog.inventory-catalog-item-projection": () => ({
+          "catalog.catalog-item.published": async () => undefined,
+        }),
+      },
+    });
+
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "inventory",
+          module: {
+            contextName: "inventory",
+            eventSubscriptions: [],
+            buildSubscriptions: () => builtSubscriptions,
+          } as unknown as BcApiModule,
+          services: {},
+          pool: createMockPool() as never,
+          projectionHandlerSets: [],
+        },
+      ]),
+    ).toThrow(
+      "Context 'inventory' built an event subscription from source context 'catalog' for projection 'inventory-catalog-item-projection', but its exposed eventSubscriptions declarations do not contain it.",
+    );
+  });
+
+  it("does not resolve declarations or construct handlers for source-only mounts", () => {
+    const buildSubscriptions = vi.fn(() => {
+      throw new Error("source-only handler construction must stay skipped");
+    });
+
+    expect(
+      resolveModuleSubscriptions([
+        {
+          contextName: "fulfillment",
+          mountRole: "source-only",
+          module: {
+            contextName: "fulfillment",
+            eventSubscriptions: [
+              {
+                sourceContextName: "ordering",
+                projectionName: "fulfillment-order-source-projection",
+                subscriptionVersion: 1,
+                projectionHandlerSetNames: ["fulfillment-order-source-projection"],
+              },
+            ],
+            buildSubscriptions,
+          } as unknown as BcApiModule,
+          services: {},
+          pool: createMockPool() as never,
+          projectionHandlerSets: [],
+        },
+      ]),
+    ).toEqual([]);
+    expect(buildSubscriptions).not.toHaveBeenCalled();
+  });
+
   it("fails startup when declared event filters omit a handled event type", () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
@@ -58,6 +269,15 @@ describe("bounded context subscription runner", () => {
           contextName: "inventory",
           module: {
             contextName: "inventory",
+            eventSubscriptions: [
+              {
+                sourceContextName: "catalog",
+                projectionName: "inventory-catalog-item-projection",
+                subscriptionVersion: 1,
+                projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+                eventTypes: ["catalog.catalog-item.published"],
+              },
+            ],
             buildSubscriptions: () => [
               {
                 subscriptionName: "inventory.catalog-item-projection",
@@ -90,6 +310,16 @@ describe("bounded context subscription runner", () => {
         contextName: "platform-operations",
         module: {
           contextName: "platform-operations",
+          eventSubscriptions: [
+            {
+              sourceContextName: "marketplace",
+              sourceContextMount: "when-mounted",
+              projectionName: "reported-content-queue-projection",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["reported-content-queue-projection"],
+              eventTypes: ["marketplace.report.submitted"],
+            },
+          ],
           buildSubscriptions: () => [
             {
               subscriptionName: "platform-operations.reported-content-queue-projection",
@@ -132,6 +362,16 @@ describe("bounded context subscription runner", () => {
         contextName: "auth",
         module: {
           contextName: "auth",
+          eventSubscriptions: [
+            {
+              sourceContextName: "ordering",
+              sourceContextMount: "when-all-sources-mounted",
+              projectionName: "auth-agent-order-webhook-projection",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["auth-agent-order-webhook-projection"],
+              eventTypes: ["ordering.order.created"],
+            },
+          ],
           projectionGroups: [
             {
               projectionName: "auth-agent-order-webhook-projection",
@@ -188,6 +428,14 @@ describe("bounded context subscription runner", () => {
         contextName: "inventory",
         module: {
           contextName: "inventory",
+          eventSubscriptions: [
+            {
+              sourceContextName: "catalog",
+              projectionName: "inventory-catalog-item-projection",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+            },
+          ],
           buildSubscriptions: () => [
             {
               subscriptionName: "inventory.catalog-item-projection",

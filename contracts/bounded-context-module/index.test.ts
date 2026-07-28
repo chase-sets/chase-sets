@@ -379,6 +379,8 @@ describe("defineBoundedContextModule", () => {
       apiMounts: manifest.apiMounts,
       anonymousRoutes: manifest.anonymousRoutes,
       mcpCapabilities: manifest.mcpCapabilities,
+      eventSubscriptions: manifest.eventSubscriptions,
+      eventReactions: manifest.eventReactions,
       projectionGroups: manifest.projectionGroups,
       seedProfiles: ["scenario-seed"],
     });
@@ -391,5 +393,71 @@ describe("defineBoundedContextModule", () => {
     await expect(
       module.reconcileBootstrapState?.({}, services, { enabledDataProfiles: ["critical-bootstrap"] }),
     ).resolves.toBeUndefined();
+  });
+
+  it("forwards normalized event subscription and reaction declarations", () => {
+    const sourceContextMount = "when-all-sources-mounted" as string;
+    const module = defineBoundedContextModule({
+      manifest: {
+        contextName: "inventory",
+        apiBasePath: "/api/inventory",
+        streamPrefix: "inventory.",
+        eventSubscriptions: [
+          {
+            sourceContextName: "catalog",
+            sourceContextMount,
+            projectionName: "inventory-catalog-item-projection",
+            subscriptionVersion: 2,
+            projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+          },
+        ],
+        eventReactions: [
+          {
+            sourceContextName: "ordering",
+            sourceContextMount,
+            reactionName: "inventory-order-reservation-workflow",
+            subscriptionVersion: 1,
+            reactionHandlerSetNames: ["inventory-order-reservation-workflow"],
+            idempotencyPolicy: "idempotent-command-dispatch",
+            retryPolicy: "retry-from-last-checkpoint",
+            failurePolicy: "surface-as-reaction-failure",
+          },
+        ],
+      },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    });
+
+    expect(module.eventSubscriptions).toEqual([
+      expect.objectContaining({
+        sourceContextName: "catalog",
+        sourceContextMount: "when-all-sources-mounted",
+        projectionName: "inventory-catalog-item-projection",
+      }),
+    ]);
+    expect(module.eventReactions).toEqual([
+      expect.objectContaining({
+        sourceContextName: "ordering",
+        sourceContextMount: "when-all-sources-mounted",
+        reactionName: "inventory-order-reservation-workflow",
+      }),
+    ]);
+  });
+
+  it("omits event declaration surfaces when the manifest omits them", () => {
+    const module = defineBoundedContextModule({
+      manifest: {
+        contextName: "inventory",
+        apiBasePath: "/api/inventory",
+        streamPrefix: "inventory.",
+      },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    });
+
+    expect(module).not.toHaveProperty("eventSubscriptions");
+    expect(module).not.toHaveProperty("eventReactions");
   });
 });
