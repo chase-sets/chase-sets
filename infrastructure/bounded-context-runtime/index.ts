@@ -64,6 +64,7 @@ export {
   drainContextRuntime,
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,
+  LocalProjectorSubscriptionDeclarationError,
   resolveModuleSubscriptions,
   retryLocalProjectionBlockedStream,
   retryProjectionBlockedStream,

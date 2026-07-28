@@ -227,13 +227,18 @@ describe("fresh checkout read-model schemas", () => {
     );
   });
 
-  it("subscribes Checkout Session events for the fresh session detail read model", () => {
+  it("keeps the local Checkout Session projection group valid without a manifest subscription", () => {
     const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
       eventSubscriptions?: Array<{
         sourceContextName?: string;
         projectionName?: string;
-        eventTypes?: string[];
-        projectionHandlerSetNames?: string[];
+      }>;
+      projectionGroups?: Array<{
+        projectionName?: string;
+        sourceContextNames?: string[];
+        ownedTables?: string[];
+        requiredDuringBootstrap?: boolean;
+        resetStrategy?: string;
       }>;
       apiMounts?: Array<{
         mountPath?: string;
@@ -249,27 +254,24 @@ describe("fresh checkout read-model schemas", () => {
     );
 
     expect(sessionFreshRead?.dependencies).toEqual([{ readModelTable: "checkout_session_pages" }]);
-    expect(manifest.eventSubscriptions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          sourceContextName: "checkout",
-          projectionName: "checkout.session-projection",
-          eventTypes: [
-            "checkout.session.started",
-            "checkout.session.optimization-goal-selected",
-            "checkout.session.fulfillment-preview-recorded",
-            "checkout.session.shipping-option-selected",
-            "checkout.session.shipping-address-set",
-            "checkout.session.reservations-recorded",
-            "checkout.session.orders-created",
-            "checkout.session.payment-started",
-            "checkout.session.offer-submitted",
-            "checkout.session.cancelled",
-          ],
-          projectionHandlerSetNames: ["checkout.session-projection"],
-        }),
-      ]),
-    );
+    expect(
+      manifest.eventSubscriptions?.find(
+        (subscription) =>
+          subscription.sourceContextName === "checkout" &&
+          subscription.projectionName === "checkout.session-projection",
+      ),
+    ).toBeUndefined();
+    expect(
+      manifest.projectionGroups?.find(
+        (projectionGroup) => projectionGroup.projectionName === "checkout.session-projection",
+      ),
+    ).toEqual({
+      projectionName: "checkout.session-projection",
+      sourceContextNames: ["checkout"],
+      ownedTables: ["checkout_session_pages"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    });
   });
 
   it("exposes only fresh buy checkout route paths in customer route composition", () => {
