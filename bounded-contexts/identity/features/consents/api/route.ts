@@ -4,7 +4,10 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
-import { authorizeConsentForActor } from "../domain/consent-recording-authorization";
+import {
+  authorizeConsentForActor,
+  ConsentRecordingAuthorizationError,
+} from "../domain/consent-recording-authorization";
 import type { ConsentServices } from "./runtime";
 
 function authenticationRequired() {
@@ -71,7 +74,12 @@ export function consentRoutes(services: ConsentServices) {
     const canManageConsent =
       actor.roleKey === PLATFORM_ADMIN_ROLE_KEY ||
       (consent.account_id === actor.accountId && hasPermission(actor, "security.manage"));
-    if (!canWithdrawOwnUserConsent && !canWithdrawAccountConsent && !canManageConsent) {
+    const subjectMatchesActor =
+      (consent.subject_type === "user" && consent.user_id === actor.userId) ||
+      (consent.subject_type === "account" &&
+        consent.user_id === actor.userId &&
+        consent.account_id === actor.accountId);
+    if (!subjectMatchesActor || (!canWithdrawOwnUserConsent && !canWithdrawAccountConsent && !canManageConsent)) {
       return c.json(forbidden(), 403);
     }
     if (!consent.is_current) {
@@ -89,12 +97,20 @@ export function consentRoutes(services: ConsentServices) {
       return c.json({ id: consentId, status: consent.status, withdrawnAt: consent.withdrawn_at });
     }
 
-    const result = await services.commandHandler({
-      streamId: `identity.consent-${consentId}`,
-      command: { type: "WithdrawConsent", withdrawnAt: new Date().toISOString() },
-      context,
-      authorization: authorizeConsentForActor(context),
-    });
+    let result: Awaited<ReturnType<ConsentServices["commandHandler"]>>;
+    try {
+      result = await services.commandHandler({
+        streamId: `identity.consent-${consentId}`,
+        command: { type: "WithdrawConsent", withdrawnAt: new Date().toISOString() },
+        context,
+        authorization: authorizeConsentForActor(context),
+      });
+    } catch (error) {
+      if (error instanceof ConsentRecordingAuthorizationError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 403);
+      }
+      throw error;
+    }
     return c.json({
       id: consentId,
       version: result.version,
