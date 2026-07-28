@@ -3,14 +3,14 @@ import type {
   CatalogProviderExecutableMappingContract,
   CatalogProviderIngestionUnitIdentityContract,
   CatalogProviderIngestionUnitProductDomain,
-} from "../provider-integration-mapping-contract";
+} from "./provider-integration-mapping-contract";
 import {
   defineCatalogProviderIngestionUnitIdentityContract,
   validateCatalogProviderExecutableMappingContract,
-} from "../provider-integration-mapping-contract";
-import type { CatalogIntegrationUnitKey } from "../integration-unit";
-import { evaluateCatalogIntegrationFixtureCoverageFromProfileVersion } from "../catalog-integration-fixture-lifecycle";
-import type { CatalogProviderSourceObservationMappingContract } from "../provider-source-observation-normalizer";
+} from "./provider-integration-mapping-contract";
+import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
+import { evaluateCatalogIntegrationFixtureCoverageFromProfileVersion } from "../governance/catalog-integration-fixture-lifecycle";
+import type { CatalogProviderSourceObservationMappingContract } from "../promotion/provider-source-observation-normalizer";
 import type {
   CatalogProviderIntegrationProfile,
   CatalogProviderIntegrationProfileVersionDiagnostic,

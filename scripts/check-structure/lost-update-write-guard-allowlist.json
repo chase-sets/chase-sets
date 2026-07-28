@@ -288,12 +288,12 @@
     "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:374 directly synchronizes catalog_scope_sync_batch_units from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts:99:DELETE:catalog_provider_profile_version_section_diagnostics",
-    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts:99 directly synchronizes catalog_provider_profile_version_section_diagnostics from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:99:DELETE:catalog_provider_profile_version_section_diagnostics",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:99 directly synchronizes catalog_provider_profile_version_section_diagnostics from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts:104:DELETE:catalog_provider_profile_version_sections",
-    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts:104 directly synchronizes catalog_provider_profile_version_sections from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:104:DELETE:catalog_provider_profile_version_sections",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:104 directly synchronizes catalog_provider_profile_version_sections from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:64:UPDATE:catalog_merge_candidates",

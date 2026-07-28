@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   BulkReviewJobServices,
   CatalogMergeCandidateServices,
@@ -13,20 +13,20 @@ import type {
   SourceObservationReadServices,
   SourceObservationReviewServices,
 } from "./runtime";
-import { bulkReviewJobRoutes } from "./bulk-review-job-routes";
-import { controlPlaneTelemetryRoutes } from "./control-plane-telemetry-routes";
-import { integrationJobRoutes } from "./integration-job-routes";
-import { catalogMergeCandidateRoutes } from "./catalog-merge-candidate-routes";
-import { promotionReviewRoutes } from "./promotion-review-routes";
-import { providerOptionRoutes } from "./provider-options-routes";
-import { providerProfileRoutes } from "./provider-profile-routes";
-import { sourceObservationReadReviewRoutes } from "./source-observation-review-routes";
+import { bulkReviewJobRoutes } from "./route-modules/bulk-review-job-routes";
+import { controlPlaneTelemetryRoutes } from "./route-modules/control-plane-telemetry-routes";
+import { integrationJobRoutes } from "./route-modules/integration-job-routes";
+import { catalogMergeCandidateRoutes } from "./route-modules/catalog-merge-candidate-routes";
+import { promotionReviewRoutes } from "./route-modules/promotion-review-routes";
+import { providerOptionRoutes } from "./route-modules/provider-options-routes";
+import { providerProfileRoutes } from "./route-modules/provider-profile-routes";
+import { sourceObservationReadReviewRoutes } from "./route-modules/source-observation-review-routes";
 import {
   buildCatalogIntegrationControlPlaneOverview,
   parseCatalogIntegrationControlPlaneOverviewAudience,
-} from "./admin-control-plane-overview";
-import { listCatalogProviderProfileVersionReviews } from "./provider-profile-review";
-import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
+} from "./admin/admin-control-plane-overview";
+import { listCatalogProviderProfileVersionReviews } from "./providers/provider-profile-review";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin/admin-control-plane-rbac";
 
 export type SourceObservationRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &

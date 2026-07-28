@@ -10,7 +10,7 @@ import {
   currentTcgdexProfileVersion,
   providerProfileVersionForProvider,
   sourceObservationDetailRow,
-} from "./runtime-test-harness";
+} from "./seeding/runtime-test-harness";
 
 describe("source observation runtime: bulk review jobs", () => {
   it("processes persisted bulk review jobs through durable work-unit turns", async () => {

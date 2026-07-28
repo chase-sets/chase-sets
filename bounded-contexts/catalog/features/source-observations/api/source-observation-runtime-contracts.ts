@@ -31,46 +31,50 @@ import {
 import {
   type CatalogMergeCandidateMatchExclusion,
   type CatalogMergeCandidateMatchResult,
-} from "./catalog-merge-candidate-matcher";
+} from "./promotion/catalog-merge-candidate-matcher";
 import {
   type CatalogMergeCandidatePromotionCommandPlanResult,
   type CatalogMergeCandidatePromotionCandidate,
   type CatalogMergeCandidatePromotionCatalogMapping,
   type CatalogMergeCandidatePromotionAssetPlan,
-} from "./catalog-merge-candidate-promotion-planner";
-import { type TcgdexExpansionOption, type TcgdexLanguageOption, type TcgdexSeriesOption } from "./tcgdex-client";
+} from "./promotion/catalog-merge-candidate-promotion-planner";
+import {
+  type TcgdexExpansionOption,
+  type TcgdexLanguageOption,
+  type TcgdexSeriesOption,
+} from "./providers/tcgdex-client";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
-import { type PromotionAliasServices } from "./provider-promotion-alias-writer";
+import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
-import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import {
   type CatalogProviderCredentialRequirement,
   type CatalogProviderCredentialReadinessState,
-} from "./catalog-integration-credential-readiness";
+} from "./governance/catalog-integration-credential-readiness";
 import {
   type CatalogIntegrationRolloutControlPolicy,
   type CatalogIntegrationRolloutControlSnapshot,
-} from "./catalog-integration-rollout-controls";
+} from "./governance/catalog-integration-rollout-controls";
 import {
   type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncProviderParticipationPreview,
   type CatalogSyncScope,
-} from "./catalog-sync-scope-planner";
+} from "./providers/catalog-sync-scope-planner";
 import type {
   CatalogAdminReplayReapplyImpactSummaryReadModel,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
-} from "./admin-control-plane-read-model-contracts";
+} from "./admin/admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import type { ProviderAdapter, ProviderUsageEstimate } from "./provider-adapters/provider-adapter";
-import type { ProviderOptionAliasRecord } from "./provider-option-aliases";
-import { type CatalogProviderOptionQueryPage } from "./provider-option-query-cache";
-import { type CatalogControlPlaneTelemetryEventInput } from "./catalog-integration-observability";
-import { type CatalogProviderDuplicatePreventionEvidenceSummary } from "./provider-duplicate-prevention-resolver";
+import type { ProviderOptionAliasRecord } from "./providers/provider-option-aliases";
+import { type CatalogProviderOptionQueryPage } from "./providers/provider-option-query-cache";
+import { type CatalogControlPlaneTelemetryEventInput } from "./governance/catalog-integration-observability";
+import { type CatalogProviderDuplicatePreventionEvidenceSummary } from "./promotion/provider-duplicate-prevention-resolver";
 
 export type CatalogProviderIntegrationProfileVersionReader = Pick<
   CatalogProviderIntegrationProfileVersionStore,

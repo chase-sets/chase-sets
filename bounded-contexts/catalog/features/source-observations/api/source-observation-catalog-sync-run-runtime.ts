@@ -13,7 +13,7 @@ import {
   upsertCatalogScopeSyncUnitState,
 } from "../../scope-sync-state/read-model/queries";
 import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../provider-scope-mapping/read-model/queries";
-import { type CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import {
   catalogSyncAcceptedScopeMappingFromRow,
   normalizeCatalogSyncScope,
@@ -21,7 +21,7 @@ import {
   type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncProviderParticipationPreview,
   type CatalogSyncScope,
-} from "./catalog-sync-scope-planner";
+} from "./providers/catalog-sync-scope-planner";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import type {
   CatalogProviderIntegrationProfileVersionReader,

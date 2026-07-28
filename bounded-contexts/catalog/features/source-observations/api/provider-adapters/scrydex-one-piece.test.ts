@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../scrydex-one-piece-executable-mapping-contract";
-import { normalizeCatalogProviderSourceObservation } from "../provider-source-observation-normalizer";
+import { normalizeCatalogProviderSourceObservation } from "../promotion/provider-source-observation-normalizer";
 import type { ProviderPayloadEnvelope } from "./provider-adapter";
 import {
   createScrydexOnePieceProviderAdapter,

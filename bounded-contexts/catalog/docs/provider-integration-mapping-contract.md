@@ -63,11 +63,11 @@ Profiles may reference those functions by a stable function key. They may not ex
 
 The selector and transform interpreter lives at:
 
-`bounded-contexts/catalog/features/source-observations/api/provider-mapping-interpreter.ts`
+`bounded-contexts/catalog/features/source-observations/api/providers/provider-mapping-interpreter.ts`
 
 Promotion command planning lives at:
 
-`bounded-contexts/catalog/features/source-observations/api/provider-promotion-command-planner.ts`
+`bounded-contexts/catalog/features/source-observations/api/promotion/provider-promotion-command-planner.ts`
 
 The planner returns a reviewed, ordered list of Catalog Item aggregate commands
 before runtime execution. Supported command-plan names include create or refresh
@@ -78,7 +78,7 @@ declares Catalog Item promotion capability and a valid command plan.
 
 Duplicate-prevention identity rule resolution lives at:
 
-`bounded-contexts/catalog/features/source-observations/api/provider-duplicate-prevention-resolver.ts`
+`bounded-contexts/catalog/features/source-observations/api/promotion/provider-duplicate-prevention-resolver.ts`
 
 Profiles order identity rules explicitly. Supported rule kinds include exact
 external Catalog Item reference, source observation link, deterministic field
@@ -88,7 +88,7 @@ promotion, or return review-only candidate evidence for admin dry runs.
 
 Provider option query resolution lives at:
 
-`bounded-contexts/catalog/features/source-observations/api/provider-option-query-resolver.ts`
+`bounded-contexts/catalog/features/source-observations/api/providers/provider-option-query-resolver.ts`
 
 Profiles declare query aliases, parent value requirements, named transport
 operations, and constrained option output selectors. Runtime supplies transport

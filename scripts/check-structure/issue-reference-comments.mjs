@@ -101,12 +101,12 @@ export const issueReferenceCommentAllowlist = [
       "Documents the fan-out transaction-budget incident that the per-event re-run (instead of batch-wide replay) exists to prevent recurring.",
   },
   {
-    file: "bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-governance.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-governance.ts",
     issueReference: "#1903",
     reason: "Marks alias term/review-state strings as locked verbatim to the ADR slice; drifting the wording is a bug.",
   },
   {
-    file: "bounded-contexts/catalog/features/source-observations/api/tcgdex-alias-extraction.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/providers/tcgdex-alias-extraction.ts",
     issueReference: "#1903",
     reason: "Marks alias source-governance policy as locked verbatim to the same ADR slice.",
   },

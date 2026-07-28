@@ -5,8 +5,8 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import { isPokemonCardSourceObservationNormalized } from "../domain/domain";
-import { type TcgdexObservationPayload } from "./tcgdex-client";
-import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
+import { type TcgdexObservationPayload } from "./providers/tcgdex-client";
+import { ingestTcgdexAliasCandidates } from "./providers/tcgdex-alias-intake";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
   type CatalogProviderIntegrationProfile,
@@ -15,7 +15,7 @@ import {
 import {
   catalogProviderSourceMappingFingerprint,
   requireCatalogProviderSourceObservation,
-} from "./provider-source-observation-normalizer";
+} from "./promotion/provider-source-observation-normalizer";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import { createTcgdexProviderAdapter } from "./provider-adapters/tcgdex";
 import { createTcgplayerProviderAdapter } from "./provider-adapters/tcgplayer";
@@ -27,7 +27,7 @@ import type {
 import {
   listCatalogProviderIntegrationOptionsFromProfiles,
   type CatalogProviderIntegrationOption,
-} from "./provider-option-query-resolver";
+} from "./providers/provider-option-query-resolver";
 import type {
   SourceObservationAliasCandidateSink,
   SourceObservationIntegrationJobOutcome,
@@ -40,7 +40,7 @@ import type {
   ProviderAdapterImportProgress,
   SourceObservationCommandServices,
 } from "./source-observation-runtime-contracts";
-import { providerOptionAliasesToJson } from "./provider-option-queries";
+import { providerOptionAliasesToJson } from "./providers/provider-option-queries";
 import {
   SourceObservationJobCancelledError,
   integrationImportPreviewTargetFromPlan,

@@ -11,7 +11,7 @@ import type {
   CatalogProviderMappingEvidenceUse,
   CatalogProviderMappingValueExpression,
   CatalogProviderSourceObservationContract,
-} from "../../provider-integration-mapping-contract";
+} from "../provider-integration-mapping-contract";
 
 export const SCRYDEX_ONE_PIECE_PROFILE_VERSION = "2026.06.22";
 

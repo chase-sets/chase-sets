@@ -13,7 +13,7 @@ import type {
   CatalogProviderMappingEvidenceUse,
   CatalogProviderMappingValueExpression,
   CatalogProviderSourceObservationContract,
-} from "../../provider-integration-mapping-contract";
+} from "../provider-integration-mapping-contract";
 import type { CatalogProviderIntegrationProfile } from "../profile-types";
 
 export const ygojsonYugiohMappingContractCentralTypeAdditions = {

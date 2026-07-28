@@ -69,8 +69,8 @@ import { tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContrac
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
-} from "../tcgplayer-automation-catalog-client";
-import { tcgplayerAutomationResponseFixtures } from "../tcgplayer-automation-response-fixtures.test-data";
+} from "../providers/tcgplayer-automation-catalog-client";
+import { tcgplayerAutomationResponseFixtures } from "../providers/tcgplayer-automation-response-fixtures.test-data";
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;
@@ -2060,7 +2060,7 @@ describe("ProviderAdapterRegistry", () => {
     const guardedFiles = [
       new URL("../runtime.ts", import.meta.url),
       new URL("../route.ts", import.meta.url),
-      new URL("../route-helpers.ts", import.meta.url),
+      new URL("../route-modules/route-helpers.ts", import.meta.url),
       new URL("../../ui/workbench-shell.tsx", import.meta.url),
       new URL("../../ui/integrations-surface-page.tsx", import.meta.url),
       new URL("../../ui/workbench-workspace-renderers.tsx", import.meta.url),

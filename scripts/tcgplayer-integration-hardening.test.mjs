@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 const scenarioFiles = [
   {
     name: "automation-app response fixtures",
-    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-fixtures.test-data.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-response-fixtures.test-data.ts",
     evidence: ["productLines", "catalogSetNames", "productSearch", "productDetail"],
   },
   {
     name: "Catalog response contract and pricing boundary",
-    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-contract.test.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-response-contract.test.ts",
     evidence: [
       "keeps sanitized fixtures for every Catalog-relevant automation endpoint",
       "keeps price, listing, seller, and quantity fields out of Catalog observation hashes",
@@ -18,7 +18,7 @@ const scenarioFiles = [
   },
   {
     name: "Catalog automation client normalization",
-    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-catalog-client.test.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-catalog-client.test.ts",
     evidence: [
       "normalizes product detail into one provider-product Source Observation",
       "maps only SKU references whose selected options validate against the Product schema",
@@ -37,7 +37,7 @@ const scenarioFiles = [
   },
   {
     name: "Catalog TCGplayer Magic profile contract",
-    file: "bounded-contexts/catalog/features/source-observations/api/provider-profile-fixture-cases.ts",
+    file: "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-fixture-cases.ts",
     evidence: [
       "mtg-single-card-product-sku",
       "tcgplayer:mtg:single-card:source-observation-import",

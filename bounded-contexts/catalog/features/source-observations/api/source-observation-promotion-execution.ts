@@ -21,18 +21,18 @@ import {
   type SourceObservationOnePieceSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
-import { normalizeTcgdexImageAsset } from "./tcgdex-client";
+import { normalizeTcgdexImageAsset } from "./providers/tcgdex-client";
 import {
   extractApprovedLorcanaImageEvidence,
   normalizeLorcanaImageAsset,
   normalizeProductAssetSet,
-} from "./product-asset-normalization";
-import { type PromotionAliasServices } from "./provider-promotion-alias-writer";
-import { createPromotionAliasReader } from "./provider-promotion-alias-reader";
+} from "./seeding/product-asset-normalization";
+import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
+import { createPromotionAliasReader } from "./promotion/provider-promotion-alias-reader";
 import {
   buildTcgplayerAutomationSourceObservationPayload,
   type TcgplayerAutomationProductDetail,
-} from "./tcgplayer-automation-catalog-client";
+} from "./providers/tcgplayer-automation-catalog-client";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -41,23 +41,23 @@ import {
 import {
   catalogProviderSourceMappingFingerprint,
   type CatalogProviderSourceObservationMappingContract,
-} from "./provider-source-observation-normalizer";
+} from "./promotion/provider-source-observation-normalizer";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
   type CatalogProviderPromotionCommandPlanResult,
-} from "./provider-promotion-command-planner";
+} from "./promotion/provider-promotion-command-planner";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationAliasPromotion,
   RepresentativeCatalogProductAssetSource,
   SourceObservationReapplyProfileMode,
 } from "./source-observation-runtime-contracts";
-import { defaultSourceObservationImportProviderKeyFromVersions } from "./provider-option-queries";
+import { defaultSourceObservationImportProviderKeyFromVersions } from "./providers/provider-option-queries";
 import {
   isActiveSourceObservationImportProfileVersion,
   createCatalogIntegrationProfileVersionResolvers,
-} from "./catalog-integration-control-plane-readiness";
+} from "./governance/catalog-integration-control-plane-readiness";
 import {
   resolvePromotionReferenceHierarchy,
   type CatalogItemPromotableSourceObservationNormalized,

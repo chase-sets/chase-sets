@@ -18,10 +18,10 @@ import {
 import {
   buildCatalogMergeCandidatesFromObservations,
   type CatalogMergeCandidateMatchBatch,
-} from "./catalog-merge-candidate-matcher";
+} from "./promotion/catalog-merge-candidate-matcher";
 import { listAcceptedProviderScopeMappingsForProviders } from "../../provider-scope-mapping/read-model/queries";
-import { planCatalogMergeCandidatePromotionCommands } from "./catalog-merge-candidate-promotion-planner";
-import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-impact-analysis";
+import { planCatalogMergeCandidatePromotionCommands } from "./promotion/catalog-merge-candidate-promotion-planner";
+import { unitKeyForCatalogProviderProfileVersion } from "./governance/catalog-integration-impact-analysis";
 import { catalogProviderProfileVersionLookupKey } from "./source-observation-runtime-contracts";
 import type {
   CatalogProviderIntegrationProfileVersionReader,

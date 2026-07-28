@@ -20,7 +20,7 @@ import {
   type SourceObservationYugiohSealedProductNormalized,
 } from "../domain/domain";
 import { type CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
-import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
+import { provisionCatalogProviderReferenceHierarchy } from "./promotion/provider-reference-hierarchy-provisioner";
 
 export type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationPokemonCardNormalized

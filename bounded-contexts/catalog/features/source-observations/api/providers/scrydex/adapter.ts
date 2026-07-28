@@ -6,12 +6,12 @@ import {
   runCatalogIntegrationDryRun,
   type CatalogIntegrationDryRunResult,
   type CatalogIntegrationObservationFact,
-} from "../../catalog-integration-engine";
+} from "../../governance/catalog-integration-engine";
 import {
   CATALOG_PROVIDER_CREDENTIAL_REDACTED_VALUE,
   createCatalogProviderCredentialReadiness,
-} from "../../catalog-integration-credential-readiness";
-import { defineCatalogIntegrationUnitKey } from "../../integration-unit";
+} from "../../governance/catalog-integration-credential-readiness";
+import { defineCatalogIntegrationUnitKey } from "../../governance/integration-unit";
 import type {
   ProviderAdapter,
   ProviderImportPlan,

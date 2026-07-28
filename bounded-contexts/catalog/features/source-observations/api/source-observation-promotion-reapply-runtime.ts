@@ -24,10 +24,10 @@ import {
   previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
 } from "../read-model/queries";
-import { writePromotionAliases } from "./provider-promotion-alias-writer";
-import type { PromotionAliasTargetResolution } from "./provider-promotion-alias-planner";
-import { type CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import { writePromotionAliases } from "./promotion/provider-promotion-alias-writer";
+import type { PromotionAliasTargetResolution } from "./promotion/provider-promotion-alias-planner";
+import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationAliasPromotion,

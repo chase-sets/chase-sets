@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
-import { runCatalogIntegrationDryRun, type CatalogIntegrationDryRunResult } from "../../catalog-integration-engine";
-import { createCatalogProviderCredentialReadiness } from "../../catalog-integration-credential-readiness";
-import { defineCatalogIntegrationUnitKey } from "../../integration-unit";
+import {
+  runCatalogIntegrationDryRun,
+  type CatalogIntegrationDryRunResult,
+} from "../../governance/catalog-integration-engine";
+import { createCatalogProviderCredentialReadiness } from "../../governance/catalog-integration-credential-readiness";
+import { defineCatalogIntegrationUnitKey } from "../../governance/integration-unit";
 import type {
   ProviderAdapter,
   ProviderImportScope,

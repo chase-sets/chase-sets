@@ -13,7 +13,7 @@ import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
-import { type CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import {
   SourceObservationIntegrationJobLifecycleCommandError,
   OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
@@ -39,8 +39,8 @@ import {
   recordIntegrationJobTelemetry,
   sourceObservationIntegrationJobTelemetryResult,
   recordIntegrationJobControlPlaneTelemetry,
-} from "./provider-option-queries";
-import { normalizeReapplyProfileMode } from "./catalog-integration-control-plane-readiness";
+} from "./providers/provider-option-queries";
+import { normalizeReapplyProfileMode } from "./governance/catalog-integration-control-plane-readiness";
 import {
   normalizeOptionalKey,
   profileSelectorFromScope,

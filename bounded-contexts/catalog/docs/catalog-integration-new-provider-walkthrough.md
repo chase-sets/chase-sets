@@ -46,7 +46,7 @@ Ingestion-unit and profile sections:
 
 - `bounded-contexts/catalog/features/source-observations/api/provider-integration-mapping-contract.ts`
 - `bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`
-- `bounded-contexts/catalog/features/source-observations/api/provider-profile-review.ts`
+- `bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-review.ts`
 - Own Catalog-facing semantics, lifecycle, section commands, fixture coverage, mapping, duplicate prevention, promotion planning, and readiness diagnostics.
 
 Catalog Integration Engine:

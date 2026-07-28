@@ -5,7 +5,7 @@ import {
   type CatalogProviderMappingEvidenceOwner,
   type CatalogProviderMappingEvidenceUse,
   type CatalogProviderMappingValueExpression,
-} from "../../provider-integration-mapping-contract";
+} from "../provider-integration-mapping-contract";
 
 export const TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";

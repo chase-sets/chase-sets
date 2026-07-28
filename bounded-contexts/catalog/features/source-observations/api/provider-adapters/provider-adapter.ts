@@ -1,11 +1,11 @@
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { CatalogIntegrationUnitKey } from "../integration-unit";
-import type { CatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
+import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
+import type { CatalogProviderCredentialReadiness } from "../governance/catalog-integration-credential-readiness";
 import type {
   CatalogAliasReviewStateKey,
   CatalogAliasSourceCategoryKey,
   CatalogAliasTypeKey,
-} from "../catalog-integration-data-governance";
+} from "../governance/catalog-integration-data-governance";
 import type { CatalogAliasConfidenceKey } from "../../../alias-equivalence/domain/alias";
 
 export type CatalogIntegrationUnitDescriptor = Readonly<{

@@ -10,7 +10,7 @@ import {
   listSourceObservationIdsForPromotion,
   type SourceObservationFilterScope,
 } from "../read-model/queries";
-import { type CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   BulkSourceObservationProgress,
@@ -26,8 +26,11 @@ import type {
   SourceObservationBulkReviewJobStore,
   SourceObservationBulkReviewWorkUnitStore,
 } from "./source-observation-runtime-contracts";
-import { recordBulkReviewWorkUnitTelemetry, recordBulkReviewControlPlaneTelemetry } from "./provider-option-queries";
-import { normalizeReapplyProfileMode } from "./catalog-integration-control-plane-readiness";
+import {
+  recordBulkReviewWorkUnitTelemetry,
+  recordBulkReviewControlPlaneTelemetry,
+} from "./providers/provider-option-queries";
+import { normalizeReapplyProfileMode } from "./governance/catalog-integration-control-plane-readiness";
 import {
   jobMatchesContext,
   toSourceObservationBulkJob,
