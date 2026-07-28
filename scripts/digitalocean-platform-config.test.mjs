@@ -1325,7 +1325,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile).toContain("COPY --chown=node:node deployables ./deployables");
     expect(dockerfile).toContain("chown node:node /app");
     expect(dockerfile).toContain("USER node");
-    expect(dockerfile.indexOf("USER node")).toBeGreaterThan(dockerfile.indexOf("RUN pnpm run sync:workspace-metadata"));
+    expect(dockerfile).not.toContain("pnpm run sync:workspace-metadata");
     expect(dockerfile.indexOf("USER node")).toBeLessThan(
       dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
     );

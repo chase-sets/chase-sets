@@ -35,8 +35,7 @@ COPY --chown=node:node packages ./packages
 COPY --chown=node:node bounded-contexts ./bounded-contexts
 COPY --chown=node:node deployables ./deployables
 
-RUN pnpm run sync:workspace-metadata \
-  && pnpm --filter @chase-sets/app-public-web run build \
+RUN pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
   && pnpm --filter @chase-sets/app-admin-web run build
 
