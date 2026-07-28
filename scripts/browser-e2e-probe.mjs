@@ -15,6 +15,7 @@ import { resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
 import { buildMinimalProcessEnvironment, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const probeTimeoutMs = 600_000;
 const probePollMs = 250;
@@ -330,6 +331,7 @@ export async function runBrowserE2eProbe({
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
+  acquireHeavySlot("script-battery");
   try {
     const result = await runBrowserE2eProbe(parseArguments(process.argv.slice(2)));
     console.log(`[browser-e2e-probe] ready; zero Playwright specs ran.`);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  acquireDevSystemHeavySlot,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eDirectCiCommands,
@@ -141,6 +142,32 @@ describe("dev system target env overrides", () => {
     expect(isBrowserE2eTarget("browser-e2e")).toBe(true);
     expect(isBrowserE2eTarget(browserE2eProductionTarget)).toBe(true);
     expect(isBrowserE2eTarget("marketplace-full")).toBe(false);
+  });
+
+  it.each(["browser-e2e", browserE2eProductionTarget])(
+    "acquires the script-battery slot for the %s dev target",
+    (targetName) => {
+      const acquisitions = [];
+      const acquireSlot = (kind) => {
+        acquisitions.push(kind);
+        return true;
+      };
+
+      expect(acquireDevSystemHeavySlot("dev", targetName, acquireSlot)).toBe(true);
+      expect(acquisitions).toEqual(["script-battery"]);
+    },
+  );
+
+  it("does not acquire a slot for a non-browser dev target", () => {
+    const acquisitions = [];
+
+    expect(
+      acquireDevSystemHeavySlot("dev", "marketplace-full", (kind) => {
+        acquisitions.push(kind);
+        return true;
+      }),
+    ).toBe(false);
+    expect(acquisitions).toEqual([]);
   });
 
   it("routes production web origins through the deployment-faithful ingress", () => {

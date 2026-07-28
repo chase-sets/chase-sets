@@ -186,6 +186,11 @@ export function isBrowserE2eTarget(targetName) {
   return targetName === "browser-e2e" || targetName === browserE2eProductionTarget;
 }
 
+export function acquireDevSystemHeavySlot(mode, targetName, acquireSlot) {
+  if (mode !== "dev" || !isBrowserE2eTarget(targetName)) return false;
+  return acquireSlot("script-battery");
+}
+
 export function createBrowserE2eProductionIngressDefinitions(processDefinitions, { apiUrl, ingressScriptPath }) {
   return processDefinitions
     .filter((definition) => browserE2eProductionWebNames.has(definition.name))

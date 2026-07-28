@@ -3,12 +3,13 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runBrowserE2eProbe } from "./browser-e2e-probe.mjs";
 
 const temporaryDirectories = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -40,6 +41,7 @@ class FakeChild extends EventEmitter {
 
 describe("standalone browser e2e probe", () => {
   it("uses the package contract, launches no Playwright command, and emits a hashed machine-readable bundle", async () => {
+    vi.stubEnv("CHASE_SETS_HEAVY_SLOT_ID", "0123456789abcdef0123456789abcdef");
     const outputDirectory = await createTemporaryDirectory();
     const packageJson = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
     expect(packageJson.scripts["dev:e2e:probe"]).toBe("node ./scripts/browser-e2e-probe.mjs");
@@ -138,6 +140,7 @@ describe("standalone browser e2e probe", () => {
       inheritEnv: false,
       env: {
         CHASE_SETS_BROWSER_E2E_PROBE: "true",
+        CHASE_SETS_HEAVY_SLOT_ID: "0123456789abcdef0123456789abcdef",
         NOTIFICATION_EMAIL_PROVIDER: "noop",
         STRIPE_PUBLISHABLE_KEY: "",
         STRIPE_SECRET_KEY: "",

@@ -1,8 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 import { createBrowserE2eRunEvidenceEnvironment } from "./scripts/browser-e2e-evidence.mjs";
 import { resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
+import { acquireHeavySlot } from "./scripts/lib/heavy-slot.mjs";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
+acquireHeavySlot("playwright");
 const retryTelemetryReporterPath = "./deployables/admin-web/e2e/support/retry-telemetry-reporter.ts";
 
 const sandbox = resolveWorktreeSandbox();

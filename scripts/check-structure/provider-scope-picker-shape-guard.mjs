@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "../lib/files.mjs";
+import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 
 // Guards the scope-first daily boundary: rendered structured-scope pickers must
 // come from the provider registry's declared shape, never from a literal
@@ -408,6 +409,7 @@ function visit(node, callback) {
 }
 
 if (process.argv[1]?.endsWith("provider-scope-picker-shape-guard.mjs")) {
+  acquireHeavySlot("script-battery");
   const repoRoot = process.cwd();
   const result = await validateProviderScopePickerShapeGuard({ repoRoot });
   if (process.argv.includes("--inventory")) {

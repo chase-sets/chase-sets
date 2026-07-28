@@ -9,6 +9,7 @@ import pg from "pg";
 import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } from "./browser-e2e-evidence.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
+  acquireDevSystemHeavySlot,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
@@ -19,6 +20,7 @@ import {
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import {
@@ -34,6 +36,7 @@ const modeArguments = process.argv.slice(3);
 const representativeRefresh = modeArguments.includes("--representative");
 const replayRepresentativeRefresh = modeArguments.includes("--replay");
 const target = modeArguments.find((argument) => !argument.startsWith("--")) ?? "all";
+acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);

@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 
 const disclosureContracts = [
   {
@@ -988,6 +989,7 @@ function escapeRegExp(value) {
 }
 
 if (process.argv[1]?.endsWith("browser-e2e-disclosure-guard.mjs")) {
+  acquireHeavySlot("script-battery");
   const result = await validateBrowserE2eDisclosureGuard({ repoRoot: process.cwd() });
   if (process.argv.includes("--inventory")) {
     console.log(JSON.stringify({ discovery: result.discovery, hits: result.hits }, null, 2));

@@ -3,6 +3,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readEnvFile } from "./lib/env.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
@@ -613,6 +614,11 @@ export async function runWorkspaceScripts(options) {
 }
 
 async function main() {
+  const scriptName = process.argv[2];
+  if (scriptName === "build") acquireHeavySlot("build");
+  else if (scriptName === "test" || scriptName === "test:unit" || scriptName?.startsWith("test:db")) {
+    acquireHeavySlot("script-battery");
+  }
   await runWorkspaceScripts({ argv: process.argv.slice(2) });
 }
 
