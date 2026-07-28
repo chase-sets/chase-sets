@@ -10,7 +10,7 @@ import {
   type PublicPolicyKey,
   type PublicPolicyPublicationRecord,
 } from "@chase-sets/public-docs";
-import { IdentityDomainError, type ConsentSubjectType } from "../../../support/runtime-support/common";
+import { assertNever, IdentityDomainError, type ConsentSubjectType } from "../../../support/runtime-support/common";
 import { TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN } from "./terms-of-service";
 import { identityConsentActiveVersionPolicies, type IdentityConsentPolicyKey } from "./terms-of-service-policy";
 
@@ -469,12 +469,14 @@ export async function resolveConsentBundle(
 }
 
 export const CONSENT_VERSION_NOT_PUBLISHED_CODE = "consent_version_not_published";
+export const CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE = "consent_version_not_consent_activatable";
 export const CONSENT_VERSION_NOT_ACTIVATED_CODE = "consent_version_not_activated";
+export const CONSENT_SUBJECT_SCOPE_CODE = "consent_subject_scope_not_bundle_declared";
 export const CONSENT_BUNDLE_UNRESOLVED_CODE = "consent_bundle_unresolved";
 export const CONSENT_BUNDLE_SUPERSEDED_CODE = "consent_bundle_superseded";
 
 export class ConsentVersionNotPublishedError extends IdentityDomainError {
-  public readonly code = CONSENT_VERSION_NOT_PUBLISHED_CODE;
+  public readonly code: string = CONSENT_VERSION_NOT_PUBLISHED_CODE;
 
   public constructor(
     public readonly policyKey: string,
@@ -483,6 +485,49 @@ export class ConsentVersionNotPublishedError extends IdentityDomainError {
   ) {
     super(`Consent for '${policyKey}' at version '${policyVersion}' cannot be recorded: ${reason}.`);
     this.name = "ConsentVersionNotPublishedError";
+  }
+}
+
+/**
+ * The publication record itself says the artifact may not be consented to yet.
+ *
+ * A distinct rejection from "no artifact publishes this version", and a
+ * subtype of it, because the two are the same half of the admission and every
+ * caller that already handles the publication rejection must keep handling
+ * this one. What separates them is diagnostic and real: the version is exactly
+ * the one published -- the document is simply not counsel-approved, published
+ * and readiness-valid, so nothing about it can be agreed to. No amount of
+ * activation authority state changes that, which is why this is decided before
+ * the authority is read at all.
+ */
+export class ConsentVersionNotConsentActivatableError extends ConsentVersionNotPublishedError {
+  public override readonly code: string = CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE;
+
+  public constructor(policyKey: string, policyVersion: string) {
+    super(policyKey, policyVersion, "its publication record is not consent-activatable");
+    this.name = "ConsentVersionNotConsentActivatableError";
+  }
+}
+
+/**
+ * A Consent whose subject does not match the scope its bundle declares.
+ *
+ * The subject of a bundle member's Consent is not the caller's to choose. It
+ * follows from the bundle declaration (issue 5680: registration is user-scoped,
+ * seller-onboarding is account-scoped and recorded by an authorized account
+ * member), so a caller cannot record a user bundle's policy against an account
+ * -- their own or anyone else's -- nor an account bundle's policy against a
+ * user.
+ */
+export class ConsentSubjectScopeError extends IdentityDomainError {
+  public readonly code: string = CONSENT_SUBJECT_SCOPE_CODE;
+
+  public constructor(
+    public readonly policyKey: string,
+    reason: string,
+  ) {
+    super(`Consent for '${policyKey}' cannot be recorded: ${reason}.`);
+    this.name = "ConsentSubjectScopeError";
   }
 }
 
@@ -504,38 +549,223 @@ export class ConsentVersionNotActivatedError extends IdentityDomainError {
   }
 }
 
+export type ConsentRecordingPublicationAdmission =
+  /** A bundle member whose publication record admits recording at this version. */
+  | Readonly<{ kind: "admitted" }>
+  /** No bundle declares this key, so bundle publication rules do not reach it. */
+  | Readonly<{ kind: "outside-bundle-rules" }>
+  | Readonly<{ kind: "version-mismatch"; publishedVersion: string }>
+  | Readonly<{ kind: "not-consent-activatable"; publishedVersion: string }>
+  | Readonly<{ kind: "malformed"; reason: string }>;
+
 /**
- * The publication half of the recording admission, and a pure function of the
- * compiled corpus: a Consent recorded against a bundle member must name the
- * exact version that member's artifact publishes. An invented, stub, or
- * superseded version never gets past this, and neither does a member whose
- * publication record cannot be trusted.
+ * The publication half of the recording admission, as a decision rather than a
+ * throw, and a pure function of the compiled corpus.
+ *
+ * TWO independent publication facts must both hold for a bundle member:
+ *
+ * 1. The record names the EXACT version being recorded. An invented, stub, or
+ *    superseded version never gets past this, and neither does a member whose
+ *    publication record cannot be trusted.
+ * 2. That record is CONSENT-ACTIVATABLE. `consentActivatable` is Public
+ *    Presence's compiled statement that the artifact is published,
+ *    counsel-approved and readiness-valid -- that there is something a person
+ *    could have read and agreed to. A record that says no is not a version
+ *    problem and cannot be turned into one by the activation authority: the
+ *    authority stream is a SEPARATE fact about a separate aggregate, and an
+ *    operator who activates a key whose artifact is still a placeholder has
+ *    activated nothing anyone can consent to. Admission therefore requires both
+ *    halves, and decides this one BEFORE any authority is read or written.
  *
  * A policy key no bundle declares is out of scope here entirely -- the
  * history-only legacy Terms of Service alias and any non-bundle key keep
  * recording exactly as before, because bundle membership is what brings a key
  * under bundle rules.
  */
+export function assessConsentRecordingPublication(
+  policyKey: string,
+  policyVersion: string,
+  corpus: ConsentPublicationCorpus,
+): ConsentRecordingPublicationAdmission {
+  if (!isConsentBundleMemberPolicyKey(policyKey)) {
+    return { kind: "outside-bundle-rules" };
+  }
+
+  const publication = assessPublication(policyKey, corpus);
+  if (publication.kind === "malformed") {
+    return { kind: "malformed", reason: publication.reason };
+  }
+  if (publication.version !== policyVersion) {
+    return { kind: "version-mismatch", publishedVersion: publication.version };
+  }
+  if (publication.kind === "not-consent-activatable") {
+    return { kind: "not-consent-activatable", publishedVersion: publication.version };
+  }
+
+  return { kind: "admitted" };
+}
+
+/** The publication half of the recording admission, asserted. */
 export function assertConsentVersionIsPublished(
   policyKey: string,
   policyVersion: string,
   corpus: ConsentPublicationCorpus,
 ): void {
-  if (!isConsentBundleMemberPolicyKey(policyKey)) {
+  const admission = assessConsentRecordingPublication(policyKey, policyVersion, corpus);
+  switch (admission.kind) {
+    case "admitted":
+    case "outside-bundle-rules":
+      return;
+    case "malformed":
+      throw new ConsentVersionNotPublishedError(policyKey, policyVersion, admission.reason);
+    case "version-mismatch":
+      throw new ConsentVersionNotPublishedError(
+        policyKey,
+        policyVersion,
+        `the published version is '${admission.publishedVersion}'`,
+      );
+    case "not-consent-activatable":
+      throw new ConsentVersionNotConsentActivatableError(policyKey, policyVersion);
+    default:
+      return assertNever(admission);
+  }
+}
+
+/**
+ * The same rule, asked instead of thrown, for provisioning paths.
+ *
+ * Seed, bootstrap and fixture profiles use this to decide whether to author a
+ * Consent fact at all. They deliberately consult the admission rather than
+ * carrying their own copy of it: a provisioning path that "knows" the corpus is
+ * activatable is exactly how a false corpus ends up with recorded Consents.
+ */
+export function isConsentRecordingPublicationAdmitted(
+  policyKey: string,
+  policyVersion: string,
+  corpus: ConsentPublicationCorpus,
+): boolean {
+  const { kind } = assessConsentRecordingPublication(policyKey, policyVersion, corpus);
+  return kind === "admitted" || kind === "outside-bundle-rules";
+}
+
+function isExactSubjectId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export type ConsentBundleMemberSubjectScope = Readonly<{
+  subjectType: ConsentSubjectType;
+  recordedBy: ConsentBundleRecordingAuthority;
+  /** The declaring bundles this scope was read from, in declaration order. */
+  bundleKeys: readonly ConsentBundleKey[];
+}>;
+
+/**
+ * The subject scope a bundle member's Consent must be recorded at, or null for
+ * a key no bundle declares.
+ *
+ * Read from the declarations rather than restated, so the scope a Consent is
+ * recorded at and the scope its bundle is resolved at cannot drift apart. If a
+ * key were ever declared by two bundles that disagree on scope, there is no one
+ * subject its Consent belongs to; that fails closed here rather than picking
+ * the first declaration.
+ */
+export function consentBundleMemberSubjectScope(policyKey: string): ConsentBundleMemberSubjectScope | null {
+  const bundleKeys = consentBundlesDeclaring(policyKey);
+  if (bundleKeys.length === 0) {
+    return null;
+  }
+
+  const declared = bundleKeys.map((bundleKey) => consentBundles[bundleKey]);
+  const [first] = declared;
+  if (declared.some((bundle) => bundle.subjectType !== first.subjectType || bundle.recordedBy !== first.recordedBy)) {
+    throw new ConsentSubjectScopeError(policyKey, "its declaring bundles do not agree on one subject scope");
+  }
+
+  return { subjectType: first.subjectType, recordedBy: first.recordedBy, bundleKeys };
+}
+
+export type ConsentRecordingSubject = Readonly<{
+  subjectType: ConsentSubjectType;
+  userId?: string | null;
+  accountId?: string | null;
+}>;
+
+/**
+ * The subject half of the recording admission: pure, so it holds on every path
+ * into the decider, and decided before anything reads or writes the activation
+ * authority.
+ *
+ * A Consent for a bundle member is recorded at the scope its bundle declares
+ * and for the exact identity at that scope -- never at a scope the caller
+ * picked. The failure this closes is not hypothetical: a user-scoped bundle's
+ * policy recorded as `subjectType: "account"` produces a fact whose subject is
+ * an account the recording person may have nothing to do with, and it reads as
+ * that account's acceptance forever after.
+ *
+ * An account-scoped member additionally has to capture the acting member,
+ * because issue 5680 decided such a Consent is recorded BY an authorized
+ * account member FOR the account. Which members are authorized is membership
+ * state and belongs to the seller-gating slice (issue 5694) wiring this; what
+ * is enforced here is that the account subject is exact and an acting member is
+ * always carried, so no account-scoped Consent can be anonymous.
+ *
+ * The companion identity a user-scoped Consent carries -- the account the
+ * person was acting in -- stays recorded context, not the subject. The
+ * projection keys the fact on `(subject_type, subject_id)`, and for a
+ * user-scoped Consent `subject_id` is the user.
+ */
+export function assertConsentSubjectMatchesBundle(policyKey: string, subject: ConsentRecordingSubject): void {
+  const scope = consentBundleMemberSubjectScope(policyKey);
+  if (scope === null) {
     return;
   }
 
-  const publication = assessPublication(policyKey, corpus);
-  if (publication.kind === "malformed") {
-    throw new ConsentVersionNotPublishedError(policyKey, policyVersion, publication.reason);
-  }
-  if (publication.version !== policyVersion) {
-    throw new ConsentVersionNotPublishedError(
+  if (subject.subjectType !== scope.subjectType) {
+    throw new ConsentSubjectScopeError(
       policyKey,
-      policyVersion,
-      `the published version is '${publication.version}'`,
+      `its bundle records a ${scope.subjectType}-scoped subject and this recording names a ${subject.subjectType}-scoped one`,
     );
   }
+
+  if (scope.subjectType === "user") {
+    if (!isExactSubjectId(subject.userId)) {
+      throw new ConsentSubjectScopeError(policyKey, "a user-scoped bundle member must name the exact user it is for");
+    }
+    return;
+  }
+
+  if (!isExactSubjectId(subject.accountId)) {
+    throw new ConsentSubjectScopeError(
+      policyKey,
+      "an account-scoped bundle member must name the exact account it is for",
+    );
+  }
+  if (scope.recordedBy === "authorized-account-member" && !isExactSubjectId(subject.userId)) {
+    throw new ConsentSubjectScopeError(
+      policyKey,
+      "an account-scoped bundle member must capture the acting account member recording it",
+    );
+  }
+}
+
+export type ConsentAcceptanceSubject = Readonly<{ subjectType: ConsentSubjectType; subjectId: string }>;
+
+/**
+ * The exact subject a bundle's acceptance is resolved for.
+ *
+ * The bundle declares the subject TYPE; the caller supplies identities, and
+ * exactly the one the bundle declares is used. There is deliberately no
+ * fallback to the other identity: resolving a user bundle by "or this account"
+ * is what lets one member of a shared account satisfy another member's
+ * requirement. Null means the caller did not supply the identity this bundle is
+ * about, which reads as "not accepted" rather than as a wider search.
+ */
+export function consentBundleAcceptanceSubject(
+  bundle: ConsentBundle,
+  subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
+): ConsentAcceptanceSubject | null {
+  const subjectId = bundle.subjectType === "user" ? subject.userId : subject.accountId;
+  return isExactSubjectId(subjectId) ? { subjectType: bundle.subjectType, subjectId } : null;
 }
 
 /**

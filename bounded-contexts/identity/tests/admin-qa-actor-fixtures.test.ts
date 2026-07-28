@@ -26,7 +26,9 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
   const memberships = createCommandRecorder();
   const consents = createCommandRecorder();
   // Provisioning publishes and activates the version it is about to record
-  // against, because the Consent recording admission has no fixture bypass.
+  // against, because the Consent recording admission has no fixture bypass --
+  // and abstains from both while the artifact is not consent-activatable, which
+  // `seeded-consent-provisioning.test.ts` covers on both sides of that rule.
   const consentActivation = {
     read: vi.fn(async () => ({ status: "never-activated", activeVersion: null })),
     register: vi.fn(async () => ({ status: "never-activated", activeVersion: null })),

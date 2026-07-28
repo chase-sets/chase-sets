@@ -1,7 +1,7 @@
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
-import { ensureSeededConsentActivation } from "./seeded-consent-activation";
+import { ensureSeededConsentActivation, isSeededConsentRecordable } from "./seeded-consent-activation";
 import type { IdentityServices } from "./services";
 
 const ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT = "2026-07-13T00:00:00.000Z";
@@ -169,10 +169,12 @@ export async function provisionAdminQaActorFixtures(
   const results: AdminQaActorFixtureResult[] = [];
 
   // These fixtures record a Consent for a Consent Bundle member, and that is
-  // only admitted while the member's activation authority reports the exact
-  // version active. Provisioning therefore publishes and activates the version
-  // it is about to record against, explicitly, rather than reaching around the
-  // admission rule.
+  // only admitted while the member's compiled artifact is consent-activatable
+  // AND its activation authority reports the exact version active. Provisioning
+  // therefore publishes and activates the version it is about to record
+  // against, explicitly, rather than reaching around the admission rule -- and
+  // does neither while the artifact is not consent-activatable, which is the
+  // shipped state of every policy at this head.
   await ensureSeededConsentActivation(services, context, {
     policyKey: ADMIN_QA_ACTOR_FIXTURE_CONSENT_POLICY_KEY,
     version: ADMIN_QA_ACTOR_FIXTURE_CONSENT_VERSION,
@@ -258,7 +260,10 @@ async function provisionAdminQaActorFixture(
     createdMembership = true;
   }
 
-  if (!(await rowExists(services.db, "identity_consents", "consent_id", fixture.consentId))) {
+  if (
+    isSeededConsentRecordable(ADMIN_QA_ACTOR_FIXTURE_CONSENT_POLICY_KEY, ADMIN_QA_ACTOR_FIXTURE_CONSENT_VERSION) &&
+    !(await rowExists(services.db, "identity_consents", "consent_id", fixture.consentId))
+  ) {
     await services.consents.commandHandler({
       streamId: `identity.consent-${fixture.consentId}`,
       command: {

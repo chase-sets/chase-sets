@@ -1,7 +1,11 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assert, assertNever, type ConsentSubjectType } from "../../../support/runtime-support/common";
-import { assertConsentVersionIsPublished, identityConsentPublicationCorpus } from "./consent-bundle";
+import {
+  assertConsentSubjectMatchesBundle,
+  assertConsentVersionIsPublished,
+  identityConsentPublicationCorpus,
+} from "./consent-bundle";
 
 export type ConsentState = Readonly<{
   id: ConsentId | null;
@@ -77,10 +81,20 @@ export const decideConsent: AggregateDecider<ConsentState, ConsentCommand, Conse
   switch (command.type) {
     case "RecordConsent":
       assert(state.id === null, "Consent has already been recorded.");
-      // The publication half of the recording admission. Pure, so it holds on
-      // every path into this decider -- route, registration, seed, bootstrap
-      // and fixture alike. The activation half needs the authority stream and
-      // therefore lives one layer out, in `../api/runtime.ts`.
+      // The subject and publication halves of the recording admission. Both are
+      // pure, so they hold on every path into this decider -- route,
+      // registration, seed, bootstrap and fixture alike. The activation half
+      // needs the authority stream and therefore lives one layer out, in
+      // `../api/runtime.ts`.
+      //
+      // Subject first: whose Consent this is does not depend on the corpus, and
+      // a recording aimed at the wrong subject is wrong even for a version that
+      // would otherwise be admitted.
+      assertConsentSubjectMatchesBundle(command.policyKey, {
+        subjectType: command.subjectType,
+        userId: command.userId,
+        accountId: command.accountId,
+      });
       assertConsentVersionIsPublished(command.policyKey, command.policyVersion, identityConsentPublicationCorpus);
       return [
         {

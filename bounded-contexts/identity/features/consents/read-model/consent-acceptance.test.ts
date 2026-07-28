@@ -1,18 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ConsentActivationAuthoritySnapshot } from "@chase-sets/platform-policy/consent-activation-authority";
+import type { PublicPolicyKey } from "@chase-sets/public-docs";
 import {
   identityConsentPublicationCorpus,
   registrationConsentBundle,
+  sellerOnboardingConsentBundle,
   type ConsentPublicationCorpus,
 } from "../domain/consent-bundle";
 import { resolveConsentBundleAcceptance, resolvePolicyAcceptanceStatus } from "./consent-acceptance";
 
 const TERMS_ACTIVATION_KEY = "identity.terms-of-service-active-version";
 const PRIVACY_ACTIVATION_KEY = "identity.privacy-policy-active-version";
+const SELLER_ACTIVATION_KEY = "identity.seller-agreement-active-version";
+const PAYMENTS_ACTIVATION_KEY = "identity.payments-terms-active-version";
 
 function activatable(
-  policyKey: "terms-of-service" | "privacy-policy",
+  policyKey: PublicPolicyKey,
   version: string,
   base: ConsentPublicationCorpus = identityConsentPublicationCorpus,
 ): ConsentPublicationCorpus {
@@ -71,26 +75,43 @@ type ConsentFixture = Readonly<{
   policyKey: string;
   policyVersion: string;
   status: "recorded" | "withdrawn";
+  /** Defaults to the user subject `usr_1`, the subject the registration bundle asks about. */
+  subjectType?: "user" | "account";
+  subjectId?: string;
 }>;
 
+/**
+ * Stands in for the projection, keyed the way the projection is keyed:
+ * `(subject_type, subject_id, policy_key)`. The per-bundle read is answered
+ * only by a fixture whose subject matches exactly, so a resolver that widened
+ * its subject would read as unsatisfied here rather than quietly passing.
+ */
 function fakeDb(consents: readonly ConsentFixture[]) {
   return {
     query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
       // The single-policy query passes the key as its first parameter; the
-      // per-bundle query passes an array of them. Both are answered from the
-      // same fixture set so the two read paths cannot disagree.
+      // per-bundle query passes an array of them, then the exact subject.
       const first = params?.[0];
-      const requested = (Array.isArray(first) ? first : [first]) as readonly string[];
+      const perBundle = Array.isArray(first);
+      const requested = (perBundle ? first : [first]) as readonly string[];
       const rows = requested.flatMap((policyKey) => {
-        const consent = consents.find((entry) => entry.policyKey === policyKey);
+        const consent = consents.find((entry) => {
+          if (entry.policyKey !== policyKey) {
+            return false;
+          }
+          if (!perBundle) {
+            return true;
+          }
+          return (entry.subjectType ?? "user") === params?.[1] && (entry.subjectId ?? "usr_1") === params?.[2];
+        });
         return consent
           ? [
               {
                 requested_policy_key: policyKey,
-                subject_type: "user",
-                subject_id: "usr_1",
-                user_id: "usr_1",
-                account_id: "acc_1",
+                subject_type: consent.subjectType ?? "user",
+                subject_id: consent.subjectId ?? "usr_1",
+                user_id: (consent.subjectType ?? "user") === "user" ? (consent.subjectId ?? "usr_1") : "usr_1",
+                account_id: (consent.subjectType ?? "user") === "account" ? (consent.subjectId ?? "acc_1") : "acc_1",
                 policy_key: consent.policyKey,
                 consent_id: `cns_${consent.policyKey}`,
                 policy_version: consent.policyVersion,
@@ -111,6 +132,12 @@ const bothActivatable = activatable("privacy-policy", "v1", activatable("terms-o
 const bothActive = authorityReturning({
   [TERMS_ACTIVATION_KEY]: activeSnapshot(TERMS_ACTIVATION_KEY, "v1"),
   [PRIVACY_ACTIVATION_KEY]: activeSnapshot(PRIVACY_ACTIVATION_KEY, "v1"),
+});
+
+const sellerActivatable = activatable("payments-terms", "v1", activatable("seller-agreement", "v1"));
+const sellerActive = authorityReturning({
+  [SELLER_ACTIVATION_KEY]: activeSnapshot(SELLER_ACTIVATION_KEY, "v1"),
+  [PAYMENTS_ACTIVATION_KEY]: activeSnapshot(PAYMENTS_ACTIVATION_KEY, "v1"),
 });
 
 const subject = { userId: "usr_1", accountId: "acc_1" };
@@ -219,6 +246,102 @@ describe("consent bundle acceptance", () => {
     expect(status.requirements.map((requirement) => requirement.policyKey)).toEqual(["terms-of-service"]);
     expect(status.members[0]).toMatchObject({ accepted: false, acceptedVersion: null, consentStatus: null });
     expect(status.satisfied).toBe(false);
+  });
+});
+
+describe("a bundle is satisfied only by its own subject's consent", () => {
+  it("is not satisfied by another user's consent in the same account", async () => {
+    const status = await resolveConsentBundleAcceptance(
+      fakeDb([
+        { policyKey: "terms-of-service", policyVersion: "v1", status: "recorded", subjectId: "usr_other" },
+        { policyKey: "privacy-policy", policyVersion: "v1", status: "recorded", subjectId: "usr_other" },
+      ]),
+      registrationConsentBundle,
+      { publications: bothActivatable, authority: bothActive },
+      // Same account as `usr_other`; a different person.
+      { userId: "usr_1", accountId: "acc_shared" },
+    );
+
+    expect(status.members.every((member) => member.accepted)).toBe(false);
+    expect(status.satisfied).toBe(false);
+  });
+
+  it("is not satisfied by an account-scoped consent when the bundle asks about a user", async () => {
+    const status = await resolveConsentBundleAcceptance(
+      fakeDb([
+        {
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+          status: "recorded",
+          subjectType: "account",
+          subjectId: "acc_1",
+        },
+        {
+          policyKey: "privacy-policy",
+          policyVersion: "v1",
+          status: "recorded",
+          subjectType: "account",
+          subjectId: "acc_1",
+        },
+      ]),
+      registrationConsentBundle,
+      { publications: bothActivatable, authority: bothActive },
+      subject,
+    );
+
+    expect(status.satisfied).toBe(false);
+  });
+
+  it("satisfies an account bundle for the exact account and no other", async () => {
+    const heldByAccount = [
+      {
+        policyKey: "seller-agreement",
+        policyVersion: "v1",
+        status: "recorded" as const,
+        subjectType: "account" as const,
+        subjectId: "acc_seller",
+      },
+      {
+        policyKey: "payments-terms",
+        policyVersion: "v1",
+        status: "recorded" as const,
+        subjectType: "account" as const,
+        subjectId: "acc_seller",
+      },
+    ];
+    const deps = { publications: sellerActivatable, authority: sellerActive };
+
+    const exact = await resolveConsentBundleAcceptance(fakeDb(heldByAccount), sellerOnboardingConsentBundle, deps, {
+      userId: "usr_1",
+      accountId: "acc_seller",
+    });
+    const foreign = await resolveConsentBundleAcceptance(fakeDb(heldByAccount), sellerOnboardingConsentBundle, deps, {
+      userId: "usr_1",
+      accountId: "acc_foreign",
+    });
+
+    expect(exact.subjectType).toBe("account");
+    expect(exact.requirements.map((requirement) => requirement.policyKey)).toEqual([
+      "seller-agreement",
+      "payments-terms",
+    ]);
+    expect(exact.satisfied).toBe(true);
+    expect(foreign.satisfied).toBe(false);
+  });
+
+  it("reads as unsatisfied, without querying, when the identity the bundle is about is absent", async () => {
+    const db = fakeDb([{ policyKey: "terms-of-service", policyVersion: "v1", status: "recorded" }]);
+
+    const status = await resolveConsentBundleAcceptance(
+      db,
+      // An account bundle asked with only a user identity.
+      sellerOnboardingConsentBundle,
+      { publications: sellerActivatable, authority: sellerActive },
+      { userId: "usr_1" },
+    );
+
+    expect(status.satisfied).toBe(false);
+    expect(db.query).not.toHaveBeenCalled();
   });
 });
 

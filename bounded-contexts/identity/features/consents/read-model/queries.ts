@@ -40,10 +40,20 @@ export type ConsentListParams = ListParams &
   }>;
 
 /**
- * Returns the current recorded-or-withdrawn state for `policyKey` and the
- * given subject (user and/or account), or null if none exists. Used by the
- * Terms of Service acceptance gate to compare against the active required
- * version -- see `terms-acceptance.ts`.
+ * Returns the current recorded-or-withdrawn state for `policyKey` held by this
+ * user OR carried in this account's context, or null if none exists. Used by
+ * the pre-bundle Terms of Service acceptance gate -- see `terms-acceptance.ts`.
+ *
+ * The disjunction is this port's shipped question and is deliberately left
+ * alone: Settlement asks it with an account and no user, to decide whether an
+ * account-scoped wallet balance may be spent, and answers it from the account
+ * context recorded alongside a member's Consent. Narrowing it to one exact
+ * subject would silently close that gate for every account.
+ *
+ * It is therefore NOT the rule for Consent Bundle acceptance, which asks whose
+ * Consent this is and is answered by `findCurrentConsentsForPolicyKeys` on the
+ * exact `(subject_type, subject_id)` the bundle declares. The two functions
+ * answer different questions and must not be collapsed into one.
  */
 export async function findCurrentConsent(
   db: PgQueryable,
@@ -86,23 +96,31 @@ export type RequestedCurrentConsentRow = CurrentConsentRow &
 
 /**
  * Returns the current recorded-or-withdrawn state for each requested policy key
- * and the given subject, in one round trip -- the per-bundle read the Consent
- * Bundle acceptance resolver composes over `findCurrentConsent`'s single-policy
- * rule.
+ * held by ONE exact subject, in one round trip -- the per-bundle read the
+ * Consent Bundle acceptance resolver composes over.
+ *
+ * The subject is `(subject_type, subject_id)`, which with `policy_key` is the
+ * projection's unique key, so each requested key matches at most one row and no
+ * tie-break is needed. It is deliberately NOT "this user or this account": a
+ * disjunction over the `user_id` / `account_id` companion columns lets one
+ * principal's Consent answer for another principal that merely shares an
+ * account, which is the whole reason a Consent fact carries a subject at all.
+ * The companion columns are recorded context and are never matched on here.
  *
  * The requested keys enter as a joined relation rather than an `IN` list so the
- * result can be aligned with the caller's ordered bundle without a second pass.
- * `policy_key` exists on both sides of that join, so every column reference on
- * either side is table-qualified: an unqualified `policy_key` here would be
- * ambiguous at best and silently bind to the wrong relation at worst. Keys with
- * no consent fact simply produce no row; absence is the caller's fail-closed
- * "not accepted", never a row invented here.
+ * result can be aligned with the caller's ordered bundle without a second pass,
+ * and `WITH ORDINALITY` makes that alignment the query's own guarantee rather
+ * than an accident of the join order. `policy_key` exists on both sides of that
+ * join, so every column reference on either side is table-qualified: an
+ * unqualified `policy_key` here would be ambiguous at best and silently bind to
+ * the wrong relation at worst. Keys with no consent fact simply produce no row;
+ * absence is the caller's fail-closed "not accepted", never a row invented here.
  */
 export async function findCurrentConsentsForPolicyKeys(
   db: PgQueryable,
-  params: Readonly<{ userId?: string | null; accountId?: string | null; policyKeys: readonly string[] }>,
+  params: Readonly<{ subjectType: string; subjectId: string; policyKeys: readonly string[] }>,
 ): Promise<readonly RequestedCurrentConsentRow[]> {
-  if (!params.userId && !params.accountId) {
+  if (!params.subjectType || !params.subjectId) {
     return [];
   }
   if (params.policyKeys.length === 0) {
@@ -122,29 +140,13 @@ export async function findCurrentConsentsForPolicyKeys(
             matched.recorded_at,
             matched.withdrawn_at,
             matched.updated_at
-     FROM unnest($1::text[]) AS requested(policy_key)
-     JOIN LATERAL (
-       SELECT current_state.subject_type,
-              current_state.subject_id,
-              current_state.user_id,
-              current_state.account_id,
-              current_state.policy_key,
-              current_state.consent_id,
-              current_state.policy_version,
-              current_state.status,
-              current_state.recorded_at,
-              current_state.withdrawn_at,
-              current_state.updated_at
-       FROM identity_consent_current_states AS current_state
-       WHERE current_state.policy_key = requested.policy_key
-         AND (
-           ($2::text IS NOT NULL AND current_state.user_id = $2)
-           OR ($3::text IS NOT NULL AND current_state.account_id = $3)
-         )
-       ORDER BY current_state.updated_at DESC, current_state.consent_id DESC
-       LIMIT 1
-     ) AS matched ON TRUE`,
-    [[...params.policyKeys], params.userId ?? null, params.accountId ?? null],
+     FROM unnest($1::text[]) WITH ORDINALITY AS requested(policy_key, request_index)
+     JOIN identity_consent_current_states AS matched
+       ON matched.policy_key = requested.policy_key
+      AND matched.subject_type = $2
+      AND matched.subject_id = $3
+     ORDER BY requested.request_index`,
+    [[...params.policyKeys], params.subjectType, params.subjectId],
   );
   return result.rows;
 }

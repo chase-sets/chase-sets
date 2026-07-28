@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
+  assertConsentSubjectMatchesBundle,
   assertConsentVersionIsActivated,
   assertConsentVersionIsPublished,
   consentBundleMemberActivationPolicyKey,
@@ -62,11 +63,15 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
       return commandHandler(input);
     }
 
-    const { policyKey, policyVersion } = input.command;
-    // Publication first, and deliberately: a version no artifact publishes is
-    // the more fundamental failure, and naming it that way is more useful than
-    // reporting it as "not activated". The decider re-asserts the same rule, so
-    // this ordering is a diagnostic choice, not the only place it holds.
+    const { accountId, policyKey, policyVersion, subjectType, userId } = input.command;
+    // Subject and publication first, and deliberately. Both are pure rules the
+    // decider re-asserts, so asserting them here is a diagnostic ordering
+    // choice -- but it is also what keeps a rejected recording from touching
+    // the activation authority at all. A Consent aimed at the wrong subject, or
+    // one whose artifact is not consent-activatable, must never cause an
+    // authority stream to be read, let alone guarded and appended against: the
+    // authority is a separate aggregate and this command has no business there.
+    assertConsentSubjectMatchesBundle(policyKey, { subjectType, userId, accountId });
     assertConsentVersionIsPublished(policyKey, policyVersion, identityConsentPublicationCorpus);
 
     // One authoritative read: activation state, active version and the guard

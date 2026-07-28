@@ -68,6 +68,10 @@ export {
 } from "./features/consents/domain/terms-of-service-policy";
 export {
   CONSENT_BUNDLE_KEYS,
+  CONSENT_SUBJECT_SCOPE_CODE,
+  CONSENT_VERSION_NOT_ACTIVATED_CODE,
+  CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE,
+  CONSENT_VERSION_NOT_PUBLISHED_CODE,
   consentBundles,
   registrationConsentBundle,
   resolveConsentBundle,

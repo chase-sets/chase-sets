@@ -1,7 +1,27 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { isConsentBundleMemberPolicyKey } from "../../features/consents/domain/consent-bundle";
+import {
+  identityConsentPublicationCorpus,
+  isConsentBundleMemberPolicyKey,
+  isConsentRecordingPublicationAdmitted,
+} from "../../features/consents/domain/consent-bundle";
 import { identityConsentActiveVersionPolicies } from "../../features/consents/domain/terms-of-service-policy";
 import type { IdentityServices } from "./services";
+
+/**
+ * Whether a provisioning profile may author a Consent fact for this bundle
+ * member at this version -- the publication half of the recording admission,
+ * asked rather than thrown, so a seed decides not to write instead of writing
+ * and being rejected.
+ *
+ * Every shipped artifact is `consentActivatable: false` today, so this is false
+ * for every bundle member at this head and the seeded Consent facts are simply
+ * absent. That is the correct shipped state, not a gap: there is no
+ * counsel-approved document behind them, so a seeded "acceptance" of one would
+ * be a fact about a person agreeing to nothing.
+ */
+export function isSeededConsentRecordable(policyKey: string, version: string): boolean {
+  return isConsentRecordingPublicationAdmitted(policyKey, version, identityConsentPublicationCorpus);
+}
 
 /**
  * The provisioning-side counterpart to the Consent recording admission.
@@ -17,6 +37,14 @@ import type { IdentityServices } from "./services";
  * This is idempotent and is a no-op once the key is already active at
  * `version`, so re-running a seed neither re-activates nor fails.
  *
+ * It is also a no-op while the member's compiled publication record is not
+ * consent-activatable. Activating a key whose artifact is still a placeholder
+ * would put the authority into a state that says "people may agree to this"
+ * about a document that does not exist -- and it could not produce a recordable
+ * Consent anyway, because the publication half of the admission rejects it
+ * first. A provisioning path that activates such a key is doing damage for no
+ * benefit, so the rule is checked before the authority is touched at all.
+ *
  * Scope: this activates a key in whatever database the caller is seeding. It is
  * not, and must not become, the path by which a policy goes live for real
  * people -- that is an operator action against a live environment, owned by a
@@ -28,6 +56,9 @@ export async function ensureSeededConsentActivation(
   params: Readonly<{ policyKey: string; version: string; actorUserId: string; activatedAt: string }>,
 ): Promise<void> {
   if (!isConsentBundleMemberPolicyKey(params.policyKey)) {
+    return;
+  }
+  if (!isSeededConsentRecordable(params.policyKey, params.version)) {
     return;
   }
 

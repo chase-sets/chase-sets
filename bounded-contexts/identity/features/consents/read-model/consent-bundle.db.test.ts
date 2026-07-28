@@ -25,6 +25,17 @@ vi.mock("@chase-sets/public-docs", async (importOriginal) => {
         counselApprovalReference: "counsel-2026-06-01",
         consentActivatable: true,
       },
+      "seller-agreement": {
+        ...original.publicPolicyPublicationRecords["seller-agreement"],
+        publicationStatus: "published",
+        effectiveAt: "2026-06-01T00:00:00.000Z",
+        counselApprovalReference: "counsel-2026-06-01",
+        consentActivatable: true,
+      },
+      // `payments-terms` is deliberately left as the shipped, non-consent-activatable
+      // record, so this file carries both halves of the publication rule against
+      // real PostgreSQL: an activatable member that can be recorded and required,
+      // and a non-activatable one that can be neither.
     },
   };
 });
@@ -42,12 +53,20 @@ const { createPolicyRuntime } = await import("@chase-sets/platform-policy/runtim
 const { platformPolicySchemaSql } = await import("@chase-sets/platform-policy/schema");
 const { createConsentRuntime } = await import("../api/runtime");
 const {
+  CONSENT_SUBJECT_SCOPE_CODE,
   CONSENT_VERSION_NOT_ACTIVATED_CODE,
+  CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE,
   identityConsentPublicationCorpus,
   registrationConsentBundle,
   resolveConsentBundle,
+  sellerOnboardingConsentBundle,
 } = await import("../domain/consent-bundle");
-const { identityPrivacyPolicyPolicy, identityTermsOfServicePolicy } = await import("../domain/terms-of-service-policy");
+const {
+  identityPaymentsTermsPolicy,
+  identityPrivacyPolicyPolicy,
+  identitySellerAgreementPolicy,
+  identityTermsOfServicePolicy,
+} = await import("../domain/terms-of-service-policy");
 const { identityConsentSchemaSql } = await import("./schema");
 const { findCurrentConsentsForPolicyKeys } = await import("./queries");
 const { resolveConsentBundleAcceptance } = await import("./consent-acceptance");
@@ -131,15 +150,41 @@ describeDb("consent bundle against real PostgreSQL", () => {
     return lengths;
   }
 
+  /**
+   * Writes a current-state row the way the projection writes one: keyed on
+   * `(subject_type, subject_id, policy_key)`, with `user_id`/`account_id` as
+   * the recorded companion context. Defaults to the registration bundle's
+   * subject; the scope controls below override it.
+   */
   async function plantConsent(
-    entry: Readonly<{ policyKey: string; version: string; status: "recorded" | "withdrawn" }>,
+    entry: Readonly<{
+      policyKey: string;
+      version: string;
+      status: "recorded" | "withdrawn";
+      subjectType?: "user" | "account";
+      subjectId?: string;
+      userId?: string;
+      accountId?: string;
+      consentId?: string;
+    }>,
   ) {
+    const subjectType = entry.subjectType ?? "user";
+    const subjectId = entry.subjectId ?? (subjectType === "user" ? SUBJECT.userId : SUBJECT.accountId);
     await pool.query(
       `INSERT INTO identity_consent_current_states (
          subject_type, subject_id, user_id, account_id, policy_key, consent_id,
          policy_version, status, recorded_at, withdrawn_at, last_event_global_position, updated_at
-       ) VALUES ('user', $1, $1, $2, $3, $4, $5, $6, now(), NULL, 1, now())`,
-      [SUBJECT.userId, SUBJECT.accountId, entry.policyKey, `cns_${entry.policyKey}`, entry.version, entry.status],
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), NULL, 1, now())`,
+      [
+        subjectType,
+        subjectId,
+        entry.userId ?? (subjectType === "user" ? subjectId : SUBJECT.userId),
+        entry.accountId ?? (subjectType === "account" ? subjectId : SUBJECT.accountId),
+        entry.policyKey,
+        entry.consentId ?? `cns_${subjectType}_${subjectId}_${entry.policyKey}`,
+        entry.version,
+        entry.status,
+      ],
     );
   }
 
@@ -234,8 +279,8 @@ describeDb("consent bundle against real PostgreSQL", () => {
     );
 
     const rows = await findCurrentConsentsForPolicyKeys(pool, {
-      userId: SUBJECT.userId,
-      accountId: SUBJECT.accountId,
+      subjectType: "user",
+      subjectId: SUBJECT.userId,
       policyKeys: ["terms-of-service", "privacy-policy", "seller-agreement"],
     });
 
@@ -243,6 +288,190 @@ describeDb("consent bundle against real PostgreSQL", () => {
       ["terms-of-service", "terms-of-service", "v1", "recorded"],
       ["privacy-policy", "privacy-policy", "v1", "withdrawn"],
     ]);
+  });
+
+  it("reads nothing for a subject whose only consent belongs to another principal in the same account", async () => {
+    await plantConsent({
+      policyKey: "terms-of-service",
+      version: "v1",
+      status: "recorded",
+      subjectId: "usr_other",
+      accountId: SUBJECT.accountId,
+    });
+
+    const rows = await findCurrentConsentsForPolicyKeys(pool, {
+      subjectType: "user",
+      subjectId: SUBJECT.userId,
+      policyKeys: ["terms-of-service"],
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("rejects recording a member whose artifact is not consent-activatable, however the authority is set, and writes nothing", async () => {
+    // `payments-terms` is a declared seller-onboarding member whose shipped
+    // publication record says it may not be consented to. Activating its
+    // authority does not change that -- and must not cause anything to be
+    // appended anywhere.
+    const activated = await activate(identityPaymentsTermsPolicy, "v1");
+    const authorityStreamId = activated.streamId;
+    const authorityLengthBefore = (await eventStore.readStream({ streamId: authorityStreamId })).length;
+
+    await expect(
+      consents.commandHandler({
+        streamId: "identity.consent-cns_false_corpus",
+        command: {
+          type: "RecordConsent",
+          consentId: "cns_false_corpus" as never,
+          subjectType: "account",
+          userId: SUBJECT.userId as never,
+          accountId: SUBJECT.accountId as never,
+          policyKey: "payments-terms",
+          policyVersion: "v1",
+          recordedAt: "2026-07-01T00:00:00.000Z",
+        },
+        context,
+      }),
+    ).rejects.toMatchObject({ code: CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE });
+
+    expect((await eventStore.readStream({ streamId: "identity.consent-cns_false_corpus" })).length).toBe(0);
+    expect((await eventStore.readStream({ streamId: authorityStreamId })).length).toBe(authorityLengthBefore);
+    expect(
+      (await pool.query("SELECT 1 FROM identity_consent_current_states WHERE policy_key = $1", ["payments-terms"]))
+        .rows,
+    ).toEqual([]);
+  });
+
+  describe("consent is bound to the subject its bundle declares", () => {
+    it("rejects recording a registration-bundle member against an account subject, and writes nothing", async () => {
+      await activate(identityTermsOfServicePolicy, "v1");
+
+      await expect(
+        consents.commandHandler({
+          streamId: "identity.consent-cns_scope_account",
+          command: {
+            type: "RecordConsent",
+            consentId: "cns_scope_account" as never,
+            subjectType: "account",
+            userId: SUBJECT.userId as never,
+            accountId: "acc_victim" as never,
+            policyKey: "terms-of-service",
+            policyVersion: "v1",
+            recordedAt: "2026-07-01T00:00:00.000Z",
+          },
+          context,
+        }),
+      ).rejects.toMatchObject({ code: CONSENT_SUBJECT_SCOPE_CODE });
+
+      expect((await eventStore.readStream({ streamId: "identity.consent-cns_scope_account" })).length).toBe(0);
+    });
+
+    it("rejects recording a seller-bundle member against a user subject, and writes nothing", async () => {
+      await activate(identitySellerAgreementPolicy, "v1");
+
+      await expect(
+        consents.commandHandler({
+          streamId: "identity.consent-cns_scope_user",
+          command: {
+            type: "RecordConsent",
+            consentId: "cns_scope_user" as never,
+            subjectType: "user",
+            userId: SUBJECT.userId as never,
+            accountId: SUBJECT.accountId as never,
+            policyKey: "seller-agreement",
+            policyVersion: "v1",
+            recordedAt: "2026-07-01T00:00:00.000Z",
+          },
+          context,
+        }),
+      ).rejects.toMatchObject({ code: CONSENT_SUBJECT_SCOPE_CODE });
+
+      expect((await eventStore.readStream({ streamId: "identity.consent-cns_scope_user" })).length).toBe(0);
+    });
+
+    it("does not let another user in the same account satisfy a user bundle", async () => {
+      await activate(identityTermsOfServicePolicy, "v1");
+      await activate(identityPrivacyPolicyPolicy, "v1");
+      // Everything the bundle requires, held by a different person who happens
+      // to share `SUBJECT.accountId`.
+      await plantConsent({
+        policyKey: "terms-of-service",
+        version: "v1",
+        status: "recorded",
+        subjectId: "usr_other",
+        accountId: SUBJECT.accountId,
+      });
+      await plantConsent({
+        policyKey: "privacy-policy",
+        version: "v1",
+        status: "recorded",
+        subjectId: "usr_other",
+        accountId: SUBJECT.accountId,
+      });
+
+      const status = await resolveConsentBundleAcceptance(
+        pool,
+        registrationConsentBundle,
+        { publications: identityConsentPublicationCorpus, authority: policies.consentActivation },
+        SUBJECT,
+      );
+
+      expect(status.requirements).toHaveLength(2);
+      expect(status.members.map((member) => member.acceptedVersion)).toEqual([null, null]);
+      expect(status.satisfied).toBe(false);
+    });
+
+    it("satisfies an account bundle for the exact account subject and no other", async () => {
+      await activate(identitySellerAgreementPolicy, "v1");
+      await plantConsent({
+        policyKey: "seller-agreement",
+        version: "v1",
+        status: "recorded",
+        subjectType: "account",
+        subjectId: "acc_seller",
+        userId: "usr_seller_owner",
+      });
+      const deps = {
+        publications: identityConsentPublicationCorpus,
+        authority: policies.consentActivation,
+      };
+
+      const exact = await resolveConsentBundleAcceptance(pool, sellerOnboardingConsentBundle, deps, {
+        userId: "usr_seller_owner",
+        accountId: "acc_seller",
+      });
+      const foreign = await resolveConsentBundleAcceptance(pool, sellerOnboardingConsentBundle, deps, {
+        userId: "usr_seller_owner",
+        accountId: "acc_foreign",
+      });
+
+      // `payments-terms` stays out of the requirement set: declared, published,
+      // and not consent-activatable.
+      expect(exact.requirements.map((requirement) => requirement.policyKey)).toEqual(["seller-agreement"]);
+      expect(exact.satisfied).toBe(true);
+      expect(foreign.satisfied).toBe(false);
+    });
+
+    it("does not let a user-scoped consent satisfy an account bundle for that user's account", async () => {
+      await activate(identitySellerAgreementPolicy, "v1");
+      await plantConsent({
+        policyKey: "seller-agreement",
+        version: "v1",
+        status: "recorded",
+        subjectType: "user",
+        subjectId: "usr_seller_owner",
+        accountId: "acc_seller",
+      });
+
+      const status = await resolveConsentBundleAcceptance(
+        pool,
+        sellerOnboardingConsentBundle,
+        { publications: identityConsentPublicationCorpus, authority: policies.consentActivation },
+        { userId: "usr_seller_owner", accountId: "acc_seller" },
+      );
+
+      expect(status.satisfied).toBe(false);
+    });
   });
 
   describe("bundle satisfaction is aggregate state, never row presence", () => {

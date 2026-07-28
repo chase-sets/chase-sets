@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  consentBundleAcceptanceSubject,
   resolveConsentBundle,
   type ConsentBundle,
   type ConsentBundleKey,
@@ -97,6 +98,15 @@ export type ConsentBundleAcceptanceStatus = Readonly<{
  * be able to shrink the requirement set. What has been ACCEPTED is a read-model
  * report, and reports fail closed -- a lagging projection can only make this
  * read say "not yet satisfied", never "satisfied".
+ *
+ * WHOSE acceptance is read is the bundle's to decide, not the caller's. The
+ * caller hands over the identities it knows; the bundle's declared subject type
+ * picks exactly one of them, and the read is keyed on that exact subject. A
+ * user bundle is never answered by an account's facts and an account bundle is
+ * never answered by a user's, so a second person in the same account can
+ * neither satisfy nor be satisfied by the first. When the caller did not supply
+ * the identity this bundle is about, nothing is read and every requirement
+ * reads as unheld.
  */
 export async function resolveConsentBundleAcceptance(
   db: PgQueryable,
@@ -105,11 +115,14 @@ export async function resolveConsentBundleAcceptance(
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
 ): Promise<ConsentBundleAcceptanceStatus> {
   const resolution = await resolveConsentBundle(bundle, deps);
-  const rows = await findCurrentConsentsForPolicyKeys(db, {
-    userId: subject.userId ?? null,
-    accountId: subject.accountId ?? null,
-    policyKeys: resolution.requirements.map((requirement) => requirement.policyKey),
-  });
+  const acceptanceSubject = consentBundleAcceptanceSubject(bundle, subject);
+  const rows = acceptanceSubject
+    ? await findCurrentConsentsForPolicyKeys(db, {
+        subjectType: acceptanceSubject.subjectType,
+        subjectId: acceptanceSubject.subjectId,
+        policyKeys: resolution.requirements.map((requirement) => requirement.policyKey),
+      })
+    : [];
 
   const members = resolution.requirements.map((requirement) => {
     const current = rows.find((row) => row.requested_policy_key === requirement.policyKey);

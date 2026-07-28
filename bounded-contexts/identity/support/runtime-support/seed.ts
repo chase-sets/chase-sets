@@ -14,7 +14,7 @@ import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
-import { ensureSeededConsentActivation } from "./seeded-consent-activation";
+import { ensureSeededConsentActivation, isSeededConsentRecordable } from "./seeded-consent-activation";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   decideAccount,
@@ -666,20 +666,27 @@ function buildScenarioIdentityReconcilers(
       ]),
     ),
 
-    ...[demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
-      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, [
-        {
-          type: "RecordConsent",
-          consentId: consent.consentId,
-          subjectType: "user",
-          userId: consent.userId,
-          accountId: consent.accountId,
-          policyKey: SEEDED_CONSENT_POLICY_KEY,
-          policyVersion: SEEDED_CONSENT_POLICY_VERSION,
-          recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
-        },
-      ]),
-    ),
+    // The scenario personas hold a Terms of Service Consent only while the
+    // compiled artifact behind it is consent-activatable. It is not at this
+    // head, so the seed authors nothing rather than authoring an acceptance of
+    // a placeholder -- the same rule the recording admission would enforce,
+    // consulted instead of discovered by rejection.
+    ...(isSeededConsentRecordable(SEEDED_CONSENT_POLICY_KEY, SEEDED_CONSENT_POLICY_VERSION)
+      ? [demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
+          consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, [
+            {
+              type: "RecordConsent",
+              consentId: consent.consentId,
+              subjectType: "user",
+              userId: consent.userId,
+              accountId: consent.accountId,
+              policyKey: SEEDED_CONSENT_POLICY_KEY,
+              policyVersion: SEEDED_CONSENT_POLICY_VERSION,
+              recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
+            },
+          ]),
+        )
+      : []),
 
     invitationReconciler(support.invitationId, "support@chasesets.test", [
       {
@@ -985,6 +992,12 @@ async function reconcileRepresentativeConsent(
   context: ReturnType<typeof createIdentityBootstrapContext>,
   account: (typeof representativeAccounts)[number],
 ): Promise<void> {
+  // Same rule as the scenario profile: no consent-activatable artifact, no
+  // seeded Consent fact -- and nothing to reconcile an existing one against.
+  if (!isSeededConsentRecordable(SEEDED_CONSENT_POLICY_KEY, SEEDED_CONSENT_POLICY_VERSION)) {
+    return;
+  }
+
   const existing = await services.consents.getConsentState(account.consentId);
   if (!existing) {
     await services.consents.commandHandler({

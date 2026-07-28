@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ConsentSubjectScopeError, ConsentVersionNotConsentActivatableError } from "./consent-bundle";
 import { decideConsent, evolveConsent, initialConsentState } from "./domain";
 
 describe("consent domain", () => {
@@ -9,14 +10,35 @@ describe("consent domain", () => {
       subjectType: "user",
       userId: "usr_test" as never,
       accountId: "acc_test" as never,
-      policyKey: "terms-of-service",
+      policyKey: "marketing-email",
       policyVersion: "v1",
       recordedAt: "2026-03-28T00:00:00.000Z",
     });
     const state = recorded.reduce(evolveConsent, initialConsentState);
 
-    expect(state.policyKey).toBe("terms-of-service");
+    expect(state.policyKey).toBe("marketing-email");
     expect(state.policyVersion).toBe("v1");
+  });
+
+  it("carries the bundle admission rules into the decider itself, so no path can skip them", () => {
+    const command = {
+      type: "RecordConsent",
+      consentId: "cns_test",
+      userId: "usr_test",
+      accountId: "acc_test",
+      policyKey: "terms-of-service",
+      policyVersion: "v1",
+      recordedAt: "2026-03-28T00:00:00.000Z",
+    } as const;
+
+    // The shipped artifact is not consent-activatable...
+    expect(() => decideConsent(initialConsentState, { ...command, subjectType: "user" } as never)).toThrow(
+      ConsentVersionNotConsentActivatableError,
+    );
+    // ...and the subject rule is decided before the corpus is even consulted.
+    expect(() => decideConsent(initialConsentState, { ...command, subjectType: "account" } as never)).toThrow(
+      ConsentSubjectScopeError,
+    );
   });
 
   it("withdraws a recorded consent while retaining its policy record", () => {

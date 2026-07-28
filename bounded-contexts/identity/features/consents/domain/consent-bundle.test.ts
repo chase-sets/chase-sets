@@ -3,17 +3,25 @@ import type { ConsentActivationAuthoritySnapshot } from "@chase-sets/platform-po
 import type { PublicPolicyKey, PublicPolicyPublicationRecord } from "@chase-sets/public-docs";
 import {
   assertAffirmedRequirementsCoverBundle,
+  assertConsentSubjectMatchesBundle,
   assertConsentVersionIsActivated,
   assertConsentVersionIsPublished,
+  CONSENT_SUBJECT_SCOPE_CODE,
+  CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE,
   ConsentBundleSupersededError,
   ConsentBundleUnresolvedError,
+  ConsentSubjectScopeError,
   ConsentVersionNotActivatedError,
+  ConsentVersionNotConsentActivatableError,
   ConsentVersionNotPublishedError,
+  consentBundleAcceptanceSubject,
   consentBundleMemberActivationPolicyKey,
+  consentBundleMemberSubjectScope,
   consentBundles,
   consentBundlesDeclaring,
   identityConsentPublicationCorpus,
   isConsentBundleMemberPolicyKey,
+  isConsentRecordingPublicationAdmitted,
   registrationConsentBundle,
   resolveConsentBundle,
   sellerOnboardingConsentBundle,
@@ -474,10 +482,31 @@ describe("recording admission", () => {
     );
   });
 
-  it("accepts the exact published version for a bundle member", () => {
-    expect(() =>
-      assertConsentVersionIsPublished("terms-of-service", "v1", identityConsentPublicationCorpus),
-    ).not.toThrow();
+  it("rejects the exact published version of a member whose artifact is not consent-activatable", () => {
+    // The shipped corpus publishes terms-of-service v1 and says it may not be
+    // consented to. Naming the right version is not enough.
+    expect(() => assertConsentVersionIsPublished("terms-of-service", "v1", identityConsentPublicationCorpus)).toThrow(
+      ConsentVersionNotConsentActivatableError,
+    );
+    expect(isConsentRecordingPublicationAdmitted("terms-of-service", "v1", identityConsentPublicationCorpus)).toBe(
+      false,
+    );
+  });
+
+  it("accepts the exact published version once the artifact is consent-activatable", () => {
+    const corpus = activatablePublication("terms-of-service", "v1");
+
+    expect(() => assertConsentVersionIsPublished("terms-of-service", "v1", corpus)).not.toThrow();
+    expect(isConsentRecordingPublicationAdmitted("terms-of-service", "v1", corpus)).toBe(true);
+  });
+
+  it("names the non-activatable rejection distinctly from an unpublished version", () => {
+    const notActivatable = new ConsentVersionNotConsentActivatableError("terms-of-service", "v1");
+
+    expect(notActivatable.code).toBe(CONSENT_VERSION_NOT_CONSENT_ACTIVATABLE_CODE);
+    // A subtype, so every caller already handling the publication rejection
+    // keeps handling this one.
+    expect(notActivatable).toBeInstanceOf(ConsentVersionNotPublishedError);
   });
 
   it("leaves a policy key no bundle declares alone, including a date-shaped legacy version", () => {
@@ -512,5 +541,103 @@ describe("recording admission", () => {
     expect(() =>
       assertConsentVersionIsActivated("terms-of-service", "v1", activeSnapshot(TERMS_ACTIVATION_KEY, "v1")),
     ).not.toThrow();
+  });
+});
+
+describe("the subject a bundle member's consent is recorded for", () => {
+  it("reads each member's scope from the bundle that declares it", () => {
+    expect(consentBundleMemberSubjectScope("terms-of-service")).toEqual({
+      subjectType: "user",
+      recordedBy: "subject",
+      bundleKeys: ["registration"],
+    });
+    expect(consentBundleMemberSubjectScope("seller-agreement")).toEqual({
+      subjectType: "account",
+      recordedBy: "authorized-account-member",
+      bundleKeys: ["seller-onboarding"],
+    });
+    expect(consentBundleMemberSubjectScope("terms")).toBeNull();
+  });
+
+  it("rejects recording a registration-bundle policy against an account", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("terms-of-service", {
+        subjectType: "account",
+        userId: "usr_attacker",
+        accountId: "acc_victim",
+      }),
+    ).toThrow(ConsentSubjectScopeError);
+  });
+
+  it("rejects a user-scoped recording that names no user", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("privacy-policy", { subjectType: "user", accountId: "acc_1" }),
+    ).toThrow(ConsentSubjectScopeError);
+    expect(() => assertConsentSubjectMatchesBundle("privacy-policy", { subjectType: "user", userId: "   " })).toThrow(
+      ConsentSubjectScopeError,
+    );
+  });
+
+  it("accepts a user-scoped recording that names the exact user, account context and all", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("terms-of-service", {
+        subjectType: "user",
+        userId: "usr_1",
+        accountId: "acc_1",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects recording a seller-bundle policy against a user", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("payments-terms", {
+        subjectType: "user",
+        userId: "usr_1",
+        accountId: "acc_1",
+      }),
+    ).toThrow(ConsentSubjectScopeError);
+  });
+
+  it("requires an account-scoped recording to name the exact account and capture the acting member", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("seller-agreement", { subjectType: "account", userId: "usr_1" }),
+    ).toThrow(ConsentSubjectScopeError);
+    expect(() =>
+      assertConsentSubjectMatchesBundle("seller-agreement", { subjectType: "account", accountId: "acc_1" }),
+    ).toThrow(ConsentSubjectScopeError);
+    expect(() =>
+      assertConsentSubjectMatchesBundle("seller-agreement", {
+        subjectType: "account",
+        userId: "usr_1",
+        accountId: "acc_1",
+      }),
+    ).not.toThrow();
+  });
+
+  it("leaves a policy key no bundle declares free of bundle scope rules", () => {
+    expect(() =>
+      assertConsentSubjectMatchesBundle("terms", { subjectType: "account", accountId: "acc_1" }),
+    ).not.toThrow();
+  });
+
+  it("names the scope rejection", () => {
+    expect(new ConsentSubjectScopeError("terms-of-service", "reason").code).toBe(CONSENT_SUBJECT_SCOPE_CODE);
+  });
+
+  it("resolves acceptance against the identity its bundle declares, never the other one", () => {
+    const subject = { userId: "usr_1", accountId: "acc_1" };
+
+    expect(consentBundleAcceptanceSubject(registrationConsentBundle, subject)).toEqual({
+      subjectType: "user",
+      subjectId: "usr_1",
+    });
+    expect(consentBundleAcceptanceSubject(sellerOnboardingConsentBundle, subject)).toEqual({
+      subjectType: "account",
+      subjectId: "acc_1",
+    });
+    // The identity the bundle is about is missing: there is no widening to the
+    // one that is present.
+    expect(consentBundleAcceptanceSubject(registrationConsentBundle, { accountId: "acc_1" })).toBeNull();
+    expect(consentBundleAcceptanceSubject(sellerOnboardingConsentBundle, { userId: "usr_1" })).toBeNull();
   });
 });
