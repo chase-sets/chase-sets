@@ -66,7 +66,7 @@ describe("release lock check", () => {
     });
   });
 
-  it("rejects free-text emergency bypass references", () => {
+  it("rejects malformed and free-text emergency bypass references", () => {
     const result = evaluateReleaseLock({
       environmentName: "production",
       releaseCommit: "c".repeat(40),
@@ -81,12 +81,29 @@ describe("release lock check", () => {
     expect(result.errors).toContain(
       "EMERGENCY_RELEASE_REFERENCE must be an incident reference or a GitHub issue/PR reference when EMERGENCY_RELEASE_BYPASS=true.",
     );
+    expect(normalizeEmergencyReference("fix forward ISSUE-6265 please")).toBeNull();
+    expect(normalizeEmergencyReference("chase-sets/chase-sets#not-a-number")).toBeNull();
+    expect(normalizeEmergencyReference("https://github.com/chase-sets/chase-sets/discussions/6265")).toBeNull();
   });
 
-  it("normalizes emergency references to incident or GitHub issue references", () => {
+  it("normalizes incident, full GitHub URL, canonical GitHub, and local GitHub references", () => {
     expect(normalizeEmergencyReference("inc-2026-05-31-123")).toEqual({
       kind: "incident",
       reference: "INC-2026-05-31-123",
+    });
+    expect(normalizeEmergencyReference("https://github.com/chase-sets/chase-sets/issues/6265")).toEqual({
+      kind: "github",
+      owner: "chase-sets",
+      repo: "chase-sets",
+      number: 6265,
+      reference: "chase-sets/chase-sets#6265",
+    });
+    expect(normalizeEmergencyReference("chase-sets/chase-sets#6265")).toEqual({
+      kind: "github",
+      owner: "chase-sets",
+      repo: "chase-sets",
+      number: 6265,
+      reference: "chase-sets/chase-sets#6265",
     });
     expect(normalizeEmergencyReference("#2797")).toEqual({
       kind: "github",
@@ -99,6 +116,41 @@ describe("release lock check", () => {
       repo: "chase-sets",
       number: 2865,
       reference: "chase-sets/chase-sets#2865",
+    });
+  });
+
+  it("resolves the full issue URL rejected by Platform Deploy run 30410644170", async () => {
+    const fetch = async (url, init) => {
+      expect(url).toBe("https://api.github.test/repos/chase-sets/chase-sets/issues/6265");
+      expect(init.headers.authorization).toBe("Bearer token");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ html_url: "https://github.com/chase-sets/chase-sets/issues/6265" }),
+      };
+    };
+
+    const result = await evaluateReleaseLockWithResolution(
+      {
+        environmentName: "production",
+        releaseCommit: "1fa28b8f485b9ffe13c07bf3839896c1ac0ed06f",
+        releaseLocked: "true",
+        lockReason: "DOKS production compute recovery for live/marker identity mismatch",
+        lockReference: "https://github.com/chase-sets/chase-sets/issues/6265",
+        emergencyBypass: "true",
+        emergencyReference: "https://github.com/chase-sets/chase-sets/issues/6265",
+        githubRepository: "chase-sets/chase-sets",
+        githubToken: "token",
+        githubApiUrl: "https://api.github.test",
+      },
+      { fetch },
+    );
+
+    expect(result).toMatchObject({
+      deploymentAllowed: true,
+      emergencyReferenceKind: "github",
+      validatedEmergencyReference: "chase-sets/chase-sets#6265",
+      emergencyReferenceUrl: "https://github.com/chase-sets/chase-sets/issues/6265",
     });
   });
 

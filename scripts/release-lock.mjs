@@ -122,19 +122,20 @@ export function normalizeEmergencyReference(value) {
     return { kind: "incident", reference: trimmed.toUpperCase() };
   }
 
-  const urlMatch = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/(?:issues|pull)\/(\d+)(?:[/?#].*)?$/i.exec(trimmed);
-  if (urlMatch) {
+  const qualifiedGitHubMatch =
+    /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/(?:issues|pull)\/(\d+)(?:[/?#].*)?$/i.exec(trimmed) ??
+    /^([^/#\s]+)\/([^/#\s]+)#(\d+)$/.exec(trimmed);
+  if (qualifiedGitHubMatch) {
     return {
       kind: "github",
-      owner: urlMatch[1],
-      repo: urlMatch[2],
-      number: Number(urlMatch[3]),
-      reference: `${urlMatch[1]}/${urlMatch[2]}#${urlMatch[3]}`,
+      owner: qualifiedGitHubMatch[1],
+      repo: qualifiedGitHubMatch[2],
+      number: Number(qualifiedGitHubMatch[3]),
+      reference: `${qualifiedGitHubMatch[1]}/${qualifiedGitHubMatch[2]}#${qualifiedGitHubMatch[3]}`,
     };
   }
 
-  const numberMatch =
-    /^(?:#|GH-|ISSUE-|PR-|PULL-)(\d+)$/i.exec(trimmed) ?? /\b(?:ISSUE|PR|PULL)-(\d+)\b/i.exec(trimmed);
+  const numberMatch = /^(?:#|GH-|ISSUE-|PR-|PULL-)(\d+)$/i.exec(trimmed);
   if (numberMatch) {
     return {
       kind: "github",
