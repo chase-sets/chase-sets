@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
@@ -15,6 +17,9 @@ import {
 import { repoRoot } from "./lib/repo.mjs";
 
 const checkerPath = fileURLToPath(new URL("./public-web-route-smoke.mjs", import.meta.url));
+const deadlineFailure = `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] faq (/faq)`;
+const deadlineProofCeilingMs = 1_200;
+const processExitCeilingMs = 4_500;
 const openServers = [];
 const inventory = derivePublicWebRouteInventory({ rootDir: repoRoot });
 const strictRoutes = STRICT_PUBLIC_ROUTE_MEMBER_IDS.map((memberId) => {
@@ -89,7 +94,7 @@ afterEach(async () => {
   }
 });
 
-function startCli(baseUrl, mode, extraArgs = []) {
+function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
   const boundedDefaults = [
     ["--attempts", "1"],
     ["--retry-delay-ms", "1"],
@@ -100,7 +105,7 @@ function startCli(baseUrl, mode, extraArgs = []) {
     process.execPath,
     [
       "--experimental-strip-types",
-      checkerPath,
+      executablePath,
       "--base-url",
       baseUrl,
       "--mode",
@@ -116,6 +121,7 @@ function startCli(baseUrl, mode, extraArgs = []) {
   );
   let stdout = "";
   let stderr = "";
+  const stderrWaiters = new Set();
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
@@ -123,19 +129,30 @@ function startCli(baseUrl, mode, extraArgs = []) {
   });
   child.stderr.on("data", (chunk) => {
     stderr += chunk;
+    for (const waiter of stderrWaiters) {
+      if (!stderr.includes(waiter.needle)) continue;
+      stderrWaiters.delete(waiter);
+      waiter.resolve(performance.now());
+    }
   });
   const startedAt = performance.now();
   const result = new Promise((resolve, reject) => {
     const safetyTimer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`public route smoke test child exceeded its 4500ms safety deadline: ${stdout}\n${stderr}`));
-    }, 4_500);
+      reject(
+        new Error(
+          `public route smoke test child exceeded its ${processExitCeilingMs}ms safety deadline: ${stdout}\n${stderr}`,
+        ),
+      );
+    }, processExitCeilingMs);
     child.once("error", (error) => {
       clearTimeout(safetyTimer);
       reject(error);
     });
     child.once("close", (code, signal) => {
       clearTimeout(safetyTimer);
+      for (const waiter of stderrWaiters) waiter.resolve(null);
+      stderrWaiters.clear();
       resolve({
         code,
         signal,
@@ -146,7 +163,14 @@ function startCli(baseUrl, mode, extraArgs = []) {
       });
     });
   });
-  return { child, result };
+  return {
+    child,
+    result,
+    waitForStderr(needle) {
+      if (stderr.includes(needle)) return Promise.resolve(performance.now());
+      return new Promise((resolve) => stderrWaiters.add({ needle, resolve }));
+    },
+  };
 }
 
 async function runCli(baseUrl, mode, extraArgs = []) {
@@ -160,6 +184,85 @@ async function closeAndAssertClean(fixture, result) {
   expect(fixture.server.listening).toBe(false);
   expect(fixture.server.eventNames()).toEqual([]);
   openServers.splice(openServers.indexOf(fixture), 1);
+}
+
+async function startNeverEndingBodyFixture() {
+  let signalBodyStarted;
+  const bodyStarted = new Promise((resolve) => {
+    signalBodyStarted = resolve;
+  });
+  const fixture = await startServer((request, response) => {
+    const pathname = new URL(request.url, "http://route-smoke.test").pathname;
+    if (pathname === "/faq") {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.write("<!doctype html><html><body>partial");
+      signalBodyStarted(performance.now());
+      return;
+    }
+    defaultHealthyHandler(request, response);
+  });
+  return { bodyStarted, fixture };
+}
+
+async function assertRealCliDeadlineProof({ bodyStarted, fixture, running }) {
+  const bodyStartedAt = await bodyStarted;
+  let proofTimer;
+  try {
+    const failureObservedAt = await Promise.race([
+      running.waitForStderr(deadlineFailure),
+      new Promise((_, reject) => {
+        proofTimer = setTimeout(
+          () => reject(new Error(`real CLI did not emit '${deadlineFailure}' within ${deadlineProofCeilingMs}ms`)),
+          deadlineProofCeilingMs,
+        );
+      }),
+    ]);
+    if (failureObservedAt === null) {
+      throw new Error(`real CLI exited without emitting '${deadlineFailure}'`);
+    }
+    expect(failureObservedAt - bodyStartedAt).toBeLessThan(deadlineProofCeilingMs);
+
+    const result = await running.result;
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(deadlineFailure);
+    expect(result.elapsedMs).toBeLessThan(processExitCeilingMs);
+    expect(fixture.requests.indexOf("/faq")).toBeGreaterThanOrEqual(4);
+    expect(result.stdout.split("\n").filter((line) => line.includes("->")).length).toBeGreaterThanOrEqual(4);
+    await closeAndAssertClean(fixture, result);
+    return result;
+  } catch (error) {
+    if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+    const result = await running.result;
+    await closeAndAssertClean(fixture, result);
+    throw error;
+  } finally {
+    clearTimeout(proofTimer);
+  }
+}
+
+async function createDeadlineScopeMutant() {
+  const sourcePath = new URL("./public-web-route-smoke.mjs", import.meta.url);
+  const marker = '    const isStrict = mode === "healthy" && route.strict;';
+  let source = await readFile(sourcePath, "utf8");
+  if (source.split(marker).length !== 2) {
+    throw new Error("Deadline negative control could not locate the post-header body-consumption boundary.");
+  }
+  source = source
+    .replace(marker, `    clearTimeout(timeout);\n${marker}`)
+    .replace(
+      "../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts",
+      new URL("../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts", sourcePath).href,
+    )
+    .replace("./public-web-route-inventory.mjs", new URL("./public-web-route-inventory.mjs", sourcePath).href);
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "public-route-smoke-deadline-mutant-"));
+  const mutantPath = path.join(temporaryDirectory, "public-web-route-smoke.mjs");
+  await writeFile(mutantPath, source, "utf8");
+  return {
+    mutantPath,
+    async remove() {
+      await rm(temporaryDirectory, { force: true, recursive: true });
+    },
+  };
 }
 
 describe("public web route smoke real CLI", () => {
@@ -184,24 +287,29 @@ describe("public web route smoke real CLI", () => {
   });
 
   it("keeps the deadline active through a partial body that never ends after several successful routes", async () => {
-    const fixture = await startServer((request, response) => {
-      const pathname = new URL(request.url, "http://route-smoke.test").pathname;
-      if (pathname === "/faq") {
-        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        response.write("<!doctype html><html><body>partial");
-        return;
-      }
-      defaultHealthyHandler(request, response);
-    });
+    const { bodyStarted, fixture } = await startNeverEndingBodyFixture();
+    const running = startCli(fixture.baseUrl, "healthy", ["--timeout-ms", "120", "--gate-timeout-ms", "1200"]);
 
-    const result = await runCli(fixture.baseUrl, "healthy", ["--timeout-ms", "120", "--gate-timeout-ms", "1200"]);
+    await assertRealCliDeadlineProof({ bodyStarted, fixture, running });
+  });
 
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] faq (/faq)`);
-    expect(result.elapsedMs).toBeLessThan(1_200);
-    expect(fixture.requests.indexOf("/faq")).toBeGreaterThanOrEqual(4);
-    expect(result.stdout.split("\n").filter((line) => line.includes("->")).length).toBeGreaterThanOrEqual(4);
-    await closeAndAssertClean(fixture, result);
+  it("proves the real-CLI deadline assertion rejects the historical post-header timeout gap", async () => {
+    const mutant = await createDeadlineScopeMutant();
+    try {
+      const { bodyStarted, fixture } = await startNeverEndingBodyFixture();
+      const running = startCli(
+        fixture.baseUrl,
+        "healthy",
+        ["--timeout-ms", "120", "--gate-timeout-ms", "1200"],
+        mutant.mutantPath,
+      );
+
+      await expect(assertRealCliDeadlineProof({ bodyStarted, fixture, running })).rejects.toThrow(
+        `real CLI did not emit '${deadlineFailure}' within ${deadlineProofCeilingMs}ms`,
+      );
+    } finally {
+      await mutant.remove();
+    }
   });
 
   it("accepts the measured largest production-shaped response with derived headroom", async () => {
