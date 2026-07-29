@@ -174,6 +174,50 @@ describe("delivery failure fingerprint normalization", () => {
     expect(new Set(failures.map((failure) => failure.errorFingerprint)).size).toBe(3);
   });
 
+  it("reconciles keyword-free failed-step retries across mutable run and revision digits", () => {
+    const messages = [
+      "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot quota of 4 exhausted for droplet pool. run_id=111 revision 12",
+      "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot quota of 4 exhausted for droplet pool. run_id=999 revision 87",
+    ];
+    const failures = messages.map((message) => {
+      const [failure] = extractFailureSignatures(completeFailedStepLog(message), {
+        lane: "production",
+        workflow: "Platform Deploy",
+        jobName: "Deploy Production",
+        stepName: "Create production database restore point",
+        ...FAILED_STEP_CONTEXT,
+      });
+      return failure;
+    });
+    const expectedErrorShape = normalizeFailureFingerprint(messages[0]);
+
+    expect(normalizeFailureFingerprint(messages[1])).toBe(expectedErrorShape);
+    expect(expectedErrorShape).toContain(
+      "production_restore_point_quota_exceeded: snapshot quota of 4 exhausted for droplet pool.",
+    );
+    expect(expectedErrorShape).not.toMatch(/\b(?:111|999|12|87)\b/);
+    expect(failures.map((failure) => failure.errorShape)).toEqual([expectedErrorShape, expectedErrorShape]);
+    expect(failures[0].errorShape).not.toBe("unknown failure");
+    expect(failures[0].rootCauseSignature).toBe(failures[1].rootCauseSignature);
+    expect(failures[0].signature).toBe(failures[1].signature);
+  });
+
+  it("ignores workflow-command and ANSI tails after a keyword-free semantic line", () => {
+    const message = "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot capacity is exhausted";
+    const [failure] = extractFailureSignatures(
+      completeFailedStepLog(`${message}\n::notice::runner annotation\n\u001b[33;1mrunner command echo\u001b[0m`),
+      {
+        lane: "production",
+        workflow: "Platform Deploy",
+        jobName: "Deploy Production",
+        stepName: "Create production database restore point",
+        ...FAILED_STEP_CONTEXT,
+      },
+    );
+
+    expect(failure.errorShape).toBe(normalizeFailureFingerprint(message));
+  });
+
   it.each([
     ["missing failed-step timestamps", {}, completeFailedStepLog("Error: actual failure")],
     [

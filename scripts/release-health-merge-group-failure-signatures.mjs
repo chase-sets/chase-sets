@@ -128,7 +128,7 @@ export function extractFailureSignatures(log, context = {}) {
             ...failedStep,
             logs: [{ output: failedStepOutput }],
           });
-    if (rootCause.rootCauseCode === "unknown" && semanticError !== "unknown failure") {
+    if (rootCause.rootCauseCode === "unknown" && failedStepOutput !== null) {
       rootCause = classifyDeploymentRootCause({
         ...failedStep,
         logs: [{ output: normalizeFailureFingerprint(semanticError) }],
@@ -981,8 +981,6 @@ function normalizeAssertion(value) {
 }
 
 function semanticFailureLine(log) {
-  const semanticPattern =
-    /(?:error|fail|timeout|timed out|refused|missing|invalid|collision|mismatch|does not match|cannot|could not|conflict|bypass|skip)/i;
   const line = String(log ?? "")
     .split(/\r?\n/)
     .map((entry) => entry.trim())
@@ -990,9 +988,10 @@ function semanticFailureLine(log) {
     .find(
       (entry) =>
         entry &&
-        semanticPattern.test(entry) &&
-        !/^##\[(?:error|group|endgroup)\]/i.test(entry) &&
-        !/^\u001B\[36;1m/.test(entry),
+        !/^(?:##\[[^\]]+\]|::[a-z0-9_-]+(?: [^:]*)?::)/i.test(entry) &&
+        !/\u001B\[[0-?]*[ -/]*[@-~]/.test(entry) &&
+        !/^[\[\]{},]+$/.test(entry) &&
+        !/^"(?:\\.|[^"\\])*"\s*:\s*[\[{]\s*,?$/.test(entry),
     );
   if (!line) return "unknown failure";
   if (/^"(?:\\.|[^"\\])*",?$/.test(line)) {
