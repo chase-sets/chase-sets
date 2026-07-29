@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -29,6 +29,7 @@ import {
   type RegistrationOperation,
   type RegistrationOperationClaim,
 } from "../support/runtime-support/registration-operation";
+import { activateConsentPolicyForTest } from "../features/consents/domain/consent-bundle-test-support";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
 
@@ -50,6 +51,19 @@ function requireDatabaseBaseUrl(): string {
 const EMAIL = "owner@pokebash.example";
 const DISPLAY_NAME = "PokeBash TCG";
 const DISPLAY_NAME_KEY = "pokebash tcg";
+// Registration records only bundle members that are published AND activated,
+// so this suite publishes its two members at the exact versions its resolutions
+// name and activates their authorities in `beforeEach`. Everything it asserts
+// about operation identity, convergence and partial-state rejection is
+// unchanged.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } =
+    await import("../features/consents/domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "privacy-policy"], {
+    "privacy-policy": "v3",
+  });
+});
+
 const TERMS_V1: RegistrationConsentRequirement = {
   policyKey: "terms-of-service",
   version: "v1",
@@ -113,6 +127,20 @@ describeDb("registration operation semantic validation", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
+
+    for (const requirement of [TERMS_V1, PRIVACY_V3]) {
+      await activateConsentPolicyForTest(
+        eventStore,
+        requirement.policyKey as "privacy-policy" | "terms-of-service",
+        requirement.version,
+        {
+          tenantId: "tnt_identity",
+          audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+          trace: {},
+        } as never,
+      );
+    }
+
     services = createServices(eventStore);
   });
 
@@ -707,8 +735,13 @@ describeDb("registration operation semantic validation", () => {
 
     const snapshot = await stateSnapshot();
 
-    expect(snapshot.events).toHaveLength(501);
-    expect(snapshot.events.at(-1)).toMatchObject({
+    // Scoped to the control stream: the harness now also activates this suite's
+    // Consent Activation Authorities, whose events share the snapshot. Reading
+    // all 501 control events still cannot happen without paging past the first
+    // 500-event page, which is what this asserts.
+    const controlEvents = snapshot.events.filter((event) => event.streamId === "identity.snapshot-pagination-control");
+    expect(controlEvents).toHaveLength(501);
+    expect(controlEvents.at(-1)).toMatchObject({
       streamId: "identity.snapshot-pagination-control",
       streamVersion: 501,
       payload: { ordinal: 500 },

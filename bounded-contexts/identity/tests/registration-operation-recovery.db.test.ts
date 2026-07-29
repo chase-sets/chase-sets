@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -29,6 +29,7 @@ import {
   REGISTRATION_OPERATION_KEY_VERSION,
   type RegistrationOperationClaim,
 } from "../support/runtime-support/registration-operation";
+import { activateConsentPolicyForTest } from "../features/consents/domain/consent-bundle-test-support";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
 
@@ -50,6 +51,19 @@ function requireDatabaseBaseUrl(): string {
 const EMAIL = "owner@pokebash.example";
 const DISPLAY_NAME = "PokeBash TCG";
 const DISPLAY_NAME_KEY = "pokebash tcg";
+
+// Registration records only bundle members that are published AND activated,
+// so this suite publishes its two members at the exact versions its resolutions
+// name and activates their authorities in `beforeEach`. Everything it asserts
+// about operation identity, convergence and partial-state rejection is
+// unchanged.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } =
+    await import("../features/consents/domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "privacy-policy"], {
+    "privacy-policy": "v3",
+  });
+});
 
 const TERMS_V1: RegistrationConsentRequirement = { policyKey: "terms-of-service", version: "v1", href: "/terms" };
 const TERMS_V2: RegistrationConsentRequirement = { policyKey: "terms-of-service", version: "v2", href: "/terms" };
@@ -79,6 +93,20 @@ describeDb("registration operation recovery", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
+
+    for (const requirement of [TERMS_V1, PRIVACY_V3]) {
+      await activateConsentPolicyForTest(
+        eventStore,
+        requirement.policyKey as "privacy-policy" | "terms-of-service",
+        requirement.version,
+        {
+          tenantId: "tnt_identity",
+          audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+          trace: {},
+        } as never,
+      );
+    }
+
     const deps = {
       eventStore,
       checkpointStore: createPostgresProjectionStore({ db: pool }),

@@ -12,7 +12,21 @@ import {
   type SignedRegistrationConsentResolution,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import { activateConsentPolicyForTest } from "../features/consents/domain/consent-bundle-test-support";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+
+// Registration records only bundle members that are published AND activated, so
+// this suite's two members are published (at the exact versions its resolutions
+// are minted with) and their activation authorities are activated in
+// `createServices`. The boundary under test is unchanged: the recorded versions
+// must be the MINTED ones, never the ones a policy resolver reports.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } =
+    await import("../features/consents/domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "privacy-policy"], {
+    "privacy-policy": "v3",
+  });
+});
 
 const TERMS_V1: RegistrationConsentRequirement = {
   policyKey: "terms-of-service",
@@ -25,11 +39,20 @@ const PRIVACY_V3: RegistrationConsentRequirement = {
   href: "/privacy",
 };
 
-function createServices() {
+async function createServices() {
+  // Registration composes its participants into one all-or-nothing append, so
+  // the store itself is what these assertions observe.
+  const eventStore = createInMemoryEventStore();
+  const operatorContext = {
+    tenantId: "tnt_identity",
+    audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+    trace: {},
+  } as never;
+  await activateConsentPolicyForTest(eventStore, "terms-of-service", TERMS_V1.version, operatorContext);
+  await activateConsentPolicyForTest(eventStore, "privacy-policy", PRIVACY_V3.version, operatorContext);
+
   return {
-    // Registration composes its participants into one all-or-nothing append, so
-    // the store itself is what these assertions observe.
-    eventStore: createInMemoryEventStore(),
+    eventStore,
     db: {
       // The display-name uniqueness read finds nothing; the reservation upsert
       // returns its row so registration proceeds to the aggregate writes.
@@ -99,12 +122,16 @@ function recordedConsents(services: IdentityServices) {
 
 describe("registration consent resolution boundary", () => {
   it("mints a signed, version-bearing resolution anonymously", async () => {
-    const response = await buildIdentityApi(createServices()).request("/internal/auth/registration-consent");
+    const response = await buildIdentityApi(await createServices()).request("/internal/auth/registration-consent");
 
     expect(response.status).toBe(200);
     const resolution = (await response.json()) as SignedRegistrationConsentResolution;
     expect(resolution.bundleKey).toBe(REGISTRATION_CONSENT_BUNDLE_KEY);
-    expect(resolution.requirements).toEqual([]);
+    // The mint resolves the registration Consent Bundle: in this suite's world
+    // both members are published and activated, so both are required, in the
+    // bundle's declared order. Against the shipped corpus the same route mints
+    // an empty ordered set -- covered in the Consent Bundle suites.
+    expect(resolution.requirements).toEqual([TERMS_V1, PRIVACY_V3]);
     expect(resolution.signature).toEqual(expect.any(String));
     expect(resolution.signature.length).toBeGreaterThan(0);
     expect(resolution.resolvedAt).toMatch(/Z$/);
@@ -175,7 +202,7 @@ describe("registration consent resolution boundary", () => {
     ];
 
     it.each(tamperShapes)("rejects %s", async (_label, buildSubmission) => {
-      const services = createServices();
+      const services = await createServices();
 
       const { status, body } = await register(services, { registrationConsent: buildSubmission() });
 
@@ -186,7 +213,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects a registration with no resolution even when the bundle is empty", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status, body } = await register(services, {});
 
@@ -197,7 +224,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects an arbitrary-path client that posts identity fields with no prior resolution", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status, body } = await register(services, {
       email: "arbitrary@pokebash.example",
@@ -213,7 +240,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects a caller-local impostor binder with the same code as an absent resolution", async () => {
-    const services = createServices();
+    const services = await createServices();
     // A caller-local `registrationConsentSubmission()` returning a
     // plausibly-shaped unsigned object: the shape is right, the provenance is
     // not, and the route cannot tell the difference between this and bringing
@@ -238,7 +265,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("accepts a signed empty resolution and records no consent", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([]), affirmed: false },
@@ -251,7 +278,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("records the minted requirement versions, not the currently active ones", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
@@ -263,7 +290,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("does not overwrite the submitted policy version with the currently active one", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     // Under the deleted override this registration recorded the resolver's
     // active version (v99) for the canonical Terms of Service key, discarding
@@ -278,7 +305,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("records every requirement in its signed order", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
@@ -292,7 +319,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects an affirmation whose resolution was minted for different requirements", async () => {
-    const services = createServices();
+    const services = await createServices();
     const mintedForTerms = mint([TERMS_V1]);
 
     // Affirming a different requirement set than the one that was signed means
@@ -311,7 +338,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects an unaffirmed resolution that carries requirements", async () => {
-    const services = createServices();
+    const services = await createServices();
 
     const { status, body } = await register(services, {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: false },
@@ -323,7 +350,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects a resolution older than the freshness window", async () => {
-    const services = createServices();
+    const services = await createServices();
     const staleAt = new Date(Date.now() - REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS - 60_000).toISOString();
 
     const { status, body } = await register(services, {
@@ -347,7 +374,7 @@ describe("registration consent resolution boundary", () => {
     process.env.REGISTRATION_CONSENT_SIGNING_SECRET = current;
     process.env.REGISTRATION_CONSENT_PREVIOUS_SIGNING_SECRETS = retired;
     try {
-      const services = createServices();
+      const services = await createServices();
       const { status } = await register(services, {
         registrationConsent: { resolution, affirmed: false },
       });
@@ -369,7 +396,7 @@ describe("registration consent resolution boundary", () => {
 
     process.env.REGISTRATION_CONSENT_SIGNING_SECRET = "current-registration-consent-key";
     try {
-      const services = createServices();
+      const services = await createServices();
       const { status, body } = await register(services, {
         registrationConsent: { resolution, affirmed: false },
       });

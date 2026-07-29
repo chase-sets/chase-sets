@@ -81,11 +81,20 @@ import {
 } from "./features/consents/domain/consent-recording-authorization";
 import {
   mintRegistrationConsentResolution,
-  resolveRegistrationConsentRequirements,
   verifyRegistrationConsentSubmission,
   type RegistrationConsentRejection,
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
+import {
+  consentBundleMemberActivationPolicyKey,
+  resolveRegistrationConsentRequirements,
+} from "./features/consents/domain/consent-bundle";
+import { isIdentityConsentPolicyKey } from "./features/consents/domain/terms-of-service-policy";
+import {
+  consentActivationGuardAppendInput,
+  readConsentActivationAuthority,
+  type ConsentActivationGuard,
+} from "@chase-sets/platform-policy/consent-activation-authority";
 import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
@@ -683,7 +692,63 @@ type PersonalIdentityRegistrationPlan = Readonly<{
   membershipEvents: readonly MembershipEvent[];
   membershipState: MembershipState;
   consentPlans: readonly RegistrationConsentPlan[];
+  /**
+   * One zero-event guard per Consent Activation Authority this registration's
+   * requirement set depends on. They contribute no history and exist only so the
+   * shared all-or-nothing transaction rolls back if a policy is activated,
+   * replaced, or deactivated between the moment this plan read the authority and
+   * the moment the registration commits.
+   */
+  consentActivationGuards: readonly ConsentActivationGuard[];
 }>;
+
+/** The event store every Consent Activation Authority read goes through, or an explicit failure. */
+function requireConsentAuthorityEventStore(services: IdentityServices): EventStore {
+  if (!services.eventStore) {
+    throw new Error("Resolving a Consent Bundle requires Identity services composed with an event store.");
+  }
+  return services.eventStore;
+}
+
+/** Raised when a signed requirement no longer matches its Consent Activation Authority at append time. */
+export class RegistrationConsentActivationChangedError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "RegistrationConsentActivationChangedError";
+  }
+}
+
+/**
+ * Re-reads each requirement's Consent Activation Authority immediately before the
+ * append, and returns the guard tokens the append must carry.
+ *
+ * This is NOT a re-resolution: the policy key and version still come from the
+ * signed resolution the client affirmed, and nothing here can change them. The
+ * authority read only answers "is that exact version still the active one", and
+ * mints the revision token that makes the answer binding through to the commit.
+ */
+async function resolveRegistrationConsentActivationGuards(
+  eventStore: EventStore,
+  consents: readonly RegistrationOperationConsent[],
+): Promise<readonly ConsentActivationGuard[]> {
+  const guards = new Map<string, ConsentActivationGuard>();
+  for (const consent of consents) {
+    if (!isIdentityConsentPolicyKey(consent.policyKey)) {
+      throw new RegistrationConsentActivationChangedError(
+        `Policy '${consent.policyKey}' is not a Consent Bundle member and cannot be recorded by registration.`,
+      );
+    }
+    const activationPolicyKey = consentBundleMemberActivationPolicyKey(consent.policyKey);
+    const snapshot = await readConsentActivationAuthority(eventStore, activationPolicyKey);
+    if (!snapshot.isActive || snapshot.activeVersion !== consent.policyVersion) {
+      throw new RegistrationConsentActivationChangedError(
+        `The Consent Activation Authority for '${activationPolicyKey}' is ${snapshot.isActive ? `active at '${String(snapshot.activeVersion)}'` : snapshot.status} while this registration affirmed '${consent.policyVersion}'.`,
+      );
+    }
+    guards.set(snapshot.guard.streamId, snapshot.guard);
+  }
+  return [...guards.values()];
+}
 
 /**
  * Read and semantically validate every participant before the display-name
@@ -965,6 +1030,7 @@ async function planPersonalIdentityRegistration(
     membershipEvents,
     membershipState,
     consentPlans,
+    consentActivationGuards: await resolveRegistrationConsentActivationGuards(eventStore, identity.consents),
   };
 }
 
@@ -1037,6 +1103,11 @@ async function appendPersonalIdentityRegistration(
         params.context,
       ),
     ),
+    // Zero-event participants. If any Consent Activation Authority moved after
+    // the plan read it, its expected version no longer matches and this whole
+    // transaction -- account, user, membership, claim, and every Consent --
+    // rolls back rather than recording acceptance of a superseded activation.
+    ...plan.consentActivationGuards.map((guard) => consentActivationGuardAppendInput(guard, params.context)),
   ]);
 
   const snapshots: IdentityMutationSnapshot[] = [
@@ -1572,10 +1643,21 @@ export function buildIdentityApi(services: IdentityServices) {
   // The mint. Anonymous by design: knowing what must be agreed to in order to
   // register is public information, and the value's authority comes from the
   // signature, not from who asked for it.
-  app.get("/internal/auth/registration-consent", (c) =>
+  //
+  // The requirement set is resolved from the registration Consent Bundle here,
+  // once, and signed. It is never re-resolved at append time -- resolving at
+  // append time is what recorded acceptance of a version the registering client
+  // never saw.
+  app.get("/internal/auth/registration-consent", async (c) =>
     c.json(
       mintRegistrationConsentResolution({
-        requirements: resolveRegistrationConsentRequirements(),
+        // Read straight from each member's activation authority stream, the same
+        // way the registration append re-reads it. The policy runtime's cached
+        // `resolvePolicy` is deliberately not on this path: activation state and
+        // the version must come from one read of one authoritative source.
+        requirements: await resolveRegistrationConsentRequirements((policyKey) =>
+          readConsentActivationAuthority(requireConsentAuthorityEventStore(services), policyKey),
+        ),
         resolvedAt: new Date().toISOString(),
         signingKeys: resolveRegistrationConsentSigningKeys(),
       }),

@@ -110,31 +110,24 @@ export function isRegistrationConsentRejectionCode(value: unknown): value is Reg
 }
 
 /**
- * The ordered policy corpus the registration consent bundle activates.
+ * The ordered requirement set a resolution carries is DERIVED, per mint, from
+ * the `registration` Consent Bundle -- see
+ * `./consent-bundle.ts` `resolveRegistrationConsentRequirements`. A bundle
+ * member becomes a requirement only when the compiled artifact is
+ * consent-activatable AND its Consent Activation Authority reports it active.
  *
- * Empty today because nothing in the shipped policy corpus is
- * consent-activatable. That emptiness is a value, not a disabled mode: a
- * resolution minted over an empty corpus is still signed, still version-bearing,
- * still carries `resolvedAt`, and is still mandatory on every first-use path. No
- * branch anywhere reads the length of this list to decide whether the
- * resolution itself is required.
+ * It is empty against the shipped corpus, because nothing in that corpus is
+ * consent-activatable yet. That emptiness is a value, not a disabled mode: a
+ * resolution minted over an empty requirement set is still signed, still
+ * version-bearing, still carries `resolvedAt`, and is still mandatory on every
+ * first-use path. No branch anywhere reads the length of this list to decide
+ * whether the resolution itself is required.
  *
- * When the Consent Bundle work lands, it populates this list and the invariant
- * text does not change -- only the resolver's output grows, and the paths that
- * cannot yet carry a human affirmation begin failing closed.
+ * This module owns the SIGNED TRANSPORT and nothing else. The payload shape,
+ * the signature coverage (including requirement order), the freshness window,
+ * and every rejection code below are unchanged by the bundle work -- only what
+ * the requirements array contains can grow.
  */
-export const REGISTRATION_CONSENT_ACTIVATABLE_POLICIES: readonly RegistrationConsentRequirement[] = [];
-
-/** Map the activatable policy corpus into the ordered requirement set a resolution carries. */
-export function resolveRegistrationConsentRequirements(
-  corpus: readonly RegistrationConsentRequirement[] = REGISTRATION_CONSENT_ACTIVATABLE_POLICIES,
-): readonly RegistrationConsentRequirement[] {
-  return corpus.map((policy) => ({
-    policyKey: policy.policyKey,
-    version: policy.version,
-    href: policy.href,
-  }));
-}
 
 /**
  * The exact bytes the signature covers.

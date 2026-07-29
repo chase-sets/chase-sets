@@ -9,8 +9,10 @@ import {
   authorizeConsentForActor,
   ConsentRecordingAuthorizationError,
 } from "../domain/consent-recording-authorization";
+import { ConsentBundleAdmissionError } from "../domain/consent-bundle-admission";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
 import { resolveTermsAcceptanceStatus } from "../read-model/terms-acceptance";
+import { ConsentActivationAdmissionError } from "./consent-recording-admission";
 import type { ConsentServices } from "./runtime";
 
 function authenticationRequired() {
@@ -97,6 +99,13 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
     } catch (error) {
       if (error instanceof ConsentRecordingAuthorizationError) {
         return c.json({ error: { code: error.code, message: error.message } }, 403);
+      }
+      // The publication and activation halves of the recording admission. A
+      // version that is not both published and activated is a state of the
+      // platform, not of this request, so it is 409 rather than 403: the actor
+      // did nothing wrong and nothing was written.
+      if (error instanceof ConsentBundleAdmissionError || error instanceof ConsentActivationAdmissionError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 409);
       }
       throw error;
     }

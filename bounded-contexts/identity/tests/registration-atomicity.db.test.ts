@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -21,6 +21,7 @@ import {
   mintRegistrationConsentResolution,
   type RegistrationConsentRequirement,
 } from "../features/consents/domain/registration-consent";
+import { activateConsentPolicyForTest } from "../features/consents/domain/consent-bundle-test-support";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
 
@@ -48,19 +49,31 @@ function requireDatabaseBaseUrl(): string {
  * freshness window and the affirmation -- so a resolution minted here with the
  * real signing keys drives the identical production path with a real
  * multi-member bundle.
+ *
+ * The members ARE the registration Consent Bundle's declared members, at the
+ * published version, with their activation authorities activated in the harness.
+ * They used to be three arbitrary policy keys; registration now records only
+ * bundle members that are published and activated, so an invented key can no
+ * longer stand in for one. Two participants still order a Consent before and
+ * after an injected failure, which is what the matrix below measures.
  */
 const BUNDLE: readonly RegistrationConsentRequirement[] = [
   { policyKey: "terms-of-service", version: "v1", href: "/terms" },
-  { policyKey: "privacy-policy", version: "v3", href: "/privacy" },
-  { policyKey: "cookie-policy", version: "v2", href: "/cookies" },
+  { policyKey: "privacy-policy", version: "v1", href: "/privacy" },
 ];
+
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } =
+    await import("../features/consents/domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "privacy-policy"]);
+});
 
 /**
  * Where a registration is made to fail. Each name is the participant whose
  * write throws; every participant ordered before it has already been attempted,
  * so "consent-2" is a failure injected after the first Consent was written.
  */
-type InjectionPosition = "account" | "user" | "membership" | "consent-1" | "consent-2" | "consent-3" | "outcome-fact";
+type InjectionPosition = "account" | "user" | "membership" | "consent-1" | "consent-2" | "outcome-fact";
 
 type FaultControl = { position: InjectionPosition | null };
 
@@ -72,7 +85,7 @@ function participantOf(streamId: string, consentOrdinal: (streamId: string) => n
   if (!streamId.startsWith("identity.consent-")) return null;
 
   const ordinal = consentOrdinal(streamId);
-  return ordinal >= 1 && ordinal <= 3 ? (`consent-${ordinal}` as InjectionPosition) : null;
+  return ordinal >= 1 && ordinal <= 2 ? (`consent-${ordinal}` as InjectionPosition) : null;
 }
 
 /**
@@ -165,6 +178,24 @@ describeDb("registration atomicity and convergence", () => {
     await resetMultiContextTestSchemas({ identity: pool });
     await pool.query(eventCorePostgresSchemaSql);
     await pool.query(identityAccountSchemaSql);
+
+    // Registration re-reads each affirmed requirement's Consent Activation
+    // Authority immediately before the append and carries its guard into the
+    // same transaction, so the bundle's authorities have to be activated at the
+    // exact versions the minted resolution names.
+    const activationEventStore = createPostgresEventStore({ pool });
+    for (const requirement of BUNDLE) {
+      await activateConsentPolicyForTest(
+        activationEventStore,
+        requirement.policyKey as "privacy-policy" | "terms-of-service",
+        requirement.version,
+        {
+          tenantId: "tnt_identity" as never,
+          audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+          trace: {},
+        } as never,
+      );
+    }
   }
 
   function createServices(eventStore: EventStore): IdentityServices {
@@ -245,14 +276,7 @@ describeDb("registration atomicity and convergence", () => {
     };
   }
 
-  const positions: readonly InjectionPosition[] = [
-    "account",
-    "user",
-    "membership",
-    "consent-1",
-    "consent-2",
-    "consent-3",
-  ];
+  const positions: readonly InjectionPosition[] = ["account", "user", "membership", "consent-1", "consent-2"];
 
   it.each(positions)("leaves nothing partial when the registration fails at %s", async (position) => {
     const harness = createHarness();
@@ -308,8 +332,16 @@ describeDb("registration atomicity and convergence", () => {
           throw new Error("The late Consent participant must carry its recording event.");
         }
         lateStreamId = lateConsent.streamId;
+        // The Consent Activation Authority participants are zero-event version
+        // guards over streams that already carry this harness's activation
+        // events. They are not written by the registration, so "rolled back"
+        // for them means UNCHANGED, asserted separately below -- not empty.
         earlierStreamIds = inputs
-          .filter((input) => input.streamId !== lateConsent.streamId)
+          .filter(
+            (input) =>
+              input.streamId !== lateConsent.streamId &&
+              !input.streamId.startsWith("platform-policy.consent-activation-authority-"),
+          )
           .map((input) => input.streamId);
 
         await inner.appendToStream({
@@ -339,6 +371,13 @@ describeDb("registration atomicity and convergence", () => {
     expect(failed.status).toBe(500);
     expect(realAppendAttempted, "the real PostgreSQL multi-stream append must execute").toBe(true);
     expect(await inner.readStream({ streamId: lateStreamId })).toHaveLength(1);
+    for (const requirement of BUNDLE) {
+      const authorityStreamId = `platform-policy.consent-activation-authority-identity.${requirement.policyKey}-active-version`;
+      expect(
+        await inner.readStream({ streamId: authorityStreamId }),
+        `${authorityStreamId} must be unchanged: the registration only guards it`,
+      ).toHaveLength(2);
+    }
     for (const streamId of earlierStreamIds) {
       expect(
         await inner.readStream({ streamId }),

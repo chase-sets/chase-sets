@@ -1,10 +1,19 @@
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../../features/consents/domain/terms-of-service";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import type { IdentityServices } from "./services";
+import {
+  reportSeededConsentAbstention,
+  requireSeedEventStore,
+  resolveSeededConsentAdmission,
+} from "./seeded-consent-provisioning";
 
 const ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT = "2026-07-13T00:00:00.000Z";
+
+/** As in the identity seed: the version an admitted fixture recording would carry, never a licence to record. */
+const ADMIN_QA_ACTOR_FIXTURE_TERMS_OF_SERVICE_VERSION = "v1";
 
 export type AdminQaActorFixtureSignInHost = "/access/sign-in" | "/catalog/sign-in";
 
@@ -243,23 +252,41 @@ async function provisionAdminQaActorFixture(
     createdMembership = true;
   }
 
+  // Consults the shipped publication-and-activation rule rather than carrying a
+  // copy of it. An admin-QA actor is a fixture, not a person who agreed to
+  // anything, so it abstains while Terms of Service is not both
+  // consent-activatable and activated.
+  //
+  // The `rowExists` check below stays exactly what it always was -- an
+  // idempotency check on whether THIS fixture already provisioned -- and is not
+  // load-bearing for whether the bundle is satisfied. Bundle satisfaction is
+  // decided from Consent aggregate state, never from a row's presence.
   if (!(await rowExists(services.db, "identity_consents", "consent_id", fixture.consentId))) {
-    await services.consents.commandHandler({
-      streamId: `identity.consent-${fixture.consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId: fixture.consentId,
-        subjectType: "user",
-        userId: fixture.userId,
-        accountId: fixture.accountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
-        recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
-      },
-      context,
-      authorization: authorizeConsentForProvisioning(fixture.userId, fixture.accountId),
-    });
-    createdConsent = true;
+    const admission = await resolveSeededConsentAdmission(
+      requireSeedEventStore(services.eventStore),
+      TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+      ADMIN_QA_ACTOR_FIXTURE_TERMS_OF_SERVICE_VERSION,
+    );
+    if (admission.admitted) {
+      await services.consents.commandHandler({
+        streamId: `identity.consent-${fixture.consentId}`,
+        command: {
+          type: "RecordConsent",
+          consentId: fixture.consentId,
+          subjectType: "user",
+          userId: fixture.userId,
+          accountId: fixture.accountId,
+          policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+          policyVersion: admission.version,
+          recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
+        },
+        context,
+        authorization: authorizeConsentForProvisioning(fixture.userId, fixture.accountId),
+      });
+      createdConsent = true;
+    } else {
+      reportSeededConsentAbstention(`admin-QA actor ${fixture.actorAlias}`, admission);
+    }
   }
 
   return {

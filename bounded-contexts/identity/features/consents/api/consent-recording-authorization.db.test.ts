@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -17,7 +17,19 @@ import {
   authorizeConsentForActor,
   type ConsentRecordingAuthorization,
 } from "../domain/consent-recording-authorization";
+import { activateConsentPolicyForTest } from "../domain/consent-bundle-test-support";
 import { createConsentRuntime, type ConsentServices } from "./runtime";
+
+// This file's subject is the WRITE-PATH AUTHORIZATION boundary against real
+// PostgreSQL. Nothing in the shipped corpus is consent-activatable, so it
+// compiles against published records and activates the matching authorities;
+// the authorization assertions themselves are unchanged. The seed case at the
+// end deliberately runs against the UNMOCKED behaviour of the seed paths, which
+// consult the real corpus and abstain -- see its own comment.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } = await import("../domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "seller-agreement"]);
+});
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -43,6 +55,11 @@ function actorContext(userId: string, accountId: string): EventStoreContext {
   };
 }
 
+/** A member is only recordable at the scope its bundle declares. */
+function bundleMemberFor(subjectType: "account" | "user") {
+  return subjectType === "account" ? "seller-agreement" : "terms-of-service";
+}
+
 function recordInput(
   consentId: string,
   authorization: ConsentRecordingAuthorization,
@@ -60,7 +77,7 @@ function recordInput(
       subjectType: subject.subjectType,
       userId: subject.userId as UserId,
       accountId: subject.accountId as AccountId,
-      policyKey: "terms-of-service",
+      policyKey: bundleMemberFor(subject.subjectType),
       policyVersion: "v1",
       recordedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -119,17 +136,12 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
       },
       db: pools.identity,
     });
-    await eventStore.appendToStream({
-      streamId: authorityStreamId,
-      expectedVersion: "no_stream",
-      context: authorizedContext,
-      events: [
-        {
-          eventType: "platform-policy.consent-activation-authority.registered",
-          payload: { policyKey: "identity.terms-of-service-active-version" },
-        },
-      ],
-    });
+    // Registered AND activated, through real authority events. The previous
+    // fixture appended a `registered` event with no `registration` envelope;
+    // nothing read the stream back then, but the recording admission does now,
+    // and the shipped authority decoder rejects that shape.
+    await activateConsentPolicyForTest(eventStore, "terms-of-service", "v1", authorizedContext);
+    await activateConsentPolicyForTest(eventStore, "seller-agreement", "v1", authorizedContext);
   });
 
   afterAll(async () => {

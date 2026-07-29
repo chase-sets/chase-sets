@@ -2,15 +2,9 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { identityTermsOfServicePolicy } from "../domain/terms-of-service-policy";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
-import { findCurrentConsent } from "./queries";
+import { resolvePolicyAcceptanceStatus, type PolicyAcceptanceStatus } from "./consent-acceptance";
 
-export type TermsAcceptanceStatus = Readonly<{
-  policyKey: string;
-  requiredVersion: string;
-  accepted: boolean;
-  acceptedVersion: string | null;
-  acceptedAt: string | null;
-}>;
+export type TermsAcceptanceStatus = PolicyAcceptanceStatus;
 
 /**
  * Resolves whether a subject (user and/or account) has accepted the
@@ -25,25 +19,23 @@ export type TermsAcceptanceStatus = Readonly<{
  * the exact active version string -- a legacy-keyed or superseded-version
  * fact is readable consent history but never satisfies this check. Fails
  * closed: absent any matching fact, `accepted` is false.
+ *
+ * This is now a thin wrapper over the generalized per-policy resolver, bound to
+ * the Terms of Service policy and its canonical consent key. Its signature,
+ * subject handling, and the underlying user-or-account disjunction are
+ * deliberately unchanged: this is the host port's contract, and the per-bundle
+ * subject-exact read is a separate function rather than a narrowing of this one.
  */
 export async function resolveTermsAcceptanceStatus(
   db: PgQueryable,
   policies: Pick<PolicyRuntime, "resolvePolicy">,
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
 ): Promise<TermsAcceptanceStatus> {
-  const resolved = await policies.resolvePolicy(identityTermsOfServicePolicy);
-  const requiredVersion = resolved.value.version;
-  const current = await findCurrentConsent(db, {
-    userId: subject.userId ?? null,
-    accountId: subject.accountId ?? null,
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-  });
-
-  return {
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-    requiredVersion,
-    accepted: current?.status === "recorded" && current.policy_version === requiredVersion,
-    acceptedVersion: current?.policy_version ?? null,
-    acceptedAt: current?.recorded_at ?? null,
-  };
+  return resolvePolicyAcceptanceStatus(
+    db,
+    policies,
+    identityTermsOfServicePolicy,
+    TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+    subject,
+  );
 }

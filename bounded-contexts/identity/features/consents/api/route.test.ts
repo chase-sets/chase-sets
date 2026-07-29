@@ -11,8 +11,20 @@ import {
   authorizeConsentForActor,
   ConsentRecordingAuthorizationError,
 } from "../domain/consent-recording-authorization";
+import { activateConsentPolicyForTest } from "../domain/consent-bundle-test-support";
 import { consentRoutes } from "./route";
 import { createConsentRuntime, type ConsentServices } from "./runtime";
+
+// This file's subject is the WITHDRAWAL authorization surface, and the fixtures
+// it withdraws from have to be recordable. Nothing in the shipped corpus is
+// consent-activatable, so it compiles against published records and activates
+// the matching authorities -- one user-scoped member and one account-scoped
+// member, because a bundle member is only recordable at the scope its bundle
+// declares.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } = await import("../domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "seller-agreement"]);
+});
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -67,7 +79,7 @@ function buildServices(consent: Record<string, unknown> | null = null) {
   };
 }
 
-function createRealHarness() {
+async function createRealHarness() {
   const memory = createInMemoryEventStore();
   const appendToStream = vi.fn(memory.eventStore.appendToStream);
   const runtime = createConsentRuntime({
@@ -78,7 +90,16 @@ function createRealHarness() {
     },
     db: { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
   });
+  const bootstrap = buildContext(actor);
+  await activateConsentPolicyForTest(memory.eventStore, "terms-of-service", "v1", bootstrap);
+  await activateConsentPolicyForTest(memory.eventStore, "seller-agreement", "v1", bootstrap);
+  appendToStream.mockClear();
   return { appendToStream, memory, runtime };
+}
+
+/** A user-scoped recording uses the registration member; an account-scoped one uses the seller member. */
+function bundleMemberFor(subjectType: "account" | "user") {
+  return subjectType === "account" ? "seller-agreement" : "terms-of-service";
 }
 
 async function recordConsent(
@@ -101,7 +122,7 @@ async function recordConsent(
       subjectType,
       userId: userId as UserId,
       accountId: accountId as AccountId,
-      policyKey: "terms-of-service",
+      policyKey: bundleMemberFor(subjectType),
       policyVersion: "v1",
       recordedAt: "2026-07-01T00:00:00.000Z",
     },
@@ -332,7 +353,7 @@ describe("consent API route", () => {
       },
     },
   ])("returns the existing named forbidden response without writing for $name", async (testCase) => {
-    const { appendToStream, memory, runtime } = createRealHarness();
+    const { appendToStream, memory, runtime } = await createRealHarness();
     await recordConsent(
       runtime,
       testCase.consentId,

@@ -40,6 +40,12 @@ import {
   type ConsentState,
 } from "../../features/consents/domain/domain";
 import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../../features/consents/domain/terms-of-service";
+import {
+  reportSeededConsentAbstention,
+  requireSeedEventStore,
+  resolveSeededConsentAdmission,
+} from "./seeded-consent-provisioning";
 import {
   decideInvitation,
   evolveInvitation,
@@ -82,6 +88,14 @@ const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
 const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
 const REPRESENTATIVE_SEEDED_AT = "2026-05-27T00:00:00.000Z";
+
+/**
+ * The Terms of Service version the seeded fixtures would record IF the document
+ * were published and activated. It is compared against the shipped publication
+ * and activation facts before anything is written -- it is never a licence to
+ * record, only the version an admitted recording would carry.
+ */
+const SCENARIO_SEEDED_TERMS_OF_SERVICE_VERSION = "v1";
 const scenarioTrustedSellerAccountIds = [identitySeedIds.demo.accountId, identitySeedIds.cardVault.accountId] as const;
 
 const representativeAccounts = [
@@ -282,10 +296,10 @@ type IdentityBootstrapContext = ReturnType<typeof createIdentityBootstrapContext
  * invitation, or API key is repaired rather than re-authored or mistaken for
  * complete.
  */
-function buildScenarioIdentityReconcilers(
+async function buildScenarioIdentityReconcilers(
   services: IdentityServices,
   context: IdentityBootstrapContext,
-): readonly SeedAggregateReconciler[] {
+): Promise<readonly SeedAggregateReconciler[]> {
   const {
     demo,
     collector,
@@ -298,6 +312,13 @@ function buildScenarioIdentityReconcilers(
     invitations,
     apiKeys,
   } = identitySeedIds;
+
+  const scenarioConsentAdmission = await resolveSeededConsentAdmission(
+    requireSeedEventStore(services.eventStore),
+    TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+    SCENARIO_SEEDED_TERMS_OF_SERVICE_VERSION,
+  );
+  reportSeededConsentAbstention("the demo scenario personas", scenarioConsentAdmission);
 
   const accountReconciler = (id: string, key: string, steps: readonly AccountCommand[]) =>
     createSeedAggregateReconciler<AccountState, AccountCommand, AccountEvent>({
@@ -674,20 +695,32 @@ function buildScenarioIdentityReconcilers(
       ]),
     ),
 
-    ...[demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
-      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, consent.userId, consent.accountId, [
-        {
-          type: "RecordConsent",
-          consentId: consent.consentId,
-          subjectType: "user",
-          userId: consent.userId,
-          accountId: consent.accountId,
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-          recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
-        },
-      ]),
-    ),
+    // Consults the shipped publication-and-activation rule rather than carrying
+    // a copy of it. While Terms of Service is not consent-activatable, these
+    // demo personas abstain: seeding must not manufacture an acceptance of a
+    // policy the platform has not published and activated.
+    ...(scenarioConsentAdmission.admitted
+      ? [demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
+          consentReconciler(
+            consent.consentId,
+            `terms-of-service ${consent.userId}`,
+            consent.userId,
+            consent.accountId,
+            [
+              {
+                type: "RecordConsent",
+                consentId: consent.consentId,
+                subjectType: "user",
+                userId: consent.userId,
+                accountId: consent.accountId,
+                policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+                policyVersion: scenarioConsentAdmission.version,
+                recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
+              },
+            ],
+          ),
+        )
+      : []),
 
     invitationReconciler(support.invitationId, "support@chasesets.test", [
       {
@@ -785,7 +818,10 @@ export async function inspectIdentitySeedState(
     return [];
   }
   const services = createIdentityServices(pool);
-  return reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, createIdentityBootstrapContext()), false);
+  return reconcileSeedAggregates(
+    await buildScenarioIdentityReconcilers(services, createIdentityBootstrapContext()),
+    false,
+  );
 }
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
@@ -801,7 +837,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   }
 
   if (shouldSeedScenario) {
-    await reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, context), true);
+    await reconcileSeedAggregates(await buildScenarioIdentityReconcilers(services, context), true);
   }
   if (shouldSeedRepresentative) {
     await seedRepresentativeIdentityAccounts(services, context);
@@ -980,6 +1016,19 @@ async function reconcileRepresentativeConsent(
 ): Promise<void> {
   const existing = await services.consents.getConsentState(account.consentId);
   if (!existing) {
+    // Same shipped rule as the scenario personas: a representative account is a
+    // fixture, not a person who agreed to anything, so it abstains until the
+    // document is both consent-activatable and activated.
+    const admission = await resolveSeededConsentAdmission(
+      requireSeedEventStore(services.eventStore),
+      TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+      SCENARIO_SEEDED_TERMS_OF_SERVICE_VERSION,
+    );
+    if (!admission.admitted) {
+      reportSeededConsentAbstention(`representative account ${account.accountId}`, admission);
+      return;
+    }
+
     await services.consents.commandHandler({
       streamId: `identity.consent-${account.consentId}`,
       command: {
@@ -988,8 +1037,8 @@ async function reconcileRepresentativeConsent(
         subjectType: "user",
         userId: account.userId as UserId,
         accountId: account.accountId as AccountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
+        policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+        policyVersion: admission.version,
         recordedAt: REPRESENTATIVE_SEEDED_AT,
       },
       context,

@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assert, assertNever, type ConsentSubjectType } from "../../../support/runtime-support/common";
+import { assertConsentRecordingBundleAdmission } from "./consent-bundle-admission";
 import {
   assertConsentCommandAuthorization,
   type ConsentRecordingAuthorization,
@@ -127,11 +128,23 @@ export const decideConsent: AggregateDecider<ConsentState, ConsentCommand, Conse
   }
 };
 
+/**
+ * The authorized decider: the one place every production entrypoint reaches,
+ * and therefore where the rules that must hold everywhere live.
+ *
+ * Authorization first -- the shipped write-path binding, consumed unchanged --
+ * then the bundle's pure publication and declared-scope halves. The activation
+ * half needs to read an event stream and so is decided by the caller, strictly
+ * after these and strictly before the append it guards.
+ */
 export const decideAuthorizedConsent: AggregateDecider<ConsentState, AuthorizedConsentCommand, ConsentEvent> = (
   state,
   input,
 ) => {
   assertConsentCommandAuthorization(state, input.command, input.authorization);
+  if (input.command.type === "RecordConsent") {
+    assertConsentRecordingBundleAdmission(input.command, input.authorization);
+  }
   return decideConsent(state, input.command);
 };
 

@@ -11,7 +11,26 @@ import {
   authorizeConsentForSelfRegistration,
   type ConsentRecordingAuthorization,
 } from "../domain/consent-recording-authorization";
+import { activateConsentPolicyForTest } from "../domain/consent-bundle-test-support";
 import { createConsentRuntime } from "./runtime";
+
+// Terms of Service is not consent-activatable in the shipped corpus, so no
+// Consent of any kind is recordable against it -- which is correct, and is
+// asserted by the Consent Bundle suites. This file's subject is the WRITE-PATH
+// AUTHORIZATION boundary, so it compiles against a corpus where the document is
+// published and activates the authority in its harness. Every assertion below
+// is otherwise unchanged: the authorization rules it proves are the same rules,
+// now proven with the publication and activation halves satisfied rather than
+// with them absent.
+// Both a user-scoped and an account-scoped bundle member, because the
+// account-scoped authorization cases below have to be proven at a policy whose
+// bundle actually declares account scope: Terms of Service is a member of the
+// user-scoped registration bundle, so an account-scoped Terms of Service
+// recording is refused for scope now, before the authorization rule is reached.
+vi.mock("@chase-sets/public-docs", async (importOriginal) => {
+  const { publicDocsWithConsentActivatable } = await import("../domain/consent-publication-test-support");
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "seller-agreement"]);
+});
 
 const authorizedContext = actorContext("usr_authorized", "acc_authorized");
 
@@ -46,6 +65,20 @@ function createHarness() {
   return { memory, readStream, runtime };
 }
 
+/** Consent events only -- an activated harness also carries the authority's own events. */
+function consentEvents(memory: ReturnType<typeof createHarness>["memory"]) {
+  return memory.readAllEvents().filter((event) => event.eventType.startsWith("identity.consent."));
+}
+
+/** Activates the authority through real authority events, then clears the read spy. */
+async function createActivatedHarness() {
+  const harness = createHarness();
+  await activateConsentPolicyForTest(harness.memory.eventStore, "terms-of-service", "v1", bootstrapContext());
+  await activateConsentPolicyForTest(harness.memory.eventStore, "seller-agreement", "v1", bootstrapContext());
+  harness.readStream.mockClear();
+  return harness;
+}
+
 function recordInput(
   consentId: string,
   context: EventStoreContext,
@@ -54,6 +87,7 @@ function recordInput(
     subjectType?: "account" | "user";
     userId?: string;
     accountId?: string;
+    policyKey?: string;
   }> = {},
 ) {
   return {
@@ -64,7 +98,7 @@ function recordInput(
       subjectType: subject.subjectType ?? "user",
       userId: (subject.userId ?? context.audit.performedByUserId) as UserId,
       accountId: (subject.accountId ?? context.audit.forAccountId) as AccountId,
-      policyKey: "terms-of-service",
+      policyKey: subject.policyKey ?? "terms-of-service",
       policyVersion: "v1",
       recordedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -135,13 +169,16 @@ describe("Consent Recording Authorization at the production runtime", () => {
   });
 
   it.each([
-    { subjectType: "user" as const, consentId: "cns_exact_user" },
-    { subjectType: "account" as const, consentId: "cns_exact_account" },
-  ])("records the exact authorized $subjectType identity", async ({ subjectType, consentId }) => {
-    const { memory, runtime } = createHarness();
+    { subjectType: "user" as const, consentId: "cns_exact_user", policyKey: "terms-of-service" },
+    { subjectType: "account" as const, consentId: "cns_exact_account", policyKey: "seller-agreement" },
+  ])("records the exact authorized $subjectType identity", async ({ subjectType, consentId, policyKey }) => {
+    const { memory, runtime } = await createActivatedHarness();
 
     const result = await runtime.commandHandler(
-      recordInput(consentId, authorizedContext, authorizeConsentForActor(authorizedContext), { subjectType }),
+      recordInput(consentId, authorizedContext, authorizeConsentForActor(authorizedContext), {
+        subjectType,
+        policyKey,
+      }),
     );
 
     expect(result.state).toMatchObject({
@@ -150,7 +187,7 @@ describe("Consent Recording Authorization at the production runtime", () => {
       accountId: "acc_authorized",
       status: "recorded",
     });
-    expect(memory.readAllEvents()).toHaveLength(1);
+    expect(consentEvents(memory)).toHaveLength(1);
   });
 
   it("refuses a shared platform principal as a consent subject", async () => {
@@ -174,7 +211,7 @@ describe("Consent Recording Authorization at the production runtime", () => {
   });
 
   it("rejects a foreign withdrawal through the direct handler and leaves the stream unchanged", async () => {
-    const { memory, runtime } = createHarness();
+    const { memory, runtime } = await createActivatedHarness();
     const provisionedUserId = "usr_provisioned" as UserId;
     const provisionedAccountId = "acc_provisioned" as AccountId;
     const consentId = "cns_foreign_withdrawal";
@@ -226,7 +263,7 @@ describe("Consent Recording Authorization at the production runtime", () => {
   });
 
   it("records a registration Consent for the exact identifiers minted by that registration", async () => {
-    const { memory, runtime } = createHarness();
+    const { memory, runtime } = await createActivatedHarness();
     const userId = "usr_created_here" as UserId;
     const accountId = "acc_created_here" as AccountId;
 
@@ -245,7 +282,7 @@ describe("Consent Recording Authorization at the production runtime", () => {
       accountId,
       status: "recorded",
     });
-    expect(memory.readAllEvents()).toHaveLength(1);
+    expect(consentEvents(memory)).toHaveLength(1);
   });
 
   it("refuses provisioning aimed outside the explicitly selected identifiers", async () => {

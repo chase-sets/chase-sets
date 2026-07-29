@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { IdentityServices } from "../support/runtime-support/services";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
@@ -28,6 +29,12 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
 
   return {
     services: {
+      // Provisioning a fixture Consent now consults the shipped
+      // publication-and-activation rule, and the activation half reads the
+      // policy's authority stream. Against this store nothing is activated, so
+      // every fixture abstains -- which is what `createdConsent: false` below
+      // records.
+      eventStore: createInMemoryEventStore().eventStore,
       accounts: { commandHandler: accounts.handler },
       users: { commandHandler: users.handler },
       memberships: { commandHandler: memberships.handler },

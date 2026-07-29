@@ -330,6 +330,24 @@ Notes:
 - Consents must be auditable.
 - A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
+### Consent Bundle
+
+A **Consent Bundle** is the ordered set of policies one surface asks a subject to agree to, together with the scope the resulting Consents are recorded at. There are two: `registration` (Terms of Service, then Privacy Policy — **user-scoped**, affirmed by the person creating the identity) and `seller-onboarding` (Seller Agreement, then Payments Terms — **account-scoped**, recorded by an authorized account member with the acting user captured).
+
+A bundle **member** and a bundle **requirement** are different things, and conflating them is the defect this concept exists to prevent.
+
+Notes:
+
+- **Declaring a member requires nothing.** A member says only "this policy belongs to this surface's bundle". A member becomes a *requirement* only when the published artifact is consent-activatable **and** its [[Consent Activation Authority]] reports the key active — the publication-to-activation invariant. Neither half alone is enough.
+- **The requirement set is derived, never enumerated as a default.** There is no options bag, no override, and no caller-supplied widening.
+- **An empty requirement set is a value, not a disabled mode.** The shipped corpus resolves to an empty set today. The resolution still runs, still binds its guards, and still fails closed on a member it cannot read; nothing anywhere reads the set's length to decide whether the invariant applies.
+- **Order is part of the contract.** Declared member order is the order requirements are emitted in, because a [[Registration Consent Resolution]] signs requirement order.
+- **Bundle acceptance is subject-exact**, resolved on exactly `(subject type, subject id, policy key)`. Another principal in the same account can neither satisfy nor be satisfied by a user bundle. This is deliberately narrower than the pre-bundle Terms of Service host-port read, which keeps its user-or-account disjunction.
+- **Satisfaction is Consent aggregate state**, never the presence of a consent row, stream, or record. Empty, partial, withdrawn, and superseded-version containers all read as unsatisfied.
+- A resolution reads activation state, active version, and guard token from one read of each member's authority. No cached policy value is read on the bundle path, so pairing a cached value with a separately read revision is unrepresentable.
+- The legacy history-only `terms` key is a member of no bundle. It stays readable as Consent history and can never be newly recorded or satisfy a bundle.
+- Defining the seller bundle is settled; **wiring** it — which account members may bind an account, and gating listing publication on it — is reserved for the seller-gating slice and does not exist yet.
+
 ### Consent Recording Authorization
 
 A **Consent Recording Authorization** is the trusted, explicit admission value that binds a Consent recording or withdrawal to the authoritative request identity.
