@@ -70,6 +70,7 @@ export function normalizeFailureFingerprint(value) {
     .replaceAll(/\b[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?\b/g, "<time>")
     .replaceAll(/\b(?:run(?:[_ -]?id)?|attempt)[=: #]+\d+\b/gi, "$1=<number>")
     .replaceAll(/\/actions\/runs\/\d+(?:\/attempts\/\d+)?/gi, "/actions/runs/<run>")
+    .replaceAll(/\b(revision)\s+\d+\b/gi, "$1 <number>")
     .replaceAll(/(?:[A-Za-z]:\\|\/)(?:tmp|temp)(?:[\\/][^\s:'\"]+)+/gi, "<temp-path>")
     .replaceAll(/\/home\/runner\/work\/(?:[^\s:'\"]+\/)+/gi, "<runner-path>/")
     .replaceAll(/\bchase-sets-(?:pr|verify)-[a-z0-9-]+\b/gi, "<namespace>")
@@ -110,15 +111,30 @@ export function buildDeliveryFailureSignature(input) {
 }
 
 export function extractFailureSignatures(log, context = {}) {
-  const test = extractTestIdentity(log);
+  const failedStepOutput = failedStepOutputFromLog(log, context);
+  const test = failedStepOutput === null ? null : extractTestIdentity(failedStepOutput);
   const step = context.stepName || "unknown-step";
-  const rootCause = test
-    ? null
-    : classifyDeploymentRootCause({
-        phase: context.lane || "unknown",
-        logs: [{ output: String(log ?? "") }],
-        steps: [{ name: step, componentName: context.jobName || "unknown-job", phase: "failure" }],
+  const semanticError = semanticFailureLine(failedStepOutput);
+  let rootCause = null;
+  if (test === null) {
+    const failedStep = {
+      phase: context.lane || "unknown",
+      steps: [{ name: step, componentName: context.jobName || "unknown-job", phase: "failure" }],
+    };
+    rootCause =
+      failedStepOutput === null
+        ? classifyDeploymentRootCause({})
+        : classifyDeploymentRootCause({
+            ...failedStep,
+            logs: [{ output: failedStepOutput }],
+          });
+    if (rootCause.rootCauseCode === "unknown" && semanticError !== "unknown failure") {
+      rootCause = classifyDeploymentRootCause({
+        ...failedStep,
+        logs: [{ output: normalizeFailureFingerprint(semanticError) }],
       });
+    }
+  }
   const delivery = buildDeliveryFailureSignature({
     lane: context.lane || "merge-group",
     workflow: context.workflow || "Platform PR",
@@ -129,7 +145,7 @@ export function extractFailureSignatures(log, context = {}) {
     rootCauseCode: rootCause?.rootCauseCode,
     rootCauseSignature: rootCause?.rootCauseSignature,
     providerReason: rootCause?.providerReason,
-    errorText: test?.assertionShape || semanticFailureLine(log),
+    errorText: test?.assertionShape || semanticError,
     blocking: rootCause?.blocking ?? true,
   });
   return [
@@ -540,13 +556,16 @@ async function analyzeRun(options, run) {
   const failures = [];
   for (const job of jobs.filter((candidate) => candidate?.conclusion === "failure")) {
     const lane = laneForJob(workflow, job.name);
-    const failedStep = (job.steps ?? []).find((step) => step.conclusion === "failure");
-    const log = await readJobLog(job);
+    const failedSteps = (job.steps ?? []).filter((step) => step.conclusion === "failure");
+    const failedStep = failedSteps.length === 1 ? failedSteps[0] : null;
+    const log = failedStep ? await fetchFailedStepLog(options, job.id, failedStep) : "";
     const [extracted] = extractFailureSignatures(log, {
       lane,
       workflow,
       jobName: job.name,
       stepName: failedStep?.name,
+      failedStepStartedAt: failedStep?.started_at,
+      failedStepCompletedAt: failedStep?.completed_at,
       jobId: job.id,
     });
     failures.push({
@@ -785,6 +804,16 @@ async function fetchJobLog(options, jobId) {
   return (await readBoundedResponse(response, options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES)).toString("utf8");
 }
 
+async function fetchFailedStepLog(options, jobId, failedStep) {
+  const window = failedStepWindow({
+    failedStepStartedAt: failedStep?.started_at,
+    failedStepCompletedAt: failedStep?.completed_at,
+  });
+  if (!window) return "";
+  const response = await githubFetch(options, `/actions/jobs/${jobId}/logs`);
+  return readTimestampWindow(response, window, options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES);
+}
+
 async function fetchCircuitIssues(options) {
   const url = new URL(`${options.apiBaseUrl}/repos/${options.repository}/issues`);
   url.searchParams.set("state", "all");
@@ -952,13 +981,78 @@ function normalizeAssertion(value) {
 }
 
 function semanticFailureLine(log) {
-  return (
-    String(log ?? "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => /(?:error|fail|timeout|refused|missing|invalid|collision|mismatch)/i.test(line)) ??
-    "unknown failure"
-  );
+  const semanticPattern =
+    /(?:error|fail|timeout|timed out|refused|missing|invalid|collision|mismatch|does not match|cannot|could not|conflict|bypass|skip)/i;
+  const line = String(log ?? "")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .reverse()
+    .find(
+      (entry) =>
+        entry &&
+        semanticPattern.test(entry) &&
+        !/^##\[(?:error|group|endgroup)\]/i.test(entry) &&
+        !/^\u001B\[36;1m/.test(entry),
+    );
+  if (!line) return "unknown failure";
+  if (/^"(?:\\.|[^"\\])*",?$/.test(line)) {
+    try {
+      return JSON.parse(line.replace(/,$/, ""));
+    } catch {
+      return line;
+    }
+  }
+  return line;
+}
+
+function failedStepOutputFromLog(log, context) {
+  const window = failedStepWindow(context);
+  if (!window) return null;
+  const candidates = [];
+  let lastTimestamp = null;
+  let candidate = null;
+  for (const rawLine of String(log ?? "").split(/\r?\n/)) {
+    const parsed = logLine(rawLine, lastTimestamp);
+    lastTimestamp = parsed.timestamp ?? lastTimestamp;
+    if (!lastTimestamp || lastTimestamp < window.start || lastTimestamp >= window.end) continue;
+    if (/^##\[group\]Run(?:\s|$)/i.test(parsed.message)) {
+      candidate = { commandClosed: false, output: [] };
+      continue;
+    }
+    if (!candidate) continue;
+    if (!candidate.commandClosed) {
+      if (/^##\[endgroup\]$/i.test(parsed.message)) candidate.commandClosed = true;
+      continue;
+    }
+    if (
+      /^##\[error\](?:Process completed with exit code|The operation was canceled|The action .* timed out)/i.test(
+        parsed.message,
+      )
+    ) {
+      candidates.push(candidate.output.join("\n"));
+      candidate = null;
+      continue;
+    }
+    candidate.output.push(parsed.message);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function failedStepWindow(context) {
+  const start = Date.parse(context.failedStepStartedAt ?? "");
+  const completed = Date.parse(context.failedStepCompletedAt ?? "");
+  if (!Number.isFinite(start) || !Number.isFinite(completed) || completed < start) return null;
+  return { start, end: completed + 1000 };
+}
+
+function logLine(line, inheritedTimestamp = null) {
+  const match = String(line).match(/^(\d{4}-\d{2}-\d{2}T\S+Z)\s+(.*)$/);
+  if (!match) return { timestamp: inheritedTimestamp, message: String(line) };
+  const timestamp = Date.parse(match[1]);
+  return {
+    timestamp: Number.isFinite(timestamp) ? timestamp : inheritedTimestamp,
+    message: match[2],
+  };
 }
 
 function releaseCommitFromLog(log) {
@@ -1059,6 +1153,80 @@ function isCircuitIssue(issue) {
       String(issue.title ?? "").startsWith(CIRCUIT_TITLE_PREFIX) ||
       String(issue.title ?? "").startsWith("Incident: Platform Deploy "))
   );
+}
+
+async function readTimestampWindow(response, window, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const text = Buffer.from(await response.arrayBuffer()).toString("utf8");
+    return boundedTimestampWindow(text, window, maxBytes);
+  }
+
+  const decoder = new TextDecoder();
+  const selected = [];
+  let selectedBytes = 0;
+  let pending = "";
+  let lastTimestamp = null;
+  let complete = false;
+  let overflowed = false;
+  const consumeLine = (line) => {
+    const parsed = logLine(line, lastTimestamp);
+    lastTimestamp = parsed.timestamp ?? lastTimestamp;
+    if (!lastTimestamp || lastTimestamp < window.start) return;
+    if (lastTimestamp >= window.end) {
+      complete = true;
+      return;
+    }
+    const rendered = `${line}\n`;
+    selectedBytes += Buffer.byteLength(rendered);
+    if (selectedBytes > maxBytes) {
+      overflowed = true;
+      return;
+    }
+    selected.push(rendered);
+  };
+
+  try {
+    while (!complete && !overflowed) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let newline = pending.indexOf("\n");
+      while (newline >= 0 && !complete && !overflowed) {
+        consumeLine(pending.slice(0, newline).replace(/\r$/, ""));
+        pending = pending.slice(newline + 1);
+        newline = pending.indexOf("\n");
+      }
+      if (pending.length > maxBytes) {
+        overflowed = true;
+      }
+    }
+    if (!complete && !overflowed) {
+      pending += decoder.decode();
+      if (pending) consumeLine(pending.replace(/\r$/, ""));
+    }
+    if (complete || overflowed) await reader.cancel();
+  } finally {
+    reader.releaseLock?.();
+  }
+  return overflowed ? "" : selected.join("");
+}
+
+function boundedTimestampWindow(log, window, maxBytes) {
+  const selected = [];
+  let selectedBytes = 0;
+  let lastTimestamp = null;
+  for (const line of String(log ?? "").split(/\r?\n/)) {
+    const parsed = logLine(line, lastTimestamp);
+    lastTimestamp = parsed.timestamp ?? lastTimestamp;
+    if (!lastTimestamp || lastTimestamp < window.start) continue;
+    if (lastTimestamp >= window.end) break;
+    const rendered = `${line}\n`;
+    selectedBytes += Buffer.byteLength(rendered);
+    if (selectedBytes > maxBytes) return "";
+    selected.push(rendered);
+  }
+  return selected.join("");
 }
 
 async function readBoundedResponse(response, maxBytes) {
