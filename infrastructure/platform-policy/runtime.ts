@@ -22,9 +22,9 @@ import {
   readConsentActivationAuthority,
   type ConsentActivationAuthorityCommand,
   type ConsentActivationAuthorityEvent,
-  type ConsentActivationAuthoritySnapshot,
   type ConsentActivationAuthorityState,
-  type ConsentActivationGuard,
+  type ValidatedConsentActivationAuthoritySnapshot,
+  type ValidatedConsentActivationGuard,
 } from "./consent-activation-authority";
 import type { PolicyDefinition } from "./define-policy";
 import {
@@ -77,6 +77,8 @@ export type PolicyRuntimeDeps = Readonly<{
  * value does this policy carry", reading the cached document projection, while
  * this surface answers "is this key activated, at which version, and what
  * token guards that answer" -- always from the authority event stream.
+ * Every read and command result has crossed Platform Policy's canonical
+ * snapshot decoder; `guardAppendInput` accepts only the decoder-minted guard.
  *
  * `register` is the no-options entry point: declaring a policy key
  * consent-CAPABLE takes a definition and a context, and leaves the key
@@ -84,22 +86,22 @@ export type PolicyRuntimeDeps = Readonly<{
  */
 export type ConsentActivationAuthorityRuntime = Readonly<{
   streamIdFor: (policyKey: string) => string;
-  read: (policyKey: string) => Promise<ConsentActivationAuthoritySnapshot>;
+  read: (policyKey: string) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   register: (
     definition: PolicyDefinition<unknown>,
     context: EventStoreContext,
-  ) => Promise<ConsentActivationAuthoritySnapshot>;
+  ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   activate: (
     definition: PolicyDefinition<unknown>,
     params: Readonly<{ version: string; documentId: string; actorUserId: string; activatedAt?: string }>,
     context: EventStoreContext,
-  ) => Promise<ConsentActivationAuthoritySnapshot>;
+  ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   deactivate: (
     definition: PolicyDefinition<unknown>,
     params: Readonly<{ actorUserId: string; deactivatedAt?: string }>,
     context: EventStoreContext,
-  ) => Promise<ConsentActivationAuthoritySnapshot>;
-  guardAppendInput: (guard: ConsentActivationGuard, context: EventStoreContext) => AppendToStreamInput;
+  ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
+  guardAppendInput: (guard: ValidatedConsentActivationGuard, context: EventStoreContext) => AppendToStreamInput;
 }>;
 
 export type PolicyRuntime = Readonly<{

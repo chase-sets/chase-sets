@@ -88,6 +88,20 @@ export type ConsentActivationAuthorityErrorCode =
   | "registration_conflict"
   /** A command requires the key to be registered as consent-capable first. */
   | "not_registered"
+  /** The snapshot is not a recursively closed object with bounded primitive fields. */
+  | "invalid_snapshot_shape"
+  /** The snapshot policy key differs from the key requested at the runtime boundary. */
+  | "snapshot_policy_key_mismatch"
+  /** The snapshot or guard stream id is not the canonical identity for its policy key. */
+  | "snapshot_stream_id_mismatch"
+  /** The snapshot fields describe an impossible Consent Activation Authority lifecycle state. */
+  | "snapshot_lifecycle_mismatch"
+  /** The snapshot authority revision is outside its bounds or inconsistent with its lifecycle. */
+  | "snapshot_revision_mismatch"
+  /** The nested guard is not bound exactly to the snapshot identity and authority revision. */
+  | "snapshot_guard_mismatch"
+  /** The guard append helper received a value not minted by the canonical snapshot decoder. */
+  | "unvalidated_activation_guard"
   /** The authority history exceeded its replay bound. */
   | "history_too_long";
 
@@ -247,36 +261,60 @@ export type ConsentActivationAuthorityCommand =
 /* Envelope validation                                                         */
 /* -------------------------------------------------------------------------- */
 
-function closedObject(value: unknown, allowedKeys: readonly string[], path: string): Record<string, unknown> {
+function closedObject(
+  value: unknown,
+  allowedKeys: readonly string[],
+  path: string,
+  errorCode: ConsentActivationAuthorityErrorCode = "invalid_activation_envelope",
+): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    fail("invalid_activation_envelope", `Consent activation authority record '${path}' must be an object.`);
+    fail(errorCode, `Consent activation authority record '${path}' must be an object.`);
   }
 
-  const record = value as Record<string, unknown>;
-  for (const key of Object.keys(record)) {
-    if (!allowedKeys.includes(key)) {
-      fail(
-        "invalid_activation_envelope",
-        `Consent activation authority record '${path}' has unexpected field '${key}'.`,
-      );
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      fail(errorCode, `Consent activation authority record '${path}' must be a plain object.`);
     }
-  }
 
-  return record;
+    const record = value as Record<string, unknown>;
+    const closedRecord: Record<string, unknown> = {};
+    for (const key of Reflect.ownKeys(record)) {
+      const descriptor = Object.getOwnPropertyDescriptor(record, key);
+      if (
+        typeof key !== "string" ||
+        !allowedKeys.includes(key) ||
+        descriptor === undefined ||
+        !("value" in descriptor)
+      ) {
+        fail(errorCode, `Consent activation authority record '${path}' has unexpected field '${String(key)}'.`);
+      }
+      closedRecord[key] = descriptor.value;
+    }
+    return closedRecord;
+  } catch (error) {
+    if (error instanceof ConsentActivationAuthorityError) {
+      throw error;
+    }
+    fail(errorCode, `Consent activation authority record '${path}' must be a readable, closed plain object.`);
+  }
 }
 
-function boundedString(value: unknown, path: string, maxLength: number, pattern?: RegExp): string {
+function boundedString(
+  value: unknown,
+  path: string,
+  maxLength: number,
+  pattern?: RegExp,
+  errorCode: ConsentActivationAuthorityErrorCode = "invalid_activation_envelope",
+): string {
   if (typeof value !== "string") {
-    fail("invalid_activation_envelope", `Consent activation authority field '${path}' must be a string.`);
+    fail(errorCode, `Consent activation authority field '${path}' must be a string.`);
   }
   if (value.length === 0 || value.length > maxLength) {
-    fail(
-      "invalid_activation_envelope",
-      `Consent activation authority field '${path}' must be 1-${maxLength} characters.`,
-    );
+    fail(errorCode, `Consent activation authority field '${path}' must be 1-${maxLength} characters.`);
   }
   if (pattern && !pattern.test(value)) {
-    fail("invalid_activation_envelope", `Consent activation authority field '${path}' has an unsupported shape.`);
+    fail(errorCode, `Consent activation authority field '${path}' has an unsupported shape.`);
   }
   return value;
 }
@@ -286,24 +324,25 @@ function boundedString(value: unknown, path: string, maxLength: number, pattern?
  * timestamp with no zone designator, and an instant outside the supported
  * window are each rejected rather than coerced.
  */
-function boundedInstant(value: unknown, path: string): string {
+function boundedInstant(
+  value: unknown,
+  path: string,
+  errorCode: ConsentActivationAuthorityErrorCode = "invalid_activation_envelope",
+): string {
   if (typeof value !== "string") {
-    fail("invalid_activation_envelope", `Consent activation authority instant '${path}' must be a string.`);
+    fail(errorCode, `Consent activation authority instant '${path}' must be a string.`);
   }
 
   let parsed: string;
   try {
     parsed = parseIsoUtcTimestamp(value);
   } catch {
-    fail(
-      "invalid_activation_envelope",
-      `Consent activation authority instant '${path}' must be a timezone-bearing ISO-8601 UTC instant.`,
-    );
+    fail(errorCode, `Consent activation authority instant '${path}' must be a timezone-bearing ISO-8601 UTC instant.`);
   }
 
   const milliseconds = Date.parse(parsed);
   if (milliseconds < MIN_INSTANT_MS || milliseconds >= MAX_INSTANT_MS) {
-    fail("invalid_activation_envelope", `Consent activation authority instant '${path}' is outside supported bounds.`);
+    fail(errorCode, `Consent activation authority instant '${path}' is outside supported bounds.`);
   }
 
   return parsed;
@@ -643,27 +682,301 @@ export const decideConsentActivationAuthority: AggregateDecider<
 /* Guard                                                                       */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The token a caller carries into an `appendToStreams` transaction. Minted by
- * `readConsentActivationAuthority` from the same events that produced the
- * state beside it, so the pair can never describe two different moments.
- */
-export type ConsentActivationGuard = Readonly<{
-  policyKey: string;
-  streamId: string;
-  expectedVersion: ExpectedStreamVersion;
-}>;
+const validatedConsentActivationGuards = new WeakSet<object>();
+
+declare class ValidatedConsentActivationGuardContract {
+  private readonly validatedConsentActivationGuardBrand: void;
+  public readonly policyKey: string;
+  public readonly streamId: string;
+  public readonly expectedVersion: ExpectedStreamVersion;
+}
+
+declare class ValidatedConsentActivationAuthoritySnapshotContract {
+  private readonly validatedConsentActivationAuthoritySnapshotBrand: void;
+  public readonly policyKey: string;
+  public readonly streamId: string;
+  public readonly registered: boolean;
+  public readonly status: ConsentActivationStatus;
+  public readonly isActive: boolean;
+  public readonly activeVersion: string | null;
+  public readonly activeDocumentId: string | null;
+  public readonly activationCount: number;
+  public readonly lastTransitionAt: string | null;
+  public readonly authorityVersion: number;
+  public readonly guard: ValidatedConsentActivationGuard;
+}
 
 /**
- * Renders a guard as an `appendToStreams` participant. The input carries zero
- * events: it contributes no history to the authority stream and exists only so
- * the shared all-or-nothing transaction rejects when the authority moved
- * between the read and the append.
+ * The token a caller carries into an `appendToStreams` transaction. Minted by
+ * `decodeConsentActivationAuthoritySnapshot` from the same validated record
+ * as the state beside it. The private brand prevents repository callers from
+ * structurally constructing a token for another stream or revision.
+ */
+export type ValidatedConsentActivationGuard = ValidatedConsentActivationGuardContract;
+
+/**
+ * The consumer-facing authority contract. It is opaque as well as readonly:
+ * only `decodeConsentActivationAuthoritySnapshot` can mint the private brand,
+ * and it freezes both objects so a validated value cannot be mutated into an
+ * impossible lifecycle state after crossing the runtime boundary.
+ */
+export type ValidatedConsentActivationAuthoritySnapshot = ValidatedConsentActivationAuthoritySnapshotContract;
+
+function snapshotBoolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") {
+    fail("invalid_snapshot_shape", `Consent activation authority snapshot field '${path}' must be a boolean.`);
+  }
+  return value;
+}
+
+function snapshotInteger(value: unknown, path: string, errorCode: ConsentActivationAuthorityErrorCode): number {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) >= MAX_AUTHORITY_HISTORY_EVENTS) {
+    fail(
+      errorCode,
+      `Consent activation authority snapshot field '${path}' must be an integer from 0 through ${MAX_AUTHORITY_HISTORY_EVENTS - 1}.`,
+    );
+  }
+  return value as number;
+}
+
+function snapshotNullableToken(value: unknown, path: string, maxLength: number, pattern: RegExp): string | null {
+  return value === null ? null : boundedString(value, path, maxLength, pattern, "invalid_snapshot_shape");
+}
+
+function snapshotNullableInstant(value: unknown, path: string): string | null {
+  return value === null ? null : boundedInstant(value, path, "invalid_snapshot_shape");
+}
+
+function assertSnapshotLifecycle(
+  snapshot: Readonly<{
+    registered: boolean;
+    status: ConsentActivationStatus;
+    isActive: boolean;
+    activeVersion: string | null;
+    activeDocumentId: string | null;
+    activationCount: number;
+    lastTransitionAt: string | null;
+    authorityVersion: number;
+    guardExpectedVersion: ExpectedStreamVersion;
+  }>,
+): void {
+  const hasActiveFields = snapshot.activeVersion !== null && snapshot.activeDocumentId !== null;
+  const hasNoActiveFields = snapshot.activeVersion === null && snapshot.activeDocumentId === null;
+
+  if (!snapshot.registered) {
+    if (
+      snapshot.status !== "never-activated" ||
+      snapshot.isActive ||
+      !hasNoActiveFields ||
+      snapshot.activationCount !== 0 ||
+      snapshot.lastTransitionAt !== null ||
+      snapshot.authorityVersion !== 0
+    ) {
+      fail(
+        "snapshot_lifecycle_mismatch",
+        "An unregistered consent activation authority must be the zero-event, never-activated state.",
+      );
+    }
+    if (snapshot.guardExpectedVersion !== "no_stream") {
+      fail(
+        "snapshot_guard_mismatch",
+        "A zero-event consent activation authority must carry the no_stream guard revision.",
+      );
+    }
+    return;
+  }
+
+  if (snapshot.status === "never-activated") {
+    if (
+      snapshot.isActive ||
+      !hasNoActiveFields ||
+      snapshot.activationCount !== 0 ||
+      snapshot.lastTransitionAt === null ||
+      snapshot.authorityVersion !== 1
+    ) {
+      fail(
+        "snapshot_lifecycle_mismatch",
+        "A registered, never-activated consent activation authority must contain exactly its registration event.",
+      );
+    }
+  } else if (snapshot.status === "active") {
+    const minimumVersion = snapshot.activationCount + 1;
+    const maximumVersion = 2 * snapshot.activationCount;
+    if (
+      !snapshot.isActive ||
+      !hasActiveFields ||
+      snapshot.activationCount < 1 ||
+      snapshot.lastTransitionAt === null ||
+      snapshot.authorityVersion < minimumVersion ||
+      snapshot.authorityVersion > maximumVersion
+    ) {
+      fail(
+        "snapshot_lifecycle_mismatch",
+        "An active consent activation authority violates its activation lifecycle arithmetic.",
+      );
+    }
+  } else {
+    const minimumVersion = snapshot.activationCount + 2;
+    const maximumVersion = 2 * snapshot.activationCount + 1;
+    if (
+      snapshot.isActive ||
+      !hasNoActiveFields ||
+      snapshot.activationCount < 1 ||
+      snapshot.lastTransitionAt === null ||
+      snapshot.authorityVersion < minimumVersion ||
+      snapshot.authorityVersion > maximumVersion
+    ) {
+      fail(
+        "snapshot_lifecycle_mismatch",
+        "An inactive consent activation authority violates its activation lifecycle arithmetic.",
+      );
+    }
+  }
+
+  if (snapshot.guardExpectedVersion !== snapshot.authorityVersion) {
+    fail(
+      "snapshot_guard_mismatch",
+      "A registered consent activation authority guard revision must equal its authority revision.",
+    );
+  }
+}
+
+/**
+ * The single runtime trust boundary from unknown input to consumer-facing
+ * Consent Activation Authority state. Every object is recursively closed,
+ * identity is rebound to the requested policy key, lifecycle arithmetic is
+ * exact, revisions are bounded, and malformed input raises without producing a
+ * branded snapshot or guard.
+ */
+export function decodeConsentActivationAuthoritySnapshot(
+  requestedPolicyKey: string,
+  value: unknown,
+): ValidatedConsentActivationAuthoritySnapshot {
+  assertConsentCapablePolicyKey(requestedPolicyKey);
+  const canonicalStreamId = consentActivationAuthorityStreamId(requestedPolicyKey);
+  const snapshot = closedObject(
+    value,
+    [
+      "policyKey",
+      "streamId",
+      "registered",
+      "status",
+      "isActive",
+      "activeVersion",
+      "activeDocumentId",
+      "activationCount",
+      "lastTransitionAt",
+      "authorityVersion",
+      "guard",
+    ],
+    "snapshot",
+    "invalid_snapshot_shape",
+  );
+
+  const policyKey = boundedString(
+    snapshot.policyKey,
+    "snapshot.policyKey",
+    MAX_POLICY_KEY_LENGTH,
+    undefined,
+    "invalid_snapshot_shape",
+  );
+  try {
+    assertConsentCapablePolicyKey(policyKey);
+  } catch {
+    fail("invalid_snapshot_shape", "Consent activation authority snapshot policy key is not canonical.");
+  }
+  if (policyKey !== requestedPolicyKey) {
+    fail(
+      "snapshot_policy_key_mismatch",
+      `Consent activation authority snapshot for '${policyKey}' cannot satisfy a read for '${requestedPolicyKey}'.`,
+    );
+  }
+
+  if (typeof snapshot.streamId !== "string" || snapshot.streamId !== canonicalStreamId) {
+    fail("snapshot_stream_id_mismatch", `Consent activation authority snapshot stream must be '${canonicalStreamId}'.`);
+  }
+
+  const status = snapshot.status;
+  if (status !== "never-activated" && status !== "active" && status !== "inactive") {
+    fail("invalid_snapshot_shape", "Consent activation authority snapshot status is unsupported.");
+  }
+  const decodedStatus = status as ConsentActivationStatus;
+
+  const guardRecord = closedObject(
+    snapshot.guard,
+    ["policyKey", "streamId", "expectedVersion"],
+    "snapshot.guard",
+    "invalid_snapshot_shape",
+  );
+  if (guardRecord.policyKey !== policyKey) {
+    fail("snapshot_guard_mismatch", "Consent activation authority guard policy key must equal the snapshot key.");
+  }
+  if (guardRecord.streamId !== canonicalStreamId) {
+    fail("snapshot_stream_id_mismatch", `Consent activation authority guard stream must be '${canonicalStreamId}'.`);
+  }
+  const guardExpectedVersion =
+    guardRecord.expectedVersion === "no_stream"
+      ? "no_stream"
+      : snapshotInteger(guardRecord.expectedVersion, "snapshot.guard.expectedVersion", "snapshot_guard_mismatch");
+
+  const decoded = {
+    policyKey,
+    streamId: canonicalStreamId,
+    registered: snapshotBoolean(snapshot.registered, "snapshot.registered"),
+    status: decodedStatus,
+    isActive: snapshotBoolean(snapshot.isActive, "snapshot.isActive"),
+    activeVersion: snapshotNullableToken(
+      snapshot.activeVersion,
+      "snapshot.activeVersion",
+      MAX_VERSION_TOKEN_LENGTH,
+      VERSION_TOKEN_PATTERN,
+    ),
+    activeDocumentId: snapshotNullableToken(
+      snapshot.activeDocumentId,
+      "snapshot.activeDocumentId",
+      MAX_DOCUMENT_ID_LENGTH,
+      DOCUMENT_ID_PATTERN,
+    ),
+    activationCount: snapshotInteger(snapshot.activationCount, "snapshot.activationCount", "invalid_snapshot_shape"),
+    lastTransitionAt: snapshotNullableInstant(snapshot.lastTransitionAt, "snapshot.lastTransitionAt"),
+    authorityVersion: snapshotInteger(
+      snapshot.authorityVersion,
+      "snapshot.authorityVersion",
+      "snapshot_revision_mismatch",
+    ),
+  };
+
+  assertSnapshotLifecycle({ ...decoded, guardExpectedVersion });
+
+  const guard = Object.freeze({
+    policyKey,
+    streamId: canonicalStreamId,
+    expectedVersion: guardExpectedVersion,
+  }) as unknown as ValidatedConsentActivationGuard;
+  validatedConsentActivationGuards.add(guard);
+
+  return Object.freeze({
+    ...decoded,
+    guard,
+  }) as unknown as ValidatedConsentActivationAuthoritySnapshot;
+}
+
+/**
+ * Renders a validated guard as an `appendToStreams` participant. The input
+ * carries zero events: it contributes no history to the authority stream and
+ * exists only so the shared all-or-nothing transaction rejects when the
+ * authority moved between the read and the append.
  */
 export function consentActivationGuardAppendInput(
-  guard: ConsentActivationGuard,
+  guard: ValidatedConsentActivationGuard,
   context: EventStoreContext,
 ): AppendToStreamInput {
+  if (!validatedConsentActivationGuards.has(guard)) {
+    fail(
+      "unvalidated_activation_guard",
+      "Consent activation authority append guards must come from the canonical snapshot decoder.",
+    );
+  }
   return {
     streamId: guard.streamId,
     expectedVersion: guard.expectedVersion,
@@ -671,22 +984,6 @@ export function consentActivationGuardAppendInput(
     context,
   };
 }
-
-export type ConsentActivationAuthoritySnapshot = Readonly<{
-  policyKey: string;
-  streamId: string;
-  registered: boolean;
-  status: ConsentActivationStatus;
-  /** Convenience narrowing of `status`; the aggregate state, never a row's presence, decides it. */
-  isActive: boolean;
-  activeVersion: string | null;
-  activeDocumentId: string | null;
-  activationCount: number;
-  lastTransitionAt: string | null;
-  /** Event count on the authority stream at the instant this snapshot was folded. */
-  authorityVersion: number;
-  guard: ConsentActivationGuard;
-}>;
 
 async function readAuthorityEvents(eventStore: EventStore, streamId: string): Promise<readonly StoredEvent[]> {
   const events: StoredEvent[] = [];
@@ -723,7 +1020,7 @@ async function readAuthorityEvents(eventStore: EventStore, streamId: string): Pr
 export async function readConsentActivationAuthority(
   eventStore: EventStore,
   policyKey: string,
-): Promise<ConsentActivationAuthoritySnapshot> {
+): Promise<ValidatedConsentActivationAuthoritySnapshot> {
   assertConsentCapablePolicyKey(policyKey);
   const streamId = consentActivationAuthorityStreamId(policyKey);
   const storedEvents = await readAuthorityEvents(eventStore, streamId);
@@ -742,7 +1039,7 @@ export async function readConsentActivationAuthority(
 
   const authorityVersion = storedEvents.length;
 
-  return {
+  return decodeConsentActivationAuthoritySnapshot(policyKey, {
     policyKey,
     streamId,
     registered: state.registered,
@@ -758,5 +1055,5 @@ export async function readConsentActivationAuthority(
       streamId,
       expectedVersion: authorityVersion === 0 ? "no_stream" : authorityVersion,
     },
-  };
+  });
 }

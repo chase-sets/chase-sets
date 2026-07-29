@@ -175,6 +175,7 @@ describeDb("consent activation authority against a real event store", () => {
       effectiveUntil: null,
     };
     cache.set(consentPolicy.policyKey, [staleCandidate]);
+    const staleAuthority = await runtime.consentActivation.read(consentPolicy.policyKey);
 
     await runtime.consentActivation.activate(
       consentPolicy,
@@ -193,10 +194,12 @@ describeDb("consent activation authority against a real event store", () => {
 
     // A guard minted from the stale-cache era of this key is already invalid,
     // so the stale value cannot be committed against the newer revision.
-    const staleGuard = { policyKey: consentPolicy.policyKey, streamId: snapshot.streamId, expectedVersion: 2 };
     const appendToStreams = eventStore.appendToStreams!;
     await expect(
-      appendToStreams([runtime.consentActivation.guardAppendInput(staleGuard, context), ...registrationAppends()]),
+      appendToStreams([
+        runtime.consentActivation.guardAppendInput(staleAuthority.guard, context),
+        ...registrationAppends(),
+      ]),
     ).rejects.toMatchObject({ code: "concurrency_conflict" });
     for (const streamId of REGISTRATION_STREAM_IDS) {
       expect(await streamEvents(streamId)).toHaveLength(0);
@@ -352,7 +355,46 @@ describeDb("consent activation authority against a real event store", () => {
         },
       },
       {
-        name: "terminal",
+        name: "initial-active",
+        seed: async (r: PolicyRuntime) => {
+          await r.consentActivation.register(consentPolicy, context);
+          await r.consentActivation.activate(
+            consentPolicy,
+            { version: "v1", documentId: "pol_terms", actorUserId: "usr_admin" },
+            context,
+          );
+        },
+        expect: (snapshot: Awaited<ReturnType<PolicyRuntime["consentActivation"]["read"]>>) => {
+          expect(snapshot.status).toBe("active");
+          expect(snapshot.activeVersion).toBe("v1");
+          expect(snapshot.activationCount).toBe(1);
+          expect(snapshot.authorityVersion).toBe(2);
+        },
+      },
+      {
+        name: "replaced-active",
+        seed: async (r: PolicyRuntime) => {
+          await r.consentActivation.register(consentPolicy, context);
+          await r.consentActivation.activate(
+            consentPolicy,
+            { version: "v1", documentId: "pol_terms", actorUserId: "usr_admin" },
+            context,
+          );
+          await r.consentActivation.activate(
+            consentPolicy,
+            { version: "v2", documentId: "pol_terms_v2", actorUserId: "usr_admin" },
+            context,
+          );
+        },
+        expect: (snapshot: Awaited<ReturnType<PolicyRuntime["consentActivation"]["read"]>>) => {
+          expect(snapshot.status).toBe("active");
+          expect(snapshot.activeVersion).toBe("v2");
+          expect(snapshot.activationCount).toBe(2);
+          expect(snapshot.authorityVersion).toBe(3);
+        },
+      },
+      {
+        name: "inactive",
         seed: async (r: PolicyRuntime) => {
           await r.consentActivation.register(consentPolicy, context);
           await r.consentActivation.activate(
@@ -366,42 +408,63 @@ describeDb("consent activation authority against a real event store", () => {
           expect(snapshot.status).toBe("inactive");
           expect(snapshot.activeVersion).toBeNull();
           expect(snapshot.activationCount).toBe(1);
+          expect(snapshot.authorityVersion).toBe(3);
         },
       },
       {
-        name: "repeated",
-        seed: async (r: PolicyRuntime, store: EventStore) => {
+        name: "reactivated",
+        seed: async (r: PolicyRuntime) => {
           await r.consentActivation.register(consentPolicy, context);
-          await store.appendToStream({
-            streamId: consentActivationAuthorityStreamId(consentPolicy.policyKey),
-            expectedVersion: "any",
+          await r.consentActivation.activate(
+            consentPolicy,
+            { version: "v1", documentId: "pol_terms", actorUserId: "usr_admin" },
             context,
-            events: [
-              {
-                eventType: "platform-policy.consent-activation-authority.registered",
-                payload: {
-                  policyKey: consentPolicy.policyKey,
-                  registration: {
-                    contextName: "identity",
-                    schemaSummary: "{ version: string }",
-                    registeredAt: "2026-07-25T00:00:00.000Z",
-                  },
-                } as never,
-              },
-            ],
-          });
+          );
+          await r.consentActivation.deactivate(consentPolicy, { actorUserId: "usr_admin" }, context);
+          await r.consentActivation.activate(
+            consentPolicy,
+            { version: "v2", documentId: "pol_terms_v2", actorUserId: "usr_admin" },
+            context,
+          );
         },
         expect: (snapshot: Awaited<ReturnType<PolicyRuntime["consentActivation"]["read"]>>) => {
-          expect(snapshot.status).toBe("never-activated");
-          expect(snapshot.registered).toBe(true);
-          expect(snapshot.authorityVersion).toBe(2);
+          expect(snapshot.status).toBe("active");
+          expect(snapshot.activeVersion).toBe("v2");
+          expect(snapshot.activationCount).toBe(2);
+          expect(snapshot.authorityVersion).toBe(4);
         },
       },
     ];
 
     it.each(histories)("rehydrates a $name authority history", async ({ seed, expect: assertSnapshot }) => {
-      await seed(runtime, eventStore);
+      await seed(runtime);
       assertSnapshot(await runtime.consentActivation.read(consentPolicy.policyKey));
+    });
+
+    it("rejects a repeated registration history that no canonical runtime command can emit", async () => {
+      await runtime.consentActivation.register(consentPolicy, context);
+      await eventStore.appendToStream({
+        streamId: consentActivationAuthorityStreamId(consentPolicy.policyKey),
+        expectedVersion: "any",
+        context,
+        events: [
+          {
+            eventType: "platform-policy.consent-activation-authority.registered",
+            payload: {
+              policyKey: consentPolicy.policyKey,
+              registration: {
+                contextName: "identity",
+                schemaSummary: "{ version: string }",
+                registeredAt: "2026-07-25T00:00:00.000Z",
+              },
+            } as never,
+          },
+        ],
+      });
+
+      await expect(runtime.consentActivation.read(consentPolicy.policyKey)).rejects.toMatchObject({
+        code: "snapshot_lifecycle_mismatch",
+      });
     });
 
     const poisoned = [

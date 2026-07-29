@@ -53,6 +53,7 @@ export {
   ConsentActivationAuthorityError,
   decideConsentActivationAuthority,
   decodeConsentActivationAuthorityEvent,
+  decodeConsentActivationAuthoritySnapshot,
   evolveConsentActivationAuthority,
   initialConsentActivationAuthorityState,
   readConsentActivationAuthority,
@@ -60,10 +61,8 @@ export {
   type ConsentActivationAuthorityCommand,
   type ConsentActivationAuthorityErrorCode,
   type ConsentActivationAuthorityEvent,
-  type ConsentActivationAuthoritySnapshot,
   type ConsentActivationAuthorityState,
   type ConsentActivationEnvelope,
-  type ConsentActivationGuard,
   type ConsentActivationStatus,
   type ConsentCapablePolicyRegisteredEvent,
   type ConsentCapableRegistration,
@@ -73,6 +72,8 @@ export {
   type ConsentPolicyDeactivatedEvent,
   type DeactivateConsentPolicyCommand,
   type RegisterConsentCapablePolicyCommand,
+  type ValidatedConsentActivationAuthoritySnapshot,
+  type ValidatedConsentActivationGuard,
 } from "./consent-activation-authority";
 export {
   createPolicyResolver,

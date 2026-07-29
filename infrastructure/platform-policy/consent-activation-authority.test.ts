@@ -6,7 +6,10 @@ import { createPolicyCache, type PolicyDocumentCandidate } from "./cache";
 import {
   ConsentActivationAuthorityError,
   consentActivationAuthorityStreamId,
+  consentActivationGuardAppendInput,
   CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX,
+  decodeConsentActivationAuthoritySnapshot,
+  type ValidatedConsentActivationAuthoritySnapshot,
 } from "./consent-activation-authority";
 import { definePolicy, type PolicyDefinition } from "./define-policy";
 import { createPolicyRuntime } from "./runtime";
@@ -84,6 +87,453 @@ function activatedPayload(policyKey: string, version: string, overrides: Record<
     },
   };
 }
+
+const canonicalStreamId = consentActivationAuthorityStreamId(consentPolicy.policyKey);
+
+function snapshotCandidate(overrides: Record<string, unknown> = {}, guardOverrides: Record<string, unknown> = {}) {
+  return {
+    policyKey: consentPolicy.policyKey,
+    streamId: canonicalStreamId,
+    registered: true,
+    status: "active",
+    isActive: true,
+    activeVersion: "v1",
+    activeDocumentId: "pol_v1",
+    activationCount: 1,
+    lastTransitionAt: "2026-07-25T01:00:00.000Z",
+    authorityVersion: 2,
+    guard: {
+      policyKey: consentPolicy.policyKey,
+      streamId: canonicalStreamId,
+      expectedVersion: 2,
+      ...guardOverrides,
+    },
+    ...overrides,
+  };
+}
+
+function frozenSnapshotCandidate(
+  overrides: Record<string, unknown> = {},
+  guardOverrides: Record<string, unknown> = {},
+) {
+  const candidate = snapshotCandidate(overrides, guardOverrides);
+  return Object.freeze({ ...candidate, guard: Object.freeze(candidate.guard) });
+}
+
+function decodeError(candidate: unknown, requestedPolicyKey = consentPolicy.policyKey) {
+  try {
+    decodeConsentActivationAuthoritySnapshot(requestedPolicyKey, candidate);
+    throw new Error("Expected snapshot decoder to reject the candidate.");
+  } catch (error) {
+    return error;
+  }
+}
+
+describe("canonical Consent Activation Authority snapshot decoder", () => {
+  const lifecycle = [
+    {
+      name: "unregistered and never activated",
+      candidate: frozenSnapshotCandidate(
+        {
+          registered: false,
+          status: "never-activated",
+          isActive: false,
+          activeVersion: null,
+          activeDocumentId: null,
+          activationCount: 0,
+          lastTransitionAt: null,
+          authorityVersion: 0,
+        },
+        { expectedVersion: "no_stream" },
+      ),
+    },
+    {
+      name: "registered and never activated",
+      candidate: frozenSnapshotCandidate(
+        {
+          status: "never-activated",
+          isActive: false,
+          activeVersion: null,
+          activeDocumentId: null,
+          activationCount: 0,
+          lastTransitionAt: "2026-07-25T00:00:00.000Z",
+          authorityVersion: 1,
+        },
+        { expectedVersion: 1 },
+      ),
+    },
+    {
+      name: "initial activation",
+      candidate: frozenSnapshotCandidate(),
+    },
+    {
+      name: "active replacement",
+      candidate: frozenSnapshotCandidate(
+        {
+          activeVersion: "v2",
+          activeDocumentId: "pol_v2",
+          activationCount: 2,
+          authorityVersion: 3,
+        },
+        { expectedVersion: 3 },
+      ),
+    },
+    {
+      name: "inactive",
+      candidate: frozenSnapshotCandidate(
+        {
+          status: "inactive",
+          isActive: false,
+          activeVersion: null,
+          activeDocumentId: null,
+          authorityVersion: 3,
+        },
+        { expectedVersion: 3 },
+      ),
+    },
+    {
+      name: "reactivated",
+      candidate: frozenSnapshotCandidate(
+        {
+          activeVersion: "v2",
+          activeDocumentId: "pol_v2",
+          activationCount: 2,
+          authorityVersion: 4,
+        },
+        { expectedVersion: 4 },
+      ),
+    },
+  ] as const;
+
+  it.each(lifecycle)("accepts the $name lifecycle state", ({ candidate }) => {
+    const decoded = decodeConsentActivationAuthoritySnapshot(consentPolicy.policyKey, candidate);
+
+    expect(decoded).toEqual(candidate);
+    expect(Object.isFrozen(decoded)).toBe(true);
+    expect(Object.isFrozen(decoded.guard)).toBe(true);
+  });
+
+  it.each(lifecycle)("rejects revision 10,000 for the $name lifecycle state", ({ candidate }) => {
+    expect(decodeError({ ...candidate, authorityVersion: 10_000 })).toMatchObject({
+      name: "ConsentActivationAuthorityError",
+      code: "snapshot_revision_mismatch",
+    });
+  });
+
+  const active = frozenSnapshotCandidate();
+  const registeredNever = lifecycle[1].candidate;
+  const inactive = lifecycle[4].candidate;
+  const unregisteredNever = lifecycle[0].candidate;
+
+  const oneFieldMutants = (
+    [
+      {
+        name: "requested policy key mismatch",
+        candidate: { ...active, policyKey: otherConsentPolicy.policyKey },
+        code: "snapshot_policy_key_mismatch",
+      },
+      {
+        name: "noncanonical policy key",
+        candidate: { ...active, policyKey: "NotACanonicalKey" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "overlong policy key",
+        candidate: { ...active, policyKey: `identity.${"p".repeat(120)}` },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "noncanonical snapshot stream",
+        candidate: { ...active, streamId: "platform-policy.consent-activation-authority-unrelated.policy" },
+        code: "snapshot_stream_id_mismatch",
+      },
+      {
+        name: "guard policy key mismatch",
+        candidate: { ...active, guard: { ...active.guard, policyKey: otherConsentPolicy.policyKey } },
+        code: "snapshot_guard_mismatch",
+      },
+      {
+        name: "guard stream mismatch",
+        candidate: { ...active, guard: { ...active.guard, streamId: "unrelated.guard-stream" } },
+        code: "snapshot_stream_id_mismatch",
+      },
+      {
+        name: "guard revision mismatch",
+        candidate: { ...active, guard: { ...active.guard, expectedVersion: 1 } },
+        code: "snapshot_guard_mismatch",
+      },
+      {
+        name: "unbounded any guard",
+        candidate: { ...active, guard: { ...active.guard, expectedVersion: "any" } },
+        code: "snapshot_guard_mismatch",
+      },
+      {
+        name: "nonzero no_stream guard",
+        candidate: { ...registeredNever, guard: { ...registeredNever.guard, expectedVersion: "no_stream" } },
+        code: "snapshot_guard_mismatch",
+      },
+      {
+        name: "registered-never revision two",
+        candidate: { ...registeredNever, authorityVersion: 2 },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "active count one revision three",
+        candidate: { ...active, authorityVersion: 3 },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "inactive count one revision four",
+        candidate: { ...inactive, authorityVersion: 4 },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "revision ten thousand",
+        candidate: { ...active, authorityVersion: 10_000 },
+        code: "snapshot_revision_mismatch",
+      },
+      {
+        name: "negative revision",
+        candidate: { ...active, authorityVersion: -1 },
+        code: "snapshot_revision_mismatch",
+      },
+      {
+        name: "unregistered record marked registered",
+        candidate: { ...unregisteredNever, registered: true },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "active record marked inactive",
+        candidate: { ...active, status: "inactive" },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "active status without isActive",
+        candidate: { ...active, isActive: false },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "active record missing its version",
+        candidate: { ...active, activeVersion: null },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "active record missing its document",
+        candidate: { ...active, activeDocumentId: null },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "inactive record retaining an active version",
+        candidate: { ...inactive, activeVersion: "v1" },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "never-activated record retaining an active document",
+        candidate: { ...registeredNever, activeDocumentId: "pol_v1" },
+        code: "snapshot_lifecycle_mismatch",
+      },
+      {
+        name: "negative activation count",
+        candidate: { ...active, activationCount: -1 },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "date-only transition instant",
+        candidate: { ...active, lastTransitionAt: "2026-07-25" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "zoneless transition instant",
+        candidate: { ...active, lastTransitionAt: "2026-07-25T01:00:00.000" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "below-range transition instant",
+        candidate: { ...active, lastTransitionAt: "2019-12-31T23:59:59.999Z" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "out-of-range transition instant",
+        candidate: { ...active, lastTransitionAt: "2200-01-01T00:00:00.000Z" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "unsupported version token",
+        candidate: { ...active, activeVersion: "not a version" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "overlong version token",
+        candidate: { ...active, activeVersion: `v${"1".repeat(64)}` },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "unsupported document token",
+        candidate: { ...active, activeDocumentId: "not a document" },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "overlong document token",
+        candidate: { ...active, activeDocumentId: `p${"1".repeat(64)}` },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "top-level unknown field",
+        candidate: { ...active, unexpected: true },
+        code: "invalid_snapshot_shape",
+      },
+      {
+        name: "nested guard unknown field",
+        candidate: { ...active, guard: { ...active.guard, unexpected: true } },
+        code: "invalid_snapshot_shape",
+      },
+    ] as const
+  ).map((mutant) => ({
+    ...mutant,
+    candidate: Object.freeze({
+      ...mutant.candidate,
+      guard: Object.freeze(mutant.candidate.guard),
+    }),
+  }));
+
+  it.each(oneFieldMutants)(
+    "rejects the one-field $name mutant while every non-governing field stays frozen",
+    ({ candidate, code }) => {
+      expect(decodeError(candidate)).toMatchObject({
+        name: "ConsentActivationAuthorityError",
+        code,
+      });
+    },
+  );
+
+  it.each([
+    {
+      name: "symbol-keyed root field",
+      candidate: { ...active, [Symbol("unexpected")]: true },
+    },
+    {
+      name: "accessor-backed nested field",
+      candidate: {
+        ...active,
+        guard: Object.defineProperty({ ...active.guard }, "expectedVersion", {
+          enumerable: true,
+          get: () => 2,
+        }),
+      },
+    },
+    {
+      name: "non-plain root object",
+      candidate: Object.assign(new (class Snapshot {})(), active),
+    },
+    {
+      name: "unreadable proxy",
+      candidate: new Proxy(active, {
+        ownKeys: () => {
+          throw new Error("unreadable");
+        },
+      }),
+    },
+  ])("rejects a $name as a non-closed snapshot", ({ candidate }) => {
+    expect(decodeError(candidate)).toMatchObject({
+      name: "ConsentActivationAuthorityError",
+      code: "invalid_snapshot_shape",
+    });
+  });
+
+  it("rejects the exact F4 contradictory snapshot instead of reporting it active or returning its guard", () => {
+    const f4 = frozenSnapshotCandidate(
+      {
+        registered: false,
+        status: "inactive",
+        isActive: true,
+        activeVersion: "v1",
+        activeDocumentId: "pol_v1",
+        activationCount: 1,
+        lastTransitionAt: "2026-07-25T01:00:00.000Z",
+        authorityVersion: 7,
+      },
+      { streamId: "unrelated.guard-stream", expectedVersion: "no_stream" },
+    );
+
+    expect(decodeError(f4)).toMatchObject({
+      name: "ConsentActivationAuthorityError",
+      code: "snapshot_stream_id_mismatch",
+    });
+    expect(() => consentActivationGuardAppendInput(f4.guard as never, context)).toThrowError(
+      expect.objectContaining({ code: "unvalidated_activation_guard" }),
+    );
+  });
+
+  it("accepts revision 9,999 and rejects 10,000 at the decoder boundary", () => {
+    const version9999 = frozenSnapshotCandidate(
+      {
+        activationCount: 9_998,
+        authorityVersion: 9_999,
+      },
+      { expectedVersion: 9_999 },
+    );
+
+    expect(decodeConsentActivationAuthoritySnapshot(consentPolicy.policyKey, version9999).authorityVersion).toBe(9_999);
+    expect(decodeError({ ...version9999, authorityVersion: 10_000 })).toMatchObject({
+      code: "snapshot_revision_mismatch",
+    });
+  });
+
+  it("accepts both bounds for timezone-bearing UTC instants", () => {
+    const minimum = decodeConsentActivationAuthoritySnapshot(
+      consentPolicy.policyKey,
+      frozenSnapshotCandidate({ lastTransitionAt: "2020-01-01T00:00:00.000Z" }),
+    );
+    const finalSupportedMillisecond = decodeConsentActivationAuthoritySnapshot(
+      consentPolicy.policyKey,
+      frozenSnapshotCandidate({ lastTransitionAt: "2199-12-31T23:59:59.999Z" }),
+    );
+    expect(minimum.lastTransitionAt).toBe("2020-01-01T00:00:00.000Z");
+    expect(finalSupportedMillisecond.lastTransitionAt).toBe("2199-12-31T23:59:59.999Z");
+  });
+
+  it("lets the guard helper render only decoder-minted guards", () => {
+    const decoded = decodeConsentActivationAuthoritySnapshot(consentPolicy.policyKey, active);
+    expect(consentActivationGuardAppendInput(decoded.guard, context)).toMatchObject({
+      streamId: canonicalStreamId,
+      expectedVersion: 2,
+      events: [],
+    });
+
+    const clonedRawGuard = { ...decoded.guard };
+    expect(() => consentActivationGuardAppendInput(clonedRawGuard as never, context)).toThrowError(
+      expect.objectContaining({ code: "unvalidated_activation_guard" }),
+    );
+    const structurallyForgedGuard = {
+      policyKey: consentPolicy.policyKey,
+      streamId: canonicalStreamId,
+      expectedVersion: 2,
+    };
+
+    if (false) {
+      // Compile-time negative fixture: an ordinary structural guard cannot enter the public helper.
+      // @ts-expect-error The canonical decoder's private brand is required.
+      consentActivationGuardAppendInput(structurallyForgedGuard, context);
+
+      // Compile-time negative fixture: public readers cannot return an unvalidated structural snapshot.
+      // @ts-expect-error The canonical decoder's private snapshot brand is required.
+      const unvalidatedSnapshot: ValidatedConsentActivationAuthoritySnapshot = active;
+      expect(unvalidatedSnapshot).toBeUndefined();
+    }
+  });
+
+  it("re-mints a validated guard after an unknown snapshot crosses a serialization boundary", () => {
+    const serialized = JSON.parse(
+      JSON.stringify(decodeConsentActivationAuthoritySnapshot(consentPolicy.policyKey, active)),
+    ) as unknown;
+    const redecoded = decodeConsentActivationAuthoritySnapshot(consentPolicy.policyKey, serialized);
+
+    expect(consentActivationGuardAppendInput(redecoded.guard, context)).toMatchObject({
+      streamId: canonicalStreamId,
+      expectedVersion: 2,
+    });
+  });
+});
 
 describe("consent activation authority identity", () => {
   it("resolves a guardable inactive authority for a never-activated policy key", async () => {
@@ -622,7 +1072,7 @@ describe("poisoned authority history", () => {
     });
   });
 
-  it("converges a byte-identical repeated registration", async () => {
+  it("rejects a byte-identical repeated registration because no canonical runtime command can emit it", async () => {
     const { eventStore, runtime } = createHarness();
     await runtime.consentActivation.register(consentPolicy, context);
     await appendRawAuthorityEvent(
@@ -632,11 +1082,9 @@ describe("poisoned authority history", () => {
       registeredPayload(consentPolicy.policyKey),
     );
 
-    const snapshot = await runtime.consentActivation.read(consentPolicy.policyKey);
-
-    expect(snapshot.registered).toBe(true);
-    expect(snapshot.status).toBe("never-activated");
-    expect(snapshot.authorityVersion).toBe(2);
+    await expect(runtime.consentActivation.read(consentPolicy.policyKey)).rejects.toMatchObject({
+      code: "snapshot_lifecycle_mismatch",
+    });
   });
 
   it("refuses a command against a stream whose history belongs to another policy key", async () => {
