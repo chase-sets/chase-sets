@@ -1804,6 +1804,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(captureStep).toContain('--tag="$last_known_good_commit"');
     expect(captureStep).toContain('--digest="$rollback_digest"');
     expect(captureStep).toContain('rollback_digest="$(docker buildx imagetools inspect');
+    expect(captureStep).toContain(
+      'rollback_index_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${rollback_digest}"',
+    );
+    expect(captureStep).toContain('docker buildx imagetools inspect "$rollback_index_ref" --raw');
+    expect(captureStep).toContain('printf \'%s\' "$rollback_index_json" > "$rollback_index_path"');
+    expect(captureStep).toContain('--index-manifest="$rollback_index_path"');
+    expect(captureStep).toContain('--platform="linux/amd64"');
     expect(deployStep).toContain("platform:kubernetes-deployment -- deploy");
     expect(rollbackStep).toContain('--revision "${{ steps.rollback_target.outputs.rollback_source_revision }}"');
     expect(rollbackStep).toContain('--rollback-target "artifacts/release-health/production-rollback-target.json"');

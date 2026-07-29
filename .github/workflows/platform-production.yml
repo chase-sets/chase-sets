@@ -3182,6 +3182,10 @@ jobs:
             echo "Last-known-good release image ${release_image_ref} did not resolve to an immutable sha256 digest." >&2
             exit 1
           fi
+          rollback_index_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${rollback_digest}"
+          rollback_index_json="$(docker buildx imagetools inspect "$rollback_index_ref" --raw)"
+          rollback_index_path="${RUNNER_TEMP}/production-rollback-index.json"
+          printf '%s' "$rollback_index_json" > "$rollback_index_path"
 
           mkdir -p artifacts/release-health
           target_path="artifacts/release-health/production-rollback-target.json"
@@ -3190,6 +3194,8 @@ jobs:
             --repository="$PLATFORM_IMAGE_REPOSITORY" \
             --tag="$last_known_good_commit" \
             --digest="$rollback_digest" \
+            --index-manifest="$rollback_index_path" \
+            --platform="linux/amd64" \
             --last-known-good-commit="$last_known_good_commit" \
             --release-tag="$release_tag" \
             --namespace="$CHASE_SETS_KUBERNETES_NAMESPACE" \
