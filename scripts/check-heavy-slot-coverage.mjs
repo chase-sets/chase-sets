@@ -36,8 +36,6 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/coverage-summary.mjs",
   "scripts/db-test-preflight.mjs",
   "scripts/design-system-hoc-budget.mjs",
-  "scripts/design-system-legacy-evidence.mjs",
-  "scripts/design-system-legacy-inventory.mjs",
   "scripts/design-system-raw-ui-budget.mjs",
   "scripts/discovery-search-embedding-backfill.mjs",
   "scripts/discovery-search-relevance-embeddings.mjs",

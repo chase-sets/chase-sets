@@ -44,8 +44,6 @@ const scanRoots = [
   "deployables/admin-web/e2e",
   "packages/design-system/DENSE_ADMIN_WORKBENCH.md",
   "packages/design-system/SECTION_NAVIGATION.md",
-  "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
-  "scripts/design-system-legacy-evidence.mjs",
   "scripts/e2e-suites.mjs",
   "scripts/tcgplayer-integration-hardening.test.mjs",
 ];

@@ -68,18 +68,6 @@ export const VERIFY_STATIC_SURFACES = {
     evidence: ["scripts/check-no-legacy-forms.mjs:8-12,30-34,203-211"],
     include: prefix("bounded-contexts", "deployables", "packages"),
   },
-  "check:design-system-legacy-inventory": {
-    classification: MAY_NARROW,
-    rule: "bounded-contexts/**, deployables/**, packages/**, or the inventory ledger",
-    evidence: ["scripts/design-system-legacy-inventory.mjs:9-16,602-617,662-739"],
-    include: prefix("bounded-contexts", "deployables", "packages"),
-  },
-  "check:design-system-legacy-evidence": {
-    classification: MAY_NARROW,
-    rule: "bounded-contexts/**, deployables/**, packages/**, or either legacy evidence ledger",
-    evidence: ["scripts/design-system-legacy-evidence.mjs:13-24,326-332,437-490"],
-    include: prefix("bounded-contexts", "deployables", "packages"),
-  },
   "check:design-system-hoc-budget": {
     classification: MAY_NARROW,
     rule: "design-system components/primitives or the HOC budget ledger",

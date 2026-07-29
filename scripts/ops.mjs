@@ -16,14 +16,6 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 
 export const SUBCOMMANDS = {
-  "design-system:legacy-evidence": {
-    script: "design-system-legacy-evidence.mjs",
-    description: "Design-system legacy visual/accessibility evidence record.",
-  },
-  "design-system:legacy-inventory": {
-    script: "design-system-legacy-inventory.mjs",
-    description: "Inventory of legacy design-system surfaces and ledger writer.",
-  },
   "design-system:raw-ui-budget": {
     script: "design-system-raw-ui-budget.mjs",
     description: "Ratcheted raw UI budgets for bounded-context and deployable consumers.",
