@@ -96,7 +96,9 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
         {
           error: {
             code: "consent_policy_not_activated",
-            message: `No version of '${TERMS_OF_SERVICE_CONSENT_POLICY_KEY}' is currently activated for acceptance.`,
+            message: t("identity.features.consents.api.termsRoute.policy.not.activated", {
+              policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
+            }),
           },
         },
         409,

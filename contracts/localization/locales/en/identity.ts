@@ -238,6 +238,8 @@ export const identityEnglishTranslations = {
   "identity.features.consents.api.route.consent.superseded": "Only the current consent record can be withdrawn.",
   "identity.features.consents.api.route.withdraw.forbidden": "You cannot withdraw this consent.",
   "identity.features.consents.api.termsRoute.authentication.required": "Authentication required.",
+  "identity.features.consents.api.termsRoute.policy.not.activated":
+    "No version of {policyKey} is currently activated for acceptance.",
   "identity.features.consents.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_consents (\n  consent_id text PRIMARY KEY,\n  subject_type text NOT NULL,\n  user_id text NULL,\n  account_id text NULL,\n  policy_key text NOT NULL,\n  policy_version text NOT NULL,\n  recorded_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.consents.ui.consentHistoryPage.audit.history.for.agreements.policies.and":
