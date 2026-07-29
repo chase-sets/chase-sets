@@ -1,0 +1,98 @@
+{
+  "cases": [
+    {
+      "runId": 30410644170,
+      "semanticKind": "release-lock URL normalization",
+      "context": {
+        "lane": "production",
+        "workflow": "Platform Deploy",
+        "jobName": "Deploy Production",
+        "stepName": "Evaluate production release lock",
+        "failedStepStartedAt": "2026-07-29T00:23:24Z",
+        "failedStepCompletedAt": "2026-07-29T00:23:24Z",
+        "jobId": 90446768163
+      },
+      "expectedErrorShape": "emergency_release_reference could not be parsed as a github issue or pr reference.",
+      "expectedErrorFingerprint": "389d780e6e78af3661c8",
+      "expectedSignature": "331c1fbabb93d0b0db178441",
+      "log": [
+        "2026-07-29T00:23:23.9000000Z ##[group]Run prepare environment",
+        "2026-07-29T00:23:23.9100000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T00:23:23.9200000Z ##[endgroup]",
+        "2026-07-29T00:23:24.1000000Z ##[group]Run node ./scripts/release-lock.mjs",
+        "2026-07-29T00:23:24.1100000Z \u001b[36;1mnode ./scripts/release-lock.mjs\u001b[0m",
+        "2026-07-29T00:23:24.1200000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T00:23:24.1300000Z ##[endgroup]",
+        "2026-07-29T00:23:24.2000000Z \"errors\": [",
+        "2026-07-29T00:23:24.2100000Z \"EMERGENCY_RELEASE_REFERENCE could not be parsed as a GitHub issue or PR reference.\"",
+        "2026-07-29T00:23:24.2200000Z ]",
+        "2026-07-29T00:23:24.2300000Z }",
+        "2026-07-29T00:23:24.2400000Z EMERGENCY_RELEASE_REFERENCE could not be parsed as a GitHub issue or PR reference.",
+        "2026-07-29T00:23:24.2500000Z ##[error]Process completed with exit code 1.",
+        "2026-07-29T00:23:25.1000000Z ##[group]Run post-failure diagnostics"
+      ]
+    },
+    {
+      "runId": 30411058671,
+      "semanticKind": "OCI index/platform digest mismatch",
+      "context": {
+        "lane": "production",
+        "workflow": "Platform Deploy",
+        "jobName": "Deploy Production",
+        "stepName": "Capture production rollback target",
+        "failedStepStartedAt": "2026-07-29T00:30:55Z",
+        "failedStepCompletedAt": "2026-07-29T00:30:56Z",
+        "jobId": 90447751324
+      },
+      "expectedErrorShape": "helm revision <number> digest \"sha256:<sha>\" does not match captured rollback identity \"sha256:<sha>\".",
+      "expectedErrorFingerprint": "e12ece38138a967487bf",
+      "expectedSignature": "5cbf61bba113d22a4dcbb590",
+      "log": [
+        "2026-07-29T00:30:54.9000000Z ##[group]Run prepare environment",
+        "2026-07-29T00:30:54.9100000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T00:30:54.9200000Z ##[endgroup]",
+        "2026-07-29T00:30:55.1000000Z ##[group]Run set -euo pipefail",
+        "2026-07-29T00:30:55.1100000Z \u001b[36;1mset -euo pipefail\u001b[0m",
+        "2026-07-29T00:30:55.1200000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T00:30:55.1300000Z ##[endgroup]",
+        "2026-07-29T00:30:56.1000000Z From https://github.com/chase-sets/chase-sets",
+        "2026-07-29T00:30:56.1100000Z Logging Docker in to registry.digitalocean.com",
+        "2026-07-29T00:30:56.1200000Z Helm revision 232 digest \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" does not match captured rollback identity \"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\".",
+        "2026-07-29T00:30:56.1300000Z ##[error]Process completed with exit code 1.",
+        "2026-07-29T00:30:57.1000000Z ##[group]Run post-failure diagnostics"
+      ]
+    },
+    {
+      "runId": 30416763775,
+      "semanticKind": "conflicting restore-point bypass/skip",
+      "context": {
+        "lane": "production",
+        "workflow": "Platform Deploy",
+        "jobName": "Deploy Production",
+        "stepName": "Create production database restore point",
+        "failedStepStartedAt": "2026-07-29T02:43:17Z",
+        "failedStepCompletedAt": "2026-07-29T02:43:18Z",
+        "jobId": 90467235621
+      },
+      "expectedErrorShape": "production_db_restore_point_bypass and production_db_restore_point_skip cannot both be true.",
+      "expectedErrorFingerprint": "4bee16320b701f8bfdc2",
+      "expectedSignature": "941567b86e1a21cb85b7c9cf",
+      "log": [
+        "2026-07-29T02:43:16.9000000Z ##[group]Run prepare environment",
+        "2026-07-29T02:43:16.9100000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T02:43:16.9200000Z ##[endgroup]",
+        "2026-07-29T02:43:17.1000000Z ##[group]Run set -euo pipefail",
+        "2026-07-29T02:43:17.1100000Z \u001b[36;1mnode ./scripts/production-db-restore-point.mjs\u001b[0m",
+        "2026-07-29T02:43:17.1200000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+        "2026-07-29T02:43:17.1300000Z ##[endgroup]",
+        "2026-07-29T02:43:18.1000000Z \"result\": \"failure\",",
+        "2026-07-29T02:43:18.1100000Z \"errors\": [",
+        "2026-07-29T02:43:18.1200000Z \"PRODUCTION_DB_RESTORE_POINT_BYPASS and PRODUCTION_DB_RESTORE_POINT_SKIP cannot both be true.\"",
+        "2026-07-29T02:43:18.1300000Z ]",
+        "2026-07-29T02:43:18.1400000Z }",
+        "2026-07-29T02:43:18.1500000Z ##[error]Process completed with exit code 1.",
+        "2026-07-29T02:43:19.1000000Z ##[group]Run post-failure diagnostics"
+      ]
+    }
+  ]
+}

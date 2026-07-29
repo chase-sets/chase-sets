@@ -16,9 +16,41 @@ import {
 } from "./release-health-merge-group-failure-signatures.mjs";
 
 const FIXTURE_ROOT = new URL("./fixtures/release-health-merge-group-failure-signatures/", import.meta.url);
+const FAILED_STEP_CONTEXT = Object.freeze({
+  failedStepStartedAt: "2026-07-17T12:00:00Z",
+  failedStepCompletedAt: "2026-07-17T12:00:00Z",
+});
 
 async function readFixture(name) {
   return JSON.parse(await readFile(new URL(name, FIXTURE_ROOT), "utf8"));
+}
+
+function completeFailedStepLog(output) {
+  const outputLines = String(output)
+    .split(/\r?\n/)
+    .map((line, index) => `2026-07-17T12:00:00.${String(200 + index).padStart(3, "0")}0000Z ${line}`);
+  return [
+    "2026-07-17T11:59:59.9000000Z ##[group]Run prepare environment",
+    "2026-07-17T11:59:59.9100000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+    "2026-07-17T11:59:59.9200000Z ##[endgroup]",
+    "2026-07-17T12:00:00.1000000Z ##[group]Run pnpm test",
+    "2026-07-17T12:00:00.1100000Z \u001b[36;1mpnpm test\u001b[0m",
+    "2026-07-17T12:00:00.1200000Z   TF_VAR_ucp_ap2_verifier_timeout_ms: 5000",
+    "2026-07-17T12:00:00.1300000Z ##[endgroup]",
+    ...outputLines,
+    "2026-07-17T12:00:00.9000000Z ##[error]Process completed with exit code 1.",
+    "2026-07-17T12:00:01.1000000Z ##[group]Run post-failure diagnostics",
+  ].join("\n");
+}
+
+function predecessorSemanticFailureLine(log) {
+  return (
+    String(log ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => /(?:error|fail|timeout|refused|missing|invalid|collision|mismatch)/i.test(line)) ??
+    "unknown failure"
+  );
 }
 
 function occurrence(overrides = {}) {
@@ -118,6 +150,104 @@ describe("delivery failure fingerprint normalization", () => {
     expect(permission.signature).not.toBe(quota.signature);
   });
 
+  it("records the predecessor collapse onto the timeout environment assignment", async () => {
+    const fixture = await readFixture("production-failed-step-errors.json");
+    const predecessorShapes = fixture.cases.map((entry) =>
+      normalizeFailureFingerprint(predecessorSemanticFailureLine(entry.log.join("\n"))),
+    );
+
+    expect(new Set(predecessorShapes)).toEqual(new Set(["<timestamp> tf_var_ucp_ap2_verifier_timeout_ms: 5000"]));
+  });
+
+  it("binds production fingerprints to three distinct terminal failed-step errors", async () => {
+    const fixture = await readFixture("production-failed-step-errors.json");
+    const failures = fixture.cases.map((entry) => {
+      const [failure] = extractFailureSignatures(entry.log.join("\n"), entry.context);
+      expect(failure.errorShape).toBe(entry.expectedErrorShape);
+      expect(failure.errorFingerprint).toBe(entry.expectedErrorFingerprint);
+      expect(failure.signature).toBe(entry.expectedSignature);
+      expect(failure.errorShape).not.toContain("tf_var_ucp_ap2_verifier_timeout_ms");
+      return failure;
+    });
+
+    expect(new Set(failures.map((failure) => failure.errorShape)).size).toBe(3);
+    expect(new Set(failures.map((failure) => failure.errorFingerprint)).size).toBe(3);
+  });
+
+  it("reconciles keyword-free failed-step retries across mutable run and revision digits", () => {
+    const messages = [
+      "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot quota of 4 exhausted for droplet pool. run_id=111 revision 12",
+      "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot quota of 4 exhausted for droplet pool. run_id=999 revision 87",
+    ];
+    const failures = messages.map((message) => {
+      const [failure] = extractFailureSignatures(completeFailedStepLog(message), {
+        lane: "production",
+        workflow: "Platform Deploy",
+        jobName: "Deploy Production",
+        stepName: "Create production database restore point",
+        ...FAILED_STEP_CONTEXT,
+      });
+      return failure;
+    });
+    const expectedErrorShape = normalizeFailureFingerprint(messages[0]);
+
+    expect(normalizeFailureFingerprint(messages[1])).toBe(expectedErrorShape);
+    expect(expectedErrorShape).toContain(
+      "production_restore_point_quota_exceeded: snapshot quota of 4 exhausted for droplet pool.",
+    );
+    expect(expectedErrorShape).not.toMatch(/\b(?:111|999|12|87)\b/);
+    expect(failures.map((failure) => failure.errorShape)).toEqual([expectedErrorShape, expectedErrorShape]);
+    expect(failures[0].errorShape).not.toBe("unknown failure");
+    expect(failures[0].rootCauseSignature).toBe(failures[1].rootCauseSignature);
+    expect(failures[0].signature).toBe(failures[1].signature);
+  });
+
+  it("ignores workflow-command and ANSI tails after a keyword-free semantic line", () => {
+    const message = "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot capacity is exhausted";
+    const [failure] = extractFailureSignatures(
+      completeFailedStepLog(`${message}\n::notice::runner annotation\n\u001b[33;1mrunner command echo\u001b[0m`),
+      {
+        lane: "production",
+        workflow: "Platform Deploy",
+        jobName: "Deploy Production",
+        stepName: "Create production database restore point",
+        ...FAILED_STEP_CONTEXT,
+      },
+    );
+
+    expect(failure.errorShape).toBe(normalizeFailureFingerprint(message));
+  });
+
+  it.each([
+    ["missing failed-step timestamps", {}, completeFailedStepLog("Error: actual failure")],
+    [
+      "truncated runner error boundary",
+      FAILED_STEP_CONTEXT,
+      completeFailedStepLog("Error: actual failure").replace(
+        "2026-07-17T12:00:00.9000000Z ##[error]Process completed with exit code 1.",
+        "",
+      ),
+    ],
+    [
+      "ambiguous duplicate failed-step boundaries",
+      FAILED_STEP_CONTEXT,
+      `${completeFailedStepLog("Error: first failure")}\n${completeFailedStepLog("Error: second failure")}`,
+    ],
+  ])("fails closed when the %s prevents complete segment identification", (_name, boundary, log) => {
+    const [failure] = extractFailureSignatures(log, {
+      lane: "production",
+      workflow: "Platform Deploy",
+      jobName: "Deploy Production",
+      stepName: "Run production operation",
+      ...boundary,
+    });
+
+    expect(failure).toMatchObject({
+      rootCauseCode: "unknown",
+      errorShape: "unknown failure",
+    });
+  });
+
   it.each([
     [
       "Playwright",
@@ -137,18 +267,37 @@ describe("delivery failure fingerprint normalization", () => {
     ],
     ["unknown", "ProviderFailure: unexpected opaque response", null, "unknown"],
   ])("creates a bounded %s signature", (_name, log, expectedTitle, expectedRootCause) => {
-    const [failure] = extractFailureSignatures(log, {
+    const [failure] = extractFailureSignatures(completeFailedStepLog(log), {
       lane: "merge-group",
       workflow: "Platform PR",
       jobName: "Full Battery",
       stepName: "Run checks",
       jobId: 42,
+      ...FAILED_STEP_CONTEXT,
     });
     expect(failure.schemaVersion).toBe(DELIVERY_FAILURE_SIGNATURE_VERSION);
     expect(failure.signature).toHaveLength(24);
     expect(failure.testTitle).toBe(expectedTitle);
     expect(failure.rootCauseCode).toBe(expectedRootCause);
     expect(failure.blocking).toBe(true);
+  });
+
+  it("keeps timeout semantics when the timeout is the failed-step terminal error", () => {
+    const [failure] = extractFailureSignatures(
+      completeFailedStepLog("Schema bootstrap command timed out after 600000 ms"),
+      {
+        lane: "production",
+        workflow: "Platform Deploy",
+        jobName: "Deploy Production",
+        stepName: "Run schema bootstrap",
+        ...FAILED_STEP_CONTEXT,
+      },
+    );
+
+    expect(failure).toMatchObject({
+      rootCauseCode: "doks-bootstrap-or-migration",
+      errorShape: "schema bootstrap command timed out after <number> ms",
+    });
   });
 });
 
@@ -420,7 +569,7 @@ describe("known failure guard", () => {
 });
 
 describe("GitHub event evaluation", () => {
-  it("uses bounded GETs and creates then canonicalizes one machine-readable issue", async () => {
+  it("streams a bounded failed-step window and creates then canonicalizes one machine-readable issue", async () => {
     const calls = [];
     let issueBody = "";
     let logReadCancelled = false;
@@ -464,14 +613,27 @@ describe("GitHub event evaluation", () => {
               id: 456,
               name: "Unit Tests",
               conclusion: "failure",
-              steps: [{ name: "Run unit tests", conclusion: "failure" }],
+              steps: [
+                {
+                  name: "Run unit tests",
+                  conclusion: "failure",
+                  started_at: FAILED_STEP_CONTEXT.failedStepStartedAt,
+                  completed_at: FAILED_STEP_CONTEXT.failedStepCompletedAt,
+                },
+              ],
             },
           ],
         });
       }
       if (parsed.pathname.endsWith("/actions/jobs/456/logs")) {
         const bytes = new TextEncoder().encode(
-          "FAIL tests/a.test.ts > a\nAssertionError: expected 1 to be 2 and this tail must not be buffered",
+          [
+            ...Array.from(
+              { length: 200 },
+              (_, index) => `2026-07-17T11:59:58.${String(index).padStart(7, "0")}Z setup noise`,
+            ),
+            completeFailedStepLog("FAIL tests/a.test.ts > a\nAssertionError: expected 1 to be 2"),
+          ].join("\n"),
         );
         let read = false;
         return response("", {
@@ -508,18 +670,101 @@ describe("GitHub event evaluation", () => {
       sourceRunId: "123",
       maxRuns: 1,
       maxJobs: 10,
-      maxLogBytes: 32,
+      maxLogBytes: 1024,
       mutate: true,
       fetchImpl,
       apiBaseUrl: "https://api.github.test",
     });
 
     expect(result.record.counts).toMatchObject({ evaluatedRuns: 1, activeSignatures: 1 });
-    expect(parseCircuitMarker(issueBody)).toMatchObject({ canonicalIssueNumber: 6000, lane: "merge-group" });
+    expect(parseCircuitMarker(issueBody)).toMatchObject({
+      canonicalIssueNumber: 6000,
+      lane: "merge-group",
+      errorShape: "to be <number>",
+    });
     expect(calls.filter((call) => call.url.endsWith("/issues") && call.request.method === "POST")).toHaveLength(1);
     expect(calls.filter((call) => call.url.endsWith("/labels") && call.request.method === "POST")).toHaveLength(1);
-    expect(calls.find((call) => call.url.endsWith("/actions/jobs/456/logs")).request.headers.Range).toBe("bytes=0-31");
+    expect(calls.find((call) => call.url.endsWith("/actions/jobs/456/logs")).request.headers.Range).toBeUndefined();
     expect(logReadCancelled).toBe(true);
+  });
+
+  it("reconciles the three production controls into separate open incident records", async () => {
+    const fixture = await readFixture("production-failed-step-errors.json");
+    const incidentNumbers = [6267, 6268, 6270];
+    const incidents = fixture.cases.map((entry, index) => ({
+      number: incidentNumbers[index],
+      state: "open",
+      title: `Incident: Platform Deploy fixture ${entry.runId}`,
+      body: `Deployment evidence: https://github.com/chase-sets/chase-sets/actions/runs/${entry.runId}`,
+    }));
+    const response = (body) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+      arrayBuffer: async () => Buffer.from(String(body)),
+    });
+    const fetchImpl = async (url, request) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith("/issues") && request.method === "GET") return response(incidents);
+      if (parsed.pathname.endsWith("/actions/runs")) {
+        return response({
+          workflow_runs: fixture.cases.map((entry, index) => ({
+            id: entry.runId,
+            name: "Platform Deploy",
+            event: "workflow_dispatch",
+            conclusion: "failure",
+            head_sha: String(index + 1).repeat(40),
+            run_attempt: 1,
+            updated_at: entry.context.failedStepCompletedAt,
+          })),
+        });
+      }
+      const runMatch = parsed.pathname.match(/\/actions\/runs\/(\d+)\/jobs$/);
+      if (runMatch) {
+        const entry = fixture.cases.find((candidate) => candidate.runId === Number(runMatch[1]));
+        return response({
+          jobs: [
+            {
+              id: entry.context.jobId,
+              name: entry.context.jobName,
+              conclusion: "failure",
+              steps: [
+                {
+                  name: entry.context.stepName,
+                  conclusion: "failure",
+                  started_at: entry.context.failedStepStartedAt,
+                  completed_at: entry.context.failedStepCompletedAt,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      const jobMatch = parsed.pathname.match(/\/actions\/jobs\/(\d+)\/logs$/);
+      if (jobMatch) {
+        const entry = fixture.cases.find((candidate) => candidate.context.jobId === Number(jobMatch[1]));
+        return response(entry.log.join("\n"));
+      }
+      throw new Error(`Unexpected request: ${request.method} ${url}`);
+    };
+
+    const result = await collectMergeGroupFailureSignatures({
+      repository: "chase-sets/chase-sets",
+      checkedAt: "2026-07-29T03:00:00.000Z",
+      windowDays: 1,
+      maxRuns: 3,
+      maxJobs: 10,
+      maxLogBytes: 8192,
+      mutate: false,
+      fetchImpl,
+      apiBaseUrl: "https://api.github.test",
+    });
+
+    expect(result.record.circuits).toHaveLength(3);
+    expect(new Set(result.record.circuits.map((record) => record.errorFingerprint)).size).toBe(3);
+    expect(result.record.circuits.map((record) => record.canonicalIssueNumber).sort()).toEqual(incidentNumbers);
+    expect(incidents.every((incident) => incident.state === "open")).toBe(true);
   });
 
   it("does not let two deploy signatures overwrite one imported incident marker", async () => {
