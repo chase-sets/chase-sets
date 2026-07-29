@@ -144,7 +144,11 @@ describeDb("registration operation semantic validation", () => {
       }),
     });
     const text = await response.text();
-    return { status: response.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : {} };
+    const responseBody =
+      text && response.headers.get("content-type")?.includes("application/json")
+        ? (JSON.parse(text) as Record<string, unknown>)
+        : { rawBody: text };
+    return { status: response.status, body: responseBody };
   }
 
   function operationFor(email = EMAIL): RegistrationOperation {
@@ -188,6 +192,24 @@ describeDb("registration operation semantic validation", () => {
     });
   }
 
+  async function appendEventsInChunks(
+    streamId: string,
+    initialExpectedVersion: number | "no_stream",
+    events: readonly EventSeed[],
+  ) {
+    let expectedVersion = initialExpectedVersion;
+    for (let index = 0; index < events.length; index += 100) {
+      const chunk = events.slice(index, index + 100);
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion,
+        events: chunk.map((event) => ({ eventType: event.eventType, payload: event.payload as never })),
+        context,
+      });
+      expectedVersion = (expectedVersion === "no_stream" ? 0 : expectedVersion) + chunk.length;
+    }
+  }
+
   async function seedClaimedFixture(
     options: Readonly<{
       claimOverrides?: Readonly<Record<string, unknown>>;
@@ -228,6 +250,13 @@ describeDb("registration operation semantic validation", () => {
         displayName: DISPLAY_NAME,
         ...overrides,
       },
+    };
+  }
+
+  function accountProfileUpdated(): EventSeed {
+    return {
+      eventType: "identity.account.profile-updated",
+      payload: { name: "", displayName: DISPLAY_NAME },
     };
   }
 
@@ -683,6 +712,59 @@ describeDb("registration operation semantic validation", () => {
       streamId: "identity.snapshot-pagination-control",
       streamVersion: 501,
       payload: { ordinal: 500 },
+    });
+  });
+
+  describe("complete registration participant history", () => {
+    it.each([
+      ["the 500-event boundary", 498, 500],
+      ["a 501-event history", 499, 501],
+    ] as const)("rejects a closed Account at %s", async (_label, profileUpdateCount, eventCount) => {
+      const fixture = await seedClaimedFixture();
+      const accountStreamId = `identity.account-${fixture.accountId}`;
+      await appendEventsInChunks(accountStreamId, "no_stream", [
+        accountCreated(fixture),
+        ...Array.from({ length: profileUpdateCount }, accountProfileUpdated),
+        { eventType: "identity.account.closed", payload: {} },
+      ]);
+      const before = await stateSnapshot();
+
+      expect(before.events.filter((event) => event.streamId === accountStreamId)).toHaveLength(eventCount);
+
+      const response = await register();
+
+      expect(response.status).toBe(409);
+      expect((response.body.error as { code?: string } | undefined)?.code).toBe(
+        "registration_operation_participant_disagreement",
+      );
+      expect(await stateSnapshot()).toEqual(before);
+    });
+
+    it("keeps a 501-event Account steady state inert on later calls", async () => {
+      const first = await register();
+      expect(first.status).toBe(201);
+      const accountStreamId = `identity.account-${String(first.body.accountId)}`;
+      await appendEventsInChunks(accountStreamId, 1, Array.from({ length: 500 }, accountProfileUpdated));
+      const before = await stateSnapshot();
+
+      expect(before.events.filter((event) => event.streamId === accountStreamId)).toHaveLength(501);
+
+      const second = await register();
+      const third = await register();
+
+      expect(second.status).toBe(201);
+      expect(third.status).toBe(201);
+      expect(second.body).toMatchObject({
+        accountId: first.body.accountId,
+        userId: first.body.userId,
+        membershipId: first.body.membershipId,
+      });
+      expect(third.body).toMatchObject({
+        accountId: first.body.accountId,
+        userId: first.body.userId,
+        membershipId: first.body.membershipId,
+      });
+      expect(await stateSnapshot()).toEqual(before);
     });
   });
 

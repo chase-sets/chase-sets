@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { StoredEvent } from "@chase-sets/event-core/storage";
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { normalizeEmail, normalizePhoneNumber } from "./common";
 
@@ -38,6 +39,8 @@ export const REGISTRATION_OPERATION_KEY_VERSION = "v1";
 export const REGISTRATION_OPERATION_STREAM_PREFIX = "identity.registration-operation-";
 
 export const REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE = "identity.registration-operation.claimed";
+
+const REGISTRATION_STREAM_READ_PAGE_SIZE = 500;
 
 export type RegistrationOperationContactType = "email" | "phone";
 
@@ -138,7 +141,7 @@ export async function readRegistrationOperationClaim(
   eventStore: EventStore,
   operation: RegistrationOperation,
 ): Promise<ReadRegistrationOperationClaim | null> {
-  const storedEvents = await eventStore.readStream({ streamId: operation.streamId });
+  const storedEvents = await readCompleteRegistrationStreamHistory(eventStore, operation.streamId);
   if (storedEvents.length === 0) {
     return null;
   }
@@ -166,6 +169,29 @@ export async function readRegistrationOperationClaim(
     version: claimEvent.streamVersion,
     claim,
   };
+}
+
+export async function readCompleteRegistrationStreamHistory(
+  eventStore: EventStore,
+  streamId: string,
+): Promise<readonly StoredEvent[]> {
+  const storedEvents: StoredEvent[] = [];
+  let fromVersion = 1;
+
+  for (;;) {
+    const page = await eventStore.readStream({
+      streamId,
+      fromVersion,
+      limit: REGISTRATION_STREAM_READ_PAGE_SIZE,
+    });
+    storedEvents.push(...page);
+
+    if (page.length < REGISTRATION_STREAM_READ_PAGE_SIZE) {
+      return storedEvents;
+    }
+
+    fromVersion = page[page.length - 1].streamVersion + 1;
+  }
 }
 
 export function normalizeRegistrationDisplayNameKey(displayName: string): string {

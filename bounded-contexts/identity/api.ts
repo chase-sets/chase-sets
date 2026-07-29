@@ -62,6 +62,7 @@ import {
 import {
   deriveRegistrationOperation,
   normalizeRegistrationDisplayNameKey,
+  readCompleteRegistrationStreamHistory,
   readRegistrationOperationClaim,
   registrationOperationConsentBundleAgrees,
   REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE,
@@ -411,7 +412,7 @@ async function readRegistrationParticipant<State, Event extends DomainEvent>(
   history: RegistrationParticipantHistory,
   disagreement: () => Error,
 ): Promise<RegistrationParticipant<State>> {
-  const storedEvents = await eventStore.readStream({ streamId });
+  const storedEvents = await readCompleteRegistrationStreamHistory(eventStore, streamId);
   if (storedEvents.length > 0) {
     const firstEvent = storedEvents[0];
     const creationCount = storedEvents.filter((event) => event.eventType === history.creationEventType).length;
