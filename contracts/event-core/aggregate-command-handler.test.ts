@@ -124,6 +124,8 @@ describe("aggregate command handler factory", () => {
 
     expect(eventStore.readStream).toHaveBeenNthCalledWith(1, {
       streamId: "counter-1",
+      fromVersion: 1,
+      limit: 500,
     });
     expect(eventStore.readStream).toHaveBeenNthCalledWith(2, {
       streamId: "counter-1",
@@ -131,5 +133,48 @@ describe("aggregate command handler factory", () => {
       limit: 500,
     });
     expect(appendToStream).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 501 }));
+  });
+
+  it("issue-6298-acceptance-control rejects an aggregate-helper bypass at a cross-page gap", async () => {
+    const existingEvents = [
+      ...Array.from({ length: 500 }, (_, index) => ({
+        ...existingEvent,
+        eventId: `evt_${index + 1}` as never,
+        streamVersion: index + 1,
+        globalPosition: String(index + 10) as never,
+        payload: { by: 1 },
+      })),
+      {
+        ...existingEvent,
+        eventId: "evt_502" as never,
+        streamVersion: 502,
+        globalPosition: "512" as never,
+        payload: { by: 1 },
+      },
+    ];
+    const appendToStream = vi.fn<EventStore["appendToStream"]>(async () => []);
+    const eventStore: EventStore = {
+      readStream: vi.fn(async (input) =>
+        existingEvents.filter((event) => event.streamVersion >= (input.fromVersion ?? 1)).slice(0, input.limit ?? 500),
+      ),
+      appendToStream,
+      readAll: vi.fn(async () => []),
+    };
+    const { commandHandler } = createAggregateCommandHandler<number, CounterCommand, CounterEvent>({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<CounterEvent>(),
+      initialState: () => 0,
+      evolve: (state, event) => state + event.data.by,
+      decide: (_state, command) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
+    });
+
+    await expect(
+      commandHandler({
+        streamId: "counter-1",
+        command: { type: "Increment", by: 3 },
+        context,
+      }),
+    ).rejects.toThrow("inclusive read expected 501");
+    expect(appendToStream).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ export * from "./aggregate-snapshot-store";
 export * from "./account-linkage-facts";
 export * from "./codec";
 export * from "./command-handler";
+export * from "./complete-stream";
 export * from "./consistency";
 export * from "./domain";
 export * from "./event-store";

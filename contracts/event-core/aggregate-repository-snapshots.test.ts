@@ -172,7 +172,7 @@ describe("aggregate repository snapshots (m113)", () => {
     });
 
     await expect(repository.load(streamId)).resolves.toMatchObject({ state: 6, version: 3 });
-    expect(eventStore.readStream).toHaveBeenNthCalledWith(1, { streamId });
+    expect(eventStore.readStream).toHaveBeenNthCalledWith(1, { streamId, fromVersion: 1, limit: 500 });
   });
 
   it("falls back to full replay cleanly when the snapshot store read throws", async () => {
@@ -212,7 +212,7 @@ describe("aggregate repository snapshots (m113)", () => {
     });
 
     await expect(repository.load(streamId)).resolves.toMatchObject({ state: 6, version: 3 });
-    expect(eventStore.readStream).toHaveBeenNthCalledWith(1, { streamId });
+    expect(eventStore.readStream).toHaveBeenNthCalledWith(1, { streamId, fromVersion: 1, limit: 500 });
   });
 
   it("schedules a write-behind save only when the command crosses the snapshot threshold", async () => {

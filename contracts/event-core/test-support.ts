@@ -8,6 +8,7 @@ import {
   type EventStoreError,
 } from "./event-store";
 import type { ChaseSetsEventPayloads } from "./public-event-payloads";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -224,9 +225,9 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       return results;
     },
     readStream: async (input) => {
-      const fromVersion = input.fromVersion ?? 1;
-      const limit = input.limit ?? 500;
-      return [...(streams.get(input.streamId) ?? [])].slice(fromVersion - 1, fromVersion - 1 + limit);
+      const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
+      const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_MAX);
+      return (streams.get(input.streamId) ?? []).filter((event) => event.streamVersion >= fromVersion).slice(0, limit);
     },
     readAll: async (input?: ReadAllInput) => {
       const after = BigInt(input?.afterGlobalPosition ?? "0");
@@ -243,6 +244,20 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   };
 
   return { eventStore, allEvents, readAllEvents: () => allEvents, streams };
+}
+
+function assertPositiveInteger(value: number, fieldName: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive integer.`);
+  }
+  return value;
+}
+
+function assertEventStoreReadPageSize(limit: number): number {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > EVENT_STORE_READ_PAGE_SIZE_MAX) {
+    throw new Error(`Event store read limit must be an integer between 1 and ${EVENT_STORE_READ_PAGE_SIZE_MAX}.`);
+  }
+  return limit;
 }
 
 function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStreamVersion, current: number): void {

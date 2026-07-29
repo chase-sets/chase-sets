@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { EventStore } from "./event-store";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
 import { createInMemoryEventStore } from "./test-support";
 
 const context = {
@@ -39,6 +41,51 @@ describe("shared in-memory event store", () => {
     await expect(eventStore.readStream({ streamId: "test.stream", fromVersion: 2 })).resolves.toMatchObject([
       { streamVersion: 2, eventType: "test.updated" },
     ]);
+  });
+
+  it("issue-6298-acceptance-control enforces the shared page cap and inclusive non-one cursor", async () => {
+    const { eventStore, streams } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "test.paged",
+      expectedVersion: "no_stream",
+      context,
+      events: Array.from({ length: EVENT_STORE_READ_PAGE_SIZE_MAX + 1 }, (_, index) =>
+        event(`test.event-${index + 1}`),
+      ),
+    });
+
+    const firstPage = await eventStore.readStream({ streamId: "test.paged" });
+    expect(firstPage).toHaveLength(EVENT_STORE_READ_PAGE_SIZE_MAX);
+    expect(firstPage.at(-1)?.streamVersion).toBe(EVENT_STORE_READ_PAGE_SIZE_MAX);
+    await expect(eventStore.readStream({ streamId: "test.paged", fromVersion: 500 })).resolves.toMatchObject([
+      { streamVersion: 500 },
+      { streamVersion: 501 },
+    ]);
+    await expect(eventStore.readStream({ streamId: "test.paged", limit: 1 })).resolves.toMatchObject([
+      { streamVersion: 1 },
+    ]);
+
+    async function assertPageLimit(readStream: EventStore["readStream"], limit: number): Promise<void> {
+      let rejected = false;
+      try {
+        await readStream({ streamId: "test.paged", limit });
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
+    }
+
+    for (const invalidLimit of [0, EVENT_STORE_READ_PAGE_SIZE_MAX + 1, 1.5, Number.POSITIVE_INFINITY]) {
+      await assertPageLimit(eventStore.readStream, invalidLimit);
+    }
+    for (const invalidFromVersion of [0, -1, 1.5, Number.POSITIVE_INFINITY]) {
+      await expect(eventStore.readStream({ streamId: "test.paged", fromVersion: invalidFromVersion })).rejects.toThrow(
+        "fromVersion must be a positive integer",
+      );
+    }
+    const fakeLimitBypassMutant: EventStore["readStream"] = async (input) =>
+      (streams.get(input.streamId) ?? []).slice(0, input.limit);
+    await expect(assertPageLimit(fakeLimitBypassMutant, EVENT_STORE_READ_PAGE_SIZE_MAX + 1)).rejects.toThrow();
   });
 
   it("is idempotent for a repeated event id and rejects changed event data", async () => {
