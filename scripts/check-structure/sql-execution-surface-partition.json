@@ -1859,6 +1859,7 @@
     "contracts/event-core/codec.ts",
     "contracts/event-core/command-handler-internal.ts",
     "contracts/event-core/command-handler.ts",
+    "contracts/event-core/complete-stream.ts",
     "contracts/event-core/consistency.ts",
     "contracts/event-core/domain.ts",
     "contracts/event-core/event-store.ts",

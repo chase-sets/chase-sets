@@ -246,7 +246,7 @@ async function replaceProductContents(
   const streamId = `catalog.product-contents-${fact.containerCatalogItemId}`;
   // `currentVersion` guards the append and `lastResolved` is the retained-state
   // comparison, so both are complete-history facts: a capped prefix would guard
-  // on a stale version and rewrite retained contents (#6277).
+  // on a stale version and rewrite retained contents.
   const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
   const currentVersion = existingEvents[existingEvents.length - 1]?.streamVersion ?? 0;
   const lastResolved = [...existingEvents]

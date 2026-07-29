@@ -172,9 +172,9 @@ export async function readRegistrationOperationClaim(
 
 /**
  * Registration histories are folded to decide terminal and day-after outcomes,
- * so a capped prefix is never an acceptable answer (#6263 / PR #6272). This
- * defers to the one canonical complete-history reader rather than repeating a
- * paging loop that has to be re-proved at the page boundary.
+ * so a capped prefix is never an acceptable answer. This defers to the one
+ * canonical complete-history reader rather than repeating a paging loop that
+ * has to be re-proved at the page boundary.
  */
 export async function readCompleteRegistrationStreamHistory(
   eventStore: EventStore,

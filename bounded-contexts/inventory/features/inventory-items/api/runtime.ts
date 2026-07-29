@@ -664,7 +664,7 @@ async function recoverInventoryAdjustmentIdempotency(
   const normalizedReason = input.reason.trim();
   // The recovered adjustment is the LATEST match, so this fold needs the whole
   // history: reversing a capped prefix would answer with an older adjustment,
-  // or none, and replay the caller's command against real stock (#6277).
+  // or none, and replay the caller's command against real stock.
   const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
   const committed = [...events].reverse().find((event) => {
     if (event.eventType !== "inventory.item.adjusted") {

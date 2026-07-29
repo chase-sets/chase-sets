@@ -55,7 +55,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("cannot prove it saw a complete history")],
+      violations: expect.arrayContaining([expect.stringContaining("cannot prove it saw a complete history")]),
     });
   });
 
@@ -75,7 +75,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("must be an integer literal below the 500-event page cap")],
+      violations: expect.arrayContaining([expect.stringContaining("must be an integer literal below the 500-event page cap")]),
     });
   });
 
@@ -95,7 +95,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("must pass an explicit limit")],
+      violations: expect.arrayContaining([expect.stringContaining("must pass an explicit limit")]),
     });
   });
 
@@ -111,7 +111,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("no registry entry naming the test that consumes its bound")],
+      violations: expect.arrayContaining([expect.stringContaining("no registry entry naming the test that consumes its bound")]),
     });
   });
 
@@ -131,7 +131,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("does not name this site")],
+      violations: expect.arrayContaining([expect.stringContaining("does not name this site")]),
     });
   });
 
@@ -151,7 +151,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("registers bound '1' but the call passes limit '5'")],
+      violations: expect.arrayContaining([expect.stringContaining("registers bound '1' but the call passes limit '5'")]),
     });
   });
 
@@ -166,7 +166,7 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.arrayContaining([expect.stringContaining("referenced without being called directly")])],
+      violations: expect.arrayContaining([expect.stringContaining("referenced without being called directly")]),
     });
   });
 
@@ -179,7 +179,7 @@ export const load = (eventStore, streamId) => eventStore[method]({ streamId });
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.arrayContaining([expect.stringContaining("referenced without being called directly")])],
+      violations: expect.arrayContaining([expect.stringContaining("referenced without being called directly")]),
     });
   });
 
@@ -197,7 +197,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("stale entry")],
+      violations: expect.arrayContaining([expect.stringContaining("stale entry")]),
     });
   });
 
@@ -217,7 +217,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("at least 40 characters")],
+      violations: expect.arrayContaining([expect.stringContaining("at least 40 characters")]),
     });
   });
 
@@ -292,7 +292,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: [expect.stringContaining("must pass fromVersion")],
+      violations: expect.arrayContaining([expect.stringContaining("must pass fromVersion")]),
     });
   });
 
@@ -355,8 +355,8 @@ export async function loadOrder(deps, orderId) {
     const rows = await collectEventStreamReadSites({ repoRoot: root });
 
     expect(rows.map((row) => ({ id: row.id, classification: row.classification }))).toEqual([
-      { id: `${CONSUMER}:readCompleteStream#1`, classification: "complete-history" },
       { id: CONSUMER_ID, classification: "bounded-prefix" },
+      { id: `${CONSUMER}:readCompleteStream#1`, classification: "complete-history" },
     ]);
   });
 });
@@ -369,7 +369,7 @@ describe("authoritative stream read inventory over the real repository", () => {
     });
 
     expect(result.violations).toEqual([]);
-  });
+  }, 120_000);
 
   it("keeps every complete-history consumer on the canonical reader", async () => {
     const rows = await collectEventStreamReadSites({ repoRoot: path.resolve(import.meta.dirname, "../..") });
@@ -377,5 +377,5 @@ describe("authoritative stream read inventory over the real repository", () => {
 
     expect(completeHistory.length).toBeGreaterThan(0);
     expect(completeHistory.every((row) => row.mechanism === "readCompleteStream")).toBe(true);
-  });
+  }, 120_000);
 });

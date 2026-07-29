@@ -3,13 +3,14 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 /**
- * Guards complete authoritative event-stream rehydration (#6277).
+ * Guards complete authoritative event-stream rehydration.
  *
  * Every event store caps one `readStream` page at 500 events and defaults an
  * omitted `limit` to that cap, so a single call only ever returns a PREFIX.
  * Folding authoritative aggregate state over one such call truncates silently
- * the moment a stream outgrows a page -- the `pagination-truncates-authoritative-state`
- * defect class, which bit PR #5957 and then PR #6272 with a 501-event history.
+ * the moment a stream outgrows a page. It has shipped twice: once as a capped
+ * provider file list classified as complete, once as a 501-event registration
+ * history folded from 500 events while the shipped suite stayed green.
  *
  * The rule this enforces: outside the event-store implementations and the
  * canonical complete-history reader, production code may not touch `readStream`

@@ -2216,7 +2216,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       // The seller is shown this as THE fee history for the listing; a capped
-      // prefix would silently drop the newest fee changes (#6277).
+      // prefix would silently drop the newest fee changes.
       const events = await readCompleteStream(deps.eventStore, {
         streamId: `marketplace.listing-${params.listingId}`,
       });

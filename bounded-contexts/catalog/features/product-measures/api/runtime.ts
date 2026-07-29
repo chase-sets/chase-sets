@@ -171,7 +171,7 @@ async function resolveCatalogItemMeasures(
     // `currentVersion` is the expected version this append is guarded on and
     // `lastResolved` decides whether to append at all, so both are complete-
     // history facts: a capped prefix would guard on a stale version and
-    // re-append an already-resolved payload (#6277).
+    // re-append an already-resolved payload.
     const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
     const currentVersion = existingEvents[existingEvents.length - 1]?.streamVersion ?? 0;
     const lastResolved = [...existingEvents]

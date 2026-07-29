@@ -646,7 +646,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       // `commitMetadataFromStoredEvents` folds the read-your-writes commit
       // position out of these events, so a capped prefix would hand the caller
-      // a stale position and let it read behind its own write (#6277).
+      // a stale position and let it read behind its own write.
       const storedEvents = await readCompleteStream(deps.eventStore, { streamId: candidateStreamId });
       const started = storedEvents.find((event) => event.eventType === "checkout.session.started");
       if (!started) {

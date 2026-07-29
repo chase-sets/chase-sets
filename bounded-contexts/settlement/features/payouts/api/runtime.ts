@@ -699,7 +699,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   async function getCommittedPayoutLedgerEntry(accountId: string, ledgerEntryId: LedgerEntryId) {
     // A wallet stream grows with every ledger posting, so the entry being
     // looked up is routinely past the first page. A capped read would report a
-    // committed entry as missing (#6277).
+    // committed entry as missing.
     const events = await readCompleteStream(deps.eventStore, {
       streamId: `settlement.wallet-${accountId}`,
     });
