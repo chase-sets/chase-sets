@@ -55,6 +55,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/platform-helm-local-boot.mjs",
   "scripts/platform-kubernetes-deployment.mjs",
   "scripts/platform-smoke.mjs",
+  "scripts/public-web-route-smoke.mjs",
   "scripts/remote-dev.mjs",
   "scripts/replay-projection.mjs",
   "scripts/representative-snapshot.mjs",
