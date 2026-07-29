@@ -47,19 +47,43 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
   re-biter and its root cause is an incomplete caller inventory.
-  Include any **operator actions** the work will need — credentials, sign-ins,
-  approvals, live watch windows — or state `Operator actions: none`. An
+- **Operator actions.** Enumerate credentials, sign-ins, approvals, and live
+  watch windows, or state `none`. An
   operator dependency discovered mid-lane stalls delivery on human latency;
   enumerated actions let the orchestrator batch a single operator session and
   dispatch operator-dependent work only into a signaled window.
+- **Glossary impact.** Name changed terms and the owning `GLOSSARY.md`, or
+  state `none`. The receipt proves that the declaration exists; the planning
+  pressure test still judges whether the terms actually conform.
+- **External authority probe & evidence timing.** Embed the captured probe or
+  durable evidence link and name the lifecycle moment it proves, or state
+  `none` when no acceptance criterion depends on an external authority.
+- **Review packet seed.** Full-path work names invariants, likely failure
+  modes, and omission-revealing evidence/probes. Fast-path work explicitly
+  records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
 
 ## Definition of ready (the dispatch gate)
 
-The orchestrator dispatches an issue only when ALL hold:
+The orchestrator dispatches an issue only from a current
+`issue-readiness/v1` receipt produced by the trusted-default-branch workflow
+`.github/workflows/issue-readiness.yml`. It runs lazily for the one issue being
+considered; it never rewrites the corpus. The workflow artifact is the
+authority consumed in that dispatch cycle. Its stable issue comment is
+historical/operator-facing evidence only and is never accepted as dispatch
+authority.
 
-0. **Placed and classified (`refined ≡ classified`):** an open issue with a
+The consumer rejects a missing, malformed, stale, or `unknown` receipt.
+`not-ready` routes to a planning-repair lane. A current structural `ready`
+receipt still requires the independent semantic pressure test: a pressure-test
+failure routes to planning repair without changing or contradicting the
+structural receipt.
+
+Stable rule IDs map to the checklist:
+
+0. **`ready-00-placed-classified` — placed and classified
+   (`refined ≡ classified`):** an open issue with a
    native **issue type** (`Slice`, `Bug`,
    `Decision`, `Probe` — `Epic` is never dispatchable), one wave milestone,
    `priority:*`, `area:*`, and `kind:*`; it is neither
@@ -73,24 +97,37 @@ The orchestrator dispatches an issue only when ALL hold:
    (including any `status:standalone` label) would require a new fixed-scope
    change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
    records that it is not current controller behavior.
-1. Repo evidence pointers present (≥2) and non-generic.
-2. Scope fence states at least one explicit non-goal.
-3. Every AC has an evidence method; external-provider contracts name the
+   **`ready-00-dependencies-resolved`:** the complete native `Blocked by`
+   collection contains no open blocker.
+1. **`ready-01-repo-evidence`:** repo evidence pointers present (≥2) and
+   non-generic.
+2. **`ready-02-explicit-non-goal`:** scope fence states at least one explicit
+   non-goal.
+3. **`ready-03-acceptance-evidence`:** every AC has a discriminating evidence
+   method; external-provider contracts name the
    provider's test-mode surface.
-4. Verification plan names runnable scoped commands.
-5. Footprint predicted — including every caller of any touched shared
+4. **`ready-04-runnable-verification`:** verification plan names runnable
+   scoped commands as commands, not commands hidden in narrative prose.
+5. **`ready-05-footprint-operators`:** footprint predicted — including every
+   caller of any touched shared
    handler; chain links wired if any; operator actions (credentials, sign-ins,
    approvals, live watch windows) enumerated — explicitly `none` when there
    are none.
-6. No unresolved full-path decision — or the issue is explicitly linked
+6. **`ready-06-decisions-resolved`:** no unresolved full-path decision — or
+   the issue is explicitly linked
    `Blocked by` the decision issue.
-7. Terms conform to the owning context's glossary; new terms are registered.
-8. Every AC depending on an external authority embeds its captured probe (or
+7. **`ready-07-terms-declared`:** glossary impact is declared with the owning
+   glossary pointer, or explicitly `none`. Conformance remains a semantic
+   pressure-test judgment.
+8. **`ready-08-authority-probe-timed`:** every AC depending on an external
+   authority embeds its captured probe (or
    a link to one) taken at the exact lifecycle moment the implementation
    needs the data — not endpoint/docs existence, not a post-hoc replay
    (#5883).
-9. Full-path work includes a review packet seed naming its invariants, likely
-   failure modes, and omission-revealing evidence.
+9. **`ready-09-review-packet`:** full-path work includes a review packet seed
+   naming its invariants, likely failure modes, and omission-revealing
+   evidence; fast-path work explicitly records that the field is not
+   applicable.
 
 Fails → planning-repair pass, not an implementation lane.
 

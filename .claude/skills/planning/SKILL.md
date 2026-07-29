@@ -134,10 +134,19 @@ replacement moves the failure rather than fixing it.
 
 ## Enforcement — definition of ready
 
-The milestone orchestrator dispatches only issues that pass the
-definition-of-ready checklist in `references/issue-standard.md`. An issue that
-fails the gate is not dispatched to implementation; it gets a planning-repair
-pass first. Standards without enforcement rot — the gate is the standard.
+The milestone orchestrator runs the trusted-default-branch
+`.github/workflows/issue-readiness.yml` only for the issue being considered and
+consumes that run's exact `issue-readiness/v1` artifact through
+`consumeIssueReadinessReceipt()` in `scripts/issue-readiness.mjs`. Missing,
+malformed, stale, and `unknown` receipts are rejected; `not-ready` routes to a
+planning-repair pass. The stable issue comment is operator-facing history, not
+dispatch authority. Invoke the workflow at the repository default-branch ref;
+the workflow rejects every other ref before loading the checker.
+
+The machine receipt proves only the structural rules in
+`references/issue-standard.md`. The independent semantic pressure test remains
+separate and can reject a structurally `ready` issue; the consumer represents
+that result as planning repair without rewriting the receipt.
 
 Retrofit policy: apply to new planning and to issues at dispatch time. Do not
 mass-rewrite the existing corpus (anti-ratchet); it converges lazily,

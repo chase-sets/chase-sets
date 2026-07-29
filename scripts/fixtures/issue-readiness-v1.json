@@ -1,0 +1,176 @@
+{
+  "schemaVersion": "issue-readiness-fixtures/v1",
+  "recordedFrom": {
+    "repository": "chase-sets/chase-sets",
+    "issue": 6253,
+    "capturedAt": "2026-07-29T19:02:27.000Z",
+    "restNodeId": "I_kwDORKgVcc8AAAABKhBuKg",
+    "repositoryDatabaseId": 1151866225,
+    "issueType": {
+      "id": 35435381,
+      "nodeId": "IT_kwDOEUHTf84CHLN1",
+      "name": "Slice"
+    }
+  },
+  "readyBody": "### Context\n\nThe current checker is absent at `scripts/issue-readiness.mjs`; the dispatch contract lives in `.agents/skills/planning/references/issue-standard.md`. Related recovery is #6172.\n\n### Scope fence\n\nAdd the structural receipt and consumer. Non-goal: do not score prose quality.\n\n### Decisions already made\n\nAll schema and fail-closed decisions are resolved in #6253.\n\n### Acceptance criteria\n\n- A complete structural brief emits ready. Evidence: named test `emits ready through main`.\n- A moving issue emits unknown. Evidence: fixture `mid-read-mutation` through `scripts/issue-readiness.test.mjs`.\n\n### Verification plan\n\n```text\npnpm vitest run --config ./vitest.scripts.config.mjs scripts/issue-readiness.test.mjs\n```\n\n### Footprint & chain\n\n`scripts/issue-readiness.mjs`, `.github/workflows/issue-readiness.yml`. Callers: the trusted workflow and runnable-set consumer.\n\n### Operator actions\n\nnone\n\n### Glossary impact\n\nTerms: receipt is owned by `.agents/skills/planning/references/issue-standard.md`.\n\n### External authority probe & evidence timing\n\nCaptured GitHub fixture `scripts/fixtures/issue-readiness-v1.json` at dispatch-time collection before lane admission.\n\n### Review packet seed\n\nInvariants: only complete revision-bound authority is ready. Failure modes: page truncation, movement, and malformed forms. Evidence: omission fixtures and the focused attack commands.\n\n### Tier + routing hint\n\nfull path; system.\n",
+  "scenarios": [
+    {
+      "id": "ready",
+      "expectedStatus": "ready"
+    },
+    {
+      "id": "ready-without-parent",
+      "noParent": true,
+      "expectedStatus": "ready"
+    },
+    {
+      "id": "headings-only",
+      "body": "### Context\n### Scope fence\n### Decisions already made\n### Acceptance criteria\n### Verification plan\n### Footprint & chain\n### Operator actions\n### Glossary impact\n### External authority probe & evidence timing\n### Review packet seed\n### Tier + routing hint\n",
+      "expectedStatus": "not-ready"
+    },
+    {
+      "id": "repo-evidence-missing",
+      "replaceField": {
+        "label": "Context",
+        "value": "This change improves dispatch."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-01-repo-evidence"
+    },
+    {
+      "id": "non-goal-missing",
+      "replaceField": {
+        "label": "Scope fence",
+        "value": "Add the structural receipt."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-02-explicit-non-goal"
+    },
+    {
+      "id": "acceptance-without-discriminating-evidence",
+      "replaceField": {
+        "label": "Acceptance criteria",
+        "value": "- The issue is checked. Evidence: test.\n- Pagination works."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-03-acceptance-evidence"
+    },
+    {
+      "id": "provider-contract-without-test-mode",
+      "replaceField": {
+        "label": "Acceptance criteria",
+        "value": "- The external-provider contract accepts the webhook payload. Evidence: named test `provider payload mapper`."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-03-acceptance-evidence"
+    },
+    {
+      "id": "narrative-commands",
+      "replaceField": {
+        "label": "Verification plan",
+        "value": "Please run `pnpm vitest run scripts/issue-readiness.test.mjs` and inspect the result."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-04-runnable-verification"
+    },
+    {
+      "id": "footprint-without-callers",
+      "replaceField": {
+        "label": "Footprint & chain",
+        "value": "`scripts/issue-readiness.mjs`."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-05-footprint-operators"
+    },
+    {
+      "id": "unresolved-decision",
+      "replaceField": {
+        "label": "Decisions already made",
+        "value": "TBD: decide whether to publish receipts."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-06-decisions-resolved"
+    },
+    {
+      "id": "glossary-impact-missing",
+      "replaceField": {
+        "label": "Glossary impact",
+        "value": ""
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-07-terms-declared"
+    },
+    {
+      "id": "authority-probe-without-timing",
+      "replaceField": {
+        "label": "External authority probe & evidence timing",
+        "value": "Captured fixture `scripts/fixtures/issue-readiness-v1.json`."
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-08-authority-probe-timed"
+    },
+    {
+      "id": "authority-declared-probe-none",
+      "replaceField": {
+        "label": "Acceptance criteria",
+        "value": "- A GitHub API authority response is complete. Evidence: captured probe `scripts/fixtures/issue-readiness-v1.json`."
+      },
+      "replaceField2": {
+        "label": "External authority probe & evidence timing",
+        "value": "none"
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-08-authority-probe-timed"
+    },
+    {
+      "id": "missing-full-path-review-packet",
+      "replaceField": {
+        "label": "Review packet seed",
+        "value": ""
+      },
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-09-review-packet"
+    },
+    {
+      "id": "unknown-issue-type",
+      "issueType": "FutureWork",
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-00-placed-classified"
+    },
+    {
+      "id": "open-blocker-on-page-two",
+      "dependencyPages": [
+        {
+          "count": 100,
+          "state": "closed"
+        },
+        {
+          "count": 1,
+          "state": "open"
+        }
+      ],
+      "expectedStatus": "not-ready",
+      "expectedRule": "ready-00-dependencies-resolved"
+    },
+    {
+      "id": "count-mismatch",
+      "labelsTotalOverride": 4,
+      "expectedStatus": "unknown"
+    },
+    {
+      "id": "mid-read-mutation",
+      "finalUpdatedAt": "2026-07-29T19:03:27.000Z",
+      "expectedStatus": "unknown"
+    },
+    {
+      "id": "issue-moved",
+      "finalResponseUrlOverride": "https://api.github.com/repos/other-owner/other-repo/issues/6253",
+      "expectedStatus": "unknown"
+    },
+    {
+      "id": "malformed-form",
+      "appendBody": "\n### Context\n\nAmbiguous duplicate.\n",
+      "expectedStatus": "unknown"
+    }
+  ]
+}

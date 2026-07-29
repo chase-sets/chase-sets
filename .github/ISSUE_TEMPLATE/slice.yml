@@ -77,39 +77,69 @@ body:
     id: scope
     attributes:
       label: Scope fence
-      description: In-scope, and at least one explicit non-goal.
+      description: "In-scope behavior plus at least one explicit `Non-goal: ...` or `Out of scope: ...` declaration."
     validations:
       required: true
   - type: textarea
     id: decisions
     attributes:
       label: Decisions already made
-      description: Settled rulings with links. Unsettled full-path decisions must block this issue via a decision issue.
+      description: Settled rulings with links, or `none`. Unsettled full-path decisions must block this issue via a native Decision dependency.
+    validations:
+      required: true
   - type: textarea
     id: acceptance
     attributes:
       label: Acceptance criteria
-      description: One per line, each with its evidence method (test name, verifier, screenshot, ops check).
+      description: "One Markdown list item per criterion, each ending `Evidence: ...` with a discriminating test name, command, verifier, screenshot, probe, or ops check. External-provider contracts name the provider test-mode surface."
     validations:
       required: true
   - type: textarea
     id: verification
     attributes:
       label: Verification plan
-      description: Runnable scoped commands that prove the change.
+      description: Runnable scoped commands as a fenced command block or one standalone backticked command per list item; do not hide commands in narrative prose.
     validations:
       required: true
   - type: textarea
     id: footprint
     attributes:
       label: Footprint & chain
-      description: "Predicted workspaces/files. Record chain links as GitHub issue dependencies (Blocked by / Blocks) — the relationship is authoritative; prose is a convenience."
+      description: "Predicted workspaces/files plus `Callers: ...` (`none` allowed). Record chain links as GitHub issue dependencies (Blocked by / Blocks) — the relationship is authoritative; prose is a convenience."
+    validations:
+      required: true
+  - type: textarea
+    id: operator-actions
+    attributes:
+      label: Operator actions
+      description: Credentials, sign-ins, approvals, or live watch windows needed by this slice; enter `none` when there are no operator actions.
+    validations:
+      required: true
+  - type: textarea
+    id: glossary-impact
+    attributes:
+      label: Glossary impact
+      description: Terms added or changed with the owning `GLOSSARY.md` pointer; enter `none` when the ubiquitous language is unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: authority-probe
+    attributes:
+      label: External authority probe & evidence timing
+      description: Captured probe or durable evidence link plus the exact lifecycle moment it proves; enter `none` when acceptance does not depend on an external authority.
+    validations:
+      required: true
+  - type: textarea
+    id: review-packet
+    attributes:
+      label: Review packet seed
+      description: "Full path: invariants, likely failure modes, and omission-revealing evidence/probes. Fast path: enter `not applicable — fast path`."
     validations:
       required: true
   - type: input
     id: tier
     attributes:
       label: Tier + routing hint
-      description: "fast|full path; presentation|system."
+      description: "Enter exactly one: `fast path; presentation`, `fast path; system`, `full path; presentation`, or `full path; system`."
     validations:
       required: true
