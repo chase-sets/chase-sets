@@ -30,6 +30,7 @@ import {
   compactRuntimeSubscriptionLedgers,
   createSubscriptionRunner,
   listProjectionBlockedStreamDetails,
+  LocalProjectorSubscriptionDeclarationError,
   refreshProjectionGroupStatuses,
   resolveModuleSubscriptions,
   retryProjectionBlockedStream,
@@ -67,7 +68,7 @@ describe("bounded context subscription runner", () => {
         },
       ]),
     ).toThrow(
-      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'foo.bar-projection', but no registered handler or self-sourced local projector can resolve it.",
+      "Context 'inventory' declares an event subscription from source context 'catalog' for projection 'foo.bar-projection', but no registered handler can resolve it.",
     );
   });
 
@@ -106,41 +107,132 @@ describe("bounded context subscription runner", () => {
     );
   });
 
-  it("resolves a self-sourced declaration through its local projector", () => {
+  it("refuses a bumped manifest subscription version when only a local projector can resolve it", () => {
     const pool = createMockPool();
+    let thrown: unknown;
+
+    try {
+      resolveModuleSubscriptions([
+        {
+          contextName: "checkout",
+          module: {
+            contextName: "checkout",
+            eventSubscriptions: [
+              {
+                sourceContextName: "checkout",
+                projectionName: "checkout.session-projection",
+                subscriptionVersion: 2,
+                projectionHandlerSetNames: ["checkout.session-projection"],
+              },
+            ],
+            buildSubscriptions: () => [],
+          } as unknown as BcApiModule,
+          services: {},
+          pool: pool as never,
+          projectionHandlerSets: [
+            {
+              projectionName: "checkout.session-projection",
+              handlers: {
+                "checkout.session.started": async () => undefined,
+              },
+            },
+          ],
+        },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(LocalProjectorSubscriptionDeclarationError);
+    expect(thrown).toMatchObject({
+      name: "LocalProjectorSubscriptionDeclarationError",
+      message:
+        "Context 'checkout' declares an event subscription from source context 'checkout' for projection 'checkout.session-projection', but only a local ProjectionHandlerSet resolves it. Register a subscription handler for the declaration or remove the declaration.",
+    });
+  });
+
+  it("refuses declaration and local-projector disagreement instead of crossing the metadata boundary", () => {
+    const moduleWithManifestOnlySubscription = Object.assign(
+      {
+        contextName: "collections",
+        buildSubscriptions: () => [],
+      },
+      {
+        eventSubscriptions: [
+          {
+            sourceContextName: "collections",
+            projectionName: "collections.saved-search-projection",
+            subscriptionVersion: 9,
+            order: 77,
+            eventTypes: ["collections.saved-search.declared-only"],
+            projectionHandlerSetNames: ["collections.saved-search-projection"],
+          },
+        ],
+      },
+    ) as unknown as BcApiModule;
+
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "collections",
+          module: moduleWithManifestOnlySubscription,
+          services: {},
+          pool: createMockPool() as never,
+          projectionHandlerSets: [
+            {
+              projectionName: "collections.unrelated-local-projection",
+              handlers: {
+                "collections.unrelated.recorded": async () => undefined,
+              },
+            },
+            {
+              projectionName: "collections.saved-search-projection",
+              handlers: {
+                "collections.saved-search.local-only": async () => undefined,
+              },
+            },
+          ],
+        },
+      ]),
+    ).toThrow(
+      "Context 'collections' declares an event subscription from source context 'collections' for projection 'collections.saved-search-projection', but only a local ProjectionHandlerSet resolves it. Register a subscription handler for the declaration or remove the declaration.",
+    );
+  });
+
+  it("creates a runner for a local projector with no manifest subscription declaration", () => {
     const [runner] = resolveModuleSubscriptions([
       {
         contextName: "checkout",
         module: {
           contextName: "checkout",
-          eventSubscriptions: [
-            {
-              sourceContextName: "checkout",
-              projectionName: "checkout.session-projection",
-              subscriptionVersion: 7,
-              projectionHandlerSetNames: ["checkout.session-projection"],
-            },
-          ],
           buildSubscriptions: () => [],
         } as unknown as BcApiModule,
         services: {},
-        pool: pool as never,
+        pool: createMockPool() as never,
         projectionHandlerSets: [
           {
             projectionName: "checkout.session-projection",
             handlers: {
               "checkout.session.started": async () => undefined,
             },
+            eventTypes: ["checkout.session.started"],
+            streamPrefixes: ["checkout.session-"],
+            checkpointBatchSize: 1,
           },
         ],
       },
     ]);
 
     expect(runner).toMatchObject({
-      targetContextName: "checkout",
-      sourceContextName: "checkout",
+      checkpointBatchSize: 1,
+      checkpointKey: "checkout.session-projection:checkout:v1",
+      eventTypes: ["checkout.session.started"],
+      order: 0,
       projectionName: "checkout.session-projection",
+      sourceContextName: "checkout",
+      streamPrefixes: ["checkout.session-"],
       subscriptionVersion: 1,
+      targetContextName: "checkout",
     });
   });
 
@@ -174,7 +266,7 @@ describe("bounded context subscription runner", () => {
         },
       ]),
     ).toThrow(
-      "Context 'marketplace' declares an event subscription from source context 'checkout' for projection 'checkout-something-projection', but no registered handler or self-sourced local projector can resolve it.",
+      "Context 'marketplace' declares an event subscription from source context 'checkout' for projection 'checkout-something-projection', but no registered handler can resolve it.",
     );
   });
 

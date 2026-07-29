@@ -11,10 +11,11 @@ Each declaration may set `subscriptionName` and `filterToEventTypes`. A missing 
 For every active mounted context, the shared bounded-context runtime reconciles those declarations with the subscriptions returned by `buildSubscriptions`:
 
 - an event subscription is resolved by a built projection handler with the same source context and projection name;
-- a self-sourced event subscription may instead be resolved by a local `ProjectionHandlerSet` with the same projection name;
+- a local `ProjectionHandlerSet` with no matching declaration creates its own self-sourced subscription;
+- a declaration that is satisfied only by a same-named local `ProjectionHandlerSet` is rejected because its version, order, and event types would have two conflicting owners;
 - a cross-context declaration cannot use a same-named local projector;
 - an event reaction is resolved only by a built reaction handler with the same source context and reaction name.
 
 Missing declarations and missing handlers are named mount failures. Source-only mounts remain excluded because hosts do not construct target-side handlers for them.
 
-The local-projector compatibility path keeps its existing runtime metadata: it derives `order` from the handler-set position and uses subscription version `1`. It does not adopt the declaration's order, version, or event-type fields.
+The local-projector path keeps its runtime metadata: it derives `order` from the handler-set position, uses subscription version `1`, and derives event types from the handler set. Authors must either register a handler for a manifest declaration or remove the declaration and let the local projector own the runner.

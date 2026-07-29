@@ -1382,6 +1382,15 @@ export function resolveModuleSubscriptions(
   return sortSubscriptionRunners(runners);
 }
 
+export class LocalProjectorSubscriptionDeclarationError extends Error {
+  constructor(contextName: string, sourceContextName: string, projectionName: string) {
+    super(
+      `Context '${contextName}' declares an event subscription from source context '${sourceContextName}' for projection '${projectionName}', but only a local ProjectionHandlerSet resolves it. Register a subscription handler for the declaration or remove the declaration.`,
+    );
+    this.name = "LocalProjectorSubscriptionDeclarationError";
+  }
+}
+
 function validateModuleSubscriptionDeclarations(
   entry: MountedContextRuntimeEntry,
   builtSubscriptions: readonly BcEventSubscription[],
@@ -1428,9 +1437,17 @@ function validateModuleSubscriptionDeclarations(
       declaration.sourceContextName === entry.contextName &&
       entry.projectionHandlerSets.some((set) => set.projectionName === declaration.projectionName);
 
-    if (!hasRegisteredHandler && !hasSelfSourcedLocalProjector) {
+    if (!hasRegisteredHandler && hasSelfSourcedLocalProjector) {
+      throw new LocalProjectorSubscriptionDeclarationError(
+        entry.contextName,
+        declaration.sourceContextName,
+        declaration.projectionName,
+      );
+    }
+
+    if (!hasRegisteredHandler) {
       throw new Error(
-        `Context '${entry.contextName}' declares an event subscription from source context '${declaration.sourceContextName}' for projection '${declaration.projectionName}', but no registered handler or self-sourced local projector can resolve it.`,
+        `Context '${entry.contextName}' declares an event subscription from source context '${declaration.sourceContextName}' for projection '${declaration.projectionName}', but no registered handler can resolve it.`,
       );
     }
   }

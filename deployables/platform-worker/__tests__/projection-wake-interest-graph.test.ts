@@ -53,24 +53,44 @@ const AGENT_WEBHOOK_TARGETS = [
 ] as const;
 
 describe("platform worker projection wake interest graph", () => {
-  it("boots every public-profile context and resolves the Checkout session declaration locally", () => {
+  it("boots every public-profile context and creates the Checkout Session runner from its local projector", () => {
     const runtime = createPlatformWorkerHost("public");
     const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName).sort();
     const registryContextNames = workerContextRegistry.map((entry) => entry.contextName).sort();
+    const checkoutModule = runtime.mountedContexts.find((entry) => entry.contextName === "checkout")?.module;
+    const checkoutSessionRunner = runtime.subscriptionRunners.find(
+      (runner) =>
+        runner.targetContextName === "checkout" &&
+        runner.sourceContextName === "checkout" &&
+        runner.projectionName === "checkout.session-projection",
+    );
 
     expect(mountedContextNames).toEqual(registryContextNames);
     expect(runtime.mountedContexts.every((entry) => entry.mountRole === "active")).toBe(true);
     expect(
-      runtime.subscriptionRunners.find(
-        (runner) =>
-          runner.targetContextName === "checkout" &&
-          runner.sourceContextName === "checkout" &&
-          runner.projectionName === "checkout.session-projection",
+      checkoutModule?.eventSubscriptions?.find(
+        (subscription) =>
+          subscription.sourceContextName === "checkout" &&
+          subscription.projectionName === "checkout.session-projection",
       ),
-    ).toMatchObject({
+    ).toBeUndefined();
+    expect(checkoutSessionRunner).toMatchObject({
       checkpointKey: "checkout.session-projection:checkout:v1",
       subscriptionVersion: 1,
     });
+    expect(checkoutSessionRunner?.eventTypes).toEqual([
+      "checkout.session.authenticity-check-opt-in-selected",
+      "checkout.session.cancelled",
+      "checkout.session.fulfillment-preview-recorded",
+      "checkout.session.offer-submitted",
+      "checkout.session.optimization-goal-selected",
+      "checkout.session.orders-created",
+      "checkout.session.payment-started",
+      "checkout.session.reservations-recorded",
+      "checkout.session.shipping-address-set",
+      "checkout.session.shipping-option-selected",
+      "checkout.session.started",
+    ]);
   });
 
   it("preserves the complete manifest-built subscription fingerprint, checkpoint identities, and shared names", () => {
