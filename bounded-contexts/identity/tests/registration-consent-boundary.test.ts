@@ -12,7 +12,10 @@ import {
   type SignedRegistrationConsentResolution,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import { activateConsentPolicyForTest } from "../features/consents/domain/consent-bundle-test-support";
+import {
+  activateConsentPolicyForTest,
+  replaceConsentPolicyVersionForTest,
+} from "../features/consents/domain/consent-bundle-test-support";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 // Registration records only bundle members that are published AND activated, so
@@ -39,17 +42,30 @@ const PRIVACY_V3: RegistrationConsentRequirement = {
   href: "/privacy",
 };
 
-async function createServices() {
+const operatorContext = {
+  tenantId: "tnt_identity",
+  audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+  trace: {},
+} as never;
+
+/**
+ * Registration now compares the WHOLE current registration bundle against the
+ * whole signed one, so a suite's activation state is part of what each case
+ * asserts rather than a fixed backdrop: `activate` is exactly the set of
+ * requirements the bundle currently resolves to.
+ */
+async function createServices(activate: readonly RegistrationConsentRequirement[] = [TERMS_V1, PRIVACY_V3]) {
   // Registration composes its participants into one all-or-nothing append, so
   // the store itself is what these assertions observe.
   const eventStore = createInMemoryEventStore();
-  const operatorContext = {
-    tenantId: "tnt_identity",
-    audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
-    trace: {},
-  } as never;
-  await activateConsentPolicyForTest(eventStore, "terms-of-service", TERMS_V1.version, operatorContext);
-  await activateConsentPolicyForTest(eventStore, "privacy-policy", PRIVACY_V3.version, operatorContext);
+  for (const requirement of activate) {
+    await activateConsentPolicyForTest(
+      eventStore,
+      requirement.policyKey as "privacy-policy" | "terms-of-service",
+      requirement.version,
+      operatorContext,
+    );
+  }
 
   return {
     eventStore,
@@ -103,7 +119,14 @@ async function register(
     }),
   });
 
-  return { status: response.status, body: await response.json() };
+  // A rejection the route does not classify surfaces as the framework's
+  // plain-text 500, so the body is parsed only when it is actually JSON.
+  const text = await response.text();
+  try {
+    return { status: response.status, body: text ? JSON.parse(text) : {} };
+  } catch {
+    return { status: response.status, body: {} };
+  }
 }
 
 function expectNoIdentityWritten(services: IdentityServices) {
@@ -213,7 +236,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("rejects a registration with no resolution even when the bundle is empty", async () => {
-    const services = await createServices();
+    const services = await createServices([]);
 
     const { status, body } = await register(services, {});
 
@@ -265,7 +288,9 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("accepts a signed empty resolution and records no consent", async () => {
-    const services = await createServices();
+    // Nothing is activated, so the current bundle really is empty and the empty
+    // signed set still matches it exactly.
+    const services = await createServices([]);
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([]), affirmed: false },
@@ -278,7 +303,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("records the minted requirement versions, not the currently active ones", async () => {
-    const services = await createServices();
+    const services = await createServices([TERMS_V1]);
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
@@ -290,7 +315,7 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("does not overwrite the submitted policy version with the currently active one", async () => {
-    const services = await createServices();
+    const services = await createServices([TERMS_V1]);
 
     // Under the deleted override this registration recorded the resolver's
     // active version (v99) for the canonical Terms of Service key, discarding
@@ -308,14 +333,109 @@ describe("registration consent resolution boundary", () => {
     const services = await createServices();
 
     const { status } = await register(services, {
-      registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
+      registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true },
     });
 
     expect(status).toBe(201);
     expect(recordedConsents(services)).toEqual([
-      { policyKey: "privacy-policy", policyVersion: "v3" },
       { policyKey: "terms-of-service", policyVersion: "v1" },
+      { policyKey: "privacy-policy", policyVersion: "v3" },
     ]);
+  });
+
+  it("rejects a signed set whose order is not the bundle's declared order", async () => {
+    const services = await createServices();
+
+    // Declared order IS the resolved order, so a resolution carrying the two
+    // members the other way round cannot be the current bundle -- and the
+    // comparison is ordered, not set-wise.
+    const { status } = await register(services, {
+      registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
+    });
+
+    expect(status).toBe(500);
+    expectNoIdentityWritten(services);
+  });
+
+  describe("the signed bundle is revalidated against the WHOLE current bundle", () => {
+    it("rejects an empty signed bundle once a member has been activated", async () => {
+      // Minted while nothing was activated -- a legitimately signed, fresh,
+      // affirmation-free empty resolution. Then a member is activated. The
+      // signed value names nothing, so there is nothing in it to revalidate:
+      // only comparing the whole current set catches this.
+      const services = await createServices([]);
+      const resolution = mint([]);
+      await activateConsentPolicyForTest(store(services), "terms-of-service", TERMS_V1.version, operatorContext);
+
+      const { status } = await register(services, {
+        registrationConsent: { resolution, affirmed: false },
+      });
+
+      expect(status).toBe(500);
+      expectNoIdentityWritten(services);
+      expect(recordedConsents(services)).toEqual([]);
+    });
+
+    it("rejects a signed bundle that is missing a member activated after the mint", async () => {
+      const services = await createServices([TERMS_V1]);
+      const resolution = mint([TERMS_V1]);
+      await activateConsentPolicyForTest(store(services), "privacy-policy", PRIVACY_V3.version, operatorContext);
+
+      const { status } = await register(services, {
+        registrationConsent: { resolution, affirmed: true },
+      });
+
+      expect(status).toBe(500);
+      expectNoIdentityWritten(services);
+    });
+
+    it("still accepts a signed bundle that the current bundle exactly matches", async () => {
+      const services = await createServices();
+
+      const { status } = await register(services, {
+        registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true },
+      });
+
+      expect(status).toBe(201);
+      expect(recordedConsents(services)).toHaveLength(2);
+    });
+  });
+
+  describe("an exact retry of a committed registration stays idempotent", () => {
+    it("returns the prior result after the authority moves, without a second consent", async () => {
+      const services = await createServices([TERMS_V1, PRIVACY_V3]);
+      const submission = { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true };
+
+      const first = await register(services, { registrationConsent: submission });
+      expect(first.status).toBe(201);
+      const consentStreamsAfterFirst = store(services).streamIdsWithPrefix("identity.consent-");
+      expect(consentStreamsAfterFirst).toHaveLength(2);
+
+      // The activation moves AFTER the registration committed. Retrying the
+      // exact same request with the exact same token must still answer with the
+      // identity that already exists.
+      await replaceConsentPolicyVersionForTest(store(services), "terms-of-service", "v1", "v2", operatorContext);
+
+      const retry = await register(services, { registrationConsent: submission });
+
+      expect(retry.status).toBe(201);
+      expect(store(services).streamIdsWithPrefix("identity.consent-")).toEqual(consentStreamsAfterFirst);
+      expect(recordedConsents(services)).toEqual([
+        { policyKey: "terms-of-service", policyVersion: "v1" },
+        { policyKey: "privacy-policy", policyVersion: "v3" },
+      ]);
+    });
+
+    it("still rejects a FRESH submission of that same old token", async () => {
+      const services = await createServices([TERMS_V1, PRIVACY_V3]);
+      const submission = { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true };
+      await replaceConsentPolicyVersionForTest(store(services), "terms-of-service", "v1", "v2", operatorContext);
+
+      const { status } = await register(services, { registrationConsent: submission });
+
+      expect(status).toBe(500);
+      expectNoIdentityWritten(services);
+    });
   });
 
   it("rejects an affirmation whose resolution was minted for different requirements", async () => {
@@ -374,7 +494,7 @@ describe("registration consent resolution boundary", () => {
     process.env.REGISTRATION_CONSENT_SIGNING_SECRET = current;
     process.env.REGISTRATION_CONSENT_PREVIOUS_SIGNING_SECRETS = retired;
     try {
-      const services = await createServices();
+      const services = await createServices([]);
       const { status } = await register(services, {
         registrationConsent: { resolution, affirmed: false },
       });
@@ -396,7 +516,7 @@ describe("registration consent resolution boundary", () => {
 
     process.env.REGISTRATION_CONSENT_SIGNING_SECRET = "current-registration-consent-key";
     try {
-      const services = await createServices();
+      const services = await createServices([]);
       const { status, body } = await register(services, {
         registrationConsent: { resolution, affirmed: false },
       });

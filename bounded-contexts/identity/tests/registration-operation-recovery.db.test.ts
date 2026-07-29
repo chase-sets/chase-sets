@@ -352,7 +352,7 @@ describeDb("registration operation recovery", () => {
       [DISPLAY_NAME_KEY, "acc_stranded_never_committed", DISPLAY_NAME],
     );
 
-    const registered = await register([TERMS_V1]);
+    const registered = await register([TERMS_V1, PRIVACY_V3]);
 
     expect(registered.status, "a stranded pre-operation reservation must not block registration").toBe(201);
     const reservations = await pool.query<{ account_id: string; operation_key: string | null }>(
@@ -383,7 +383,7 @@ describeDb("registration operation recovery", () => {
       [DISPLAY_NAME_KEY, liveAccountId, DISPLAY_NAME],
     );
 
-    const blocked = await register([TERMS_V1]);
+    const blocked = await register([TERMS_V1, PRIVACY_V3]);
 
     expect(blocked.status, "adopting a live account would grant a stranger an owner membership on it").toBe(409);
     expect((blocked.body.error as { code?: string } | undefined)?.code).toBe("display_name_already_taken");
@@ -392,7 +392,7 @@ describeDb("registration operation recovery", () => {
   });
 
   it("rejects a registration that carries no verified contact at all", async () => {
-    const contactless = await register([TERMS_V1], { email: null, phone: null });
+    const contactless = await register([TERMS_V1, PRIVACY_V3], { email: null, phone: null });
 
     expect(contactless.status).toBe(400);
     expect((contactless.body.error as { code?: string } | undefined)?.code).toBe(
@@ -403,8 +403,8 @@ describeDb("registration operation recovery", () => {
   });
 
   it("converges an email that differs only by casing and surrounding whitespace", async () => {
-    const first = await register([TERMS_V1], { email: EMAIL });
-    const second = await register([TERMS_V1], { email: `  ${EMAIL.toUpperCase()}  ` });
+    const first = await register([TERMS_V1, PRIVACY_V3], { email: EMAIL });
+    const second = await register([TERMS_V1, PRIVACY_V3], { email: `  ${EMAIL.toUpperCase()}  ` });
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);

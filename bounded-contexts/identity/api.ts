@@ -86,10 +86,12 @@ import {
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
 import {
-  consentBundleMemberActivationPolicyKey,
+  consentBundleRequirementsMatch,
+  describeConsentBundleRequirements,
+  requireResolvedConsentBundle,
   resolveRegistrationConsentRequirements,
+  type ConsentBundleRequirement,
 } from "./features/consents/domain/consent-bundle";
-import { isIdentityConsentPolicyKey } from "./features/consents/domain/terms-of-service-policy";
 import {
   consentActivationGuardAppendInput,
   readConsentActivationAuthority,
@@ -628,6 +630,7 @@ async function createPersonalIdentityForAuth(
       operation,
       identity,
       claimedVersion: claimed?.version ?? null,
+      signedRequirements: requirements,
       email,
       phone,
     });
@@ -694,10 +697,17 @@ type PersonalIdentityRegistrationPlan = Readonly<{
   consentPlans: readonly RegistrationConsentPlan[];
   /**
    * One zero-event guard per Consent Activation Authority this registration's
-   * requirement set depends on. They contribute no history and exist only so the
-   * shared all-or-nothing transaction rolls back if a policy is activated,
-   * replaced, or deactivated between the moment this plan read the authority and
-   * the moment the registration commits.
+   * requirement set depends on -- including the authorities of publication-ready
+   * members that were read and found INACTIVE, because "this member was not
+   * required" is a fact this plan depends on exactly as much as "this member was
+   * required at v1". They contribute no history and exist only so the shared
+   * all-or-nothing transaction rolls back if a policy is activated, replaced, or
+   * deactivated between the moment this plan re-resolved the bundle and the
+   * moment the registration commits.
+   *
+   * Empty on a registration that appends no new Consent and no new identity
+   * participant: an exact retry of committed history revalidates that history,
+   * not the current activation state.
    */
   consentActivationGuards: readonly ConsentActivationGuard[];
 }>;
@@ -710,7 +720,7 @@ function requireConsentAuthorityEventStore(services: IdentityServices): EventSto
   return services.eventStore;
 }
 
-/** Raised when a signed requirement no longer matches its Consent Activation Authority at append time. */
+/** Raised when the current registration Consent Bundle no longer matches the signed resolution. */
 export class RegistrationConsentActivationChangedError extends Error {
   public constructor(message: string) {
     super(message);
@@ -719,33 +729,42 @@ export class RegistrationConsentActivationChangedError extends Error {
 }
 
 /**
- * Re-reads each requirement's Consent Activation Authority immediately before the
- * append, and returns the guard tokens the append must carry.
+ * Re-resolves the COMPLETE registration Consent Bundle immediately before the
+ * append, checks it still equals the signed resolution exactly and in order, and
+ * returns the guard tokens the append must carry.
  *
- * This is NOT a re-resolution: the policy key and version still come from the
- * signed resolution the client affirmed, and nothing here can change them. The
- * authority read only answers "is that exact version still the active one", and
- * mints the revision token that makes the answer binding through to the commit.
+ * Revalidating only the members the signed resolution happens to name is not
+ * enough, and an empty signed set is the case that proves it: a resolution
+ * minted while every member was inactive names nothing, so there is nothing in
+ * it to revalidate, and a member activated between the mint and the submission
+ * would be silently absent from the identity that gets created. The whole
+ * current set is therefore compared against the whole signed set.
+ *
+ * The signed resolution stays the only source of what gets RECORDED -- nothing
+ * here can change a policy key or a version. It only answers "is the set of
+ * things a person had to agree to still exactly the set they were shown", and
+ * mints the revision tokens that make that answer binding through to the commit.
  */
-async function resolveRegistrationConsentActivationGuards(
+async function resolveRegistrationConsentAppendGuards(
   eventStore: EventStore,
-  consents: readonly RegistrationOperationConsent[],
+  signedRequirements: readonly ConsentBundleRequirement[],
 ): Promise<readonly ConsentActivationGuard[]> {
+  const resolution = await requireResolvedConsentBundle("registration", (policyKey) =>
+    readConsentActivationAuthority(eventStore, policyKey),
+  );
+
+  if (!consentBundleRequirementsMatch(resolution.requirements, signedRequirements)) {
+    throw new RegistrationConsentActivationChangedError(
+      `The registration Consent Bundle now requires ${describeConsentBundleRequirements(resolution.requirements)} ` +
+        `while this registration affirmed ${describeConsentBundleRequirements(signedRequirements)}.`,
+    );
+  }
+
+  // Deduplicated by authority stream: two members could in principle share one
+  // activation authority, and `appendToStreams` takes one participant per stream.
   const guards = new Map<string, ConsentActivationGuard>();
-  for (const consent of consents) {
-    if (!isIdentityConsentPolicyKey(consent.policyKey)) {
-      throw new RegistrationConsentActivationChangedError(
-        `Policy '${consent.policyKey}' is not a Consent Bundle member and cannot be recorded by registration.`,
-      );
-    }
-    const activationPolicyKey = consentBundleMemberActivationPolicyKey(consent.policyKey);
-    const snapshot = await readConsentActivationAuthority(eventStore, activationPolicyKey);
-    if (!snapshot.isActive || snapshot.activeVersion !== consent.policyVersion) {
-      throw new RegistrationConsentActivationChangedError(
-        `The Consent Activation Authority for '${activationPolicyKey}' is ${snapshot.isActive ? `active at '${String(snapshot.activeVersion)}'` : snapshot.status} while this registration affirmed '${consent.policyVersion}'.`,
-      );
-    }
-    guards.set(snapshot.guard.streamId, snapshot.guard);
+  for (const guard of resolution.guards) {
+    guards.set(guard.streamId, guard);
   }
   return [...guards.values()];
 }
@@ -768,6 +787,12 @@ async function planPersonalIdentityRegistration(
     operation: RegistrationOperation;
     identity: RegistrationIdentity;
     claimedVersion: number | null;
+    /**
+     * The ordered requirement set the verified, server-minted resolution
+     * carries. Passed explicitly rather than re-derived from the claim, because
+     * it is the value the current bundle has to still equal.
+     */
+    signedRequirements: readonly ConsentBundleRequirement[];
     email: string;
     phone: string;
   }>,
@@ -1017,6 +1042,21 @@ async function planPersonalIdentityRegistration(
     claimedAt: new Date().toISOString(),
   };
 
+  // An EXACT retry of a registration that already committed appends nothing: the
+  // claim is present, every participant was read back and validated against it,
+  // and no decider produced an event. Such a request re-derives an outcome from
+  // history that is already there, so revalidating it against TODAY's activation
+  // state would turn a successful, idempotent retry into a failure whenever a
+  // policy moved afterwards. Everything else -- a first attempt, a partial
+  // recovery, one missing Consent -- appends, and appending is what has to be
+  // bound to the bundle as it stands right now.
+  const appendsNewHistory =
+    args.claimedVersion === null ||
+    accountEvents.length > 0 ||
+    userEvents.length > 0 ||
+    membershipEvents.length > 0 ||
+    consentPlans.some((consentPlan) => consentPlan.consentEvents.length > 0);
+
   return {
     claimedVersion: args.claimedVersion,
     claim,
@@ -1030,7 +1070,9 @@ async function planPersonalIdentityRegistration(
     membershipEvents,
     membershipState,
     consentPlans,
-    consentActivationGuards: await resolveRegistrationConsentActivationGuards(eventStore, identity.consents),
+    consentActivationGuards: appendsNewHistory
+      ? await resolveRegistrationConsentAppendGuards(eventStore, args.signedRequirements)
+      : [],
   };
 }
 
@@ -1959,7 +2001,11 @@ export function buildIdentityApi(services: IdentityServices) {
     "/consents/terms-of-service",
     termsOfServiceConsentRoutes({
       db: services.db,
-      policies: services.policies,
+      // The same authoritative read the recording admission and the registration
+      // bundle use. `services.policies` is deliberately not passed: the required
+      // version is activation state, and activation state has exactly one owner.
+      readAuthority: (policyKey) =>
+        readConsentActivationAuthority(requireConsentAuthorityEventStore(services), policyKey),
       consents: services.consents,
     }),
   );

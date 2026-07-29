@@ -1,7 +1,11 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { consentActivationAuthorityStreamId } from "@chase-sets/platform-policy/consent-activation-authority";
-import { consentBundleMemberActivationPolicyKey } from "./consent-bundle";
+import {
+  consentActivationAuthorityStreamId,
+  type ConsentActivationAuthoritySnapshot,
+  type ConsentActivationStatus,
+} from "@chase-sets/platform-policy/consent-activation-authority";
+import { consentBundleMemberActivationPolicyKey, type ConsentActivationAuthorityReader } from "./consent-bundle";
 import type { IdentityConsentPolicyKey } from "./terms-of-service-policy";
 
 /**
@@ -91,6 +95,55 @@ export async function deactivateConsentPolicyForTest(
       },
     ],
   });
+}
+
+/**
+ * One authority snapshot, in the exact shape `readConsentActivationAuthority`
+ * returns, for suites that drive a reader rather than an event store. The state
+ * and the guard revision are built together here for the same reason the
+ * production read derives them together: a test must not be able to express a
+ * pairing the production read cannot produce.
+ */
+export function consentActivationAuthoritySnapshotForTest(
+  activationPolicyKey: string,
+  state: Readonly<{ status: ConsentActivationStatus; activeVersion?: string | null; authorityVersion?: number }>,
+): ConsentActivationAuthoritySnapshot {
+  const streamId = consentActivationAuthorityStreamId(activationPolicyKey);
+  const authorityVersion = state.authorityVersion ?? (state.status === "never-activated" ? 0 : 2);
+  return {
+    policyKey: activationPolicyKey,
+    streamId,
+    registered: state.status !== "never-activated",
+    status: state.status,
+    isActive: state.status === "active",
+    activeVersion: state.status === "active" ? (state.activeVersion ?? "v1") : null,
+    activeDocumentId: state.status === "active" ? "pol-test" : null,
+    activationCount: state.status === "never-activated" ? 0 : 1,
+    lastTransitionAt: state.status === "never-activated" ? null : "2026-01-02T00:00:00.000Z",
+    authorityVersion,
+    guard: {
+      policyKey: activationPolicyKey,
+      streamId,
+      expectedVersion: authorityVersion === 0 ? "no_stream" : authorityVersion,
+    },
+  };
+}
+
+/**
+ * A reader that answers from a per-activation-key map and reports every other
+ * key as never-activated. Suites that need a failing or malformed read supply
+ * their own reader instead -- this one only ever produces well-formed snapshots.
+ */
+export function consentActivationAuthorityReaderForTest(
+  active: Readonly<Record<string, string>>,
+): ConsentActivationAuthorityReader {
+  return async (activationPolicyKey: string) =>
+    Object.prototype.hasOwnProperty.call(active, activationPolicyKey)
+      ? consentActivationAuthoritySnapshotForTest(activationPolicyKey, {
+          status: "active",
+          activeVersion: active[activationPolicyKey],
+        })
+      : consentActivationAuthoritySnapshotForTest(activationPolicyKey, { status: "never-activated" });
 }
 
 /** Replaces the active version -- the `v1 -> v2` mid-registration control. */

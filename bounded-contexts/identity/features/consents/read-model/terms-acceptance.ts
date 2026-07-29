@@ -1,6 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import { identityTermsOfServicePolicy } from "../domain/terms-of-service-policy";
+import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
 import { resolvePolicyAcceptanceStatus, type PolicyAcceptanceStatus } from "./consent-acceptance";
 
@@ -21,21 +20,21 @@ export type TermsAcceptanceStatus = PolicyAcceptanceStatus;
  * closed: absent any matching fact, `accepted` is false.
  *
  * This is now a thin wrapper over the generalized per-policy resolver, bound to
- * the Terms of Service policy and its canonical consent key. Its signature,
- * subject handling, and the underlying user-or-account disjunction are
- * deliberately unchanged: this is the host port's contract, and the per-bundle
- * subject-exact read is a separate function rather than a narrowing of this one.
+ * the canonical Terms of Service consent key. Its subject handling, its output
+ * shape, and the underlying user-or-account disjunction are deliberately
+ * unchanged: this is the host port's contract, and the per-bundle subject-exact
+ * read is a separate function rather than a narrowing of this one.
+ *
+ * What DID change is where the required version comes from: one read of the
+ * Terms of Service Consent Activation Authority, replacing the independently
+ * cached `PolicyRuntime` value. A resolver whose "required version" and whose
+ * activation state came from two different sources could report a subject as
+ * current against a version that was no longer active.
  */
 export async function resolveTermsAcceptanceStatus(
   db: PgQueryable,
-  policies: Pick<PolicyRuntime, "resolvePolicy">,
+  readAuthority: ConsentActivationAuthorityReader,
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
 ): Promise<TermsAcceptanceStatus> {
-  return resolvePolicyAcceptanceStatus(
-    db,
-    policies,
-    identityTermsOfServicePolicy,
-    TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-    subject,
-  );
+  return resolvePolicyAcceptanceStatus(db, readAuthority, TERMS_OF_SERVICE_CONSENT_POLICY_KEY, subject);
 }

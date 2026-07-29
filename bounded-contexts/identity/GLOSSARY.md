@@ -345,6 +345,8 @@ Notes:
 - **Bundle acceptance is subject-exact**, resolved on exactly `(subject type, subject id, policy key)`. Another principal in the same account can neither satisfy nor be satisfied by a user bundle. This is deliberately narrower than the pre-bundle Terms of Service host-port read, which keeps its user-or-account disjunction.
 - **Satisfaction is Consent aggregate state**, never the presence of a consent row, stream, or record. Empty, partial, withdrawn, and superseded-version containers all read as unsatisfied.
 - A resolution reads activation state, active version, and guard token from one read of each member's authority. No cached policy value is read on the bundle path, so pairing a cached value with a separately read revision is unrepresentable.
+- **A resolution guards every member it read, not only the members it required.** A publication-ready member observed inactive contributed a fact — "this was not required" — that stops being true the moment somebody activates it, so its guard travels with the resolution. A member that is not consent-activatable is read from the compiled corpus instead and costs no authority read at all.
+- **What is required is one fact, read once, everywhere.** The per-policy acceptance gate resolves the required version through the same single-member resolution the bundle uses, so "the version a subject must hold" and "the version the authority has active" cannot come from two sources and disagree. When nothing is currently required the gate reports no required version and accepts nobody.
 - The legacy history-only `terms` key is a member of no bundle. It stays readable as Consent history and can never be newly recorded or satisfy a bundle.
 - Defining the seller bundle is settled; **wiring** it — which account members may bind an account, and gating listing publication on it — is reserved for the seller-gating slice and does not exist yet.
 
@@ -391,6 +393,15 @@ Notes:
 - An empty requirement list is a value, not a disabled mode. A resolution over an empty list is still
   signed, still version-bearing, and still mandatory on every first-use path.
 - A resolution has a freshness window. Past it, a genuinely minted resolution stops being submittable.
+- **A registration that appends anything revalidates the WHOLE current bundle against the signed one,
+  in order, and refuses any difference.** Revalidating only the members the resolution happens to name
+  cannot catch a bundle that GREW after the mint — an empty resolution names nothing, so there would be
+  nothing in it to check. What the resolution still decides alone is what gets *recorded*; the
+  comparison only decides whether the set a person was shown is still the set that applies.
+- **An exact retry of a registration that already committed appends nothing and is therefore not
+  revalidated.** It re-derives a result from history that already exists; holding committed history to
+  today's activation state would turn a completed registration into a failure. Any attempt that would
+  append — a first submission, a partial recovery, one missing Consent — is revalidated in full.
 
 ### Registration Consent Requirement
 

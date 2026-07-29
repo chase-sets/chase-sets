@@ -224,10 +224,16 @@ export type ConsentBundleMemberResolution = Readonly<{
   requirement: ConsentBundleRequirement | null;
   /**
    * The authority guard token, present for exactly the members whose authority
-   * was read. A member omitted for not being consent-activatable carries none:
+   * was read -- including a publication-ready member the authority reports
+   * INACTIVE. A member omitted for not being consent-activatable carries none:
    * the compiled corpus cannot change inside a running process, so a member that
    * is not consent-activatable now cannot become required before the process is
    * replaced, and there is no window for a guard to protect.
+   *
+   * A publication-ready but inactive member is the opposite case: it can become
+   * required at any moment, and the guard on the read that observed it inactive
+   * is the only thing that makes "it was not required when I resolved" binding
+   * through to a commit.
    */
   guard: ConsentActivationGuard | null;
   unresolvedReason: string | null;
@@ -242,7 +248,17 @@ export type ConsentBundleResolution = Readonly<{
   members: readonly ConsentBundleMemberResolution[];
   /** The derived, ordered requirement set. Empty is a value, never a disabled mode. */
   requirements: readonly ConsentBundleRequirement[];
-  /** The guard tokens the requirement set was resolved against, in member order. */
+  /**
+   * The guard token of EVERY authority this resolution read, in member order --
+   * not only the ones that produced a requirement.
+   *
+   * A publication-ready member the authority reported inactive is an observed
+   * fact this resolution depends on just as much as an active one: the empty
+   * requirement set it contributed to is only honest for as long as that
+   * member stays inactive. Carrying its guard into the same transaction is what
+   * makes an activation landing between resolution and commit conflict rather
+   * than silently widen the bundle after the fact.
+   */
   guards: readonly ConsentActivationGuard[];
   /** Every member whose publication record or authority snapshot could not be trusted. */
   unresolved: readonly ConsentBundleUnresolvedMember[];
@@ -332,85 +348,7 @@ export async function resolveConsentBundle(
   const members: ConsentBundleMemberResolution[] = [];
 
   for (const member of bundle.members) {
-    const activationPolicyKey = consentBundleMemberActivationPolicyKey(member.policyKey);
-    const publication = assessConsentMemberPublication(member.policyKey, corpus);
-
-    if (publication.state === "unresolved") {
-      members.push(unresolvedMember(member.policyKey, activationPolicyKey, null, publication.reason));
-      continue;
-    }
-    if (publication.state === "not-consent-activatable") {
-      members.push({
-        policyKey: member.policyKey,
-        activationPolicyKey,
-        disposition: "omitted-not-consent-activatable",
-        publicationVersion: null,
-        requirement: null,
-        guard: null,
-        unresolvedReason: null,
-      });
-      continue;
-    }
-
-    let snapshot: unknown;
-    try {
-      snapshot = await readAuthority(activationPolicyKey);
-    } catch (error) {
-      members.push(
-        unresolvedMember(
-          member.policyKey,
-          activationPolicyKey,
-          publication.version,
-          `The activation authority read failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      );
-      continue;
-    }
-
-    const activation = assessActivation(activationPolicyKey, snapshot);
-    if (!activation.ok) {
-      members.push(unresolvedMember(member.policyKey, activationPolicyKey, publication.version, activation.reason));
-      continue;
-    }
-
-    if (!activation.snapshot.isActive) {
-      members.push({
-        policyKey: member.policyKey,
-        activationPolicyKey,
-        disposition: "omitted-not-activated",
-        publicationVersion: publication.version,
-        requirement: null,
-        guard: activation.snapshot.guard,
-        unresolvedReason: null,
-      });
-      continue;
-    }
-
-    // Publication and activation must name the same version. Two authorities
-    // agreeing on "active" while disagreeing on WHICH version is active is not a
-    // requirement that can be honestly presented, so it fails closed rather than
-    // picking either side.
-    if (activation.snapshot.activeVersion !== publication.version) {
-      members.push(
-        unresolvedMember(
-          member.policyKey,
-          activationPolicyKey,
-          publication.version,
-          `The activation authority is active at '${String(activation.snapshot.activeVersion)}' while the published artifact is '${publication.version}'.`,
-        ),
-      );
-      continue;
-    }
-
-    members.push({
-      policyKey: member.policyKey,
-      activationPolicyKey,
-      disposition: "required",
-      publicationVersion: publication.version,
-      requirement: { policyKey: member.policyKey, version: publication.version, href: publication.href },
-      guard: activation.snapshot.guard,
-      unresolvedReason: null,
-    });
+    members.push(await resolveConsentBundleMember(member.policyKey, readAuthority, corpus));
   }
 
   const unresolved = members
@@ -423,8 +361,94 @@ export async function resolveConsentBundle(
     recordedBy: bundle.recordedBy,
     members,
     requirements: members.flatMap((member) => (member.requirement ? [member.requirement] : [])),
-    guards: members.flatMap((member) => (member.disposition === "required" && member.guard ? [member.guard] : [])),
+    guards: members.flatMap((member) => (member.guard ? [member.guard] : [])),
     unresolved,
+  };
+}
+
+/**
+ * ONE member, resolved exactly the way a bundle resolution resolves it: the
+ * compiled publication record first, then -- only if the artifact is
+ * consent-activatable -- one read of that member's Consent Activation Authority.
+ *
+ * Exported because the per-policy acceptance gate asks the same question about a
+ * single key and must not answer it from a second, differently-derived source.
+ * Sharing this function is what keeps "required version" one fact rather than
+ * two that can disagree.
+ */
+export async function resolveConsentBundleMember(
+  policyKey: IdentityConsentPolicyKey,
+  readAuthority: ConsentActivationAuthorityReader,
+  corpus: ConsentPublicationCorpus = identityConsentPublicationCorpus,
+): Promise<ConsentBundleMemberResolution> {
+  const activationPolicyKey = consentBundleMemberActivationPolicyKey(policyKey);
+  const publication = assessConsentMemberPublication(policyKey, corpus);
+
+  if (publication.state === "unresolved") {
+    return unresolvedMember(policyKey, activationPolicyKey, null, publication.reason);
+  }
+  if (publication.state === "not-consent-activatable") {
+    return {
+      policyKey,
+      activationPolicyKey,
+      disposition: "omitted-not-consent-activatable",
+      publicationVersion: null,
+      requirement: null,
+      guard: null,
+      unresolvedReason: null,
+    };
+  }
+
+  let snapshot: unknown;
+  try {
+    snapshot = await readAuthority(activationPolicyKey);
+  } catch (error) {
+    return unresolvedMember(
+      policyKey,
+      activationPolicyKey,
+      publication.version,
+      `The activation authority read failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const activation = assessActivation(activationPolicyKey, snapshot);
+  if (!activation.ok) {
+    return unresolvedMember(policyKey, activationPolicyKey, publication.version, activation.reason);
+  }
+
+  if (!activation.snapshot.isActive) {
+    return {
+      policyKey,
+      activationPolicyKey,
+      disposition: "omitted-not-activated",
+      publicationVersion: publication.version,
+      requirement: null,
+      guard: activation.snapshot.guard,
+      unresolvedReason: null,
+    };
+  }
+
+  // Publication and activation must name the same version. Two authorities
+  // agreeing on "active" while disagreeing on WHICH version is active is not a
+  // requirement that can be honestly presented, so it fails closed rather than
+  // picking either side.
+  if (activation.snapshot.activeVersion !== publication.version) {
+    return unresolvedMember(
+      policyKey,
+      activationPolicyKey,
+      publication.version,
+      `The activation authority is active at '${String(activation.snapshot.activeVersion)}' while the published artifact is '${publication.version}'.`,
+    );
+  }
+
+  return {
+    policyKey,
+    activationPolicyKey,
+    disposition: "required",
+    publicationVersion: publication.version,
+    requirement: { policyKey, version: publication.version, href: publication.href },
+    guard: activation.snapshot.guard,
+    unresolvedReason: null,
   };
 }
 
@@ -464,6 +488,43 @@ export async function resolveRegistrationConsentRequirements(
 ): Promise<readonly ConsentBundleRequirement[]> {
   const resolution = await requireResolvedConsentBundle("registration", readAuthority, corpus);
   return resolution.requirements;
+}
+
+/**
+ * Exact, ordered equality between two requirement sets.
+ *
+ * Registration signs a requirement set at mint time and appends against it much
+ * later. Between those two moments a member can be activated, replaced, or
+ * deactivated -- and the dangerous direction is the one that ADDS a requirement,
+ * because a bundle that grew leaves nothing in the signed value to revalidate.
+ * Comparing the whole current set, in order, is the only comparison that catches
+ * a member the signed set never mentioned.
+ *
+ * Emptiness is not special-cased in either direction: an empty signed set is
+ * compared against the current set exactly like a populated one, which is
+ * precisely what makes "nothing was required when I minted this" verifiable
+ * rather than assumed.
+ */
+export function consentBundleRequirementsMatch(
+  left: readonly ConsentBundleRequirement[],
+  right: readonly ConsentBundleRequirement[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (requirement, index) =>
+        requirement.policyKey === right[index]?.policyKey &&
+        requirement.version === right[index]?.version &&
+        requirement.href === right[index]?.href,
+    )
+  );
+}
+
+/** Renders a requirement set for an operator-readable refusal message. */
+export function describeConsentBundleRequirements(requirements: readonly ConsentBundleRequirement[]): string {
+  return requirements.length === 0
+    ? "(no requirements)"
+    : requirements.map((requirement) => `${requirement.policyKey}@${requirement.version}`).join(", ");
 }
 
 function unresolvedMember(

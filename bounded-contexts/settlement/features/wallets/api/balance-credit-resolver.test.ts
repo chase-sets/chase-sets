@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import { resolveTermsAcceptanceStatus } from "@chase-sets/identity/server";
 import { balanceCreditHoldId, createSettlementBalanceCreditResolver } from "./balance-credit-resolver";
 
 function fakeDb(availableBalanceAmount: string, activeHoldAmount = "0.00") {
@@ -126,6 +127,92 @@ describe("createSettlementBalanceCreditResolver", () => {
 
     expect(result.appliedAmount).toBe("0.00");
     expect(result.remainingExternalAmount).toBe("50.00");
+  });
+
+  /**
+   * The host port, driven by Identity's REAL acceptance resolver rather than a
+   * stand-in that cannot disagree with it. The money gate is the reason this
+   * matters: the resolver decides whether a buyer may spend wallet balance, and
+   * a resolver that answered from a cached policy value would report a subject
+   * holding a recorded consent as accepted even though no version is currently
+   * activated for acceptance at all.
+   */
+  describe("consuming Identity's real Terms acceptance resolver", () => {
+    const consentRow = {
+      consent_id: "cns_1",
+      subject_type: "user",
+      user_id: null,
+      account_id: "acc_1",
+      policy_key: "terms-of-service",
+      policy_version: "v1",
+      status: "recorded",
+      recorded_at: "2026-03-01T00:00:00.000Z",
+      withdrawn_at: null,
+      updated_at: "2026-03-01T00:00:00.000Z",
+    };
+
+    function identityDbWithRecordedConsent() {
+      return {
+        query: vi.fn(async () => ({ rows: [consentRow], rowCount: 1 })),
+      } as unknown as PgQueryable;
+    }
+
+    function activeAuthority(activationPolicyKey: string, version: string) {
+      const streamId = `platform-policy.consent-activation-authority-${activationPolicyKey}`;
+      return {
+        policyKey: activationPolicyKey,
+        streamId,
+        registered: true,
+        status: "active" as const,
+        isActive: true,
+        activeVersion: version,
+        activeDocumentId: "pol_1",
+        activationCount: 1,
+        lastTransitionAt: "2026-01-02T00:00:00.000Z",
+        authorityVersion: 2,
+        guard: { policyKey: activationPolicyKey, streamId, expectedVersion: 2 },
+      };
+    }
+
+    it("blocks wallet credit while no Terms version is activated for acceptance", async () => {
+      // The shipped publication corpus carries nothing consent-activatable, so
+      // no version of Terms of Service can currently be accepted -- whatever an
+      // activation authority reports and whatever consent history exists. This
+      // buyer holds a recorded `terms-of-service` v1 fact.
+      const identityDb = identityDbWithRecordedConsent();
+      const termsAcceptanceResolver = {
+        resolveTermsAcceptanceStatus: (subject: Readonly<{ accountId: AccountId }>) =>
+          resolveTermsAcceptanceStatus(identityDb, async (key) => activeAuthority(key, "v1"), subject),
+      };
+      const resolver = createSettlementBalanceCreditResolver(fakeDbWithAvailableBalance("30.00"), {
+        termsAcceptanceResolver,
+      });
+
+      const result = await resolver.resolveBalanceCredit(input);
+
+      expect(result.appliedAmount).toBe("0.00");
+      expect(result.remainingExternalAmount).toBe("50.00");
+      expect(result.blockedReason).toBe("wallet-terms-not-accepted");
+    });
+
+    it("blocks wallet credit for a buyer whose recorded version the authority has superseded", async () => {
+      // Authority active at v2, buyer's recorded fact at v1: the #6290-F2 shape,
+      // consumed through the money gate.
+      const identityDb = identityDbWithRecordedConsent();
+      const status = await resolveTermsAcceptanceStatus(identityDb, async (key) => activeAuthority(key, "v2"), {
+        accountId: "acc_1",
+      });
+      expect(status.accepted).toBe(false);
+
+      const resolver = createSettlementBalanceCreditResolver(fakeDbWithAvailableBalance("30.00"), {
+        termsAcceptanceResolver: { resolveTermsAcceptanceStatus: async () => status },
+      });
+
+      const result = await resolver.resolveBalanceCredit(input);
+
+      expect(result.appliedAmount).toBe("0.00");
+      expect(result.blockedReason).toBe("wallet-terms-not-accepted");
+    });
   });
 
   describe("placeSpendHold", () => {

@@ -52,27 +52,20 @@ const EMAIL = "owner@pokebash.example";
 const DISPLAY_NAME = "PokeBash TCG";
 const DISPLAY_NAME_KEY = "pokebash tcg";
 // Registration records only bundle members that are published AND activated,
-// so this suite publishes its two members at the exact versions its resolutions
-// name and activates their authorities in `beforeEach`. Everything it asserts
-// about operation identity, convergence and partial-state rejection is
-// unchanged.
+// and it revalidates the WHOLE current bundle against the signed one, so this
+// suite's world is exactly one required member: Terms of Service, published at
+// v1 and activated in `beforeEach`. Everything it asserts about operation
+// identity, convergence and partial-state rejection is unchanged.
 vi.mock("@chase-sets/public-docs", async (importOriginal) => {
   const { publicDocsWithConsentActivatable } =
     await import("../features/consents/domain/consent-publication-test-support");
-  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service", "privacy-policy"], {
-    "privacy-policy": "v3",
-  });
+  return publicDocsWithConsentActivatable(importOriginal, ["terms-of-service"]);
 });
 
 const TERMS_V1: RegistrationConsentRequirement = {
   policyKey: "terms-of-service",
   version: "v1",
   href: "/terms",
-};
-const PRIVACY_V3: RegistrationConsentRequirement = {
-  policyKey: "privacy-policy",
-  version: "v3",
-  href: "/privacy",
 };
 
 type Fixture = Readonly<{
@@ -128,18 +121,11 @@ describeDb("registration operation semantic validation", () => {
 
     eventStore = createPostgresEventStore({ pool });
 
-    for (const requirement of [TERMS_V1, PRIVACY_V3]) {
-      await activateConsentPolicyForTest(
-        eventStore,
-        requirement.policyKey as "privacy-policy" | "terms-of-service",
-        requirement.version,
-        {
-          tenantId: "tnt_identity",
-          audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
-          trace: {},
-        } as never,
-      );
-    }
+    await activateConsentPolicyForTest(eventStore, "terms-of-service", TERMS_V1.version, {
+      tenantId: "tnt_identity",
+      audit: { performedByUserId: "usr_policy_operator", forAccountId: "acc_policy_operator" },
+      trace: {},
+    } as never);
 
     services = createServices(eventStore);
   });
@@ -921,7 +907,7 @@ describeDb("registration operation semantic validation", () => {
       event.streamId.startsWith("identity.membership-"),
     ).length;
 
-    const rejected = await register({}, [TERMS_V1, PRIVACY_V3]);
+    const rejected = await register({});
 
     expect(rejected.status).toBe(409);
     expect((rejected.body.error as { code?: string } | undefined)?.code).toBe("display_name_already_taken");

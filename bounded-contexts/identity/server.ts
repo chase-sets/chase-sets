@@ -58,6 +58,13 @@ export {
   createIdentityTermsAcceptanceResolver,
   type TermsAcceptanceStatus,
 } from "./features/consents/api/terms-acceptance-resolver";
+/**
+ * The host port's resolver function itself, exported alongside the pool-bound
+ * factory so a consuming context can drive Identity's real acceptance rule from
+ * its own suite instead of asserting against a hand-written stand-in that cannot
+ * disagree with it.
+ */
+export { resolveTermsAcceptanceStatus } from "./features/consents/read-model/terms-acceptance";
 export {
   identityTermsOfServicePolicy,
   type TermsOfServicePolicyValue,

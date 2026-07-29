@@ -234,6 +234,33 @@ describe("resolving a Consent Bundle", () => {
       policyKey: "privacy-policy",
       disposition: "omitted-not-activated",
     });
+
+    // The omitted member's authority WAS read, and that read is guarded too:
+    // "privacy-policy was not required" is a fact this resolution depends on,
+    // and it stops being true the moment somebody activates it.
+    expect(resolution.guards.map((guard) => guard.policyKey)).toEqual([
+      activationKey("terms-of-service"),
+      activationKey("privacy-policy"),
+    ]);
+  });
+
+  it("guards a publication-ready member that no authority has ever activated", async () => {
+    // The empty-requirement-set case that matters: nothing is required, and the
+    // resolution still carries a guard per member it read. A resolution with no
+    // requirements and no guards would be indistinguishable from one taken
+    // before an activation.
+    const resolution = await resolveConsentBundle(
+      "registration",
+      authorityReader(),
+      corpusWithActivatable("terms-of-service", "privacy-policy"),
+    );
+
+    expect(resolution.requirements).toEqual([]);
+    expect(resolution.members.map((member) => member.disposition)).toEqual([
+      "omitted-not-activated",
+      "omitted-not-activated",
+    ]);
+    expect(resolution.guards).toHaveLength(2);
   });
 
   it("emits requirements in declared member order, not authority-read order", async () => {
