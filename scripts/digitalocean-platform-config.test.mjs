@@ -260,6 +260,27 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function workflowEnvironmentExpression(step, variableName) {
+  const match = step.match(new RegExp(`^\\s+${variableName}:\\s+(.+)$`, "m"));
+  expect(match).not.toBeNull();
+  return match[1];
+}
+
+function evaluateRestorePointWorkflowExpression(expression, { eventName, emergencyRelease, restorePointRequired }) {
+  const match = expression.match(/^\$\{\{\s*(.+?)\s*\}\}$/);
+  expect(match).not.toBeNull();
+
+  const javascriptExpression = match[1]
+    .replaceAll("github.event_name", JSON.stringify(eventName))
+    .replaceAll("inputs.emergency_release", JSON.stringify(emergencyRelease))
+    .replaceAll(
+      "needs.resolve-release.outputs.production_restore_point_required",
+      JSON.stringify(restorePointRequired),
+    );
+
+  return Function(`"use strict"; return (${javascriptExpression});`)();
+}
+
 function stagingResumeInverseGateViolations(source) {
   const gate = workflowStep(source, "Fail closed unless staging is absent for resume");
   const requirements = [
@@ -537,6 +558,29 @@ describe("DigitalOcean platform configuration", () => {
     expect(restorePointStep).toContain("git fetch origin production");
     expect(restorePointStep).toContain('pre_migrate_state_key="production-marker:${production_marker_commit}"');
     expect(restorePointStep).toContain('--pre-migrate-state-key "$pre_migrate_state_key"');
+  });
+
+  it("gives an audited emergency restore-point bypass precedence over the routine PITR skip (#6270)", () => {
+    const restorePointStep = workflowStep(platformProductionWorkflow, "Create production database restore point");
+    const incidentContext = {
+      eventName: "workflow_dispatch",
+      emergencyRelease: true,
+      restorePointRequired: "false",
+    };
+    const bypassExpression = workflowEnvironmentExpression(restorePointStep, "PRODUCTION_DB_RESTORE_POINT_BYPASS");
+    const skipExpression = workflowEnvironmentExpression(restorePointStep, "PRODUCTION_DB_RESTORE_POINT_SKIP");
+
+    expect({
+      bypass: evaluateRestorePointWorkflowExpression(bypassExpression, incidentContext),
+      skip: evaluateRestorePointWorkflowExpression(skipExpression, incidentContext),
+    }).toEqual({
+      bypass: "true",
+      skip: "false",
+    });
+
+    const predecessorSkipExpression =
+      "${{ needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true' }}";
+    expect(evaluateRestorePointWorkflowExpression(predecessorSkipExpression, incidentContext)).toBe("true");
   });
 
   it("reaps production restore-point forks on a six-hour cleanup window", () => {
