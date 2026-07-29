@@ -19,6 +19,7 @@ const expectedCallerInventory = {
   "scripts/staging-bootstrap-hook-drill.mjs": { healthy: 1, no5xx: 0 },
 };
 
+const setupPnpmWorkspaceAction = "./.github/actions/setup-pnpm-workspace";
 const servers = [];
 
 function callerSourceFiles() {
@@ -42,6 +43,39 @@ function runSteps(document) {
   return Object.values(document.jobs ?? {})
     .flatMap((job) => job.steps ?? [])
     .filter((step) => typeof step.run === "string");
+}
+
+function runnerNo5xxCallers(relativePath, document) {
+  return Object.entries(document.jobs ?? {}).flatMap(([jobName, job]) =>
+    (job.steps ?? []).flatMap((step, stepIndex) =>
+      typeof step.run === "string" && /pnpm run smoke:public-web-routes --[\s\S]*?--mode no-5xx/.test(step.run)
+        ? [{ relativePath, jobName, job, step, stepIndex }]
+        : [],
+    ),
+  );
+}
+
+function runnerNo5xxPrerequisiteViolations(relativePath, document) {
+  return runnerNo5xxCallers(relativePath, document).flatMap((caller) => {
+    const prerequisiteIndex = caller.job.steps.findIndex(
+      (step, stepIndex) =>
+        stepIndex < caller.stepIndex &&
+        step.uses === setupPnpmWorkspaceAction &&
+        String(step.with?.install) === "true" &&
+        (step.if === undefined || step.if === caller.step.if),
+    );
+    return prerequisiteIndex >= 0
+      ? []
+      : [`${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`];
+  });
+}
+
+function workflowFilesWithRunnerNo5xxCalls() {
+  return callerSourceFiles()
+    .filter((relativePath) => relativePath.startsWith(".github/workflows/"))
+    .filter((relativePath) =>
+      readFileSync(path.join(repoRoot, relativePath), "utf8").includes("pnpm run smoke:public-web-routes"),
+    );
 }
 
 function withChangedFileEnvironmentCleared(action) {
@@ -175,6 +209,53 @@ describe("public route smoke workflow composition", () => {
       expect(source.indexOf("pnpm run smoke:public-web-routes")).toBeGreaterThan(source.indexOf("curl --fail"));
     }
   });
+
+  it("installs the pinned pnpm workspace before every runner-side no-5xx caller", () => {
+    const workflowFiles = workflowFilesWithRunnerNo5xxCalls();
+    const callers = workflowFiles.flatMap((relativePath) =>
+      runnerNo5xxCallers(relativePath, parseWorkflow(relativePath)),
+    );
+    expect(
+      callers.map(({ relativePath, jobName }) => `${relativePath}:${jobName}`),
+      "the runner-side no-5xx caller inventory changed",
+    ).toEqual([
+      ".github/workflows/platform-pr.yml:docker-image",
+      ".github/workflows/platform-production.yml:build-image",
+    ]);
+
+    expect(
+      workflowFiles.flatMap((relativePath) =>
+        runnerNo5xxPrerequisiteViolations(relativePath, parseWorkflow(relativePath)),
+      ),
+    ).toEqual([]);
+  });
+
+  it.each(["removed", "moved after the call"])(
+    "rejects a planted pnpm workspace prerequisite that is %s",
+    (mutation) => {
+      for (const relativePath of workflowFilesWithRunnerNo5xxCalls()) {
+        const document = structuredClone(parseWorkflow(relativePath));
+        const [caller] = runnerNo5xxCallers(relativePath, document);
+        expect(caller, `${relativePath} must expose its runner-side no-5xx caller`).toBeDefined();
+
+        const prerequisiteIndex = caller.job.steps.findIndex(
+          (step) => step.uses === setupPnpmWorkspaceAction && String(step.with?.install) === "true",
+        );
+        expect(prerequisiteIndex, `${relativePath} must expose its pnpm workspace prerequisite`).toBeGreaterThanOrEqual(
+          0,
+        );
+        const [prerequisite] = caller.job.steps.splice(prerequisiteIndex, 1);
+        if (mutation === "moved after the call") {
+          const [mutatedCaller] = runnerNo5xxCallers(relativePath, document);
+          mutatedCaller.job.steps.splice(mutatedCaller.stepIndex + 1, 0, prerequisite);
+        }
+
+        expect(runnerNo5xxPrerequisiteViolations(relativePath, document)).toEqual([
+          `${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`,
+        ]);
+      }
+    },
+  );
 
   it("keeps every deployed caller enforcing and free of swallowed exits", () => {
     for (const [relativePath, counts] of Object.entries(expectedCallerInventory).filter(([filePath]) =>

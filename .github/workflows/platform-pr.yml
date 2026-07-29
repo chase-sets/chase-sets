@@ -389,6 +389,11 @@ jobs:
             --tag chase-sets-platform:pr-validation \
             .
 
+      - uses: ./.github/actions/setup-pnpm-workspace
+        if: github.event_name == 'merge_group'
+        with:
+          install: true
+
       - name: Boot smoke runtime image
         if: github.event_name == 'merge_group'
         env:

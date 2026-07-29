@@ -546,6 +546,11 @@ jobs:
             .
           echo "built=true" >> "$GITHUB_OUTPUT"
 
+      - uses: ./.github/actions/setup-pnpm-workspace
+        if: steps.release_image.outputs.built == 'true'
+        with:
+          install: true
+
       - name: Boot smoke release image
         if: steps.release_image.outputs.built == 'true'
         env:
