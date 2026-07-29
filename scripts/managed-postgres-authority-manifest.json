@@ -2496,14 +2496,14 @@
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Boot smoke runtime image#6",
+      "stepAnchor": "name:Boot smoke runtime image#7",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Boot smoke runtime image#6",
+      "stepAnchor": "name:Boot smoke runtime image#7",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },
@@ -2524,28 +2524,28 @@
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Push boot-smoked merge-group image#7",
+      "stepAnchor": "name:Push boot-smoked merge-group image#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Push boot-smoked merge-group image#7",
+      "stepAnchor": "name:Push boot-smoked merge-group image#8",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Report skipped merge-group image push#8",
+      "stepAnchor": "name:Report skipped merge-group image push#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Report skipped merge-group image push#8",
+      "stepAnchor": "name:Report skipped merge-group image push#9",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },
