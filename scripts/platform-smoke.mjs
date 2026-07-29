@@ -21,6 +21,7 @@ import {
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 import { createReadAfterWriteReceiptFromCommitReceipt } from "./platform-smoke-freshness.mjs";
+import { smokePublicWebRoutes } from "./public-web-route-smoke.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -551,6 +552,10 @@ async function main() {
   if (requireLanding) {
     await expectOk("landing home", `${landingUrl}/`);
     await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
+    await smokePublicWebRoutes({
+      baseUrl: landingUrl,
+      mode: "healthy",
+    });
   } else {
     console.warn("Skipping landing smoke; SMOKE_REQUIRE_LANDING is not true.");
   }
