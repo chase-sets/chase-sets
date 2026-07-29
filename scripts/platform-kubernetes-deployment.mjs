@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
 import {
@@ -44,6 +45,7 @@ const productionValuesPath = `${chartPath}/values.production.yaml`;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
+const productionImagePlatform = "linux/amd64";
 // teardown only ever deletes disposable namespaces created outside Terraform
 // by a Helm deploy (`--create-namespace`), so nothing else destroys them when
 // their owning workflow ends. Three kinds exist, each with its own strict
@@ -620,6 +622,7 @@ export function buildKubernetesRollbackTarget(options = {}) {
     sourceDescription: options.sourceDescription ?? null,
     observedTag: options.observedTag ?? tag,
     observedDigest: options.observedDigest ?? digest,
+    ...(options.imageIdentityProof ? { imageIdentityProof: options.imageIdentityProof } : {}),
     workloadIdentities: options.workloadIdentities ?? [],
   };
 }
@@ -651,7 +654,12 @@ export async function captureKubernetesRollbackTarget(options = {}) {
 
   const values = await readHelmRevisionValues({ ...options, revision: source.revision });
   const observedIdentity = platformImageIdentityFromValues(values);
-  assertPlatformImageIdentity(observedIdentity, expectedIdentity, `Helm revision ${source.revision}`);
+  const imageIdentityProof = assertCapturedRollbackImageIdentity(
+    observedIdentity,
+    expectedIdentity,
+    `Helm revision ${source.revision}`,
+    options,
+  );
   const workloadIdentities = await readApplicationWorkloadIdentities({
     ...options,
     values,
@@ -669,6 +677,7 @@ export async function captureKubernetesRollbackTarget(options = {}) {
     sourceDescription: source.description,
     observedTag: observedIdentity.tag,
     observedDigest: observedIdentity.digest,
+    imageIdentityProof,
     workloadIdentities,
     values,
   });
@@ -717,6 +726,138 @@ function assertPlatformImageIdentity(observed, expected, label) {
       );
     }
   }
+}
+
+function assertCapturedRollbackImageIdentity(observed, expected, label, options) {
+  for (const field of ["registry", "registryName", "repository", "tag"]) {
+    if (observed[field] !== expected[field]) {
+      throw new Error(
+        `${label} ${field} ${JSON.stringify(observed[field])} does not match captured rollback identity ${JSON.stringify(expected[field])}.`,
+      );
+    }
+  }
+
+  if (observed.digest === expected.digest) {
+    if (observed.imageRef !== expected.imageRef) {
+      throw new Error(
+        `${label} imageRef ${JSON.stringify(observed.imageRef)} does not match captured rollback identity ${JSON.stringify(expected.imageRef)}.`,
+      );
+    }
+    return {
+      kind: "exact-digest",
+      digest: observed.digest,
+    };
+  }
+
+  const platform = requiredOption(options.platform, "platform");
+  if (platform !== productionImagePlatform) {
+    throw new Error(`platform must select the production image platform ${productionImagePlatform}.`);
+  }
+  const rawIndex = options.indexManifest ?? readFileSync(requiredOption(options.indexManifestPath, "index-manifest"));
+  const indexBytes = Buffer.isBuffer(rawIndex) ? rawIndex : Buffer.from(String(rawIndex), "utf8");
+  const actualIndexDigest = `sha256:${createHash("sha256").update(indexBytes).digest("hex")}`;
+  if (actualIndexDigest !== expected.digest) {
+    throw new Error(
+      `Captured OCI index bytes digest ${JSON.stringify(actualIndexDigest)} does not match captured rollback identity ${JSON.stringify(expected.digest)}.`,
+    );
+  }
+
+  const index = parseJsonCommandOutput(indexBytes.toString("utf8"), "captured OCI index manifest");
+  return assertOciIndexPlatformManifestMembership({
+    index,
+    indexDigest: expected.digest,
+    manifestDigest: observed.digest,
+    platform,
+    label,
+  });
+}
+
+export function assertOciIndexPlatformManifestMembership(options = {}) {
+  const indexDigest = requiredSha256Digest(options.indexDigest, "indexDigest");
+  const manifestDigest = requiredSha256Digest(options.manifestDigest, "manifestDigest");
+  const platform = parseOciPlatform(requiredOption(options.platform, "platform"));
+  const index = options.index;
+  if (!index || typeof index !== "object" || Array.isArray(index)) {
+    throw new Error("Captured OCI index manifest must be a JSON object.");
+  }
+  if (index.schemaVersion !== 2) {
+    throw new Error("Captured OCI index manifest schemaVersion must be 2.");
+  }
+  if (
+    !["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"].includes(
+      index.mediaType,
+    )
+  ) {
+    throw new Error(`Captured OCI index manifest mediaType ${JSON.stringify(index.mediaType)} is not an image index.`);
+  }
+  if (!Array.isArray(index.manifests) || index.manifests.length === 0) {
+    throw new Error("Captured OCI index manifest must contain manifest descriptors.");
+  }
+
+  const platformMembers = index.manifests.filter((descriptor, indexPosition) => {
+    if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)) {
+      throw new Error(`Captured OCI index descriptor ${indexPosition} must be an object.`);
+    }
+    requiredSha256Digest(descriptor.digest, `captured OCI index descriptor ${indexPosition} digest`);
+    const descriptorPlatform = descriptor.platform;
+    if (!descriptorPlatform || typeof descriptorPlatform !== "object" || Array.isArray(descriptorPlatform)) {
+      return false;
+    }
+    const descriptorVariant = String(descriptorPlatform.variant ?? "")
+      .trim()
+      .toLowerCase();
+    return (
+      String(descriptorPlatform.os ?? "")
+        .trim()
+        .toLowerCase() === platform.os &&
+      String(descriptorPlatform.architecture ?? "")
+        .trim()
+        .toLowerCase() === platform.architecture &&
+      descriptorVariant === platform.variant
+    );
+  });
+  if (platformMembers.length !== 1) {
+    throw new Error(
+      `Captured OCI index ${indexDigest} must contain exactly one ${platform.value} manifest; observed ${platformMembers.length}.`,
+    );
+  }
+
+  const selectedMember = platformMembers[0];
+  if (
+    !["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"].includes(
+      selectedMember.mediaType,
+    )
+  ) {
+    throw new Error(
+      `Captured OCI index ${indexDigest} ${platform.value} member mediaType ${JSON.stringify(selectedMember.mediaType)} is not an image manifest.`,
+    );
+  }
+  const selectedDigest = requiredSha256Digest(selectedMember.digest, `${platform.value} manifest digest`);
+  if (selectedDigest !== manifestDigest) {
+    throw new Error(
+      `${options.label ?? "Observed image"} digest ${JSON.stringify(manifestDigest)} is not the ${platform.value} manifest ${JSON.stringify(selectedDigest)} in captured OCI index ${JSON.stringify(indexDigest)}.`,
+    );
+  }
+  return {
+    kind: "oci-index-platform-member",
+    indexDigest,
+    platform: platform.value,
+    manifestDigest,
+  };
+}
+
+function parseOciPlatform(value) {
+  const parts = String(value).trim().toLowerCase().split("/");
+  if ((parts.length !== 2 && parts.length !== 3) || parts.some((part) => !/^[a-z0-9][a-z0-9._-]*$/.test(part))) {
+    throw new Error("platform must use os/architecture or os/architecture/variant.");
+  }
+  const [os, architecture, variant = ""] = parts;
+  return {
+    os,
+    architecture,
+    variant,
+    value: [os, architecture, variant].filter(Boolean).join("/"),
+  };
 }
 
 async function readHelmHistory(options) {
@@ -1820,7 +1961,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1849,6 +1990,8 @@ export function parseArgs(argv, env = process.env) {
     repository: readOption(rest, "--repository", env.PLATFORM_IMAGE_REPOSITORY),
     tag: readOption(rest, "--tag", env.ROLLBACK_IMAGE_TAG),
     digest: readOption(rest, "--digest", env.ROLLBACK_IMAGE_DIGEST),
+    indexManifestPath: readOption(rest, "--index-manifest", env.ROLLBACK_IMAGE_INDEX_MANIFEST),
+    platform: readOption(rest, "--platform", env.ROLLBACK_IMAGE_PLATFORM),
     lastKnownGoodCommit: readOption(rest, "--last-known-good-commit", env.LAST_KNOWN_GOOD_COMMIT ?? ""),
     releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
     rollbackTargetPath: readOption(rest, "--rollback-target", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET),

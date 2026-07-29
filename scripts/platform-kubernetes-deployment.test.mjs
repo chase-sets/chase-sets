@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   abortPlatformRollouts,
+  assertOciIndexPlatformManifestMembership,
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
   buildApplicationWorkloadIdentityArgs,
@@ -47,9 +49,26 @@ const sampleValues = {
 };
 
 const rollbackDigest = "sha256:635b93388d32b865330e1ccb068a5effcd7a492326e597c9f72c48886f1f9680";
+const rollbackIndexDigest = "sha256:261f0b60e1b373d0aa423f04b651c3ab9f9e3d0f6e799624a920b58e4b1aefb2";
 const rollbackTag = "c0bd688d64bd5140fcbd2790489717a042e5432b";
 const failedCandidateDigest = "sha256:389894cef6b5ebc5dd63d1b3b5aada76264a8d353d8fa4852018bafe9496292d";
 const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platform@${rollbackDigest}`;
+const productionIndex = {
+  schemaVersion: 2,
+  mediaType: "application/vnd.oci.image.index.v1+json",
+  manifests: [
+    {
+      mediaType: "application/vnd.oci.image.manifest.v1+json",
+      digest: rollbackDigest,
+      platform: { os: "linux", architecture: "amd64" },
+    },
+    {
+      mediaType: "application/vnd.oci.image.manifest.v1+json",
+      digest: failedCandidateDigest,
+      platform: { os: "unknown", architecture: "unknown" },
+    },
+  ],
+};
 const rollbackValues = {
   global: {
     image: {
@@ -1330,6 +1349,10 @@ describe("platform Kubernetes deployment", () => {
       sourceStatus: "deployed",
       observedTag: rollbackTag,
       observedDigest: rollbackDigest,
+      imageIdentityProof: {
+        kind: "exact-digest",
+        digest: rollbackDigest,
+      },
       workloadIdentities: [{ kind: "Deployment", component: "platform-worker" }],
     });
 
@@ -1388,6 +1411,121 @@ describe("platform Kubernetes deployment", () => {
     expect(helmRollback.args).not.toContain("229");
   });
 
+  it("accepts the production index digest and amd64 manifest digest only when the manifest is a platform member", () => {
+    expect(
+      assertOciIndexPlatformManifestMembership({
+        index: productionIndex,
+        indexDigest: rollbackIndexDigest,
+        manifestDigest: rollbackDigest,
+        platform: "linux/amd64",
+        label: "Helm revision 232",
+      }),
+    ).toEqual({
+      kind: "oci-index-platform-member",
+      indexDigest: rollbackIndexDigest,
+      platform: "linux/amd64",
+      manifestDigest: rollbackDigest,
+    });
+
+    expect(() =>
+      assertOciIndexPlatformManifestMembership({
+        index: productionIndex,
+        indexDigest: rollbackIndexDigest,
+        manifestDigest: `sha256:${"3".repeat(64)}`,
+        platform: "linux/amd64",
+        label: "Helm revision 232",
+      }),
+    ).toThrow("is not the linux/amd64 manifest");
+  });
+
+  it("parses the OCI index evidence required by the capture command", () => {
+    expect(
+      parseArgs(
+        [
+          "capture-rollback-target",
+          `--digest=${rollbackIndexDigest}`,
+          "--index-manifest=artifacts/production-rollback-index.json",
+          "--platform=linux/amd64",
+        ],
+        {},
+      ),
+    ).toMatchObject({
+      command: "capture-rollback-target",
+      digest: rollbackIndexDigest,
+      indexManifestPath: "artifacts/production-rollback-index.json",
+      platform: "linux/amd64",
+    });
+  });
+
+  it("cryptographically binds an index to its digest before accepting its production platform manifest", async () => {
+    const rawIndex = JSON.stringify(productionIndex);
+    const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
+    const capturedHistory = [{ revision: 232, status: "deployed", description: "Upgrade complete" }];
+    const target = await captureKubernetesRollbackTarget({
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: capturedIndexDigest,
+      indexManifest: rawIndex,
+      platform: "linux/amd64",
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-20260728185747-c0bd688d",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(capturedHistory) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(capturedHistory) },
+        ],
+      ),
+    });
+
+    expect(target).toMatchObject({
+      sourceRevision: 232,
+      digest: rollbackDigest,
+      observedDigest: rollbackDigest,
+      imageIdentityProof: {
+        kind: "oci-index-platform-member",
+        indexDigest: capturedIndexDigest,
+        platform: "linux/amd64",
+        manifestDigest: rollbackDigest,
+      },
+    });
+  });
+
+  it("blocks a different valid Helm digest even when the captured OCI index bytes are valid", async () => {
+    const rawIndex = JSON.stringify(productionIndex);
+    const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
+    const mismatchedValues = structuredClone(rollbackValues);
+    mismatchedValues.global.image.digest = `sha256:${"3".repeat(64)}`;
+    const capturedHistory = [{ revision: 232, status: "deployed", description: "Upgrade complete" }];
+
+    await expect(
+      captureKubernetesRollbackTarget({
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: rollbackTag,
+        digest: capturedIndexDigest,
+        indexManifest: rawIndex,
+        platform: "linux/amd64",
+        lastKnownGoodCommit: rollbackTag,
+        releaseTag: "release-20260728185747-c0bd688d",
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(capturedHistory) },
+            { code: 0, stdout: JSON.stringify(mismatchedValues) },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("is not the linux/amd64 manifest");
+  });
+
   it("refuses ambiguous target capture and last-known-good digest disagreement", async () => {
     await expect(
       captureKubernetesRollbackTarget({
@@ -1397,6 +1535,7 @@ describe("platform Kubernetes deployment", () => {
         repository: "chase-sets-platform",
         tag: rollbackTag,
         digest: rollbackDigest,
+        platform: "linux/amd64",
         lastKnownGoodCommit: rollbackTag,
         releaseTag: "release-proof",
         spawn: completedSpawn(
@@ -1424,6 +1563,7 @@ describe("platform Kubernetes deployment", () => {
         repository: "chase-sets-platform",
         tag: rollbackTag,
         digest: rollbackDigest,
+        platform: "linux/amd64",
         lastKnownGoodCommit: rollbackTag,
         releaseTag: "release-proof",
         spawn: completedSpawn(
@@ -1437,7 +1577,7 @@ describe("platform Kubernetes deployment", () => {
           ],
         ),
       }),
-    ).rejects.toThrow("does not match captured rollback identity");
+    ).rejects.toThrow("index-manifest is required");
   });
 
   it.each([
