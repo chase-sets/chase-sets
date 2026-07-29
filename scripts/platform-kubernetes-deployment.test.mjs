@@ -1438,6 +1438,70 @@ describe("platform Kubernetes deployment", () => {
     ).toThrow("is not the linux/amd64 manifest");
   });
 
+  it.each([
+    {
+      observedCount: 2,
+      index: {
+        ...productionIndex,
+        manifests: [
+          productionIndex.manifests[0],
+          {
+            ...productionIndex.manifests[0],
+            digest: failedCandidateDigest,
+          },
+        ],
+      },
+    },
+    {
+      observedCount: 0,
+      index: {
+        ...productionIndex,
+        manifests: productionIndex.manifests.map((descriptor) => ({
+          ...descriptor,
+          platform: { os: "linux", architecture: "arm64" },
+        })),
+      },
+    },
+  ])("rejects an OCI index with $observedCount linux/amd64 members", ({ index, observedCount }) => {
+    expect(() =>
+      assertOciIndexPlatformManifestMembership({
+        index,
+        indexDigest: rollbackIndexDigest,
+        manifestDigest: rollbackDigest,
+        platform: "linux/amd64",
+      }),
+    ).toThrowError(
+      new Error(
+        `Captured OCI index ${rollbackIndexDigest} must contain exactly one linux/amd64 manifest; observed ${observedCount}.`,
+      ),
+    );
+  });
+
+  it("rejects a linux/amd64 index descriptor instead of treating it as an image manifest", () => {
+    const nestedIndex = {
+      ...productionIndex,
+      manifests: [
+        {
+          ...productionIndex.manifests[0],
+          mediaType: "application/vnd.oci.image.index.v1+json",
+        },
+      ],
+    };
+
+    expect(() =>
+      assertOciIndexPlatformManifestMembership({
+        index: nestedIndex,
+        indexDigest: rollbackIndexDigest,
+        manifestDigest: rollbackDigest,
+        platform: "linux/amd64",
+      }),
+    ).toThrowError(
+      new Error(
+        `Captured OCI index ${rollbackIndexDigest} linux/amd64 member mediaType "application/vnd.oci.image.index.v1+json" is not an image manifest.`,
+      ),
+    );
+  });
+
   it("parses the OCI index evidence required by the capture command", () => {
     expect(
       parseArgs(
@@ -1494,6 +1558,44 @@ describe("platform Kubernetes deployment", () => {
         manifestDigest: rollbackDigest,
       },
     });
+  });
+
+  it("rejects one-byte-mutated OCI index bytes when the captured digest remains bound to the clean index", async () => {
+    const rawIndex = Buffer.from(JSON.stringify(productionIndex));
+    const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
+    const mutatedIndex = Buffer.from(rawIndex);
+    const mutationOffset = rawIndex.indexOf("unknown") + "unknow".length;
+    mutatedIndex[mutationOffset] = "o".charCodeAt(0);
+    const mutatedIndexDigest = `sha256:${createHash("sha256").update(mutatedIndex).digest("hex")}`;
+    const capturedHistory = [{ revision: 232, status: "deployed", description: "Upgrade complete" }];
+
+    await expect(
+      captureKubernetesRollbackTarget({
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: rollbackTag,
+        digest: capturedIndexDigest,
+        indexManifest: mutatedIndex,
+        platform: "linux/amd64",
+        lastKnownGoodCommit: rollbackTag,
+        releaseTag: "release-20260728185747-c0bd688d",
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(capturedHistory) },
+            { code: 0, stdout: JSON.stringify(rollbackValues) },
+            { code: 0, stdout: rollbackWorkloadList() },
+            { code: 0, stdout: helmHistory(capturedHistory) },
+          ],
+        ),
+      }),
+    ).rejects.toThrowError(
+      new Error(
+        `Captured OCI index bytes digest "${mutatedIndexDigest}" does not match captured rollback identity "${capturedIndexDigest}".`,
+      ),
+    );
   });
 
   it("blocks a different valid Helm digest even when the captured OCI index bytes are valid", async () => {
