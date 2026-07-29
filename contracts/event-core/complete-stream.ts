@@ -95,22 +95,27 @@ export async function readCompleteStream(
       // A page that begins before the version it was asked for means the store
       // ignored `fromVersion`; continuing would fold the same events twice.
       const firstVersion = page[0].streamVersion;
-      const lastVersion = page[page.length - 1].streamVersion;
       if (firstVersion < fromVersion) {
         throw new Error(
           `Event stream '${input.streamId}' returned stream version ${firstVersion} for an inclusive read from version ${fromVersion}.`,
         );
       }
-      // Pages are ascending by contract. Advancing from a descending page's
-      // last version would move the cursor backwards and never terminate.
-      if (lastVersion < firstVersion) {
-        throw new Error(
-          `Event stream '${input.streamId}' returned a page ordered from version ${firstVersion} down to ${lastVersion}.`,
-        );
+      for (let index = 1; index < page.length; index += 1) {
+        const previousVersion = page[index - 1].streamVersion;
+        const currentVersion = page[index].streamVersion;
+        if (currentVersion <= previousVersion) {
+          throw new Error(
+            `Event stream '${input.streamId}' returned non-ascending stream versions ${previousVersion} then ${currentVersion}.`,
+          );
+        }
       }
     }
 
     storedEvents.push(...page);
+
+    if (maxEvents !== undefined && storedEvents.length > maxEvents) {
+      throw new EventStreamTooLongError(input.streamId, maxEvents);
+    }
 
     if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) {
       return storedEvents;

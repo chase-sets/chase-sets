@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import * as ts from "typescript/unstable/ast";
 
 /**
  * Guards complete authoritative event-stream rehydration.
@@ -92,44 +93,6 @@ async function walkSourceFiles(rootDir) {
   return files;
 }
 
-function lineNumberAt(content, index) {
-  return content.slice(0, index).split(/\r?\n/).length;
-}
-
-/** Returns the index just past the balanced `(...)` opened at `openIndex`, or -1. */
-function matchingCloseParen(content, openIndex) {
-  let depth = 0;
-  let quote = null;
-  let escaped = false;
-  for (let index = openIndex; index < content.length; index += 1) {
-    const char = content[index];
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === quote) quote = null;
-      continue;
-    }
-    if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-      continue;
-    }
-    if (char === "(") depth += 1;
-    else if (char === ")") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-function callArgumentsAt(content, identifierEndIndex) {
-  let cursor = identifierEndIndex;
-  while (/\s/.test(content[cursor] ?? "")) cursor += 1;
-  if (content[cursor] !== "(") return null;
-  const closeIndex = matchingCloseParen(content, cursor);
-  return closeIndex === -1 ? null : content.slice(cursor + 1, closeIndex);
-}
-
 function annotationBefore(content, index) {
   const linesBefore = content.slice(0, index).split(/\r?\n/);
   const window = linesBefore.slice(Math.max(0, linesBefore.length - 1 - ANNOTATION_LOOKBACK_LINES));
@@ -140,47 +103,194 @@ function annotationBefore(content, index) {
   return null;
 }
 
-/** The literal `limit:` expression this call passes, or null when it passes none. */
-function declaredLimitExpression(callArguments) {
-  const match = callArguments.match(/\blimit\s*:\s*([^,}\n]+)/);
-  return match ? match[1].trim() : null;
+function lineNumberAt(content, index) {
+  return content.slice(0, index).split(/\r?\n/).length;
 }
 
-function declaresFromVersion(callArguments) {
-  return /\bfromVersion\s*[:,}]/.test(callArguments);
-}
-
-/**
- * Every mention of `readStream` in one file, split into immediate calls and
- * every other form -- destructuring, property aliasing, computed member access,
- * or passing the method as a value. The second group is how a truncating fold
- * hides from a call-shaped scan, so it is reported, never ignored.
- */
-function collectStreamReadReferences(content) {
-  const references = [];
-  for (const match of content.matchAll(/\breadStream\b/g)) {
-    const index = match.index ?? 0;
-    const callArguments = callArgumentsAt(content, index + match[0].length);
-    references.push({
-      index,
-      line: lineNumberAt(content, index),
-      kind: callArguments === null ? "indirect-reference" : "direct-call",
-      callArguments: callArguments ?? "",
+/** Tokenizes TypeScript/JavaScript without treating strings or comments as code. */
+function tokenize(content) {
+  const scanner = ts.createScanner(true, ts.LanguageVariant.Standard, content);
+  const tokens = [];
+  const append = (kind) => {
+    tokens.push({
+      kind,
+      text: scanner.getTokenText(),
+      value: scanner.getTokenValue(),
+      start: scanner.getTokenStart(),
+      end: scanner.getTokenEnd(),
     });
+  };
+  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFile; kind = scanner.scan()) {
+    append(kind);
+    if (kind !== ts.SyntaxKind.TemplateHead && kind !== ts.SyntaxKind.TemplateMiddle) continue;
+
+    // The TypeScript scanner deliberately leaves a template interpolation open
+    // for the caller to parse. This inventory only needs the template as one
+    // expression, so consume each interpolation and re-scan its tail before
+    // continuing with the surrounding source.
+    let braceDepth = 0;
+    for (;;) {
+      const interpolationKind = scanner.scan();
+      if (interpolationKind === ts.SyntaxKind.OpenBraceToken) braceDepth += 1;
+      if (interpolationKind !== ts.SyntaxKind.CloseBraceToken || braceDepth-- > 0) continue;
+      kind = scanner.reScanTemplateToken(false);
+      append(kind);
+      if (kind === ts.SyntaxKind.TemplateTail || kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral) break;
+      braceDepth = 0;
+    }
+  }
+  return tokens;
+}
+
+function matchingToken(tokens, openIndex, open, close) {
+  let depth = 0;
+  for (let index = openIndex; index < tokens.length; index += 1) {
+    if (tokens[index].text === open) depth += 1;
+    if (tokens[index].text === close && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function isIdentifier(token, name) {
+  return token?.kind === ts.SyntaxKind.Identifier && (name === undefined || token.value === name);
+}
+
+function expressionText(tokens, start, end) {
+  return tokens
+    .slice(start, end)
+    .map((token) => token.text)
+    .join("");
+}
+
+function staticString(tokens, constants, seen = new Set()) {
+  if (!tokens.length) return null;
+  if (
+    tokens.length === 1 &&
+    (tokens[0].kind === ts.SyntaxKind.StringLiteral || tokens[0].kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral)
+  ) {
+    return tokens[0].value;
+  }
+  const plus = tokens.findIndex((token) => token.text === "+");
+  if (plus > 0) {
+    const left = staticString(tokens.slice(0, plus), constants, seen);
+    const right = staticString(tokens.slice(plus + 1), constants, seen);
+    return left === null || right === null ? null : left + right;
+  }
+  if (tokens.length === 1 && isIdentifier(tokens[0]) && !seen.has(tokens[0].value)) {
+    const initializer = constants.get(tokens[0].value);
+    return initializer ? staticString(initializer, constants, new Set([...seen, tokens[0].value])) : null;
+  }
+  return null;
+}
+
+function callProperties(tokens, openParen) {
+  if (tokens[openParen + 1]?.text !== "{") return { declaredLimit: null, declaresFromVersion: false };
+  const closeBrace = matchingToken(tokens, openParen + 1, "{", "}");
+  if (closeBrace === -1) return { declaredLimit: null, declaresFromVersion: false };
+  let declaredLimit = null;
+  let declaresFromVersion = false;
+  for (let index = openParen + 2; index < closeBrace; index += 1) {
+    if (!isIdentifier(tokens[index])) continue;
+    if (tokens[index].value === "fromVersion") declaresFromVersion = true;
+    if (tokens[index].value === "limit" && tokens[index + 1]?.text === ":") {
+      let end = index + 2;
+      while (end < closeBrace && tokens[end].text !== ",") end += 1;
+      declaredLimit = expressionText(tokens, index + 2, end).trim();
+    }
+  }
+  return { declaredLimit, declaresFromVersion };
+}
+
+function advancesCursorByCount(tokens, callIndex) {
+  let loopStart = -1;
+  for (let index = callIndex; index >= 0; index -= 1) {
+    if (["for", "while", "do"].includes(tokens[index].text)) {
+      loopStart = index;
+      break;
+    }
+  }
+  if (loopStart === -1) return false;
+  const bodyStart = tokens.findIndex((token, index) => index >= loopStart && token.text === "{");
+  const bodyEnd = bodyStart === -1 ? -1 : matchingToken(tokens, bodyStart, "{", "}");
+  if (bodyEnd === -1 || callIndex > bodyEnd) return false;
+  for (let index = bodyStart + 1; index < bodyEnd - 2; index += 1) {
+    if (!isIdentifier(tokens[index], "fromVersion") || !["=", "+="].includes(tokens[index + 1]?.text)) continue;
+    let end = index + 2;
+    while (end < bodyEnd && tokens[end].text !== ";") end += 1;
+    const right = tokens.slice(index + 2, end);
+    if (right.some((token) => token.text === "length") && !right.some((token) => token.text === "streamVersion"))
+      return true;
+  }
+  return false;
+}
+
+function collectStreamReadReferences(content) {
+  const tokens = tokenize(content);
+  const constants = new Map();
+  const eventStoreAliases = new Set();
+  const references = [];
+
+  for (let index = 0; index < tokens.length - 3; index += 1) {
+    if (
+      !["const", "let", "var"].includes(tokens[index].text) ||
+      !isIdentifier(tokens[index + 1]) ||
+      tokens[index + 2]?.text !== "="
+    )
+      continue;
+    let end = index + 3;
+    // Bindings relevant to computed member access are deliberately small. A
+    // bounded token window keeps a malformed or semicolon-free declaration
+    // from turning a repository sweep into a quadratic scan.
+    while (end < tokens.length && end < index + 200 && ![";", "}"].includes(tokens[end].text)) end += 1;
+    const initializer = tokens.slice(index + 3, end);
+    constants.set(tokens[index + 1].value, initializer);
+    if (
+      initializer.length <= 6 &&
+      /eventStore/i.test(initializer.at(-1)?.value ?? initializer.at(-1)?.text ?? "") &&
+      !initializer.some((token) => token.value === "readStream")
+    ) {
+      eventStoreAliases.add(tokens[index + 1].value);
+    }
+  }
+
+  const isEventStore = (token) =>
+    isIdentifier(token) && (/eventStore$/i.test(token.value) || eventStoreAliases.has(token.value));
+  const addReference = (token, kind, callIndex = -1) => {
+    const properties =
+      callIndex === -1 ? { declaredLimit: null, declaresFromVersion: false } : callProperties(tokens, callIndex);
+    references.push({
+      index: token.start,
+      line: lineNumberAt(content, token.start),
+      kind,
+      ...properties,
+      advancesCursorByCount: callIndex === -1 ? false : advancesCursorByCount(tokens, callIndex),
+    });
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (isIdentifier(token, "readStream") && tokens[index - 1]?.text === ".") {
+      addReference(token, tokens[index + 1]?.text === "(" ? "direct-call" : "indirect-reference", index + 1);
+    } else if (isEventStore(token) && tokens[index + 1]?.text === "[") {
+      const close = matchingToken(tokens, index + 1, "[", "]");
+      if (close === -1) continue;
+      const property = staticString(tokens.slice(index + 2, close), constants);
+      if (property === "readStream") addReference(token, "computed-access", close + 1);
+      else if (property === null) addReference(token, "unresolved-computed-access", close + 1);
+    } else if (isIdentifier(token, "readStream") && tokens[index - 1]?.text === "{") {
+      const close = matchingToken(tokens, index - 1, "{", "}");
+      if (close !== -1 && tokens[close + 1]?.text === "=") addReference(token, "indirect-reference");
+    }
   }
   return references;
 }
 
 function collectCompleteStreamCalls(content) {
-  if (!content.includes(CANONICAL_COMPLETE_STREAM_MODULE)) {
-    return [];
-  }
-  const calls = [];
-  const pattern = new RegExp(`\\b${CANONICAL_COMPLETE_STREAM_READER}\\s*\\(`, "g");
-  for (const match of content.matchAll(pattern)) {
-    calls.push({ index: match.index ?? 0, line: lineNumberAt(content, match.index ?? 0) });
-  }
-  return calls;
+  if (!content.includes(CANONICAL_COMPLETE_STREAM_MODULE)) return [];
+  const tokens = tokenize(content);
+  return tokens
+    .filter((token, index) => isIdentifier(token, CANONICAL_COMPLETE_STREAM_READER) && tokens[index + 1]?.text === "(")
+    .map((token) => ({ index: token.start, line: lineNumberAt(content, token.start) }));
 }
 
 function withOccurrenceIds(rows) {
@@ -211,11 +321,19 @@ export async function collectEventStreamReadSites({ repoRoot, roots = DEFAULT_ST
       if (isNonProductionFile(relativeFile)) continue;
 
       const content = await readFile(filePath, "utf8");
-      if (!content.includes("readStream") && !content.includes(CANONICAL_COMPLETE_STREAM_READER)) continue;
-
+      // This is only a corpus prefilter. The candidate analysis below remains
+      // token-aware so split strings, aliases, destructuring, and computed
+      // access cannot disappear from the inventory.
+      if (
+        !content.includes("eventStore") &&
+        !content.includes("readStream") &&
+        !content.includes(CANONICAL_COMPLETE_STREAM_READER)
+      ) {
+        continue;
+      }
       const canonicalModule = CANONICAL_STREAM_READ_MODULES.has(relativeFile);
 
-      for (const reference of collectStreamReadReferences(content)) {
+      for (const reference of collectStreamReadReferences(content, filePath)) {
         const declaredClassification = canonicalModule ? null : annotationBefore(content, reference.index);
         rows.push({
           file: relativeFile,
@@ -223,14 +341,15 @@ export async function collectEventStreamReadSites({ repoRoot, roots = DEFAULT_ST
           mechanism: "readStream",
           referenceKind: reference.kind,
           classification: canonicalModule ? "event-store-implementation" : (declaredClassification ?? "undeclared"),
-          declaredLimit: declaredLimitExpression(reference.callArguments),
-          declaresFromVersion: declaresFromVersion(reference.callArguments),
+          declaredLimit: reference.declaredLimit,
+          declaresFromVersion: reference.declaresFromVersion,
+          advancesCursorByCount: reference.advancesCursorByCount,
         });
       }
 
       if (canonicalModule) continue;
 
-      for (const call of collectCompleteStreamCalls(content)) {
+      for (const call of collectCompleteStreamCalls(content, filePath)) {
         rows.push({
           file: relativeFile,
           line: call.line,
@@ -239,6 +358,7 @@ export async function collectEventStreamReadSites({ repoRoot, roots = DEFAULT_ST
           classification: "complete-history",
           declaredLimit: null,
           declaresFromVersion: false,
+          advancesCursorByCount: false,
         });
       }
     }
@@ -366,10 +486,10 @@ export async function validateAuthoritativeStreamReadInventory(options) {
   for (const row of rows) {
     if (row.mechanism !== "readStream" || row.classification === "event-store-implementation") continue;
 
-    if (row.referenceKind === "indirect-reference") {
+    if (row.referenceKind !== "direct-call") {
       violations.push(
-        `${row.file}:${row.line}: readStream is referenced without being called directly (alias, destructure, or ` +
-          `computed access). A wrapper hides the page cap from every call-shaped review, so it is rejected outright. ` +
+        `${row.file}:${row.line}: readStream is referenced without being called directly (alias, destructure, computed ` +
+          `access, or unresolved computed access). A wrapper hides the page cap from every call-shaped review, so it is rejected outright. ` +
           `Call ${CANONICAL_COMPLETE_STREAM_READER}() instead. See #6277.`,
       );
       continue;
@@ -413,6 +533,14 @@ export async function validateAuthoritativeStreamReadInventory(options) {
       violations.push(
         `${row.file}:${row.line}: a paged-catch-up read must pass fromVersion, since draining a stream page by page ` +
           `is the only thing that makes a bounded limit complete. See #6277.`,
+      );
+      continue;
+    }
+
+    if (row.classification === "paged-catch-up" && row.advancesCursorByCount) {
+      violations.push(
+        `${row.file}:${row.line}: a paged-catch-up cursor must advance from the last event's streamVersion plus one, ` +
+          `never from page.length. Sparse stream versions make count-based advancement skip or repeat events. See #6277.`,
       );
       continue;
     }

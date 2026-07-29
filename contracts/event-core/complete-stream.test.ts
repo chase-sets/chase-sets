@@ -97,6 +97,30 @@ describe("readCompleteStream", () => {
     });
   });
 
+  it("advances a non-zero sparse full page from its last stream version, not its event count", async () => {
+    const events = [
+      ...Array.from(
+        { length: EVENT_STORE_READ_PAGE_SIZE_MAX },
+        (_, index) => ({ streamVersion: 37 + index * 2 }) as StoredEvent,
+      ),
+      { streamVersion: 1_039 } as StoredEvent,
+    ];
+    const reader = {
+      readStream: vi.fn(async ({ fromVersion, limit }: ReadStreamInput) =>
+        events.filter((event) => event.streamVersion >= (fromVersion ?? 1)).slice(0, limit),
+      ),
+    };
+
+    const result = await readCompleteStream(reader, { streamId: STREAM_ID });
+
+    expect(result.map((event) => event.streamVersion)).toEqual(events.map((event) => event.streamVersion));
+    expect(reader.readStream).toHaveBeenNthCalledWith(2, {
+      streamId: STREAM_ID,
+      fromVersion: 1_036,
+      limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+    });
+  });
+
   it("treats fromVersion as inclusive of the version it names", async () => {
     const { eventStore } = createInMemoryEventStore();
     await seedStream(eventStore, 5);
@@ -122,6 +146,15 @@ describe("readCompleteStream", () => {
     await expect(readCompleteStream(eventStore, { streamId: STREAM_ID, maxEvents: 10 })).resolves.toHaveLength(10);
   });
 
+  it("rejects a short page that pushes the collected history past maxEvents", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await seedStream(eventStore, 11);
+
+    await expect(readCompleteStream(eventStore, { streamId: STREAM_ID, maxEvents: 10 })).rejects.toBeInstanceOf(
+      EventStreamTooLongError,
+    );
+  });
+
   it("fails closed instead of duplicating when a store ignores fromVersion", async () => {
     const firstPage = Array.from(
       { length: EVENT_STORE_READ_PAGE_SIZE_MAX },
@@ -145,9 +178,27 @@ describe("readCompleteStream", () => {
     const reader = { readStream: vi.fn(async () => descendingPage) };
 
     await expect(readCompleteStream(reader, { streamId: STREAM_ID })).rejects.toThrow(
-      `returned a page ordered from version ${EVENT_STORE_READ_PAGE_SIZE_MAX} down to 1`,
+      "returned non-ascending stream versions",
     );
     expect(reader.readStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on an internal descent even when the page endpoints ascend", async () => {
+    const page = [1, 3, 2, 4].map((streamVersion) => ({ streamVersion }) as StoredEvent);
+    const reader = { readStream: vi.fn(async () => page) };
+
+    await expect(readCompleteStream(reader, { streamId: STREAM_ID })).rejects.toThrow(
+      "returned non-ascending stream versions 3 then 2",
+    );
+  });
+
+  it("fails closed on duplicate versions inside a page", async () => {
+    const page = [1, 2, 2, 3].map((streamVersion) => ({ streamVersion }) as StoredEvent);
+    const reader = { readStream: vi.fn(async () => page) };
+
+    await expect(readCompleteStream(reader, { streamId: STREAM_ID })).rejects.toThrow(
+      "returned non-ascending stream versions 2 then 2",
+    );
   });
 
   it("rejects a non-positive fromVersion rather than reading from an undefined origin", async () => {

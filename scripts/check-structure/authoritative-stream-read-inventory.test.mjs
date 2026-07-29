@@ -75,7 +75,9 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: expect.arrayContaining([expect.stringContaining("must be an integer literal below the 500-event page cap")]),
+      violations: expect.arrayContaining([
+        expect.stringContaining("must be an integer literal below the 500-event page cap"),
+      ]),
     });
   });
 
@@ -111,7 +113,9 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: expect.arrayContaining([expect.stringContaining("no registry entry naming the test that consumes its bound")]),
+      violations: expect.arrayContaining([
+        expect.stringContaining("no registry entry naming the test that consumes its bound"),
+      ]),
     });
   });
 
@@ -151,7 +155,9 @@ describe("authoritative stream read inventory", () => {
 
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
-      violations: expect.arrayContaining([expect.stringContaining("registers bound '1' but the call passes limit '5'")]),
+      violations: expect.arrayContaining([
+        expect.stringContaining("registers bound '1' but the call passes limit '5'"),
+      ]),
     });
   });
 
@@ -180,6 +186,44 @@ export const load = (eventStore, streamId) => eventStore[method]({ streamId });
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
       violations: expect.arrayContaining([expect.stringContaining("referenced without being called directly")]),
+    });
+  });
+
+  it("rejects split-literal computed access instead of omitting it from the inventory", async () => {
+    const root = await fixture({
+      [CONSUMER]: `export const load = (eventStore, streamId) => eventStore["read" + "Stream"]({ streamId });
+`,
+    });
+
+    await expect(validate(root)).resolves.toMatchObject({
+      ok: false,
+      violations: expect.arrayContaining([expect.stringContaining("computed access")]),
+    });
+  });
+
+  it("rejects derived-identifier computed access instead of omitting it from the inventory", async () => {
+    const root = await fixture({
+      [CONSUMER]: `const suffix = "Stream";
+const method = "read" + suffix;
+export const load = (eventStore, streamId) => eventStore[method]({ streamId });
+`,
+    });
+
+    await expect(validate(root)).resolves.toMatchObject({
+      ok: false,
+      violations: expect.arrayContaining([expect.stringContaining("computed access")]),
+    });
+  });
+
+  it("rejects unresolved computed EventStore access fail-closed", async () => {
+    const root = await fixture({
+      [CONSUMER]: `export const load = (eventStore, streamId, method) => eventStore[method]({ streamId });
+`,
+    });
+
+    await expect(validate(root)).resolves.toMatchObject({
+      ok: false,
+      violations: expect.arrayContaining([expect.stringContaining("unresolved computed access")]),
     });
   });
 
@@ -293,6 +337,39 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
     await expect(validate(root)).resolves.toMatchObject({
       ok: false,
       violations: expect.arrayContaining([expect.stringContaining("must pass fromVersion")]),
+    });
+  });
+
+  it("rejects a paged catch-up cursor that advances by page length", async () => {
+    const root = await fixture(
+      {
+        [CONSUMER]: `export async function drain(eventStore, streamId, batchSize) {
+  let fromVersion = 37;
+  for (;;) {
+    // event-stream-read: paged-catch-up -- applies each event in its own transaction
+    const events = await eventStore.readStream({ streamId, fromVersion, limit: batchSize });
+    if (events.length === 0) return;
+    fromVersion += events.length;
+  }
+}
+`,
+        [BOUND_TEST]: `// ${CONSUMER_ID}\n`,
+      },
+      {
+        entries: [
+          {
+            ...BOUNDED_PREFIX_ENTRY,
+            classification: "paged-catch-up",
+            bound: "batchSize",
+            reason: "Drains the stream to exhaustion one transactional batch at a time; folds no aggregate state.",
+          },
+        ],
+      },
+    );
+
+    await expect(validate(root)).resolves.toMatchObject({
+      ok: false,
+      violations: expect.arrayContaining([expect.stringContaining("never from page.length")]),
     });
   });
 

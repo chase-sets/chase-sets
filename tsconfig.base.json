@@ -387,6 +387,9 @@
       "@chase-sets/event-core/command-handler": [
         "./contracts/event-core/command-handler.ts"
       ],
+      "@chase-sets/event-core/complete-stream": [
+        "./contracts/event-core/complete-stream.ts"
+      ],
       "@chase-sets/event-core/consistency": [
         "./contracts/event-core/consistency.ts"
       ],
