@@ -155,6 +155,7 @@ describe("roadmap status classification and preserved rollups", () => {
   it("identifies epics and delegates classification to the shared predicate", () => {
     expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(true);
     expect(isEpic(slice(2, WAVE_1, "open", ["kind:product"]))).toBe(false);
+    expect(isEpic(slice(6, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: "Slice" }))).toBe(false);
 
     expect(classified(toBacklogInput(slice(3, WAVE_1, "open", ["priority:p1", "area:catalog", "kind:test"])))).toBe(
       true,

@@ -42,3 +42,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ROADMAP_ISSUE: ${{ inputs.roadmap_issue || '4129' }}
         run: node ./scripts/roadmap-status.mjs
+
+      # Enforcing, read-only vocabulary ratchet. This intentionally runs after
+      # the roadmap splice so label drift cannot block that update.
+      - name: Audit canonical label registry
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node ./scripts/label-registry.mjs

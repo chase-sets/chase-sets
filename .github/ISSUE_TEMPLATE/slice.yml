@@ -1,5 +1,6 @@
 name: Slice
 description: A lane-ready unit of work (dispatch brief)
+type: Slice
 title: "<verb + outcome, ubiquitous language>"
 labels: []
 body:

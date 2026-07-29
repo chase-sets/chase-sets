@@ -1,7 +1,8 @@
 name: Epic
 description: Coordination artifact for a multi-slice feature (write-once body)
+type: Epic
 title: "Epic: <feature outcome>"
-labels: ["kind:epic"]
+labels: []
 body:
   - type: markdown
     attributes:
