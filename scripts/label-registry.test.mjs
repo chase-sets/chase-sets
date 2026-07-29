@@ -356,10 +356,11 @@ describe("registry-bound repository vocabulary surfaces", () => {
     expect(byName.Decision.labels).toEqual(["decision"]);
   });
 
-  it("preserves all three release-qualification workflow registrations", () => {
+  it("preserves the backlog workflow registrations", () => {
     expect(releaseQualificationScopeRegistry.workflows).toMatchObject({
       "backlog-roadmap-status.yml": "ci",
       "issue-form-labels.yml": "ci",
+      "issue-readiness.yml": "ci",
       "project-status-sync.yml": "ci",
     });
   });

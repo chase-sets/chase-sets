@@ -1,0 +1,96 @@
+name: Issue Readiness Receipt
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to evaluate at dispatch time
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: issue-readiness-${{ inputs.issue_number }}
+  cancel-in-progress: true
+
+jobs:
+  receipt:
+    name: Publish trusted-base readiness receipt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Evaluate exact trusted default-branch checker
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        with:
+          script: |
+            const { mkdir, writeFile } = require("node:fs/promises");
+            const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
+
+            // Dispatch-time convergence is deliberately lazy: this workflow
+            // evaluates only the selected issue and never rewrites the corpus.
+            // Resolve the mutable default branch once, then fetch and execute
+            // every checker source from that exact immutable trusted SHA.
+            const defaultBranch = context.payload.repository.default_branch;
+            if (process.env.GITHUB_REF !== `refs/heads/${defaultBranch}`) {
+              throw new Error("trusted-base-workflow-ref-required");
+            }
+            const branch = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: defaultBranch,
+            });
+            const trustedSha = branch.data.commit.sha;
+            const trustedRoot = path.join(process.env.RUNNER_TEMP, "issue-readiness-trusted-base");
+            const sourcePaths = [
+              "scripts/backlog-classify.mjs",
+              "scripts/label-registry.mjs",
+              "scripts/issue-readiness.mjs",
+              "scripts/issue-readiness-v1.schema.json",
+            ];
+            for (const sourcePath of sourcePaths) {
+              const response = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: sourcePath,
+                ref: trustedSha,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+                throw new Error("trusted-base-source-unavailable");
+              }
+              const target = path.join(trustedRoot, sourcePath);
+              await mkdir(path.dirname(target), { recursive: true });
+              await writeFile(target, Buffer.from(response.data.content, "base64"));
+            }
+
+            const checkerPath = path.join(trustedRoot, "scripts", "issue-readiness.mjs");
+            const { main } = await import(pathToFileURL(checkerPath).href);
+            const result = await main({
+              env: {
+                GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+                GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+                ISSUE_NUMBER: process.env.ISSUE_NUMBER,
+                ISSUE_READINESS_CHECKER_SHA: trustedSha,
+                ISSUE_READINESS_PUBLISH: "true",
+                ISSUE_READINESS_OUTPUT: path.join(process.env.RUNNER_TEMP, "issue-readiness-run.json"),
+              },
+            });
+            if (result.exitCode !== 0) {
+              throw new Error(`issue-readiness-entrypoint-exit-${result.exitCode}`);
+            }
+
+      - name: Upload readiness run receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue-readiness-${{ inputs.issue_number }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue-readiness-run.json
+          if-no-files-found: ignore
+          retention-days: 30
