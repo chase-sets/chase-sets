@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
@@ -38,6 +38,7 @@ if (!databaseBaseUrl && process.env.CI) {
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["identity"] as const;
+const EVENT_STORE_READ_PAGE_SIZE = 500;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -279,8 +280,31 @@ describeDb("registration operation semantic validation", () => {
     };
   }
 
+  async function readCompleteEventHistory(): Promise<readonly StoredEvent[]> {
+    const events: StoredEvent[] = [];
+    let afterGlobalPosition: StoredEvent["globalPosition"] | undefined;
+
+    while (true) {
+      const page = await eventStore.readAll({
+        limit: EVENT_STORE_READ_PAGE_SIZE,
+        ...(afterGlobalPosition ? { afterGlobalPosition } : {}),
+      });
+      events.push(...page);
+
+      if (page.length < EVENT_STORE_READ_PAGE_SIZE) {
+        return events;
+      }
+
+      const lastEvent = page.at(-1);
+      if (!lastEvent) {
+        throw new Error("A full event-store page must have a final event.");
+      }
+      afterGlobalPosition = lastEvent.globalPosition;
+    }
+  }
+
   async function stateSnapshot() {
-    const events = (await eventStore.readAll({ limit: 1_000 })).map((event) => ({
+    const events = (await readCompleteEventHistory()).map((event) => ({
       eventId: event.eventId,
       streamId: event.streamId,
       streamVersion: event.streamVersion,
@@ -641,6 +665,25 @@ describeDb("registration operation semantic validation", () => {
 
     expect(completed.status).toBe(201);
     expect(await eventStore.readStream({ streamId: operation.streamId })).toHaveLength(1);
+  });
+
+  it("captures authoritative state beyond the first event-store page", async () => {
+    await appendEvents(
+      "identity.snapshot-pagination-control",
+      Array.from({ length: 501 }, (_, ordinal) => ({
+        eventType: "identity.snapshot-pagination-control.recorded",
+        payload: { ordinal },
+      })),
+    );
+
+    const snapshot = await stateSnapshot();
+
+    expect(snapshot.events).toHaveLength(501);
+    expect(snapshot.events.at(-1)).toMatchObject({
+      streamId: "identity.snapshot-pagination-control",
+      streamVersion: 501,
+      payload: { ordinal: 500 },
+    });
   });
 
   it("keeps the day-after steady state inert on the second and third calls", async () => {
