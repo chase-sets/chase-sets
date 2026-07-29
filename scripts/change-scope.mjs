@@ -72,6 +72,7 @@ const clusterPreviewScriptPatterns = [
   /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-kubernetes-secret\.mjs$/,
   /^scripts\/platform-ingress-wait\.mjs$/,
+  /^scripts\/public-web-route-smoke(?:\.test)?\.mjs$/,
   /^scripts\/render-platform-helm-values\.mjs$/,
 ];
 const clusterPreviewWorkflowPatterns = [/^\.github\/workflows\/platform-.*\.yml$/];
