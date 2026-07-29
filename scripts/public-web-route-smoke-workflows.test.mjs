@@ -62,7 +62,7 @@ function runnerNo5xxPrerequisiteViolations(relativePath, document) {
         stepIndex < caller.stepIndex &&
         step.uses === setupPnpmWorkspaceAction &&
         String(step.with?.install) === "true" &&
-        (step.if === undefined || step.if === caller.step.if),
+        step.if === caller.step.if,
     );
     return prerequisiteIndex >= 0
       ? []
@@ -93,11 +93,13 @@ function withChangedFileEnvironmentCleared(action) {
   }
 }
 
-async function startCompositionServer() {
+async function startCompositionServer({ deliberatelyBroken = true } = {}) {
+  const requests = [];
   const sockets = new Set();
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, "http://route-smoke.test").pathname;
-    if (pathname === "/faq") {
+    requests.push(pathname);
+    if (deliberatelyBroken && pathname === "/faq") {
       response.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
       response.end("<html><body>deliberately broken policy source</body></html>");
       return;
@@ -120,6 +122,7 @@ async function startCompositionServer() {
   });
   const fixture = {
     server,
+    requests,
     sockets,
     baseUrl: `http://127.0.0.1:${server.address().port}`,
   };
@@ -169,6 +172,48 @@ function runPlatformSmoke(baseUrl) {
       child.kill("SIGKILL");
       reject(new Error(`platform smoke composition exceeded 4500ms: ${stdout}\n${stderr}`));
     }, 4_500);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+
+function workflowFormPnpmArgs(caller, baseUrl) {
+  expect(caller.step.run, `${caller.relativePath}:${caller.jobName}`).toMatch(
+    /pnpm run smoke:public-web-routes -- \\\n\s+--base-url "[^"]+" \\\n\s+--mode no-5xx/,
+  );
+  return ["run", "smoke:public-web-routes", "--", "--base-url", baseUrl, "--mode", "no-5xx"];
+}
+
+function runWorkflowFormPublicRouteSmoke(args) {
+  const onWindows = process.platform === "win32";
+  const command = onWindows ? process.env.ComSpec : "pnpm";
+  if (!command) throw new Error("The Windows command processor is unavailable.");
+  const child = spawn(command, onWindows ? ["/d", "/s", "/c", "pnpm", ...args] : args, {
+    cwd: repoRoot,
+    env: { ...process.env, NO_COLOR: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`workflow-form public route smoke exceeded 15000ms: ${stdout}\n${stderr}`));
+    }, 15_000);
     child.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -256,6 +301,45 @@ describe("public route smoke workflow composition", () => {
       }
     },
   );
+
+  it.each(["missing", "mismatched"])(
+    "rejects a planted pnpm workspace prerequisite if condition that is %s",
+    (mutation) => {
+      for (const relativePath of workflowFilesWithRunnerNo5xxCalls()) {
+        const document = structuredClone(parseWorkflow(relativePath));
+        const [caller] = runnerNo5xxCallers(relativePath, document);
+        expect(caller, `${relativePath} must expose its runner-side no-5xx caller`).toBeDefined();
+
+        const prerequisite = caller.job.steps.find(
+          (step) => step.uses === setupPnpmWorkspaceAction && String(step.with?.install) === "true",
+        );
+        expect(prerequisite, `${relativePath} must expose its pnpm workspace prerequisite`).toBeDefined();
+        if (mutation === "missing") delete prerequisite.if;
+        else prerequisite.if = "false";
+
+        expect(runnerNo5xxPrerequisiteViolations(relativePath, document)).toEqual([
+          `${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`,
+        ]);
+      }
+    },
+  );
+
+  it("executes the asserted workflow-form invocation through the repository pnpm alias", async () => {
+    const callers = workflowFilesWithRunnerNo5xxCalls().flatMap((relativePath) =>
+      runnerNo5xxCallers(relativePath, parseWorkflow(relativePath)),
+    );
+    const fixture = await startCompositionServer({ deliberatelyBroken: false });
+    const invocations = callers.map((caller) => workflowFormPnpmArgs(caller, fixture.baseUrl));
+    expect(invocations).toHaveLength(2);
+    expect(invocations[1]).toEqual(invocations[0]);
+
+    const result = await runWorkflowFormPublicRouteSmoke(invocations[0]);
+
+    expect(result.code).toBe(0);
+    expect(result.signal).toBeNull();
+    expect(fixture.requests.length).toBeGreaterThan(0);
+    expect(result.stdout).toMatch(/\[public-route-smoke] Passed [1-9]\d* fetchable members in no-5xx mode/);
+  });
 
   it("keeps every deployed caller enforcing and free of swallowed exits", () => {
     for (const [relativePath, counts] of Object.entries(expectedCallerInventory).filter(([filePath]) =>

@@ -442,11 +442,12 @@ function parsePositiveInteger(value, optionName) {
 }
 
 export function parsePublicWebRouteSmokeCliArgs(args) {
+  const parsedArgs = args[0] === "--" ? args.slice(1) : args;
   const values = new Map();
-  for (let index = 0; index < args.length; index += 1) {
-    const option = args[index];
+  for (let index = 0; index < parsedArgs.length; index += 1) {
+    const option = parsedArgs[index];
     assert(option.startsWith("--"), `Unexpected public route smoke argument '${option}'.`);
-    const value = args[index + 1];
+    const value = parsedArgs[index + 1];
     assert(value && !value.startsWith("--"), `${option} requires a value.`);
     assert(!values.has(option), `${option} may be provided only once.`);
     values.set(option, value);

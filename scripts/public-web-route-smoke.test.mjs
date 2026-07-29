@@ -10,6 +10,7 @@ import { helpArticles } from "../bounded-contexts/public-presence/features/help/
 import { derivePublicWebRouteInventory } from "./public-web-route-inventory.mjs";
 import {
   MAX_PUBLIC_WEB_RESPONSE_BYTES,
+  parsePublicWebRouteSmokeCliArgs,
   PRODUCTION_SHAPED_LARGEST_RESPONSE_BYTES,
   PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS,
   STRICT_PUBLIC_ROUTE_MEMBER_IDS,
@@ -266,6 +267,24 @@ async function createDeadlineScopeMutant() {
 }
 
 describe("public web route smoke real CLI", () => {
+  it("tolerates exactly one leading pnpm argument separator", () => {
+    const expected = {
+      baseUrl: "https://public-web.test",
+      mode: "no-5xx",
+      attempts: 2,
+      retryDelayMs: 250,
+      timeoutMs: 10_000,
+      gateTimeoutMs: 120_000,
+    };
+
+    expect(parsePublicWebRouteSmokeCliArgs(["--", "--base-url", expected.baseUrl, "--mode", expected.mode])).toEqual(
+      expected,
+    );
+    expect(() =>
+      parsePublicWebRouteSmokeCliArgs(["--", "--", "--base-url", expected.baseUrl, "--mode", expected.mode]),
+    ).toThrow("-- requires a value.");
+  });
+
   it("fetches every CONCRETE and EXPANDED member while reporting every INDETERMINATE member", async () => {
     expect(
       helpArticles.find(
