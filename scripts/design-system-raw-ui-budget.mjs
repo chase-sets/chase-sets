@@ -23,7 +23,7 @@ import prettier from "prettier";
 import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
-import { checkedExtensions, isCheckedProductionFile, sourceKindFor } from "./design-system-legacy-inventory.mjs";
+import { checkedExtensions, isCheckedProductionFile, sourceKindFor } from "./design-system-source-analysis.mjs";
 
 export const designSystemRawUiBudgetLedgerPath = path.join(
   repoRoot,

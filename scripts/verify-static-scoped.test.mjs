@@ -86,11 +86,11 @@ describe("verify:static surface-map derivation", () => {
     const chain = currentChain();
     const completeness = verifyStaticSurfaceMapCompleteness(chain);
 
-    expect(chain).toHaveLength(31);
+    expect(chain).toHaveLength(29);
     expect(completeness).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === MAY_NARROW),
-    ).toHaveLength(19);
+    ).toHaveLength(17);
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === ALWAYS_RUN),
     ).toHaveLength(12);

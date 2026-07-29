@@ -26,7 +26,7 @@ import {
   isCheckedProductionFile,
   rawClassNameHostElementFinding,
   sourceKindFor,
-} from "./design-system-legacy-inventory.mjs";
+} from "./design-system-source-analysis.mjs";
 
 export const designSystemHocBudgetLedgerPath = path.join(
   repoRoot,
