@@ -2956,7 +2956,7 @@ jobs:
           RELEASE_MODE: ${{ steps.release_lock.outputs.release_mode || 'normal' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference || '' }}
           PRODUCTION_DB_RESTORE_POINT_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
-          PRODUCTION_DB_RESTORE_POINT_SKIP: ${{ needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true' }}
+          PRODUCTION_DB_RESTORE_POINT_SKIP: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'false' || (needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true') }}
           PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: ${{ needs.resolve-release.outputs.production_recovery_mode == 'pitr' && needs.resolve-release.outputs.production_recovery_reason || '' }}
           PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
           PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY: ${{ vars.PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY || '' }}
