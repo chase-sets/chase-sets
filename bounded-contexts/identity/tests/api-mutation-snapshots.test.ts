@@ -7,6 +7,7 @@ import { buildIdentityApi, type IdentityApiEnv } from "../api";
 import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -50,6 +51,7 @@ function createServices(
   overrides: Partial<Pick<IdentityServices, "apiKeys" | "invitations" | "memberships" | "users">> = {},
 ) {
   return {
+    eventStore: createInMemoryEventStore(),
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
         if (sql.includes("identity_account_display_name_reservations")) {
@@ -303,17 +305,19 @@ describe("Identity API mutation snapshots", () => {
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
+    // Registration commits its participants in one append, so every receipt is
+    // the first version of its own newly created stream.
     expect(personalIdentity.body.snapshots).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ aggregate: "account", version: 11, status: "active" }),
-        expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
+        expect.objectContaining({ aggregate: "account", version: 1, status: "active" }),
+        expect.objectContaining({ aggregate: "membership", version: 1, status: "active" }),
+        expect.objectContaining({ aggregate: "user", version: 1, status: "active" }),
       ]),
     );
     expect(personalIdentity.body.snapshots).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ aggregate: "consent" })]),
     );
-    expect(services.consents.commandHandler).not.toHaveBeenCalled();
+    expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.consent-")).toEqual([]);
 
     for (const path of [
       "/internal/auth/users/usr_1/sms-code",

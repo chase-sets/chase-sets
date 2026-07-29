@@ -214,7 +214,7 @@
       "command": "CreateAccount",
       "occurrences": 1,
       "disposition": "test-fixture",
-      "reason": "This internal-route assertion verifies that personal registration emits the expected account command after consent verification."
+      "reason": "This internal-route assertion pins the exact account command personal registration composes, by comparing the appended account event against the Account decider's output for that literal."
     },
     {
       "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",

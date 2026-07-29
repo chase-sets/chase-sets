@@ -2,14 +2,24 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { DomainEvent } from "@chase-sets/event-core";
+import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
+import type {
+  AppendToStreamInput,
+  EventStoreContext,
+  ExpectedStreamVersion,
+  StoredEvent,
+} from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
+import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
 import {
   formatGrantableRoleKeys,
   IdentityDomainError,
   normalizeEmail,
+  normalizeLabel,
+  normalizePhoneNumber,
   parseGrantableRoleKey,
   type GrantableRoleKey,
   type PermissionKey,
@@ -21,10 +31,54 @@ import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
+import {
+  decideAccount,
+  evolveAccount,
+  initialAccountState,
+  type AccountEvent,
+  type AccountState,
+} from "./features/accounts/domain/domain";
+import {
+  decideUser,
+  evolveUser,
+  initialUserState,
+  type UserEvent,
+  type UserState,
+} from "./features/users/domain/domain";
+import {
+  decideMembership,
+  evolveMembership,
+  initialMembershipState,
+  type MembershipEvent,
+  type MembershipState,
+} from "./features/memberships/domain/domain";
+import {
+  decideAuthorizedConsent,
+  evolveConsent,
+  initialConsentState,
+  type ConsentEvent,
+  type ConsentState,
+} from "./features/consents/domain/domain";
+import {
+  deriveRegistrationOperation,
+  normalizeRegistrationDisplayNameKey,
+  readCompleteRegistrationStreamHistory,
+  readRegistrationOperationClaim,
+  registrationOperationConsentBundleAgrees,
+  REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE,
+  REGISTRATION_OPERATION_KEY_VERSION,
+  RegistrationOperationClaimHistoryError,
+  type RegistrationOperation,
+  type RegistrationOperationClaim,
+  type RegistrationOperationConsent,
+} from "./support/runtime-support/registration-operation";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
-import { authorizeConsentForSelfRegistration } from "./features/consents/domain/consent-recording-authorization";
+import {
+  assertConsentAuthorizationForContext,
+  authorizeConsentForSelfRegistration,
+} from "./features/consents/domain/consent-recording-authorization";
 import {
   mintRegistrationConsentResolution,
   resolveRegistrationConsentRequirements,
@@ -87,7 +141,7 @@ export class RegistrationConsentRejectedError extends Error {
 }
 
 export function normalizeAccountDisplayNameKey(displayName: string) {
-  return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+  return normalizeRegistrationDisplayNameKey(displayName);
 }
 
 type IdentityMutationSnapshot = Readonly<{
@@ -113,11 +167,28 @@ function mutationSnapshot<State extends Readonly<object>>(
   };
 }
 
+/**
+ * Claim the display name for one Registration Operation.
+ *
+ * This row cannot join the event append. `withPgTransaction` issues an
+ * unconditional BEGIN/COMMIT on a freshly connected client, so handing the
+ * event store a client-backed pool facade would commit the registration before
+ * an outer failure is even known. The reservation therefore has to be safe to
+ * find left behind, which is what the operation binding buys: a retry of the
+ * same operation reclaims its own row and proceeds, and every other operation
+ * still conflicts.
+ *
+ * The `identity_accounts` read is a stale projection and is deliberately not
+ * the uniqueness authority -- it survives only as a friendlier message ahead of
+ * the primary key and the operation predicate below, which are.
+ */
 async function reservePersonalAccountDisplayName(
   services: IdentityServices,
+  eventStore: EventStore,
   params: Readonly<{
     accountId: AccountId;
     displayName: string;
+    operationKey: string;
   }>,
 ) {
   const displayNameKey = normalizeAccountDisplayNameKey(params.displayName);
@@ -136,22 +207,328 @@ async function reservePersonalAccountDisplayName(
     throw new IdentityDisplayNameConflictError();
   }
 
+  // The ON CONFLICT predicate is the concurrency guard: it re-asserts the state
+  // this writer is entitled to overwrite. A key-only upsert here would let any
+  // registration steal any held display name.
   const reservation = await services.db.query<{ display_name_key: string }>(
     `INSERT INTO identity_account_display_name_reservations (
        display_name_key,
        account_id,
        display_name,
+       operation_key,
        created_at
      )
-     VALUES ($1, $2, $3, now())
-     ON CONFLICT (display_name_key) DO NOTHING
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (display_name_key) DO UPDATE
+        SET account_id = EXCLUDED.account_id,
+            display_name = EXCLUDED.display_name
+      WHERE identity_account_display_name_reservations.operation_key = EXCLUDED.operation_key
      RETURNING display_name_key`,
-    [displayNameKey, params.accountId, params.displayName],
+    [displayNameKey, params.accountId, params.displayName, params.operationKey],
   );
-  if (reservation.rows.length === 0) {
+  if (reservation.rows.length > 0) {
+    return;
+  }
+
+  await reclaimStrandedDisplayNameReservation(services, eventStore, { ...params, displayNameKey });
+}
+
+/**
+ * Reclaim a reservation written before reservations were bound to an operation.
+ *
+ * Such a row is reclaimable only when its account was never committed: that is
+ * the stranded artifact of a pre-atomic attempt that died between the
+ * reservation write and the account write, and it is exactly the artifact that
+ * used to turn a retry into a 409. A row whose account does exist names a real
+ * account -- adopting it would grant a stranger an owner membership on somebody
+ * else's account -- so it stays a conflict.
+ */
+async function reclaimStrandedDisplayNameReservation(
+  services: IdentityServices,
+  eventStore: EventStore,
+  params: Readonly<{
+    accountId: AccountId;
+    displayName: string;
+    displayNameKey: string;
+    operationKey: string;
+  }>,
+) {
+  const held = await services.db.query<{ account_id: string; operation_key: string | null }>(
+    `SELECT account_id, operation_key
+     FROM identity_account_display_name_reservations
+     WHERE display_name_key = $1`,
+    [params.displayNameKey],
+  );
+  const heldRow = held.rows[0];
+  if (!heldRow || heldRow.operation_key !== null) {
+    throw new IdentityDisplayNameConflictError();
+  }
+
+  const strandedAccount = await eventStore.readStream({
+    streamId: `identity.account-${heldRow.account_id}`,
+    limit: 1,
+  });
+  if (strandedAccount.length > 0) {
+    throw new IdentityDisplayNameConflictError();
+  }
+
+  const adopted = await services.db.query<{ display_name_key: string }>(
+    `UPDATE identity_account_display_name_reservations
+        SET account_id = $2,
+            display_name = $3,
+            operation_key = $4
+      WHERE display_name_key = $1
+        AND operation_key IS NULL
+        AND account_id = $5
+     RETURNING display_name_key`,
+    [params.displayNameKey, params.accountId, params.displayName, params.operationKey, heldRow.account_id],
+  );
+  if (adopted.rows.length === 0) {
     throw new IdentityDisplayNameConflictError();
   }
 }
+
+/**
+ * Drop the reservation this attempt took, once it is known to have committed
+ * nothing, so a failed registration leaves the table exactly as it found it.
+ *
+ * The account it minted is the discriminator. Two attempts for one operation
+ * share an operation key, so the key alone cannot tell this attempt's row from
+ * a concurrent winner's -- and the winner's row must survive, or its committed
+ * account loses its display name. A row whose account is the claimed account is
+ * therefore left alone; anything else belonged to an attempt that committed
+ * nothing, including a losing attempt that reserved a different display name
+ * before adopting the winner's.
+ *
+ * Best effort by construction: if it fails, the row is still bound to this
+ * operation and a retry of it still reclaims it.
+ */
+async function releaseUnclaimedDisplayNameReservation(
+  services: IdentityServices,
+  eventStore: EventStore,
+  params: Readonly<{
+    accountId: AccountId;
+    displayName: string;
+    operation: RegistrationOperation;
+  }>,
+) {
+  const displayNameKey = normalizeAccountDisplayNameKey(params.displayName);
+  if (!displayNameKey) {
+    return;
+  }
+
+  try {
+    const claimed = await readRegistrationOperationClaim(eventStore, params.operation);
+    if (claimed?.claim.accountId === params.accountId) {
+      return;
+    }
+
+    await services.db.query(
+      `DELETE FROM identity_account_display_name_reservations
+        WHERE display_name_key = $1
+          AND operation_key = $2
+          AND account_id = $3`,
+      [displayNameKey, params.operation.key, params.accountId],
+    );
+  } catch {
+    // Cleanup is an optimization, never a gate, and it must never replace the
+    // failure the caller is already reporting.
+  }
+}
+
+type RegistrationParticipant<State> = Readonly<{
+  streamId: string;
+  version: number;
+  storedEvents: readonly StoredEvent[];
+  state: State;
+}>;
+
+type RegistrationParticipantHistory = Readonly<{
+  creationEventType: string;
+  allowedEventTypes: ReadonlySet<string>;
+}>;
+
+const accountRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.account.created",
+  allowedEventTypes: new Set([
+    "identity.account.created",
+    "identity.account.profile-updated",
+    "identity.account.suspended",
+    "identity.account.reactivated",
+    "identity.account.closed",
+    "identity.account.founders-window-opened",
+    "identity.account.badge-assigned",
+    "identity.account.badge-removed",
+  ]),
+};
+
+const userRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.user.created",
+  allowedEventTypes: new Set([
+    "identity.user.created",
+    "identity.user.profile-updated",
+    "identity.user.contact-method-added",
+    "identity.user.contact-method-verified",
+    "identity.user.auth-method-enabled",
+    "identity.user.auth-method-disabled",
+    "identity.user.password-credential-attached",
+    "identity.user.passkey-registered",
+    "identity.user.social-login-linked",
+    "identity.user.suspended",
+    "identity.user.reactivated",
+  ]),
+};
+
+const membershipRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.membership.granted",
+  allowedEventTypes: new Set([
+    "identity.membership.granted",
+    "identity.membership.role-changed",
+    "identity.membership.revoked",
+    "identity.membership.reinstated",
+  ]),
+};
+
+const consentRegistrationHistory: RegistrationParticipantHistory = {
+  creationEventType: "identity.consent.recorded",
+  allowedEventTypes: new Set(["identity.consent.recorded", "identity.consent.withdrawn"]),
+};
+
+/**
+ * Rehydrate one participant stream from the command side.
+ *
+ * Registration reads and appends through the event store directly rather than
+ * through each feature's command handler, because a command handler owns its
+ * own single-stream append and there is no shape in which five of them share
+ * one transaction. The deciders and evolvers used here are the same exported
+ * pure functions those handlers are built from, so the events produced are
+ * identical -- only the commit boundary moves.
+ */
+async function readRegistrationParticipant<State, Event extends DomainEvent>(
+  eventStore: EventStore,
+  streamId: string,
+  initialState: State,
+  evolve: (state: Readonly<State>, event: Readonly<Event>) => State,
+  history: RegistrationParticipantHistory,
+  disagreement: () => Error,
+): Promise<RegistrationParticipant<State>> {
+  const storedEvents = await readCompleteRegistrationStreamHistory(eventStore, streamId);
+  if (storedEvents.length > 0) {
+    const firstEvent = storedEvents[0];
+    const creationCount = storedEvents.filter((event) => event.eventType === history.creationEventType).length;
+    if (
+      !firstEvent ||
+      firstEvent.eventType !== history.creationEventType ||
+      creationCount !== 1 ||
+      storedEvents.some((event, index) => event.streamVersion !== index + 1) ||
+      storedEvents.some((event) => !history.allowedEventTypes.has(event.eventType))
+    ) {
+      throw disagreement();
+    }
+  }
+
+  try {
+    return {
+      streamId,
+      version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
+      storedEvents,
+      state: storedEvents.reduce(
+        (folded, storedEvent) => evolve(folded, { type: storedEvent.eventType, data: storedEvent.payload } as Event),
+        initialState,
+      ),
+    };
+  } catch {
+    throw disagreement();
+  }
+}
+
+function registrationParticipantInput(
+  streamId: string,
+  expectedVersion: ExpectedStreamVersion,
+  events: readonly DomainEvent[],
+  context: EventStoreContext,
+): AppendToStreamInput {
+  return {
+    streamId,
+    expectedVersion,
+    events: events.map((event) => ({ eventType: event.type, payload: event.data })),
+    context,
+  };
+}
+
+function committedParticipantVersion(
+  results: readonly AppendToStreamsResult[],
+  streamId: string,
+  priorVersion: number,
+): number {
+  const storedEvents = results.find((result) => result.streamId === streamId)?.storedEvents ?? [];
+  return storedEvents.length === 0 ? priorVersion : storedEvents[storedEvents.length - 1].streamVersion;
+}
+
+function isEventStoreConcurrencyConflict(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
+}
+
+/**
+ * Registration reaches the event store directly, so a services object that
+ * carries no multi-stream append cannot register anybody. Failing here is
+ * deliberate: silently falling back to sequential per-aggregate commits is the
+ * exact behaviour this composition exists to remove.
+ */
+function requireRegistrationEventStore(services: IdentityServices) {
+  const eventStore = services.eventStore;
+  if (!eventStore?.appendToStreams) {
+    throw new Error("Personal identity registration requires an event store that appends to many streams atomically.");
+  }
+
+  return eventStore as EventStore & Readonly<{ appendToStreams: NonNullable<EventStore["appendToStreams"]> }>;
+}
+
+/** Raised when no verified contact accompanies a registration, so no operation identity can be derived. */
+export class RegistrationOperationContactRequiredError extends Error {
+  constructor() {
+    super("A verified email or phone is required to register a personal identity.");
+    this.name = "RegistrationOperationContactRequiredError";
+  }
+}
+
+/**
+ * Raised when an operation was already claimed against a different ordered
+ * consent bundle than the recovering request carries. Completing it would
+ * append consent at versions nobody in this operation ever affirmed, so
+ * registration fails closed and appends nothing. Reconciling a genuine version
+ * disagreement is activation-authority work owned elsewhere.
+ */
+export class RegistrationOperationConsentDisagreementError extends Error {
+  constructor() {
+    super("This registration operation already recorded a different consent bundle.");
+    this.name = "RegistrationOperationConsentDisagreementError";
+  }
+}
+
+/**
+ * Raised when the claim itself or a non-Consent participant contradicts the
+ * registration operation. Recovery cannot use ids from poisoned authority or
+ * silently skip an aggregate that is not in its required final state.
+ */
+export class RegistrationOperationParticipantDisagreementError extends Error {
+  constructor() {
+    super("This registration operation contains a participant that disagrees with its claim.");
+    this.name = "RegistrationOperationParticipantDisagreementError";
+  }
+}
+
+type RegistrationIdentity = Readonly<{
+  accountId: AccountId;
+  userId: UserId;
+  membershipId: MembershipId;
+  displayName: string;
+  displayNameKey: string;
+  consents: readonly RegistrationOperationConsent[];
+}>;
+
+/** Two passes: the first can lose the claim race, the second runs against the winner's committed ids. */
+const REGISTRATION_CONVERGENCE_ATTEMPTS = 2;
 
 async function createPersonalIdentityForAuth(
   services: IdentityServices,
@@ -174,8 +551,8 @@ async function createPersonalIdentityForAuth(
   }>,
 ) {
   // First statement, before the display-name reservation and before any
-  // command handler: the constructor is the chokepoint, so verification lives
-  // here rather than in the route wrapper. A future route that reaches this
+  // append: the constructor is the chokepoint, so verification lives here
+  // rather than in the route wrapper. A future route that reaches this
   // function inherits the check instead of having to remember it.
   const verification = verifyRegistrationConsentSubmission(params.registrationConsent, {
     signingKeys: resolveRegistrationConsentSigningKeys(),
@@ -186,128 +563,543 @@ async function createPersonalIdentityForAuth(
   }
   const verifiedRegistrationConsent = verification.submission;
 
-  const userId = createId("usr") as UserId;
-  const accountId = createId("acc") as AccountId;
-  const membershipId = createId("mbr") as MembershipId;
-  const consentAuthorization = authorizeConsentForSelfRegistration(userId, accountId);
+  const eventStore = requireRegistrationEventStore(services);
+  // Derived here, from the contact every caller already supplies. No route,
+  // client, or contract gains a field: a new required member on this command is
+  // precisely how the caller-inventory defect class bites.
+  const operation = deriveRegistrationOperation({ email: params.email, phone: params.phone });
+  if (!operation) {
+    throw new RegistrationOperationContactRequiredError();
+  }
+
   const email = params.email?.trim() ?? "";
   const phone = params.phone?.trim() ?? "";
-  const displayName = params.displayName.trim() || email || phone;
-  const primaryContactMethod = phone
-    ? {
-        contactMethodId: createId("ctm"),
-        type: "phone" as const,
-        value: phone,
-        verifiedAt: new Date().toISOString(),
+  const requirements = verifiedRegistrationConsent.resolution.requirements;
+  const proposedDisplayName = normalizeLabel(params.displayName) || email || phone;
+
+  for (let attempt = 1; ; attempt += 1) {
+    let claimed: Awaited<ReturnType<typeof readRegistrationOperationClaim>>;
+    try {
+      claimed = await readRegistrationOperationClaim(eventStore, operation);
+    } catch (error) {
+      if (error instanceof RegistrationOperationClaimHistoryError) {
+        throw new RegistrationOperationParticipantDisagreementError();
       }
-    : undefined;
-  const snapshots: IdentityMutationSnapshot[] = [];
+      throw error;
+    }
+    if (claimed && !registrationOperationConsentBundleAgrees(claimed.claim, requirements)) {
+      throw new RegistrationOperationConsentDisagreementError();
+    }
 
-  await reservePersonalAccountDisplayName(services, {
-    accountId,
-    displayName,
-  });
+    const identity: RegistrationIdentity = claimed
+      ? {
+          accountId: claimed.claim.accountId,
+          userId: claimed.claim.userId,
+          membershipId: claimed.claim.membershipId,
+          displayName: claimed.claim.displayName,
+          displayNameKey: claimed.claim.displayNameKey,
+          consents: claimed.claim.consents,
+        }
+      : {
+          accountId: createId("acc") as AccountId,
+          userId: createId("usr") as UserId,
+          membershipId: createId("mbr") as MembershipId,
+          displayName: proposedDisplayName,
+          displayNameKey: normalizeAccountDisplayNameKey(proposedDisplayName),
+          consents: requirements.map((requirement) => ({
+            consentId: createId("cns") as ConsentId,
+            policyKey: requirement.policyKey,
+            policyVersion: requirement.version,
+          })),
+        };
 
-  let accountResult = await services.accounts.commandHandler({
-    streamId: `identity.account-${accountId}`,
-    command: {
+    const plan = await planPersonalIdentityRegistration({
+      eventStore,
+      params,
+      operation,
+      identity,
+      claimedVersion: claimed?.version ?? null,
+      email,
+      phone,
+    });
+
+    await reservePersonalAccountDisplayName(services, eventStore, {
+      accountId: identity.accountId,
+      displayName: identity.displayName,
+      operationKey: operation.key,
+    });
+
+    try {
+      return await appendPersonalIdentityRegistration({
+        services,
+        eventStore,
+        params,
+        operation,
+        identity,
+        plan,
+      });
+    } catch (error) {
+      // Whichever way this attempt ends, it committed nothing, so the
+      // reservation it took has to go before anything else happens. The loser
+      // of a claim race may have reserved a different display name than the
+      // winner settled on, and that row would otherwise hold a name forever on
+      // behalf of an account that never existed.
+      await releaseUnclaimedDisplayNameReservation(services, eventStore, {
+        accountId: identity.accountId,
+        displayName: identity.displayName,
+        operation,
+      });
+
+      // The loser of the claim race rolled back every stream in its batch,
+      // including the ones it would have created. The next pass re-reads the
+      // committed claim, adopts the winner's ids, and returns the winner's
+      // registration -- a same-operation caller never receives a conflict.
+      if (attempt < REGISTRATION_CONVERGENCE_ATTEMPTS && isEventStoreConcurrencyConflict(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
+type RegistrationConsentPlan = Readonly<{
+  consent: RegistrationOperationConsent;
+  participant: RegistrationParticipant<ConsentState>;
+  consentEvents: readonly ConsentEvent[];
+  consentState: ConsentState;
+}>;
+
+type PersonalIdentityRegistrationPlan = Readonly<{
+  claimedVersion: number | null;
+  claim: RegistrationOperationClaim;
+  account: RegistrationParticipant<AccountState>;
+  accountEvents: readonly AccountEvent[];
+  accountState: AccountState;
+  user: RegistrationParticipant<UserState>;
+  userEvents: readonly UserEvent[];
+  userState: UserState;
+  membership: RegistrationParticipant<MembershipState>;
+  membershipEvents: readonly MembershipEvent[];
+  membershipState: MembershipState;
+  consentPlans: readonly RegistrationConsentPlan[];
+}>;
+
+/**
+ * Read and semantically validate every participant before the display-name
+ * reservation is touched. Empty event streams are missing participants; a
+ * present stream must have one valid creation event, only known lifecycle
+ * events, the claimed identity and metadata, and the required final state.
+ */
+async function planPersonalIdentityRegistration(
+  args: Readonly<{
+    eventStore: EventStore & Readonly<{ appendToStreams: NonNullable<EventStore["appendToStreams"]> }>;
+    params: Readonly<{
+      givenName?: string;
+      familyName?: string;
+      foundersBetaAccessStartedAt?: string;
+      context: EventStoreContext;
+    }>;
+    operation: RegistrationOperation;
+    identity: RegistrationIdentity;
+    claimedVersion: number | null;
+    email: string;
+    phone: string;
+  }>,
+): Promise<PersonalIdentityRegistrationPlan> {
+  const { eventStore, identity, operation, params } = args;
+  const { accountId, userId, membershipId, displayName } = identity;
+  const participantDisagreement = () => new RegistrationOperationParticipantDisagreementError();
+  const consentDisagreement = () => new RegistrationOperationConsentDisagreementError();
+
+  const account = await readRegistrationParticipant<AccountState, AccountEvent>(
+    eventStore,
+    `identity.account-${accountId}`,
+    initialAccountState,
+    evolveAccount,
+    accountRegistrationHistory,
+    participantDisagreement,
+  );
+  const user = await readRegistrationParticipant<UserState, UserEvent>(
+    eventStore,
+    `identity.user-${userId}`,
+    initialUserState,
+    evolveUser,
+    userRegistrationHistory,
+    participantDisagreement,
+  );
+  const membership = await readRegistrationParticipant<MembershipState, MembershipEvent>(
+    eventStore,
+    `identity.membership-${membershipId}`,
+    initialMembershipState,
+    evolveMembership,
+    membershipRegistrationHistory,
+    participantDisagreement,
+  );
+  const consents = await Promise.all(
+    identity.consents.map(async (consent) => ({
+      consent,
+      participant: await readRegistrationParticipant<ConsentState, ConsentEvent>(
+        eventStore,
+        `identity.consent-${consent.consentId}`,
+        initialConsentState,
+        evolveConsent,
+        consentRegistrationHistory,
+        consentDisagreement,
+      ),
+    })),
+  );
+
+  if (
+    account.storedEvents.length > 0 &&
+    (account.state.id !== accountId ||
+      account.state.status !== "active" ||
+      account.storedEvents.some((event) => event.eventType === "identity.account.closed") ||
+      account.state.accountType !== "personal" ||
+      typeof account.state.name !== "string" ||
+      account.state.displayName !== displayName ||
+      normalizeAccountDisplayNameKey(account.state.displayName) !== identity.displayNameKey)
+  ) {
+    throw participantDisagreement();
+  }
+  if (
+    user.storedEvents.length > 0 &&
+    (user.state.id !== userId ||
+      user.state.status !== "active" ||
+      !registrationUserContactAgrees(user.state, operation))
+  ) {
+    throw participantDisagreement();
+  }
+  if (
+    membership.storedEvents.length > 0 &&
+    (membership.state.id !== membershipId ||
+      membership.state.status !== "active" ||
+      membership.state.roleKey !== "owner" ||
+      membership.state.userId !== userId ||
+      membership.state.accountId !== accountId)
+  ) {
+    throw participantDisagreement();
+  }
+  for (const { consent, participant } of consents) {
+    if (
+      participant.storedEvents.length > 0 &&
+      (participant.state.id !== consent.consentId ||
+        participant.state.status !== "recorded" ||
+        participant.state.subjectType !== "user" ||
+        participant.state.userId !== userId ||
+        participant.state.accountId !== accountId ||
+        participant.state.policyKey !== consent.policyKey ||
+        participant.state.policyVersion !== consent.policyVersion ||
+        participant.state.recordedAt === null ||
+        !Number.isFinite(Date.parse(participant.state.recordedAt)) ||
+        participant.state.withdrawnAt !== null)
+    ) {
+      throw consentDisagreement();
+    }
+  }
+
+  let accountState = account.state;
+  const accountEvents: AccountEvent[] = [];
+  if (account.storedEvents.length === 0) {
+    const created = decideAccount(accountState, {
       type: "CreateAccount",
       accountId,
       name: "",
       accountType: "personal",
       displayName,
-    },
-    context: params.context,
-  });
+    });
+    accountEvents.push(...created);
+    accountState = created.reduce(evolveAccount, accountState);
+  }
   if (params.foundersBetaAccessStartedAt) {
     const betaAccessStartedAt = new Date(params.foundersBetaAccessStartedAt);
     const foundersWindowEndsAt = new Date(betaAccessStartedAt);
     foundersWindowEndsAt.setUTCDate(foundersWindowEndsAt.getUTCDate() + 60);
-    accountResult = await services.accounts.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "OpenFoundersWindow",
-        betaAccessStartedAt: betaAccessStartedAt.toISOString(),
-        foundersWindowEndsAt: foundersWindowEndsAt.toISOString(),
-        recipientEmail: email,
-      },
-      context: params.context,
+    const opened = decideAccount(accountState, {
+      type: "OpenFoundersWindow",
+      betaAccessStartedAt: betaAccessStartedAt.toISOString(),
+      foundersWindowEndsAt: foundersWindowEndsAt.toISOString(),
+      recipientEmail: args.email,
     });
+    accountEvents.push(...opened);
+    accountState = opened.reduce(evolveAccount, accountState);
   }
-  snapshots.push(mutationSnapshot("account", accountId, accountResult));
 
-  let userResult = await services.users.commandHandler({
-    streamId: `identity.user-${userId}`,
-    command: {
+  let userState = user.state;
+  const userEvents: UserEvent[] = [];
+  if (user.storedEvents.length === 0) {
+    const phoneIsOperationContact = operation.contactType === "phone";
+    const created = decideUser(userState, {
       type: "CreateUser",
       userId,
       displayName,
       givenName: params.givenName,
       familyName: params.familyName,
-      primaryEmail: email || null,
-      ...(primaryContactMethod ? { primaryContactMethod } : {}),
-    },
-    context: params.context,
-  });
+      primaryEmail: args.email || null,
+      ...(phoneIsOperationContact
+        ? {
+            primaryContactMethod: {
+              contactMethodId: createId("ctm"),
+              type: "phone" as const,
+              value: args.phone,
+              verifiedAt: new Date().toISOString(),
+            },
+          }
+        : {}),
+    });
+    userEvents.push(...created);
+    userState = created.reduce(evolveUser, userState);
+  }
+  if (args.phone) {
+    let phoneContact = userState.contactMethods.find(
+      (contact) => contact.type === "phone" && normalizePhoneNumber(contact.value) === normalizePhoneNumber(args.phone),
+    );
+    if (!phoneContact) {
+      const contactMethodId = createId("ctm");
+      const added = decideUser(userState, {
+        type: "AddContactMethod",
+        contactMethodId,
+        contactMethodType: "phone",
+        value: args.phone,
+      });
+      userEvents.push(...added);
+      userState = added.reduce(evolveUser, userState);
+      phoneContact = userState.contactMethods.find((contact) => contact.contactMethodId === contactMethodId);
+    }
+    if (phoneContact?.verifiedAt === null) {
+      const verified = decideUser(userState, {
+        type: "VerifyContactMethod",
+        contactMethodId: phoneContact.contactMethodId,
+        verifiedAt: new Date().toISOString(),
+      });
+      userEvents.push(...verified);
+      userState = verified.reduce(evolveUser, userState);
+    }
+  }
+  if (args.phone) {
+    const enabled = decideUser(userState, { type: "EnableAuthMethod", authMethod: "sms-code" });
+    userEvents.push(...enabled);
+    userState = enabled.reduce(evolveUser, userState);
+  }
 
-  const membershipResult = await services.memberships.commandHandler({
-    streamId: `identity.membership-${membershipId}`,
-    command: {
+  let membershipState = membership.state;
+  const membershipEvents: MembershipEvent[] = [];
+  if (membership.storedEvents.length === 0) {
+    const granted = decideMembership(membershipState, {
       type: "GrantMembership",
       membershipId,
       userId,
       accountId,
       roleKey: "owner",
       assignmentAuthority: { type: "system" },
-    },
-    context: params.context,
-  });
-  snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
+    });
+    membershipEvents.push(...granted);
+    membershipState = granted.reduce(evolveMembership, membershipState);
+  }
+
+  // Registration composes the Consent decider directly rather than through the
+  // Consent runtime, so it has to carry that runtime's authorization checks
+  // itself: the context check the handler performs, and the command check the
+  // authorized decider performs. Recording Consent through the unauthorized
+  // decider would silently reopen the write-authorization boundary.
+  //
+  // Reached on exactly the requests that record Consent, which is what the
+  // runtime handler does too. Asserting it on a bundle with no requirements
+  // would reject registrations that record no Consent at all and therefore
+  // never had a write to authorize.
+  const consentAuthorization = consents.length > 0 ? authorizeConsentForSelfRegistration(userId, accountId) : null;
+  if (consentAuthorization) {
+    assertConsentAuthorizationForContext(consentAuthorization, params.context);
+  }
 
   // Each Consent is recorded at exactly the policy key and version carried in
   // the verified resolution, in its signed order. Never from raw client input,
   // and never from a fresh resolve taken here -- resolving at append time is
   // what recorded acceptance of a version the registering client never saw.
-  for (const requirement of verifiedRegistrationConsent.resolution.requirements) {
-    const consentId = createId("cns");
-    const consentResult = await services.consents.commandHandler({
-      streamId: `identity.consent-${consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId,
-        subjectType: "user",
-        userId,
-        accountId,
-        policyKey: requirement.policyKey,
-        policyVersion: requirement.version,
-        recordedAt: new Date().toISOString(),
-      },
-      context: params.context,
-      authorization: consentAuthorization,
-    });
-    snapshots.push(mutationSnapshot("consent", consentId, consentResult, { fallbackStatus: "recorded" }));
+  const consentPlans = consents.map(({ consent, participant }) => {
+    let consentState = participant.state;
+    const consentEvents: ConsentEvent[] = [];
+    if (participant.storedEvents.length === 0 && consentAuthorization) {
+      const recorded = decideAuthorizedConsent(consentState, {
+        command: {
+          type: "RecordConsent",
+          consentId: consent.consentId,
+          subjectType: "user",
+          userId,
+          accountId,
+          policyKey: consent.policyKey,
+          policyVersion: consent.policyVersion,
+          recordedAt: new Date().toISOString(),
+        },
+        authorization: consentAuthorization,
+      });
+      consentEvents.push(...recorded);
+      consentState = recorded.reduce(evolveConsent, consentState);
+    }
+    return { consent, participant, consentEvents, consentState };
+  });
+
+  const claim: RegistrationOperationClaim = {
+    operationKeyDigest: operation.keyDigest,
+    operationKeyVersion: REGISTRATION_OPERATION_KEY_VERSION,
+    contactType: operation.contactType,
+    accountId,
+    userId,
+    membershipId,
+    displayName,
+    displayNameKey: identity.displayNameKey,
+    consents: identity.consents,
+    claimedAt: new Date().toISOString(),
+  };
+
+  return {
+    claimedVersion: args.claimedVersion,
+    claim,
+    account,
+    accountEvents,
+    accountState,
+    user,
+    userEvents,
+    userState,
+    membership,
+    membershipEvents,
+    membershipState,
+    consentPlans,
+  };
+}
+
+function registrationUserContactAgrees(state: UserState, operation: RegistrationOperation): boolean {
+  const primaryContact = state.contactMethods[0];
+  if (
+    !primaryContact ||
+    typeof primaryContact.contactMethodId !== "string" ||
+    primaryContact.contactMethodId.trim().length === 0 ||
+    typeof primaryContact.value !== "string"
+  ) {
+    return false;
+  }
+  if (operation.contactType === "email") {
+    return (
+      normalizeEmail(state.primaryEmail ?? "") === operation.contactValue &&
+      primaryContact?.type === "email" &&
+      normalizeEmail(primaryContact.value) === operation.contactValue
+    );
   }
 
-  if (phone) {
-    userResult = await services.users.commandHandler({
-      streamId: `identity.user-${userId}`,
-      command: { type: "EnableAuthMethod", authMethod: "sms-code" },
-      context: params.context,
-    });
-  }
-  snapshots.push(mutationSnapshot("user", userId, userResult));
+  return (
+    primaryContact.type === "phone" &&
+    normalizePhoneNumber(primaryContact.value) === operation.contactValue &&
+    typeof primaryContact.verifiedAt === "string" &&
+    Number.isFinite(Date.parse(primaryContact.verifiedAt))
+  );
+}
 
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
+/**
+ * One all-or-nothing append covering the registration-operation claim, the
+ * account, the user, the membership, and every Consent in the ordered bundle.
+ * Existing participants contribute zero-event version guards, so a late writer
+ * rolls back every earlier participant in this transaction.
+ */
+async function appendPersonalIdentityRegistration(
+  args: Readonly<{
+    services: IdentityServices;
+    eventStore: EventStore & Readonly<{ appendToStreams: NonNullable<EventStore["appendToStreams"]> }>;
+    params: Readonly<{ context: EventStoreContext }>;
+    operation: RegistrationOperation;
+    identity: RegistrationIdentity;
+    plan: PersonalIdentityRegistrationPlan;
+  }>,
+) {
+  const { eventStore, identity, operation, params, plan } = args;
+  const { accountId, userId, membershipId } = identity;
+  const results = await eventStore.appendToStreams([
+    registrationParticipantInput(
+      operation.streamId,
+      plan.claimedVersion === null ? "no_stream" : plan.claimedVersion,
+      plan.claimedVersion === null
+        ? [{ type: REGISTRATION_OPERATION_CLAIMED_EVENT_TYPE, data: plan.claim as unknown as JsonObject }]
+        : [],
+      params.context,
+    ),
+    registrationParticipantInput(plan.account.streamId, plan.account.version, plan.accountEvents, params.context),
+    registrationParticipantInput(plan.user.streamId, plan.user.version, plan.userEvents, params.context),
+    registrationParticipantInput(
+      plan.membership.streamId,
+      plan.membership.version,
+      plan.membershipEvents,
+      params.context,
+    ),
+    ...plan.consentPlans.map((consentPlan) =>
+      registrationParticipantInput(
+        consentPlan.participant.streamId,
+        consentPlan.participant.version,
+        consentPlan.consentEvents,
+        params.context,
+      ),
+    ),
+  ]);
+
+  const snapshots: IdentityMutationSnapshot[] = [
+    mutationSnapshot("account", accountId, {
+      version: committedParticipantVersion(results, plan.account.streamId, plan.account.version),
+      state: plan.accountState,
+    }),
+    mutationSnapshot("membership", membershipId, {
+      version: committedParticipantVersion(results, plan.membership.streamId, plan.membership.version),
+      state: plan.membershipState,
+    }),
+    ...plan.consentPlans.map((consentPlan) =>
+      mutationSnapshot(
+        "consent",
+        consentPlan.consent.consentId,
+        {
+          version: committedParticipantVersion(
+            results,
+            consentPlan.participant.streamId,
+            consentPlan.participant.version,
+          ),
+          state: consentPlan.consentState,
+        },
+        { fallbackStatus: "recorded" },
+      ),
+    ),
+    mutationSnapshot("user", userId, {
+      version: committedParticipantVersion(results, plan.user.streamId, plan.user.version),
+      state: plan.userState,
+    }),
+  ];
+
+  // Strictly after the registration commits, and never able to convert a
+  // committed registration into a failed response. Its idempotency key is
+  // stable per operation because the account id now is.
+  await publishRegistrationOutcomeFact(args.services, params.context, accountId);
+
+  return { userId, accountId, membershipId, snapshots };
+}
+
+async function publishRegistrationOutcomeFact(
+  services: IdentityServices,
+  context: EventStoreContext,
+  accountId: AccountId,
+) {
+  if (!services.eventStore) {
+    return;
+  }
+
+  try {
+    await publishIdentityCsatOutcomeFact(services.eventStore, context, {
       outcomeCode: "registration.completed",
       subjectAccountId: accountId,
       subjectKind: "account",
       subject: { entityType: "account", entityId: accountId },
       idempotencyKey: `identity:registration:${accountId}`,
     });
+  } catch {
+    // A cross-context outcome fact is not part of the registration atom. The
+    // account, user, membership and consent bundle are already committed, and
+    // reporting a failure here would tell the caller to retry work that
+    // succeeded.
   }
-
-  return { userId, accountId, membershipId, snapshots };
 }
 
 async function createGuestAccountForAuth(
@@ -816,6 +1608,45 @@ export function buildIdentityApi(services: IdentityServices) {
             },
           },
           400,
+        );
+      }
+
+      if (error instanceof RegistrationOperationContactRequiredError) {
+        return c.json(
+          {
+            error: {
+              code: "registration_operation_contact_required",
+              message: error.message,
+            },
+          },
+          400,
+        );
+      }
+
+      // A distinct classification, not a generic conflict: this registration
+      // appended nothing because the operation was already claimed against a
+      // different ordered consent bundle.
+      if (error instanceof RegistrationOperationConsentDisagreementError) {
+        return c.json(
+          {
+            error: {
+              code: "registration_operation_consent_disagreement",
+              message: error.message,
+            },
+          },
+          409,
+        );
+      }
+
+      if (error instanceof RegistrationOperationParticipantDisagreementError) {
+        return c.json(
+          {
+            error: {
+              code: "registration_operation_participant_disagreement",
+              message: error.message,
+            },
+          },
+          409,
         );
       }
 

@@ -3,6 +3,9 @@ import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
 import { mintRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 // Registration reaches the aggregate writes only with a server-minted
 // resolution, so these route tests resolve one the same way a caller does.
@@ -19,6 +22,7 @@ function registrationConsent() {
 
 function createServices() {
   return {
+    eventStore: createInMemoryEventStore(),
     db: {
       query: vi.fn(),
     },
@@ -62,13 +66,23 @@ describe("identity internal auth routes", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(services.accounts.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          type: "CreateAccount",
-          name: "",
-          displayName: "PokeBash TCG",
-        }),
+    const eventStore = services.eventStore as InMemoryEventStore;
+    const [accountStreamId] = eventStore.streamIdsWithPrefix("identity.account-");
+    const accountId = accountStreamId.slice("identity.account-".length) as AccountId;
+
+    // Registration composes this command literally and folds it through the
+    // Account decider, so what it appended must be exactly what that decider
+    // yields for it: the personal display name stays the display name and never
+    // becomes the account's legal name.
+    expect(
+      (eventStore.streams.get(accountStreamId) ?? []).map((event) => ({ type: event.eventType, data: event.payload })),
+    ).toEqual(
+      decideAccount(initialAccountState, {
+        type: "CreateAccount",
+        accountId,
+        name: "",
+        accountType: "personal",
+        displayName: "PokeBash TCG",
       }),
     );
   });
@@ -95,8 +109,7 @@ describe("identity internal auth routes", () => {
         message: "Display name is already taken.",
       },
     });
-    expect(services.accounts.commandHandler).not.toHaveBeenCalled();
-    expect(services.users.commandHandler).not.toHaveBeenCalled();
+    expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.")).toEqual([]);
   });
 
   it("registers passkey credential facts without requiring an actor request context", async () => {
