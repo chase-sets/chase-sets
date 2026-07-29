@@ -1,5 +1,6 @@
 name: Decision
 description: A decision only Todd can make, queued so work flows around it
+type: Decision
 title: "Decision: <what must be decided>"
 labels: ["decision"]
 body:

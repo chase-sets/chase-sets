@@ -96,22 +96,32 @@ runnable or not. Both may exist; the relationship wins.
 
 ## Label charter
 
-Labels exist for exactly four purposes. Anything else is a planning artifact
-that belongs in an epic or a milestone.
+`scripts/label-registry.mjs` is the machine-readable source of truth for this
+charter. The table deliberately spells out every canonical member so the script
+battery can fail when the documentation, issue forms, or labeler drift.
 
 | Family | Purpose | Rule |
 |---|---|---|
-| **CI control** | drives workflow behavior | `full-ci`, `preview`, `ci-circuit-repair`. Load-bearing — read by `.github/workflows/platform-pr.yml`. Never prune without changing the workflow. (That workflow also tests for `full-pr-battery`, which is not a defined label; the clause is currently a no-op.) |
-| `area:*` | owning bounded context | Mirrors the context map. Stable. |
-| `kind:*` | nature of the work | Small fixed set: `product`, `tech-debt`, `security`, `test`, `ops`. (`kind:epic` is legacy — the **Epic issue type** replaced it.) |
-| `priority:*` | dispatch rank | `p0`–`p3`. On slices only. |
-| `risk:*` | a named risk to call out | Small fixed set. |
-| `status:*` | lifecycle exceptions | `tracking-only`, `needs-replan`. |
+| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
+| `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
+| `kind:*` | nature of the work | `kind:epic`, `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. `kind:epic` remains only as the compatibility fallback for existing untyped issues; new epics use the native **Epic** type. |
+| `priority:*` | dispatch rank | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`. On slices only. |
+| `risk:*` | a named risk to call out | `risk:data-quality`, `risk:policy`, `risk:provider`, `risk:semantic-authority`. |
+| `status:*` | lifecycle exceptions | `status:follow-up-after-first-slice`, `status:needs-operator`, `status:needs-replan`, `status:tracking-only`. |
 
 **Banned:** per-workstream `phase:*`, `stage:*`, `series:*`, `tier:*` families.
 Every one of these was created for a single workstream and outlived it — 55 of
 them accumulated across finished June milestones and had to be swept. Sequencing
 inside a workstream is what an epic's chain DAG is for.
+
+Existing banned-family and stray labels are registered by exact name as
+`grandfathered-frozen` in the registry. They may remain on existing issues but
+must never be newly applied, recreated, or renamed. Their convergence is future
+operator work owned by [#6174](https://github.com/chase-sets/chase-sets/issues/6174).
+
+`full-pr-battery` is not a live or registered label. Its existing
+`platform-pr.yml` condition is therefore inactive rather than an alternate
+charter member.
 
 Before creating a label, ask: will this still mean something after the work that
 prompted it ships? If no, it belongs in the epic body.

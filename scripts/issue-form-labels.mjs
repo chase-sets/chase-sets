@@ -1,4 +1,5 @@
 import process from "node:process";
+import { sliceFormValues } from "./label-registry.mjs";
 
 // Applies a trusted issue author's slice-form Priority / Owning context / Kind
 // answers as labels. The form itself cannot set conditional labels, so this
@@ -6,39 +7,15 @@ import process from "node:process";
 //
 // Additive only: this never removes a label a human or the planner set.
 
-const FIELDS = [
-  { heading: "Priority", prefix: "priority:", allowed: ["p0", "p1", "p2", "p3"] },
+export const FIELDS = Object.freeze([
+  { heading: "Priority", prefix: "priority:", allowed: sliceFormValues("priority") },
   {
     heading: "Owning context",
     prefix: "area:",
-    allowed: [
-      "auth",
-      "catalog",
-      "checkout",
-      "collections",
-      "commercial-terms",
-      "design-system",
-      "discovery",
-      "fulfillment",
-      "identity",
-      "infrastructure",
-      "inventory",
-      "marketplace",
-      "marketplace-web",
-      "notifications",
-      "ops",
-      "ordering",
-      "payments",
-      "platform-runtime",
-      "pricing",
-      "public-presence",
-      "settlement",
-      "support",
-      "tax",
-    ],
+    allowed: sliceFormValues("area"),
   },
-  { heading: "Kind", prefix: "kind:", allowed: ["product", "tech-debt", "security", "test", "ops"] },
-];
+  { heading: "Kind", prefix: "kind:", allowed: sliceFormValues("kind") },
+]);
 
 const NO_RESPONSE = "_no response_";
 
