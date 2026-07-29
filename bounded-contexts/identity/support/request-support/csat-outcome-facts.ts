@@ -77,6 +77,10 @@ export async function publishIdentityCsatOutcomeFact(
     });
   } catch (error) {
     if (isConcurrencyConflict(error)) {
+      // event-stream-read: bounded-prefix -- limit 1. This stream is a single
+      // immutable outcome fact appended with a stable event id; the replay this
+      // recovers is always stream version 1, so no later event can change the
+      // answer and no fold over further history exists.
       const existing = await eventStore.readStream({ streamId, limit: 1 });
       const payload = existing[0]?.payload;
       if (existing[0]?.eventType === IDENTITY_CSAT_OUTCOME_FACT_EVENT_TYPE && isSameOutcome(payload, fact)) {

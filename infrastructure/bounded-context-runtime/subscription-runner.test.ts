@@ -676,6 +676,53 @@ describe("bounded context subscription runner", () => {
     expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:${streamId}`)?.state).toBe("resolved");
   });
 
+  /**
+   * Bound contract for infrastructure/bounded-context-runtime/subscriptions.ts:readStream#1.
+   *
+   * The retry read is a declared paged-catch-up, not a complete fold: its
+   * limit is the subscription batch size and completeness comes from draining
+   * to an empty page. The blocked stream here is strictly longer than that
+   * batch size, so a single capped read would apply only a prefix.
+   */
+  it("drains a blocked stream longer than its declared batch size, one page at a time", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const streamId = "catalog.item-cat_long";
+    const projectionKey = "discovery-item-detail-projection:catalog:v1";
+    sourceEventsByPool.set(
+      sourcePool,
+      [1, 2, 3].map((position) =>
+        createStoredEvent(String(position), "catalog.catalog-item.published", { itemId: "cat_long" }, streamId),
+      ),
+    );
+    getBlockedStreamStore(targetPool).set(`${projectionKey}:${streamId}`, {
+      projectionKey,
+      streamId,
+      firstBlockedGlobalPosition: "1",
+      firstBlockedStreamVersion: 1,
+      lastSeenGlobalPosition: "3",
+      deferredEventCount: 0,
+      state: "blocked",
+    });
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-detail-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-item-detail-projection",
+      subscriptionVersion: 1,
+      batchSize: 2,
+      handlers: { "catalog.catalog-item.published": async () => {} },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await expect(runner.retryBlockedStream(streamId, { statementTimeoutMs: 30_000 })).resolves.toMatchObject({
+      state: "resolved",
+      inspectedEvents: 3,
+      appliedEvents: 3,
+    });
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_3`)).toBe("applied");
+  });
+
   it("refreshes source lag without scanning applicable event lag", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

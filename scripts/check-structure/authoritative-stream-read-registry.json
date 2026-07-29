@@ -1,0 +1,69 @@
+{
+  "issue": "#6277",
+  "defectClass": "pagination-truncates-authoritative-state",
+  "howThisWorks": [
+    "Consumers are DERIVED from the code corpus by scripts/check-structure/authoritative-stream-read-inventory.mjs.",
+    "This file never decides what exists: an undiscovered entry is stale and a new call site fails closed.",
+    "It only classifies the sites that declare, in source, that a bounded prefix IS the contract.",
+    "Complete-history readers need no entry -- they call readCompleteStream from @chase-sets/event-core/complete-stream.",
+    "Every entry names the test that consumes its declared bound, and that test must cite the entry id."
+  ],
+  "entries": [
+    {
+      "id": "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts:readStream#1",
+      "file": "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "The outcome-fact stream carries one immutable event appended under a stable event id, so the replay this recovers is always stream version 1 and no later event can change the comparison.",
+      "boundTest": "bounded-contexts/auth/support/request-support/csat-outcome-facts.test.ts"
+    },
+    {
+      "id": "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts:readStream#1",
+      "file": "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "The outcome-fact stream carries one immutable event appended under a stable event id, so the replay this recovers is always stream version 1 and no later event can change the comparison.",
+      "boundTest": "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts"
+    },
+    {
+      "id": "bounded-contexts/identity/support/request-support/csat-outcome-facts.ts:readStream#1",
+      "file": "bounded-contexts/identity/support/request-support/csat-outcome-facts.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "The outcome-fact stream carries one immutable event appended under a stable event id, so the replay this recovers is always stream version 1 and no later event can change the comparison.",
+      "boundTest": "bounded-contexts/identity/support/request-support/csat-outcome-facts.test.ts"
+    },
+    {
+      "id": "bounded-contexts/identity/api.ts:readStream#1",
+      "file": "bounded-contexts/identity/api.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "This asks only whether the reservation's account stream exists at all. One event proves existence and no later event can un-create the account, so a longer read could only confirm the same answer.",
+      "boundTest": "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts"
+    },
+    {
+      "id": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts:readStream#1",
+      "file": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "Only the create-versus-refresh branch depends on this probe, and any single event proves the candidate exists; the command it selects replays the aggregate completely through its repository.",
+      "boundTest": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-bounded-reads.test.ts"
+    },
+    {
+      "id": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts:readStream#2",
+      "file": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
+      "classification": "bounded-prefix",
+      "bound": "1",
+      "reason": "This rejects a split whose target candidate already exists. One event proves existence, and a longer history could only make the same rejection more certain.",
+      "boundTest": "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-bounded-reads.test.ts"
+    },
+    {
+      "id": "infrastructure/bounded-context-runtime/subscriptions.ts:readStream#1",
+      "file": "infrastructure/bounded-context-runtime/subscriptions.ts",
+      "classification": "paged-catch-up",
+      "bound": "batchSize",
+      "reason": "The blocked-stream retry drains the stream to exhaustion, applying each event in its own projection transaction, so it must never materialize a whole history; it folds no aggregate state.",
+      "boundTest": "infrastructure/bounded-context-runtime/subscription-runner.test.ts"
+    }
+  ]
+}

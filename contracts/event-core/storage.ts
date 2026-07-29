@@ -107,6 +107,21 @@ export type AppendToStreamInput = Readonly<{
   context: EventStoreContext;
 }>;
 
+/**
+ * The largest number of events one `readStream`/`readAll` page may return, and
+ * the limit an omitted `limit` defaults to. Every store implementation enforces
+ * it, so a single call NEVER proves it saw a complete history -- it only ever
+ * proves it saw a prefix. Complete-history readers must page with
+ * `readCompleteStream` (see `./complete-stream`).
+ */
+export const EVENT_STORE_READ_PAGE_SIZE_MAX = 500;
+
+/**
+ * `fromVersion` is INCLUSIVE: a read from version `n` returns the event stored
+ * at version `n` first. `limit` is capped at `EVENT_STORE_READ_PAGE_SIZE_MAX`
+ * and defaults to it, so an omitted `limit` is a capped prefix read, not an
+ * unbounded one.
+ */
 export type ReadStreamInput = Readonly<{
   streamId: StreamId;
   fromVersion?: StreamVersion;

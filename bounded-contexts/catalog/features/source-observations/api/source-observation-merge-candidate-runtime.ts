@@ -117,7 +117,10 @@ export function createSourceObservationMergeCandidateRuntime({
 
     for (const candidate of generated.candidates) {
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
-      const existingEvents = await deps.eventStore.readStream({ streamId });
+      // event-stream-read: bounded-prefix -- limit 1. Only the create-versus-refresh
+      // branch depends on this, and any single event proves the candidate exists;
+      // the command itself replays the aggregate through its repository.
+      const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       const now = new Date().toISOString();
       await catalogMergeCandidateCommandHandler({
         streamId,
@@ -247,8 +250,12 @@ export function createSourceObservationMergeCandidateRuntime({
         catalogMergeCandidateStreamId(input.candidateId),
       );
       decideCatalogMergeCandidate(originalCandidate.state, splitCommand);
+      // event-stream-read: bounded-prefix -- limit 1. This rejects a split whose
+      // target candidate already exists; one event proves existence, and a longer
+      // history could only make the same rejection more certain.
       const existingSplitEvents = await deps.eventStore.readStream({
         streamId: catalogMergeCandidateStreamId(input.splitCandidateId),
+        limit: 1,
       });
       if (existingSplitEvents.length > 0) {
         throw new Error("Split Catalog Merge Candidate already exists.");

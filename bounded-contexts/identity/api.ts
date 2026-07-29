@@ -264,6 +264,9 @@ async function reclaimStrandedDisplayNameReservation(
     throw new IdentityDisplayNameConflictError();
   }
 
+  // event-stream-read: bounded-prefix -- limit 1. This asks only whether the
+  // reservation's account stream exists at all; one event proves existence and
+  // no later event can un-create the account, so completeness is irrelevant.
   const strandedAccount = await eventStore.readStream({
     streamId: `identity.account-${heldRow.account_id}`,
     limit: 1,

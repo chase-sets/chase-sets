@@ -1,11 +1,12 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStoreError } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, GlobalPosition, StoredEvent } from "@chase-sets/event-core/storage";
 import { createPostgresAggregateSnapshotStore } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
@@ -906,19 +907,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
   async function findReplayedListingMutation(listingId: string, idempotencyKey: string) {
     const eventId = `${idempotencyKey}:0`;
-    let fromVersion = 1;
-    while (true) {
-      const events = await deps.eventStore.readStream({
-        streamId: `marketplace.listing-${listingId}`,
-        fromVersion,
-        limit: 500,
-      });
-      const replayed = events.find((event) => event.eventId === eventId);
-      if (replayed || events.length < 500) {
-        return replayed ?? null;
-      }
-      fromVersion += events.length;
-    }
+    // A replayed mutation can sit anywhere in the history, so absence is only
+    // provable over the complete stream.
+    const events = await readCompleteStream(deps.eventStore, {
+      streamId: `marketplace.listing-${listingId}`,
+    });
+    return events.find((event) => event.eventId === eventId) ?? null;
   }
 
   async function resolveEvidenceRequirementsForListing(
@@ -1337,9 +1331,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
-  function feeHistoryEntryFromEvent(
-    event: Awaited<ReturnType<typeof deps.eventStore.readStream>>[number],
-  ): MarketplaceListingFeeHistoryEntry | null {
+  function feeHistoryEntryFromEvent(event: StoredEvent): MarketplaceListingFeeHistoryEntry | null {
     const data =
       typeof event.payload === "object" && event.payload !== null ? (event.payload as Record<string, unknown>) : {};
 
@@ -2223,7 +2215,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
-      const events = await deps.eventStore.readStream({
+      // The seller is shown this as THE fee history for the listing; a capped
+      // prefix would silently drop the newest fee changes (#6277).
+      const events = await readCompleteStream(deps.eventStore, {
         streamId: `marketplace.listing-${params.listingId}`,
       });
 

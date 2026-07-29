@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -414,19 +415,14 @@ async function loadCooldownClaim(
   eventStore: EventStore,
   streamId: string,
 ): Promise<Readonly<{ version: number; lastIssuedAt: string | null }>> {
-  let fromVersion = 1;
   let version = 0;
   let lastIssuedAt: string | null = null;
-  for (;;) {
-    const page = await eventStore.readStream({ streamId, fromVersion, limit: 500 });
-    for (const stored of page) {
-      const event = cooldownCodec.decode(stored);
-      version = stored.streamVersion;
-      lastIssuedAt = event.data.issuedAt;
-    }
-    if (page.length < 500) return { version, lastIssuedAt };
-    fromVersion = page[page.length - 1].streamVersion + 1;
+  for (const stored of await readCompleteStream(eventStore, { streamId })) {
+    const event = cooldownCodec.decode(stored);
+    version = stored.streamVersion;
+    lastIssuedAt = event.data.issuedAt;
   }
+  return { version, lastIssuedAt };
 }
 
 function stableDigest(first: string, second: string): string {

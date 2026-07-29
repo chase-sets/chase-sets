@@ -695,6 +695,11 @@ export function createSubscriptionRunner(
 
       while (true) {
         context?.throwIfLeaseLost?.();
+        // event-stream-read: paged-catch-up -- this drains the stream to exhaustion
+        // (the loop exits only on an empty page) and applies each event in its own
+        // projection transaction, so it must never materialize a whole history.
+        // It folds no aggregate state: `fromVersion` advances from the last applied
+        // event's stream version plus one, using the store's inclusive semantics.
         const storedEvents = await sourceEventStore.readStream({
           streamId,
           fromVersion,

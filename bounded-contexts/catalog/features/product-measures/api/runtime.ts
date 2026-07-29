@@ -5,6 +5,7 @@ import {
   resolveProjectionDb,
   type ProjectionHandlerSet,
 } from "@chase-sets/event-core/projector";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
 import type {
@@ -167,8 +168,12 @@ async function resolveCatalogItemMeasures(
 
   if (context) {
     const streamId = `catalog.product-measures-${catalogItemId}`;
-    const existingEvents = await deps.eventStore.readStream({ streamId });
-    const currentVersion = existingEvents.length;
+    // `currentVersion` is the expected version this append is guarded on and
+    // `lastResolved` decides whether to append at all, so both are complete-
+    // history facts: a capped prefix would guard on a stale version and
+    // re-append an already-resolved payload (#6277).
+    const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
+    const currentVersion = existingEvents[existingEvents.length - 1]?.streamVersion ?? 0;
     const lastResolved = [...existingEvents]
       .reverse()
       .find((event) => event.eventType === "catalog.catalog-item.product-measures-resolved");

@@ -335,6 +335,14 @@ describeDb("registration operation recovery", () => {
     ]);
   });
 
+  /**
+   * Bound contract for bounded-contexts/identity/api.ts:readStream#1.
+   *
+   * That probe reads one event to decide whether the reservation's account
+   * exists. The account below carries several events, so the declared
+   * one-event prefix is being asked to answer for a longer history: existence
+   * is decided by the first event and nothing after it can revoke it.
+   */
   it("refuses to adopt a pre-operation reservation whose account really exists", async () => {
     const liveAccountId = createId("acc");
     await eventStore.appendToStream({
@@ -345,6 +353,8 @@ describeDb("registration operation recovery", () => {
           eventType: "identity.account.created",
           payload: { accountId: liveAccountId, name: "", accountType: "personal", displayName: DISPLAY_NAME },
         },
+        { eventType: "identity.account.display-name-changed", payload: { accountId: liveAccountId, displayName: "" } },
+        { eventType: "identity.account.display-name-changed", payload: { accountId: liveAccountId, displayName: "" } },
       ],
       context,
     });

@@ -122,8 +122,12 @@ describe("aggregate command handler factory", () => {
       version: 502,
     });
 
+    // The first read is explicit about the page it wants: relying on the
+    // store's default cap is exactly how a fold silently becomes a prefix.
     expect(eventStore.readStream).toHaveBeenNthCalledWith(1, {
       streamId: "counter-1",
+      fromVersion: 1,
+      limit: 500,
     });
     expect(eventStore.readStream).toHaveBeenNthCalledWith(2, {
       streamId: "counter-1",

@@ -2,6 +2,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -661,7 +662,10 @@ async function recoverInventoryAdjustmentIdempotency(
 ): Promise<{ itemId: string; version: number } | null> {
   const createdAt = new Date(input.existing.created_at).getTime();
   const normalizedReason = input.reason.trim();
-  const events = await deps.eventStore.readStream({ streamId: `inventory.item-${input.itemId}` });
+  // The recovered adjustment is the LATEST match, so this fold needs the whole
+  // history: reversing a capped prefix would answer with an older adjustment,
+  // or none, and replay the caller's command against real stock (#6277).
+  const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
   const committed = [...events].reverse().find((event) => {
     if (event.eventType !== "inventory.item.adjusted") {
       return false;

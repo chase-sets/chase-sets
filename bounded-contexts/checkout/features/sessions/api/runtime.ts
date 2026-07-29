@@ -1,6 +1,7 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -643,7 +644,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         return null;
       }
 
-      const storedEvents = await deps.eventStore.readStream({ streamId: candidateStreamId });
+      // `commitMetadataFromStoredEvents` folds the read-your-writes commit
+      // position out of these events, so a capped prefix would hand the caller
+      // a stale position and let it read behind its own write (#6277).
+      const storedEvents = await readCompleteStream(deps.eventStore, { streamId: candidateStreamId });
       const started = storedEvents.find((event) => event.eventType === "checkout.session.started");
       if (!started) {
         return null;

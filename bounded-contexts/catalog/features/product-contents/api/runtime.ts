@@ -6,6 +6,7 @@ import {
   resolveProjectionDb,
   type ProjectionHandlerSet,
 } from "@chase-sets/event-core/projector";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -243,8 +244,11 @@ async function replaceProductContents(
 ): Promise<ProductContentsResolvedFact> {
   const fact = await buildResolvedFact(deps.db, input);
   const streamId = `catalog.product-contents-${fact.containerCatalogItemId}`;
-  const existingEvents = await deps.eventStore.readStream({ streamId });
-  const currentVersion = existingEvents.length;
+  // `currentVersion` guards the append and `lastResolved` is the retained-state
+  // comparison, so both are complete-history facts: a capped prefix would guard
+  // on a stale version and rewrite retained contents (#6277).
+  const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
+  const currentVersion = existingEvents[existingEvents.length - 1]?.streamVersion ?? 0;
   const lastResolved = [...existingEvents]
     .reverse()
     .find((event) => event.eventType === "catalog.product-contents.resolved");

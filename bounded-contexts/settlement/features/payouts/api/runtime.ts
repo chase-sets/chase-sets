@@ -1,6 +1,7 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -696,7 +697,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   }
 
   async function getCommittedPayoutLedgerEntry(accountId: string, ledgerEntryId: LedgerEntryId) {
-    const events = await deps.eventStore.readStream({
+    // A wallet stream grows with every ledger posting, so the entry being
+    // looked up is routinely past the first page. A capped read would report a
+    // committed entry as missing (#6277).
+    const events = await readCompleteStream(deps.eventStore, {
       streamId: `settlement.wallet-${accountId}`,
     });
     return (
