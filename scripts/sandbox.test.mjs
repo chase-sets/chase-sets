@@ -9,6 +9,7 @@ import {
   getContextDatabaseEnvName,
   listSandboxDatabases,
   mergeSandboxEnvFile,
+  normalizeSandboxWorktreeIdentity,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
 
@@ -44,6 +45,23 @@ describe("worktree sandbox", () => {
     expect(left.ports.postgres).toBe(left.basePort + 20);
   });
 
+  it("canonicalizes Windows worktree identities case-insensitively", () => {
+    const upper = resolveWorktreeSandbox({
+      rootDir: "C:\\Repos\\Chase Sets\\Feature",
+      env: {},
+      contextNames: [],
+    });
+    const lower = resolveWorktreeSandbox({
+      rootDir: "c:\\repos\\chase sets\\feature",
+      env: {},
+      contextNames: [],
+    });
+
+    expect(normalizeSandboxWorktreeIdentity(upper.rootDir)).toBe(normalizeSandboxWorktreeIdentity(lower.rootDir));
+    expect(upper.id).toBe(lower.id);
+    expect(upper.basePort).toBe(lower.basePort);
+  });
+
   it("honors explicit id and port overrides", () => {
     const rootDir = createTempRepo();
     const sandbox = resolveWorktreeSandbox({
@@ -72,6 +90,7 @@ describe("worktree sandbox", () => {
     expect(env.TEST_DATABASE_URL).toBe("postgresql://postgres:postgres@localhost:7020/postgres");
     expect(env.PLATFORM_CONTROL_DATABASE_URL).toContain("/cs_abc123_control");
     expect(env.PLATFORM_WORK_SIGNAL_DATABASE_URL).toBe(env.PLATFORM_CONTROL_DATABASE_URL);
+    expect(env.CHASE_SETS_SANDBOX_WORKTREE).toBe(normalizeSandboxWorktreeIdentity(rootDir));
     expect(env[getContextDatabaseEnvName("catalog")]).toContain("/cs_abc123_catalog");
     expect(env[getContextDatabaseEnvName("marketplace")]).toContain("/cs_abc123_marketplace");
     expect(env.STRIPE_WEBHOOK_FORWARD_URL).toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");

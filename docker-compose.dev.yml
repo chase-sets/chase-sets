@@ -1,6 +1,12 @@
+x-sandbox-labels: &sandbox-labels
+  com.chase-sets.sandbox.owner: local-worktree-v1
+  com.chase-sets.sandbox.id: "${CHASE_SETS_SANDBOX_ID}"
+  com.chase-sets.sandbox.worktree: "${CHASE_SETS_SANDBOX_WORKTREE}"
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    labels: *sandbox-labels
     ports:
       - "${POSTGRES_DEV_HOST_PORT:-5432}:5432"
     environment:
@@ -13,6 +19,7 @@ services:
   otel-collector:
     profiles: ["observability"]
     image: otel/opentelemetry-collector-contrib:0.119.0
+    labels: *sandbox-labels
     command: ["--config=/etc/otelcol/config.yml"]
     ports:
       - "${OTEL_GRPC_HOST_PORT:-4317}:4317"
@@ -29,6 +36,7 @@ services:
   prometheus:
     profiles: ["observability"]
     image: prom/prometheus:v2.55.1
+    labels: *sandbox-labels
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=24h"
@@ -42,6 +50,7 @@ services:
   loki:
     profiles: ["observability"]
     image: grafana/loki:3.3.2
+    labels: *sandbox-labels
     command: ["-config.file=/etc/loki/config.yml"]
     ports:
       - "${LOKI_HOST_PORT:-3100}:3100"
@@ -52,6 +61,7 @@ services:
   tempo:
     profiles: ["observability"]
     image: grafana/tempo:2.7.1
+    labels: *sandbox-labels
     command: ["-config.file=/etc/tempo/config.yml"]
     ports:
       - "${TEMPO_HOST_PORT:-3200}:3200"
@@ -63,6 +73,7 @@ services:
   grafana:
     profiles: ["observability"]
     image: grafana/grafana:11.4.0
+    labels: *sandbox-labels
     ports:
       - "${GRAFANA_HOST_PORT:-3000}:3000"
     environment:
@@ -80,7 +91,16 @@ services:
 
 volumes:
   chase-sets-postgres-dev-data:
+    labels: *sandbox-labels
   chase-sets-prometheus-dev-data:
+    labels: *sandbox-labels
   chase-sets-loki-dev-data:
+    labels: *sandbox-labels
   chase-sets-tempo-dev-data:
+    labels: *sandbox-labels
   chase-sets-grafana-dev-data:
+    labels: *sandbox-labels
+
+networks:
+  default:
+    labels: *sandbox-labels

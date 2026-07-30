@@ -112,6 +112,11 @@ function hashInteger(value) {
   return Number.parseInt(hashHex(value).slice(0, 8), 16);
 }
 
+export function normalizeSandboxWorktreeIdentity(rootDir) {
+  const normalized = path.resolve(rootDir).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" || /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
 function readImplementedContextNames(rootDir) {
   const contextsDir = path.join(rootDir, "bounded-contexts");
   if (!existsSync(contextsDir)) {
@@ -147,7 +152,7 @@ function resolvePortBase(rootDir, env) {
     return explicitBase;
   }
 
-  return defaultPortBase + (hashInteger(path.resolve(rootDir)) % portBlockCount) * portBlockSize;
+  return defaultPortBase + (hashInteger(normalizeSandboxWorktreeIdentity(rootDir)) % portBlockCount) * portBlockSize;
 }
 
 function resolvePorts(rootDir, env) {
@@ -195,7 +200,8 @@ export function resolveWorktreeSandbox({
   contextNames = readImplementedContextNames(rootDir),
 } = {}) {
   const resolvedRoot = path.resolve(rootDir);
-  const hash = hashHex(resolvedRoot);
+  const worktreeIdentity = normalizeSandboxWorktreeIdentity(resolvedRoot);
+  const hash = hashHex(worktreeIdentity);
   const explicitId = env.CHASE_SETS_SANDBOX_ID?.trim();
   const sandboxId = sanitizeIdentifier(explicitId || hash.slice(0, 8), "local");
   const composeProjectName = `chase-sets-${sandboxId}`;
@@ -264,6 +270,7 @@ export function buildSandboxEnv(sandbox) {
     CHASE_SETS_SANDBOX_ID: sandbox.id,
     CHASE_SETS_SANDBOX_ENV_FILE: formatPathForEnv(sandbox.envFilePath),
     CHASE_SETS_SANDBOX_COMPOSE_PROJECT: sandbox.composeProjectName,
+    CHASE_SETS_SANDBOX_WORKTREE: normalizeSandboxWorktreeIdentity(sandbox.rootDir),
     CHASE_SETS_SANDBOX_BASE_PORT: String(sandbox.basePort),
     COMPOSE_PROJECT_NAME: sandbox.composeProjectName,
     POSTGRES_DEV_HOST_PORT: String(sandbox.ports.postgres),
