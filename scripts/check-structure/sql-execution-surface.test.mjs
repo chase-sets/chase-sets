@@ -69,7 +69,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["infrastructure/event-core-postgres/types.ts", 40, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
-      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 144, "deps.db"],
+      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 145, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 283, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 284, "db"],
