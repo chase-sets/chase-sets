@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDockerComposeArgs,
   buildSandboxEnv,
@@ -9,6 +9,7 @@ import {
   getContextDatabaseEnvName,
   listSandboxDatabases,
   mergeSandboxEnvFile,
+  normalizeSandboxWorktreeIdentity,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
 
@@ -44,6 +45,67 @@ describe("worktree sandbox", () => {
     expect(left.ports.postgres).toBe(left.basePort + 20);
   });
 
+  it("canonicalizes Windows-shaped worktree identities case-insensitively on every host", () => {
+    const upper = resolveWorktreeSandbox({
+      rootDir: "C:\\Repos\\Chase Sets\\Feature",
+      env: {},
+      contextNames: [],
+    });
+    const lower = resolveWorktreeSandbox({
+      rootDir: "c:\\repos\\chase sets\\feature",
+      env: {},
+      contextNames: [],
+    });
+
+    expect(upper.id).toBe(lower.id);
+    expect(upper.basePort).toBe(lower.basePort);
+  });
+
+  it("derives Windows-shaped sandbox identities before native path resolution on every host", () => {
+    const upperWindowsWorktree = "C:\\Repos\\Chase Sets\\Feature";
+    const lowerWindowsWorktree = "c:\\repos\\chase sets\\feature";
+    const nativeResolve = path.resolve;
+    const resolve = vi.spyOn(path, "resolve").mockImplementation((...segments) => {
+      if (segments.length === 1 && [upperWindowsWorktree, lowerWindowsWorktree].includes(segments[0])) {
+        return path.posix.resolve("/synthetic-linux-host", segments[0]);
+      }
+      return nativeResolve(...segments);
+    });
+
+    try {
+      const upper = resolveWorktreeSandbox({
+        rootDir: upperWindowsWorktree,
+        env: {},
+        contextNames: [],
+      });
+      const lower = resolveWorktreeSandbox({
+        rootDir: lowerWindowsWorktree,
+        env: {},
+        contextNames: [],
+      });
+
+      expect(upper.id).toBe(lower.id);
+      expect(upper.basePort).toBe(lower.basePort);
+    } finally {
+      resolve.mockRestore();
+    }
+  });
+
+  it("canonicalizes Windows UNC worktree identities case-insensitively on every host", () => {
+    expect(normalizeSandboxWorktreeIdentity("\\\\Server\\Share\\Chase Sets\\Feature")).toBe(
+      normalizeSandboxWorktreeIdentity("\\\\server\\share\\chase sets\\feature"),
+    );
+  });
+
+  it("preserves POSIX-shaped worktree identity case on every host", () => {
+    const upper = "/repos/Chase Sets/Feature";
+    const lower = "/repos/chase sets/feature";
+
+    expect(normalizeSandboxWorktreeIdentity(upper)).toBe(upper);
+    expect(normalizeSandboxWorktreeIdentity(lower)).toBe(lower);
+    expect(normalizeSandboxWorktreeIdentity(upper)).not.toBe(normalizeSandboxWorktreeIdentity(lower));
+  });
+
   it("honors explicit id and port overrides", () => {
     const rootDir = createTempRepo();
     const sandbox = resolveWorktreeSandbox({
@@ -72,6 +134,7 @@ describe("worktree sandbox", () => {
     expect(env.TEST_DATABASE_URL).toBe("postgresql://postgres:postgres@localhost:7020/postgres");
     expect(env.PLATFORM_CONTROL_DATABASE_URL).toContain("/cs_abc123_control");
     expect(env.PLATFORM_WORK_SIGNAL_DATABASE_URL).toBe(env.PLATFORM_CONTROL_DATABASE_URL);
+    expect(env.CHASE_SETS_SANDBOX_WORKTREE).toBe(normalizeSandboxWorktreeIdentity(rootDir));
     expect(env[getContextDatabaseEnvName("catalog")]).toContain("/cs_abc123_catalog");
     expect(env[getContextDatabaseEnvName("marketplace")]).toContain("/cs_abc123_marketplace");
     expect(env.STRIPE_WEBHOOK_FORWARD_URL).toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");

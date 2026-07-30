@@ -112,6 +112,17 @@ function hashInteger(value) {
   return Number.parseInt(hashHex(value).slice(0, 8), 16);
 }
 
+export function normalizeSandboxWorktreeIdentity(rootDir) {
+  const value = String(rootDir);
+  if (/^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i.test(value)) {
+    return path.win32.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  }
+  if (path.posix.isAbsolute(value)) {
+    return path.posix.resolve(value).replace(/\/+$/, "");
+  }
+  return path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
+}
+
 function readImplementedContextNames(rootDir) {
   const contextsDir = path.join(rootDir, "bounded-contexts");
   if (!existsSync(contextsDir)) {
@@ -147,7 +158,7 @@ function resolvePortBase(rootDir, env) {
     return explicitBase;
   }
 
-  return defaultPortBase + (hashInteger(path.resolve(rootDir)) % portBlockCount) * portBlockSize;
+  return defaultPortBase + (hashInteger(normalizeSandboxWorktreeIdentity(rootDir)) % portBlockCount) * portBlockSize;
 }
 
 function resolvePorts(rootDir, env) {
@@ -194,15 +205,19 @@ export function resolveWorktreeSandbox({
   env = process.env,
   contextNames = readImplementedContextNames(rootDir),
 } = {}) {
+  // Worktree identity is cross-host data: Git and Docker labels can describe a
+  // Windows worktree while this command runs on Linux. Classify that raw value
+  // before the native resolver can reinterpret it as a relative POSIX path.
+  const worktreeIdentity = normalizeSandboxWorktreeIdentity(rootDir);
   const resolvedRoot = path.resolve(rootDir);
-  const hash = hashHex(resolvedRoot);
+  const hash = hashHex(worktreeIdentity);
   const explicitId = env.CHASE_SETS_SANDBOX_ID?.trim();
   const sandboxId = sanitizeIdentifier(explicitId || hash.slice(0, 8), "local");
   const composeProjectName = `chase-sets-${sandboxId}`;
   const envFilePath = path.resolve(
     env.CHASE_SETS_SANDBOX_ENV_FILE ?? path.join(resolvedRoot, defaultSandboxEnvFileName),
   );
-  const { basePort, ports } = resolvePorts(resolvedRoot, env);
+  const { basePort, ports } = resolvePorts(worktreeIdentity, env);
   const adminDatabaseUrl = createAdminDatabaseUrl(ports.postgres);
   const databasePrefix = normalizeDatabaseToken(`cs_${sandboxId}`);
   const controlDatabaseName = `${databasePrefix}_control`;
@@ -264,6 +279,7 @@ export function buildSandboxEnv(sandbox) {
     CHASE_SETS_SANDBOX_ID: sandbox.id,
     CHASE_SETS_SANDBOX_ENV_FILE: formatPathForEnv(sandbox.envFilePath),
     CHASE_SETS_SANDBOX_COMPOSE_PROJECT: sandbox.composeProjectName,
+    CHASE_SETS_SANDBOX_WORKTREE: normalizeSandboxWorktreeIdentity(sandbox.rootDir),
     CHASE_SETS_SANDBOX_BASE_PORT: String(sandbox.basePort),
     COMPOSE_PROJECT_NAME: sandbox.composeProjectName,
     POSTGRES_DEV_HOST_PORT: String(sandbox.ports.postgres),

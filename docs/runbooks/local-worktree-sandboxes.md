@@ -72,20 +72,29 @@ Remove this worktree's containers and volumes:
 pnpm run sandbox:clean
 ```
 
-Remove sandboxes whose worktree no longer exists (safe to run any time —
-registered worktrees' sandboxes are never touched):
+Remove sandboxes whose worktree no longer exists. GC fails closed if the
+registered-worktree inventory is unavailable or ambiguous, skips every project
+with active containers, and re-inspects exact ownership immediately before
+removal. It removes only stopped Compose projects and detached volumes or
+networks carrying the generated worktree owner, sandbox ID, Compose project,
+and matching Compose resource-kind labels:
 
 ```bash
 pnpm run sandbox:gc
 ```
 
-Remove every `chase-sets-*` Compose project on the machine:
+Remove every fully owned Chase Sets Compose project on the machine, including
+active projects:
 
 ```bash
 pnpm run sandbox:clean:all
 ```
 
 Use all-sandbox cleanup only when no other local worktree should keep running; prefer `sandbox:gc` for routine reclamation.
+
+The host-level Chase Sets sandbox GC automation runs `sandbox:gc` hourly while
+the milestone orchestrator is active. Run the same command after any manual
+worktree removal so Docker resources cannot outlive their owning worktree.
 
 ## Environment Model
 
@@ -98,6 +107,7 @@ pnpm run env:doctor
 
 Sandbox runtime values live in `.env.sandbox.local`:
 
+- canonical `CHASE_SETS_SANDBOX_WORKTREE` ownership identity
 - `POSTGRES_DEV_ADMIN_DATABASE_URL`
 - `POSTGRES_DEV_DATABASE_URL`
 - `PLATFORM_CONTROL_DATABASE_URL`
