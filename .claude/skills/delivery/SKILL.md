@@ -49,7 +49,16 @@ git -C <worktree> switch -c <branch> --track origin/main
 ## Planning (full path only)
 
 - Read the owning context docs: `bounded-contexts/<context>/README.md`, `GLOSSARY.md`, `context.json`, and `docs/architecture/bounded-context-structure.md` when structure matters.
-- Check the orchestrator's defect-class ledger (`~/.claude/skills/milestone-orchestrator/references/defect-classes.md`) for classes whose territory overlaps your footprint. Lane dispatches get overlapping constraints pasted into the prompt; solo sessions must read the ledger themselves — every entry is a defect that has already burned a review round or escaped to production at least once.
+- Query the orchestrator ledgers for the issue text and predicted footprint:
+
+  ```powershell
+  pwsh -NoProfile -File ~/.claude/skills/milestone-orchestrator/scripts/query-ledgers.ps1 -Mode implementation -Text "<issue and domain terms>" -Footprint "<predicted paths>"
+  ```
+
+  Lane dispatches carry these results in the prompt; solo sessions run the query
+  themselves. Apply only the returned constraints. Never load the full ledgers
+  during normal delivery; search a named entry only when the query points to it
+  or when auditing retrieval coverage.
 - Search code and tests for relevant terms, events, routes, IDs, projections, and integrations before asking anything.
 - Blocking decisions split by blast radius and mode:
   - **Reversible, low-blast-radius ambiguity:** proceed on your recommended answer and flag the assumption in the PR description.
