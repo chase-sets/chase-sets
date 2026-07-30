@@ -1,5 +1,6 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { readConsentActivationAuthority } from "@chase-sets/platform-policy/consent-activation-authority";
+import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { resolveTermsAcceptanceStatus, type TermsAcceptanceStatus } from "../read-model/terms-acceptance";
 
 export type { TermsAcceptanceStatus };
@@ -16,12 +17,25 @@ export type { TermsAcceptanceStatus };
  * port composed once in `deployables/platform-api/src/app.ts` /
  * `deployables/platform-worker/src/main.ts`, so no bounded context imports
  * another context's package to reach this.
+ *
+ * The pool is transactional because the acceptance answer's required version
+ * comes from replaying the Consent Activation Authority stream, not from the
+ * cached policy-document projection. This port therefore builds an event store
+ * over the same pool and no policy resolver at all: there is no cache to go
+ * stale, and no cached value that could be paired with a separately read
+ * authority revision. The reader below is annotated with the imported real
+ * `ConsentActivationAuthorityReader` type, so a change to the owning context's
+ * read signature is a compile error here rather than a runtime throw in a
+ * deployable.
  */
-export function createIdentityTermsAcceptanceResolver(db: PgQueryable) {
-  const policyResolver = createPolicyResolver({ db });
+export function createIdentityTermsAcceptanceResolver(pool: PgTransactionalPool) {
+  const eventStore = createPostgresEventStore({ pool });
+  const authority: ConsentActivationAuthorityReader = {
+    read: (policyKey) => readConsentActivationAuthority(eventStore, policyKey),
+  };
 
   return {
     resolveTermsAcceptanceStatus: (subject: Readonly<{ accountId?: string | null; userId?: string | null }>) =>
-      resolveTermsAcceptanceStatus(db, { resolvePolicy: policyResolver.resolvePolicy }, subject),
+      resolveTermsAcceptanceStatus(pool, authority, subject),
   };
 }

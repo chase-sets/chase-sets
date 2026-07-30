@@ -354,7 +354,26 @@ Notes:
 - **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
 - **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
 - Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
-- The authority is the identity Consent recording needs; the elimination sweep for consent-activation races, the Consent Bundle that composes several authorities for one surface, and the call sites that consume a guard are each owned elsewhere and do not exist yet.
+- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today; the elimination sweep for consent-activation races and the write call sites that commit against a guard are owned elsewhere and do not exist yet.
+
+### Consent Bundle
+
+A **Consent Bundle** is the ordered set of consent policies one surface asks a subject to agree to, together with the scope the agreement is recorded against. There are exactly two: `registration`, which is user-scoped and declares Terms of Service then Privacy Policy; and `seller-onboarding`, which is account-scoped and declares Seller Agreement then Payments Terms.
+
+A bundle has a **declared member** list and a **derived requirement** list, and they are different things. A declared member is a consent policy the surface is *allowed* to require. A derived requirement is a member bound to the exact version a [[Consent Activation Authority]] says is active right now, plus where that version is readable.
+
+Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Binding Consent recording and atomic registration to a resolved bundle — including the ordered requirements a [[Registration Consent Resolution]] carries — is owned by a separate slice and is not part of this capability.
+
+Notes:
+
+- **Declaring a member never activates it.** Adding a policy to a bundle declaration widens what that surface may require and changes nothing about what it does require.
+- **Order is contract.** Declared member order is the order a subject is asked and the order a derived requirement list carries. It is not incidental iteration order.
+- **A member becomes a requirement only when both owners agree.** Public Presence must have compiled the document as consent-activatable, and that policy's Consent Activation Authority must be active at the same version. Either one alone derives nothing.
+- **A publication-ineligible member is not asked about.** No authority is read for it, so an inert member is distinguishable from a live one in the read trace.
+- **A guard is retained for every authority actually read**, including a member observed inactive, because "inactive when read" is a fact a later append has to be able to guard against.
+- **One unresolvable member makes the whole bundle unresolved.** A version that contradicts its publication, or an authority that cannot be validated, yields no requirement list at all rather than a shorter one.
+- **An empty requirement set is a value, not a disabled mode.** The shipped corpus derives two empty ordered sets, and resolution still ran.
+- **Bundle acceptance is subject-exact and aggregate.** It is decided for exactly one subject at exactly one scope, and satisfaction requires the current state of each required member to be recorded at the exact required version. Another user of the same account, an account-scoped fact standing in for a user-scoped one, a withdrawn or superseded record, and a legacy `terms` fact never satisfy a bundle.
 
 ### Registration Consent Resolution
 
