@@ -7,14 +7,16 @@ import { describe, expect, it } from "vitest";
  *
  * Identity's `test:db` and `test:unit` scripts name their specs explicitly, so a
  * new `*.db.test.ts` that nobody adds to both lists would run in the unit
- * profile -- where no `TEST_DATABASE_URL` exists, so it silently skips -- and
- * never run in the database profile at all. That is the exact shape where a
- * green pipeline certifies a database test that was never executed.
+ * profile -- where no database is provisioned, so it silently skips -- and never
+ * run in the database profile at all. That is the exact shape where a green
+ * pipeline certifies a database test that was never executed.
  *
  * This test enumerates the specs from the filesystem rather than from a
  * maintained list, so the omission is what fails: adding a database spec without
  * registering it in both scripts breaks here, and no separate structural guard
  * has to know the spec exists.
+ *
+ * It reads only `package.json` and the directory tree; it opens no connection.
  */
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
