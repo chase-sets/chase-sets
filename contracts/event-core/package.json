@@ -15,6 +15,7 @@
     "./aggregate-snapshot-store": "./aggregate-snapshot-store.ts",
     "./codec": "./codec.ts",
     "./command-handler": "./command-handler.ts",
+    "./complete-stream": "./complete-stream.ts",
     "./consistency": "./consistency.ts",
     "./domain": "./domain.ts",
     "./event-store": "./event-store.ts",

@@ -11,7 +11,12 @@ import {
   type EventStoreError,
   type EventStore,
 } from "@chase-sets/event-core/event-store";
-import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  ZERO_GLOBAL_POSITION,
+  globalPositionFromBigInt,
+  parseGlobalPosition,
+} from "@chase-sets/event-core/storage";
 import { observeEventStoreOperation, recordEventStoreAppendAdvisoryLockHold } from "@chase-sets/observability";
 import type {
   AppendToStreamInput,
@@ -58,8 +63,8 @@ export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL = "platform_event_sto
 export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE = "event-core-postgres";
 export const EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES = 4 * 1024;
 // Keep event reads bounded to match list and poison-event page hardening.
-export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = 500;
-export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = 500;
+export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = EVENT_STORE_READ_PAGE_SIZE_MAX;
+export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = EVENT_STORE_READ_PAGE_SIZE_MAX;
 // Bounds the payload portion of a full 500-event catch-up page to about 32 MiB.
 export const EVENT_STORE_MAX_PAYLOAD_BYTES = 64 * 1024;
 // Appenders take the shared side; catch-up horizon reads take the exclusive

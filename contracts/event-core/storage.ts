@@ -107,6 +107,18 @@ export type AppendToStreamInput = Readonly<{
   context: EventStoreContext;
 }>;
 
+/**
+ * The maximum number of events any EventStore `readStream` page may return. Store
+ * implementations enforce this shared contract; complete-history callers must
+ * page rather than increasing the limit.
+ */
+export const EVENT_STORE_READ_PAGE_SIZE_MAX = 500;
+
+/**
+ * `fromVersion` is inclusive. `limit` defaults to, and may not exceed,
+ * `EVENT_STORE_READ_PAGE_SIZE_MAX`, so one read never proves that a full stream
+ * was returned.
+ */
 export type ReadStreamInput = Readonly<{
   streamId: StreamId;
   fromVersion?: StreamVersion;

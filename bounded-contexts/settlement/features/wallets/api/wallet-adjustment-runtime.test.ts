@@ -7,7 +7,7 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX, ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { WALLET_ADJUSTMENT_CONTROLS_DEFAULT, type WalletAdjustmentControls } from "../domain/wallet-adjustment";
 import {
   WALLET_ADJUSTMENT_LIMITS_DEFAULT,
@@ -63,7 +63,9 @@ function createInMemoryEventStore() {
       return stored;
     },
     readStream: async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
+      (streams.get(input.streamId) ?? [])
+        .filter((event) => event.streamVersion >= (input.fromVersion ?? 1))
+        .slice(0, input.limit ?? EVENT_STORE_READ_PAGE_SIZE_MAX),
     readAll: async (input?: ReadAllInput) => {
       const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
       return allEvents.filter((event) => Number(event.globalPosition) > after);
