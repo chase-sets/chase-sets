@@ -386,7 +386,7 @@ describe("checkout session runtime", () => {
     const replayed = await services.createFromCart(createInput, context);
 
     expect(replayed.commitEventIds).toHaveLength(501);
-    expect(replayed.commitEventIds.at(-1)).toBe("evt_checkout_history_501");
+    expect(replayed.commitEventIds?.at(-1)).toBe("evt_checkout_history_501");
     expect(replayed.commitPosition).toBe("501");
     expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
