@@ -254,7 +254,13 @@ function installSandboxHarness({
 
   fixture.spawnSync.mockImplementation((command, args) => {
     if (command === "git") {
+      if (args.join("\0") !== ["-c", "core.quotePath=false", "worktree", "list", "--porcelain"].join("\0")) {
+        throw new Error(`Unexpected Git command: git ${args.join(" ")}`);
+      }
       return gitResult;
+    }
+    if (command !== "docker") {
+      throw new Error(`Unexpected command: ${command} ${args.join(" ")}`);
     }
     if (args[0] === "compose" && args[1] === "ls") {
       return successful(
@@ -300,7 +306,13 @@ function installSandboxHarness({
       resourceInspectCounts.set(key, count + 1);
       return successful(JSON.stringify([record]));
     }
-    return successful();
+    if (
+      (args[0] === "compose" && args.includes("down")) ||
+      (["volume", "network"].includes(args[0]) && args[1] === "rm")
+    ) {
+      return successful();
+    }
+    throw new Error(`Unexpected Docker command: docker ${args.join(" ")}`);
   });
 }
 
@@ -664,19 +676,28 @@ describe("sandbox garbage collection", () => {
     expect(destructiveCalls()).toEqual([]);
   });
 
-  it("keeps fully owned detached resources for registered worktrees", async () => {
-    const volume = resourceRecord({
-      type: "volume",
-      projectName: "chase-sets-explicit",
-      worktree: "c:/repos/registered",
-      kind: "chase-sets-postgres-dev-data",
-    });
-    installSandboxHarness({ volumes: [volume] });
+  it.each([
+    ["Windows-shaped", "C:\\Repos\\Registered", "c:/repos/registered"],
+    ["POSIX-shaped", "/repos/registered", "/repos/registered"],
+  ])(
+    "keeps fully owned detached resources for a registered %s worktree on every host",
+    async (_shape, registeredPath, worktree) => {
+      const volume = resourceRecord({
+        type: "volume",
+        projectName: "chase-sets-explicit",
+        worktree,
+        kind: "chase-sets-postgres-dev-data",
+      });
+      installSandboxHarness({
+        gitResult: successful(gitWorktrees({ path: registeredPath })),
+        volumes: [volume],
+      });
 
-    await runSandboxCommand("gc");
+      await runSandboxCommand("gc");
 
-    expect(destructiveCalls()).toEqual([]);
-  });
+      expect(destructiveCalls()).toEqual([]);
+    },
+  );
 
   it("keeps clean-all deliberately destructive while retaining exact ownership checks", async () => {
     const runningProject = "chase-sets-running";

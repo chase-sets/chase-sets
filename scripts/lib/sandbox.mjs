@@ -113,8 +113,14 @@ function hashInteger(value) {
 }
 
 export function normalizeSandboxWorktreeIdentity(rootDir) {
-  const normalized = path.resolve(rootDir).replaceAll("\\", "/").replace(/\/+$/, "");
-  return process.platform === "win32" || /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+  const value = String(rootDir);
+  if (/^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i.test(value)) {
+    return path.win32.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  }
+  if (path.posix.isAbsolute(value)) {
+    return path.posix.resolve(value).replace(/\/+$/, "");
+  }
+  return path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
 }
 
 function readImplementedContextNames(rootDir) {

@@ -45,7 +45,7 @@ describe("worktree sandbox", () => {
     expect(left.ports.postgres).toBe(left.basePort + 20);
   });
 
-  it("canonicalizes Windows worktree identities case-insensitively", () => {
+  it("canonicalizes Windows-shaped worktree identities case-insensitively on every host", () => {
     const upper = resolveWorktreeSandbox({
       rootDir: "C:\\Repos\\Chase Sets\\Feature",
       env: {},
@@ -60,6 +60,21 @@ describe("worktree sandbox", () => {
     expect(normalizeSandboxWorktreeIdentity(upper.rootDir)).toBe(normalizeSandboxWorktreeIdentity(lower.rootDir));
     expect(upper.id).toBe(lower.id);
     expect(upper.basePort).toBe(lower.basePort);
+  });
+
+  it("canonicalizes Windows UNC worktree identities case-insensitively on every host", () => {
+    expect(normalizeSandboxWorktreeIdentity("\\\\Server\\Share\\Chase Sets\\Feature")).toBe(
+      normalizeSandboxWorktreeIdentity("\\\\server\\share\\chase sets\\feature"),
+    );
+  });
+
+  it("preserves POSIX-shaped worktree identity case on every host", () => {
+    const upper = "/repos/Chase Sets/Feature";
+    const lower = "/repos/chase sets/feature";
+
+    expect(normalizeSandboxWorktreeIdentity(upper)).toBe(upper);
+    expect(normalizeSandboxWorktreeIdentity(lower)).toBe(lower);
+    expect(normalizeSandboxWorktreeIdentity(upper)).not.toBe(normalizeSandboxWorktreeIdentity(lower));
   });
 
   it("honors explicit id and port overrides", () => {

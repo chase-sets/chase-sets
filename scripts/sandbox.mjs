@@ -611,7 +611,11 @@ function listRegisteredWorktreeIdentities() {
       throw new Error("git worktree discovery returned malformed porcelain output.");
     }
     const worktreePath = worktreeLines[0].slice("worktree ".length);
-    if (worktreePath.trim() !== worktreePath || worktreePath.length === 0 || !path.isAbsolute(worktreePath)) {
+    if (
+      worktreePath.trim() !== worktreePath ||
+      worktreePath.length === 0 ||
+      (!path.isAbsolute(worktreePath) && !/^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i.test(worktreePath))
+    ) {
       throw new Error("git worktree discovery returned an invalid worktree path.");
     }
     const identity = normalizeSandboxWorktreeIdentity(worktreePath);
