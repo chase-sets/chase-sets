@@ -73,7 +73,9 @@ pnpm run sandbox:clean
 ```
 
 Remove sandboxes whose worktree no longer exists (safe to run any time —
-registered worktrees' sandboxes are never touched):
+registered worktrees' sandboxes are never touched). The sweep removes stopped
+Compose projects plus labeled volumes and networks left behind after containers
+were removed separately:
 
 ```bash
 pnpm run sandbox:gc
@@ -86,6 +88,10 @@ pnpm run sandbox:clean:all
 ```
 
 Use all-sandbox cleanup only when no other local worktree should keep running; prefer `sandbox:gc` for routine reclamation.
+
+The host-level Chase Sets sandbox GC automation runs `sandbox:gc` hourly while
+the milestone orchestrator is active. Run the same command after any manual
+worktree removal so Docker resources cannot outlive their owning worktree.
 
 ## Environment Model
 

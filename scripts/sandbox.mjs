@@ -14,6 +14,7 @@ const command = process.argv[2] ?? "doctor";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
+const composeProjectLabel = "com.docker.compose.project";
 
 function printUsage() {
   console.log("Usage:");
@@ -133,18 +134,45 @@ function parseComposeProjects(output) {
     .filter((name) => name.startsWith("chase-sets-"));
 }
 
-function cleanAllSandboxes() {
-  const output = runDocker(["compose", "ls", "--format", "json"], {
+function listComposeProjectNames() {
+  const output = runDocker(["compose", "ls", "--all", "--format", "json"], {
     encoding: "utf8",
     stdio: "pipe",
   });
-  const projectNames = parseComposeProjects(output).filter((name) => name.startsWith("chase-sets-"));
+  return parseComposeProjects(output).filter((name) => name.startsWith("chase-sets-"));
+}
 
-  if (projectNames.length === 0) {
-    console.log("No chase-sets-* Compose projects found.");
-    return;
-  }
+function parseLabeledResources(output) {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, projectName] = line.split("\t");
+      return { name, projectName };
+    })
+    .filter(({ name, projectName }) => name && projectName?.startsWith("chase-sets-"));
+}
 
+function listProjectResources(resourceType) {
+  const output = runDocker(
+    [
+      resourceType,
+      "ls",
+      "--filter",
+      `label=${composeProjectLabel}`,
+      "--format",
+      `{{.Name}}\t{{.Label "${composeProjectLabel}"}}`,
+    ],
+    {
+      encoding: "utf8",
+      stdio: "pipe",
+    },
+  );
+  return parseLabeledResources(output);
+}
+
+function removeComposeProjects(projectNames) {
   for (const projectName of projectNames) {
     console.log(`Removing ${projectName}...`);
     runDocker([
@@ -158,6 +186,31 @@ function cleanAllSandboxes() {
       "down",
       "-v",
     ]);
+  }
+}
+
+function removeProjectResources(expectedProjectNames) {
+  let removed = 0;
+  for (const resourceType of ["volume", "network"]) {
+    const orphaned = listProjectResources(resourceType).filter(
+      ({ projectName }) => !expectedProjectNames.has(projectName),
+    );
+    for (const { name, projectName } of orphaned) {
+      console.log(`Removing orphaned ${resourceType} ${name} (${projectName})...`);
+      runDocker([resourceType, "rm", name]);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+function cleanAllSandboxes() {
+  const projectNames = listComposeProjectNames();
+  removeComposeProjects(projectNames);
+  const removedResources = removeProjectResources(new Set());
+
+  if (projectNames.length === 0 && removedResources === 0) {
+    console.log("No chase-sets-* Compose projects or resources found.");
   }
 }
 
@@ -192,32 +245,12 @@ function gcSandboxes() {
       .filter(Boolean),
   );
 
-  const output = runDocker(["compose", "ls", "--all", "--format", "json"], {
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  const orphaned = parseComposeProjects(output)
-    .filter((name) => name.startsWith("chase-sets-"))
-    .filter((name) => !expected.has(name));
+  const orphaned = listComposeProjectNames().filter((name) => !expected.has(name));
+  removeComposeProjects(orphaned);
+  const removedResources = removeProjectResources(expected);
 
-  if (orphaned.length === 0) {
-    console.log("No orphaned chase-sets-* sandboxes found.");
-    return;
-  }
-
-  for (const projectName of orphaned) {
-    console.log(`Removing orphaned sandbox ${projectName}...`);
-    runDocker([
-      "compose",
-      "--env-file",
-      sandbox.envFilePath,
-      "-f",
-      "docker-compose.dev.yml",
-      "-p",
-      projectName,
-      "down",
-      "-v",
-    ]);
+  if (orphaned.length === 0 && removedResources === 0) {
+    console.log("No orphaned chase-sets-* sandboxes or resources found.");
   }
 }
 

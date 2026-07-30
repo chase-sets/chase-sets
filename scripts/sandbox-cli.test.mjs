@@ -14,6 +14,7 @@ const fixture = vi.hoisted(() => {
   return {
     sandbox,
     sandboxEnv,
+    resolveWorktreeSandbox: vi.fn(),
     spawnSync: vi.fn(),
   };
 });
@@ -39,7 +40,7 @@ vi.mock("./lib/sandbox.mjs", () => ({
     sandbox: fixture.sandbox,
     env: fixture.sandboxEnv,
   })),
-  resolveWorktreeSandbox: vi.fn(),
+  resolveWorktreeSandbox: fixture.resolveWorktreeSandbox,
 }));
 
 const originalArgv = [...process.argv];
@@ -56,6 +57,10 @@ function dockerCalls() {
 }
 
 beforeEach(() => {
+  fixture.resolveWorktreeSandbox.mockReset();
+  fixture.resolveWorktreeSandbox.mockImplementation(({ rootDir }) => ({
+    composeProjectName: rootDir.includes("registered") ? "chase-sets-registered" : "chase-sets-other",
+  }));
   fixture.spawnSync.mockReset();
   fixture.spawnSync.mockReturnValue({
     error: undefined,
@@ -163,5 +168,125 @@ describe("sandbox Compose teardown commands", () => {
       ),
     ]);
     expect(process.exitCode).toBe(originalExitCode);
+  });
+});
+
+describe("sandbox garbage collection", () => {
+  it("removes orphaned labeled volumes and networks even after their containers are gone", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    fixture.spawnSync.mockImplementation((command, args) => {
+      if (command === "git") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: "worktree C:\\repos\\registered\n\n",
+        };
+      }
+      if (args[0] === "compose" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: "[]",
+        };
+      }
+      if (args[0] === "volume" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: [
+            "chase-sets-orphan_data\tchase-sets-orphan",
+            "chase-sets-registered_data\tchase-sets-registered",
+          ].join("\n"),
+        };
+      }
+      if (args[0] === "network" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: [
+            "chase-sets-orphan_default\tchase-sets-orphan",
+            "chase-sets-registered_default\tchase-sets-registered",
+          ].join("\n"),
+        };
+      }
+      return {
+        error: undefined,
+        status: 0,
+        stdout: "",
+      };
+    });
+
+    await runSandboxCommand("gc");
+
+    const calls = fixture.spawnSync.mock.calls.map(([command, args]) => ({ command, args }));
+    expect(calls).toContainEqual({
+      command: "docker",
+      args: ["volume", "rm", "chase-sets-orphan_data"],
+    });
+    expect(calls).toContainEqual({
+      command: "docker",
+      args: ["network", "rm", "chase-sets-orphan_default"],
+    });
+    expect(calls).not.toContainEqual({
+      command: "docker",
+      args: ["volume", "rm", "chase-sets-registered_data"],
+    });
+    expect(calls).not.toContainEqual({
+      command: "docker",
+      args: ["network", "rm", "chase-sets-registered_default"],
+    });
+    expect(log.mock.calls.map(([message]) => message)).toEqual([
+      "Removing orphaned volume chase-sets-orphan_data (chase-sets-orphan)...",
+      "Removing orphaned network chase-sets-orphan_default (chase-sets-orphan)...",
+    ]);
+  });
+
+  it("uses all Compose projects and sweeps detached resources during clean-all", async () => {
+    fixture.spawnSync.mockImplementation((_command, args) => {
+      if (args[0] === "compose" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: JSON.stringify([{ Name: "chase-sets-stopped" }]),
+        };
+      }
+      if (args[0] === "volume" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: "chase-sets-detached_data\tchase-sets-detached\n",
+        };
+      }
+      if (args[0] === "network" && args[1] === "ls") {
+        return {
+          error: undefined,
+          status: 0,
+          stdout: "chase-sets-detached_default\tchase-sets-detached\n",
+        };
+      }
+      return {
+        error: undefined,
+        status: 0,
+        stdout: "",
+      };
+    });
+
+    await runSandboxCommand("clean-all");
+
+    const calls = fixture.spawnSync.mock.calls.map(([_command, args]) => args);
+    expect(calls[0]).toEqual(["compose", "ls", "--all", "--format", "json"]);
+    expect(calls).toContainEqual([
+      "compose",
+      "--env-file",
+      fixture.sandbox.envFilePath,
+      "-f",
+      "docker-compose.dev.yml",
+      "-p",
+      "chase-sets-stopped",
+      "down",
+      "-v",
+    ]);
+    expect(calls).toContainEqual(["volume", "rm", "chase-sets-detached_data"]);
+    expect(calls).toContainEqual(["network", "rm", "chase-sets-detached_default"]);
   });
 });
