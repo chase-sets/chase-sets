@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { createPolicyCache, type PolicyDocumentCandidate } from "./cache";
 import {
   ConsentActivationAuthorityError,
@@ -9,6 +9,7 @@ import {
   consentActivationGuardAppendInput,
   CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX,
   decodeConsentActivationAuthoritySnapshot,
+  readConsentActivationAuthority,
   type ValidatedConsentActivationAuthoritySnapshot,
 } from "./consent-activation-authority";
 import { definePolicy, type PolicyDefinition } from "./define-policy";
@@ -127,6 +128,65 @@ function decodeError(candidate: unknown, requestedPolicyKey = consentPolicy.poli
   } catch (error) {
     return error;
   }
+}
+
+function authorityStoredEvent(streamVersion: number): StoredEvent {
+  const activationNumber = Math.floor(streamVersion / 2);
+  const event =
+    streamVersion === 1
+      ? {
+          eventType: "platform-policy.consent-activation-authority.registered",
+          payload: registeredPayload(consentPolicy.policyKey),
+        }
+      : streamVersion % 2 === 0
+        ? {
+            eventType: "platform-policy.consent-activation-authority.activated",
+            payload: activatedPayload(consentPolicy.policyKey, `v${activationNumber}`),
+          }
+        : {
+            eventType: "platform-policy.consent-activation-authority.deactivated",
+            payload: {
+              policyKey: consentPolicy.policyKey,
+              deactivation: {
+                deactivatedVersion: `v${activationNumber}`,
+                deactivatedAt: "2026-07-25T02:00:00.000Z",
+                actorUserId: "usr_admin",
+              },
+            },
+          };
+  return {
+    eventId: `evt_authority_${streamVersion}` as never,
+    streamId: canonicalStreamId,
+    streamVersion,
+    globalPosition: String(streamVersion) as never,
+    tenantId: "tnt_test" as never,
+    eventType: event.eventType,
+    payload: event.payload as never,
+    metadata: {},
+    occurredAt: "2026-07-25T02:00:00.000Z" as never,
+    recordedAt: "2026-07-25T02:00:00.000Z" as never,
+    performedByUserId: "usr_admin" as never,
+    forAccountId: "acc_admin" as never,
+  };
+}
+
+function createAuthorityHistoryReader(eventCount: number) {
+  const reads: ReadStreamInput[] = [];
+  const eventStore: EventStore = {
+    appendToStream: async () => {
+      throw new Error("Authority history reader is read-only.");
+    },
+    readStream: async (input: ReadStreamInput) => {
+      reads.push(input);
+      const first = input.fromVersion ?? 1;
+      const last = Math.min(eventCount, first + (input.limit ?? 500) - 1);
+      return first > last
+        ? []
+        : Array.from({ length: last - first + 1 }, (_, index) => authorityStoredEvent(first + index));
+    },
+    readAll: async () => [],
+  };
+  return { eventStore, reads };
 }
 
 describe("canonical Consent Activation Authority snapshot decoder", () => {
@@ -532,6 +592,32 @@ describe("canonical Consent Activation Authority snapshot decoder", () => {
       streamId: canonicalStreamId,
       expectedVersion: 2,
     });
+  });
+});
+
+describe("complete Consent Activation Authority history", () => {
+  it("issue-6299-acceptance-control accepts 9,999 events with the final authority version", async () => {
+    const { eventStore, reads } = createAuthorityHistoryReader(9_999);
+
+    const snapshot = await readConsentActivationAuthority(eventStore, consentPolicy.policyKey);
+
+    expect(snapshot).toMatchObject({
+      status: "inactive",
+      authorityVersion: 9_999,
+      guard: { expectedVersion: 9_999 },
+    });
+    expect(reads.at(-1)?.fromVersion).toBe(9_501);
+  });
+
+  it("issue-6299-acceptance-control rejects a 10,000th event with the existing fail-closed error", async () => {
+    const { eventStore, reads } = createAuthorityHistoryReader(10_000);
+
+    await expect(readConsentActivationAuthority(eventStore, consentPolicy.policyKey)).rejects.toMatchObject({
+      name: "ConsentActivationAuthorityError",
+      code: "history_too_long",
+      message: `Consent activation authority stream '${canonicalStreamId}' exceeded 10000 events.`,
+    });
+    expect(reads.at(-1)?.fromVersion).toBe(9_501);
   });
 });
 

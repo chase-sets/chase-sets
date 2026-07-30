@@ -351,6 +351,46 @@ describe("checkout session runtime", () => {
     expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
+  it("issue-6299-acceptance-control returns complete replay metadata for a 501-event session", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const createInput = {
+      accountId: "acc_buyer" as never,
+      shippingOption: "standard",
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+      sessionIdOverride: "chk_complete_replay" as never,
+    };
+    await services.createFromCart(createInput, context);
+    await eventStore.appendToStream({
+      streamId: "checkout.session-chk_complete_replay",
+      expectedVersion: 1,
+      context,
+      events: Array.from({ length: 500 }, (_, index) => ({
+        eventId: `evt_checkout_history_${index + 2}` as never,
+        eventType: "checkout.session.shipping-option-selected",
+        payload: {
+          sessionId: "chk_complete_replay",
+          shippingOption: "standard",
+          selectedAt: "2026-06-09T01:00:00.000Z",
+        },
+      })),
+    });
+
+    const replayed = await services.createFromCart(createInput, context);
+
+    expect(replayed.commitEventIds).toHaveLength(501);
+    expect(replayed.commitEventIds.at(-1)).toBe("evt_checkout_history_501");
+    expect(replayed.commitPosition).toBe("501");
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
+  });
+
   it("replaces half-confirmed Buy Now entry sessions that never reached payment", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({

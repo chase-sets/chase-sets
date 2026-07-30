@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -287,6 +288,45 @@ describeDb("registration operation recovery", () => {
     expect(await streamIds("identity.membership-")).toEqual([`identity.membership-${partial.membershipId}`]);
     expect(await streamIds("identity.consent-")).toHaveLength(bundle.length);
   });
+
+  it.each([
+    ["500-event boundary", 500],
+    ["501-event history", 501],
+  ] as const)(
+    "issue-6299-acceptance-control completes registration recovery across the real PostgreSQL %s",
+    async (_label, eventCount) => {
+      const partial = await writePartialRegistration([TERMS_V1], { account: true });
+      const accountStreamId = `identity.account-${partial.accountId}`;
+      await eventStore.appendToStream({
+        streamId: accountStreamId,
+        expectedVersion: 1,
+        context,
+        events: Array.from({ length: eventCount - 1 }, () => ({
+          eventType: "identity.account.profile-updated",
+          payload: { name: "", displayName: DISPLAY_NAME },
+        })),
+      });
+
+      const completed = await register([TERMS_V1]);
+
+      expect(completed.status).toBe(201);
+      expect(completed.body).toMatchObject({
+        accountId: partial.accountId,
+        userId: partial.userId,
+        membershipId: partial.membershipId,
+      });
+      expect(await readCompleteStream(eventStore, { streamId: accountStreamId })).toHaveLength(eventCount);
+      await expect(
+        readCompleteStream(eventStore, { streamId: `identity.user-${partial.userId}` }),
+      ).resolves.toHaveLength(1);
+      await expect(
+        readCompleteStream(eventStore, { streamId: `identity.membership-${partial.membershipId}` }),
+      ).resolves.toHaveLength(1);
+      await expect(
+        readCompleteStream(eventStore, { streamId: `identity.consent-${partial.consents[0]?.consentId}` }),
+      ).resolves.toHaveLength(1);
+    },
+  );
 
   it("appends nothing and fails closed when the claimed bundle disagrees on a policy version", async () => {
     const partial = await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
