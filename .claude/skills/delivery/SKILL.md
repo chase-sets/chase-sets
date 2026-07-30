@@ -50,7 +50,11 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 - Read the owning context docs: `bounded-contexts/<context>/README.md`, `GLOSSARY.md`, `context.json`, and `docs/architecture/bounded-context-structure.md` when structure matters.
 - Query the orchestrator ledgers for the issue text and predicted footprint:
-  `pwsh -NoProfile -File ~/.claude/skills/milestone-orchestrator/scripts/query-ledgers.ps1 -Mode implementation -Text "<issue and domain terms>" -Footprint "<predicted paths>"`.
+
+  ```powershell
+  pwsh -NoProfile -File ~/.claude/skills/milestone-orchestrator/scripts/query-ledgers.ps1 -Mode implementation -Text "<issue and domain terms>" -Footprint "<predicted paths>"
+  ```
+
   Lane dispatches carry these results in the prompt; solo sessions run the query
   themselves. Apply only the returned constraints. Never load the full ledgers
   during normal delivery; search a named entry only when the query points to it

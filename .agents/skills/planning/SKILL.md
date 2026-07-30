@@ -47,7 +47,11 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    never reimplementation. Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
-   `pwsh -NoProfile -File ~/.claude/skills/milestone-orchestrator/scripts/query-ledgers.ps1 -Mode implementation -Text "<outcome and domain terms>" -Footprint "<predicted paths>"`.
+
+   ```powershell
+   pwsh -NoProfile -File ~/.claude/skills/milestone-orchestrator/scripts/query-ledgers.ps1 -Mode implementation -Text "<outcome and domain terms>" -Footprint "<predicted paths>"
+   ```
+
    Write each returned defect constraint into the issue text itself. Never load
    the complete ledgers during normal planning; search a named entry only when
    retrieval points to it or when auditing retrieval coverage. Heavy discovery
