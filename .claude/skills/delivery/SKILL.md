@@ -96,8 +96,20 @@ repair brief rather than rediscovering the PR:
 - Confirm the exact reviewed head, then address every stable finding ID in one
   bounded pass.
 - Apply the prescribed remedy literally when safe. If the remedy requires a new
-  decision, expanded footprint, or changed acceptance criterion, stop and report
-  that finding as needing replanning.
+  decision, expanded footprint, or changed acceptance criterion, or asserts an
+  external fact contradicted by the lane's executed probe, stop and report that
+  finding as needing replanning, citing the exact measured contradiction. For a
+  fact owned by an external authority, neither a reviewer nor a repair lane may
+  prescribe, synthesize, or accept a coarser run/workflow-level fact as proof of
+  a finer fact: evidence from the exact owning job, at the granularity the
+  implementation reads, remains canonical, and its identity, executed-step
+  evidence, conclusion, timestamps, and bounded pagination must reconcile.
+  A missing, skipped, duplicate, malformed, or red authority candidate is
+  explicit non-authority or bounded unknown; it never inherits success from an
+  enclosing run/workflow. Never alter externally owned facts in a fixture paired
+  with a real
+  external identity to satisfy the assertion. A genuinely synthetic control
+  must use unmistakably synthetic identities and be labeled synthetic.
 - Preserve every behavior the reviewer marked verified-good.
 - Report each finding ID as repaired, disputed with executed evidence, or
   escalated; never silently omit one.
