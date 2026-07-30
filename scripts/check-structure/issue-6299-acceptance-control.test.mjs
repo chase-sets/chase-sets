@@ -22,8 +22,8 @@ const expectedInventory = [
   ["infrastructure/platform-policy/consent-activation-authority.ts", "readAuthorityEvents"],
 ];
 
-function trackedTypeScriptFiles() {
-  return execFileSync("git", ["ls-files", "-z", "--", "*.ts"], {
+function trackedTypeScriptFilesContaining(token) {
+  return execFileSync("git", ["grep", "-l", "-z", "-F", token, "--", "*.ts"], {
     cwd: repoRoot,
     encoding: "utf8",
     windowsHide: true,
@@ -119,7 +119,7 @@ describe("issue-6299-acceptance-control", () => {
   });
 
   it("derives the complete registration-history caller inventory from tracked production sources", () => {
-    const callers = trackedTypeScriptFiles()
+    const callers = trackedTypeScriptFilesContaining("readCompleteRegistrationStreamHistory")
       .filter((relativeFile) => !relativeFile.endsWith(".test.ts") && !relativeFile.includes("/tests/"))
       .flatMap((relativeFile) =>
         callsInFile(relativeFile, "readCompleteRegistrationStreamHistory")
