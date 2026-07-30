@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
@@ -243,8 +244,8 @@ async function replaceProductContents(
 ): Promise<ProductContentsResolvedFact> {
   const fact = await buildResolvedFact(deps.db, input);
   const streamId = `catalog.product-contents-${fact.containerCatalogItemId}`;
-  const existingEvents = await deps.eventStore.readStream({ streamId });
-  const currentVersion = existingEvents.length;
+  const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
+  const currentVersion = existingEvents.at(-1)?.streamVersion ?? 0;
   const lastResolved = [...existingEvents]
     .reverse()
     .find((event) => event.eventType === "catalog.product-contents.resolved");

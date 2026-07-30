@@ -4,6 +4,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
@@ -661,7 +662,7 @@ async function recoverInventoryAdjustmentIdempotency(
 ): Promise<{ itemId: string; version: number } | null> {
   const createdAt = new Date(input.existing.created_at).getTime();
   const normalizedReason = input.reason.trim();
-  const events = await deps.eventStore.readStream({ streamId: `inventory.item-${input.itemId}` });
+  const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
   const committed = [...events].reverse().find((event) => {
     if (event.eventType !== "inventory.item.adjusted") {
       return false;

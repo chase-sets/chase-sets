@@ -265,8 +265,8 @@ describe("settlement payout runtime", () => {
     expect(operationEvents[0]?.occurredAt).toEqual(expect.any(String));
   });
 
-  it("debits the wallet when requesting a payout and credits it back when the payout fails", async () => {
-    const { eventStore, readAllEvents } = createInMemoryEventStore();
+  it("issue-6299-acceptance-control reverses a payout whose debit committed beyond 500 wallet events", async () => {
+    const { eventStore, readAllEvents, streams } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;
 
     const db = {
@@ -314,6 +314,30 @@ describe("settlement payout runtime", () => {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
     });
     await seedAvailableWallet(wallets);
+    const walletStreamId = "settlement.wallet-acc_seller";
+    const fillerCount = 500 - (streams.get(walletStreamId)?.length ?? 0);
+    await eventStore.appendToStream({
+      streamId: walletStreamId,
+      expectedVersion: streams.get(walletStreamId)?.length ?? 0,
+      context,
+      events: Array.from({ length: fillerCount }, (_, index) => ({
+        eventType: "settlement.wallet.ledger-entry-posted",
+        payload: {
+          accountId: "acc_seller",
+          ledgerEntryId: `led_pagination_${index}`,
+          kind: "sale",
+          direction: "credit",
+          amount: "0.01",
+          currencyCode: "usd",
+          fundsStatus: "available",
+          orderId: null,
+          paymentId: null,
+          payoutId: null,
+          description: "Pagination control",
+          postedAt: "2026-04-01T00:00:00.000Z",
+        },
+      })),
+    });
 
     const requested = await payouts.requestPayout(
       {
@@ -376,6 +400,13 @@ describe("settlement payout runtime", () => {
       "settlement.payout.failed",
     ]);
     expect(walletEntryEvents).toHaveLength(2);
+    expect(
+      readAllEvents().find(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { kind?: string }).kind === "payout",
+      )?.streamVersion,
+    ).toBe(501);
     expect(walletEntryEvents[0]?.payload).toMatchObject({
       kind: "payout",
       direction: "debit",

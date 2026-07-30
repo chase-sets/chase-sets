@@ -109,17 +109,39 @@ function createMeasureDb(item: CatalogItemRow) {
   return { db, resolved };
 }
 
-function createEventStore() {
+function storedEvent(streamVersion: number, eventType = "catalog.product-measures.control"): StoredEvent {
+  return {
+    eventId: `evt_measures_${streamVersion}` as never,
+    streamId: "catalog.product-measures-cat_1",
+    streamVersion,
+    globalPosition: String(streamVersion) as never,
+    tenantId: "tnt_test" as never,
+    eventType,
+    payload: {},
+    metadata: {},
+    occurredAt: "2026-05-25T00:00:00.000Z" as never,
+    recordedAt: "2026-05-25T00:00:00.000Z" as never,
+    performedByUserId: "usr_test" as never,
+    forAccountId: "acc_test" as never,
+  };
+}
+
+function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const appended: AppendToStreamInput[] = [];
+  const reads: ReadStreamInput[] = [];
   const eventStore: EventStore = {
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
       return [];
     }),
-    readStream: async (_input: ReadStreamInput): Promise<StoredEvent[]> => [],
+    readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
+      reads.push(input);
+      const fromIndex = (input.fromVersion ?? 1) - 1;
+      return existingEvents.slice(fromIndex, fromIndex + (input.limit ?? 500));
+    },
     readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
-  return { eventStore, appended };
+  return { eventStore, appended, reads };
 }
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -280,5 +302,31 @@ describe("product measure runtime", () => {
     expect(transactionStatements.join("\n")).toContain("DELETE FROM catalog_resolved_product_measures");
     expect(transactionStatements.join("\n")).toContain("INSERT INTO catalog_resolved_product_measures");
     expect(resolved.get("cat_1::form:raw")).toBeDefined();
+  });
+
+  it("issue-6299-acceptance-control appends after a complete 501-event history at the final stream version", async () => {
+    const { db } = createMeasureDb({
+      catalog_item_id: "cat_1",
+      blueprint_id: null,
+      category_ids: [],
+      canonical_dimension_order: [],
+      dimension_rules: [],
+    });
+    const history = Array.from({ length: 501 }, (_, index) => storedEvent(index + 1));
+    const { eventStore, appended, reads } = createEventStore(history);
+    const services = createProductMeasureRuntime({
+      db,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await services.resolveCatalogItemMeasures("cat_1", {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+    });
+
+    expect(reads.map((read) => read.fromVersion)).toEqual([1, 501]);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]?.expectedVersion).toBe(501);
   });
 });

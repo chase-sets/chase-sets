@@ -1697,6 +1697,86 @@ describe("marketplace listing runtime", () => {
       await expect(services.loadListingState("lst_retry_once")).resolves.toMatchObject({ priceAmount: "90.00" });
     });
 
+    it("issue-6299-acceptance-control replays and lists fee history through event 501", async () => {
+      const { eventStore, streams } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+      const listingId = "lst_complete_history";
+      const idempotencyKey = "repricing:complete-history:lst_complete_history:price";
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "100.00",
+          quantityCap: 1,
+          listingIdOverride: listingId as never,
+        },
+        context,
+      );
+      const createdPayload = streams.get(`marketplace.listing-${listingId}`)?.[0]?.payload as {
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps: number;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string | null;
+        feeQuoteFingerprint: string;
+        feeLocks: readonly Record<string, unknown>[];
+      };
+      if (!createdPayload) {
+        throw new Error("Expected the created Listing event.");
+      }
+      await eventStore.appendToStream({
+        streamId: `marketplace.listing-${listingId}`,
+        expectedVersion: 1,
+        context,
+        events: Array.from({ length: 500 }, (_, index) => ({
+          ...(index === 499 ? { eventId: `${idempotencyKey}:0` as never } : {}),
+          eventType: "marketplace.listing.price-updated",
+          payload: {
+            priceAmount: "90.00",
+            marketplaceSalesFeeUnitAmount: createdPayload.marketplaceSalesFeeUnitAmount,
+            sellerNetUnitAmount: createdPayload.sellerNetUnitAmount,
+            shippingAllowancePercentageBps: createdPayload.shippingAllowancePercentageBps,
+            termsScheduleId: createdPayload.termsScheduleId,
+            termsAgreementId: createdPayload.termsAgreementId,
+            termsResolvedAt: createdPayload.termsResolvedAt,
+            feeQuoteFingerprint: createdPayload.feeQuoteFingerprint,
+            feeLocks: createdPayload.feeLocks as never,
+          },
+        })),
+      });
+
+      await expect(
+        services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [
+              {
+                listingId,
+                priceAmount: "90.00",
+                expectedVersion: 501,
+                idempotencyKey,
+              },
+            ],
+          },
+          context,
+        ),
+      ).resolves.toEqual([{ listingId, outcome: "applied", version: 501 }]);
+
+      const history = await services.listSellerListingFeeHistory({
+        accountId: "acc_seller",
+        listingId,
+      });
+      expect(history).toHaveLength(501);
+      expect(history[0]?.stream_version).toBe(501);
+      expect(streams.get(`marketplace.listing-${listingId}`)).toHaveLength(501);
+    });
+
     it("isolates an unowned/unknown listing to an error outcome without blocking the rest of the batch", async () => {
       const { eventStore } = createInMemoryEventStore();
       const services = createMarketplaceListingRuntime({

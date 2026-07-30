@@ -103,6 +103,53 @@ describe("CSAT invitation runtime", () => {
     expect(claims[0]?.eventType).toBe("customer-feedback.sampling.cooldown-claimed");
   });
 
+  it("issue-6299-acceptance-control applies the authoritative cooldown beyond the first 500 events", async () => {
+    const store = createInMemoryEventStore();
+    const evaluatedAt = "2026-07-13T12:00:00.000Z";
+    await store.eventStore.appendToStream({
+      streamId: csatCooldownStreamId(fact.subjectAccountId, fact.outcomeCode),
+      expectedVersion: "no_stream",
+      context,
+      events: Array.from({ length: 501 }, (_, index) => ({
+        eventType: "customer-feedback.sampling.cooldown-claimed",
+        payload: {
+          eventSchemaVersion: 1,
+          subjectAccountId: fact.subjectAccountId,
+          outcomeCode: fact.outcomeCode,
+          outcomeIdempotencyKey: `checkout.completed:history-${index}`,
+          issuedAt: index === 500 ? "2026-07-13T11:00:00.000Z" : "2026-01-01T00:00:00.000Z",
+        },
+      })),
+    });
+    const runtime = createCsatInvitationRuntime({
+      eventStore: store.eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+    });
+
+    const result = await runtime.issueFromOutcomeFact(
+      {
+        fact,
+        policy,
+        subjectEligible: true,
+        consentAllowed: true,
+        trafficKind: "customer",
+        evaluatedAt,
+      },
+      context,
+    );
+
+    expect(result).toMatchObject({
+      state: "suppressed",
+      suppressionDiagnostic: { reason: "subject-cooldown" },
+    });
+    expect(
+      await store.eventStore.readStream({
+        streamId: csatCooldownStreamId(fact.subjectAccountId, fact.outcomeCode),
+        fromVersion: 501,
+      }),
+    ).toHaveLength(1);
+  });
+
   it("routes public-reference commands through the account-scoped projection lookup", async () => {
     const store = createInMemoryEventStore();
     const db = { query: vi.fn(async () => ({ rows: [] as Array<{ stream_id: string }> })) };

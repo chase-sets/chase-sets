@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core/domain";
+import { EventStreamTooLongError, readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type {
   AppendToStreamInput,
@@ -56,7 +57,6 @@ export const CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX = "platform-policy.conse
 
 /** Upper bound on authority events replayed for one key before the read fails closed. */
 const MAX_AUTHORITY_HISTORY_EVENTS = 10_000;
-const AUTHORITY_READ_PAGE_SIZE = 500;
 
 const MAX_POLICY_KEY_LENGTH = 128;
 const MAX_VERSION_TOKEN_LENGTH = 64;
@@ -986,25 +986,19 @@ export function consentActivationGuardAppendInput(
 }
 
 async function readAuthorityEvents(eventStore: EventStore, streamId: string): Promise<readonly StoredEvent[]> {
-  const events: StoredEvent[] = [];
-
-  for (;;) {
-    const page = await eventStore.readStream({
+  try {
+    return await readCompleteStream(eventStore, {
       streamId,
-      fromVersion: events.length + 1,
-      limit: AUTHORITY_READ_PAGE_SIZE,
+      maxEvents: MAX_AUTHORITY_HISTORY_EVENTS - 1,
     });
-    events.push(...page);
-
-    if (page.length < AUTHORITY_READ_PAGE_SIZE) {
-      return events;
-    }
-    if (events.length >= MAX_AUTHORITY_HISTORY_EVENTS) {
+  } catch (error) {
+    if (error instanceof EventStreamTooLongError) {
       fail(
         "history_too_long",
         `Consent activation authority stream '${streamId}' exceeded ${MAX_AUTHORITY_HISTORY_EVENTS} events.`,
       );
     }
+    throw error;
   }
 }
 
@@ -1037,7 +1031,7 @@ export async function readConsentActivationAuthority(
     state = evolveConsentActivationAuthority(state, event);
   }
 
-  const authorityVersion = storedEvents.length;
+  const authorityVersion = storedEvents.at(-1)?.streamVersion ?? 0;
 
   return decodeConsentActivationAuthoritySnapshot(policyKey, {
     policyKey,

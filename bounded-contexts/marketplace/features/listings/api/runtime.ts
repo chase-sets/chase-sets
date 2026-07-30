@@ -1,6 +1,7 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStoreError } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -906,19 +907,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
   async function findReplayedListingMutation(listingId: string, idempotencyKey: string) {
     const eventId = `${idempotencyKey}:0`;
-    let fromVersion = 1;
-    while (true) {
-      const events = await deps.eventStore.readStream({
-        streamId: `marketplace.listing-${listingId}`,
-        fromVersion,
-        limit: 500,
-      });
-      const replayed = events.find((event) => event.eventId === eventId);
-      if (replayed || events.length < 500) {
-        return replayed ?? null;
-      }
-      fromVersion += events.length;
-    }
+    const events = await readCompleteStream(deps.eventStore, {
+      streamId: `marketplace.listing-${listingId}`,
+    });
+    return events.find((event) => event.eventId === eventId) ?? null;
   }
 
   async function resolveEvidenceRequirementsForListing(
@@ -2223,7 +2215,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
-      const events = await deps.eventStore.readStream({
+      const events = await readCompleteStream(deps.eventStore, {
         streamId: `marketplace.listing-${params.listingId}`,
       });
 

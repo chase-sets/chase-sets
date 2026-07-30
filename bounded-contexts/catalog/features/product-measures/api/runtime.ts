@@ -1,5 +1,6 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createProjectionHandlerSet,
   resolveProjectionDb,
@@ -167,8 +168,8 @@ async function resolveCatalogItemMeasures(
 
   if (context) {
     const streamId = `catalog.product-measures-${catalogItemId}`;
-    const existingEvents = await deps.eventStore.readStream({ streamId });
-    const currentVersion = existingEvents.length;
+    const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
+    const currentVersion = existingEvents.at(-1)?.streamVersion ?? 0;
     const lastResolved = [...existingEvents]
       .reverse()
       .find((event) => event.eventType === "catalog.catalog-item.product-measures-resolved");

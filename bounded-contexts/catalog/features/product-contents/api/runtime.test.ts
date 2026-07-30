@@ -195,17 +195,39 @@ function createContentDb(items: readonly CatalogItemRow[]) {
   return { db, resolved, contentTypes, inclusionPolicies };
 }
 
-function createEventStore(existingEvents: StoredEvent[] = []) {
+function storedEvent(streamVersion: number, eventType: string, payload: StoredEvent["payload"] = {}): StoredEvent {
+  return {
+    eventId: `evt_contents_${streamVersion}` as never,
+    streamId: "catalog.product-contents-cat_box",
+    streamVersion,
+    globalPosition: String(streamVersion) as never,
+    tenantId: "tnt_test" as never,
+    eventType,
+    payload,
+    metadata: {},
+    occurredAt: "2026-07-01T00:00:00.000Z" as never,
+    recordedAt: "2026-07-01T00:00:00.000Z" as never,
+    performedByUserId: "usr_test" as never,
+    forAccountId: "acc_test" as never,
+  };
+}
+
+function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const appended: AppendToStreamInput[] = [];
+  const reads: ReadStreamInput[] = [];
   const eventStore: EventStore = {
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
       return [];
     }),
-    readStream: async (_input: ReadStreamInput): Promise<StoredEvent[]> => existingEvents,
+    readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
+      reads.push(input);
+      const fromIndex = (input.fromVersion ?? 1) - 1;
+      return existingEvents.slice(fromIndex, fromIndex + (input.limit ?? 500));
+    },
     readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
-  return { eventStore, appended };
+  return { eventStore, appended, reads };
 }
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -514,6 +536,71 @@ describe("product content runtime", () => {
 
     expect(connect).not.toHaveBeenCalled();
     expect(resolved.size).toBe(1);
+  });
+
+  it("issue-6299-acceptance-control does not duplicate retained authoring state beyond the first page", async () => {
+    const { db } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      lines: [
+        {
+          containedCatalogItemId: "cat_card" as never,
+          quantity: 1,
+          contentTypeId: "pct_included_item",
+        },
+      ],
+    };
+    const firstStore = createEventStore();
+    const firstServices = createProductContentRuntime({
+      db,
+      eventStore: firstStore.eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+    await firstServices.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+    });
+    await firstServices.replaceProductContents(input, context);
+    const retainedPayload = firstStore.appended[0]?.events[1]?.payload;
+    expect(retainedPayload).toBeDefined();
+    if (!retainedPayload) {
+      throw new Error("Expected the initial Product Contents resolve event.");
+    }
+
+    const history = [
+      ...Array.from({ length: 500 }, (_, index) =>
+        storedEvent(index + 1, "catalog.product-contents.authoring-control"),
+      ),
+      storedEvent(501, "catalog.product-contents.resolved", retainedPayload),
+    ];
+    const replayStore = createEventStore(history);
+    const replayServices = createProductContentRuntime({
+      db,
+      eventStore: replayStore.eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    const replayed = await replayServices.replaceProductContents(input, context);
+
+    expect(replayStore.reads.map((read) => read.fromVersion)).toEqual([1, 501]);
+    expect(replayStore.appended).toEqual([]);
+    expect(replayed).toEqual(retainedPayload);
   });
 
   it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {

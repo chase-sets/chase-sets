@@ -41,7 +41,7 @@ const shipFromAddress = {
 } as const;
 
 describe("inventory item runtime", () => {
-  it("uses a ledger to make keyed quantity adjustments replay-safe and shape-checked", async () => {
+  it("issue-6299-acceptance-control recovers a keyed quantity adjustment beyond 500 events", async () => {
     const { eventStore, streams } = createInMemoryEventStore();
     const ledger = new Map<
       string,
@@ -167,6 +167,20 @@ describe("inventory item runtime", () => {
         context,
       ),
     ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    await eventStore.appendToStream({
+      streamId: "inventory.item-inv_1",
+      expectedVersion: 2,
+      context,
+      events: Array.from({ length: 498 }, (_, index) => ({
+        eventType: "inventory.item.adjusted",
+        payload: {
+          itemId: "inv_1",
+          quantityDelta: index % 2 === 0 ? 1 : -1,
+          reason: "Pagination control",
+          sourceRef: null,
+        },
+      })),
+    });
     failNextIdempotencyComplete = true;
     await expect(
       services.adjustItem(
@@ -191,7 +205,7 @@ describe("inventory item runtime", () => {
         },
         context,
       ),
-    ).resolves.toEqual({ itemId: "inv_1", version: 3 });
+    ).resolves.toEqual({ itemId: "inv_1", version: 501 });
     await expect(
       services.adjustItem(
         {
@@ -217,7 +231,7 @@ describe("inventory item runtime", () => {
       ),
     ).rejects.toThrow("idempotency key was reused");
 
-    expect(streams.get("inventory.item-inv_1")).toHaveLength(3);
+    expect(streams.get("inventory.item-inv_1")).toHaveLength(501);
   });
 
   it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
