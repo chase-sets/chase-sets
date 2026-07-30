@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDockerComposeArgs,
   buildSandboxEnv,
@@ -57,9 +57,38 @@ describe("worktree sandbox", () => {
       contextNames: [],
     });
 
-    expect(normalizeSandboxWorktreeIdentity(upper.rootDir)).toBe(normalizeSandboxWorktreeIdentity(lower.rootDir));
     expect(upper.id).toBe(lower.id);
     expect(upper.basePort).toBe(lower.basePort);
+  });
+
+  it("derives Windows-shaped sandbox identities before native path resolution on every host", () => {
+    const upperWindowsWorktree = "C:\\Repos\\Chase Sets\\Feature";
+    const lowerWindowsWorktree = "c:\\repos\\chase sets\\feature";
+    const nativeResolve = path.resolve;
+    const resolve = vi.spyOn(path, "resolve").mockImplementation((...segments) => {
+      if (segments.length === 1 && [upperWindowsWorktree, lowerWindowsWorktree].includes(segments[0])) {
+        return path.posix.resolve("/synthetic-linux-host", segments[0]);
+      }
+      return nativeResolve(...segments);
+    });
+
+    try {
+      const upper = resolveWorktreeSandbox({
+        rootDir: upperWindowsWorktree,
+        env: {},
+        contextNames: [],
+      });
+      const lower = resolveWorktreeSandbox({
+        rootDir: lowerWindowsWorktree,
+        env: {},
+        contextNames: [],
+      });
+
+      expect(upper.id).toBe(lower.id);
+      expect(upper.basePort).toBe(lower.basePort);
+    } finally {
+      resolve.mockRestore();
+    }
   });
 
   it("canonicalizes Windows UNC worktree identities case-insensitively on every host", () => {

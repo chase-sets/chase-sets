@@ -205,8 +205,11 @@ export function resolveWorktreeSandbox({
   env = process.env,
   contextNames = readImplementedContextNames(rootDir),
 } = {}) {
+  // Worktree identity is cross-host data: Git and Docker labels can describe a
+  // Windows worktree while this command runs on Linux. Classify that raw value
+  // before the native resolver can reinterpret it as a relative POSIX path.
+  const worktreeIdentity = normalizeSandboxWorktreeIdentity(rootDir);
   const resolvedRoot = path.resolve(rootDir);
-  const worktreeIdentity = normalizeSandboxWorktreeIdentity(resolvedRoot);
   const hash = hashHex(worktreeIdentity);
   const explicitId = env.CHASE_SETS_SANDBOX_ID?.trim();
   const sandboxId = sanitizeIdentifier(explicitId || hash.slice(0, 8), "local");
@@ -214,7 +217,7 @@ export function resolveWorktreeSandbox({
   const envFilePath = path.resolve(
     env.CHASE_SETS_SANDBOX_ENV_FILE ?? path.join(resolvedRoot, defaultSandboxEnvFileName),
   );
-  const { basePort, ports } = resolvePorts(resolvedRoot, env);
+  const { basePort, ports } = resolvePorts(worktreeIdentity, env);
   const adminDatabaseUrl = createAdminDatabaseUrl(ports.postgres);
   const databasePrefix = normalizeDatabaseToken(`cs_${sandboxId}`);
   const controlDatabaseName = `${databasePrefix}_control`;
