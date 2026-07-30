@@ -78,6 +78,55 @@ export async function findCurrentConsent(
   return result.rows[0] ?? null;
 }
 
+export type SubjectExactConsentRow = CurrentConsentRow &
+  Readonly<{
+    /** 1-based position of this row's policy key in the requested key order. */
+    member_ordinal: number;
+  }>;
+
+/**
+ * Returns the current consent state for EXACTLY one subject, for each of the
+ * requested policy keys, ordered by the requested key order.
+ *
+ * Subject-exact is the point. `findCurrentConsent` above answers the shipped
+ * Terms host question with a user-OR-account disjunction, and that contract is
+ * unchanged. A bundle read cannot use a disjunction: with one, a Consent
+ * recorded by a different user of the same account, or an account-scoped
+ * Consent standing in for a user-scoped one, would satisfy the bundle for a
+ * subject that never agreed to anything. `subject_type` and `subject_id` are
+ * the first two columns of the read model's primary key, so pinning both
+ * selects one subject and nothing else.
+ *
+ * Every column reference is table-qualified because it has to be: the requested
+ * key list is joined in as a derived table that also has a `policy_key` column,
+ * so an unqualified `policy_key` anywhere in this statement is an ambiguous
+ * column reference PostgreSQL rejects outright. The ordinality column carries
+ * the requested order into SQL instead of relying on the physical row order the
+ * read model happens to return.
+ */
+export async function listSubjectExactCurrentConsents(
+  db: PgQueryable,
+  params: Readonly<{
+    subjectType: "user" | "account";
+    subjectId: string;
+    policyKeys: readonly string[];
+  }>,
+): Promise<readonly SubjectExactConsentRow[]> {
+  const result = await db.query<SubjectExactConsentRow>(
+    `SELECT c.subject_type, c.subject_id, c.user_id, c.account_id, c.policy_key, c.consent_id,
+            c.policy_version, c.status, c.recorded_at, c.withdrawn_at, c.updated_at,
+            m.member_ordinal::int AS member_ordinal
+       FROM identity_consent_current_states AS c
+       JOIN unnest($3::text[]) WITH ORDINALITY AS m(policy_key, member_ordinal)
+         ON m.policy_key = c.policy_key
+      WHERE c.subject_type = $1
+        AND c.subject_id = $2
+      ORDER BY m.member_ordinal`,
+    [params.subjectType, params.subjectId, [...params.policyKeys]],
+  );
+  return result.rows;
+}
+
 export async function getConsent(db: PgQueryable, consentId: string): Promise<ConsentRow | null> {
   const result = await db.query<ConsentRow>(
     `SELECT h.*,
