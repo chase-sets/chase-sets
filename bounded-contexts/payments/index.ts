@@ -64,7 +64,14 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
     ...paymentsRetentionSchemaMigrations,
   ],
   createServices: (pool, options) => createPaymentsServices(pool, options),
-  buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPaymentsApi(services) },
+    {
+      mountPath: "/api/payments/provider",
+      contextMountOrdinal: 2,
+      router: createPaymentProcessorWebhookRoutes(services.payments),
+    },
+  ],
   buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [

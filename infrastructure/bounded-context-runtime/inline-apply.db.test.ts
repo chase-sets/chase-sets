@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import { defineBoundedContextModule, type BcApiEntry } from "@chase-sets/bounded-context-module";
 import {
   getEventCommitMetadata,
   recordCommittedEvents,
@@ -21,6 +21,8 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "./test-support";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -85,7 +87,7 @@ const inlineModule = defineBoundedContextModule({
       }),
     ],
   }),
-  buildApis: () => [],
+  buildApis: () => NO_API_ENTRIES,
   projectionHandlerSets: (services) => services.projectors,
 });
 

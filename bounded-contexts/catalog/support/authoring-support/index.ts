@@ -20,7 +20,9 @@ export const module = defineBoundedContextModule<CatalogServices, PgTransactiona
   schemaSql: catalogAuthoringSchemaSql,
   schemaMigrations: catalogAuthoringSchemaMigrations,
   createServices: (pool, ports) => createCatalogServices(pool, ports),
-  buildApis: (services) => [buildCatalogAuthoringApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/catalog", contextMountOrdinal: 1, router: buildCatalogAuthoringApi(services) },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   seedProfiles: [
     "catalog-integration-bootstrap",

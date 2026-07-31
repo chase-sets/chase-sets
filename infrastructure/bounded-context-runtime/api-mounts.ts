@@ -1,5 +1,7 @@
-import type { BcApiModule, BcApiMount } from "@chase-sets/bounded-context-module";
+import { createHash } from "node:crypto";
+import type { BcApiEntry, BcApiModule, BcApiMount } from "@chase-sets/bounded-context-module";
 import { getEventCommitMetadata, runWithEventCommitMetadata, type EventCommitMetadata } from "@chase-sets/event-core";
+import { checkOptionalParameter, getPattern, mergePath, splitRoutingPath } from "hono/utils/url";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -20,8 +22,30 @@ import type { ContextProjectionGroup } from "./projection-groups";
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
   Readonly<{
     contextName: string;
+    contextMountOrdinal: number;
     router: TRouter;
   }>;
+
+export type ApiMountBindingErrorDetails = Readonly<{
+  contextName: string;
+  position?: number;
+  declaredMountCount?: number;
+  providedEntryCount?: number;
+  declaredMountPath?: string;
+  providedMountPath?: string;
+  expectedContextMountOrdinal?: number;
+  providedContextMountOrdinal?: number;
+}>;
+
+export class ApiMountBindingError extends Error {
+  public readonly details: ApiMountBindingErrorDetails;
+
+  public constructor(message: string, details: ApiMountBindingErrorDetails) {
+    super(message);
+    this.name = "ApiMountBindingError";
+    this.details = details;
+  }
+}
 
 export type ReadConsistencyDependencyDeclaration = Readonly<
   | {
@@ -248,6 +272,7 @@ export function createResolvedApiMount<TRouter>(
     readFreshnessRoutes?: BcApiMount["readFreshnessRoutes"];
   }>,
   router: TRouter,
+  contextMountOrdinal = 1,
 ): ResolvedApiMount<TRouter> {
   const kind = mount.kind;
   if (kind !== "primary" && kind !== "additional") {
@@ -256,6 +281,7 @@ export function createResolvedApiMount<TRouter>(
 
   return {
     contextName,
+    contextMountOrdinal,
     mountPath: mount.mountPath,
     kind,
     requiresAuth: mount.requiresAuth,
@@ -271,15 +297,47 @@ export function resolveContextApiMounts<TRouter>(
     kind: string;
     requiresAuth: boolean;
   }>[],
-  routers: readonly TRouter[],
+  entries: readonly BcApiEntry<TRouter>[],
 ): readonly ResolvedApiMount<TRouter>[] {
-  if (mounts.length !== routers.length) {
-    throw new Error(
-      `Context '${contextName}' declared ${mounts.length} API mounts but provided ${routers.length} routers.`,
+  if (mounts.length !== entries.length) {
+    throw new ApiMountBindingError(
+      `Context '${contextName}' declared ${mounts.length} API mounts but provided ${entries.length} API entries.`,
+      {
+        contextName,
+        declaredMountCount: mounts.length,
+        providedEntryCount: entries.length,
+      },
     );
   }
 
-  return mounts.map((mount, index) => createResolvedApiMount(contextName, mount, routers[index]));
+  return mounts.map((mount, index) => {
+    const position = index + 1;
+    const entry = entries[index];
+    if (entry.mountPath !== mount.mountPath) {
+      throw new ApiMountBindingError(
+        `Context '${contextName}' API entry at position ${position} declares mountPath '${entry.mountPath}' but the manifest declares '${mount.mountPath}'.`,
+        {
+          contextName,
+          position,
+          declaredMountPath: mount.mountPath,
+          providedMountPath: entry.mountPath,
+        },
+      );
+    }
+    if (entry.contextMountOrdinal !== position) {
+      throw new ApiMountBindingError(
+        `Context '${contextName}' API entry at position ${position} declares contextMountOrdinal ${entry.contextMountOrdinal} but expected ${position}.`,
+        {
+          contextName,
+          position,
+          expectedContextMountOrdinal: position,
+          providedContextMountOrdinal: entry.contextMountOrdinal,
+        },
+      );
+    }
+
+    return createResolvedApiMount(contextName, mount, entry.router, entry.contextMountOrdinal);
+  });
 }
 
 export function resolveModuleApiMounts<TServices, TPool, TPorts, TRouter>(
@@ -1106,6 +1164,260 @@ export function mountApiRouters(
   for (const mount of mounts) {
     app.route(mount.mountPath, mount.router);
   }
+}
+
+export type ApiRouteAcceptedPathProjection = Readonly<{
+  acceptedPath: string;
+  collisionPath: string;
+}>;
+
+export type ApiRouteCollisionProjection = Readonly<{
+  combinedPath: string;
+  acceptedPathProjections: readonly ApiRouteAcceptedPathProjection[];
+  collisionShape: readonly string[];
+}>;
+
+export type ApiRouteCollisionRecord = Readonly<{
+  context: string;
+  contextMountOrdinal: number;
+  routerOrdinal: number;
+  routeOrdinal: number;
+  method: string;
+  rawPath: string;
+  combinedPath: string;
+  acceptedPathProjections: readonly ApiRouteAcceptedPathProjection[];
+  collisionShape: readonly string[];
+  handlerIdentity: Readonly<{
+    name: string;
+    arity: number;
+    sourceSha256: string;
+  }>;
+}>;
+
+export type ApiRouteCollisionGroup = Readonly<{
+  method: string;
+  collisionShape: readonly string[];
+  records: readonly ApiRouteCollisionRecord[];
+}>;
+
+export type ApiRouteTableCensusReport = Readonly<{
+  scanned: number;
+  total: number;
+  routeCount: number;
+  duplicateGroups: readonly ApiRouteCollisionGroup[];
+}>;
+
+export type ApiRouteTableCensusErrorCode =
+  | "E_ROUTE_SHAPE"
+  | "E_ROUTE_PATTERN"
+  | "E_ROUTE_COLLISION"
+  | "E_ROUTE_SCAN_INCOMPLETE";
+
+export class ApiRouteTableCensusError extends Error {
+  public readonly code: ApiRouteTableCensusErrorCode;
+  public readonly report: ApiRouteTableCensusReport;
+
+  public constructor(code: ApiRouteTableCensusErrorCode, message: string, report: ApiRouteTableCensusReport) {
+    super(`${code}: ${message} scanned=${report.scanned}/${report.total}.`);
+    this.name = "ApiRouteTableCensusError";
+    this.code = code;
+    this.report = report;
+  }
+}
+
+function routePatternError(message: string): never {
+  throw new ApiRouteTableCensusError("E_ROUTE_PATTERN", message, {
+    scanned: 0,
+    total: 0,
+    routeCount: 0,
+    duplicateGroups: [],
+  });
+}
+
+function collisionPathForAcceptedPath(acceptedPath: string): string {
+  const segments = splitRoutingPath(acceptedPath);
+  if (!Array.isArray(segments) || segments.some((segment) => typeof segment !== "string")) {
+    return routePatternError(`Target splitRoutingPath returned an invalid result for '${acceptedPath}'.`);
+  }
+
+  let parameterPosition = 0;
+  const collisionSegments = segments.map((segment, index) => {
+    if (segment === "*" || !segment.startsWith(":")) {
+      return segment;
+    }
+
+    const pattern = getPattern(segment, segments[index + 1]);
+    if (pattern === null || pattern === "*") {
+      return routePatternError(`Target getPattern rejected '${segment}' in '${acceptedPath}'.`);
+    }
+
+    parameterPosition += 1;
+    const braceStart = segment.indexOf("{");
+    const exactPattern = braceStart === -1 ? "" : segment.slice(braceStart);
+    return `:p${parameterPosition}${exactPattern}`;
+  });
+
+  return `/${collisionSegments.join("/")}`;
+}
+
+export function deriveApiRouteCollisionProjection(mountPath: string, rawPath: string): ApiRouteCollisionProjection {
+  const combinedPath = mergePath(mountPath, rawPath);
+  if (typeof combinedPath !== "string") {
+    return routePatternError("Target mergePath returned a non-string result.");
+  }
+
+  const expanded = checkOptionalParameter(combinedPath);
+  if (expanded !== null && (!Array.isArray(expanded) || expanded.some((value) => typeof value !== "string"))) {
+    return routePatternError(`Target checkOptionalParameter returned an invalid result for '${combinedPath}'.`);
+  }
+  const acceptedPaths = expanded === null ? [combinedPath] : expanded;
+  if (acceptedPaths.length === 0) {
+    return routePatternError(`Target checkOptionalParameter returned an empty expansion for '${combinedPath}'.`);
+  }
+
+  const acceptedPathProjections = acceptedPaths.map((acceptedPath) => ({
+    acceptedPath,
+    collisionPath: collisionPathForAcceptedPath(acceptedPath),
+  }));
+
+  return {
+    combinedPath,
+    acceptedPathProjections,
+    collisionShape: acceptedPathProjections.map(({ collisionPath }) => collisionPath),
+  };
+}
+
+function readRouterRoutes(router: unknown): readonly unknown[] | null {
+  if ((typeof router !== "object" && typeof router !== "function") || router === null || !("routes" in router)) {
+    return null;
+  }
+  return Array.isArray(router.routes) ? router.routes : null;
+}
+
+function handlerIdentity(handler: Function): ApiRouteCollisionRecord["handlerIdentity"] {
+  let source: string;
+  try {
+    source = Function.prototype.toString.call(handler);
+  } catch {
+    routePatternError("Route handler source is unreadable.");
+  }
+
+  return {
+    name: handler.name || "(anonymous)",
+    arity: handler.length,
+    sourceSha256: createHash("sha256").update(source).digest("hex"),
+  };
+}
+
+function collisionRecord(
+  mount: ResolvedApiMount,
+  route: unknown,
+  routeOrdinal: number,
+): ApiRouteCollisionRecord | null {
+  if (
+    typeof route !== "object" ||
+    route === null ||
+    !("method" in route) ||
+    typeof route.method !== "string" ||
+    !("path" in route) ||
+    typeof route.path !== "string" ||
+    !("handler" in route) ||
+    typeof route.handler !== "function"
+  ) {
+    return null;
+  }
+
+  const projection = deriveApiRouteCollisionProjection(mount.mountPath, route.path);
+  return {
+    context: mount.contextName,
+    contextMountOrdinal: mount.contextMountOrdinal,
+    routerOrdinal: mount.contextMountOrdinal,
+    routeOrdinal,
+    method: route.method,
+    rawPath: route.path,
+    ...projection,
+    handlerIdentity: handlerIdentity(route.handler),
+  };
+}
+
+function describeCollisionRecord(record: ApiRouteCollisionRecord): string {
+  return JSON.stringify(record);
+}
+
+export function assertApiRouteTableHasNoCollisions(mounts: readonly ResolvedApiMount[]): ApiRouteTableCensusReport {
+  const records: ApiRouteCollisionRecord[] = [];
+  let scanned = 0;
+
+  for (const mount of mounts) {
+    const routes = readRouterRoutes(mount.router);
+    if (!routes) {
+      throw new ApiRouteTableCensusError(
+        "E_ROUTE_SHAPE",
+        `Context '${mount.contextName}' API entry ${mount.contextMountOrdinal} has no readable route table`,
+        { scanned, total: mounts.length, routeCount: records.length, duplicateGroups: [] },
+      );
+    }
+
+    for (let index = 0; index < routes.length; index += 1) {
+      let record: ApiRouteCollisionRecord | null;
+      try {
+        record = collisionRecord(mount, routes[index], index + 1);
+      } catch (error) {
+        if (error instanceof ApiRouteTableCensusError) {
+          throw new ApiRouteTableCensusError(
+            error.code,
+            `Context '${mount.contextName}' API entry ${mount.contextMountOrdinal} route ${index + 1} is invalid: ${error.message}`,
+            { scanned, total: mounts.length, routeCount: records.length, duplicateGroups: [] },
+          );
+        }
+        throw error;
+      }
+      if (!record) {
+        throw new ApiRouteTableCensusError(
+          "E_ROUTE_SHAPE",
+          `Context '${mount.contextName}' API entry ${mount.contextMountOrdinal} route ${index + 1} has an unreadable public shape`,
+          { scanned, total: mounts.length, routeCount: records.length, duplicateGroups: [] },
+        );
+      }
+      records.push(record);
+    }
+    scanned += 1;
+  }
+
+  if (scanned < mounts.length) {
+    throw new ApiRouteTableCensusError("E_ROUTE_SCAN_INCOMPLETE", "API route-table census was incomplete", {
+      scanned,
+      total: mounts.length,
+      routeCount: records.length,
+      duplicateGroups: [],
+    });
+  }
+
+  const recordsByCollision = new Map<string, ApiRouteCollisionRecord[]>();
+  for (const record of records) {
+    const key = JSON.stringify([record.method, record.collisionShape]);
+    const group = recordsByCollision.get(key);
+    if (group) {
+      group.push(record);
+    } else {
+      recordsByCollision.set(key, [record]);
+    }
+  }
+  const duplicateGroups = [...recordsByCollision.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => ({
+      method: group[0].method,
+      collisionShape: group[0].collisionShape,
+      records: group,
+    }));
+  const report = { scanned, total: mounts.length, routeCount: records.length, duplicateGroups };
+
+  if (duplicateGroups.length > 0) {
+    const members = duplicateGroups.flatMap((group) => group.records.map(describeCollisionRecord)).join("; ");
+    throw new ApiRouteTableCensusError("E_ROUTE_COLLISION", `API route-table collision detected: ${members}`, report);
+  }
+
+  return report;
 }
 
 function delay(ms: number): Promise<void> {

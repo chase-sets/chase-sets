@@ -27,6 +27,8 @@ import {
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
+const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
+
 function signedUcpHeaders(body: string) {
   return {
     "Content-Type": "application/json",
@@ -112,7 +114,7 @@ function createCatalogRuntime() {
         requiresAuth: true,
       },
     ],
-    buildApis: () => [catalogRouter],
+    buildApis: () => [{ mountPath: "/api/catalog", contextMountOrdinal: 1, router: catalogRouter }],
     projectionHandlerSets: () => [],
   };
 
@@ -496,7 +498,7 @@ describe("platform api app wiring", () => {
         },
       ],
       anonymousRoutes: [{ routePath: "/api/identity/public-token", methods: ["POST"] }],
-      buildApis: () => [anonymousRouter],
+      buildApis: () => [{ mountPath: "/api/identity", contextMountOrdinal: 1, router: anonymousRouter }],
       projectionHandlerSets: () => [],
     };
     const app = buildPlatformApiApp(
@@ -682,7 +684,7 @@ describe("platform api app wiring", () => {
     const discoveryModule = {
       contextName: "discovery",
       apiMounts: [],
-      buildApis: () => [],
+      buildApis: () => NO_API_ENTRIES,
       projectionHandlerSets: () => [],
     };
     const catalogModule = {
@@ -1537,7 +1539,7 @@ describe("platform api app wiring", () => {
           requiresAuth: false,
         },
       ],
-      buildApis: () => [providerRouter],
+      buildApis: () => [{ mountPath: "/api/settlement/provider", contextMountOrdinal: 1, router: providerRouter }],
       projectionHandlerSets: () => [],
     };
     const app = buildPlatformApiApp(
@@ -1594,7 +1596,7 @@ describe("platform api app wiring", () => {
           requiresAuth: true,
         },
       ],
-      buildApis: () => [writeRouter],
+      buildApis: () => [{ mountPath: "/api/marketplace", contextMountOrdinal: 1, router: writeRouter }],
       projectionHandlerSets: () => [{ runOnce }],
     };
     const app = buildPlatformApiApp(

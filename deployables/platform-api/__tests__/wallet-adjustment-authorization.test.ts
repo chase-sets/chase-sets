@@ -41,7 +41,7 @@ function createSettlementWalletRuntime(postEntry: WalletServices["postEntry"]) {
   const module = {
     contextName: "settlement",
     apiMounts: [{ mountPath: "/api/settlement", kind: "primary", requiresAuth: true }],
-    buildApis: () => [walletRouter],
+    buildApis: () => [{ mountPath: "/api/settlement", contextMountOrdinal: 1, router: walletRouter }],
     projectionHandlerSets: () => [],
   };
 

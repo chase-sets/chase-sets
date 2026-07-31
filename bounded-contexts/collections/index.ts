@@ -27,7 +27,9 @@ export const module = defineBoundedContextModule<CollectionsServices, PgTransact
   schemaSql: collectionsSchemaSql,
   retentionSweeps: collectionsRetentionSweeps,
   createServices: (pool, ports) => createCollectionsServices(pool, ports),
-  buildApis: (services) => [buildCollectionsApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/collections", contextMountOrdinal: 1, router: buildCollectionsApi(services) },
+  ],
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
       contextName: "collections",

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { BcApiEntry } from "@chase-sets/bounded-context-module";
 import {
   bootstrapApiModule,
   bootstrapContextDatabase,
@@ -12,6 +13,8 @@ import {
   SCHEMA_MIGRATIONS_TABLE,
   SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
 } from "./index";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
 describe("bounded context runtime schema", () => {
   it("creates projection generation metadata for generation-aware rebuilds", () => {
@@ -598,7 +601,7 @@ describe("bounded context runtime schema", () => {
       ],
       apiMounts: [],
       createServices: vi.fn(() => ({ ready: true })),
-      buildApis: vi.fn(() => []),
+      buildApis: vi.fn(() => NO_API_ENTRIES),
     };
 
     const services = await bootstrapApiModule(module as never, pool as never, {}, { completionLabel: "example" });

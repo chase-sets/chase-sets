@@ -18,7 +18,9 @@ export const module = defineBoundedContextModule<AuthenticityServices, PgTransac
   schemaSql: authenticitySchemaSql,
   retentionExemptions: authenticityRetentionExemptions,
   createServices: (pool, ports) => createAuthenticityServices(pool, ports),
-  buildApis: (services) => [buildAuthenticityApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/authenticity", contextMountOrdinal: 1, router: buildAuthenticityApi(services) },
+  ],
   buildMcpHandlers: (services) => createAuthenticityCaseMcpHandlers(services.cases),
   projectionHandlerSets: (services) => services.projectors,
 });

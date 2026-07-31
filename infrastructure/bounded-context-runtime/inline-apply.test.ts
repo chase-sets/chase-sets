@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { defineBoundedContextModule, type BcEventSubscription } from "@chase-sets/bounded-context-module";
+import {
+  defineBoundedContextModule,
+  type BcApiEntry,
+  type BcEventSubscription,
+} from "@chase-sets/bounded-context-module";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { recordCommittedEvents, type StoredEvent } from "@chase-sets/event-core";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -13,6 +17,8 @@ import {
 import { resolveModuleProjectionGroups } from "./projection-groups";
 import { resolveModuleSubscriptions, type MountedContextRuntimeEntry } from "./subscriptions";
 import type { ContextProjectionGroup } from "./projection-groups";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
 function storedEvent(): StoredEvent {
   return {
@@ -283,7 +289,7 @@ describe("inline apply eligibility validation", () => {
         },
         schemaSql: "",
         createServices: () => ({}),
-        buildApis: () => [],
+        buildApis: () => NO_API_ENTRIES,
         projectionHandlerSets: () => [set],
         buildSubscriptions: () => [subscription],
       });
@@ -303,7 +309,7 @@ describe("inline apply eligibility validation", () => {
                   manifest: { contextName: "catalog", apiBasePath: "/api/catalog", streamPrefix: "catalog." },
                   schemaSql: "",
                   createServices: () => ({}),
-                  buildApis: () => [],
+                  buildApis: () => NO_API_ENTRIES,
                 }),
                 services: {},
                 pool,

@@ -26,7 +26,10 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
   schemaMigrations: [...identityAccountSchemaMigrations, ...identityUnloggedProjectionSchemaMigrations],
   retentionExemptions: identityRetentionExemptions,
   createServices: (pool, options) => createIdentityServices(pool, options ?? {}),
-  buildApis: (services) => [buildIdentityApi(services), buildIdentityPublicApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/identity", contextMountOrdinal: 1, router: buildIdentityApi(services) },
+    { mountPath: "/api/public/identity", contextMountOrdinal: 2, router: buildIdentityPublicApi(services) },
+  ],
   buildMcpHandlers: (services) => createAccountMcpHandlers(services.accounts),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>

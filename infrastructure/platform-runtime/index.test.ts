@@ -64,7 +64,7 @@ function createModule(
   contextName: string,
   options: Readonly<{
     apiMounts?: readonly { mountPath: string; kind: "primary" | "additional"; requiresAuth: boolean }[];
-    apiRouters?: readonly unknown[];
+    apiEntries?: readonly Readonly<{ mountPath: string; contextMountOrdinal: number; router: unknown }>[];
     subscriptions?: readonly {
       subscriptionName: string;
       sourceContextName: string;
@@ -104,7 +104,7 @@ function createModule(
       order: subscription.order,
     })),
     createServices: () => ({ contextName }),
-    buildApis: () => options.apiRouters ?? [],
+    buildApis: () => options.apiEntries ?? [],
     buildSubscriptions: () => options.subscriptions ?? [],
     buildProjectionGroups: () => options.projectionGroups ?? [],
     projectionHandlerSets: () => options.projectionHandlerSets ?? [],
@@ -427,7 +427,7 @@ describe("platform host api registry", () => {
         },
         module: createModule("support", {
           apiMounts: [{ mountPath: "/api/support", kind: "primary", requiresAuth: true }],
-          apiRouters: ["support-router"],
+          apiEntries: [{ mountPath: "/api/support", contextMountOrdinal: 1, router: "support-router" }],
           subscriptions: [
             createSubscription("support.policy-source-projection", "policy-source", "support-policies", 10),
           ],
@@ -453,7 +453,7 @@ describe("platform host api registry", () => {
         },
         module: createModule("policy-source", {
           apiMounts: [{ mountPath: "/api/private-policies", kind: "primary", requiresAuth: true }],
-          apiRouters: ["policy-source-router"],
+          apiEntries: [{ mountPath: "/api/policy-source", contextMountOrdinal: 1, router: "policy-source-router" }],
           subscriptions: [createSubscription("policy-source.private-projection", "support", "private-policies", 20)],
           projectionHandlerSets: [{ projectionName: "policy-source-documents", handlers: {} }],
           seedProfiles: ["critical-bootstrap"],

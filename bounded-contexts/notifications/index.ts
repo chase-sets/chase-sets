@@ -27,7 +27,14 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
   schemaSql: notificationsSchemaSql,
   retentionSweeps: notificationsRetentionSweeps,
   createServices: (pool, ports) => createNotificationsServices(pool, ports),
-  buildApis: (services) => [buildNotificationsApi(services), buildNotificationsProviderWebhookApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/notifications", contextMountOrdinal: 1, router: buildNotificationsApi(services) },
+    {
+      mountPath: "/api/notifications/provider",
+      contextMountOrdinal: 2,
+      router: buildNotificationsProviderWebhookApi(services),
+    },
+  ],
   projectionHandlerSets: () => [],
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

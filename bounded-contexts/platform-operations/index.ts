@@ -58,9 +58,17 @@ export const module = defineBoundedContextModule<
   schemaMigrations: [...platformOperationsUnloggedProjectionSchemaMigrations, ...supportRequestSchemaMigrations],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
-    buildPlatformOperationsApi(services),
-    buildExperienceApi(services.platformFeedback, services.reportedContent, services.riskAlerts),
-    buildSupportApi(services.supportRequests),
+    { mountPath: "/api/platform", contextMountOrdinal: 1, router: buildPlatformOperationsApi(services) },
+    {
+      mountPath: "/api/experience",
+      contextMountOrdinal: 2,
+      router: buildExperienceApi(services.platformFeedback, services.reportedContent, services.riskAlerts),
+    },
+    {
+      mountPath: "/api/marketplace",
+      contextMountOrdinal: 3,
+      router: buildSupportApi(services.supportRequests),
+    },
   ],
   buildMcpHandlers: (services) => {
     const insightsHandlers = createInsightsDashboardMcpHandlers(services.insightsDashboards);

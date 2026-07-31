@@ -24,7 +24,14 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
   retentionExemptions: fulfillmentRetentionExemptions,
   schemaMigrations: [...fulfillmentUnloggedProjectionSchemaMigrations, ...fulfillmentSchemaMigrations],
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
-  buildApis: (services) => [buildFulfillmentApi(services), buildFulfillmentProviderWebhookApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildFulfillmentApi(services) },
+    {
+      mountPath: "/api/fulfillment/provider",
+      contextMountOrdinal: 2,
+      router: buildFulfillmentProviderWebhookApi(services),
+    },
+  ],
   buildMcpHandlers: (services) => createFulfillmentShipmentMcpHandlers(services.shipments),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>

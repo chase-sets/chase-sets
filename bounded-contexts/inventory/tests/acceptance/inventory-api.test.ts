@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module";
 import {
   bootstrapContextDatabase,
   type ContextProjectionGroup,
@@ -30,6 +30,8 @@ import { createInventoryServices } from "../../support/runtime-support/services"
 import { reserveOrderInventoryRequest } from "../../features/reservations/api/order-reservation-workflow";
 import { module as inventoryModule } from "../..";
 
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const inventoryContextNames = ["catalog", "ordering", "inventory"] as const;
 type InventoryAcceptanceRuntime = {
@@ -45,7 +47,7 @@ const orderingSourceModule = {
   schemaSql: "",
   apiMounts: [],
   createServices: () => ({}),
-  buildApis: () => [],
+  buildApis: () => NO_API_ENTRIES,
 } satisfies BcApiModule<Record<string, never>, PgTransactionalPool, Record<string, never>>;
 
 function requireDatabaseBaseUrl(): string {

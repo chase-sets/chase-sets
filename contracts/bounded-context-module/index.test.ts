@@ -7,11 +7,14 @@ import {
   defineEventReactionHandlers,
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
+  type BcApiEntry,
   type BcContextManifest,
   type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
   type BcEventSubscriptionHandlerRegistrations,
 } from "./index";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
 const manifest: BcContextManifest = {
   contextName: "inventory",
@@ -466,7 +469,13 @@ describe("defineBoundedContextModule", () => {
         },
       ],
       createServices: () => services,
-      buildApis: (createdServices) => [`api:${createdServices.db}`],
+      buildApis: (createdServices) => [
+        {
+          mountPath: "/api/inventory",
+          contextMountOrdinal: 1,
+          router: `api:${createdServices.db}`,
+        },
+      ],
       buildMcpHandlers: () => ({
         toolHandlers: {
           "inventory.list-import-sources": () => ({ items: [], total: 0 }),
@@ -498,7 +507,9 @@ describe("defineBoundedContextModule", () => {
       seedProfiles: ["scenario-seed"],
     });
     expect(module.createServices({}, undefined)).toBe(services);
-    expect(module.buildApis(services)).toEqual(["api:db"]);
+    expect(module.buildApis(services)).toEqual([
+      { mountPath: "/api/inventory", contextMountOrdinal: 1, router: "api:db" },
+    ]);
     expect(module.buildMcpHandlers?.(services).toolHandlers?.["inventory.list-import-sources"]).toEqual(
       expect.any(Function),
     );
@@ -539,7 +550,7 @@ describe("defineBoundedContextModule", () => {
       },
       schemaSql: "",
       createServices: () => ({}),
-      buildApis: () => [],
+      buildApis: () => NO_API_ENTRIES,
     });
 
     expect(module.eventSubscriptions).toEqual([
@@ -567,7 +578,7 @@ describe("defineBoundedContextModule", () => {
       },
       schemaSql: "",
       createServices: () => ({}),
-      buildApis: () => [],
+      buildApis: () => NO_API_ENTRIES,
     });
 
     expect(module).not.toHaveProperty("eventSubscriptions");

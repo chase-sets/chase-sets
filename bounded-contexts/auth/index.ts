@@ -32,7 +32,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   retentionExemptions: authRetentionExemptions,
   schemaMigrations: [...authUnloggedProjectionSchemaMigrations, ...authRetentionSchemaMigrations],
   createServices: (pool, ports) => createAuthServices(pool, ports),
-  buildApis: (services) => [buildAuthApi(services)],
+  buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

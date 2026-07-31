@@ -42,7 +42,9 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   schemaSql: pricingSchemaSql,
   schemaMigrations: [...pricingUnloggedProjectionSchemaMigrations, ...pricingFeatureSchemaMigrations],
   createServices: (pool) => createPricingServices(pool),
-  buildApis: (services) => [buildPricingApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPricingApi(services) },
+  ],
   buildMcpHandlers: (services) => createPricingRecommendationMcpHandlers(services.recommendations),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
