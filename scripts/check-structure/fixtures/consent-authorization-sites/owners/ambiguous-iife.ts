@@ -1,0 +1,3 @@
+function neutralOuter() {
+  (() => authorizeConsentForActor(context))();
+}

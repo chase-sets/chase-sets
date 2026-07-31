@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "sites": [
+    {
+      "file": "probe.ts",
+      "owner": "probe",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "probe",
+      "unexpected": true
+    }
+  ]
+}

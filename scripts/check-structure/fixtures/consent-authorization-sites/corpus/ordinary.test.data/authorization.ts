@@ -1,0 +1,3 @@
+function ordinaryDirectoryProbe() {
+  authorizeConsentForActor(context);
+}

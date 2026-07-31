@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization mutation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "caseId",
+    "acId",
+    "candidateHead",
+    "candidateBase",
+    "command",
+    "fixture",
+    "compilerBinding",
+    "target",
+    "rewriteCount",
+    "candidateTargetArtifactSha256",
+    "mutantTargetArtifactSha256",
+    "candidateEntryModuleSha256",
+    "mutantEntryModuleSha256",
+    "mutationActive",
+    "preservedVariableHashes",
+    "candidateSubrun",
+    "mutantSubrun",
+    "expected",
+    "firstFailingClauseId",
+    "timestamps",
+    "status"
+  ],
+  "properties": {
+    "contractVersion": { "type": "string", "enum": ["consent-authorization-mutation/v1"] },
+    "caseId": { "type": "string", "minLength": 1 },
+    "acId": { "type": "string", "minLength": 1 },
+    "candidateHead": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "candidateBase": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "command": { "type": "string", "minLength": 1 },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "compilerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspacePackageSha256",
+        "wrapperSha256",
+        "lockfileSha256",
+        "sourceSha256",
+        "runtimeSetHash",
+        "namedEvaluationSetHash",
+        "dispositionSetHash",
+        "artifactSha256"
+      ],
+      "properties": {
+        "workspacePackageSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "wrapperSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "lockfileSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "runtimeSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "namedEvaluationSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "dispositionSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "artifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "clauseId", "candidateFragmentSha256", "mutantFragmentSha256"],
+      "properties": {
+        "symbol": { "type": "string", "minLength": 1 },
+        "clauseId": { "type": "string", "minLength": 1 },
+        "candidateFragmentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mutantFragmentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "rewriteCount": { "type": "integer", "minimum": 1 },
+    "candidateTargetArtifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mutantTargetArtifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "candidateEntryModuleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mutantEntryModuleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mutationActive": { "enum": [true] },
+    "preservedVariableHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "mutant"],
+      "properties": {
+        "candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["registry", "schema", "compilerSource", "fixture", "corpusManifest"],
+          "properties": {
+            "registry": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "compilerSource": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "fixture": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "corpusManifest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "mutant": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["registry", "schema", "compilerSource", "fixture", "corpusManifest"],
+          "properties": {
+            "registry": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "compilerSource": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "fixture": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "corpusManifest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "candidateSubrun": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "result", "observation", "clauseTrace", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": { "type": "integer", "minimum": 0 },
+        "result": { "type": "string", "enum": ["pass"] },
+        "observation": { "type": "string", "minLength": 1 },
+        "clauseTrace": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "stdoutSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "stderrSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "mutantSubrun": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "result", "observation", "clauseTrace", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": { "type": "integer", "minimum": 1 },
+        "result": { "type": "string", "enum": ["fail"] },
+        "observation": { "type": "string", "minLength": 1 },
+        "clauseTrace": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "stdoutSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "stderrSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["violation", "owner", "surface", "digest"],
+      "properties": {
+        "violation": { "type": "string", "minLength": 1 },
+        "owner": {
+          "enum": [
+            null,
+            "untrackedProbe",
+            "ignoredProbe",
+            "seventhProbe",
+            "digestProbe",
+            "movedDigestProbe",
+            "provisioning",
+            "actor",
+            "artifact",
+            "termsOfServiceConsentRoutes > POST /accept",
+            "AccessorMatrix.get authorization",
+            "neutralBox.inner.authorization",
+            "buildScenarioIdentityReconcilers > consentReconciler"
+          ]
+        },
+        "surface": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "minLength": 1 }
+      }
+    },
+    "firstFailingClauseId": { "type": "string", "minLength": 1 },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt", "finishedAt"],
+      "properties": {
+        "startedAt": { "type": "string", "minLength": 1 },
+        "finishedAt": { "type": "string", "minLength": 1 }
+      }
+    },
+    "status": { "type": "string", "enum": ["valid"] }
+  }
+}

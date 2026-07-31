@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization mutation aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "candidateHead", "candidateBase", "derivation", "receipts", "counts", "valid"],
+  "properties": {
+    "contractVersion": { "type": "string", "enum": ["consent-authorization-mutation-aggregate/v1"] },
+    "candidateHead": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "candidateBase": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactSha256", "sourceSha256", "runtimeSetHash", "namedEvaluationSetHash", "dispositionSetHash"],
+      "properties": {
+        "artifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "runtimeSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "namedEvaluationSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "dispositionSetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "minItems": 43,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caseId", "sha256"],
+        "properties": {
+          "caseId": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "candidateGreen", "mutantRed", "active", "preserved"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 43 },
+        "candidateGreen": { "type": "integer", "minimum": 43 },
+        "mutantRed": { "type": "integer", "minimum": 43 },
+        "active": { "type": "integer", "minimum": 43 },
+        "preserved": { "type": "integer", "minimum": 43 }
+      }
+    },
+    "valid": { "enum": [true] }
+  }
+}
