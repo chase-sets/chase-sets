@@ -24,6 +24,13 @@ import { repoRoot } from "../lib/repo.mjs";
 const baseHead = "84ddea0bfde7cf5d4280a0a1a619d246c777af35";
 const expectedDigest = "cf3d89ee1d713022bcf3a473a6b5ef5fd0f0ae3fe56c0da83b45d93b7bc0178e";
 const fixtureRoot = "scripts/check-structure/fixtures/consent-authorization-sites";
+const expectedComputedReferenceSyntaxKinds = [
+  "BindingElement",
+  "BindingElement",
+  "ComputedPropertyName",
+  "ExportSpecifier",
+  "ImportSpecifier",
+];
 const artifact = loadConsentAuthorizationDerivationArtifact();
 const artifactFileSha256 = sha256(
   readFileSync(path.join(repoRoot, fixtureRoot, "typescript-6.0.3-owner-contexts.json")),
@@ -76,6 +83,45 @@ function probeGitCorpus() {
       fixtureSource(`${fixtureRoot}/corpus/ignored-generated/authorization.ts`),
     );
     return enumerateConsentAuthorizationCorpus({ repoRoot: scratch });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function analyzeArbitrarySeventhSource(source) {
+  const scratch = mkdtempSync(path.join(tmpdir(), `consent-seventh-${candidateHead}-`));
+  const files = new Map([
+    [
+      "bounded-contexts/identity/features/consents/domain/consent-recording-authorization.ts",
+      `${fixtureRoot}/consent-recording-authorization.ts`,
+    ],
+    ["bounded-contexts/identity/features/consents/api/terms-route.ts", `${fixtureRoot}/terms-route.ts`],
+    ["bounded-contexts/identity/features/consents/api/route.ts", `${fixtureRoot}/route.ts`],
+    ["bounded-contexts/identity/api.ts", `${fixtureRoot}/api.ts`],
+    ["bounded-contexts/identity/support/runtime-support/seed.ts", `${fixtureRoot}/seed.ts`],
+    [
+      "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      `${fixtureRoot}/admin-qa-actor-fixtures.ts`,
+    ],
+  ]);
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: scratch });
+    for (const [relative, fixture] of files) {
+      const target = path.join(scratch, relative);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, fixtureSource(fixture));
+    }
+    execFileSync("git", ["add", "."], { cwd: scratch });
+    const seventh = path.join(scratch, "arbitrary", "authorization.ts");
+    mkdirSync(path.dirname(seventh), { recursive: true });
+    writeFileSync(seventh, source);
+    return analyzeConsentAuthorizationSites({
+      repoRoot: scratch,
+      authorityRoot: repoRoot,
+      registry,
+      schema: registrySchema,
+      derivationArtifact: artifact,
+    });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -171,11 +217,11 @@ const mutationCases = [
   [
     "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY",
     `${fixtureRoot}/references/computed-binding-element.ts`,
-    "classifyReference / BindingElement arm",
+    "classifyReference / propertyName arms",
     "consent-authorization-reference-unclassified",
     null,
     "reference.computed-binding",
-    "computed BindingElement and alias",
+    "string-literal property/specifier references",
   ],
   [
     "MUT-AC5-PREFILTER-PLAIN-ONLY",
@@ -448,6 +494,12 @@ function sourceMutationFor(descriptor) {
     !ts.isMethodDeclaration(node)`;
   } else if (id === "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY") {
     candidateFragment = `  if (
+    (ts.isBindingElement(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) &&
+    node.parent.propertyName === node
+  ) {
+    return node.text;
+  }
+  if (
     ts.isComputedPropertyName(node.parent) &&
     node.parent.expression === node &&
     ts.isBindingElement(node.parent.parent) &&
@@ -582,7 +634,21 @@ function evaluateSourceMutation(descriptor, candidateModule, mutantModule) {
       mutantOwners.every((owner) => owner === null)
     );
   }
-  if (id === "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY" || id.startsWith("MUT-AC5-PREFILTER-")) {
+  if (id === "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY") {
+    const source = fixtureSource(descriptor.fixture);
+    const candidateReferences = candidateModule.scanConsentAuthorizationSource(descriptor.fixture, source, artifact);
+    const mutantReferences = mutantModule.scanConsentAuthorizationSource(descriptor.fixture, source, artifact);
+    return (
+      JSON.stringify(
+        candidateReferences
+          .filter(({ referenceClass }) => referenceClass === "unexpected")
+          .map(({ syntaxKind }) => syntaxKind)
+          .toSorted(),
+      ) === JSON.stringify(expectedComputedReferenceSyntaxKinds) &&
+      !mutantReferences.some(({ referenceClass }) => referenceClass === "unexpected")
+    );
+  }
+  if (id.startsWith("MUT-AC5-PREFILTER-")) {
     const source = fixtureSource(descriptor.fixture);
     const candidateReferences = candidateModule.scanConsentAuthorizationSource(descriptor.fixture, source, artifact);
     const mutantReferences = mutantModule.scanConsentAuthorizationSource(descriptor.fixture, source, artifact);
@@ -738,7 +804,16 @@ function candidateControlPasses(descriptor) {
     return scanFixture(descriptor.fixture).every((reference) => reference.owner?.includes("AccessorMatrix."));
   if (id === "MUT-AC3-OWNER-OMIT-LOCAL-OBJECT-PROPERTY")
     return scanFixture(descriptor.fixture).every((reference) => reference.owner?.startsWith("neutralBox."));
-  if (id === "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY" || id.startsWith("MUT-AC5-PREFILTER-"))
+  if (id === "MUT-AC4-COMPUTED-ELEMENT-ACCESS-ONLY")
+    return (
+      JSON.stringify(
+        scanFixture(descriptor.fixture)
+          .filter(({ referenceClass }) => referenceClass === "unexpected")
+          .map(({ syntaxKind }) => syntaxKind)
+          .toSorted(),
+      ) === JSON.stringify(expectedComputedReferenceSyntaxKinds)
+    );
+  if (id.startsWith("MUT-AC5-PREFILTER-"))
     return scanFixture(descriptor.fixture).some((reference) => reference.referenceClass === "unexpected");
   if (id === "MUT-AC8-REASON-REMOVE-6120") {
     const changed = structuredClone(registry);
@@ -1136,6 +1211,20 @@ describe("Consent authorization sites", () => {
         ({ referenceClass }) => referenceClass === "unexpected",
       ),
     ).toBe(true);
+  });
+
+  it("rejects every string-literal property and specifier shape in an arbitrary seventh file", () => {
+    const result = analyzeArbitrarySeventhSource(
+      fixtureSource(`${fixtureRoot}/references/computed-binding-element.ts`),
+    );
+    expect(result.surface).toEqual({ scanned: 7, total: 7 });
+    expect(result.partitionDigest).toBe(expectedDigest);
+    expect(
+      result.violations
+        .filter(({ code }) => code === "consent-authorization-reference-unclassified")
+        .map(({ reference }) => reference.syntaxKind)
+        .toSorted(),
+    ).toEqual(expectedComputedReferenceSyntaxKinds);
   });
 
   it("fails a computed no-substitution-template BindingElement alias", () => {

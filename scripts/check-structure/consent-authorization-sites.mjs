@@ -541,6 +541,12 @@ function computedConstructorProperty(node) {
   if (!constructorNames.has(node.text)) return null;
   if (ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node) return node.text;
   if (
+    (ts.isBindingElement(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) &&
+    node.parent.propertyName === node
+  ) {
+    return node.text;
+  }
+  if (
     ts.isComputedPropertyName(node.parent) &&
     node.parent.expression === node &&
     ts.isBindingElement(node.parent.parent) &&
