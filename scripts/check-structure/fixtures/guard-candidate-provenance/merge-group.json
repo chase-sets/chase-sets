@@ -1,0 +1,78 @@
+{
+  "fixtureVersion": "guard-candidate-provenance-fixture/v1",
+  "environment": "merge-group",
+  "env": { "GITHUB_EVENT_NAME": "merge_group" },
+  "eventPayload": {
+    "merge_group": {
+      "head_sha": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d",
+      "base_sha": "538181c915ba18a6cc0aa3b36e6906889beb2b89"
+    }
+  },
+  "gitResponses": [
+    { "args": ["rev-parse", "--is-inside-work-tree"], "status": 0, "stdout": "true\n" },
+    {
+      "args": ["rev-parse", "HEAD"],
+      "status": 0,
+      "stdout": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d\n"
+    },
+    {
+      "args": ["rev-parse", "refs/remotes/origin/main"],
+      "status": 0,
+      "stdout": "538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
+    },
+    {
+      "args": ["rev-list", "--parents", "-n", "1", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d"],
+      "status": 0,
+      "stdout": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d 538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
+    },
+    {
+      "args": ["merge-base", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d", "refs/remotes/origin/main"],
+      "status": 0,
+      "stdout": "538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
+    },
+    {
+      "args": ["cat-file", "-e", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": ["cat-file", "-e", "538181c915ba18a6cc0aa3b36e6906889beb2b89^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "538181c915ba18a6cc0aa3b36e6906889beb2b89",
+        "248637f04e86b3282ea92a5eee7bc269bdb6fd1d"
+      ],
+      "status": 0,
+      "stdout": ""
+    }
+  ],
+  "expected": {
+    "schemaVersion": "guard-candidate-provenance/v1",
+    "environment": "merge-group",
+    "roles": {
+      "analyzedTree": { "sha": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d", "source": "git-head" },
+      "reviewedHead": { "sha": null, "source": "not-present-in-merge-group" },
+      "landingCandidate": {
+        "sha": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d",
+        "source": "merge-group-event-head"
+      },
+      "baseTipAtAnalysis": {
+        "sha": "538181c915ba18a6cc0aa3b36e6906889beb2b89",
+        "source": "merge-group-event-base"
+      },
+      "eventBaseSnapshot": { "sha": null, "source": "absent-outside-pull-request" },
+      "forkPoint": { "sha": "538181c915ba18a6cc0aa3b36e6906889beb2b89", "source": "git-merge-base" }
+    },
+    "coincidences": [
+      ["analyzedTree", "landingCandidate"],
+      ["baseTipAtAnalysis", "forkPoint"]
+    ],
+    "distinctObjectCount": 2,
+    "reviewedHeadLands": false
+  }
+}
