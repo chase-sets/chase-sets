@@ -2258,6 +2258,17 @@
     "scripts/catalog-real-provider-proof.ts",
     "scripts/replay-projection-selection.ts",
     "scripts/replay-projection.ts",
+    "scripts/route-census/artifact.mts",
+    "scripts/route-census/capture.mts",
+    "scripts/route-census/collision-path.mts",
+    "scripts/route-census/comparison.mts",
+    "scripts/route-census/errors.mts",
+    "scripts/route-census/evaluate-child.mts",
+    "scripts/route-census/model.mts",
+    "scripts/route-census/run.mts",
+    "scripts/route-census/runner.mts",
+    "scripts/route-census/strict-json.mts",
+    "scripts/route-census/target-authority.mts",
     "tailwind.config.ts"
   ],
   "unresolvedMemberRoots": {
