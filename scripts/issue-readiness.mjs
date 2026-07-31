@@ -718,6 +718,21 @@ function runnableCommands(value) {
   return commands.filter((command) => !/[<>]|\.\.\.|(?:TODO|TBD)/i.test(command));
 }
 
+function readinessBodyInputs(body) {
+  const parsed = parseIssueFormBody(body);
+  return {
+    parsed,
+    verificationCommands: parsed.status === "ok" ? runnableCommands(parsed.fields["Verification plan"]) : [],
+  };
+}
+
+function prospectiveDecompositionFacts(acceptanceDiagnostics, verificationCommands) {
+  return {
+    acceptanceCriteriaCount: acceptanceDiagnostics.length,
+    verificationCommands,
+  };
+}
+
 function exactNone(value) {
   return /^none\.?$/i.test(value.trim());
 }
@@ -756,7 +771,7 @@ function reviewPacketComplete(value) {
   );
 }
 
-export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }) {
+function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSha }, bodyInputs) {
   const baseReceipt = {
     schemaVersion: ISSUE_READINESS_SCHEMA_VERSION,
     claim: "structural-only",
@@ -798,7 +813,7 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
     };
   }
 
-  const parsed = parseIssueFormBody(authority.issue.body);
+  const { parsed, verificationCommands } = bodyInputs ?? readinessBodyInputs(authority.issue.body);
   authority.coverage.form = {
     parsed: parsed.status === "ok",
     complete: parsed.status === "ok" && REQUIRED_FIELDS.every((field) => parsed.fields[field].length > 0),
@@ -857,7 +872,6 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
     /\b(?:external authority|GitHub API|provider payload|queue association|webhook association|cloud API|provider contract|webhook payload)\b/i.test(
       fields["Acceptance criteria"],
     );
-  const commands = runnableCommands(fields["Verification plan"]);
   const footprint = fields["Footprint & chain"];
   const operatorActions = fields["Operator actions"];
   const decisions = fields["Decisions already made"];
@@ -890,7 +904,7 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
           : "AC_EVIDENCE_NOT_DISCRIMINATING",
       ],
     ),
-    rule("ready-04-runnable-verification", commands.length > 0, ["VERIFICATION_COMMAND_NOT_RUNNABLE"]),
+    rule("ready-04-runnable-verification", verificationCommands.length > 0, ["VERIFICATION_COMMAND_NOT_RUNNABLE"]),
     rule(
       "ready-05-footprint-operators",
       evidencePointers(footprint).size > 0 &&
@@ -930,6 +944,10 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
     checkedRules: rules,
     reasonCodes,
   };
+}
+
+export function evaluateStructuralReadiness(authority, options) {
+  return evaluateStructuralReadinessFromInputs(authority, options);
 }
 
 function prospectiveAuthority(body, metadata) {
@@ -988,7 +1006,9 @@ function prospectiveAuthority(body, metadata) {
 
 export function evaluateProspectiveIssueReadiness({ body, metadata, checkedAt, checkerSha }) {
   const authority = prospectiveAuthority(body, metadata);
-  const receipt = evaluateStructuralReadiness(authority, { checkedAt, checkerSha });
+  const bodyInputs = readinessBodyInputs(body);
+  const receipt = evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSha }, bodyInputs);
+  const acceptanceDiagnostics = acceptanceDiagnosticsFromBody(body);
   return {
     schemaVersion: PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
     claim: "structural-only-prospective",
@@ -1004,7 +1024,8 @@ export function evaluateProspectiveIssueReadiness({ body, metadata, checkedAt, c
       source: "explicit-input",
     },
     semanticPressureTest: "not-evaluated",
-    acceptanceDiagnostics: acceptanceDiagnosticsFromBody(body),
+    acceptanceDiagnostics,
+    decompositionFacts: prospectiveDecompositionFacts(acceptanceDiagnostics, bodyInputs.verificationCommands),
   };
 }
 
