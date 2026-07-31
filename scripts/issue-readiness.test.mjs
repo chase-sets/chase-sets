@@ -284,6 +284,26 @@ function prospectiveMetadata(overrides = {}) {
   };
 }
 
+function prospectiveResult(body = fixture.readyBody, metadata = prospectiveMetadata()) {
+  return evaluateProspectiveIssueReadiness({
+    body,
+    metadata,
+    checkedAt: CHECKED_AT.toISOString(),
+    checkerSha: CHECKER_SHA,
+  });
+}
+
+function bodyWithAcceptanceCriteria(count) {
+  return replaceField(
+    fixture.readyBody,
+    "Acceptance criteria",
+    Array.from(
+      { length: count },
+      (_, index) => `- [ ] Criterion ${index + 1}. Evidence: \`criterion-${index + 1}\``,
+    ).join("\n"),
+  );
+}
+
 describe("issue-readiness/v1 receipt and rule contract", () => {
   it("emits a complete ready receipt through the real main entrypoint", async () => {
     const { result, harness } = await runScenario(fixtureScenario("ready"));
@@ -544,7 +564,7 @@ describe("bounded complete GitHub authority collection", () => {
 });
 
 describe("prospective issue readiness", () => {
-  it("prospective body evaluation performs no GitHub operation", async () => {
+  it("prospective CLI emits decomposition facts", async () => {
     const files = new Map([
       ["body.md", fixture.readyBody],
       ["metadata.json", JSON.stringify(prospectiveMetadata())],
@@ -570,16 +590,48 @@ describe("prospective issue readiness", () => {
     expect(result).not.toHaveProperty("receipt");
     expect(requests).toEqual([]);
     expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]).decompositionFacts).toEqual(result.decompositionFacts);
+  });
+
+  it("malformed prospective CLI input exits two with its existing reason code", async () => {
+    const files = new Map([
+      ["body.md", fixture.readyBody],
+      ["metadata.json", "{"],
+    ]);
+    const logs = [];
+    const errors = [];
+    const requests = [];
+    const result = await main({
+      argv: ["--prospective-body", "body.md", "--prospective-metadata", "metadata.json", "--checker-sha", CHECKER_SHA],
+      client: async (...args) => {
+        requests.push(args);
+        throw new Error("malformed prospective mode reached GitHub");
+      },
+      readTextFile: async (file) => files.get(file),
+      logger: { log: (value) => logs.push(value), error: (value) => errors.push(value) },
+      now: () => CHECKED_AT,
+    });
+
+    expect(result).toEqual({ exitCode: 2, receipt: null, commentAction: "not-attempted" });
+    expect(errors).toEqual(["PROSPECTIVE_METADATA_INVALID"]);
+    expect(logs).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it("prospective result reports advisory decomposition facts", () => {
+    const result = prospectiveResult();
+
+    expect(Object.keys(result.decompositionFacts)).toEqual(["acceptanceCriteriaCount", "verificationCommands"]);
+    expect(result.decompositionFacts.acceptanceCriteriaCount).toBe(result.acceptanceDiagnostics.length);
+    expect(result.decompositionFacts).toEqual({
+      acceptanceCriteriaCount: 2,
+      verificationCommands: ["pnpm vitest run --config ./vitest.scripts.config.mjs scripts/issue-readiness.test.mjs"],
+    });
   });
 
   it("prospective and live readiness share one rule reducer", async () => {
     const live = (await runScenario(fixtureScenario("ready"))).result.receipt;
-    const prospective = evaluateProspectiveIssueReadiness({
-      body: fixture.readyBody,
-      metadata: prospectiveMetadata(),
-      checkedAt: CHECKED_AT.toISOString(),
-      checkerSha: CHECKER_SHA,
-    });
+    const prospective = prospectiveResult();
     const projectRules = (receipt) =>
       receipt.checkedRules.map(({ id, status, reasonCodes }) => ({ id, status, reasonCodes }));
 
@@ -587,6 +639,105 @@ describe("prospective issue readiness", () => {
     expect(prospective.semanticPressureTest).toBe(live.semanticPressureTest);
     expect(projectRules(prospective)).toEqual(projectRules(live));
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
+  });
+
+  it("advisory decomposition facts never change readiness status", () => {
+    const threeCriteria = prospectiveResult(bodyWithAcceptanceCriteria(3));
+    const twelveCriteria = prospectiveResult(bodyWithAcceptanceCriteria(12));
+
+    expect(threeCriteria.decompositionFacts.acceptanceCriteriaCount).toBe(3);
+    expect(twelveCriteria.decompositionFacts.acceptanceCriteriaCount).toBe(12);
+    expect(threeCriteria.status).toBe("ready");
+    expect({
+      status: threeCriteria.status,
+      reasonCodes: threeCriteria.reasonCodes,
+      checkedRules: threeCriteria.checkedRules,
+    }).toEqual({
+      status: twelveCriteria.status,
+      reasonCodes: twelveCriteria.reasonCodes,
+      checkedRules: twelveCriteria.checkedRules,
+    });
+  });
+
+  it("advisory facts stay off the consumed receipt", async () => {
+    const { result, harness } = await runScenario(fixtureScenario("ready"));
+    const retrospectiveRecord = JSON.parse(harness.logs.at(-1));
+    const currentRevision = {
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      nodeId: ISSUE_NODE_ID,
+      updatedAt: UPDATED_AT,
+    };
+
+    expect(retrospectiveRecord).not.toHaveProperty("decompositionFacts");
+    expect(result.receipt).not.toHaveProperty("decompositionFacts");
+    expect(validateIssueReadinessReceipt(result.receipt)).toEqual([]);
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt: result.receipt,
+        currentRevision,
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toMatchObject({ decision: "dispatch-implementation", reasonCode: "READY_RECEIPT_CURRENT" });
+  });
+
+  it("verification command inventory reuses the ready-04 parser", () => {
+    const mixedCommands = replaceField(
+      fixture.readyBody,
+      "Verification plan",
+      [
+        "```powershell",
+        "# comment",
+        "pnpm run verify:first",
+        "pnpm --filter <workspace> test",
+        "node scripts/issue-readiness.mjs",
+        "git diff ...",
+        "pnpm run TODO",
+        "powershell -File scripts/check.ps1",
+        "echo ignored",
+        "```",
+        "`gh issue view 6353`",
+        "`pnpm run TBD`",
+      ].join("\n"),
+    );
+    const mixedResult = prospectiveResult(mixedCommands);
+    const zeroCommands = replaceField(
+      fixture.readyBody,
+      "Verification plan",
+      ["```powershell", "# comment", "pnpm --filter <workspace> test", "node scripts/...", "pnpm run TBD", "```"].join(
+        "\n",
+      ),
+    );
+    const zeroResult = prospectiveResult(zeroCommands);
+
+    expect(mixedResult.decompositionFacts.verificationCommands).toEqual([
+      "pnpm run verify:first",
+      "node scripts/issue-readiness.mjs",
+      "powershell -File scripts/check.ps1",
+      "gh issue view 6353",
+    ]);
+    expect(mixedResult.checkedRules.find(({ id }) => id === "ready-04-runnable-verification")).toMatchObject({
+      status: "pass",
+    });
+    expect(zeroResult.decompositionFacts).toEqual({
+      acceptanceCriteriaCount: zeroResult.acceptanceDiagnostics.length,
+      verificationCommands: [],
+    });
+    expect(zeroResult.checkedRules.find(({ id }) => id === "ready-04-runnable-verification")).toMatchObject({
+      status: "fail",
+    });
+  });
+
+  it("malformed prospective body keeps decomposition facts empty and advisory under unknown status", () => {
+    const result = prospectiveResult(`${fixture.readyBody}\n\`\`\`text\n`);
+
+    expect(result.status).toBe("unknown");
+    expect(result.reasonCodes).toContain("FORM_FENCE_UNCLOSED");
+    expect(result.checkedRules.every(({ status }) => status === "unknown")).toBe(true);
+    expect(Object.keys(result.decompositionFacts)).toEqual(["acceptanceCriteriaCount", "verificationCommands"]);
+    expect(result.decompositionFacts).toEqual({ acceptanceCriteriaCount: 0, verificationCommands: [] });
+    expect(result.decompositionFacts.acceptanceCriteriaCount).toBe(result.acceptanceDiagnostics.length);
   });
 
   it("ready-03 reports per-criterion diagnostics", () => {
