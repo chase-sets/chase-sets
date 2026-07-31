@@ -28,9 +28,11 @@ jobs:
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
-      # Recomputes only the derived states (Backlog / Refined / Blocked) from
-      # dependencies, milestone, and labels. Lane-owned states (In lane, In
-      # review, Landed) are never overwritten.
+      # Recomputes active derived states (Backlog / Refined / Blocked) from
+      # dependencies, milestone, and labels. Closed issues reconcile to Landed
+      # or Canceled from GitHub's closure reason; explicitly reopened terminal
+      # issues return to derived ownership. Active In lane / In review states
+      # remain lane-owned and are never overwritten.
       - name: Sync status
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECTS_TOKEN }}

@@ -7,8 +7,9 @@ import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-
 // partial synchronization.
 
 export const DERIVED_STATUSES = Object.freeze(["Backlog", "Refined", "Blocked"]);
+export const TERMINAL_STATUSES = Object.freeze(["Landed", "Canceled"]);
 export const NON_EXECUTABLE_MILESTONES = Object.freeze(["Deferred / Incubation", "Operations"]);
-export const REQUIRED_STATUS_OPTIONS = Object.freeze(["Backlog", "Refined", "Blocked"]);
+export const REQUIRED_STATUS_OPTIONS = Object.freeze([...DERIVED_STATUSES, ...TERMINAL_STATUSES]);
 
 export class ProjectStatusSyncConfigurationError extends Error {
   constructor(variable, detail) {
@@ -29,6 +30,14 @@ export class ProjectStatusSyncCollectionError extends Error {
     this.scope = scope;
     this.collected = collected;
     this.totalCount = totalCount;
+  }
+}
+
+export class ProjectStatusSyncIssueError extends Error {
+  constructor(number, detail) {
+    super(`[issue:#${number}] ${detail}`);
+    this.name = "ProjectStatusSyncIssueError";
+    this.number = number;
   }
 }
 
@@ -101,8 +110,21 @@ export function isEpic(issue) {
   return classifiedEpic(toBacklogInput(issue));
 }
 
+function normalizedStateReason(issue) {
+  return typeof issue.stateReason === "string" ? issue.stateReason.trim().toLowerCase().replaceAll("-", "_") : null;
+}
+
 export function deriveStatus(issue) {
   const input = toBacklogInput(issue);
+  if (input.state === "closed") {
+    const reason = normalizedStateReason(issue);
+    if (reason === "completed") return "Landed";
+    if (reason === "not_planned" || reason === "duplicate") return "Canceled";
+    throw new ProjectStatusSyncIssueError(
+      input.number,
+      `closed issue has unsupported state reason ${reason === null || reason === "" ? "(none)" : reason}`,
+    );
+  }
   if (classifiedEpic(input)) return null;
   if (isTrackingOnly(input)) return null;
   if (input.blockedByCount > 0) return "Blocked";
@@ -145,11 +167,18 @@ export function planDateUpdates(items) {
 export function planStatusUpdates(items) {
   const updates = [];
   for (const item of items) {
-    if (toBacklogInput(item.issue).state === "closed") continue;
+    const input = toBacklogInput(item.issue);
     const next = deriveStatus(item.issue);
     if (next === null) continue;
-    // Lane states (In lane / In review / Landed) have a different owner.
-    if (item.status && !DERIVED_STATUSES.includes(item.status)) continue;
+    const reopenedTerminal =
+      input.state === "open" &&
+      normalizedStateReason(item.issue) === "reopened" &&
+      TERMINAL_STATUSES.includes(item.status);
+    // Active lane states have a different owner. A closed issue is terminal,
+    // while an explicitly reopened terminal item returns to derived ownership.
+    if (input.state === "open" && item.status && !DERIVED_STATUSES.includes(item.status) && !reopenedTerminal) {
+      continue;
+    }
     if (item.status === next) continue;
     updates.push({ itemId: item.itemId, number: item.issue.number, from: item.status, to: next });
   }
@@ -189,6 +218,7 @@ query($project:ID!, $after:String) {
               id
               number
               state
+              stateReason
               issueType { name }
               parent { number }
               milestone { title dueOn }
@@ -355,6 +385,10 @@ export function projectItemFromNode(node, completeLabels) {
     issue: {
       number: node.content.number,
       state: typeof node.content.state === "string" ? node.content.state.toLowerCase() : node.content.state,
+      stateReason:
+        typeof node.content.stateReason === "string"
+          ? node.content.stateReason.toLowerCase()
+          : node.content.stateReason,
       issueTypeName: Object.hasOwn(node.content, "issueType") ? (node.content.issueType?.name ?? null) : undefined,
       milestone: node.content.milestone,
       labels,
