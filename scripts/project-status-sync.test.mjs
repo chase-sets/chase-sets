@@ -46,6 +46,7 @@ function boardNode({
   id = "item-1",
   number = 1,
   state = "OPEN",
+  stateReason = null,
   status = "Refined",
   targetDate = null,
   milestone = { title: "Wave 2", dueOn: "2026-08-12T00:00:00Z" },
@@ -62,6 +63,7 @@ function boardNode({
       id: `issue-${number}`,
       number,
       state,
+      stateReason,
       issueType,
       parent,
       milestone,
@@ -92,6 +94,8 @@ function validEnv(overrides = {}) {
       Backlog: "backlog-id",
       Refined: "refined-id",
       Blocked: "blocked-id",
+      Landed: "landed-id",
+      Canceled: "canceled-id",
     }),
     TARGET_DATE_FIELD_ID: "date-field-id",
     ...overrides,
@@ -154,10 +158,90 @@ describe("project status derivation", () => {
     }
   });
 
-  it("does not rewrite a closed item's terminal snapshot", () => {
+  it("maps every completed closed item to Landed regardless of its prior status", () => {
+    const completed = issue({ number: 6150, state: "closed", stateReason: "completed" });
     expect(
-      planStatusUpdates([{ itemId: "a", status: "Refined", issue: issue({ number: 6150, state: "closed" }) }]),
-    ).toEqual([]);
+      planStatusUpdates([
+        { itemId: "a", status: "Refined", issue: completed },
+        { itemId: "b", status: "In review", issue: { ...completed, number: 6276 } },
+        { itemId: "c", status: null, issue: { ...completed, number: 6307 } },
+        { itemId: "d", status: "Landed", issue: { ...completed, number: 6308 } },
+      ]),
+    ).toEqual([
+      { itemId: "a", number: 6150, from: "Refined", to: "Landed" },
+      { itemId: "b", number: 6276, from: "In review", to: "Landed" },
+      { itemId: "c", number: 6307, from: null, to: "Landed" },
+    ]);
+  });
+
+  it.each(["not_planned", "duplicate"])("maps a %s closure to Canceled", (stateReason) => {
+    expect(
+      planStatusUpdates([
+        {
+          itemId: "a",
+          status: "Backlog",
+          issue: issue({ number: 6160, state: "closed", stateReason }),
+        },
+      ]),
+    ).toEqual([{ itemId: "a", number: 6160, from: "Backlog", to: "Canceled" }]);
+  });
+
+  it("fails closed when a closed issue has no supported state reason", () => {
+    expect(() =>
+      planStatusUpdates([
+        { itemId: "a", status: "Refined", issue: issue({ number: 6150, state: "closed", stateReason: null }) },
+      ]),
+    ).toThrowError(
+      expect.objectContaining({
+        name: "ProjectStatusSyncIssueError",
+        number: 6150,
+        message: expect.stringContaining("unsupported state reason"),
+      }),
+    );
+  });
+
+  it.each(["Landed", "Canceled"])("returns an explicitly reopened %s item to derived ownership", (status) => {
+    expect(
+      planStatusUpdates([
+        {
+          itemId: "a",
+          status,
+          issue: issue({ number: 6150, state: "open", stateReason: "reopened" }),
+        },
+      ]),
+    ).toEqual([{ itemId: "a", number: 6150, from: status, to: "Refined" }]);
+  });
+
+  it.each([
+    ["COMPLETED", "Landed", "landed-id"],
+    ["NOT_PLANNED", "Canceled", "canceled-id"],
+    ["DUPLICATE", "Canceled", "canceled-id"],
+  ])("writes a %s closure through main with the %s option", async (stateReason, expectedStatus, optionId) => {
+    const node = boardNode({
+      state: "CLOSED",
+      stateReason,
+      status: "Refined",
+      targetDate: "2026-08-12",
+    });
+    const { request, requests } = scriptedRequest(({ query }) => {
+      if (query === ITEMS_QUERY) return itemPage([node]);
+      return { mutation: { ok: true } };
+    });
+
+    const result = await main({ env: validEnv(), request, logger: { log: vi.fn() } });
+
+    expect(result.statusUpdates).toEqual([{ itemId: "item-1", number: 1, from: "Refined", to: expectedStatus }]);
+    expect(mutationRequests(requests)).toEqual([
+      expect.objectContaining({
+        query: expect.stringContaining("singleSelectOptionId: $o"),
+        variables: {
+          p: "project-id",
+          i: "item-1",
+          f: "status-field-id",
+          o: optionId,
+        },
+      }),
+    ]);
   });
 
   it("skips tracking-only items instead of deriving Backlog", () => {
@@ -178,6 +262,7 @@ describe("project status derivation", () => {
 
   it("derives truthful parent state through the board query path", () => {
     expect(ITEMS_QUERY).toContain("parent { number }");
+    expect(ITEMS_QUERY).toContain("stateReason");
     const item = projectItemFromNode(
       boardNode({
         number: 6169,
@@ -327,8 +412,14 @@ describe("fail-closed configuration", () => {
   });
 
   it("names every required status omitted from STATUS_OPTION_IDS before the first request", async () => {
-    for (const missing of ["Backlog", "Refined", "Blocked"]) {
-      const optionIds = { Backlog: "backlog", Refined: "refined", Blocked: "blocked" };
+    for (const missing of ["Backlog", "Refined", "Blocked", "Landed", "Canceled"]) {
+      const optionIds = {
+        Backlog: "backlog",
+        Refined: "refined",
+        Blocked: "blocked",
+        Landed: "landed",
+        Canceled: "canceled",
+      };
       delete optionIds[missing];
       const request = vi.fn();
       await expect(
