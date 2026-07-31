@@ -63,8 +63,9 @@ function defaultExecGit(args, rootDir) {
 
 export function isConsentAuthorizationTestSource(relativeFile) {
   const normalized = normalizePath(relativeFile);
+  const basename = path.posix.basename(normalized);
   return (
-    normalized.includes(".test.") ||
+    basename.includes(".test.") ||
     /(^|\/)tests\//.test(normalized) ||
     /(^|\/)e2e\//.test(normalized) ||
     normalized.startsWith("scripts/check-structure/fixtures/")
@@ -136,7 +137,9 @@ function enclosingNamedFunction(startNode) {
 
 function routeRole(node) {
   for (const ancestor of ancestors(node)) {
-    if (!isFunctionLike(ancestor) || !ts.isCallExpression(ancestor.parent)) continue;
+    if (!isFunctionLike(ancestor)) continue;
+    if (functionName(ancestor)) return null;
+    if (!ts.isCallExpression(ancestor.parent)) continue;
     const call = ancestor.parent;
     if (!call.arguments.includes(ancestor) || !ts.isPropertyAccessExpression(call.expression)) continue;
     const method = call.expression.name.text.toUpperCase();
@@ -152,9 +155,11 @@ function variableRole(node) {
   for (const ancestor of ancestors(node)) {
     if (!isFunctionLike(ancestor)) continue;
     const role = functionName(ancestor);
-    if (!role || !ts.isVariableDeclaration(ancestor.parent)) continue;
+    if (!role) continue;
+    if (!ts.isVariableDeclaration(ancestor.parent)) return null;
     const owner = enclosingNamedFunction(ancestor.parent.parent);
     if (owner && owner !== role) return `${owner} > ${role}`;
+    return role;
   }
   return null;
 }
@@ -182,14 +187,23 @@ function lineFor(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+export function hasConsentAuthorizationReferenceSpelling(source) {
+  return (
+    source.includes("\\u") ||
+    consentAuthorizationConstructors.some((constructorName) => source.includes(constructorName))
+  );
+}
+
+function computedConstructorProperty(node) {
+  if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) return null;
+  if (!constructorNames.has(node.text)) return null;
+  if (!ts.isElementAccessExpression(node.parent) || node.parent.argumentExpression !== node) return null;
+  return node.text;
+}
+
 function scanFile(rootDir, relativeFile) {
   const source = readFileSync(path.join(rootDir, relativeFile), "utf8");
-  if (
-    !source.includes("\\u") &&
-    !consentAuthorizationConstructors.some((constructorName) => source.includes(constructorName))
-  ) {
-    return [];
-  }
+  if (!hasConsentAuthorizationReferenceSpelling(source)) return [];
   const sourceFile = ts.createSourceFile(
     relativeFile,
     source,
@@ -226,6 +240,17 @@ function scanFile(rootDir, relativeFile) {
             syntaxKind: ts.SyntaxKind[node.parent.kind],
           });
         }
+      }
+    } else {
+      const constructor = computedConstructorProperty(node);
+      if (constructor) {
+        references.push({
+          file: relativeFile,
+          constructor,
+          line: lineFor(sourceFile, node),
+          referenceClass: "unexpected",
+          syntaxKind: ts.SyntaxKind[node.parent.kind],
+        });
       }
     }
     ts.forEachChild(node, visit);

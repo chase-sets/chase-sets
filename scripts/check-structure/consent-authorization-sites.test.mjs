@@ -10,6 +10,7 @@ import {
   consentAuthorizationConstructors,
   consentAuthorizationRequiredFamilies,
   enumerateConsentAuthorizationCorpus,
+  hasConsentAuthorizationReferenceSpelling,
   isConsentAuthorizationTestSource,
   loadConsentAuthorizationRegistry,
   loadConsentAuthorizationRegistrySchema,
@@ -142,7 +143,28 @@ describe("Consent authorization source discovery", () => {
       expect(isConsentAuthorizationTestSource(file), file).toBe(true);
     }
     expect(isConsentAuthorizationTestSource("bounded-contexts/identity/fixtures/runtime.ts")).toBe(false);
+    expect(isConsentAuthorizationTestSource("arbitrary/ordinary.test.data/authorization.ts")).toBe(false);
     expect(isConsentAuthorizationTestSource("bounded-contexts/identity/module.ts")).toBe(false);
+  });
+
+  it("scans ordinary source beneath a directory whose name contains .test.", () => {
+    const root = createFixtureRepository();
+    const clean = analyzeFixture(root);
+    write(
+      root,
+      "arbitrary/ordinary.test.data/authorization.ts",
+      [
+        'import { authorizeConsentForActor } from "../../bounded-contexts/identity/features/consents/domain/consent-recording-authorization";',
+        "export function ordinaryDirectoryAuthorization(context: unknown) {",
+        "  return authorizeConsentForActor(context);",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const result = analyzeFixture(root);
+    expect(result.surface).toEqual({ scanned: clean.surface.scanned + 1, total: clean.surface.total + 1 });
+    expect(codes(result)).toContain("consent-authorization-site-unregistered");
   });
 
   it("includes a genuine untracked nonignored source and discriminates removal of --others", () => {
@@ -301,15 +323,66 @@ describe("Consent authorization AST partition", () => {
     expect(codes(analyzeFixture(root))).toContain("consent-authorization-import-invalid");
   });
 
-  it("fails an escaped identifier alias without narrowing the source prefilter", () => {
+  it("fails an escape-only identifier source and discriminates removal of the Unicode prefilter branch", () => {
     const root = createFixtureRepository();
-    mutate(
-      root,
-      "bounded-contexts/identity/features/consents/api/terms-route.ts",
-      (source) =>
-        `${source}\nconst escapedAuthorizationAlias = \\u0061uthorizeConsentForActor;\nvoid escapedAuthorizationAlias;\n`,
-    );
+    const escapedOnlySource = [
+      "export function escapedOnlyAuthorization(context: unknown) {",
+      "  const escapedAuthorization = \\u0061uthorizeConsentForActor;",
+      "  return escapedAuthorization(context);",
+      "}",
+      "",
+    ].join("\n");
+    expect(escapedOnlySource).not.toContain(consentAuthorizationConstructors[0]);
+    expect(hasConsentAuthorizationReferenceSpelling(escapedOnlySource)).toBe(true);
+    expect(
+      consentAuthorizationConstructors.some((constructorName) => escapedOnlySource.includes(constructorName)),
+    ).toBe(false);
+    write(root, "arbitrary/escaped-only-authorization.ts", escapedOnlySource);
     expect(codes(analyzeFixture(root))).toContain("consent-authorization-reference-unclassified");
+  });
+
+  it.each([
+    ["string literal", '"authorizeConsentForActor"'],
+    ["no-substitution template", "`authorizeConsentForActor`"],
+  ])("fails a genuine seventh namespace call through a computed %s property", (_label, property) => {
+    const root = createFixtureRepository();
+    const clean = analyzeFixture(root);
+    write(
+      root,
+      "arbitrary/computed-authorization.ts",
+      [
+        'import * as consentAuthorization from "../bounded-contexts/identity/features/consents/domain/consent-recording-authorization";',
+        "export function hiddenComputedAuthorization(context: unknown) {",
+        `  return consentAuthorization[${property}](context);`,
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const result = analyzeFixture(root);
+    expect(result.surface).toEqual({ scanned: clean.surface.scanned + 1, total: clean.surface.total + 1 });
+    expect(result.partition.consumptions).toHaveLength(clean.partition.consumptions.length);
+    expect(codes(result)).toContain("consent-authorization-reference-unclassified");
+  });
+
+  it("ignores constructor spellings in comments and unrelated string or template values", () => {
+    const root = createFixtureRepository();
+    const clean = analyzeFixture(root);
+    write(
+      root,
+      "arbitrary/unrelated-constructor-text.ts",
+      [
+        "// authorizeConsentForActor is documentation here, not a reference.",
+        'export const unrelatedString = "authorizeConsentForSelfRegistration";',
+        "export const unrelatedTemplate = `authorizeConsentForProvisioning`;",
+        "",
+      ].join("\n"),
+    );
+
+    const result = analyzeFixture(root);
+    expect(result.surface).toEqual({ scanned: clean.surface.scanned + 1, total: clean.surface.total + 1 });
+    expect(result.partitionDigest).toBe(clean.partitionDigest);
+    expect(result.violations).toEqual([]);
   });
 
   it("fails an owning import redirected to a same-named non-canonical module", () => {
@@ -353,6 +426,48 @@ describe("Consent authorization AST partition", () => {
         `${source}\nfunction localAuthorizationWrapper(context: unknown) {\n  return authorizeConsentForActor(context);\n}\nvoid localAuthorizationWrapper;\n`,
     );
     expect(codes(analyzeFixture(root))).toContain("consent-authorization-site-unregistered");
+  });
+
+  it("fails a nested named wrapper inside a registered route owner", () => {
+    const root = createFixtureRepository();
+    mutate(root, "bounded-contexts/identity/features/consents/api/terms-route.ts", (source) =>
+      source.replace(
+        'app.post("/accept", (context: unknown) => authorizeConsentForActor(context));',
+        [
+          'app.post("/accept", (context: unknown) => {',
+          "    function localAuthorizationWrapper() {",
+          "      return authorizeConsentForActor(context);",
+          "    }",
+          "    return localAuthorizationWrapper();",
+          "  });",
+        ].join("\n"),
+      ),
+    );
+    const result = analyzeFixture(root);
+    expect(codes(result)).toContain("consent-authorization-site-unregistered");
+    expect(codes(result)).toContain("consent-authorization-site-missing");
+    expect(result.partition.consumptions.map((site) => site.owner)).toContain("localAuthorizationWrapper");
+  });
+
+  it("fails a nested named wrapper inside a registered variable-role owner", () => {
+    const root = createFixtureRepository();
+    mutate(root, "bounded-contexts/identity/support/runtime-support/seed.ts", (source) =>
+      source.replace(
+        "const consentReconciler = (userId: unknown, accountId: unknown) => authorizeConsentForProvisioning(userId, accountId);",
+        [
+          "const consentReconciler = (userId: unknown, accountId: unknown) => {",
+          "    function localProvisioningAuthorizationWrapper() {",
+          "      return authorizeConsentForProvisioning(userId, accountId);",
+          "    }",
+          "    return localProvisioningAuthorizationWrapper();",
+          "  };",
+        ].join("\n"),
+      ),
+    );
+    const result = analyzeFixture(root);
+    expect(codes(result)).toContain("consent-authorization-site-unregistered");
+    expect(codes(result)).toContain("consent-authorization-site-missing");
+    expect(result.partition.consumptions.map((site) => site.owner)).toContain("localProvisioningAuthorizationWrapper");
   });
 
   it("fails a re-export", () => {
