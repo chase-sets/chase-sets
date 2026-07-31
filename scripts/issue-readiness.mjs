@@ -1,10 +1,11 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
 
 export const ISSUE_READINESS_SCHEMA_VERSION = "issue-readiness/v1";
 export const ISSUE_READINESS_RUN_SCHEMA_VERSION = "issue-readiness-run/v1";
+export const PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION = "prospective-issue-readiness-run/v1";
 export const COMMENT_MARKER = "<!-- chase-sets:issue-readiness:v1 -->";
 export const RECEIPT_START_MARKER = "<!-- chase-sets:issue-readiness-receipt:start -->";
 export const RECEIPT_END_MARKER = "<!-- chase-sets:issue-readiness-receipt:end -->";
@@ -673,16 +674,30 @@ function listEntries(value) {
   return entries;
 }
 
-function discriminatingEvidence(entry) {
+export function acceptanceEvidenceDiagnostic(entry, index) {
   const match = entry.match(/\bEvidence\s*:\s*(.+)$/i);
-  if (!match) return false;
+  if (!match) return { index, status: "fail", reasonCode: "EVIDENCE_MARKER_MISSING" };
   const evidence = match[1].trim();
-  if (evidence.length < 8) return false;
-  return (
+  if (evidence.length < 8) return { index, status: "fail", reasonCode: "EVIDENCE_TOO_SHORT" };
+  const recognized =
     /`[^`\n]{3,}`/.test(evidence) ||
     /https:\/\/github\.com\/\S+/.test(evidence) ||
     evidencePointers(evidence).size > 0 ||
-    /\b(?:named test|test named|screenshot of|captured probe|verifier|ops check|workflow run)\b.{3,}/i.test(evidence)
+    /\b(?:named test|test named|screenshot of|captured probe|verifier|ops check|workflow run)\b.{3,}/i.test(evidence);
+  return recognized
+    ? { index, status: "pass", reasonCode: null }
+    : { index, status: "fail", reasonCode: "EVIDENCE_POINTER_UNRECOGNIZED" };
+}
+
+function discriminatingEvidence(entry, index) {
+  return acceptanceEvidenceDiagnostic(entry, index).status === "pass";
+}
+
+function acceptanceDiagnosticsFromBody(body) {
+  const parsed = parseIssueFormBody(body);
+  if (parsed.status !== "ok") return [];
+  return listEntries(parsed.fields["Acceptance criteria"]).map((entry, index) =>
+    acceptanceEvidenceDiagnostic(entry, index + 1),
   );
 }
 
@@ -867,7 +882,7 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
     rule(
       "ready-03-acceptance-evidence",
       acceptanceEntries.length > 0 &&
-        acceptanceEntries.every(discriminatingEvidence) &&
+        acceptanceEntries.every((entry, index) => discriminatingEvidence(entry, index + 1)) &&
         (!providerContractDeclared || /\btest[- ]mode\b/i.test(fields["Acceptance criteria"])),
       [
         providerContractDeclared && !/\btest[- ]mode\b/i.test(fields["Acceptance criteria"])
@@ -914,6 +929,82 @@ export function evaluateStructuralReadiness(authority, { checkedAt, checkerSha }
     coverage: authority.coverage,
     checkedRules: rules,
     reasonCodes,
+  };
+}
+
+function prospectiveAuthority(body, metadata) {
+  const required = [
+    "repository",
+    "number",
+    "state",
+    "issueType",
+    "milestone",
+    "labels",
+    "parentNumber",
+    "dependencies",
+  ];
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) fail("PROSPECTIVE_METADATA_INVALID");
+  if (required.some((key) => !Object.hasOwn(metadata, key))) fail("PROSPECTIVE_METADATA_INCOMPLETE");
+  splitRepository(metadata.repository);
+  if (!Number.isInteger(metadata.number) || metadata.number < 1) fail("ISSUE_NUMBER_INVALID");
+  if (typeof body !== "string") fail("FORM_BODY_INVALID");
+  if (!Array.isArray(metadata.labels) || !Array.isArray(metadata.dependencies)) fail("PROSPECTIVE_METADATA_INVALID");
+  const coverage = coverageSkeleton();
+  coverage.authorityComplete = true;
+  coverage.issue = { initialRead: true, finalRead: true, revisionStable: true };
+  for (const collection of ["labels", "dependencies", "comments"]) {
+    const collected =
+      collection === "labels"
+        ? metadata.labels.length
+        : collection === "dependencies"
+          ? metadata.dependencies.length
+          : 0;
+    coverage[collection] = { pages: collected === 0 ? 0 : 1, collected, total: collected, complete: true };
+  }
+  return {
+    repository: metadata.repository,
+    number: metadata.number,
+    complete: true,
+    issue: {
+      nodeId: metadata.nodeId ?? null,
+      number: metadata.number,
+      state: metadata.state,
+      updatedAt: metadata.updatedAt ?? null,
+      body,
+      issueType: metadata.issueType,
+      milestone: metadata.milestone,
+    },
+    graph: {
+      hasParent: metadata.parentNumber !== null,
+      parentNumber: metadata.parentNumber,
+    },
+    labels: metadata.labels,
+    dependencies: metadata.dependencies,
+    comments: [],
+    coverage,
+    reasonCodes: [],
+  };
+}
+
+export function evaluateProspectiveIssueReadiness({ body, metadata, checkedAt, checkerSha }) {
+  const authority = prospectiveAuthority(body, metadata);
+  const receipt = evaluateStructuralReadiness(authority, { checkedAt, checkerSha });
+  return {
+    schemaVersion: PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
+    claim: "structural-only-prospective",
+    status: receipt.status,
+    subject: receipt.subject,
+    facts: receipt.facts,
+    checkedRules: receipt.checkedRules,
+    reasonCodes: receipt.reasonCodes,
+    coverage: receipt.coverage,
+    provenance: {
+      checkedAt,
+      checkerSha,
+      source: "explicit-input",
+    },
+    semanticPressureTest: "not-evaluated",
+    acceptanceDiagnostics: acceptanceDiagnosticsFromBody(body),
   };
 }
 
@@ -1346,12 +1437,61 @@ function normalizeCheckerSha(value) {
   return /^[a-f0-9]{40}$/i.test(String(value ?? "")) ? String(value).toLowerCase() : "unavailable";
 }
 
+function prospectiveArguments(argv) {
+  if (!argv.includes("--prospective-body") && !argv.includes("--prospective-metadata")) return null;
+  const allowed = new Set(["--prospective-body", "--prospective-metadata", "--checker-sha"]);
+  const values = {};
+  for (let index = 0; index < argv.length; index += 2) {
+    const option = argv[index];
+    const value = argv[index + 1];
+    if (!allowed.has(option) || !value || value.startsWith("--")) fail("PROSPECTIVE_ARGUMENTS_INVALID");
+    if (Object.hasOwn(values, option)) fail("PROSPECTIVE_ARGUMENTS_INVALID");
+    values[option] = value;
+  }
+  if (!values["--prospective-body"] || !values["--prospective-metadata"]) {
+    fail("PROSPECTIVE_ARGUMENTS_INCOMPLETE");
+  }
+  return values;
+}
+
 export async function main({
   env = process.env,
   client = globalThis.fetch,
   logger = console,
   now = () => new Date(),
+  argv = process.argv.slice(2),
+  readTextFile = (file) => readFile(file, "utf8"),
 } = {}) {
+  let prospective;
+  try {
+    prospective = prospectiveArguments(argv);
+    if (prospective) {
+      const checkerSha = prospective["--checker-sha"] ?? env.ISSUE_READINESS_CHECKER_SHA;
+      if (!/^[a-f0-9]{40}$/i.test(String(checkerSha ?? ""))) fail("CHECKER_SHA_INVALID");
+      const [body, metadataSource] = await Promise.all([
+        readTextFile(prospective["--prospective-body"]),
+        readTextFile(prospective["--prospective-metadata"]),
+      ]);
+      let metadata;
+      try {
+        metadata = JSON.parse(metadataSource);
+      } catch {
+        fail("PROSPECTIVE_METADATA_INVALID");
+      }
+      const record = evaluateProspectiveIssueReadiness({
+        body,
+        metadata,
+        checkedAt: now().toISOString(),
+        checkerSha: normalizeCheckerSha(checkerSha),
+      });
+      logger.log(JSON.stringify(record));
+      return { exitCode: 0, ...record };
+    }
+  } catch (error) {
+    logger.error(error instanceof IssueReadinessBoundaryError ? error.code : "PROSPECTIVE_INPUT_INVALID");
+    return { exitCode: 2, receipt: null, commentAction: "not-attempted" };
+  }
+
   let repository;
   let number;
   try {
@@ -1414,6 +1554,7 @@ export async function main({
     schemaVersion: ISSUE_READINESS_RUN_SCHEMA_VERSION,
     receipt,
     commentAction,
+    acceptanceDiagnostics: acceptanceDiagnosticsFromBody(authority.issue?.body),
   };
   if (env.ISSUE_READINESS_OUTPUT) {
     await writeFile(env.ISSUE_READINESS_OUTPUT, `${JSON.stringify(record, null, 2)}\n`, "utf8");
