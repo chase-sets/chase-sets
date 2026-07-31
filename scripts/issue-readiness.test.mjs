@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -986,28 +987,100 @@ describe("runnable-set receipt consumer", () => {
 describe("slice form and trusted-base workflow integration", () => {
   const formPath = path.join(repoRoot, ".github", "ISSUE_TEMPLATE", "slice.yml");
   const form = parseYaml(readFileSync(formPath, "utf8"));
+  const requiredFieldMap = {
+    priority: true,
+    area: true,
+    kind: true,
+    context: true,
+    scope: true,
+    decisions: true,
+    acceptance: true,
+    verification: true,
+    footprint: true,
+    "operator-actions": true,
+    "glossary-impact": true,
+    "authority-probe": true,
+    "review-packet": true,
+    tier: true,
+  };
+  const fieldRequiredMap = (sliceForm) =>
+    Object.fromEntries(
+      sliceForm.body.filter((entry) => entry.id).map((entry) => [entry.id, entry.validations.required]),
+    );
+  const assertRequiredFieldMap = (sliceForm) => {
+    const actual = fieldRequiredMap(sliceForm);
+    const changed = [...new Set([...Object.keys(requiredFieldMap), ...Object.keys(actual)])]
+      .filter((id) => actual[id] !== requiredFieldMap[id])
+      .sort();
+    if (changed.length > 0) throw new Error(`Slice form required fields changed: ${changed.join(", ")}`);
+    expect(actual).toEqual(requiredFieldMap);
+  };
+  const fieldProjection = (sliceForm) =>
+    Object.fromEntries(
+      sliceForm.body
+        .filter((entry) => entry.id)
+        .flatMap((entry) => [
+          [`${entry.id}.id`, entry.id],
+          [`${entry.id}.type`, entry.type],
+          [`${entry.id}.label`, entry.attributes.label],
+          [`${entry.id}.options`, JSON.stringify(entry.attributes.options ?? null)],
+          [`${entry.id}.validations`, JSON.stringify(entry.validations ?? null)],
+          [`${entry.id}.description`, entry.attributes.description ?? null],
+        ]),
+    );
+  const fieldDifferences = (left, right) =>
+    [...new Set([...Object.keys(left), ...Object.keys(right)])].filter((key) => left[key] !== right[key]).sort();
   const workflowPath = path.join(repoRoot, ".github", "workflows", "issue-readiness.yml");
   const workflowSource = readFileSync(workflowPath, "utf8");
   const workflow = parseYaml(workflowSource);
 
-  it("requires every operator, glossary, authority-timing, and review-packet field", () => {
+  it("acceptance field guides authors to a bounded criteria target", () => {
     const fields = Object.fromEntries(
       form.body.filter((entry) => entry.id).map((entry) => [entry.attributes.label, entry]),
     );
-    for (const label of [
-      "Decisions already made",
-      "Operator actions",
-      "Glossary impact",
-      "External authority probe & evidence timing",
-      "Review packet seed",
-    ]) {
-      expect(fields[label].validations.required, `${label} must be required`).toBe(true);
-    }
+    expect(fields["Acceptance criteria"].attributes.description).toContain("Aim for four to six acceptance criteria");
+    expect(fields["Acceptance criteria"].attributes.description).toContain("split the slice");
+    expect(fields["Acceptance criteria"].attributes.description).toContain(
+      "no check here rejects a brief for its criterion count",
+    );
+  });
+
+  it("pins the complete slice-form required-field map", () => {
+    assertRequiredFieldMap(form);
+  });
+
+  it("required-field map fails when the acceptance field stops being required", () => {
+    const mutatedForm = structuredClone(form);
+    mutatedForm.body.find((entry) => entry.id === "acceptance").validations.required = false;
+
+    expect(() => assertRequiredFieldMap(mutatedForm)).toThrowError(
+      new Error("Slice form required fields changed: acceptance"),
+    );
+  });
+
+  it("asserts the operator, authority-timing, and review-packet field descriptions", () => {
+    const fields = Object.fromEntries(
+      form.body.filter((entry) => entry.id).map((entry) => [entry.attributes.label, entry]),
+    );
     expect(fields["Operator actions"].attributes.description).toContain("`none`");
     expect(fields["External authority probe & evidence timing"].attributes.description).toContain(
       "exact lifecycle moment",
     );
     expect(fields["Review packet seed"].attributes.description).toContain("omission-revealing");
+  });
+
+  it("slice-form fields other than the acceptance description are unchanged", () => {
+    const predecessorForm = parseYaml(
+      execFileSync("git", ["show", "05afe2b107e922ee05c12be3bacecae108d01845:.github/ISSUE_TEMPLATE/slice.yml"], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      }),
+    );
+    const differences = fieldDifferences(fieldProjection(predecessorForm), fieldProjection(form)).filter(
+      (key) => key !== "acceptance.description",
+    );
+
+    expect(differences).toEqual([]);
   });
 
   it("runs only by bounded manual dispatch and executes sources from one exact trusted-base SHA", () => {
