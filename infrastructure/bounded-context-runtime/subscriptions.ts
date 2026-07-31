@@ -696,6 +696,7 @@ export function createSubscriptionRunner(
       while (true) {
         context?.throwIfLeaseLost?.();
         const storedEvents = await sourceEventStore.readStream({
+          // @stream-read-contract infrastructure/bounded-context-runtime/subscription-runner.test.ts
           streamId,
           fromVersion,
           limit: batchSize,

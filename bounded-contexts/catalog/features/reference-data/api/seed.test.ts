@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
 
@@ -10,6 +10,11 @@ vi.mock("@chase-sets/bounded-context-runtime", async (importOriginal) => ({
 }));
 
 describe("reference data seed", () => {
+  beforeEach(() => {
+    retryLocalProjectionBlockedStream.mockReset();
+    retryLocalProjectionBlockedStream.mockResolvedValue({ state: "already-resolved" as const });
+  });
+
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
     const harness = createReferenceSeedHarness();
 
@@ -318,6 +323,48 @@ describe("reference data seed", () => {
       }),
     ]);
   });
+
+  it.each([{ state: "already-resolved" as const }, { state: "resolved" as const }])(
+    "retries reference-type projection state before loading and authoring when $state",
+    async ({ state }) => {
+      const harness = createReferenceSeedHarness();
+      retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) => {
+        harness.steps.push(`retry:${streamId}`);
+        return { state };
+      });
+
+      const ids = await seedMagicReferenceData(harness.services as never);
+
+      const streamId = `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`;
+      expect(ids.sets["time-spiral"]).toBe(catalogSeedIds.referenceRecords.sets.timeSpiral);
+      expect(harness.steps.indexOf(`retry:${streamId}`)).toBeGreaterThanOrEqual(0);
+      expect(harness.steps.indexOf(`retry:${streamId}`)).toBeLessThan(harness.steps.indexOf(`load:${streamId}`));
+      expect(harness.steps.indexOf(`load:${streamId}`)).toBeLessThan(
+        harness.steps.indexOf(`command:${streamId}:CreateReferenceType`),
+      );
+      expect(harness.commands).toContainEqual({ streamId, type: "CreateReferenceType", key: "set" });
+    },
+  );
+
+  it("refuses a still-blocked reference type before aggregate loading or seed authoring", async () => {
+    const harness = createReferenceSeedHarness();
+    const blockedStreamId = `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`;
+    retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) => {
+      harness.steps.push(`retry:${streamId}`);
+      return streamId === blockedStreamId
+        ? { state: "still-blocked" as const, errorMessage: "projection remains blocked" }
+        : { state: "already-resolved" as const };
+    });
+
+    await expect(seedMagicReferenceData(harness.services as never)).rejects.toThrow(
+      "Catalog integration bootstrap could not recover blocked reference type 'set': projection remains blocked",
+    );
+
+    expect(harness.steps).toContain(`retry:${blockedStreamId}`);
+    expect(harness.steps).not.toContain(`load:${blockedStreamId}`);
+    expect(harness.steps.some((step) => step.startsWith(`command:${blockedStreamId}:`))).toBe(false);
+    expect(harness.commands).toEqual([]);
+  });
 });
 
 function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?: ReadonlySet<string> }> = {}) {
@@ -417,6 +464,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     attributes?: unknown;
     relationships?: unknown;
   }[] = [];
+  const steps: string[] = [];
 
   const services = {
     pool: {},
@@ -424,6 +472,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
       query: async <T>(sql: string, values: readonly unknown[]) => {
         if (sql.includes("FROM event_store_events")) {
           const streamId = String(values[0]);
+          steps.push(`load:${streamId}`);
           return {
             rows: (eventsByStream.get(streamId) ?? []).map((event, index) => ({
               ...event,
@@ -478,6 +527,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           description?: unknown;
         };
       }) => {
+        steps.push(`command:${streamId}:${command.type}`);
         commands.push({ streamId, type: command.type, key: command.key });
         details.push({ key: command.key });
         if (command.type === "CreateReferenceType" && command.referenceTypeId && command.key) {
@@ -623,5 +673,5 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     },
   };
 
-  return { aliasCommands, commands, details, services };
+  return { aliasCommands, commands, details, services, steps };
 }

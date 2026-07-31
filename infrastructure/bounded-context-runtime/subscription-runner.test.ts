@@ -1,4 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import {
   buildEventSubscriptionsFromManifest,
   type BcApiModule,
@@ -21,8 +26,34 @@ import {
   sourceHeadByPool,
 } from "./index-test-harness";
 
+type ReadStreamCall = Readonly<{ streamId: string; fromVersion: number; limit: number }>;
+
+const readStreamCallsByPool = vi.hoisted(() => new Map<object, ReadStreamCall[]>());
+const ignoreReadStreamLimitByPool = vi.hoisted(() => new Set<object>());
+
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
-vi.mock("@chase-sets/event-core-postgres", () => createEventCorePostgresMock());
+vi.mock("@chase-sets/event-core-postgres", () => {
+  const eventCorePostgres = createEventCorePostgresMock();
+  const createPostgresEventStore = eventCorePostgres.createPostgresEventStore;
+
+  return {
+    ...eventCorePostgres,
+    createPostgresEventStore: (options: { pool: object }) => {
+      const store = createPostgresEventStore(options);
+      return {
+        ...store,
+        readStream: async (input: ReadStreamCall) => {
+          const calls = readStreamCallsByPool.get(options.pool) ?? [];
+          calls.push({ ...input });
+          readStreamCallsByPool.set(options.pool, calls);
+          return store.readStream(
+            ignoreReadStreamLimitByPool.has(options.pool) ? { ...input, limit: Number.MAX_SAFE_INTEGER } : input,
+          );
+        },
+      };
+    },
+  };
+});
 
 import { createProjectionGroupRuntime } from "./index-test-runtime-helpers";
 
@@ -33,6 +64,7 @@ import {
   LocalProjectorSubscriptionDeclarationError,
   refreshProjectionGroupStatuses,
   resolveModuleSubscriptions,
+  retryLocalProjectionBlockedStream,
   retryProjectionBlockedStream,
   summarizeProjectionReplayStatuses,
   summarizeRuntimeSubscriptionLedgers,
@@ -41,6 +73,8 @@ import {
 describe("bounded context subscription runner", () => {
   beforeEach(() => {
     resetMockPoolState();
+    readStreamCallsByPool.clear();
+    ignoreReadStreamLimitByPool.clear();
   });
 
   it("fails startup when a subscription declaration has no registered handler or local projector", () => {
@@ -1214,6 +1248,135 @@ describe("bounded context subscription runner", () => {
     });
   });
 
+  it("blocked-stream-pager-entrypoints-acceptance-control", async () => {
+    const expectedRequests = [
+      { streamId: BLOCKED_STREAM_ID, fromVersion: 5, limit: 2 },
+      { streamId: BLOCKED_STREAM_ID, fromVersion: 7, limit: 2 },
+      { streamId: BLOCKED_STREAM_ID, fromVersion: 9, limit: 2 },
+    ];
+    const expectedAppliedVersions = [5, 6, 7, 8, 9];
+
+    const direct = createBlockedStreamPagerScenario();
+    await expect(direct.runner.retryBlockedStream(BLOCKED_STREAM_ID)).resolves.toMatchObject({
+      state: "resolved",
+      inspectedEvents: 5,
+      appliedEvents: 5,
+    });
+    expect(readStreamCallsByPool.get(direct.sourcePool)).toEqual(expectedRequests);
+    expect(direct.appliedVersions).toEqual(expectedAppliedVersions);
+
+    const mounted = createBlockedStreamPagerScenario();
+    await expect(
+      retryProjectionBlockedStream(
+        { subscriptionRunners: [mounted.runner] },
+        BLOCKED_STREAM_PROJECTION_KEY,
+        BLOCKED_STREAM_ID,
+      ),
+    ).resolves.toMatchObject({ state: "resolved", inspectedEvents: 5, appliedEvents: 5 });
+    expect(readStreamCallsByPool.get(mounted.sourcePool)).toEqual(expectedRequests);
+    expect(mounted.appliedVersions).toEqual(expectedAppliedVersions);
+    await expect(
+      retryProjectionBlockedStream(
+        { subscriptionRunners: [mounted.runner] },
+        "missing-projection:catalog:v1",
+        BLOCKED_STREAM_ID,
+      ),
+    ).rejects.toThrow("Runtime is missing subscription runner 'missing-projection:catalog:v1'");
+
+    const local = createBlockedStreamPagerScenario({ local: true });
+    await expect(
+      retryLocalProjectionBlockedStream(
+        "catalog",
+        local.sourcePool as never,
+        local.projectionHandlerSet,
+        BLOCKED_STREAM_ID,
+      ),
+    ).resolves.toMatchObject({ state: "resolved", inspectedEvents: 5, appliedEvents: 5 });
+    expect(readStreamCallsByPool.get(local.sourcePool)).toEqual(expectedRequests);
+    expect(local.appliedVersions).toEqual(expectedAppliedVersions);
+
+    const ignoresLimit = createBlockedStreamPagerScenario();
+    ignoreReadStreamLimitByPool.add(ignoresLimit.sourcePool);
+    await expect(ignoresLimit.runner.retryBlockedStream(BLOCKED_STREAM_ID)).resolves.toMatchObject({
+      state: "resolved",
+      inspectedEvents: 5,
+      appliedEvents: 5,
+    });
+    expect(ignoresLimit.appliedVersions).toEqual(expectedAppliedVersions);
+    expect(readStreamCallsByPool.get(ignoresLimit.sourcePool)).toEqual([
+      { streamId: BLOCKED_STREAM_ID, fromVersion: 5, limit: 2 },
+      { streamId: BLOCKED_STREAM_ID, fromVersion: 10, limit: 2 },
+    ]);
+    expect(readStreamCallsByPool.get(ignoresLimit.sourcePool)).not.toEqual(expectedRequests);
+
+    const subscriptionsSource = readFileSync(path.join(REPO_ROOT, SUBSCRIPTIONS_PATH), "utf8");
+    const owningTestSource = readFileSync(path.join(REPO_ROOT, PAGER_CONTRACT_TEST_PATH), "utf8");
+    const candidateFiles = new Map([[PAGER_CONTRACT_TEST_PATH, owningTestSource]]);
+    const candidate = inspectPagerContract(subscriptionsSource, candidateFiles);
+    expect(candidate.errors).toEqual([]);
+    expect(candidate.siteId).toBe(PAGER_SITE_ID);
+    expect(candidate.trace).toEqual({ requests: [5, 7], inspectedEvents: 3 });
+
+    const droppedIncrementSource = subscriptionsSource.replace(
+      "fromVersion = event.streamVersion + 1;",
+      "fromVersion = event.streamVersion;",
+    );
+    const droppedIncrement = inspectPagerContract(droppedIncrementSource, candidateFiles);
+    expect(droppedIncrement.errors).not.toEqual([]);
+    expect(droppedIncrement.trace).toEqual({ requests: [5, 6, 7], inspectedEvents: 5 });
+
+    const withoutPointer = inspectPagerContract(
+      subscriptionsSource.replace(`// ${PAGER_CONTRACT_POINTER}\n`, ""),
+      candidateFiles,
+    );
+    expect(withoutPointer.errors).not.toEqual([]);
+    expect(withoutPointer.siteId).toBe(PAGER_SITE_ID);
+
+    const pointerMutants = [
+      "infrastructure/bounded-context-runtime/missing.test.ts",
+      "infrastructure/platform-runtime/worker.test.ts",
+      "../outside.test.ts",
+      "scripts/blocked-stream-pager.test.mjs",
+      "infrastructure/bounded-context-runtime/.*\\.test\\.ts",
+      "infrastructure/bounded-context-runtime/subscriptions.ts:698",
+      "future-use",
+    ];
+    for (const pointerTarget of pointerMutants) {
+      const mutant = subscriptionsSource.replace(PAGER_CONTRACT_TEST_PATH, pointerTarget);
+      expect(inspectPagerContract(mutant, candidateFiles).errors, pointerTarget).not.toEqual([]);
+    }
+
+    const duplicatePointer = subscriptionsSource.replace(
+      `// ${PAGER_CONTRACT_POINTER}`,
+      `// ${PAGER_CONTRACT_POINTER}\n          // ${PAGER_CONTRACT_POINTER}`,
+    );
+    expect(inspectPagerContract(duplicatePointer, candidateFiles).errors).not.toEqual([]);
+    expect(
+      inspectPagerContract(
+        subscriptionsSource,
+        new Map([
+          [PAGER_CONTRACT_TEST_PATH, owningTestSource.replace(PAGER_SITE_ID, `${SUBSCRIPTIONS_PATH}#readStream#2`)],
+        ]),
+      ).errors,
+    ).not.toEqual([]);
+    expect(
+      inspectPagerContract(
+        subscriptionsSource.replace('state: "already-resolved"', 'state: "already_resolved"'),
+        candidateFiles,
+      ).errors,
+    ).not.toEqual([]);
+
+    expect(trackedProductionCallers("retryProjectionBlockedStream")).toEqual([
+      "infrastructure/platform-runtime/worker.ts",
+    ]);
+    expect(trackedProductionCallers("retryLocalProjectionBlockedStream")).toEqual([
+      "bounded-contexts/catalog/features/reference-data/api/seed.ts",
+    ]);
+    expect(reExportsFromSubscriptions()).toEqual(
+      expect.arrayContaining(["retryLocalProjectionBlockedStream", "retryProjectionBlockedStream"]),
+    );
+  });
+
   it("resumes an aborted blocked-stream retry from per-event progress instead of re-applying", async () => {
     // #4611 AC2: a long blocked-stream retry commits each event in its own
     // transaction and records it in the application ledger, so an operation
@@ -2237,3 +2400,286 @@ describe("bounded context subscription runner", () => {
     });
   });
 });
+
+const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
+const SUBSCRIPTIONS_PATH = "infrastructure/bounded-context-runtime/subscriptions.ts";
+const PAGER_CONTRACT_TEST_PATH = "infrastructure/bounded-context-runtime/subscription-runner.test.ts";
+const PAGER_SITE_ID = "infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1";
+const PAGER_CONTRACT_POINTER = `@stream-read-contract ${PAGER_CONTRACT_TEST_PATH}`;
+const PAGER_BASELINE_SHA256 = "86e7166fb4a5d656a54deed0b03f70eebe475a45cbd6695c2cd7aeba1521fb9a";
+const BLOCKED_STREAM_ID = "catalog.item-cat_pager_acceptance";
+const BLOCKED_STREAM_PROJECTION_NAME = "pager-acceptance-projection";
+const BLOCKED_STREAM_PROJECTION_KEY = `${BLOCKED_STREAM_PROJECTION_NAME}:catalog:v1`;
+
+type TsNode = Parameters<typeof ts.forEachChild>[0];
+type TsSourceFile = ReturnType<typeof ts.createSourceFile>;
+
+function createBlockedStreamPagerScenario(options: Readonly<{ local?: boolean }> = {}) {
+  const sourcePool = createMockPool();
+  const targetPool = options.local ? sourcePool : createMockPool();
+  const appliedVersions: number[] = [];
+  const projectionHandlerSet = {
+    projectionName: BLOCKED_STREAM_PROJECTION_NAME,
+    handlers: {
+      "catalog.catalog-item.published": async (event: { streamVersion: number }) => {
+        appliedVersions.push(event.streamVersion);
+      },
+    },
+    eventTypes: ["catalog.catalog-item.published"],
+    streamPrefixes: ["catalog.item-"],
+    batchSize: 2,
+  };
+
+  sourceEventsByPool.set(
+    sourcePool,
+    [5, 6, 7, 8, 9].map((version) =>
+      createStoredEvent(
+        String(version),
+        "catalog.catalog-item.published",
+        { itemId: "cat_pager_acceptance" },
+        BLOCKED_STREAM_ID,
+      ),
+    ),
+  );
+  getBlockedStreamStore(targetPool).set(`${BLOCKED_STREAM_PROJECTION_KEY}:${BLOCKED_STREAM_ID}`, {
+    projectionKey: BLOCKED_STREAM_PROJECTION_KEY,
+    streamId: BLOCKED_STREAM_ID,
+    firstBlockedGlobalPosition: "5",
+    firstBlockedStreamVersion: 5,
+    lastSeenGlobalPosition: "9",
+    deferredEventCount: 4,
+    state: "blocked",
+  });
+
+  const runner = createSubscriptionRunner("catalog", targetPool as never, sourcePool as never, {
+    subscriptionName: `catalog.${BLOCKED_STREAM_PROJECTION_NAME}`,
+    sourceContextName: "catalog",
+    projectionName: BLOCKED_STREAM_PROJECTION_NAME,
+    subscriptionVersion: 1,
+    handlers: projectionHandlerSet.handlers,
+    eventTypes: projectionHandlerSet.eventTypes,
+    streamPrefixes: projectionHandlerSet.streamPrefixes,
+    batchSize: projectionHandlerSet.batchSize,
+  });
+
+  return { appliedVersions, projectionHandlerSet, runner, sourcePool, targetPool };
+}
+
+function parseTypeScript(relativePath: string, source: string): TsSourceFile {
+  return ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function collectNodes(sourceFile: TsSourceFile, predicate: (node: TsNode) => boolean): TsNode[] {
+  const nodes: TsNode[] = [];
+  const visit = (node: TsNode): void => {
+    if (predicate(node)) {
+      nodes.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return nodes;
+}
+
+function isNamedProperty(node: TsNode, name: string): boolean {
+  return (
+    ts.isPropertyAssignment(node) &&
+    (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
+    node.name.text === name
+  );
+}
+
+function isReadStreamCall(node: TsNode): boolean {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === "readStream"
+  );
+}
+
+function enclosingVariableStatement(node: TsNode): TsNode | null {
+  for (let current: TsNode | undefined = node; current; current = current.parent) {
+    if (ts.isVariableStatement(current)) {
+      return current;
+    }
+  }
+  return null;
+}
+
+function countOccurrences(source: string, token: string): number {
+  let count = 0;
+  let offset = 0;
+  while ((offset = source.indexOf(token, offset)) >= 0) {
+    count += 1;
+    offset += token.length;
+  }
+  return count;
+}
+
+function pagerTrace(
+  sourceFile: TsSourceFile,
+  pagerNode: TsNode,
+): Readonly<{ requests: number[]; inspectedEvents: number }> {
+  const cursorAssignments = collectNodes(sourceFile, (node) => {
+    if (node.pos < pagerNode.pos || node.end > pagerNode.end || !ts.isBinaryExpression(node)) {
+      return false;
+    }
+    return (
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left) &&
+      node.left.text === "fromVersion"
+    );
+  }).filter(ts.isBinaryExpression);
+  const cursorExpression = cursorAssignments.at(-1)?.right;
+  const advancesByOne = Boolean(
+    cursorExpression &&
+    ts.isBinaryExpression(cursorExpression) &&
+    cursorExpression.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+    ts.isNumericLiteral(cursorExpression.right) &&
+    cursorExpression.right.text === "1",
+  );
+  const repeatsBoundary = Boolean(
+    cursorExpression &&
+    ts.isPropertyAccessExpression(cursorExpression) &&
+    cursorExpression.name.text === "streamVersion",
+  );
+  if (!advancesByOne && !repeatsBoundary) {
+    return { requests: [], inspectedEvents: 0 };
+  }
+
+  const history = [5, 6, 7];
+  const requests: number[] = [];
+  let inspectedEvents = 0;
+  let fromVersion = 5;
+  for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
+    requests.push(fromVersion);
+    const page = history.filter((version) => version >= fromVersion).slice(0, 2);
+    if (page.length === 0) {
+      break;
+    }
+    for (const version of page) {
+      fromVersion = advancesByOne ? version + 1 : version;
+      inspectedEvents += 1;
+    }
+    if (page.length < 2) {
+      break;
+    }
+  }
+  return { requests, inspectedEvents };
+}
+
+function inspectPagerContract(
+  subscriptionsSource: string,
+  files: ReadonlyMap<string, string>,
+): Readonly<{
+  errors: string[];
+  siteId: string | null;
+  trace: Readonly<{ requests: number[]; inspectedEvents: number }>;
+}> {
+  const errors: string[] = [];
+  const sourceFile = parseTypeScript(SUBSCRIPTIONS_PATH, subscriptionsSource);
+  const pagers = collectNodes(sourceFile, (node) => isNamedProperty(node, "retryBlockedStream"));
+  if (pagers.length !== 1) {
+    return {
+      errors: [`expected one retryBlockedStream property, found ${pagers.length}`],
+      siteId: null,
+      trace: { requests: [], inspectedEvents: 0 },
+    };
+  }
+
+  const pager = pagers[0];
+  const pagerSource = pager.getText(sourceFile).replaceAll("\r\n", "\n");
+  const pointerLine = `          // ${PAGER_CONTRACT_POINTER}\n`;
+  const pointerCount = countOccurrences(pagerSource, "@stream-read-contract");
+  if (pointerCount !== 1) {
+    errors.push(`expected one pager pointer, found ${pointerCount}`);
+  }
+  if (!pagerSource.includes(pointerLine)) {
+    errors.push("pager pointer must use the exact owning-test path and comment grammar");
+  }
+  const executableBaseline = pagerSource.replace(pointerLine, "");
+  const executableHash = createHash("sha256").update(executableBaseline).digest("hex");
+  if (executableHash !== PAGER_BASELINE_SHA256) {
+    errors.push("pager source differs from the bound executable baseline outside the one pointer comment");
+  }
+
+  const allReadStreamCalls = collectNodes(sourceFile, isReadStreamCall);
+  const pagerReadStreamCalls = allReadStreamCalls.filter((node) => node.pos >= pager.pos && node.end <= pager.end);
+  if (pagerReadStreamCalls.length !== 1) {
+    errors.push(`expected one pager readStream call, found ${pagerReadStreamCalls.length}`);
+  }
+  const pagerCall = pagerReadStreamCalls[0];
+  const siteIndex = pagerCall ? allReadStreamCalls.indexOf(pagerCall) + 1 : 0;
+  const siteId = siteIndex > 0 ? `${SUBSCRIPTIONS_PATH}#readStream#${siteIndex}` : null;
+  if (siteId !== PAGER_SITE_ID) {
+    errors.push(`unexpected pager site id '${siteId ?? "missing"}'`);
+  }
+
+  const statement = pagerCall ? enclosingVariableStatement(pagerCall) : null;
+  if (!statement || countOccurrences(statement.getText(sourceFile), "@stream-read-contract") !== 1) {
+    errors.push("pointer must occur exactly once inside the readStream variable statement");
+  }
+
+  const owningTestAbsolute = path.resolve(REPO_ROOT, PAGER_CONTRACT_TEST_PATH);
+  const owningWorkspace = path.resolve(REPO_ROOT, "infrastructure/bounded-context-runtime");
+  const relativeToWorkspace = path.relative(owningWorkspace, owningTestAbsolute);
+  if (relativeToWorkspace.startsWith("..") || path.isAbsolute(relativeToWorkspace)) {
+    errors.push("pointer target must resolve inside the owning bounded-context-runtime workspace");
+  }
+  const owningTest = files.get(PAGER_CONTRACT_TEST_PATH);
+  if (!owningTest) {
+    errors.push("pointer target does not exist in the supplied tracked-source fixture");
+  } else if (!owningTest.includes(PAGER_SITE_ID)) {
+    errors.push("owning test does not contain the literal pager site id");
+  }
+
+  return { errors, siteId, trace: pagerTrace(sourceFile, pager) };
+}
+
+function trackedProductionCallers(targetName: string): string[] {
+  const files = execFileSync("git", ["grep", "-l", "-z", "-F", targetName, "--", "*.ts"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    windowsHide: true,
+  })
+    .split("\0")
+    .filter(Boolean)
+    .map((relativePath) => relativePath.replaceAll("\\", "/"))
+    .filter(
+      (relativePath) =>
+        !relativePath.endsWith(".test.ts") && !relativePath.endsWith(".d.ts") && !relativePath.includes("/tests/"),
+    );
+
+  return files
+    .filter((relativePath) => {
+      const sourceFile = parseTypeScript(relativePath, readFileSync(path.join(REPO_ROOT, relativePath), "utf8"));
+      return (
+        collectNodes(
+          sourceFile,
+          (node) =>
+            ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === targetName,
+        ).length > 0
+      );
+    })
+    .sort();
+}
+
+function reExportsFromSubscriptions(): string[] {
+  const relativePath = "infrastructure/bounded-context-runtime/index.ts";
+  const sourceFile = parseTypeScript(relativePath, readFileSync(path.join(REPO_ROOT, relativePath), "utf8"));
+  return collectNodes(sourceFile, (node) => ts.isExportDeclaration(node))
+    .filter(ts.isExportDeclaration)
+    .filter(
+      (declaration) =>
+        declaration.moduleSpecifier &&
+        ts.isStringLiteral(declaration.moduleSpecifier) &&
+        declaration.moduleSpecifier.text === "./subscriptions" &&
+        declaration.exportClause &&
+        ts.isNamedExports(declaration.exportClause),
+    )
+    .flatMap((declaration) =>
+      declaration.exportClause && ts.isNamedExports(declaration.exportClause)
+        ? declaration.exportClause.elements.map((element) => element.name.text)
+        : [],
+    );
+}
