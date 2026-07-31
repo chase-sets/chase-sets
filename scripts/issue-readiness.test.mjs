@@ -583,6 +583,8 @@ describe("prospective issue readiness", () => {
     const projectRules = (receipt) =>
       receipt.checkedRules.map(({ id, status, reasonCodes }) => ({ id, status, reasonCodes }));
 
+    expect(prospective.status).toBe(live.status);
+    expect(prospective.semanticPressureTest).toBe(live.semanticPressureTest);
     expect(projectRules(prospective)).toEqual(projectRules(live));
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
@@ -610,6 +612,7 @@ describe("prospective issue readiness", () => {
       checkerSha: CHECKER_SHA,
     });
 
+    expect(result.status).toBe("not-ready");
     expect(result.checkedRules.find(({ id }) => id === "ready-03-acceptance-evidence")).toEqual({
       id: "ready-03-acceptance-evidence",
       status: "fail",
