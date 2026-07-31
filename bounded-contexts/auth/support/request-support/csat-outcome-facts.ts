@@ -65,6 +65,7 @@ export async function publishAuthenticationCsatOutcomeFact(
     });
   } catch (error) {
     if (isConcurrencyConflict(error)) {
+      // @stream-read-contract bounded-contexts/auth/support/request-support/csat-outcome-facts.test.ts
       const existing = await eventStore.readStream({ streamId, limit: 1 });
       const payload = existing[0]?.payload;
       if (existing[0]?.eventType === AUTH_CSAT_OUTCOME_FACT_EVENT_TYPE && isSameOutcome(payload, fact)) {

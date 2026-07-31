@@ -117,7 +117,8 @@ export function createSourceObservationMergeCandidateRuntime({
 
     for (const candidate of generated.candidates) {
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
-      const existingEvents = await deps.eventStore.readStream({ streamId });
+      // @stream-read-contract bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts
+      const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       const now = new Date().toISOString();
       await catalogMergeCandidateCommandHandler({
         streamId,
@@ -247,8 +248,10 @@ export function createSourceObservationMergeCandidateRuntime({
         catalogMergeCandidateStreamId(input.candidateId),
       );
       decideCatalogMergeCandidate(originalCandidate.state, splitCommand);
+      // @stream-read-contract bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts
       const existingSplitEvents = await deps.eventStore.readStream({
         streamId: catalogMergeCandidateStreamId(input.splitCandidateId),
+        limit: 1,
       });
       if (existingSplitEvents.length > 0) {
         throw new Error("Split Catalog Merge Candidate already exists.");

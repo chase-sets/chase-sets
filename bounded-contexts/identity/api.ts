@@ -264,6 +264,7 @@ async function reclaimStrandedDisplayNameReservation(
     throw new IdentityDisplayNameConflictError();
   }
 
+  // @stream-read-contract bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts
   const strandedAccount = await eventStore.readStream({
     streamId: `identity.account-${heldRow.account_id}`,
     limit: 1,

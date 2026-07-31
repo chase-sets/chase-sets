@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "./event-store";
 import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
-import { createInMemoryEventStore } from "./test-support";
+import { assertBoundedStreamReadContract, createInMemoryEventStore } from "./test-support";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -16,6 +16,33 @@ function event(eventType: string, eventId?: string) {
 }
 
 describe("shared in-memory event store", () => {
+  it("validates bounded-prefix request evidence without reading the stream", () => {
+    expect(() =>
+      assertBoundedStreamReadContract({
+        streamId: "test.bounded",
+        bound: 1,
+        historyLength: 2,
+        requests: [{ streamId: "test.bounded", limit: 1 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertBoundedStreamReadContract({
+        streamId: "test.bounded",
+        bound: 1,
+        historyLength: 2,
+        requests: [{ streamId: "test.bounded" }],
+      }),
+    ).toThrow("expected literal bound 1");
+    expect(() =>
+      assertBoundedStreamReadContract({
+        streamId: "test.bounded",
+        bound: 1,
+        historyLength: 1,
+        requests: [{ streamId: "test.bounded", limit: 1 }],
+      }),
+    ).toThrow("history must be longer");
+  });
+
   it("enforces expected versions and reads from the requested inclusive version", async () => {
     const { eventStore } = createInMemoryEventStore();
 

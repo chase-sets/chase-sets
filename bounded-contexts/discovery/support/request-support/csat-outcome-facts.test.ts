@@ -1,6 +1,6 @@
-import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { assertBoundedStreamReadContract, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { publishDiscoveryCsatOutcomeFact } from "./csat-outcome-facts";
 
 const context = {
@@ -8,10 +8,12 @@ const context = {
   audit: { performedByUserId: "usr_system", forAccountId: "acc_system" },
   trace: {},
 } as EventStoreContext;
+const streamReadContractSiteId =
+  "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts#readStream#1";
 
 describe("discovery CSAT outcome facts", () => {
-  it("publishes a server-owned search completion once per session", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it(`${streamReadContractSiteId} returns the first matching fact unchanged`, async () => {
+    const { allEvents, eventStore, streams } = createInMemoryEventStore();
     const input = {
       outcomeCode: "discovery.search-completed",
       subjectAccountId: "acc_buyer",
@@ -20,15 +22,36 @@ describe("discovery CSAT outcome facts", () => {
       idempotencyKey: "discovery:search-session:ses_1",
     };
 
-    await expect(publishDiscoveryCsatOutcomeFact(eventStore, context, input)).resolves.toMatchObject({
+    const firstFact = await publishDiscoveryCsatOutcomeFact(eventStore, context, input);
+    expect(firstFact).toMatchObject({
       factSchemaVersion: 1,
       outcomeCode: "discovery.search-completed",
       sourceContext: "discovery",
       subjectAccountId: "acc_buyer",
     });
-    await publishDiscoveryCsatOutcomeFact(eventStore, context, input);
+    const firstEvent = allEvents[0]!;
+    await eventStore.appendToStream({
+      streamId: firstEvent.streamId,
+      expectedVersion: 1,
+      events: [
+        {
+          eventType: firstEvent.eventType,
+          payload: { ...firstFact, outcomeOccurredAt: "2026-01-02T00:00:00.000Z" },
+        },
+      ],
+      context,
+    });
 
-    await expect(eventStore.readAll()).resolves.toHaveLength(1);
+    const readStream = vi.spyOn(eventStore, "readStream");
+    await expect(publishDiscoveryCsatOutcomeFact(eventStore, context, input)).resolves.toEqual(firstFact);
+
+    assertBoundedStreamReadContract({
+      streamId: firstEvent.streamId,
+      bound: 1,
+      historyLength: streams.get(firstEvent.streamId)?.length ?? 0,
+      requests: readStream.mock.calls.map(([request]) => request),
+    });
+    await expect(eventStore.readAll()).resolves.toHaveLength(2);
   });
 
   it("rejects codes owned by another source context", async () => {
