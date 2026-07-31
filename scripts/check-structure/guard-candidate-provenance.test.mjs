@@ -192,15 +192,26 @@ function fixtureHash(fixture) {
   return sha256(fixture);
 }
 
-function namedBypassMutant(name, candidate, expectedClause) {
-  const bypassed =
-    candidate.status === "red" && candidate.reachedClause === expectedClause
-      ? { emittedRecord: true, bypassedClause: expectedClause }
-      : { emittedRecord: false, bypassedClause: null };
+function executeMaskedDerivation(name, run) {
+  if (typeof run !== "function") throw new TypeError("masked derivation must be executable");
+  const observed = captureError(run);
+  if (observed.status === "red") {
+    return {
+      name,
+      status: "green",
+      observation: "error-raised",
+      error: {
+        code: observed.code,
+        reachedClause: observed.reachedClause,
+        message: observed.message,
+      },
+    };
+  }
   return {
     name,
-    status: bypassed.emittedRecord ? "red" : "green",
-    oracle: bypassed.emittedRecord ? "record-emitted-after-required-failure" : "required-failure-preserved",
+    status: "red",
+    observation: "record-emitted",
+    record: observed.value?.record ?? observed.value,
   };
 }
 
@@ -400,9 +411,13 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-unavailable",
         clause: "object-existence",
         fixture: plain,
-        run: () =>
+        runCandidate: () =>
           deriveFixture(plain, {
             overrides: override(["cat-file", "-e", `${analyzedTree}^{commit}`], { status: 128, stdout: "" }),
+          }),
+        runMasked: () =>
+          deriveFixture(plain, {
+            overrides: override(["cat-file", "-e", `${analyzedTree}^{commit}`], { status: 0, stdout: "" }),
           }),
         mutant: "BYPASS-OBJECT-EXISTENCE",
         governingVariable: "cat-file status for analyzedTree",
@@ -412,9 +427,13 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-unavailable",
         clause: "git-output",
         fixture: plain,
-        run: () =>
+        runCandidate: () =>
           deriveFixture(plain, {
             overrides: override(["rev-parse", "HEAD"], { status: 0, stdout: "" }),
+          }),
+        runMasked: () =>
+          deriveFixture(plain, {
+            overrides: override(["rev-parse", "HEAD"], { status: 0, stdout: `${analyzedTree}\n` }),
           }),
         mutant: "ALLOW-EMPTY-GIT-OUTPUT",
         governingVariable: "rev-parse HEAD stdout",
@@ -424,9 +443,13 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-unavailable",
         clause: "git-worktree",
         fixture: plain,
-        run: () =>
+        runCandidate: () =>
           deriveFixture(plain, {
             overrides: override(["rev-parse", "--is-inside-work-tree"], { status: 0, stdout: "false\n" }),
+          }),
+        runMasked: () =>
+          deriveFixture(plain, {
+            overrides: override(["rev-parse", "--is-inside-work-tree"], { status: 0, stdout: "true\n" }),
           }),
         mutant: "ASSUME-GIT-WORKTREE",
         governingVariable: "rev-parse --is-inside-work-tree stdout",
@@ -436,7 +459,8 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-invalid",
         clause: "event-payload",
         fixture: pr,
-        run: () => deriveFixture(pr, { eventPayload: "{" }),
+        runCandidate: () => deriveFixture(pr, { eventPayload: "{" }),
+        runMasked: () => deriveFixture(pr, { eventPayload: JSON.stringify(pr.eventPayload) }),
         mutant: "ACCEPT-MALFORMED-EVENT",
         governingVariable: "event payload bytes",
       },
@@ -445,7 +469,7 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-invalid",
         clause: "fork-point-ancestry",
         fixture: plain,
-        run: () =>
+        runCandidate: () =>
           deriveFixture(plain, {
             overrides: new Map([
               [
@@ -453,6 +477,16 @@ describe("guard candidate provenance", () => {
                 { status: 0, stdout: `${nonAncestor}\n` },
               ],
               [responseKey(["merge-base", "--is-ancestor", nonAncestor, landingCandidate]), { status: 1, stdout: "" }],
+            ]),
+          }),
+        runMasked: () =>
+          deriveFixture(plain, {
+            overrides: new Map([
+              [
+                responseKey(["merge-base", landingCandidate, "refs/remotes/origin/main"]),
+                { status: 0, stdout: `${nonAncestor}\n` },
+              ],
+              [responseKey(["merge-base", "--is-ancestor", nonAncestor, landingCandidate]), { status: 0, stdout: "" }],
             ]),
           }),
         mutant: "SKIP-FORKPOINT-ANCESTRY",
@@ -463,9 +497,14 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-invalid",
         clause: "base-tip-parentage",
         fixture: mergeGroup,
-        run: () => {
+        runCandidate: () => {
           const payload = structuredClone(mergeGroup.eventPayload);
           payload.merge_group.base_sha = pr.expected.roles.eventBaseSnapshot.sha;
+          return deriveFixture(mergeGroup, { eventPayload: payload });
+        },
+        runMasked: () => {
+          const payload = structuredClone(mergeGroup.eventPayload);
+          payload.merge_group.base_sha = mergeGroup.expected.roles.baseTipAtAnalysis.sha;
           return deriveFixture(mergeGroup, { eventPayload: payload });
         },
         mutant: "TRUST-EVENT-BASE-WITHOUT-PARENTAGE",
@@ -476,19 +515,23 @@ describe("guard candidate provenance", () => {
         code: "guard-provenance-environment-ambiguous",
         clause: "environment-classification",
         fixture: plain,
-        run: () => deriveGuardCandidateProvenance({ env: { GITHUB_EVENT_NAME: "push" } }),
+        runCandidate: () => deriveGuardCandidateProvenance({ env: Object.freeze({ GITHUB_EVENT_NAME: "push" }) }),
+        runMasked: () => deriveFixture(plain),
         mutant: "FALLBACK-UNKNOWN-EVENT",
         governingVariable: "GITHUB_EVENT_NAME",
       },
     ];
 
+    const schema = loadGuardCandidateProvenanceSchema();
     const receipts = controls.map((control) => {
       const before = fixtureHash(control.fixture);
-      const candidate = captureError(control.run);
+      const candidate = captureError(control.runCandidate);
       expect(candidate).toMatchObject({ status: "red", code: control.code, reachedClause: control.clause });
       expect(fixtureHash(control.fixture)).toBe(before);
-      const mutant = namedBypassMutant(control.mutant, candidate, control.clause);
-      expect(mutant.status).toBe("red");
+      const mutant = executeMaskedDerivation(control.mutant, control.runMasked);
+      expect(mutant).toMatchObject({ status: "red", observation: "record-emitted" });
+      expect(validateSchema(mutant.record, schema)).toEqual([]);
+      expect(fixtureHash(control.fixture)).toBe(before);
       return {
         id: control.id,
         governingVariable: control.governingVariable,
@@ -498,6 +541,18 @@ describe("guard candidate provenance", () => {
       };
     });
     emit("GUARD_PROVENANCE_FAIL_CLOSED_RECEIPTS", receipts);
+  });
+
+  it("requires an executed masked derivation before producing a mutant verdict", () => {
+    const fabricatedCandidate = Object.freeze({
+      status: "red",
+      code: "guard-provenance-unavailable",
+      reachedClause: "object-existence",
+      message: "the module was never invoked",
+    });
+    expect(() => executeMaskedDerivation("BYPASS-OBJECT-EXISTENCE", fabricatedCandidate)).toThrow(
+      "masked derivation must be executable",
+    );
   });
 
   it("rejects nested unknown keys, lax instants, and non-hexadecimal shas", () => {
