@@ -24,7 +24,18 @@ export const module = defineBoundedContextModule<CommercialTermsServices, PgTran
   schemaSql: commercialTermsSchemaSql,
   schemaMigrations: commercialTermsUnloggedProjectionSchemaMigrations,
   createServices: (pool) => createCommercialTermsServices(pool),
-  buildApis: (services) => [buildCommercialTermsApi(services), buildCommercialTermsPublicApi(services)],
+  buildApis: (services) => [
+    {
+      mountPath: "/api/commercial-terms",
+      contextMountOrdinal: 1,
+      router: buildCommercialTermsApi(services),
+    },
+    {
+      mountPath: "/api/public/commercial-terms",
+      contextMountOrdinal: 2,
+      router: buildCommercialTermsPublicApi(services),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({

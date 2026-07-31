@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   defineBoundedContextModule,
+  type BcApiEntry,
   type BcApiModule,
   type BcEventSubscription,
 } from "@chase-sets/bounded-context-module";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
   createPostgresEventStore,
@@ -36,7 +39,7 @@ const sourceModule = defineBoundedContextModule<TestServices, PgTransactionalPoo
   manifest: { contextName: "source", apiBasePath: "/source", streamPrefix: "source." },
   schemaSql: "",
   createServices: (pool) => ({ pool }),
-  buildApis: () => [],
+  buildApis: () => NO_API_ENTRIES,
 });
 
 function createCascadeSubscription(): BcEventSubscription {
@@ -120,7 +123,7 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Re
       );
     `,
     createServices: (pool) => ({ pool }),
-    buildApis: () => [],
+    buildApis: () => NO_API_ENTRIES,
     buildSubscriptions: () => [createCascadeSubscription()],
   });
 }

@@ -2,6 +2,22 @@
 
 `@chase-sets/bounded-context-module` defines the normalized manifest and runtime module surfaces shared by bounded contexts and platform hosts.
 
+## API Mount Binding
+
+Each `buildApis` result is the closed tuple `{ mountPath, contextMountOrdinal, router }`. `mountPath` must equal the declaration at the same position in `apiMounts`, and `contextMountOrdinal` is that declaration's one-based position. The runtime verifies both redundant values without sorting, deduplicating, or matching by path, so contexts may intentionally declare several routers at the same mount path while retaining their declared order. The resolved mount retains the inner `router` object unchanged.
+
+A context may return any internally composed Hono application for a declared mount. Register-style builders such as Auth and inline-only builders such as Notifications are supported escape hatches from feature-level `.route()` composition, but not from the binding checks or the readable-route-table requirement. There is no collision-census exemption.
+
+## API Route Collision Invariant
+
+After all context routers are mounted, the bounded-context runtime reads every router's public route table and rejects any two records with the same method and structural collision shape, including `ALL`. The complete mount path and raw route path are merged by the runtime's target Hono `mergePath`; Hono's optional-parameter expansion is then applied before brace-aware route splitting and pattern extraction. Parameter names are erased by position while exact custom-pattern bytes, literals, wildcards, accepted optional projections, and trailing-slash behavior are preserved. An unreadable table, invalid or empty target expansion, or incomplete scan is an error rather than a skipped row.
+
+Because Hono's public route table cannot distinguish registration intent, duplicate records are categorically unsupported:
+
+- Register one handler per verb. Put per-route middleware in a preceding `.use(path, middleware)` record.
+- Compose multiple middleware for the same path into one `.use()` handler, or attach them to structurally distinct paths such as `/x` and `/x/*`.
+- Do not combine `.all()` with another `ALL`-producing registration at the same collision shape. `.all()` and a specific verb remain distinct methods.
+
 ## Event Declarations
 
 `defineBoundedContextModule` forwards normalized `eventSubscriptions` and `eventReactions` from `context.json` onto `BcApiModule`. The fields remain optional: when a manifest omits a declaration array, the module omits that property rather than publishing an empty replacement.

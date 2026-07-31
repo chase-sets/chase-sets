@@ -96,7 +96,9 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
     ...orderingRetentionSchemaMigrations,
   ],
   createServices: (pool, options) => createOrderingServices(pool, options),
-  buildApis: (services) => [buildOrderingApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildOrderingApi(services) },
+  ],
   buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {

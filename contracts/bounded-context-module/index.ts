@@ -563,6 +563,12 @@ export type BcCreateServicesOptions<TPool = unknown> = Readonly<{
   notificationWaiterPool?: TPool;
 }>;
 
+export type BcApiEntry<TRouter = unknown> = Readonly<{
+  mountPath: string;
+  contextMountOrdinal: number;
+  router: TRouter;
+}>;
+
 export interface BcApiModule<
   TServices = unknown,
   TPool = unknown,
@@ -584,7 +590,7 @@ export interface BcApiModule<
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
   createServices(pool: TPool, ports: THostPorts, options?: BcCreateServicesOptions<TPool>): TServices;
-  buildApis(services: TServices): readonly TRouter[];
+  buildApis(services: TServices): readonly BcApiEntry<TRouter>[];
   buildMcpHandlers?(services: TServices): BcMcpHandlers;
   projectionHandlerSets?(services: TServices): readonly TProjectionHandlerSet[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];

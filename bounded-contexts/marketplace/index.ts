@@ -67,9 +67,13 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   retentionExemptions: marketplaceRetentionExemptions,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
   buildApis: (services) => [
-    buildMarketplaceApi(services),
-    buildReviewApi(services.reviews),
-    buildSellerMetricsApi(services.sellerMetrics),
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildMarketplaceApi(services) },
+    { mountPath: "/api/marketplace", contextMountOrdinal: 2, router: buildReviewApi(services.reviews) },
+    {
+      mountPath: "/api/marketplace",
+      contextMountOrdinal: 3,
+      router: buildSellerMetricsApi(services.sellerMetrics),
+    },
   ],
   buildMcpHandlers: (services) => {
     const listings = createMarketplaceListingMcpHandlers(services.listings);

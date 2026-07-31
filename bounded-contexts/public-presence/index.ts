@@ -22,7 +22,18 @@ export const module = defineBoundedContextModule<
   schemaSql: publicPresenceSchemaSql,
   schemaMigrations: publicPresenceUnloggedProjectionSchemaMigrations,
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
-  buildApis: (services) => [buildPublicPresencePublicApi(services), buildPublicPresenceAdminApi(services)],
+  buildApis: (services) => [
+    {
+      mountPath: "/api/public-presence",
+      contextMountOrdinal: 1,
+      router: buildPublicPresencePublicApi(services),
+    },
+    {
+      mountPath: "/api/public-presence/admin",
+      contextMountOrdinal: 2,
+      router: buildPublicPresenceAdminApi(services),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

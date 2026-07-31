@@ -43,7 +43,13 @@ export const module = defineBoundedContextModule<
   retentionExemptions: customerFeedbackRetentionExemptions,
   retentionSweeps: customerFeedbackRetentionSweeps,
   createServices: (pool, ports) => createCustomerFeedbackServices(pool, ports),
-  buildApis: (services) => [buildCustomerFeedbackApi(services)],
+  buildApis: (services) => [
+    {
+      mountPath: "/api/customer-feedback",
+      contextMountOrdinal: 1,
+      router: buildCustomerFeedbackApi(services),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventReactionsFromManifest({

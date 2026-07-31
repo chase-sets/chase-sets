@@ -50,7 +50,14 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
     ...settlementRetentionSchemaMigrations,
   ],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
-  buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/settlement", contextMountOrdinal: 1, router: buildSettlementApi(services) },
+    {
+      mountPath: "/api/settlement/provider",
+      contextMountOrdinal: 2,
+      router: buildSettlementMoneyMovementWebhookApi(services),
+    },
+  ],
   buildMcpHandlers: (services) => {
     const wallets = createSettlementWalletMcpHandlers(services.wallets);
     const payouts = createSettlementPayoutMcpHandlers(services.payouts);

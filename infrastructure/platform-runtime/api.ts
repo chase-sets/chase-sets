@@ -12,12 +12,12 @@ import {
   syncContextProjectionGroups,
   withSchemaBootstrapLock,
   type MountedContextRuntimeEntry,
+  type ResolvedApiMount,
   type SchemaBootstrapLockAcquisition,
   type SchemaBootstrapOptions,
 } from "../bounded-context-runtime/index";
 import type {
   BcApiModule,
-  BcApiMount,
   BcHostPort,
   BcSeedOptions,
   EnvironmentDataProfile,
@@ -86,11 +86,7 @@ export type ApiHostRuntime = Readonly<{
   subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 }>;
 
-export type ApiHostMount = BcApiMount &
-  Readonly<{
-    contextName: string;
-    router: unknown;
-  }>;
+export type ApiHostMount = ResolvedApiMount;
 
 type ApiHostPools = Readonly<
   Record<string, PgTransactionalPool | Readonly<Record<string, PgTransactionalPool>> | undefined>

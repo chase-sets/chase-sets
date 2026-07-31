@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module";
 import { bootstrapContextDatabase, drainContextRuntime } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -14,6 +14,8 @@ import {
 import { module as marketplaceModule } from "../../../index";
 import type { MarketplaceServices } from "../../../support/runtime-support/services";
 import { listDueSellerAwayWindowStarts } from "../read-model/queries";
+
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -42,7 +44,7 @@ function sourceOnlyModule(contextName: string, streamPrefix: string) {
     schemaSql: "",
     apiMounts: [],
     createServices: () => ({}),
-    buildApis: () => [],
+    buildApis: () => NO_API_ENTRIES,
   } satisfies BcApiModule<Record<string, never>, PgTransactionalPool, Record<string, never>>;
 }
 

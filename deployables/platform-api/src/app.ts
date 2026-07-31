@@ -108,6 +108,7 @@ import {
 } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
+  assertApiRouteTableHasNoCollisions,
   attachReadConsistencyMiddleware,
   attachWriteConsistencyMiddleware,
   mountApiRouters,
@@ -934,6 +935,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     },
   });
   mountApiRouters(app, apiMounts);
+  assertApiRouteTableHasNoCollisions(apiMounts);
 
   return app;
 }

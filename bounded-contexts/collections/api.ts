@@ -30,6 +30,5 @@ export function buildCollectionsApi(services: CollectionsServices) {
   app.route("/saved-lists", savedListQueryRoutes(services.savedListReadModels));
   app.route("/", createSavedListValuationRoutes(services.savedListValuation));
   app.route("/", createSavedListRoutes(services.discovery, services.rateLimitPolicyResolver));
-  app.route("/", createSavedListValuationRoutes(services.savedListValuation));
   return app;
 }

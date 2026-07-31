@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   defineBoundedContextModule,
+  type BcApiEntry,
   type BcApiModule,
   type BcEventSubscription,
 } from "@chase-sets/bounded-context-module";
@@ -30,6 +31,8 @@ import {
 } from "./test-support";
 import { withProjectionTransaction } from "./projection-transactions";
 
+const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -56,7 +59,7 @@ const sourceModule = defineBoundedContextModule<TestServices, PgTransactionalPoo
   },
   schemaSql: "",
   createServices: (pool) => ({ pool }),
-  buildApis: () => [],
+  buildApis: () => NO_API_ENTRIES,
 });
 
 function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, TestPorts> {
@@ -93,7 +96,7 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
       );
     `,
     createServices: (pool) => ({ pool }),
-    buildApis: () => [],
+    buildApis: () => NO_API_ENTRIES,
     buildSubscriptions: () => [createItemsSubscription()],
   });
 }
@@ -138,7 +141,7 @@ function createReactionTargetModule(): BcApiModule<TestServices, PgTransactional
       pool,
       orderCommands: createReactionOrderCommands(pool, ports),
     }),
-    buildApis: () => [],
+    buildApis: () => NO_API_ENTRIES,
     buildSubscriptions: (services) => [createOrderReactionSubscription(services)],
   });
 }

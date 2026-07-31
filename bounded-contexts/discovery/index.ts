@@ -30,7 +30,9 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
   retentionSweeps: discoveryRetentionSweeps,
   schemaMigrations: [...discoveryUnloggedProjectionSchemaMigrations, ...discoverySchemaMigrations],
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
-  buildApis: (services) => [buildDiscoveryApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildDiscoveryApi(services) },
+  ],
   buildMcpHandlers: (services) => createDiscoveryItemMcpHandlers(services.items),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {

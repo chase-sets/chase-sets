@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPlatformApiApp } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { createRouteInventoryRuntime } from "./route-inventory-test-support";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../../..");
@@ -35,8 +35,6 @@ type ContextManifestForOpenApi = Readonly<{
     readFreshnessRoutes?: readonly Readonly<{ routePath: string; methods?: readonly string[] }>[];
   }>[];
 }>;
-
-type RouteInventoryRuntime = Parameters<typeof buildPlatformApiApp>[0];
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
@@ -103,70 +101,8 @@ function diskContextManifests(): readonly ContextManifestForOpenApi[] {
   return manifests as readonly ContextManifestForOpenApi[];
 }
 
-function createServiceProxy(): unknown {
-  const target = () => createServiceProxy();
-
-  return new Proxy(target, {
-    get(_target, property) {
-      if (property === "then") {
-        return undefined;
-      }
-
-      return createServiceProxy();
-    },
-    has() {
-      return true;
-    },
-    apply() {
-      return createServiceProxy();
-    },
-  });
-}
-
-function createRouteInventoryRuntime(): RouteInventoryRuntime {
-  const mountedContexts = apiContextRegistry
-    .filter((entry) => entry.manifest.apiDeployables?.includes("platform-api"))
-    .map((entry) => ({
-      contextName: entry.contextName,
-      mountRole: "active" as const,
-      module: entry.module,
-      services: createServiceProxy(),
-      pool: createServiceProxy(),
-      projectionHandlerSets: [],
-    }));
-  const services = Object.fromEntries(mountedContexts.map((entry) => [entry.contextName, entry.services]));
-  const projectionGroups = mountedContexts.flatMap((entry) =>
-    (entry.module.projectionGroups ?? []).map((group) => ({
-      projectionName: group.projectionName,
-      projectionRevision: group.projectionRevision ?? 1,
-      targetContextName: entry.contextName,
-      sourceContextNames: group.sourceContextNames,
-      optionalSourceContextNames: group.optionalSourceContextNames ?? [],
-      ownedTables: group.ownedTables,
-      resetStrategy: group.resetStrategy,
-      requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
-      subscriptionRunners: [],
-      reset: async () => {},
-      getStatus: () => ({}) as never,
-      refreshStatus: async () => ({}) as never,
-      markRevisionSynced: async () => {},
-    })),
-  );
-
-  return {
-    mountedContexts,
-    mountedModules: mountedContexts.map((entry) => ({
-      module: entry.module,
-      services: entry.services,
-    })),
-    services,
-    projectionGroups,
-    subscriptionRunners: [],
-  } as RouteInventoryRuntime;
-}
-
 function readMountedPlatformApiEndpointKeys(): readonly string[] {
-  const app = buildPlatformApiApp(createRouteInventoryRuntime());
+  const app = Reflect.apply(buildPlatformApiApp, undefined, [createRouteInventoryRuntime()]);
   const routes = (app as unknown as { routes?: readonly HonoRoute[] }).routes ?? [];
   const supportedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 

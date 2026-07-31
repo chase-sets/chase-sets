@@ -33,7 +33,9 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
   ],
   retentionSweeps: checkoutRetentionSweeps,
   createServices: (pool, options) => createCheckoutServices(pool, options),
-  buildApis: (services) => [buildCheckoutApi(services)],
+  buildApis: (services) => [
+    { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildCheckoutApi(services) },
+  ],
   buildMcpHandlers: (services) => {
     const missingCheckoutMcpService = () => {
       throw new Error("Checkout MCP service dependency is not available.");
