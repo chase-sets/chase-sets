@@ -8,7 +8,9 @@ import {
   COMMENT_MARKER,
   ISSUE_READINESS_RULES,
   ISSUE_READINESS_SCHEMA_VERSION,
+  PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
   consumeIssueReadinessReceipt,
+  evaluateProspectiveIssueReadiness,
   main,
   parseIssueFormBody,
   validateIssueReadinessReceipt,
@@ -264,6 +266,22 @@ function fixtureScenario(id) {
   const scenario = fixture.scenarios.find((entry) => entry.id === id);
   if (!scenario) throw new Error(`Missing fixture ${id}`);
   return scenario;
+}
+
+function prospectiveMetadata(overrides = {}) {
+  return {
+    repository: REPOSITORY,
+    number: ISSUE_NUMBER,
+    nodeId: ISSUE_NODE_ID,
+    updatedAt: UPDATED_AT,
+    state: "open",
+    issueType: { nodeId: TYPE.nodeId, name: "Slice", isEnabled: true },
+    milestone: MILESTONE,
+    labels: LABELS,
+    parentNumber: 5496,
+    dependencies: [],
+    ...overrides,
+  };
 }
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
@@ -525,8 +543,89 @@ describe("bounded complete GitHub authority collection", () => {
   });
 });
 
+describe("prospective issue readiness", () => {
+  it("prospective body evaluation performs no GitHub operation", async () => {
+    const files = new Map([
+      ["body.md", fixture.readyBody],
+      ["metadata.json", JSON.stringify(prospectiveMetadata())],
+    ]);
+    const requests = [];
+    const logs = [];
+    const result = await main({
+      argv: ["--prospective-body", "body.md", "--prospective-metadata", "metadata.json", "--checker-sha", CHECKER_SHA],
+      client: async (...args) => {
+        requests.push(args);
+        throw new Error("prospective mode reached GitHub");
+      },
+      readTextFile: async (file) => files.get(file),
+      logger: { log: (value) => logs.push(value), error: (value) => logs.push(value) },
+      now: () => CHECKED_AT,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.schemaVersion).toBe(PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION);
+    expect(result.status).toBe("ready");
+    expect(result.claim).toBe("structural-only-prospective");
+    expect(result.provenance.source).toBe("explicit-input");
+    expect(result).not.toHaveProperty("receipt");
+    expect(requests).toEqual([]);
+    expect(logs).toHaveLength(1);
+  });
+
+  it("prospective and live readiness share one rule reducer", async () => {
+    const live = (await runScenario(fixtureScenario("ready"))).result.receipt;
+    const prospective = evaluateProspectiveIssueReadiness({
+      body: fixture.readyBody,
+      metadata: prospectiveMetadata(),
+      checkedAt: CHECKED_AT.toISOString(),
+      checkerSha: CHECKER_SHA,
+    });
+    const projectRules = (receipt) =>
+      receipt.checkedRules.map(({ id, status, reasonCodes }) => ({ id, status, reasonCodes }));
+
+    expect(projectRules(prospective)).toEqual(projectRules(live));
+    expect(prospective.reasonCodes).toEqual(live.reasonCodes);
+  });
+
+  it("ready-03 reports per-criterion diagnostics", () => {
+    const entries = [
+      "criterion without a marker",
+      "criterion. Evidence: tiny",
+      "criterion. Evidence: some generic prose",
+      "criterion. Evidence: `named-test`",
+      "criterion. Evidence: scripts/issue-readiness.test.mjs",
+      "criterion. Evidence: verifier output captured after dispatch",
+      "criterion. Evidence: workflow run 30632195990",
+      "criterion. Evidence: https://github.com/chase-sets/chase-sets/actions/runs/30632195990",
+    ];
+    const body = replaceField(
+      fixture.readyBody,
+      "Acceptance criteria",
+      entries.map((entry) => `- [ ] ${entry}`).join("\n"),
+    );
+    const result = evaluateProspectiveIssueReadiness({
+      body,
+      metadata: prospectiveMetadata(),
+      checkedAt: CHECKED_AT.toISOString(),
+      checkerSha: CHECKER_SHA,
+    });
+
+    expect(result.checkedRules.find(({ id }) => id === "ready-03-acceptance-evidence")).toEqual({
+      id: "ready-03-acceptance-evidence",
+      status: "fail",
+      reasonCodes: ["AC_EVIDENCE_NOT_DISCRIMINATING"],
+    });
+    expect(result.acceptanceDiagnostics).toEqual([
+      { index: 1, status: "fail", reasonCode: "EVIDENCE_MARKER_MISSING" },
+      { index: 2, status: "fail", reasonCode: "EVIDENCE_TOO_SHORT" },
+      { index: 3, status: "fail", reasonCode: "EVIDENCE_POINTER_UNRECOGNIZED" },
+      ...entries.slice(3).map((_, index) => ({ index: index + 4, status: "pass", reasonCode: null })),
+    ]);
+  });
+});
+
 describe("stable comment state machine", () => {
-  it("creates one stable comment and leaves it unchanged when its own write is the only new revision", async () => {
+  it("published receipt rebinds after stable comment", async () => {
     const first = await runScenario(fixtureScenario("ready"), { publish: true });
     expect(first.result.commentAction).toBe("created");
     expect(first.harness.comments()).toHaveLength(1);
@@ -551,6 +650,25 @@ describe("stable comment state machine", () => {
     ).toBe(false);
     expect(second.harness.requests.some(({ init }) => init.method === "PATCH")).toBe(false);
     expect(second.result.receipt.subject.updatedAt).toBe(existing.updated_at);
+  });
+
+  it("post-rebind movement remains stale", async () => {
+    const published = await runScenario(fixtureScenario("ready"), { publish: true });
+    const rebound = published.result.receipt;
+
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt: rebound,
+        currentRevision: {
+          repository: rebound.subject.repository,
+          number: rebound.subject.number,
+          nodeId: rebound.subject.nodeId,
+          updatedAt: "2026-07-29T19:05:00.000Z",
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toMatchObject({ decision: "reject", reasonCode: "RECEIPT_STALE" });
   });
 
   it("preserves the last verified receipt as explicitly historical when a new read is unknown", async () => {
