@@ -1,0 +1,120 @@
+{
+  "contractVersion": "consent-authorization-owner-contexts/v1",
+  "workspace": {
+    "packageName": "@chase-sets/typescript-compiler-api",
+    "packageVersion": "0.1.0",
+    "packagePath": "packages/typescript-compiler-api/package.json",
+    "packageSha256": "80f3e2148b3729abf481c879ec7c4cd19fa4a3a0961eaf0c4413eaaf1d6bf10f",
+    "wrapperPath": "packages/typescript-compiler-api/index.mjs",
+    "wrapperSha256": "469a5a1831ddc6bfda4fbe753a8ce384c63bfe6f86e4e09083b3bfc30f579c69"
+  },
+  "resolution": {
+    "aliasName": "@typescript/typescript6",
+    "aliasVersion": "6.0.2",
+    "aliasEntryPath": "node_modules/.pnpm/@typescript+typescript6@6.0.2/node_modules/@typescript/typescript6/lib/typescript.js",
+    "implementationPackageName": "typescript",
+    "implementationVersion": "6.0.3",
+    "implementationPath": "node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/typescript.js",
+    "implementationSourceSha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+    "lockfilePath": "pnpm-lock.yaml",
+    "lockfileSha256": "050587586900a36db2a13bf6ccfcfb1fb153f3f41818ffd8a1432fcac2f4e2fe",
+    "lockfileKeys": [
+      { "key": "typescript-api:", "occurrences": 1 },
+      { "key": "version: '@typescript/typescript6@6.0.2'", "occurrences": 1 },
+      { "key": "'@typescript/typescript6@6.0.2':", "occurrences": 2 },
+      { "key": "'@typescript/old': typescript@6.0.3", "occurrences": 1 },
+      { "key": "typescript@6.0.3:", "occurrences": 2 }
+    ]
+  },
+  "sourceSymbols": {
+    "functionLikeDeclarationKind": "isFunctionLikeDeclarationKind",
+    "functionLikeKind": "isFunctionLikeKind",
+    "namedEvaluationSource": "isNamedEvaluationSource",
+    "functionLikeKindSourceSha256": "c7afb580d597949211810b878960081656ab96135a02162fcf98cb823dd808c9"
+  },
+  "runtimePredicate": "ts.isFunctionLike(node) && node.body",
+  "runtimeKinds": [
+    { "kind": 263, "name": "FunctionDeclaration" },
+    { "kind": 175, "name": "MethodDeclaration" },
+    { "kind": 177, "name": "Constructor" },
+    { "kind": 178, "name": "GetAccessor" },
+    { "kind": 179, "name": "SetAccessor" },
+    { "kind": 219, "name": "FunctionExpression" },
+    { "kind": 220, "name": "ArrowFunction" }
+  ],
+  "runtimeSetHash": "6966c600ef9679f0a909941d621526ee2033479b4a195fea64da1acb3567db85",
+  "namedEvaluationContexts": [
+    { "kind": 304, "name": "PropertyAssignment" },
+    { "kind": 305, "name": "ShorthandPropertyAssignment" },
+    { "kind": 261, "name": "VariableDeclaration" },
+    { "kind": 170, "name": "Parameter" },
+    { "kind": 209, "name": "BindingElement" },
+    { "kind": 173, "name": "PropertyDeclaration" },
+    { "kind": 227, "name": "BinaryExpression" },
+    { "kind": 278, "name": "ExportAssignment" }
+  ],
+  "namedEvaluationSetHash": "a87b988c80953b7482b72fd4932f314f1be047a28afb2e79ecd73e15e08de4dd",
+  "assignmentOperators": [
+    { "kind": 64, "name": "EqualsToken" },
+    { "kind": 77, "name": "AmpersandAmpersandEqualsToken" },
+    { "kind": 76, "name": "BarBarEqualsToken" },
+    { "kind": 78, "name": "QuestionQuestionEqualsToken" }
+  ],
+  "assignmentOperatorSetHash": "53999f381dc9a977be7c44d588d292274a749b268a13581bff6eb809cc90e419",
+  "dispositions": [
+    {
+      "context": "PropertyAssignment",
+      "kind": 304,
+      "qualifier": "not a __proto__ setter",
+      "orderedOutcomes": [
+        "stable:recursively-locally-rooted-object-path",
+        "transparent:nameless-call-or-new-argument",
+        "ambiguous"
+      ]
+    },
+    {
+      "context": "ShorthandPropertyAssignment",
+      "kind": 305,
+      "qualifier": "has objectAssignmentInitializer",
+      "orderedOutcomes": ["ambiguous"]
+    },
+    {
+      "context": "VariableDeclaration",
+      "kind": 261,
+      "qualifier": "identifier name plus initializer",
+      "orderedOutcomes": ["stable:direct-local-identifier", "ambiguous"]
+    },
+    {
+      "context": "Parameter",
+      "kind": 170,
+      "qualifier": "identifier default initializer and no rest token",
+      "orderedOutcomes": ["ambiguous"]
+    },
+    {
+      "context": "BindingElement",
+      "kind": 209,
+      "qualifier": "identifier default initializer and no rest token",
+      "orderedOutcomes": ["ambiguous"]
+    },
+    {
+      "context": "PropertyDeclaration",
+      "kind": 173,
+      "qualifier": "initializer present",
+      "orderedOutcomes": ["ambiguous"]
+    },
+    {
+      "context": "BinaryExpression",
+      "kind": 227,
+      "qualifier": "identifier left and one derived assignment operator",
+      "orderedOutcomes": ["ambiguous"]
+    },
+    {
+      "context": "ExportAssignment",
+      "kind": 278,
+      "qualifier": "any expression",
+      "orderedOutcomes": ["ambiguous"]
+    }
+  ],
+  "dispositionSetHash": "be8f779b5c0a4ce6750a54efd7efe44a0aca08ee973e59d15d963f4fd75344b0",
+  "unknownDisposition": "ambiguous"
+}

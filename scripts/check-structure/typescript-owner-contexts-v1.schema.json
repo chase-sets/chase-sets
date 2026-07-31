@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TypeScript owner-context derivation artifact v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "workspace",
+    "resolution",
+    "sourceSymbols",
+    "runtimePredicate",
+    "runtimeKinds",
+    "runtimeSetHash",
+    "namedEvaluationContexts",
+    "namedEvaluationSetHash",
+    "assignmentOperators",
+    "assignmentOperatorSetHash",
+    "dispositions",
+    "dispositionSetHash",
+    "unknownDisposition"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["consent-authorization-owner-contexts/v1"]
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageName", "packageVersion", "packagePath", "packageSha256", "wrapperPath", "wrapperSha256"],
+      "properties": {
+        "packageName": { "type": "string", "minLength": 1 },
+        "packageVersion": { "type": "string", "minLength": 1 },
+        "packagePath": { "type": "string", "minLength": 1 },
+        "packageSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "wrapperPath": { "type": "string", "minLength": 1 },
+        "wrapperSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aliasName",
+        "aliasVersion",
+        "aliasEntryPath",
+        "implementationPackageName",
+        "implementationVersion",
+        "implementationPath",
+        "implementationSourceSha256",
+        "lockfilePath",
+        "lockfileSha256",
+        "lockfileKeys"
+      ],
+      "properties": {
+        "aliasName": { "type": "string", "minLength": 1 },
+        "aliasVersion": { "type": "string", "minLength": 1 },
+        "aliasEntryPath": { "type": "string", "minLength": 1 },
+        "implementationPackageName": { "type": "string", "minLength": 1 },
+        "implementationVersion": { "type": "string", "minLength": 1 },
+        "implementationPath": { "type": "string", "minLength": 1 },
+        "implementationSourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "lockfilePath": { "type": "string", "minLength": 1 },
+        "lockfileSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "lockfileKeys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "occurrences"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "occurrences": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "sourceSymbols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "functionLikeDeclarationKind",
+        "functionLikeKind",
+        "namedEvaluationSource",
+        "functionLikeKindSourceSha256"
+      ],
+      "properties": {
+        "functionLikeDeclarationKind": { "type": "string", "minLength": 1 },
+        "functionLikeKind": { "type": "string", "minLength": 1 },
+        "namedEvaluationSource": { "type": "string", "minLength": 1 },
+        "functionLikeKindSourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "runtimePredicate": { "type": "string", "minLength": 1 },
+    "runtimeKinds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name"],
+        "properties": {
+          "kind": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "runtimeSetHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "namedEvaluationContexts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name"],
+        "properties": {
+          "kind": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "namedEvaluationSetHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "assignmentOperators": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name"],
+        "properties": {
+          "kind": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "assignmentOperatorSetHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context", "kind", "qualifier", "orderedOutcomes"],
+        "properties": {
+          "context": { "type": "string", "minLength": 1 },
+          "kind": { "type": "integer", "minimum": 0 },
+          "qualifier": { "type": "string", "minLength": 1 },
+          "orderedOutcomes": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "dispositionSetHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "unknownDisposition": { "type": "string", "enum": ["ambiguous"] }
+  }
+}
