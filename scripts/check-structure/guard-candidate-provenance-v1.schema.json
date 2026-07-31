@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guard candidate provenance v1",
+  "description": "A recursively closed record of six separately sourced Git roles for one guard analysis.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environment",
+    "roles",
+    "coincidences",
+    "distinctObjectCount",
+    "reviewedHeadLands",
+    "capturedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "guard-candidate-provenance/v1" },
+    "environment": { "enum": ["plain", "pull-request-merge-ref", "merge-group"] },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyzedTree",
+        "reviewedHead",
+        "landingCandidate",
+        "baseTipAtAnalysis",
+        "eventBaseSnapshot",
+        "forkPoint"
+      ],
+      "properties": {
+        "analyzedTree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "source": { "enum": ["git-head"] }
+          }
+        },
+        "reviewedHead": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+            "source": {
+              "enum": ["git-head", "pull-request-event-head", "not-present-in-merge-group"]
+            }
+          }
+        },
+        "landingCandidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "source": { "enum": ["git-head", "pull-request-event-head", "merge-group-event-head"] }
+          }
+        },
+        "baseTipAtAnalysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "source": {
+              "enum": ["git-qualified-remote-ref", "analyzed-tree-first-parent", "merge-group-event-base"]
+            }
+          }
+        },
+        "eventBaseSnapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+            "source": {
+              "enum": ["pull-request-event-base-snapshot", "absent-outside-pull-request"]
+            }
+          }
+        },
+        "forkPoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha", "source"],
+          "properties": {
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "source": { "enum": ["git-merge-base"] }
+          }
+        }
+      }
+    },
+    "coincidences": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "additionalProperties": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "uniqueItems": true,
+        "prefixItems": [
+          {
+            "enum": [
+              "analyzedTree",
+              "reviewedHead",
+              "landingCandidate",
+              "baseTipAtAnalysis",
+              "eventBaseSnapshot",
+              "forkPoint"
+            ]
+          },
+          {
+            "enum": [
+              "analyzedTree",
+              "reviewedHead",
+              "landingCandidate",
+              "baseTipAtAnalysis",
+              "eventBaseSnapshot",
+              "forkPoint"
+            ]
+          }
+        ],
+        "items": false
+      }
+    },
+    "distinctObjectCount": { "type": "integer", "minimum": 1, "maximum": 6 },
+    "reviewedHeadLands": { "type": "boolean" },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    }
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "fixtureVersion": "guard-candidate-provenance-fixture/v1",
+  "environment": "pull-request-merge-ref",
+  "env": { "GITHUB_EVENT_NAME": "pull_request" },
+  "eventPayload": {
+    "pull_request": {
+      "head": { "sha": "73b04e050d577cea4b6320226342b28449392389" },
+      "base": { "sha": "84ddea0bfde7cf5d4280a0a1a619d246c777af35" }
+    }
+  },
+  "mutants": {
+    "staleEventBaseSha": "82879cf8d7dc1b7d58218d3cfe4f24d7930ec363"
+  },
+  "gitResponses": [
+    { "args": ["rev-parse", "--is-inside-work-tree"], "status": 0, "stdout": "true\n" },
+    {
+      "args": ["rev-parse", "HEAD"],
+      "status": 0,
+      "stdout": "191828c84f61bed49cda73cbcf3424f5ba46e0c0\n"
+    },
+    {
+      "args": ["rev-parse", "refs/remotes/origin/main"],
+      "status": 0,
+      "stdout": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d\n"
+    },
+    {
+      "args": ["rev-list", "--parents", "-n", "1", "191828c84f61bed49cda73cbcf3424f5ba46e0c0"],
+      "status": 0,
+      "stdout": "191828c84f61bed49cda73cbcf3424f5ba46e0c0 248637f04e86b3282ea92a5eee7bc269bdb6fd1d 73b04e050d577cea4b6320226342b28449392389\n"
+    },
+    {
+      "args": ["merge-base", "73b04e050d577cea4b6320226342b28449392389", "refs/remotes/origin/main"],
+      "status": 0,
+      "stdout": "84ddea0bfde7cf5d4280a0a1a619d246c777af35\n"
+    },
+    {
+      "args": ["cat-file", "-e", "191828c84f61bed49cda73cbcf3424f5ba46e0c0^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": ["cat-file", "-e", "73b04e050d577cea4b6320226342b28449392389^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": ["cat-file", "-e", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": ["cat-file", "-e", "84ddea0bfde7cf5d4280a0a1a619d246c777af35^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": ["cat-file", "-e", "82879cf8d7dc1b7d58218d3cfe4f24d7930ec363^{commit}"],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "84ddea0bfde7cf5d4280a0a1a619d246c777af35",
+        "73b04e050d577cea4b6320226342b28449392389"
+      ],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "73b04e050d577cea4b6320226342b28449392389",
+        "73b04e050d577cea4b6320226342b28449392389"
+      ],
+      "status": 0,
+      "stdout": ""
+    },
+    {
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "82879cf8d7dc1b7d58218d3cfe4f24d7930ec363",
+        "73b04e050d577cea4b6320226342b28449392389"
+      ],
+      "status": 0,
+      "stdout": ""
+    }
+  ],
+  "expected": {
+    "schemaVersion": "guard-candidate-provenance/v1",
+    "environment": "pull-request-merge-ref",
+    "roles": {
+      "analyzedTree": { "sha": "191828c84f61bed49cda73cbcf3424f5ba46e0c0", "source": "git-head" },
+      "reviewedHead": {
+        "sha": "73b04e050d577cea4b6320226342b28449392389",
+        "source": "pull-request-event-head"
+      },
+      "landingCandidate": {
+        "sha": "73b04e050d577cea4b6320226342b28449392389",
+        "source": "pull-request-event-head"
+      },
+      "baseTipAtAnalysis": {
+        "sha": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d",
+        "source": "analyzed-tree-first-parent"
+      },
+      "eventBaseSnapshot": {
+        "sha": "84ddea0bfde7cf5d4280a0a1a619d246c777af35",
+        "source": "pull-request-event-base-snapshot"
+      },
+      "forkPoint": { "sha": "84ddea0bfde7cf5d4280a0a1a619d246c777af35", "source": "git-merge-base" }
+    },
+    "coincidences": [
+      ["eventBaseSnapshot", "forkPoint"],
+      ["landingCandidate", "reviewedHead"]
+    ],
+    "distinctObjectCount": 4,
+    "reviewedHeadLands": true
+  }
+}
