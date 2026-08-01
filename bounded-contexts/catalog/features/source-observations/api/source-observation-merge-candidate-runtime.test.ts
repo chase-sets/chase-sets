@@ -95,7 +95,7 @@ function createHarness() {
     observationRow("obs_tcgdex_054_refresh", "sv2-054-refresh"),
   ];
   const db: PgQueryable = {
-    query: async <Row>(text) => {
+    query: async <Row>(text: string) => {
       const rows = text.includes("FROM catalog_source_observations") ? observations : [acceptedScopeMapping()];
       return { rows: rows as Row[], rowCount: rows.length };
     },
