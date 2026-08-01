@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import { EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES } from "@chase-sets/event-core/test-support";
 import * as observability from "@chase-sets/observability";
 import {
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
@@ -75,6 +76,26 @@ describe("postgres event store", () => {
     );
 
     expect(calls).toEqual([]);
+  });
+
+  it("issue-6301-postgres-readAll-comparator enforces every shared boundary before querying Postgres", async () => {
+    for (const limit of EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES.accepted) {
+      const { pool, calls } = createReadPool();
+      const store = createPostgresEventStore({ pool });
+
+      await expect(store.readAll({ limit })).resolves.toEqual([]);
+      expect(calls).not.toEqual([]);
+    }
+
+    for (const limit of EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES.rejected) {
+      const { pool, calls } = createReadPool();
+      const store = createPostgresEventStore({ pool });
+
+      await expect(store.readAll({ limit })).rejects.toThrow(
+        "Event store read limit must be an integer between 1 and 500.",
+      );
+      expect(calls).toEqual([]);
+    }
   });
 
   it("rejects an oversized event payload with a typed error before opening a transaction", async () => {
