@@ -42,6 +42,11 @@ export type TransportEventFixtureOverrides = Readonly<
 
 type PublicEventType = keyof ChaseSetsEventPayloads & string;
 
+export const EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES = {
+  accepted: [1, EVENT_STORE_READ_PAGE_SIZE_MAX],
+  rejected: [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 501],
+} as const;
+
 /**
  * Builds the transport envelope used by projection and subscription tests.
  *
@@ -270,6 +275,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       return (streams.get(input.streamId) ?? []).filter((event) => event.streamVersion >= fromVersion).slice(0, limit);
     },
     readAll: async (input?: ReadAllInput) => {
+      const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_MAX);
       const after = BigInt(input?.afterGlobalPosition ?? "0");
       return allEvents
         .filter((event) => BigInt(event.globalPosition) > after)
@@ -279,7 +285,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
           (event) =>
             !input?.streamPrefixes?.length || input.streamPrefixes.some((prefix) => event.streamId.startsWith(prefix)),
         )
-        .slice(0, input?.limit ?? 500);
+        .slice(0, limit);
     },
   };
 

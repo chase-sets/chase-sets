@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "./event-store";
 import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
-import { assertBoundedStreamReadContract, createInMemoryEventStore } from "./test-support";
+import {
+  assertBoundedStreamReadContract,
+  createInMemoryEventStore,
+  EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES,
+} from "./test-support";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -113,6 +117,71 @@ describe("shared in-memory event store", () => {
     const fakeLimitBypassMutant: EventStore["readStream"] = async (input) =>
       (streams.get(input.streamId) ?? []).slice(0, input.limit);
     await expect(assertPageLimit(fakeLimitBypassMutant, EVENT_STORE_READ_PAGE_SIZE_MAX + 1)).rejects.toThrow();
+  });
+
+  it("issue-6301-acceptance-control keeps readAll page limits aligned with PostgreSQL and filters before limiting", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const otherTenantContext = { ...context, tenantId: "tnt_other" as never };
+
+    await eventStore.appendToStream({
+      streamId: "test.match-tenant",
+      expectedVersion: "no_stream",
+      context: otherTenantContext,
+      events: [event("test.included")],
+    });
+    await eventStore.appendToStream({
+      streamId: "test.match-event-type",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.excluded")],
+    });
+    await eventStore.appendToStream({
+      streamId: "test.other-prefix",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.included")],
+    });
+    await eventStore.appendToStream({
+      streamId: "test.match-result",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.included")],
+    });
+
+    for (const limit of EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES.accepted) {
+      await expect(
+        eventStore.readAll({
+          afterGlobalPosition: "0" as never,
+          tenantId: context.tenantId,
+          eventTypes: ["test.included"],
+          streamPrefixes: ["test.match"],
+          limit,
+        }),
+      ).resolves.toMatchObject([{ globalPosition: "4", streamId: "test.match-result" }]);
+    }
+
+    for (const limit of EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES.rejected) {
+      await expect(eventStore.readAll({ limit })).rejects.toThrow(
+        "Event store read limit must be an integer between 1 and 500.",
+      );
+    }
+  });
+
+  it("issue-6301-501-limit-mutation-control rejects an unchecked readAll slice", async () => {
+    const fakeUncheckedSliceMutant: EventStore["readAll"] = async (input) => [].slice(0, input?.limit);
+
+    async function assertPageLimit(readAll: EventStore["readAll"]): Promise<void> {
+      let rejected = false;
+      try {
+        await readAll({ limit: 501 });
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
+    }
+
+    await expect(assertPageLimit(fakeUncheckedSliceMutant)).rejects.toThrow();
+    await expect(assertPageLimit(createInMemoryEventStore().eventStore.readAll)).resolves.toBeUndefined();
   });
 
   it("is idempotent for a repeated event id and rejects changed event data", async () => {
