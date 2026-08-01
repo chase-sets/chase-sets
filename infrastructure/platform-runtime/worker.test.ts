@@ -1721,6 +1721,111 @@ describe("worker runner loop", () => {
     expect(sourceHeadReads).toBe(2);
   });
 
+  it("routes a claimed blocked-stream retry through the exact runner under a renewed projection-group lease", async () => {
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    const streamId = "catalog.item-cat_blocked";
+    const operation = createClaimedOperationRecord({
+      operationKind: "retry-blocked-stream",
+      projectionKey,
+      streamId,
+    });
+    const routeCalls: Array<Readonly<{ streamId: string; context?: ProjectionRunContext }>> = [];
+    const acquiredLeases: Array<Readonly<{ leaseName: string; metadata?: Record<string, unknown> }>> = [];
+    const renewedLeases: string[] = [];
+    let signalRenewedLease: (() => void) | undefined;
+    const renewedLease = new Promise<void>((resolve) => {
+      signalRenewedLease = resolve;
+    });
+    const runOnce = vi.fn(async () => ({ processed: 0, lastGlobalPosition: "0" as never }));
+    const reset = vi.fn(async () => undefined);
+    const retryBlockedStream = vi.fn(async (claimedStreamId: string, context?: ProjectionRunContext) => {
+      await renewedLease;
+      routeCalls.push({ streamId: claimedStreamId, context });
+      return {
+        projectionKey,
+        streamId: claimedStreamId,
+        state: "resolved" as const,
+        inspectedEvents: 5,
+        appliedEvents: 5,
+        errorMessage: null,
+      };
+    });
+    const decoyRetry = vi.fn(async () => {
+      throw new Error("decoy runner must not receive the claimed operation");
+    });
+    const targetRunner = {
+      targetContextName: "inventory",
+      projectionName: "inventory-catalog-item-projection",
+      checkpointKey: projectionKey,
+      reset,
+      runOnce,
+      retryBlockedStream,
+    };
+    const decoyRunner = {
+      ...targetRunner,
+      checkpointKey: "inventory-catalog-item-projection:marketplace:v1",
+      retryBlockedStream: decoyRetry,
+    };
+    const group = createProjectionGroup({ subscriptionRunners: [decoyRunner, targetRunner] });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquiredLeases.push({ leaseName: input.leaseName, metadata: input.metadata });
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: "projection-group-fence-7",
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async (lease) => {
+        renewedLeases.push(lease.leaseName);
+        signalRenewedLease?.();
+        return true;
+      },
+      claimProjectionOperation: async () => operation,
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => operation,
+      completeProjectionOperation: async () => true,
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [decoyRunner, targetRunner],
+      } as never,
+      { controlPlane, leaseRenewIntervalMs: 1, cancelPollIntervalMs: 50 },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).resolves.toMatchObject({ processed: 1 });
+
+    expect(acquiredLeases).toContainEqual({
+      leaseName: "projection-group:inventory.inventory-catalog-item-projection",
+      metadata: {
+        operationId: operation.operationId,
+        operationKind: "retry-blocked-stream",
+        projectionKey,
+        streamId,
+      },
+    });
+    expect(renewedLeases).toContain("projection-group:inventory.inventory-catalog-item-projection");
+    expect(retryBlockedStream).toHaveBeenCalledTimes(1);
+    expect(routeCalls).toEqual([
+      {
+        streamId,
+        context: expect.objectContaining({
+          ownerId: "worker-a",
+          fencingToken: "projection-group-fence-7",
+          operationId: operation.operationId,
+        }),
+      },
+    ]);
+    expect(decoyRetry).not.toHaveBeenCalled();
+    expect(runOnce).not.toHaveBeenCalled();
+    expect(reset).not.toHaveBeenCalled();
+  });
+
   it("cancels a running projection operation when the operation state requests cancellation", async () => {
     const completedResults: Array<Record<string, unknown> | undefined> = [];
     const subscriptionRunner = {
