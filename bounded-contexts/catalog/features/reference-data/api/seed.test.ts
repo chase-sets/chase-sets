@@ -2,7 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
 
-const retryLocalProjectionBlockedStream = vi.hoisted(() => vi.fn(async () => ({ state: "already-resolved" as const })));
+const retryLocalProjectionBlockedStream = vi.hoisted(() =>
+  vi.fn<typeof import("@chase-sets/bounded-context-runtime").retryLocalProjectionBlockedStream>(
+    async (_contextName, _pool, _projector, streamId) => ({
+      projectionKey: "catalog-reference-data-projection:catalog:v1",
+      streamId,
+      state: "already-resolved" as const,
+      inspectedEvents: 0,
+      appliedEvents: 0,
+      errorMessage: null,
+    }),
+  ),
+);
 
 vi.mock("@chase-sets/bounded-context-runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@chase-sets/bounded-context-runtime")>()),
@@ -12,7 +23,9 @@ vi.mock("@chase-sets/bounded-context-runtime", async (importOriginal) => ({
 describe("reference data seed", () => {
   beforeEach(() => {
     retryLocalProjectionBlockedStream.mockReset();
-    retryLocalProjectionBlockedStream.mockResolvedValue({ state: "already-resolved" as const });
+    retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) =>
+      projectionRetryResult(streamId, "already-resolved"),
+    );
   });
 
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -330,7 +343,7 @@ describe("reference data seed", () => {
       const harness = createReferenceSeedHarness();
       retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) => {
         harness.steps.push(`retry:${streamId}`);
-        return { state };
+        return projectionRetryResult(streamId, state);
       });
 
       const ids = await seedMagicReferenceData(harness.services as never);
@@ -352,8 +365,8 @@ describe("reference data seed", () => {
     retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) => {
       harness.steps.push(`retry:${streamId}`);
       return streamId === blockedStreamId
-        ? { state: "still-blocked" as const, errorMessage: "projection remains blocked" }
-        : { state: "already-resolved" as const };
+        ? projectionRetryResult(streamId, "still-blocked", "projection remains blocked")
+        : projectionRetryResult(streamId, "already-resolved");
     });
 
     await expect(seedMagicReferenceData(harness.services as never)).rejects.toThrow(
@@ -366,6 +379,21 @@ describe("reference data seed", () => {
     expect(harness.commands).toEqual([]);
   });
 });
+
+function projectionRetryResult(
+  streamId: string,
+  state: "already-resolved" | "resolved" | "still-blocked",
+  errorMessage: string | null = null,
+) {
+  return {
+    projectionKey: "catalog-reference-data-projection:catalog:v1",
+    streamId,
+    state,
+    inspectedEvents: state === "already-resolved" ? 0 : 1,
+    appliedEvents: state === "resolved" ? 1 : 0,
+    errorMessage,
+  };
+}
 
 function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?: ReadonlySet<string> }> = {}) {
   const existingReferenceTypeKeys =
