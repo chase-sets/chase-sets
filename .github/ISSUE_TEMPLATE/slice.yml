@@ -91,7 +91,7 @@ body:
     id: acceptance
     attributes:
       label: Acceptance criteria
-      description: "One Markdown list item per criterion, each ending `Evidence: ...` with a discriminating test name, command, verifier, screenshot, probe, or ops check. External-provider contracts name the provider test-mode surface."
+      description: "One Markdown list item per criterion, each ending `Evidence: ...` with a discriminating test name, command, verifier, screenshot, probe, or ops check. Aim for four to six acceptance criteria; if the brief needs more, split the slice. External-provider contracts name the provider test-mode surface; no check here rejects a brief for its criterion count."
     validations:
       required: true
   - type: textarea
