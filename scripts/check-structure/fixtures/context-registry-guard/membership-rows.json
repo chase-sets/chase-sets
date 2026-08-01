@@ -1,0 +1,43 @@
+[
+  {
+    "id": "api-apiDeployables",
+    "manifest": { "apiDeployables": ["platform-api"] },
+    "present": ["platform-api"]
+  },
+  {
+    "id": "worker-runtimeDeployables",
+    "manifest": { "runtimeDeployables": ["platform-worker"] },
+    "present": ["platform-worker"]
+  },
+  {
+    "id": "api-sourceRuntimeDeployables",
+    "manifest": { "sourceRuntimeDeployables": ["platform-api"] },
+    "present": ["platform-api"]
+  },
+  {
+    "id": "worker-sourceRuntimeDeployables",
+    "manifest": { "sourceRuntimeDeployables": ["platform-worker"] },
+    "present": ["platform-worker"]
+  },
+  {
+    "id": "api-sourceRuntimeProfiles",
+    "manifest": { "sourceRuntimeProfiles": ["landing"] },
+    "present": ["platform-api", "platform-worker"]
+  },
+  {
+    "id": "worker-sourceRuntimeProfiles",
+    "manifest": { "sourceRuntimeProfiles": ["landing"] },
+    "present": ["platform-api", "platform-worker"]
+  },
+  {
+    "id": "web-deployableContributions",
+    "manifest": { "deployableContributions": [{ "deployable": "admin-web" }] },
+    "present": ["admin-web"]
+  },
+  {
+    "id": "web-shellContributions",
+    "manifest": { "shellContributions": [{ "deployable": "marketplace-web" }] },
+    "present": ["marketplace-web"]
+  },
+  { "id": "no-matching-arm", "manifest": {}, "present": [] }
+]

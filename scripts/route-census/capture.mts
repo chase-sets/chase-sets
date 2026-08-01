@@ -18,6 +18,7 @@ import {
   type RouteCapture,
 } from "./model.mts";
 import { isPathInside, loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
+import { resolveApiContextRegistrySource } from "./registry-source.mts";
 
 type PublicRoute = Readonly<{
   basePath: string;
@@ -223,14 +224,7 @@ export async function evaluateTargetRoot(targetRootInput: string, expectedHead: 
   process.env.NODE_ENV = "test";
   process.env.TSX_TSCONFIG_PATH = path.join(targetRoot, "tsconfig.json");
 
-  const registryPath = path.join(
-    targetRoot,
-    "deployables",
-    "platform-api",
-    "src",
-    "generated",
-    "api-context-registry.ts",
-  );
+  const registryPath = resolveApiContextRegistrySource(targetRoot).absolutePath;
   const apiMountsPath = path.join(targetRoot, "infrastructure", "bounded-context-runtime", "api-mounts.ts");
   const appPath = path.join(targetRoot, "deployables", "platform-api", "src", "app.ts");
   const authority = await loadTargetHonoAuthority(targetRoot);
@@ -240,7 +234,7 @@ export async function evaluateTargetRoot(targetRootInput: string, expectedHead: 
     import(pathToFileURL(appPath).href),
   ]);
   const registry = registryNamespace.apiContextRegistry as unknown;
-  if (!Array.isArray(registry)) fail("E_PROVENANCE", "Target generated API registry is invalid.");
+  if (!Array.isArray(registry)) fail("E_PROVENANCE", "Target API context registry is invalid.");
   if (typeof apiMountsNamespace.resolveModuleApiMounts !== "function") {
     fail("E_PROVENANCE", "Target api-mounts module lacks resolveModuleApiMounts.");
   }

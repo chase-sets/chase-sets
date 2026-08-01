@@ -1,4 +1,4 @@
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const activeMountRole: "active" = "active";
 

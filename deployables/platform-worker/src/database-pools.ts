@@ -10,7 +10,7 @@ import {
   getPlatformWorkerContextsForRuntimeProfile,
   type PlatformWorkerConfig,
 } from "./config";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 
 const PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS = 15_000;
 

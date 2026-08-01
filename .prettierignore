@@ -19,8 +19,6 @@ test-results/
 **/.terraform/
 pnpm-lock.yaml
 tsconfig.base.json
-deployables/*/src/generated/*-context-registry.ts
-deployables/*/app/generated/*-context-registry.ts
 **/*.md
 **/*.svg
 infrastructure/helm/*/templates/*.yaml

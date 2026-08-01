@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { RISK_POLICY_V1, classifyRisk } from "./risk-policy-v1.mjs";
+import { RISK_POLICY_V1, classifyIntegrationRisk, classifyRisk } from "./risk-policy-v1.mjs";
 
 const highRiskCases = [
   ["money movement", "bounded-contexts/payments/features/refunds/domain/refund.ts", "money-movement"],
@@ -31,6 +31,41 @@ const highRiskCases = [
 ];
 
 describe("risk-policy/v1", () => {
+  it.each([
+    [
+      "deployables/platform-api/src/generated/api-context-registry.ts",
+      "deployables/platform-api/src/context-registry.ts",
+    ],
+    [
+      "deployables/platform-worker/src/generated/worker-context-registry.ts",
+      "deployables/platform-worker/src/context-registry.ts",
+    ],
+    ["deployables/admin-web/app/generated/web-context-registry.ts", "deployables/admin-web/app/context-registry.ts"],
+    [
+      "deployables/marketplace/app/generated/web-context-registry.ts",
+      "deployables/marketplace/app/context-registry.ts",
+    ],
+    ["deployables/public-web/app/generated/web-context-registry.ts", "deployables/public-web/app/context-registry.ts"],
+  ])("preserves context-registry risk after moving %s", (legacyPath, movedPath) => {
+    const classify = (filename) => classifyRisk({ changedFiles: [{ filename, status: "modified" }] });
+    const legacy = classify(legacyPath);
+    const moved = classify(movedPath);
+    const withoutGeneratedCoupling = (categories) => categories.filter((category) => category !== "generated-coupling");
+
+    expect(withoutGeneratedCoupling(legacy.categories)).toEqual(moved.categories);
+    expect(moved).toMatchObject({
+      classification: "high",
+      categories: expect.arrayContaining(["cross-context-contract"]),
+      reasons: expect.arrayContaining(["Cross-context subscription or runtime composition changed"]),
+    });
+    expect(moved.categories).not.toContain("generated-coupling");
+    expect(moved.categories).not.toContain("integration-surface");
+    expect(classifyIntegrationRisk({ changedFiles: [{ filename: movedPath, status: "modified" }] })).toEqual({
+      required: true,
+      reasons: ["Cross-context subscription or runtime composition changed"],
+    });
+  });
+
   it("discovers executable money-provider territory by dependency and operation shape", async () => {
     const infrastructureRoot = new URL("../../infrastructure/", import.meta.url);
     const entries = await readdir(infrastructureRoot, { withFileTypes: true });

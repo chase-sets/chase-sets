@@ -104,7 +104,7 @@ import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
 import {

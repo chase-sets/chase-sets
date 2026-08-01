@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { validateArtifactObject } from "./artifact.mts";
 import { sha256 } from "./target-authority.mts";
 import { clone, makeArtifact, rehashArtifact, rehashCapture } from "./test-support.mjs";
+import { legacyApiContextRegistrySourcePath } from "./registry-source.mts";
 
 let valid;
 let context;
@@ -34,6 +35,24 @@ describe("complete recursively closed v4 artifact", () => {
     await expect(validateArtifactObject(valid, expectations, unitValidation)).resolves.toEqual(valid);
     const { artifact: zeroRoute } = await makeArtifact({ zeroRouteMount: true });
     await expect(validateArtifactObject(zeroRoute, expectations, unitValidation)).resolves.toEqual(zeroRoute);
+  });
+
+  it("rejects the legacy registry path on the candidate side while accepting it on the base side", async () => {
+    const candidateLegacy = clone(valid);
+    candidateLegacy.candidate.provenance.sourceFiles = clone(candidateLegacy.candidate.provenance.sourceFiles);
+    candidateLegacy.candidate.provenance.sourceFiles[0].relativePath = legacyApiContextRegistrySourcePath;
+    rehashCapture(candidateLegacy.candidate);
+    rehashArtifact(candidateLegacy);
+    await expect(validateArtifactObject(candidateLegacy, expectations, unitValidation)).rejects.toThrow(
+      /candidate.*moved API context registry path/,
+    );
+
+    const baseLegacy = clone(valid);
+    baseLegacy.base.provenance.sourceFiles = clone(baseLegacy.base.provenance.sourceFiles);
+    baseLegacy.base.provenance.sourceFiles[0].relativePath = legacyApiContextRegistrySourcePath;
+    rehashCapture(baseLegacy.base);
+    rehashArtifact(baseLegacy);
+    await expect(validateArtifactObject(baseLegacy, expectations, unitValidation)).resolves.toEqual(baseLegacy);
   });
 
   it.each([

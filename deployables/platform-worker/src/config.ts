@@ -26,7 +26,7 @@ import {
   isPlatformWorkerRuntimeProfile,
   type PlatformWorkerRuntimeProfile,
 } from "@chase-sets/platform-runtime/runtime-profiles";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 

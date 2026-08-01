@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 
 export function resolveMarketplaceRouteConfigRecords() {
   return resolveWebHostRouteConfigRecords(webContextRegistry, "marketplace-web");

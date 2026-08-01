@@ -20,7 +20,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { runRepresentativeCommerceState } from "../src/representative-commerce-state";
 import {
   createPlatformApiBootstrapTestHarness,

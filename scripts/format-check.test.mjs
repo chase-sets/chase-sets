@@ -161,15 +161,19 @@ describe("format-check soundness corpus", () => {
     expect(narrowed).toBe(expectedStatus);
   });
 
-  it("filters a real ignored path before invoking Prettier", async () => {
+  it("keeps a hand-authored context registry in the formatter surface", async () => {
     const root = createFixtureRoot();
-    writeFixture(root, "deployables/example/src/generated/api-context-registry.ts", "export const value={bad:true}\n");
+    writeFixture(root, "deployables/example/src/context-registry.ts", "export const value={bad:true}\n");
     const filtered = await filterCheckableFiles({
       repoRoot: root,
-      files: ["deployables/example/src/generated/api-context-registry.ts"],
+      files: ["deployables/example/src/context-registry.ts"],
     });
 
-    expect(filtered).toEqual({ files: [], deletedCount: 0, ignoredCount: 1 });
+    expect(filtered).toEqual({
+      files: ["deployables/example/src/context-registry.ts"],
+      deletedCount: 0,
+      ignoredCount: 0,
+    });
   });
 
   it("treats a deletion-only changed set as a successful filtered run", async () => {

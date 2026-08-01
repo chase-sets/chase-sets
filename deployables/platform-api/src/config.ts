@@ -61,7 +61,7 @@ import type {
   ReadConsistencyExactDependencyMode,
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 

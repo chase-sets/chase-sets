@@ -12,6 +12,7 @@ import {
   withPrimitiveDigest,
 } from "./model.mts";
 import { loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
+import { resolveApiContextRegistrySource } from "./registry-source.mts";
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -24,8 +25,9 @@ export async function syntheticContext() {
   const root = await realpath(repoRoot);
   const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const authority = await loadTargetHonoAuthority(root);
+  const registrySource = resolveApiContextRegistrySource(root);
   const sourceFiles = await Promise.all([
-    evidence("deployables/platform-api/src/generated/api-context-registry.ts"),
+    evidence(registrySource.relativePath),
     evidence("infrastructure/bounded-context-runtime/api-mounts.ts"),
     evidence("deployables/platform-api/src/app.ts"),
     evidence("pnpm-lock.yaml"),

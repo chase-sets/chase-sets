@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateArtifactObject } from "./artifact.mts";
-import { clone, makeArtifact } from "./test-support.mjs";
+import { clone, makeArtifact, rehashArtifact, rehashCapture } from "./test-support.mjs";
+import { legacyApiContextRegistrySourcePath } from "./registry-source.mts";
 
 describe("exact head/root provenance", () => {
   it("accepts live Windows Git/root canonicalization without requiring a clean synthetic pair", async () => {
@@ -80,5 +81,21 @@ describe("exact head/root provenance", () => {
         { verifyLiveProvenance: false, requireCleanTrees: false, allowSameRootForTests: true },
       ),
     ).rejects.toMatchObject({ code: "E_ARTIFACT_INVALID" });
+  });
+
+  it("rejects a recorded registry path that is not the path resolving under its own root", async () => {
+    const { artifact, context } = await makeArtifact();
+    const mutant = clone(artifact);
+    mutant.base.provenance.sourceFiles = clone(mutant.base.provenance.sourceFiles);
+    mutant.base.provenance.sourceFiles[0].relativePath = legacyApiContextRegistrySourcePath;
+    rehashCapture(mutant.base);
+    rehashArtifact(mutant);
+    await expect(
+      validateArtifactObject(
+        mutant,
+        { baseHead: context.head, candidateHead: context.head, harnessHead: context.head },
+        { verifyLiveProvenance: true, requireCleanTrees: false, allowSameRootForTests: true },
+      ),
+    ).rejects.toMatchObject({ code: "E_PROVENANCE" });
   });
 });

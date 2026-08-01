@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { webContextRegistry } from "../generated/web-context-registry";
+import { webContextRegistry } from "../context-registry";
 
 type RouteContribution = Readonly<{
   routeId: string;

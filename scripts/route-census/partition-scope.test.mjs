@@ -16,6 +16,7 @@ const expectedProductionModules = [
   "scripts/route-census/errors.mts",
   "scripts/route-census/evaluate-child.mts",
   "scripts/route-census/model.mts",
+  "scripts/route-census/registry-source.mts",
   "scripts/route-census/run.mts",
   "scripts/route-census/runner.mts",
   "scripts/route-census/strict-json.mts",

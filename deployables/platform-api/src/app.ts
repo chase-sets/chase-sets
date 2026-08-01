@@ -170,7 +170,7 @@ import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 
 export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;

@@ -13,7 +13,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 import { resetMultiContextTestSchemas } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it } from "vitest";
 import { createPlatformApiHost } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import {
   createPlatformApiBootstrapTestHarness,
   listingPhotoStorage,

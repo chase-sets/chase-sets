@@ -23,7 +23,7 @@ Exit codes are closed:
 
 Each evaluation child runs with the target root as `cwd`, its `tsconfig.json` in `TSX_TSCONFIG_PATH`, `NODE_ENV=test`, and the app call `buildPlatformApiApp(runtime, { runtimeProfile: "public" })`. The two profile facts remain separate artifact fields: `nodeEnvironment:"test"` and `appRuntimeProfile:"public"`.
 
-All absolute Windows module paths are converted with `pathToFileURL`. The generated API registry, `infrastructure/bounded-context-runtime/api-mounts.ts`, and `deployables/platform-api/src/app.ts` are imported from the evaluated tree. A bare-specifier probe and effective-tsconfig evidence must realpath below that same root.
+All absolute Windows module paths are converted with `pathToFileURL`. The hand-authored API registry, `infrastructure/bounded-context-runtime/api-mounts.ts`, and `deployables/platform-api/src/app.ts` are imported from the evaluated tree. A bare-specifier probe and effective-tsconfig evidence must realpath below that same root.
 
 The evaluator obtains `mergePath`, `checkOptionalParameter`, `splitRoutingPath`, and `getPattern` from one target package-export namespace for `hono/utils/url`. The module realpath, package version, module SHA-256, and four-member helper surface are retained and revalidated. No host-tree helper or recalled Hono grammar participates.
 

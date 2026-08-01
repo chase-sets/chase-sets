@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,50 +37,6 @@ const ts7CompatibleCompilerOptions = {
   noEmit: true,
 };
 const appBuildSemanticCompilerOptions = ["verbatimModuleSyntax"];
-
-function buildLegacyPlatformRuntimeRegistryPaths(rootDir) {
-  return [
-    path.join(rootDir, "infrastructure", "platform-runtime", "api-context-registry.generated.ts"),
-    path.join(rootDir, "infrastructure", "platform-runtime", "web-context-registry.generated.ts"),
-  ];
-}
-
-function buildGeneratedRegistryOutputs(rootDir) {
-  return [
-    {
-      kind: "api",
-      hostName: "platform-api",
-      outputPath: path.join(rootDir, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
-    },
-    {
-      kind: "worker",
-      hostName: "platform-worker",
-      outputPath: path.join(
-        rootDir,
-        "deployables",
-        "platform-worker",
-        "src",
-        "generated",
-        "worker-context-registry.ts",
-      ),
-    },
-    {
-      kind: "web",
-      hostName: "admin-web",
-      outputPath: path.join(rootDir, "deployables", "admin-web", "app", "generated", "web-context-registry.ts"),
-    },
-    {
-      kind: "web",
-      hostName: "marketplace-web",
-      outputPath: path.join(rootDir, "deployables", "marketplace", "app", "generated", "web-context-registry.ts"),
-    },
-    {
-      kind: "web",
-      hostName: "public-web",
-      outputPath: path.join(rootDir, "deployables", "public-web", "app", "generated", "web-context-registry.ts"),
-    },
-  ];
-}
 
 function sortObjectKeys(value) {
   return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
@@ -516,97 +472,6 @@ function toIdentifier(value) {
   return normalized.length > 0 ? normalized : "context";
 }
 
-function buildApiRegistry(outputPath, hostName, contexts) {
-  const activeContexts = contexts.filter(
-    (context) =>
-      context.manifest.apiDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeProfiles?.length > 0,
-  );
-  const contextImports = activeContexts.map((context) => {
-    const identifier = toIdentifier(context.contextName);
-    return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
-  });
-  const entries = activeContexts.map((context) => {
-    const identifier = toIdentifier(context.contextName);
-    return `  {
-    contextName: "${context.contextName}",
-    packageName: "${context.packageName}",
-    manifest: ${identifier}Manifest,
-    module: ${identifier}Module,
-  },`;
-  });
-
-  return `${generatedRegistryComment}
-${contextImports.join("\n")}
-
-export const apiContextRegistry = [
-${entries.join("\n")}
-] as const;
-`;
-}
-
-function buildWorkerRegistry(outputPath, hostName, contexts) {
-  const activeContexts = contexts.filter(
-    (context) =>
-      context.manifest.runtimeDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeProfiles?.length > 0,
-  );
-  const contextImports = activeContexts.map((context) => {
-    const identifier = toIdentifier(context.contextName);
-    return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
-  });
-  const entries = activeContexts.map((context) => {
-    const identifier = toIdentifier(context.contextName);
-    return `  {
-    contextName: "${context.contextName}",
-    packageName: "${context.packageName}",
-    manifest: ${identifier}Manifest,
-    module: ${identifier}Module,
-  },`;
-  });
-
-  return `${generatedRegistryComment}
-${contextImports.join("\n")}
-
-export const workerContextRegistry = [
-${entries.join("\n")}
-] as const;
-`;
-}
-
-function contributesToWebHost(context, hostName) {
-  return (
-    context.manifest.deployableContributions?.some((contribution) => contribution.deployable === hostName) ||
-    context.manifest.shellContributions?.some((contribution) => contribution.deployable === hostName)
-  );
-}
-
-function buildWebRegistry(outputPath, hostName, contexts) {
-  const activeContexts = contexts.filter((context) => contributesToWebHost(context, hostName));
-  const manifestImports = activeContexts.map(
-    (context) => `import ${toIdentifier(context.contextName)}Manifest from "${context.packageName}/context";`,
-  );
-  const entries = activeContexts.map(
-    (context) => `  {
-    contextName: "${context.contextName}",
-    packageName: "${context.packageName}",
-    manifest: ${toIdentifier(context.contextName)}Manifest as WebContextRegistry[number]["manifest"],
-  },`,
-  );
-
-  return `${generatedRegistryComment}
-import type { WebContextRegistry } from "@chase-sets/platform-runtime/web";
-
-${manifestImports.join("\n")}
-
-export const webContextRegistry = [
-${entries.join("\n")}
-] as const satisfies WebContextRegistry;
-`;
-}
-
 function writeFileEnsured(filePath, content) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, content, "utf8");
@@ -657,36 +522,6 @@ function syncTsconfigBase(workspaces, options) {
   }
 
   writeFileSync(tsconfigBasePath, content, "utf8");
-}
-
-function syncDeployableRegistries(workspaces, options) {
-  const { check, drift, rootDir } = options;
-  const contexts = listBoundedContexts(workspaces);
-
-  for (const output of buildGeneratedRegistryOutputs(rootDir)) {
-    const content =
-      output.kind === "api"
-        ? buildApiRegistry(output.outputPath, output.hostName, contexts)
-        : output.kind === "worker"
-          ? buildWorkerRegistry(output.outputPath, output.hostName, contexts)
-          : buildWebRegistry(output.outputPath, output.hostName, contexts);
-
-    if (check) {
-      checkExpectedFile(output.outputPath, content, drift, rootDir);
-    } else {
-      writeFileEnsured(output.outputPath, content);
-    }
-  }
-
-  for (const legacyPath of buildLegacyPlatformRuntimeRegistryPaths(rootDir)) {
-    if (existsSync(legacyPath)) {
-      if (check) {
-        drift.push(`${normalizePath(path.relative(rootDir, legacyPath))} should be deleted`);
-      } else {
-        rmSync(legacyPath);
-      }
-    }
-  }
 }
 
 function syncLocaleCatalogs(workspaces, options) {
@@ -758,7 +593,6 @@ export function syncWorkspaceMetadata(options = {}) {
     execGit: options.execGit,
   });
   syncTsconfigBase(workspaces, { check, drift, rootDir });
-  syncDeployableRegistries(workspaces, { check, drift, rootDir });
   syncEventCorePostgresSchema({ check, drift, rootDir });
 
   if (drift.length > 0) {

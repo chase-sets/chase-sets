@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import type { BcReadFreshnessRoute } from "@chase-sets/bounded-context-module";
 import { projectionFreshnessWakeEnqueueMetricRecord } from "@chase-sets/observability";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { CRITICAL_READ_CONSISTENCY_ROUTE_TUNING } from "../src/config";
 
 /**

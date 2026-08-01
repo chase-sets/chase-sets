@@ -21,6 +21,11 @@ import {
   type RouteCapture,
 } from "./model.mts";
 import { isPathInside, loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
+import {
+  apiContextRegistrySourcePaths,
+  movedApiContextRegistrySourcePath,
+  resolveApiContextRegistrySource,
+} from "./registry-source.mts";
 
 const execFile = promisify(execFileCallback);
 const MAX_STRING = 65_536;
@@ -59,6 +64,8 @@ type ValidationOptions = Readonly<{
   allowSameRootForTests?: boolean;
   allowExpectationMismatchForParity?: boolean;
 }>;
+
+type CaptureSide = "base" | "candidate";
 
 function invalid(message: string): never {
   fail("E_ARTIFACT_INVALID", message);
@@ -282,6 +289,7 @@ async function validateLiveFile(root: string, evidence: FileEvidence, pathName: 
 async function validateProvenance(
   value: unknown,
   pathName: string,
+  side: CaptureSide,
   options: ValidationOptions,
 ): Promise<{ provenance: RouteCapture["provenance"]; authority: Awaited<ReturnType<typeof loadTargetHonoAuthority>> }> {
   const object = record(value, pathName, [
@@ -328,8 +336,15 @@ async function validateProvenance(
   const sourceFiles = array(object.sourceFiles, `${pathName}.sourceFiles`).map((item, index) =>
     validateFileEvidence(item, `${pathName}.sourceFiles[${index}]`),
   );
+  const recordedRegistryPath = sourceFiles[0]?.relativePath;
+  if (!apiContextRegistrySourcePaths.includes(recordedRegistryPath as (typeof apiContextRegistrySourcePaths)[number])) {
+    invalid(`${pathName}.sourceFiles[0] is not an allowed API context registry path.`);
+  }
+  if (side === "candidate" && recordedRegistryPath !== movedApiContextRegistrySourcePath) {
+    invalid(`${pathName}.sourceFiles[0] must use the moved API context registry path on the candidate side.`);
+  }
   const expectedSources = [
-    "deployables/platform-api/src/generated/api-context-registry.ts",
+    recordedRegistryPath,
     "infrastructure/bounded-context-runtime/api-mounts.ts",
     "deployables/platform-api/src/app.ts",
     "pnpm-lock.yaml",
@@ -367,6 +382,13 @@ async function validateProvenance(
       fail("E_PROVENANCE", `${pathName}.root is not the canonical Git worktree root.`);
     }
     if ((await git(root, ["rev-parse", "HEAD"])) !== object.head) fail("E_HEAD_MISMATCH", `${pathName}.head drifted.`);
+    const resolvedRegistryPath = resolveApiContextRegistrySource(root).relativePath;
+    if (recordedRegistryPath !== resolvedRegistryPath) {
+      fail(
+        "E_PROVENANCE",
+        `${pathName}.sourceFiles[0] does not match the API context registry path resolving under its recorded root.`,
+      );
+    }
     if (options.requireCleanTrees && (await git(root, ["status", "--porcelain=v1", "--untracked-files=all"]))) {
       fail("E_WORKTREE_DIRTY", `${pathName}.root is dirty.`);
     }
@@ -378,7 +400,12 @@ async function validateProvenance(
   return { provenance: object as RouteCapture["provenance"], authority };
 }
 
-async function validateCapture(value: unknown, pathName: string, options: ValidationOptions): Promise<RouteCapture> {
+async function validateCapture(
+  value: unknown,
+  pathName: string,
+  side: CaptureSide,
+  options: ValidationOptions,
+): Promise<RouteCapture> {
   const object = record(value, pathName, [
     "provenance",
     "counts",
@@ -390,7 +417,12 @@ async function validateCapture(value: unknown, pathName: string, options: Valida
     "mountedBlockStart",
     "primitiveSha256",
   ]);
-  const { provenance, authority } = await validateProvenance(object.provenance, `${pathName}.provenance`, options);
+  const { provenance, authority } = await validateProvenance(
+    object.provenance,
+    `${pathName}.provenance`,
+    side,
+    options,
+  );
   const mounts = array(object.mountRecords, `${pathName}.mountRecords`).map((item, index) =>
     validateMount(item, `${pathName}.mountRecords[${index}]`),
   );
@@ -740,8 +772,8 @@ export async function validateArtifactObject(
     collisionFixtureVector,
     "Artifact collision vector does not match the executable shared vector.",
   );
-  const base = await validateCapture(object.base, "artifact.base", options);
-  const candidate = await validateCapture(object.candidate, "artifact.candidate", options);
+  const base = await validateCapture(object.base, "artifact.base", "base", options);
+  const candidate = await validateCapture(object.candidate, "artifact.candidate", "candidate", options);
   if (!options.allowSameRootForTests && base.provenance.root === candidate.provenance.root) {
     invalid("Artifact base and candidate must be separately rooted worktrees.");
   }

@@ -13,8 +13,8 @@ import { listContextManifests, repoRoot } from "../lib/repo.mjs";
 // build time) — e.g. routePath "sessions/:id" belongs to family "sessions".
 //
 // Why: routes are already contributed declaratively (context.json ->
-// sync-workspace-metadata.mjs -> generated web-context-registry per
-// deployable), but nothing previously stopped a context from contributing a
+// context.json -> hand-authored context-registry per deployable), but nothing
+// previously stopped a context from contributing a
 // brand-new top-level route family. Once a family is registered, any context
 // may attach a nested panel/tab/drawer under it (a routePath whose top-level
 // segment matches the family) with no new entry — grafts stay cheap; a new
