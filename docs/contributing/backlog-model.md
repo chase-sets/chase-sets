@@ -16,7 +16,7 @@ Five levels. Only three are GitHub objects.
 | Level | Lives in | Answers | Changes |
 |---|---|---|---|
 | **Strategy pillar** | this file (below) | why we build anything | ~yearly |
-| **Outcome wave** | GitHub **milestone** | what is usable next, and when | quarterly |
+| **Outcome wave** | GitHub **milestone** | what outcome set is usable next and which exit gates close it | when gate evidence changes |
 | **Epic** | GitHub issue, type **Epic** | what capability this completes | per capability |
 | **Slice** | GitHub issue, type **Slice**, normally a sub-issue of its epic | what one lane delivers | daily |
 | **Bug** | GitHub issue, type **Bug** | what is broken now | as found |
@@ -50,10 +50,11 @@ attributed; they are not a work container and never appear as labels.
 
 ## What each GitHub primitive means
 
-### Milestone = a dated outcome wave
+### Milestone = outcome-set membership and exit-gate closure
 
-A milestone states a user- or operator-visible outcome and a date. It is a
-*time horizon*, never a theme, a component list, or a track.
+A milestone states a user- or operator-visible outcome set. Its description
+names the exit gates that authorize closure. Milestones measure progress and
+scope; they are never a date commitment, theme, component list, or track.
 
 - Every executable slice belongs to exactly one milestone.
 - Epics are **unmilestoned** — they span waves by design.
@@ -63,9 +64,11 @@ A milestone states a user- or operator-visible outcome and a date. It is a
   the wave queue, and close when the condition clears.
 - **No milestone at all** means exactly one thing: *needs triage*.
 
-A milestone that cannot finish inside its horizon is split at planning time,
-not at the deadline. If the split lines are not real, move the date instead —
-renaming buckets is not scheduling.
+Every open milestone has `due_on: null`, including `Deferred / Incubation` and
+`Operations`. An externally committed date belongs on the specific gate issue
+that owns the commitment, never on an open milestone. Split an outcome set only
+when its exit gates or independently usable result divide cleanly; renaming
+buckets is not scheduling.
 
 ### Epic = a capability, and the parent of its slices
 
@@ -185,12 +188,55 @@ Two numbers per wave, both generated:
 Issue counts alone are not progress: slices vary by an order of magnitude in
 size.
 
+### Derived completion forecast
+
+The roadmap status generator reports a derived forecast, not a commitment.
+Milestone exit gates remain the sole closure authority. It counts eligible
+terminal completions across the complete open and closed Wave/Mobile catalog in
+the 14 completed UTC days immediately before the current UTC day. A raw
+`closures14 / 14` rate is admitted only when all four safety gates hold:
+
+- `closures14 >= 14` (`FORECAST_SAMPLE_BELOW_14`);
+- at least 7 of the 14 days are active (`FORECAST_ACTIVE_DAYS_BELOW_7`);
+- `maxDailyClosures * 4 <= closures14`
+  (`FORECAST_DAY_SHARE_ABOVE_25_PERCENT`); and
+- `abs(2 * closures7 - closures14) * 4 <= closures14`
+  (`FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT`).
+
+If any gate fails, the estimator and every positive-open forecast are `?`; a
+zero-open gate-bound row remains `—`. Every determinate Drift cell is visible,
+including changes below the alert threshold. Only absolute changes of at least
+7 days enter `Drift alert (≥7d)`. A positive row with an unavailable retained or
+current horizon, or an unobservable identity transition in its cumulative
+prefix, is `?` and is reconciled separately by unavailable-row and distinct
+unobservable-identity counts.
+
+## Scheduling mechanisms
+
+The pull model uses four mechanisms with separate meanings:
+
+- **Milestone** controls outcome-set membership, exit-gate closure, progress,
+  and scope measurement.
+- **Blocker** is a correctness edge only, never a scheduling opinion. An open
+  native blocking dependency makes the dependent slice unrunnable.
+- **Priority** is a lane-contention tiebreaker, never a statement of business
+  importance: `priority:p0` preempts an active lane; `priority:p1` wins the next
+  free-lane tie; `priority:p2` is normal work; and `priority:p3` is
+  opportunistic filler.
+- **Dispatch rank** is a sparse within-wave fine order evaluated before
+  priority.
+
+`dispatch:flush-window` is a scheduling constraint: dispatch its slice only
+into a drained merge queue with no sibling pull request against the file being
+split.
+
 ## Selection (the orchestrator contract)
 
 1. Exclude issue type **Epic**, `Deferred / Incubation`, and `Operations` from
    the executable queue.
 2. Work the earliest wave with runnable refined slices.
-3. Within a wave: `priority:p0`, then `p1`, then `p2`, then `p3`.
+3. Within a wave, evaluate sparse `Dispatch rank` first, then use priority as
+   the lane-contention tiebreaker defined above.
 4. A slice with an open blocking dependency is not runnable. Work-conserving:
    never idle a lane while any safe slice is runnable.
 5. Spread concurrent lanes across `area:*` footprints. Same-context page,
