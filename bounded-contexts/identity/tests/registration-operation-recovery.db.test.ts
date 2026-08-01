@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { assertBoundedStreamReadContract } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
@@ -51,6 +52,7 @@ function requireDatabaseBaseUrl(): string {
 const EMAIL = "owner@pokebash.example";
 const DISPLAY_NAME = "PokeBash TCG";
 const DISPLAY_NAME_KEY = "pokebash tcg";
+const strandedAccountStreamReadContractSiteId = "bounded-contexts/identity/api.ts#readStream#1";
 
 const TERMS_V1: RegistrationConsentRequirement = { policyKey: "terms-of-service", version: "v1", href: "/terms" };
 const TERMS_V2: RegistrationConsentRequirement = { policyKey: "terms-of-service", version: "v2", href: "/terms" };
@@ -375,7 +377,7 @@ describeDb("registration operation recovery", () => {
     ]);
   });
 
-  it("refuses to adopt a pre-operation reservation whose account really exists", async () => {
+  it(`${strandedAccountStreamReadContractSiteId} refuses to adopt a pre-operation reservation whose account really exists`, async () => {
     const liveAccountId = createId("acc");
     await eventStore.appendToStream({
       streamId: `identity.account-${liveAccountId}`,
@@ -384,6 +386,10 @@ describeDb("registration operation recovery", () => {
         {
           eventType: "identity.account.created",
           payload: { accountId: liveAccountId, name: "", accountType: "personal", displayName: DISPLAY_NAME },
+        },
+        {
+          eventType: "identity.account.profile-updated",
+          payload: { name: "", displayName: DISPLAY_NAME },
         },
       ],
       context,
@@ -395,12 +401,21 @@ describeDb("registration operation recovery", () => {
       [DISPLAY_NAME_KEY, liveAccountId, DISPLAY_NAME],
     );
 
+    const readStream = vi.spyOn(eventStore, "readStream");
     const blocked = await register([TERMS_V1]);
 
     expect(blocked.status, "adopting a live account would grant a stranger an owner membership on it").toBe(409);
     expect((blocked.body.error as { code?: string } | undefined)?.code).toBe("display_name_already_taken");
     expect(await streamIds("identity.user-")).toEqual([]);
     expect(await streamIds("identity.membership-")).toEqual([]);
+    assertBoundedStreamReadContract({
+      streamId: `identity.account-${liveAccountId}`,
+      bound: 1,
+      historyLength: 2,
+      requests: readStream.mock.calls
+        .map(([request]) => request)
+        .filter((request) => request.streamId === `identity.account-${liveAccountId}`),
+    });
   });
 
   it("rejects a registration that carries no verified contact at all", async () => {

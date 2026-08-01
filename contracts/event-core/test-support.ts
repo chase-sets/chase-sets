@@ -94,6 +94,46 @@ export type InMemoryEventStore = Readonly<{
   streams: Map<string, StoredEvent[]>;
 }>;
 
+export type BoundedStreamReadContractInput = Readonly<{
+  streamId: string;
+  bound: number;
+  historyLength: number;
+  requests: readonly ReadStreamInput[];
+}>;
+
+/**
+ * Proves that a bounded-prefix production read requested its declared prefix
+ * against history long enough to expose an accidental unbounded read.
+ *
+ * Owning-workspace tests record the real store method with their test runner;
+ * this helper deliberately does not wrap or call `readStream`, so the direct
+ * production-call inventory stays authoritative.
+ */
+export function assertBoundedStreamReadContract(input: BoundedStreamReadContractInput): void {
+  if (!Number.isSafeInteger(input.bound) || input.bound < 1 || input.bound > EVENT_STORE_READ_PAGE_SIZE_MAX) {
+    throw new Error(
+      `Bounded stream read contract requires an integer bound between 1 and ${EVENT_STORE_READ_PAGE_SIZE_MAX}.`,
+    );
+  }
+  if (!Number.isSafeInteger(input.historyLength) || input.historyLength <= input.bound) {
+    throw new Error("Bounded stream read contract history must be longer than the declared bound.");
+  }
+  if (input.requests.length !== 1) {
+    throw new Error(`Bounded stream read contract expected exactly one request, received ${input.requests.length}.`);
+  }
+
+  const request = input.requests[0];
+  if (request?.streamId !== input.streamId) {
+    throw new Error(`Bounded stream read contract expected stream ${input.streamId}.`);
+  }
+  if (request.fromVersion !== undefined) {
+    throw new Error("Bounded prefix reads must begin at the first stream event.");
+  }
+  if (request.limit !== input.bound) {
+    throw new Error(`Bounded stream read contract expected literal bound ${input.bound}.`);
+  }
+}
+
 /**
  * Provides the shared test-only event store used by context runtime suites.
  *
