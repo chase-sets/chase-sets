@@ -103,21 +103,27 @@ describe("public policy corpus compiler", () => {
     expect(index?.content).toContain("publicPolicyPublicationRecords");
   });
 
-  it("changes only the owned document module for a content-only edit with no metadata bump", async () => {
+  it("changes only Privacy's owned module and fingerprint for a content-only edit with no metadata bump", async () => {
     const baseline = await renderPublicPolicyPublicationContracts();
-    const editedRegistry = withEditedArtifact("seller-agreement");
-    const editedSeller = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "seller-agreement");
-    const baselineSeller = publicPolicyRegistry.find(
-      (entry) => entry.artifact.metadata.policyKey === "seller-agreement",
+    const editedRegistry = withEditedArtifact("privacy-policy");
+    const editedPrivacy = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "privacy-policy");
+    const baselinePrivacy = publicPolicyRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === "privacy-policy",
     );
-    expect(editedSeller?.artifact.metadata).toEqual(baselineSeller?.artifact.metadata);
+    expect(editedPrivacy?.artifact.metadata).toEqual(baselinePrivacy?.artifact.metadata);
 
     const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
 
     const changed = regenerated.filter(
       (module) => baseline.find((entry) => entry.relativePath === module.relativePath)?.content !== module.content,
     );
-    expect(changed.map((module) => module.relativePath)).toEqual(["seller-agreement-publication.ts"]);
+    expect(changed.map((module) => module.relativePath)).toEqual(["privacy-policy-publication.ts"]);
+
+    const baselineFingerprint = baseline
+      .find((module) => module.relativePath === "privacy-policy-publication.ts")
+      ?.content.match(/contentFingerprint: "(sha256:[a-f0-9]{64})"/)?.[1];
+    const editedFingerprint = changed[0]?.content.match(/contentFingerprint: "(sha256:[a-f0-9]{64})"/)?.[1];
+    expect(editedFingerprint).not.toBe(baselineFingerprint);
 
     const index = regenerated.find((module) => module.relativePath === "index.ts");
     expect(index?.content).toBe(baseline.find((module) => module.relativePath === "index.ts")?.content);

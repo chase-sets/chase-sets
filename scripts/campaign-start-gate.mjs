@@ -34,7 +34,7 @@ export const LAUNCH_CONFIG_PATH = "bounded-contexts/public-presence/features/wai
 
 export const PRIVACY_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/privacy.tsx";
 export const TERMS_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/terms.tsx";
-export const PRIVACY_LOCALE_PATH = "contracts/localization/locales/en/public-presence.ts";
+export const PRIVACY_POLICY_SOURCE_PATH = "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts";
 
 export const LANDING_CONVERSION_SURFACE_FILES = [
   "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
@@ -164,20 +164,47 @@ function buildLegalPrivacyRow(repoRootPath) {
   const missingRoutes = [PRIVACY_ROUTE_PATH, TERMS_ROUTE_PATH].filter(
     (relativePath) => !existsSync(path.join(repoRootPath, relativePath)),
   );
-  const localePath = path.join(repoRootPath, PRIVACY_LOCALE_PATH);
-  const localeExists = existsSync(localePath);
-  const disclosesUtmCollection = localeExists && /utm/i.test(readFileSync(localePath, "utf8"));
-  const status = missingRoutes.length === 0 && disclosesUtmCollection ? "pass" : "fail";
+  const privacySourcePath = path.join(repoRootPath, PRIVACY_POLICY_SOURCE_PATH);
+  const privacySourceExists = existsSync(privacySourcePath);
+  const privacySource = privacySourceExists ? readFileSync(privacySourcePath, "utf8") : "";
+  const disclosureStart = privacySource.indexOf('id: "cookies-and-analytics"');
+  const disclosureEnd = disclosureStart < 0 ? -1 : privacySource.indexOf("\n    {\n      id:", disclosureStart + 1);
+  const canonicalSubjectSource =
+    disclosureStart < 0
+      ? ""
+      : privacySource.slice(disclosureStart, disclosureEnd < 0 ? privacySource.length : disclosureEnd);
+  const draftTextStart = canonicalSubjectSource.indexOf("draftText:");
+  const reviewStatusMatch =
+    draftTextStart < 0 ? null : /\n\s*reviewStatus:/.exec(canonicalSubjectSource.slice(draftTextStart + 1));
+  const draftTextEnd =
+    draftTextStart < 0 || reviewStatusMatch?.index === undefined ? -1 : draftTextStart + 1 + reviewStatusMatch.index;
+  const canonicalDisclosure =
+    draftTextStart < 0
+      ? ""
+      : canonicalSubjectSource.slice(draftTextStart, draftTextEnd < 0 ? canonicalSubjectSource.length : draftTextEnd);
+  const requiredDisclosureTokens = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "referrer"];
+  const missingDisclosureTokens = requiredDisclosureTokens.filter(
+    (token) => !canonicalDisclosure.toLowerCase().includes(token),
+  );
+  const disclosesUtmAndReferrerCollection =
+    privacySourceExists && disclosureStart >= 0 && draftTextStart >= 0 && missingDisclosureTokens.length === 0;
+  const status = missingRoutes.length === 0 && disclosesUtmAndReferrerCollection ? "pass" : "fail";
   return {
     key: "legal-privacy-surfaces-adequate",
     label: "Legal/privacy surfaces adequate for collecting signups",
     automated: true,
     status,
-    evidence: { missingRoutes, localeExists, disclosesUtmCollection },
+    evidence: {
+      missingRoutes,
+      canonicalPrivacySourcePath: PRIVACY_POLICY_SOURCE_PATH,
+      privacySourceExists,
+      missingDisclosureTokens,
+      disclosesUtmAndReferrerCollection,
+    },
     note:
       status === "pass"
         ? "Privacy and terms routes exist and the privacy copy discloses UTM/referrer collection."
-        : `Legal/privacy evidence incomplete: missing routes [${missingRoutes.join(", ")}]; UTM disclosure present=${disclosesUtmCollection}.`,
+        : `Legal/privacy evidence incomplete: missing routes [${missingRoutes.join(", ")}]; canonical Privacy source exists=${privacySourceExists}; missing disclosure tokens [${missingDisclosureTokens.join(", ")}].`,
   };
 }
 

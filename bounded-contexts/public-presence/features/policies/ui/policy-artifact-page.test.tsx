@@ -6,23 +6,35 @@ import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-s
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
+import { privacyPolicyArtifact } from "../domain/privacy-policy";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
 import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import {
   AgentTermsRouteAdapter,
   AuthenticityTermsRouteAdapter,
   buildPolicyArtifactMeta,
+  buildPrivacyPolicyMeta,
   PaymentsTermsRouteAdapter,
+  PrivacyPolicyRouteAdapter,
   SellerAgreementRouteAdapter,
 } from "./policy-artifact-route-adapter";
 import { PolicyArtifactPage, resolvePolicyArtifactPublicationPosture } from "./policy-artifact-page";
 import { TermsOfServiceRouteAdapter } from "./terms-of-service-route-adapter";
 
 const publishedEffectiveAt = "2026-09-01T00:00:00.000Z";
-const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", "2026-02-31T00:00:00.000Z"] as const;
+const invalidEffectiveAts = [
+  "not-a-date",
+  "2026-09-01",
+  "2026-09-01T00:00:00",
+  "2026-09-01T00:00:00+00:00",
+  "2026-02-31T00:00:00.000Z",
+] as const;
 
 type PolicyArtifactPageProps = Parameters<typeof PolicyArtifactPage>[0];
 const pageCopyIsNotInjectable: "copy" extends keyof PolicyArtifactPageProps ? false : true = true;
+type PrivacyPolicyRouteAdapterProps = Parameters<typeof PrivacyPolicyRouteAdapter>[0];
+const privacyPostureIsNotInjectable: "publicationPosture" extends keyof PrivacyPolicyRouteAdapterProps ? false : true =
+  true;
 
 const policyRouteAdapters = [
   {
@@ -44,6 +56,12 @@ const policyRouteAdapters = [
     artifact: paymentsTermsPolicyArtifact,
     pendingTitle: "Counsel review required before this document takes effect",
     render: (artifact?: PublicPolicyArtifact) => <PaymentsTermsRouteAdapter artifact={artifact} />,
+  },
+  {
+    path: "/privacy",
+    artifact: privacyPolicyArtifact,
+    pendingTitle: "Counsel review required before this document takes effect",
+    render: (artifact?: PublicPolicyArtifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />,
   },
   {
     path: "/agent-terms",
@@ -122,6 +140,53 @@ describe("policy artifact page", () => {
 
   it("does not expose a page-copy prop that lets route adapters pre-decide publication posture", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
+    expect(privacyPostureIsNotInjectable).toBe(true);
+  });
+
+  it("derives matching pending and published metadata/body posture through the Privacy-specific boundary", () => {
+    const pending = renderRouteAdapter((artifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />);
+    expect(
+      pending.container
+        .querySelector('[data-policy-key="privacy-policy"]')
+        ?.getAttribute("data-policy-publication-status"),
+    ).toBe("counsel-review-required");
+    expect(buildPrivacyPolicyMeta()).toEqual(
+      expect.arrayContaining([{ name: "chase-sets:policy-publication-status", content: "counsel-review-required" }]),
+    );
+    cleanup();
+
+    const published = publishedArtifact(privacyPolicyArtifact);
+    const rendered = renderRouteAdapter((artifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />, published);
+    expect(
+      rendered.container
+        .querySelector('[data-policy-key="privacy-policy"]')
+        ?.getAttribute("data-policy-publication-status"),
+    ).toBe("published");
+    expect(buildPrivacyPolicyMeta(published)).toEqual(
+      expect.arrayContaining([
+        { name: "chase-sets:policy-publication-status", content: "published" },
+        { name: "chase-sets:policy-effective-at", content: publishedEffectiveAt },
+      ]),
+    );
+  });
+
+  it("fails closed through the real /privacy adapter when one ready-looking section remains unreviewed", () => {
+    const published = publishedArtifact(privacyPolicyArtifact);
+    const artifact = {
+      ...published,
+      sections: published.sections.map((section, index) =>
+        index === 0 ? { ...section, reviewStatus: "counsel-required" as const } : section,
+      ),
+    };
+    const { container } = renderRouteAdapter(
+      (candidate) => <PrivacyPolicyRouteAdapter artifact={candidate} />,
+      artifact,
+    );
+
+    expect(screen.getByText("Counsel review required before this document takes effect")).toBeTruthy();
+    const page = container.querySelector('[data-policy-key="privacy-policy"]');
+    expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
+    expect(page?.getAttribute("data-policy-effective-at")).toBe("");
   });
 
   it("renders the Wallet's unresolved interest/deposit claim disclosures on the real /terms adapter, not a settled assertion", () => {
@@ -164,6 +229,16 @@ describe("policy artifact page", () => {
         expect(metadata).not.toEqual(
           expect.arrayContaining([expect.objectContaining({ name: "chase-sets:policy-effective-at" })]),
         );
+        if (route.path === "/privacy") {
+          expect(buildPrivacyPolicyMeta(artifact)).toEqual(
+            expect.arrayContaining([
+              { name: "chase-sets:policy-publication-status", content: "counsel-review-required" },
+            ]),
+          );
+          expect(buildPrivacyPolicyMeta(artifact)).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: "chase-sets:policy-effective-at" })]),
+          );
+        }
         cleanup();
       }
     });

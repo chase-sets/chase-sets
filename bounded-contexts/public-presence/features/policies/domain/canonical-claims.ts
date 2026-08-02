@@ -20,6 +20,13 @@ export type CanonicalClaimDefinition = Readonly<{
   status: CanonicalClaimStatus;
   description: string;
   /**
+   * The one provenance identity for this shared claim. Every artifact section
+   * that references the claim must use this exact ordered citation set, so a
+   * sibling cannot silently substitute adjacent but weaker evidence.
+   * Unresolved claims always own an empty set.
+   */
+  productTruthRefs: readonly string[];
+  /**
    * Only enforced when status is "settled": a section citing this claim must
    * cite at least one product-truth evidence reference whose exact cited
    * source lines contain one of these keywords (case-insensitive), so a
@@ -52,6 +59,10 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     description:
       "Stripe charges/captures the buyer's selected payment method as part of completing a Marketplace " +
       "purchase, following Chase Sets' standard payment-session-create/confirm and capture path.",
+    productTruthRefs: [
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
+      "infrastructure/stripe-payments/index.ts:1464-1512",
+    ],
     requiredEvidenceKeywords: ["createPaymentSession", "payment_intent", "RecordPaymentCapture"],
   },
   "payment-chargeback-recovery-mechanism": {
@@ -59,12 +70,14 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     description:
       "Chargeback/dispute recovery runs through Settlement's automated Chargeback Clawback hold/recovery/" +
       "release mechanism, distinct from the operator-directed Wallet Adjustment path.",
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135"],
     requiredEvidenceKeywords: ["Chargeback Clawback"],
   },
   "payout-release-hold-mechanism": {
     status: "settled",
     description:
       "Chase Sets models a Settlement-owned Payout Release Hold distinct from Stripe's own processor-level " + "holds.",
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:117-125"],
     requiredEvidenceKeywords: ["Payout Release Hold"],
   },
   "wallet-no-interest": {
@@ -73,6 +86,7 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "Whether Chase Sets pays no interest on Wallet-balance funds is not yet supported by any ratified " +
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
       "before publication, not a productTruthRef-backed fact.",
+    productTruthRefs: [],
     requiredEvidenceKeywords: [],
     unresolvedPublicDisclosure:
       "Whether Chase Sets pays interest on Wallet balances is not yet resolved and is not addressed by this " +
@@ -90,6 +104,7 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "Whether Wallet balances are a non-deposit, FDIC-uninsured product is not yet supported by any ratified " +
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
       "before publication, not a productTruthRef-backed fact.",
+    productTruthRefs: [],
     requiredEvidenceKeywords: [],
     unresolvedPublicDisclosure:
       "Whether Wallet balances are treated as a bank deposit or are covered by FDIC or other deposit " +
@@ -97,6 +112,13 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     forbiddenAssertionPhrases: ["insured by the fdic", "fdic insur", "not a deposit", "non-deposit", "deposit insurer"],
   },
 } as const;
+
+export const paymentChargeTimingAndCaptureProductTruthRefs =
+  canonicalClaimRegistry["payment-charge-timing-and-capture"].productTruthRefs;
+export const paymentChargebackRecoveryProductTruthRefs =
+  canonicalClaimRegistry["payment-chargeback-recovery-mechanism"].productTruthRefs;
+export const payoutReleaseHoldProductTruthRefs =
+  canonicalClaimRegistry["payout-release-hold-mechanism"].productTruthRefs;
 
 /**
  * The single source of an unresolved claim's public disclosure text. A

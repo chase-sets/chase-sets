@@ -6,6 +6,9 @@ import {
   CAMPAIGN_GO_DATE,
   CAMPAIGN_START_GATE_VERSION,
   LANDING_CONVERSION_SURFACE_FILES,
+  PRIVACY_POLICY_SOURCE_PATH,
+  PRIVACY_ROUTE_PATH,
+  TERMS_ROUTE_PATH,
   buildCampaignStartGateChecklist,
   parseCampaignStartGateArgs,
 } from "./campaign-start-gate.mjs";
@@ -158,6 +161,70 @@ describe("campaign start gate checklist", () => {
 
       const timelineRow = checklist.checklist.find((row) => row.key === "launch-timeline-synced");
       expect(timelineRow.status).toBe("pass");
+    });
+
+    it("reads UTM/referrer disclosure only from the canonical Privacy subject", () => {
+      fixtureRoot = mkdtempSync(path.join(tmpdir(), "campaign-start-gate-"));
+      for (const routePath of [PRIVACY_ROUTE_PATH, TERMS_ROUTE_PATH]) {
+        const routeDirectory = path.dirname(path.join(fixtureRoot, routePath));
+        mkdirSync(routeDirectory, { recursive: true });
+        writeFileSync(path.join(fixtureRoot, routePath), "export default function Route() { return null; }\n");
+      }
+
+      const unrelatedLocalePath = path.join(fixtureRoot, "contracts/localization/locales/en/public-presence.ts");
+      mkdirSync(path.dirname(unrelatedLocalePath), { recursive: true });
+      writeFileSync(unrelatedLocalePath, 'export const unrelated = "utm referrer";\n');
+
+      let checklist = buildCampaignStartGateChecklist({
+        repoRoot: fixtureRoot,
+        reference: "CAMPAIGN-START-GATE-FIXTURE-2026-07-13",
+        owner: "Operations",
+        checkedAt,
+      });
+      let legalRow = checklist.checklist.find((row) => row.key === "legal-privacy-surfaces-adequate");
+      expect(legalRow.status).toBe("fail");
+      expect(legalRow.evidence.privacySourceExists).toBe(false);
+
+      const privacySourcePath = path.join(fixtureRoot, PRIVACY_POLICY_SOURCE_PATH);
+      mkdirSync(path.dirname(privacySourcePath), { recursive: true });
+      writeFileSync(
+        privacySourcePath,
+        `export const privacy = { sections: [{
+          id: "cookies-and-analytics",
+          draftText: "utm_source utm_medium utm_campaign utm_content utm_term",
+          reviewStatus: "counsel-required",
+          reviewManifest: { scopeNote: "Packet-only referrer wording must not satisfy public disclosure." }
+        }] };\n`,
+      );
+
+      checklist = buildCampaignStartGateChecklist({
+        repoRoot: fixtureRoot,
+        reference: "CAMPAIGN-START-GATE-FIXTURE-2026-07-13",
+        owner: "Operations",
+        checkedAt,
+      });
+      legalRow = checklist.checklist.find((row) => row.key === "legal-privacy-surfaces-adequate");
+      expect(legalRow.status).toBe("fail");
+      expect(legalRow.evidence.missingDisclosureTokens).toEqual(["referrer"]);
+
+      writeFileSync(
+        privacySourcePath,
+        `export const privacy = { sections: [{
+          id: "cookies-and-analytics",
+          draftText: "utm_source utm_medium utm_campaign utm_content utm_term referrer",
+          reviewStatus: "counsel-required"
+        }] };\n`,
+      );
+
+      checklist = buildCampaignStartGateChecklist({
+        repoRoot: fixtureRoot,
+        reference: "CAMPAIGN-START-GATE-FIXTURE-2026-07-13",
+        owner: "Operations",
+        checkedAt,
+      });
+      legalRow = checklist.checklist.find((row) => row.key === "legal-privacy-surfaces-adequate");
+      expect(legalRow.status).toBe("pass");
+      expect(legalRow.evidence.canonicalPrivacySourcePath).toBe(PRIVACY_POLICY_SOURCE_PATH);
     });
   });
 });

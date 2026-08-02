@@ -1,11 +1,5 @@
 import type { PublicPolicyArtifact } from "./policy-artifact";
-
-// Shared with Payments Terms: the same canonical claim citation set, so the
-// charge-timing claim carries one provenance identity across the corpus.
-const chargeTimingProductTruthRefs = [
-  "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
-  "infrastructure/stripe-payments/index.ts:1464-1512",
-];
+import { paymentChargeTimingAndCaptureProductTruthRefs } from "./canonical-claims";
 
 export const requiredPrivacyPolicySubjectIds = [
   "privacy-notice-scope",
@@ -222,7 +216,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         canonicalClaims: [
           {
             claimId: "payment-charge-timing-and-capture",
-            productTruthRefs: chargeTimingProductTruthRefs,
+            productTruthRefs: paymentChargeTimingAndCaptureProductTruthRefs,
           },
         ],
       },

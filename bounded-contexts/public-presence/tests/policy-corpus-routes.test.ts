@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { meta as agentTermsMeta } from "../routes/marketplace/agent-terms";
 import { meta as authenticityTermsMeta } from "../routes/marketplace/authenticity-terms";
 import { meta as paymentsTermsMeta } from "../routes/marketplace/payments-terms";
+import { meta as privacyPolicyMeta } from "../routes/marketplace/privacy";
 import { meta as sellerAgreementMeta } from "../routes/marketplace/seller-agreement";
 import { meta as termsOfServiceMeta } from "../routes/marketplace/terms";
 
@@ -14,6 +15,7 @@ const corpusRoutes = [
     noindexWhilePending: true,
   },
   { routeName: "payments-terms", meta: paymentsTermsMeta, policyKey: "payments-terms", noindexWhilePending: true },
+  { routeName: "privacy", meta: privacyPolicyMeta, policyKey: "privacy-policy", noindexWhilePending: false },
   { routeName: "agent-terms", meta: agentTermsMeta, policyKey: "agent-connector-terms", noindexWhilePending: true },
   {
     routeName: "authenticity-terms",
@@ -37,6 +39,8 @@ describe("policy corpus route metadata", () => {
       );
       if (route.noindexWhilePending) {
         expect(descriptors).toEqual(expect.arrayContaining([{ name: "robots", content: "noindex, nofollow" }]));
+      } else {
+        expect(descriptors).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "robots" })]));
       }
       expect(descriptors).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ name: "chase-sets:policy-effective-at" })]),

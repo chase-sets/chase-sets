@@ -49,6 +49,26 @@ function withPaymentsTermsCanonicalClaims(
   );
 }
 
+function withPrivacyCanonicalClaims(
+  canonicalClaims: readonly Readonly<{ claimId: string; productTruthRefs: readonly string[] }>[],
+): readonly PublicPolicyRegistryEntry[] {
+  return publicPolicyRegistry.map((entry) =>
+    entry.artifact.metadata.policyKey === "privacy-policy"
+      ? ({
+          ...entry,
+          artifact: {
+            ...entry.artifact,
+            sections: entry.artifact.sections.map((section) =>
+              section.id === "stripe-managed-processing"
+                ? { ...section, reviewManifest: { ...section.reviewManifest, canonicalClaims } }
+                : section,
+            ),
+          },
+        } as unknown as PublicPolicyRegistryEntry)
+      : entry,
+  );
+}
+
 describe("canonical claim consistency guard", () => {
   it("finds zero violations across the real registered corpus", () => {
     expect(evaluateCanonicalClaimConsistency(publicPolicyRegistry, repoRoot)).toEqual([]);
@@ -66,6 +86,37 @@ describe("canonical claim consistency guard", () => {
       repoRoot,
     );
     expect(violations).toEqual([]);
+  });
+
+  it("keeps Privacy and Payments on the same canonical charge-timing provenance identity", () => {
+    const sections = publicPolicyRegistry.flatMap((entry) =>
+      entry.artifact.sections.filter((section) =>
+        section.reviewManifest.canonicalClaims?.some((claim) => claim.claimId === "payment-charge-timing-and-capture"),
+      ),
+    );
+
+    expect(sections).toHaveLength(2);
+    expect(sections[0]?.reviewManifest.canonicalClaims).toEqual(sections[1]?.reviewManifest.canonicalClaims);
+  });
+
+  it("negative control: rejects an adjacent but otherwise keyword-bearing citation for Privacy's shared claim", () => {
+    const registry = withPrivacyCanonicalClaims([
+      {
+        claimId: "payment-charge-timing-and-capture",
+        productTruthRefs: ["infrastructure/stripe-payments/index.ts:1464-1512"],
+      },
+    ]);
+
+    const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.policyKey === "privacy-policy" &&
+          violation.sectionId === "stripe-managed-processing" &&
+          violation.claimId === "payment-charge-timing-and-capture" &&
+          violation.reason.includes("exact product-truth provenance identity"),
+      ),
+    ).toBe(true);
   });
 
   it("passes the settled payment-chargeback-recovery-mechanism claim on its real evidence", () => {
