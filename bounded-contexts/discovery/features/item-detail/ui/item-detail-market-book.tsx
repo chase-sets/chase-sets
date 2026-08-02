@@ -141,6 +141,8 @@ export function ItemDetailMarketBook({
   return (
     <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.market.book")}>
       <Tabs
+        data-market-book-navigation
+        mobileLayout="scrollable-row"
         value={marketBookTab}
         onValueChange={(value) =>
           onMarketBookTabChange(value === "offers" || value === "sales" || value === "details" ? value : "listings")

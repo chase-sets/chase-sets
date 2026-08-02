@@ -21,16 +21,28 @@ export interface TabsProps extends Omit<
 > {
   items: TabItem[];
   dir?: "ltr" | "rtl";
+  mobileLayout?: "scrollable-row";
   onValueChange?: (value: string) => void;
 }
 
-export function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizontal", dir }: TabsProps) {
+export function Tabs({
+  items,
+  defaultValue,
+  value,
+  onValueChange,
+  orientation = "horizontal",
+  dir,
+  mobileLayout,
+  ...rootProps
+}: TabsProps) {
   const resolvedValue = defaultValue ?? items[0]?.value;
   const [currentValue, setCurrentValue] = useControllableValue(value, resolvedValue, onValueChange);
   const [reservedPanelHeight, setReservedPanelHeight] = useState<number | null>(null);
   const groupId = useId();
   const motionSettings = useChaseMotion();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const tabRefs = useRef(new Map<string, HTMLElement>());
   const panelFrameRef = useRef<HTMLDivElement | null>(null);
   const scrollSnapshotRef = useRef<{ top: number } | null>(null);
 
@@ -73,6 +85,31 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
     }
   }, [currentValue]);
 
+  useEffect(() => {
+    if (mobileLayout !== "scrollable-row") {
+      return;
+    }
+
+    const list = listRef.current;
+    const activeTab = currentValue ? tabRefs.current.get(currentValue) : null;
+    if (!list || !activeTab) {
+      return;
+    }
+
+    const listBounds = list.getBoundingClientRect();
+    const tabBounds = activeTab.getBoundingClientRect();
+    let overflow = 0;
+    if (tabBounds.left < listBounds.left) {
+      overflow = tabBounds.left - listBounds.left;
+    } else if (tabBounds.right > listBounds.right) {
+      overflow = tabBounds.right - listBounds.right;
+    }
+
+    if (Math.abs(overflow) > 1 && typeof list.scrollBy === "function") {
+      list.scrollBy({ left: overflow, behavior: motionSettings.reducedMotion ? "auto" : "smooth" });
+    }
+  }, [currentValue, mobileLayout, motionSettings.reducedMotion]);
+
   function handleValueChange(nextValue: string) {
     const panelHeight = panelFrameRef.current?.getBoundingClientRect().height ?? 0;
     if (!motionSettings.reducedMotion && panelHeight > 0) {
@@ -95,6 +132,7 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
 
   return (
     <TabsPrimitive.Root
+      {...rootProps}
       ref={rootRef}
       defaultValue={resolvedValue}
       value={currentValue}
@@ -106,7 +144,15 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
       {renderActivePillGroup(
         groupId,
         motionSettings.reducedMotion,
-        <TabsPrimitive.List className="grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap">
+        <TabsPrimitive.List
+          ref={listRef}
+          data-mobile-layout={mobileLayout}
+          className={
+            mobileLayout === "scrollable-row"
+              ? "flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap md:overflow-visible"
+              : "grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap"
+          }
+        >
           {items.map((item) => {
             const active = item.value === currentValue;
 
@@ -114,9 +160,17 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
               <TabsPrimitive.Tab
                 key={item.value}
                 value={item.value}
+                ref={(node) => {
+                  if (node) {
+                    tabRefs.current.set(item.value, node);
+                  } else {
+                    tabRefs.current.delete(item.value);
+                  }
+                }}
                 className={(state) =>
                   cx(
                     "focus-ring relative inline-flex min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd text-center font-semibold text-secondary transition md:flex-1 md:basis-0",
+                    mobileLayout === "scrollable-row" && "shrink-0 whitespace-nowrap md:shrink md:whitespace-normal",
                     controlHeightClasses.md,
                     controlPaddingClasses.md,
                     controlTextClasses.md,

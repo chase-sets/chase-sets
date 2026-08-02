@@ -401,6 +401,7 @@ export function useItemDetailPageModel({
     selectedOffer,
     selectedOfferSource,
     selectedProductId,
+    isProductSelectionComplete: hasCompleteProductSelection,
     currentOptionSummary,
     explicitSelectedProductSummary,
     explicitSelectedProductSelectionDetails,

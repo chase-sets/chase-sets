@@ -105,6 +105,15 @@ const data: AccountAccessHub = {
 };
 
 describe("Account access hub", () => {
+  it("preserves the canonical default Tabs layout", () => {
+    const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
+
+    expect(html).toContain(
+      "grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap",
+    );
+    expect(html).not.toContain("data-mobile-layout");
+  });
+
   it("keeps account profile and lifecycle actions in Overview", () => {
     const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
 

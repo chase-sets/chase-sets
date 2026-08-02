@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   Button,
   Card,
@@ -7,6 +7,7 @@ import {
   CommerceBottomSheet,
   LinkButton,
   ProductOptions,
+  ProgressiveDisclosure,
   SegmentedControl,
   Stack,
   Text,
@@ -39,6 +40,47 @@ function productOptionsFromSelectionDetails(selections: readonly { label: ReactN
   }));
 }
 
+function MobileProductOptionsDisclosure({
+  canStartCollapsed,
+  selectedOptions,
+  currentOptionSummary,
+  children,
+}: {
+  canStartCollapsed: boolean;
+  selectedOptions: ReturnType<typeof productOptionsFromSelectionDetails>;
+  currentOptionSummary: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(!canStartCollapsed);
+
+  useEffect(() => {
+    if (!canStartCollapsed) {
+      setOpen(true);
+    }
+  }, [canStartCollapsed]);
+
+  return (
+    <ProgressiveDisclosure
+      data-product-options-disclosure
+      data-product-options-state={open ? "expanded" : "collapsed"}
+      title={t(
+        canStartCollapsed
+          ? "discovery.features.itemDetail.ui.itemDetailPage.chosen.options"
+          : "discovery.features.itemDetail.ui.itemDetailPage.choose.options",
+      )}
+      summary={
+        canStartCollapsed ? (
+          <ProductOptions options={selectedOptions} emptyLabel={currentOptionSummary} variant="chips" />
+        ) : undefined
+      }
+      open={open}
+      onOpenChange={(nextOpen) => setOpen(canStartCollapsed ? nextOpen : true)}
+    >
+      {children}
+    </ProgressiveDisclosure>
+  );
+}
+
 export type ItemDetailPageViewArgs = {
   data: DiscoveryItemDetail;
   marketIntent: MarketIntent;
@@ -66,6 +108,7 @@ export type ItemDetailPageViewArgs = {
   selectedOffer: DiscoveryOffer | null;
   selectedOfferSource: MarketSelectionSource;
   selectedProductId: string | null;
+  isProductSelectionComplete: boolean;
   currentOptionSummary: string;
   explicitSelectedProductSummary: string | null;
   explicitSelectedProductSelectionDetails: { label: string; value: string }[];
@@ -94,6 +137,7 @@ export function buildItemDetailPageView({
   selectedOffer,
   selectedOfferSource,
   selectedProductId,
+  isProductSelectionComplete,
   currentOptionSummary,
   explicitSelectedProductSummary,
   explicitSelectedProductSelectionDetails,
@@ -288,33 +332,52 @@ export function buildItemDetailPageView({
     </CommerceBottomSheet>
   ) : null;
   const productOptionSelector =
-    data.product_schema && data.product_schema.dimensions.length > 0 ? (
-      <Card variant="feature">
-        <Stack gap={3} id="select-options">
-          <Stack gap={1}>
-            <Text size="sm" weight="semibold">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options")}
-            </Text>
-          </Stack>
-          <ProductSelector
-            schema={data.product_schema}
-            selections={selections}
-            optionSummaries={optionSummaries}
-            onSelectionChange={onProductSelectionChange}
-          />
-          <Stack gap={1}>
-            <Text size="sm" weight="semibold">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
-            </Text>
-            <ProductOptions
-              options={productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails)}
-              emptyLabel={currentOptionSummary}
-              variant="chips"
+    data.product_schema && data.product_schema.dimensions.length > 0
+      ? (() => {
+          const canStartCollapsed = selectedProductId !== null && isProductSelectionComplete;
+          const selectedOptions = productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails);
+          const selector = (
+            <ProductSelector
+              schema={data.product_schema}
+              selections={selections}
+              optionSummaries={optionSummaries}
+              onSelectionChange={onProductSelectionChange}
             />
-          </Stack>
-        </Stack>
-      </Card>
-    ) : null;
+          );
+
+          return (
+            <div id="select-options" data-product-options-surface data-product-id={selectedProductId ?? ""}>
+              <div data-product-options-mobile className="md:hidden">
+                <MobileProductOptionsDisclosure
+                  canStartCollapsed={canStartCollapsed}
+                  selectedOptions={selectedOptions}
+                  currentOptionSummary={currentOptionSummary}
+                >
+                  {selector}
+                </MobileProductOptionsDisclosure>
+              </div>
+              <div data-product-options-desktop className="hidden md:block">
+                <Card variant="feature">
+                  <Stack gap={3}>
+                    <Stack gap={1}>
+                      <Text size="sm" weight="semibold">
+                        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options")}
+                      </Text>
+                    </Stack>
+                    {selector}
+                    <Stack gap={1}>
+                      <Text size="sm" weight="semibold">
+                        {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
+                      </Text>
+                      <ProductOptions options={selectedOptions} emptyLabel={currentOptionSummary} variant="chips" />
+                    </Stack>
+                  </Stack>
+                </Card>
+              </div>
+            </div>
+          );
+        })()
+      : null;
 
   return {
     commerce,

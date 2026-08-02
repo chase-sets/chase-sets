@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
@@ -292,5 +292,363 @@ test.describe("marketplace item detail mobile action dock (#5963)", () => {
     await openDockRoute(page, selectedProductRoutePath, { width: 820, height: 1180 });
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-mobile-dock-labels-selected-tablet" });
+  });
+});
+
+test.describe("marketplace item detail mobile Product options and Market book (#5964)", () => {
+  const itemDetailRoutePath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
+  const selectedProductRoutePath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
+  const unresolvedProductRoutePath = marketplaceBrowserE2eSeedContract.itemDetailWithoutListings.routePath;
+  const rawProductId =
+    "cat_seed_charizard_base_set::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_near_mint|dim_seed_grading_company:-|dim_seed_grade:-";
+  const implicitGradedProductId =
+    "cat_seed_charizard_base_set::dim_seed_form:chc_seed_form_graded|dim_seed_condition:-|dim_seed_grading_company:chc_seed_grading_company_psa|dim_seed_grade:chc_seed_grade_nm_mt_8";
+  const gradedProductId =
+    "cat_seed_charizard_base_set::dim_seed_form:chc_seed_form_graded|dim_seed_condition:-|dim_seed_grading_company:chc_seed_grading_company_psa|dim_seed_grade:chc_seed_grade_gem_mint_10";
+
+  async function openItemRoute(page: Page, path: string, viewport: { width: number; height: number }) {
+    await page.setViewportSize(viewport);
+    await expectPageOk(page, path);
+  }
+
+  function productOptionsSurface(page: Page) {
+    return page.locator("[data-product-options-surface]");
+  }
+
+  function mobileProductOptions(page: Page) {
+    return page.locator("[data-product-options-mobile]");
+  }
+
+  async function expectCollapsedProductOptions(page: Page) {
+    const surface = productOptionsSurface(page);
+    const mobile = mobileProductOptions(page);
+    await expect(surface).toHaveCount(1);
+    await expect(surface).toHaveAttribute("data-product-id", rawProductId);
+    await expect(mobile.getByRole("button", { name: /Chosen options/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(mobile.getByLabel(/Product options: Form Raw, Condition Near Mint/)).toHaveCount(1);
+    await expect(page.locator("[data-product-options-desktop]")).toBeHidden();
+  }
+
+  async function expectExpandedProductOptions(page: Page) {
+    const surface = productOptionsSurface(page);
+    const mobile = mobileProductOptions(page);
+    await expect(surface).toHaveCount(1);
+    await expect(surface).toHaveAttribute("data-product-id", "");
+    await expect(mobile.getByRole("button", { name: "Choose options" })).toHaveAttribute("aria-expanded", "true");
+    await expect(mobile.getByRole("radiogroup", { name: "Form" })).toBeVisible();
+    await expect(page.locator("[data-product-options-desktop]")).toBeHidden();
+  }
+
+  async function expectActiveTabInsideTabList(page: Page, label: "Listings" | "Offers" | "Sales" | "Details") {
+    const navigation = page.locator("[data-market-book-navigation]");
+    const tabList = navigation.getByRole("tablist");
+    const tabs = navigation.getByRole("tab");
+    const activeTab = navigation.getByRole("tab", { name: label });
+    await expect(tabs).toHaveCount(4);
+    await expect(activeTab).toHaveAttribute("aria-selected", "true");
+
+    const listBounds = await tabList.boundingBox();
+    const activeBounds = await activeTab.boundingBox();
+    expect(listBounds, "the Market book tab list must have live layout").not.toBeNull();
+    expect(activeBounds, `the active ${label} tab must have live layout`).not.toBeNull();
+    await expect
+      .poll(
+        async () => {
+          const currentListBounds = await tabList.boundingBox();
+          const currentActiveBounds = await activeTab.boundingBox();
+          return Boolean(
+            currentListBounds &&
+            currentActiveBounds &&
+            currentActiveBounds.x >= currentListBounds.x - 0.5 &&
+            currentActiveBounds.x + currentActiveBounds.width <= currentListBounds.x + currentListBounds.width + 0.5,
+          );
+        },
+        { message: `the active ${label} tab must settle fully inside the tab-list bounds`, timeout: 5_000 },
+      )
+      .toBe(true);
+
+    const tabBounds = await tabs.evaluateAll((elements) =>
+      elements.map((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { top: bounds.top, bottom: bounds.bottom };
+      }),
+    );
+    expect(
+      Math.max(...tabBounds.map((bounds) => bounds.top)) - Math.min(...tabBounds.map((bounds) => bounds.top)),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.max(...tabBounds.map((bounds) => bounds.bottom)) - Math.min(...tabBounds.map((bounds) => bounds.bottom)),
+    ).toBeLessThanOrEqual(0.5);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+
+  async function activateMarketBookTab(
+    page: Page,
+    label: "Listings" | "Offers" | "Sales" | "Details",
+    method: "initial" | "pointer" | "keyboard" | "controlled",
+  ) {
+    const navigation = page.locator("[data-market-book-navigation]");
+    await navigation.scrollIntoViewIfNeeded();
+    const activeTab = navigation.getByRole("tab", { name: label });
+
+    if (method === "pointer") {
+      await expect(async () => {
+        await activeTab.click();
+        await expect(activeTab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+      }).toPass({ timeout: 20_000 });
+    } else if (method === "keyboard") {
+      const listings = navigation.getByRole("tab", { name: "Listings" });
+      await expect(async () => {
+        await listings.focus();
+        await listings.press(label === "Details" ? "ArrowLeft" : "ArrowRight");
+        await activeTab.press("Enter");
+        await expect(activeTab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+      }).toPass({ timeout: 20_000 });
+    } else if (method === "controlled") {
+      await changeMarketBookWithDock(page, "Sell", activeTab);
+    }
+
+    await expectActiveTabInsideTabList(page, label);
+  }
+
+  async function captureMarketBookState(
+    page: Page,
+    label: "Listings" | "Offers" | "Sales" | "Details",
+    method: "initial" | "pointer" | "keyboard" | "controlled",
+  ) {
+    await activateMarketBookTab(page, label, method);
+    await expect(page.locator("[data-market-book-navigation]").getByRole("tabpanel", { name: label })).toBeVisible();
+  }
+
+  async function chooseCustomSelectOption(page: Page, label: string, option: RegExp) {
+    const control = mobileProductOptions(page).getByRole("combobox", { name: label });
+    await control.click();
+    await page.getByRole("option", { name: option }).click();
+  }
+
+  async function openMobileProductOptions(page: Page) {
+    const trigger = mobileProductOptions(page).getByRole("button", { name: /Chosen options/ });
+    await expect(async () => {
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
+  }
+
+  async function changeMarketBookWithDock(page: Page, action: "Buy" | "Sell", targetTab: Locator) {
+    const dockAction = page.getByTestId("product-detail-mobile-dock").getByRole("button", { name: action });
+    const dialog = page.getByRole("dialog");
+    await expect(async () => {
+      await dockAction.click();
+      await expect(dialog).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(targetTab).toHaveAttribute("aria-selected", "true");
+  }
+
+  async function failureMessageOf(evidence: Promise<void>, message: string) {
+    return evidence.then(
+      () => {
+        throw new Error(message);
+      },
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+  }
+
+  test("Product options reconcile the real item route after each dependent choice @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await openItemRoute(page, selectedProductRoutePath, { width: 390, height: 844 });
+    const initialUrl = page.url();
+    const surface = productOptionsSurface(page);
+    const mobile = mobileProductOptions(page);
+    await expectCollapsedProductOptions(page);
+    await openMobileProductOptions(page);
+
+    await mobile.getByRole("radio", { name: /^Graded/ }).click();
+    await expect(mobile.getByRole("combobox", { name: "Condition" })).toHaveCount(0);
+    await expect(mobile.getByRole("combobox", { name: "Grading Company" })).toBeVisible();
+    await expect(mobile.getByRole("combobox", { name: "Grade" })).toBeVisible();
+    await expect(surface).toHaveAttribute("data-product-id", implicitGradedProductId);
+
+    await chooseCustomSelectOption(page, "Grading Company", /^PSA/);
+    await expect(mobile.getByRole("combobox", { name: "Grade" })).toBeVisible();
+    await expect(surface).toHaveAttribute("data-product-id", implicitGradedProductId);
+
+    await chooseCustomSelectOption(page, "Grade", /^Gem Mint 10/);
+    await expect(surface).toHaveAttribute("data-product-id", gradedProductId);
+    await expect(mobile.getByRole("button", { name: /Chosen options/ })).toHaveAttribute("aria-expanded", "true");
+    await expect(mobile.getByLabel(/Product options: Form Graded, Grading Company PSA, Grade Gem Mint 10/)).toHaveCount(
+      1,
+    );
+    await expect(page.getByText("No active listings").first()).toBeVisible();
+
+    await mobile.getByRole("radio", { name: /^Raw/ }).click();
+    await expect(mobile.getByRole("combobox", { name: "Grading Company" })).toHaveCount(0);
+    await expect(mobile.getByRole("combobox", { name: "Grade" })).toHaveCount(0);
+    await expect(mobile.getByRole("combobox", { name: "Condition" })).toBeVisible();
+    await expect(surface).toHaveAttribute("data-product-id", rawProductId);
+
+    await chooseCustomSelectOption(page, "Condition", /^Near Mint/);
+    await expect(surface).toHaveAttribute("data-product-id", rawProductId);
+    await expect(mobile.getByLabel(/Product options: Form Raw, Condition Near Mint/)).toHaveCount(1);
+    const selectedListing = page
+      .getByRole("article", { name: /Listing .* from/i })
+      .filter({ has: page.getByRole("button", { pressed: true }) })
+      .first();
+    await expect(selectedListing).toBeVisible();
+    const selectedPrice = (
+      await selectedListing
+        .getByText(/^\$[\d,]+\.\d{2}$/)
+        .first()
+        .textContent()
+    )?.trim();
+    expect(selectedPrice).toBeTruthy();
+    await expect(page.getByTestId("product-detail-mobile-dock")).toContainText(selectedPrice!);
+    expect(page.url()).toBe(initialUrl);
+
+    const stampFailure = await surface
+      .evaluate((element) => element.removeAttribute("data-product-id"))
+      .then(() =>
+        failureMessageOf(
+          expect(surface).toHaveAttribute("data-product-id", rawProductId, { timeout: 1_000 }),
+          "the removed product-stamp control unexpectedly passed",
+        ),
+      );
+    expect(stampFailure).toContain(rawProductId);
+    expect(stampFailure).toContain("Received:");
+    expect(stampFailure).toContain('""');
+    await testInfo.attach("mutant-red:removed-product-settlement-stamp", {
+      body: stampFailure,
+      contentType: "text/plain",
+    });
+  });
+
+  test("records collapsed Product options at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, selectedProductRoutePath, { width: 360, height: 800 });
+    await expectCollapsedProductOptions(page);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-collapsed-360" });
+  });
+
+  test("records collapsed Product options at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, selectedProductRoutePath, { width: 390, height: 844 });
+    await expectCollapsedProductOptions(page);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-collapsed-390" });
+  });
+
+  test("records expanded Product options at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, unresolvedProductRoutePath, { width: 360, height: 800 });
+    await expectExpandedProductOptions(page);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-expanded-360" });
+  });
+
+  test("records expanded Product options at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, unresolvedProductRoutePath, { width: 390, height: 844 });
+    await expectExpandedProductOptions(page);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-expanded-390" });
+  });
+
+  test("preserves expanded Product options and Market book at the 768px breakpoint @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await openItemRoute(page, selectedProductRoutePath, { width: 768, height: 1024 });
+    const surface = productOptionsSurface(page);
+    const desktop = page.locator("[data-product-options-desktop]");
+    await expect(surface).toHaveAttribute("data-product-id", rawProductId);
+    await expect(mobileProductOptions(page)).toBeHidden();
+    await expect(desktop).toBeVisible();
+    await expect(desktop.getByRole("radiogroup", { name: "Form" })).toBeVisible();
+    await expect(desktop.getByRole("combobox", { name: "Condition" })).toBeVisible();
+    await expect(desktop.getByText("Chosen options")).toBeVisible();
+    await expectActiveTabInsideTabList(page, "Listings");
+
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-desktop-768" });
+  });
+
+  test("records Listings Market book tab at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 360, height: 800 });
+    await captureMarketBookState(page, "Listings", "initial");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-listings-360" });
+  });
+
+  test("records Listings Market book tab at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 390, height: 844 });
+    await captureMarketBookState(page, "Listings", "initial");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-listings-390" });
+  });
+
+  test("records Offers Market book tab at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 360, height: 800 });
+    await captureMarketBookState(page, "Offers", "controlled");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-offers-360" });
+  });
+
+  test("records Offers Market book tab at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 390, height: 844 });
+    await captureMarketBookState(page, "Offers", "controlled");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-offers-390" });
+  });
+
+  test("records Sales Market book tab at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 360, height: 800 });
+    await captureMarketBookState(page, "Sales", "pointer");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-sales-360" });
+  });
+
+  test("records Sales Market book tab at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 390, height: 844 });
+    await captureMarketBookState(page, "Sales", "pointer");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-sales-390" });
+  });
+
+  test("records Details Market book tab at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 360, height: 800 });
+    await captureMarketBookState(page, "Details", "keyboard");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-details-360" });
+  });
+
+  test("records Details Market book tab at 390x844 @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 390, height: 844 });
+    await captureMarketBookState(page, "Details", "keyboard");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-market-book-details-390" });
+  });
+
+  test("fails Product options evidence when the phone claim targets the hidden desktop sibling @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await openItemRoute(page, selectedProductRoutePath, { width: 390, height: 844 });
+    const failure = await failureMessageOf(
+      captureResponsiveEvidence({ page, testInfo, claimId: "item-detail-product-options-hidden-desktop-control" }),
+      "the hidden Product options sibling unexpectedly captured evidence",
+    );
+
+    expect(failure).toContain("reason=target-hidden-or-collapsed");
+    await testInfo.attach("responsive-evidence:item-detail-product-options-hidden-desktop-control:failure", {
+      body: failure,
+      contentType: "text/plain",
+    });
+  });
+
+  test("fails the active-tab bounds assertion when controlled reveal is bypassed @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await openItemRoute(page, itemDetailRoutePath, { width: 360, height: 800 });
+    const navigation = page.locator("[data-market-book-navigation]");
+    const tabList = navigation.getByRole("tablist");
+    await changeMarketBookWithDock(page, "Sell", navigation.getByRole("tab", { name: "Offers" }));
+    await tabList.evaluate((element) => {
+      const list = element as HTMLElement;
+      list.scrollLeft = list.scrollWidth;
+      Object.defineProperty(list, "scrollBy", { configurable: true, value: () => undefined });
+    });
+    await changeMarketBookWithDock(page, "Buy", navigation.getByRole("tab", { name: "Listings" }));
+
+    const failure = await failureMessageOf(
+      expectActiveTabInsideTabList(page, "Listings"),
+      "the bypassed active-tab reveal unexpectedly satisfied the live bounds assertion",
+    );
+    expect(failure).toContain("must settle fully inside the tab-list bounds");
+    await testInfo.attach("mutant-red:bypassed-active-tab-reveal", { body: failure, contentType: "text/plain" });
   });
 });
