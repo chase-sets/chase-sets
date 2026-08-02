@@ -987,6 +987,716 @@
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-product-options-collapsed-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records collapsed Product options at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "visible-mobile-product-options-collapsed",
+        "selector": "[data-product-options-mobile]",
+        "populatedSelector": ":scope > [data-product-options-disclosure][data-product-options-state='collapsed']"
+      },
+      "measurements": [
+        {
+          "identity": "mobile-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "desktop-product-options-sibling-hidden",
+          "scope": "page",
+          "selector": "[data-product-options-desktop]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-collapsed-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-product-options-collapsed-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records collapsed Product options at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "visible-mobile-product-options-collapsed",
+        "selector": "[data-product-options-mobile]",
+        "populatedSelector": ":scope > [data-product-options-disclosure][data-product-options-state='collapsed']"
+      },
+      "measurements": [
+        {
+          "identity": "mobile-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "desktop-product-options-sibling-hidden",
+          "scope": "page",
+          "selector": "[data-product-options-desktop]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-collapsed-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-product-options-expanded-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records expanded Product options at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail without listings (bulbasaur base set)",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_bulbasaur_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "visible-mobile-product-options-expanded",
+        "selector": "[data-product-options-mobile]",
+        "populatedSelector": ":scope [role='radiogroup']"
+      },
+      "measurements": [
+        {
+          "identity": "mobile-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "desktop-product-options-sibling-hidden",
+          "scope": "page",
+          "selector": "[data-product-options-desktop]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-expanded-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-product-options-expanded-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records expanded Product options at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail without listings (bulbasaur base set)",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_bulbasaur_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "visible-mobile-product-options-expanded",
+        "selector": "[data-product-options-mobile]",
+        "populatedSelector": ":scope [role='radiogroup']"
+      },
+      "measurements": [
+        {
+          "identity": "mobile-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "desktop-product-options-sibling-hidden",
+          "scope": "page",
+          "selector": "[data-product-options-desktop]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-expanded-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-listings-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Listings Market book tab at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail Listings Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-market-book-listings",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-listings-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Listings']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-listings-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-listings-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Listings Market book tab at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail Listings Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-market-book-listings",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-listings-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Listings']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-listings-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-offers-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Offers Market book tab at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail Offers Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?market=sell"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-market-book-offers",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-offers-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Offers']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-offers-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-offers-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Offers Market book tab at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail Offers Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?market=sell"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-market-book-offers",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-offers-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Offers']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-offers-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-sales-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Sales Market book tab at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail Sales Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-market-book-sales",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-sales-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Sales']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-sales-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-sales-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Sales Market book tab at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail Sales Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-market-book-sales",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-sales-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Sales']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-sales-390"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-details-360",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Details Market book tab at 360x800 @marketplace-browse",
+      "route": {
+        "name": "item detail Details Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "item-detail-market-book-details",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-details-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Details']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-details-360"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-market-book-details-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "records Details Market book tab at 390x844 @marketplace-browse",
+      "route": {
+        "name": "item detail Details Market book",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "item-detail-market-book-details",
+        "selector": "[data-market-book-navigation]",
+        "populatedSelector": ":scope [role='tab']"
+      },
+      "measurements": [
+        {
+          "identity": "active-details-tab-visible",
+          "scope": "target",
+          "selector": "role=tab[name='Details']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "single-row-tab-list-height",
+          "scope": "target",
+          "selector": "role=tablist",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
+        },
+        {
+          "identity": "phone-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-market-book-details-390"
+    },
+    {
+      "kind": "negative-control",
+      "id": "item-detail-product-options-hidden-desktop-control",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "fails Product options evidence when the phone claim targets the hidden desktop sibling @marketplace-browse",
+      "route": {
+        "name": "item detail selected product (charizard base set, raw/near mint)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "hidden-desktop-product-options",
+        "selector": "[data-product-options-desktop]",
+        "populatedSelector": ":scope [role='radiogroup']"
+      },
+      "measurements": [
+        {
+          "identity": "hidden-desktop-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-hidden-desktop-control"
+    },
+    {
+      "kind": "claim",
+      "id": "item-detail-product-options-desktop-768",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "preserves expanded Product options and Market book at the 768px breakpoint @marketplace-browse",
+      "route": {
+        "name": "item detail selected product at md breakpoint",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "target": {
+        "identity": "visible-desktop-product-options-expanded",
+        "selector": "[data-product-options-desktop]",
+        "populatedSelector": ":scope [role='radiogroup']"
+      },
+      "measurements": [
+        {
+          "identity": "desktop-product-options-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 768
+          }
+        },
+        {
+          "identity": "mobile-product-options-sibling-hidden",
+          "scope": "page",
+          "selector": "[data-product-options-mobile]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "breakpoint-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "item-detail-product-options-desktop-768"
     }
   ]
 }

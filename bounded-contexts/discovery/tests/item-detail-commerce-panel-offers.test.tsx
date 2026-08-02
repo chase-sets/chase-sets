@@ -703,7 +703,7 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       quantity_requested: 1,
     };
 
-    render(
+    const { container } = render(
       <ItemDetailPage
         data={createItem({
           product_schema: variantSchema,
@@ -726,8 +726,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       />,
     );
 
+    const mobileProductOptions = within(container.querySelector("[data-product-options-mobile]") as HTMLElement);
     expect(screen.getByTestId("sell-product-summary").textContent).toBe("Selected sell product Graded");
-    expect(screen.getByText("Graded · 1 requested from $360.00")).toBeTruthy();
+    expect(mobileProductOptions.getByText("Graded · 1 requested from $360.00")).toBeTruthy();
     expect(screen.queryByText("Selected offer product")).toBeNull();
     expect(screen.queryByText(/Matched listing:/)).toBeNull();
     expect(screen.getByTestId("selected-options")).toHaveProperty(

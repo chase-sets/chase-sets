@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
-import type { DiscoveryMarketListing } from "../support/client-support/contracts";
+import type { DiscoveryMarketListing, ProductSchema } from "../support/client-support/contracts";
 import {
   alternateListing,
   baseAccountOfferMatch,
@@ -747,7 +747,7 @@ describe("item detail commerce panel market intents and listing selection", () =
     };
     window.history.replaceState(null, "", "/items/charizard-base-set?market=buy&listing=listing_charizard");
 
-    render(
+    const { container } = render(
       <ItemDetailPage
         data={createItem({
           product_schema: variantSchema,
@@ -767,7 +767,9 @@ describe("item detail commerce panel market intents and listing selection", () =
       />,
     );
 
-    fireEvent.click(screen.getByRole("radio", { name: /^Graded/ }));
+    const mobileProductOptions = within(container.querySelector("[data-product-options-mobile]") as HTMLElement);
+    fireEvent.click(mobileProductOptions.getByRole("button", { name: /Chosen options/ }));
+    fireEvent.click(mobileProductOptions.getByRole("radio", { name: /^Graded/ }));
 
     await waitFor(() =>
       expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt"),
@@ -778,6 +780,153 @@ describe("item detail commerce panel market intents and listing selection", () =
       JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
     );
     expect(new URL(window.location.href).searchParams.get("listing")).toBeNull();
+  });
+
+  it("Product options reconcile the real item route after each dependent choice", async () => {
+    const dependentSchema: ProductSchema = {
+      canonicalDimensionOrder: [
+        { dimensionId: "form", dimensionName: "Form" },
+        { dimensionId: "condition", dimensionName: "Condition" },
+        { dimensionId: "grade", dimensionName: "Grade" },
+      ],
+      dimensions: [
+        {
+          dimensionId: "form",
+          dimensionName: "Form",
+          valueKind: "unordered",
+          required: true,
+          appliesWhen: [],
+          allowedOptions: [
+            { optionId: "raw", code: "raw", label: "Raw", displayOrder: 0, numericValue: null },
+            { optionId: "graded", code: "graded", label: "Graded", displayOrder: 1, numericValue: null },
+          ],
+        },
+        {
+          dimensionId: "condition",
+          dimensionName: "Condition",
+          valueKind: "ordered",
+          required: true,
+          appliesWhen: [{ dimensionId: "form", optionIds: ["raw"] }],
+          allowedOptions: [
+            { optionId: "near-mint", code: "near-mint", label: "Near Mint", displayOrder: 0, numericValue: 1 },
+          ],
+        },
+        {
+          dimensionId: "grade",
+          dimensionName: "Grade",
+          valueKind: "ordered",
+          required: true,
+          appliesWhen: [{ dimensionId: "form", optionIds: ["graded"] }],
+          allowedOptions: [{ optionId: "ten", code: "ten", label: "10", displayOrder: 0, numericValue: 10 }],
+        },
+      ],
+    };
+    const rawProductId = "cat_charizard::form:raw|condition:near-mint|grade:-";
+    const gradedProductId = "cat_charizard::form:graded|condition:-|grade:ten";
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: rawProductId,
+      selected_options: [
+        { dimensionId: "form", optionId: "raw" },
+        { dimensionId: "condition", optionId: "near-mint" },
+      ],
+      product_summary: "Raw / Near Mint",
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: gradedProductId,
+      selected_options: [
+        { dimensionId: "form", optionId: "graded" },
+        { dimensionId: "grade", optionId: "ten" },
+      ],
+      product_summary: "Graded / 10",
+    };
+    const rawOffer = {
+      ...baseOffer,
+      product_id: rawProductId,
+      selected_options: rawListing.selected_options,
+      product_summary: rawListing.product_summary,
+    };
+    const gradedOffer = {
+      ...baseOffer,
+      offer_id: "offer_charizard_graded",
+      product_id: gradedProductId,
+      selected_options: gradedListing.selected_options,
+      product_summary: gradedListing.product_summary,
+    };
+    const initialRoute = "/items/charizard-base-set?dimension.form=raw&dimension.condition=near-mint";
+    window.history.replaceState(null, "", initialRoute);
+
+    const { container } = render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: dependentSchema,
+          market_listings: [rawListing, gradedListing],
+          offer_demand_matches: [rawOffer, gradedOffer],
+        })}
+        initialSelectedOptions={[
+          { dimensionId: "form", optionId: "raw" },
+          { dimensionId: "condition", optionId: "near-mint" },
+        ]}
+        hasInitialSelectedOptionFilters
+        renderCommerce={(context) => ({
+          buy: (
+            <>
+              <input data-testid="reconciled-product-id" readOnly value={context.selectedProductId ?? ""} />
+              <input data-testid="reconciled-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="reconciled-listing-count" readOnly value={String(context.visibleListings.length)} />
+              <input data-testid="reconciled-offer-count" readOnly value={String(context.visibleOffers.length)} />
+              <input
+                data-testid="reconciled-listing-price"
+                readOnly
+                value={context.selectedListing?.price_amount ?? ""}
+              />
+            </>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    const surface = container.querySelector("[data-product-options-surface]") as HTMLElement;
+    const mobile = within(surface.querySelector("[data-product-options-mobile]") as HTMLElement);
+    fireEvent.click(mobile.getByRole("button", { name: /Chosen options/ }));
+
+    fireEvent.click(mobile.getByRole("radio", { name: /^Graded/ }));
+    await waitFor(() => {
+      expect(mobile.queryByRole("radiogroup", { name: "Condition" })).toBeNull();
+      expect(mobile.getByRole("radiogroup", { name: "Grade" })).toBeTruthy();
+      expect(surface.getAttribute("data-product-id")).toBe(gradedProductId);
+    });
+
+    fireEvent.click(mobile.getByRole("radio", { name: /^10/ }));
+    await waitFor(() => expect(surface.getAttribute("data-product-id")).toBe(gradedProductId));
+    expect(mobile.getByRole("button", { name: /Chosen options/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("reconciled-product-id")).toHaveProperty("value", gradedProductId);
+    expect(screen.getByTestId("reconciled-listing-id")).toHaveProperty("value", alternateListing.listing_id);
+    expect(screen.getByTestId("reconciled-listing-count")).toHaveProperty("value", "1");
+    expect(screen.getByTestId("reconciled-offer-count")).toHaveProperty("value", "1");
+    expect(screen.getByTestId("reconciled-listing-price")).toHaveProperty("value", alternateListing.price_amount);
+    expect(screen.getByTestId("product-detail-mobile-dock").textContent).toContain(`$${alternateListing.price_amount}`);
+    expect(mobile.getByLabelText("Product options: Form Graded, Grade 10")).toBeTruthy();
+
+    fireEvent.click(mobile.getByRole("radio", { name: /^Raw/ }));
+    await waitFor(() => {
+      expect(mobile.queryByRole("radiogroup", { name: "Grade" })).toBeNull();
+      expect(mobile.getByRole("radiogroup", { name: "Condition" })).toBeTruthy();
+      expect(surface.getAttribute("data-product-id")).toBe(rawProductId);
+    });
+
+    fireEvent.click(mobile.getByRole("radio", { name: /^Near Mint/ }));
+    await waitFor(() => expect(surface.getAttribute("data-product-id")).toBe(rawProductId));
+    expect(screen.getByTestId("reconciled-product-id")).toHaveProperty("value", rawProductId);
+    expect(screen.getByTestId("reconciled-listing-id")).toHaveProperty("value", baseListing.listing_id);
+    expect(screen.getByTestId("reconciled-listing-count")).toHaveProperty("value", "1");
+    expect(screen.getByTestId("reconciled-offer-count")).toHaveProperty("value", "1");
+    expect(screen.getByTestId("reconciled-listing-price")).toHaveProperty("value", baseListing.price_amount);
+    expect(screen.getByTestId("product-detail-mobile-dock").textContent).toContain(`$${baseListing.price_amount}`);
+    expect(mobile.getByLabelText("Product options: Form Raw, Condition Near Mint")).toBeTruthy();
+    expect(`${window.location.pathname}${window.location.search}`).toBe(initialRoute);
   });
 
   it("keeps add to cart available for a selected product without a listing", () => {

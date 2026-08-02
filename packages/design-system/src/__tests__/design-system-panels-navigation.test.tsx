@@ -944,6 +944,117 @@ describe("design system panels, navigation, and shells", () => {
     expect(screen.getByText("Summary content")).toBeTruthy();
   });
 
+  it("scrollable-row Tabs keep the active tab visible without page overflow", () => {
+    const defaultMarkup = renderToString(
+      <Tabs
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> },
+        ]}
+      />,
+    );
+    const scrollableMarkup = renderToString(
+      <Tabs
+        mobileLayout="scrollable-row"
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> },
+          { value: "sales", label: "Sales", content: <div>Sales content</div> },
+          { value: "details", label: "Details", content: <div>Details content</div> },
+        ]}
+      />,
+    );
+
+    expect(defaultMarkup).toContain(
+      "grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap",
+    );
+    expect(defaultMarkup).not.toContain("data-mobile-layout");
+    expect(scrollableMarkup).toContain('data-mobile-layout="scrollable-row"');
+    expect(scrollableMarkup).toContain("flex-nowrap");
+    expect(scrollableMarkup).toContain("overflow-x-auto");
+    expect(scrollableMarkup).toContain("md:overflow-visible");
+  });
+
+  it("scrollable-row Tabs preserve keyboard and panel semantics", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tabs
+        mobileLayout="scrollable-row"
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> },
+          { value: "sales", label: "Sales", content: <div>Sales content</div> },
+          { value: "details", label: "Details", content: <div>Details content</div> },
+        ]}
+      />,
+    );
+
+    const listings = screen.getByRole("tab", { name: "Listings" });
+    await act(async () => {
+      listings.focus();
+      fireEvent.keyDown(listings, { key: "ArrowRight" });
+    });
+
+    const offers = screen.getByRole("tab", { name: "Offers" });
+    await waitFor(() => expect(document.activeElement).toBe(offers));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(offers.getAttribute("aria-selected")).toBe("true"));
+    expect(within(screen.getByRole("tabpanel", { name: "Offers" })).getByText("Offers content")).toBeTruthy();
+    expect(screen.queryByRole("tabpanel", { name: "Listings" })).toBeNull();
+  });
+
+  it("controlled scrollable-row Tabs reveal the selected tab", async () => {
+    function ControlledTabs() {
+      const [value, setValue] = useState("listings");
+
+      return (
+        <>
+          <button type="button" onClick={() => setValue("details")}>
+            Show details
+          </button>
+          <Tabs
+            mobileLayout="scrollable-row"
+            value={value}
+            onValueChange={setValue}
+            items={[
+              { value: "listings", label: "Listings", content: <div>Listings content</div> },
+              { value: "offers", label: "Offers", content: <div>Offers content</div> },
+              { value: "sales", label: "Sales", content: <div>Sales content</div> },
+              { value: "details", label: "Details", content: <div>Details content</div> },
+            ]}
+          />
+        </>
+      );
+    }
+
+    render(<ControlledTabs />);
+
+    const bounds = (left: number, right: number) =>
+      ({
+        x: left,
+        y: 0,
+        left,
+        right,
+        top: 0,
+        bottom: 40,
+        width: right - left,
+        height: 40,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const tabList = screen.getByRole("tablist");
+    const details = screen.getByRole("tab", { name: "Details" });
+    const scrollBy = vi.fn();
+    Object.defineProperty(tabList, "getBoundingClientRect", { configurable: true, value: () => bounds(0, 200) });
+    Object.defineProperty(details, "getBoundingClientRect", { configurable: true, value: () => bounds(220, 300) });
+    Object.defineProperty(tabList, "scrollBy", { configurable: true, value: scrollBy });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ left: 100, behavior: "smooth" }));
+    expect(details.getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tabpanel", { name: "Details" })).getByText("Details content")).toBeTruthy();
+  });
+
   it("keeps the selected action tab and exposed panel synchronized", () => {
     function ControlledTabs() {
       const [value, setValue] = useState("offers");

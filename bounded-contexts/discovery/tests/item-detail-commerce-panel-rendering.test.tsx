@@ -38,6 +38,58 @@ afterEach(() => {
 });
 
 describe("item detail commerce panel rendering and mobile sections", () => {
+  it("resolved phone Product options collapse to one canonical summary", () => {
+    const rawListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const { container } = render(
+      <ItemDetailPage
+        data={createItem({ product_schema: requiredSchema, market_listings: [rawListing] })}
+        initialSelectedOptions={[{ dimensionId: "form", optionId: "raw" }]}
+        hasInitialSelectedOptionFilters
+      />,
+    );
+
+    const surface = container.querySelector("[data-product-options-surface]") as HTMLElement;
+    const mobile = within(surface.querySelector("[data-product-options-mobile]") as HTMLElement);
+    const trigger = mobile.getByRole("button", { name: /Chosen options/ });
+
+    expect(surface.getAttribute("data-product-id")).toBe("cat_charizard::form:raw");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(mobile.getAllByLabelText("Product options: Form Raw")).toHaveLength(1);
+    expect(mobile.queryByRole("radiogroup", { name: "Form" })).toBeNull();
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(mobile.getByRole("radiogroup", { name: "Form" })).toBeTruthy();
+  });
+
+  it("shopper-action Product options stay expanded", () => {
+    const { container } = render(
+      <ItemDetailPage
+        data={createItem({ product_schema: requiredSchema, market_listings: [], offer_demand_matches: [] })}
+        initialSelectedOptions={[{ dimensionId: "form", optionId: "removed-required-option" }]}
+        hasInitialSelectedOptionFilters
+      />,
+    );
+
+    const surface = container.querySelector("[data-product-options-surface]") as HTMLElement;
+    const mobile = within(surface.querySelector("[data-product-options-mobile]") as HTMLElement);
+    const trigger = mobile.getByRole("button", { name: "Choose options" });
+
+    expect(surface.getAttribute("data-product-id")).toBe("");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(mobile.getByRole("radiogroup", { name: "Form" })).toBeTruthy();
+    expect(mobile.getByRole("radio", { name: "Any" }).getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("uses Product Asset Set detail variants before compatibility image URLs", () => {
     renderWithDataRouter(
       <ItemDetailPage
