@@ -13,6 +13,8 @@
     "pretest": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "pretest:unit": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs",
     "test:watch": "vitest --config ./tests/vitest.config.mjs",
     "generate:landing-image-variants": "node ./features/waitlist/ui/assets/generate-image-variants.mjs",
     "generate:og-images": "node ./features/waitlist/ui/assets/generate-og-images.mjs"

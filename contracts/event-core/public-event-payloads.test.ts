@@ -24,6 +24,9 @@ import type {
   SettlementSupportHoldReleasedPayload,
   SupportRequestPlatformCoverageEventPayloads,
   WaitlistSignupRecordedPayload,
+  WaitlistReferralCodeIssuedPayload,
+  WaitlistReferralCodeReservedPayload,
+  WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
@@ -170,6 +173,21 @@ const aggregateTypeIdentity = {
   >,
 } as const;
 
+const publicPresenceReferralTypeIdentity = {
+  reserved: true satisfies IsExactly<
+    ChaseSetsEventPayloads["public-presence.waitlist-referral-code.reserved"],
+    WaitlistReferralCodeReservedPayload
+  >,
+  issued: true satisfies IsExactly<
+    ChaseSetsEventPayloads["public-presence.waitlist-referral-code.issued"],
+    WaitlistReferralCodeIssuedPayload
+  >,
+  provisioned: true satisfies IsExactly<
+    ChaseSetsEventPayloads["public-presence.waitlist-referral-link.provisioned"],
+    WaitlistReferralLinkProvisionedPayload
+  >,
+} as const;
+
 /**
  * The two Platform-Operations-owned action-recorded facts are registered inside
  * `MarketplaceEventPayloads` under their own `platform-operations.*` stream keys. The
@@ -212,6 +230,10 @@ describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
     expect(Object.keys(aggregateTypeIdentity)).toHaveLength(13);
+  });
+
+  it("keeps the Public Presence referral authority payloads in the aggregate", () => {
+    expect(Object.values(publicPresenceReferralTypeIdentity).every(Boolean)).toBe(true);
   });
 
   it("keeps the platform-operations facts cross-registered in the marketplace map", () => {

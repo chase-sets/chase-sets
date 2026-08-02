@@ -242,11 +242,30 @@ export function createInMemoryEventStore(): InMemoryEventStore {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
       }
 
-      const results = inputs.map((input) => ({
-        streamId: input.streamId,
-        storedEvents: input.events.length === 0 ? [] : appendToStream(input),
-      }));
-      return results;
+      // The version pre-check above cannot see a failure raised while writing --
+      // a late per-event idempotency mismatch, for example -- so the whole batch
+      // is snapshotted and restored on any throw. Without this, an atomic append
+      // could leave a partially written participant observable in memory, which
+      // the Postgres store's transaction would never do.
+      const priorGlobalPosition = globalPosition;
+      const priorStreams = new Map([...streams].map(([streamId, events]) => [streamId, [...events]]));
+      const priorAllEvents = [...allEvents];
+      const priorEventsById = new Map(eventsById);
+
+      try {
+        return inputs.map((input) => ({
+          streamId: input.streamId,
+          storedEvents: input.events.length === 0 ? [] : appendToStream(input),
+        }));
+      } catch (error) {
+        globalPosition = priorGlobalPosition;
+        streams.clear();
+        for (const [streamId, events] of priorStreams) streams.set(streamId, events);
+        allEvents.splice(0, allEvents.length, ...priorAllEvents);
+        eventsById.clear();
+        for (const [eventId, event] of priorEventsById) eventsById.set(eventId, event);
+        throw error;
+      }
     },
     appendToStreamsIndependently: async (inputs) => {
       const results: AppendToStreamsIndependentResult[] = [];

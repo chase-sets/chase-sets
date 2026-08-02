@@ -7,6 +7,7 @@ import { buildPublicPresenceAdminApi, buildPublicPresencePublicApi } from "./api
 import { seedPublicPresencePromoBarMessages } from "./features/promo-bar/api/seed";
 import { buildWaitlistTransactionalEmailProjectionHandlers } from "./features/waitlist/integrations/transactional-email/transactional-email-projector";
 import { buildWaitlistProjectionHandlers } from "./features/waitlist/read-model/projection";
+import { waitlistSchemaMigrations } from "./features/waitlist/read-model/schema";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import { createPublicPresenceServices } from "./support/runtime-support/services";
 import { publicPresenceSchemaSql } from "./support/runtime-support/schema";
@@ -20,7 +21,7 @@ export const module = defineBoundedContextModule<
 >({
   manifest: contextManifest,
   schemaSql: publicPresenceSchemaSql,
-  schemaMigrations: publicPresenceUnloggedProjectionSchemaMigrations,
+  schemaMigrations: [...publicPresenceUnloggedProjectionSchemaMigrations, ...waitlistSchemaMigrations],
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
   buildApis: (services) => [
     {

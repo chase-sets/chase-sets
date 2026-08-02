@@ -1,7 +1,8 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -39,6 +40,23 @@ import {
   PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
   buildWaitlistTransactionalEmailProjectionHandlers,
 } from "../integrations/transactional-email/transactional-email-projector";
+import {
+  buildReferralLink,
+  createReferralLinkProvisioningReceipt,
+  generatePublicReferralCode,
+  generateReferralLinkProvisioningId,
+  jcsStringify,
+  normalizeReferralLinkProvisioningRequest,
+  publicReferralCodeDigest,
+  publicReferralCodeReservationStreamId,
+  sha256Hex,
+  type CreatorUtmTuple,
+  type ReferralLinkProvisioningReceipt,
+  type SecureRandomBytes,
+} from "../domain/public-referral-code";
+
+/** Bounded retries for the two optimistic-concurrency write paths below. */
+const REFERRAL_WRITE_ATTEMPT_LIMIT = 8;
 
 type WaitlistRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -47,6 +65,7 @@ type WaitlistRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
   policies: PolicyRuntime;
   now?: () => Date;
+  randomBytes?: SecureRandomBytes;
 }>;
 
 export type WaitlistServices = Readonly<{
@@ -66,6 +85,15 @@ export type WaitlistServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ signupId: string; version: number }>;
+  /**
+   * The single protected join of one issued Public Referral Code with one
+   * validated creator UTM tuple. Idempotent per (signup, tuple, link): a repeat
+   * returns the original frozen receipt and appends nothing.
+   */
+  provisionReferralLink: (
+    params: Readonly<{ signupId: string; tuple: CreatorUtmTuple }>,
+    context: EventStoreContext,
+  ) => Promise<ReferralLinkProvisioningReceipt>;
   /**
    * Progressive welcome-page cohort-quality save. Only fields present on
    * `params` are updated (individual saves, never a submit-wall); the domain
@@ -112,39 +140,167 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   let counterCache: { readAt: number; counter: WaitlistCounter } | null = null;
   const now = deps.now ?? (() => new Date());
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WaitlistSignupEvent>(),
     initialState: () => initialWaitlistSignupState,
     evolve: evolveWaitlistSignup,
     decide: decideWaitlistSignup,
+    commitSourceContextName: "public-presence",
   });
 
   return {
     commandHandler,
     async submitWaitlistSignup(params, context) {
-      const now = new Date().toISOString();
+      // Refuse before any write when the optional atomic multi-stream member is
+      // absent: a first-time signup and its uniqueness reservation must commit
+      // together or not at all.
+      const appendToStreams = deps.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new Error("Recording a Waitlist Signup requires EventStore.appendToStreams.");
+      }
+      const recordedAt = now().toISOString();
       const signupId = stableWaitlistSignupId(params.email);
-      const result = await commandHandler({
-        streamId: `public-presence.waitlist-signup-${signupId}`,
-        command: {
-          type: "RecordWaitlistSignup",
-          email: params.email,
-          role: params.role,
-          interests: params.interests,
-          marketingConsentAcceptedAt: params.marketingConsent ? now : null,
-          referredBySignupId: params.referredBySignupId ?? null,
-          games: params.games,
-          hasStoreLink: params.hasStoreLink,
-          storeUrl: params.storeUrl,
-          inventorySize: params.inventorySize,
-          source: params.source,
-          recordedAt: now,
-        },
-        context,
-      });
+      const streamId = `public-presence.waitlist-signup-${signupId}`;
+      const command: WaitlistSignupCommand = {
+        type: "RecordWaitlistSignup",
+        email: params.email,
+        role: params.role,
+        interests: params.interests,
+        marketingConsentAcceptedAt: params.marketingConsent ? recordedAt : null,
+        referredBySignupId: params.referredBySignupId ?? null,
+        games: params.games,
+        hasStoreLink: params.hasStoreLink,
+        storeUrl: params.storeUrl,
+        inventorySize: params.inventorySize,
+        source: params.source,
+        recordedAt,
+      };
 
-      return { signupId, version: result.version };
+      for (let attempt = 0; attempt < REFERRAL_WRITE_ATTEMPT_LIMIT; attempt += 1) {
+        // Authoritative aggregate state, never a projection read, decides
+        // whether this is a first write that owes entropy or a repeat that must
+        // not mint a second code.
+        const loaded = await repository.load(streamId);
+        if (loaded.state.signupId !== null) {
+          const result = await commandHandler({ streamId, command, context });
+          return { signupId, version: result.version };
+        }
+
+        const recorded = decideWaitlistSignup(loaded.state, command);
+        const publicReferralCode = generatePublicReferralCode(deps.randomBytes);
+        const codeDigest = publicReferralCodeDigest(publicReferralCode);
+        try {
+          const results = await appendToStreams([
+            {
+              streamId: publicReferralCodeReservationStreamId(publicReferralCode),
+              wakeSourceContextName: "public-presence",
+              expectedVersion: "no_stream",
+              context,
+              events: [
+                {
+                  eventType: "public-presence.waitlist-referral-code.reserved",
+                  payload: { codeDigest, reservedAt: recordedAt },
+                },
+              ],
+            },
+            {
+              streamId,
+              wakeSourceContextName: "public-presence",
+              expectedVersion: loaded.version,
+              context,
+              events: [
+                ...recorded.map((event) => ({ eventType: event.type, payload: event.data })),
+                {
+                  eventType: "public-presence.waitlist-referral-code.issued",
+                  payload: { signupId, publicReferralCode, issuedAt: recordedAt },
+                },
+              ],
+            },
+          ]);
+          // The atomic append has committed. This path bypasses the command
+          // handler, so it owes the read-after-write commit recording itself,
+          // for every event the append result reports and for no other.
+          recordCommittedEvents(
+            results.flatMap((result) => result.storedEvents),
+            "public-presence",
+          );
+          const signupEvents = results.find((result) => result.streamId === streamId)?.storedEvents ?? [];
+          return { signupId, version: signupEvents.at(-1)?.streamVersion ?? loaded.version };
+        } catch (error) {
+          // A losing attempt committed nothing, so it recorded nothing: the
+          // retry re-reads authoritative state and mints fresh entropy.
+          if (isConcurrencyConflict(error)) continue;
+          throw error;
+        }
+      }
+      throw new Error("Waitlist Signup recording could not settle concurrent Public Referral Code issuance.");
+    },
+    async provisionReferralLink(params, context) {
+      const request = normalizeReferralLinkProvisioningRequest(params);
+      const streamId = `public-presence.waitlist-signup-${request.signupId}`;
+      const tupleSha256 = sha256Hex(jcsStringify(request.tuple));
+      for (let attempt = 0; attempt < REFERRAL_WRITE_ATTEMPT_LIMIT; attempt += 1) {
+        const loaded = await repository.load(streamId);
+        if (loaded.state.signupId !== request.signupId || !loaded.state.publicReferralCode) {
+          throw new Error("Waitlist Signup does not have an issued Public Referral Code.");
+        }
+        const referralLink = buildReferralLink(loaded.state.publicReferralCode, request.tuple);
+        const referralLinkSha256 = sha256Hex(referralLink);
+        const existing = loaded.state.referralLinkProvisionings.find(
+          (entry) => entry.tupleSha256 === tupleSha256 && entry.referralLinkSha256 === referralLinkSha256,
+        );
+        if (existing) {
+          // Replay branch: appends nothing, therefore records nothing, and
+          // reconstructs the original frozen receipt from rehydrated state.
+          return createReferralLinkProvisioningReceipt({
+            provisioningId: existing.provisioningId,
+            publicReferralCode: loaded.state.publicReferralCode,
+            tuple: request.tuple,
+            referralLink,
+            issuedAt: existing.issuedAt,
+          });
+        }
+
+        const issuedAt = now().toISOString();
+        const provisioningId = generateReferralLinkProvisioningId(deps.randomBytes);
+        try {
+          const storedEvents = await repository.append({
+            streamId,
+            wakeSourceContextName: "public-presence",
+            expectedVersion: loaded.version,
+            context,
+            events: [
+              {
+                type: "public-presence.waitlist-referral-link.provisioned",
+                data: {
+                  signupId: request.signupId,
+                  provisioningId,
+                  tupleSha256,
+                  referralLinkSha256,
+                  performedByUserId: context.audit.performedByUserId,
+                  issuedAt,
+                },
+              },
+            ],
+          });
+          // Same bypass as the first-time signup append: the repository append
+          // does not record, so this write path records its own committed
+          // events before the receipt is constructed.
+          recordCommittedEvents(storedEvents, "public-presence");
+          return createReferralLinkProvisioningReceipt({
+            provisioningId,
+            publicReferralCode: loaded.state.publicReferralCode,
+            tuple: request.tuple,
+            referralLink,
+            issuedAt,
+          });
+        } catch (error) {
+          if (isConcurrencyConflict(error)) continue;
+          throw error;
+        }
+      }
+      throw new Error("Referral Link provisioning could not settle concurrent history.");
     },
     async provideWaitlistCohortQuality(params, context) {
       const result = await commandHandler({
@@ -255,4 +411,10 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
       }),
     ],
   };
+}
+
+function isConcurrencyConflict(error: unknown): error is EventStoreError {
+  return Boolean(
+    error && typeof error === "object" && "code" in error && (error as EventStoreError).code === "concurrency_conflict",
+  );
 }

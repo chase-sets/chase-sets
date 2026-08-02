@@ -6,6 +6,8 @@ import type {
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
+  ReferralLinkProvisioningRequest,
+  ReferralLinkProvisioningReceipt,
 } from "./features/waitlist/api/contracts";
 import type { PromoBarMessage, SavePromoBarMessageRequest } from "./features/promo-bar/api/contracts";
 
@@ -20,6 +22,8 @@ export type {
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
+  ReferralLinkProvisioningRequest,
+  ReferralLinkProvisioningReceipt,
 } from "./features/waitlist/api/contracts";
 export type { WaveOneAdmissionBarStatus } from "./features/waitlist/read-model/campaign-admission-bar-policy";
 export type {
@@ -99,6 +103,15 @@ export function createPublicPresenceApiClient({
     },
     async getCampaignAnalytics(): Promise<CampaignAnalyticsSnapshot> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist/campaign-analytics`));
+    },
+    async provisionReferralLink(body: ReferralLinkProvisioningRequest): Promise<ReferralLinkProvisioningReceipt> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/waitlist/referral-link/provision`, {
+          method: "POST",
+          headers: { "X-Chase-Sets-CSRF": "1" },
+          body: JSON.stringify(body),
+        }),
+      );
     },
     async listActivePromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/promo-bar-messages`));

@@ -14,6 +14,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 - Waitlist capture and waitlist entries
 - Beta wave policy, cohort selection, and waitlist admission
 - Internal waitlist review
+- Public Referral Code issuance and protected referral-link provisioning
 - Landing page positioning and analytics vocabulary
 
 ## Does Not Own
@@ -51,6 +52,7 @@ Developer Articles are a separate, readiness-gated corpus. Their compiler genera
 2. Early-access email consent is implied by joining the waitlist and is recorded automatically at signup time; it is never a required condition of joining. Consent to additional product updates beyond early-access notifications is a separate, optional opt-in.
 3. A Waitlist Signup must declare at least one interest.
 4. Each nurture touch has one stable idempotency key per Waitlist Signup (and per founders-window start for admission); replaying a source fact can update an unsent outbox row but cannot create or resend a sent delivery.
+5. Every newly recorded Waitlist Signup atomically owns one immutable random Public Referral Code and one digest-only uniqueness reservation; replay never generates entropy.
 
 ## Tests
 

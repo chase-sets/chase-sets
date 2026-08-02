@@ -2,6 +2,7 @@ import type {
   ChaseSetsEventPayloads,
   WaitlistCohortQualityProvidedPayload,
   WaitlistSignupAdmittedPayload,
+  WaitlistReferralCodeIssuedPayload,
   WaitlistSignupRecordedPayload,
   WaitlistSignupUpdatedPayload,
 } from "@chase-sets/event-core";
@@ -120,6 +121,28 @@ async function applyAdmission(db: PgQueryable, data: WaitlistSignupAdmittedPaylo
   );
 }
 
+/**
+ * The Public Referral Code is immutable and this handler is its only writer, so
+ * the concurrency predicate is the read state itself: apply only while the row
+ * still carries no code, or already carries this exact one. A row that somehow
+ * holds a different code is left untouched rather than clobbered, and `GREATEST`
+ * keeps `updated_at` monotonic against a concurrent profile update.
+ *
+ * Projection presence is never coverage: a missing row here proves nothing about
+ * issuance, which only the authoritative streams decide.
+ */
+async function applyPublicReferralCode(db: PgQueryable, data: WaitlistReferralCodeIssuedPayload) {
+  await db.query(
+    `UPDATE public_presence_waitlist_signups
+     SET public_referral_code = $2,
+         public_referral_code_issued_at = $3,
+         updated_at = GREATEST(updated_at, $3::timestamptz)
+     WHERE signup_id = $1
+       AND (public_referral_code IS NULL OR public_referral_code = $2)`,
+    [data.signupId, data.publicReferralCode, data.issuedAt],
+  );
+}
+
 export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return defineProjectorHandlers<
     Pick<
@@ -128,6 +151,7 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
       | "public-presence.waitlist-signup.updated"
       | "public-presence.waitlist-signup.cohort-quality-provided"
       | "public-presence.waitlist-signup.admitted"
+      | "public-presence.waitlist-referral-code.issued"
     >
   >({
     "public-presence.waitlist-signup.recorded": async (event) => {
@@ -143,6 +167,9 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
     },
     "public-presence.waitlist-signup.admitted": async (event) => {
       await applyAdmission(db, event.data);
+    },
+    "public-presence.waitlist-referral-code.issued": async (event) => {
+      await applyPublicReferralCode(db, event.data);
     },
   });
 }
