@@ -204,15 +204,6 @@ function analyzeScratch(scratch, overrides = {}, module = null) {
   });
 }
 
-function withScratchRepo(prefix, body, extraFiles = new Map()) {
-  const { scratch, head } = buildProductScratchRepo(prefix, extraFiles);
-  try {
-    return body({ scratch, head });
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-}
-
 /**
  * A pull-request checkout exactly as actions/checkout materialises it: the base
  * tip advanced independently, the reviewed head did not, and HEAD is the
@@ -391,7 +382,45 @@ function buildPlantedSiteEvidence(prefix, relativePath, fixturePath) {
   return result;
 }
 
+/**
+ * Read-only scratch checkouts the mutation cases re-analyse. Built once and
+ * retained so that no case pays repository construction inside its own budget;
+ * every case only ever reads them.
+ */
+function buildRetainedCorpusProbeRepo() {
+  const scratch = initScratchRepo("consent-corpus-probe-");
+  writeScratchFile(scratch, ".gitignore", repoFile(`${fixtureRoot}/corpus/.gitignore`));
+  writeScratchFile(scratch, "tracked.ts", "export const tracked = true;\n");
+  const head = commitScratch(scratch, "tracked surface");
+  runGit(scratch, ["update-ref", "refs/remotes/origin/main", head]);
+  writeScratchFile(
+    scratch,
+    "untracked-nonignored/authorization.ts",
+    repoFile(`${fixtureRoot}/corpus/untracked-nonignored/authorization.ts`),
+  );
+  writeScratchFile(
+    scratch,
+    "ignored-generated/authorization.ts",
+    repoFile(`${fixtureRoot}/corpus/ignored-generated/authorization.ts`),
+  );
+  retainedScratchRepos.push(scratch);
+  return { scratch, head };
+}
+
+function buildRetainedPartitionNarrowRepo() {
+  const { scratch } = buildProductScratchRepo(
+    "consent-partition-narrow-",
+    new Map([
+      ["arbitrary/authorization.ts", repoFile(`${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`)],
+    ]),
+  );
+  retainedScratchRepos.push(scratch);
+  return scratch;
+}
+
 const classifiedEnvironments = buildClassifiedEnvironmentEvidence();
+const retainedCorpusProbe = buildRetainedCorpusProbeRepo();
+const retainedPartitionNarrowScratch = buildRetainedPartitionNarrowRepo();
 const unresolvedCandidateHead = buildUnresolvedCandidateHeadEvidence();
 const builtVersusClean = buildBuiltVersusCleanEvidence();
 const mainAdvance = buildMainAdvanceEvidence();
@@ -1120,25 +1149,6 @@ function deriveLockfileOnlyArtifactPair() {
 /* Per-case discrimination                                                    */
 /* -------------------------------------------------------------------------- */
 
-function corpusProbeRepo(prefix) {
-  const scratch = initScratchRepo(prefix);
-  writeScratchFile(scratch, ".gitignore", repoFile(`${fixtureRoot}/corpus/.gitignore`));
-  writeScratchFile(scratch, "tracked.ts", "export const tracked = true;\n");
-  const head = commitScratch(scratch, "tracked surface");
-  runGit(scratch, ["update-ref", "refs/remotes/origin/main", head]);
-  writeScratchFile(
-    scratch,
-    "untracked-nonignored/authorization.ts",
-    repoFile(`${fixtureRoot}/corpus/untracked-nonignored/authorization.ts`),
-  );
-  writeScratchFile(
-    scratch,
-    "ignored-generated/authorization.ts",
-    repoFile(`${fixtureRoot}/corpus/ignored-generated/authorization.ts`),
-  );
-  return { scratch, head };
-}
-
 function enumerateProbe(module, scratch, head) {
   return module.enumerateConsentAuthorizationCorpus({
     repoRoot: scratch,
@@ -1180,53 +1190,41 @@ function discriminate(descriptor, candidateModule, mutantModule) {
   }
 
   if (id === "MUT-AC1-CORPUS-DROP-OTHERS") {
-    const { scratch, head } = corpusProbeRepo(`consent-corpus-others-`);
-    try {
-      const candidate = enumerateProbe(candidateModule, scratch, head);
-      const mutant = enumerateProbe(mutantModule, scratch, head);
-      return {
-        candidateGreen: candidate.scannedFiles.includes("untracked-nonignored/authorization.ts"),
-        mutantRed: !mutant.scannedFiles.includes("untracked-nonignored/authorization.ts"),
-        candidateObservation: "the plain-checkout union carries the untracked nonignored source into the corpus",
-        mutantObservation: "the untracked nonignored source disappears once --others is dropped",
-      };
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+    const { scratch, head } = retainedCorpusProbe;
+    const candidate = enumerateProbe(candidateModule, scratch, head);
+    const mutant = enumerateProbe(mutantModule, scratch, head);
+    return {
+      candidateGreen: candidate.scannedFiles.includes("untracked-nonignored/authorization.ts"),
+      mutantRed: !mutant.scannedFiles.includes("untracked-nonignored/authorization.ts"),
+      candidateObservation: "the plain-checkout union carries the untracked nonignored source into the corpus",
+      mutantObservation: "the untracked nonignored source disappears once --others is dropped",
+    };
   }
 
   if (id === "MUT-AC1-CORPUS-DROP-EXCLUDE-STANDARD") {
-    const { scratch, head } = corpusProbeRepo(`consent-corpus-exclude-`);
-    try {
-      const candidate = enumerateProbe(candidateModule, scratch, head);
-      const mutant = enumerateProbe(mutantModule, scratch, head);
-      return {
-        candidateGreen: !candidate.sourceFiles.includes("ignored-generated/authorization.ts"),
-        mutantRed: mutant.sourceFiles.includes("ignored-generated/authorization.ts"),
-        candidateObservation: "the honored ignore rules keep the ignored generated module out of the corpus",
-        mutantObservation: "the ignored generated module enters once --exclude-standard is dropped",
-      };
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+    const { scratch, head } = retainedCorpusProbe;
+    const candidate = enumerateProbe(candidateModule, scratch, head);
+    const mutant = enumerateProbe(mutantModule, scratch, head);
+    return {
+      candidateGreen: !candidate.sourceFiles.includes("ignored-generated/authorization.ts"),
+      mutantRed: mutant.sourceFiles.includes("ignored-generated/authorization.ts"),
+      candidateObservation: "the honored ignore rules keep the ignored generated module out of the corpus",
+      mutantObservation: "the ignored generated module enters once --exclude-standard is dropped",
+    };
   }
 
   if (id === "MUT-AC10-CORPUS-FILESYSTEM-WALK") {
-    const { scratch, head } = corpusProbeRepo(`consent-corpus-walk-`);
-    try {
-      const candidate = enumerateProbe(candidateModule, scratch, head);
-      const mutant = enumerateProbe(mutantModule, scratch, head);
-      return {
-        candidateGreen:
-          candidate.sourceFiles.includes("tracked.ts") &&
-          !candidate.sourceFiles.includes("ignored-generated/authorization.ts"),
-        mutantRed: mutant.sourceFiles.includes("ignored-generated/authorization.ts"),
-        candidateObservation: "the tracked surface is an object query against the candidate-head commit",
-        mutantObservation: "a filesystem walk enumerates ignored generated modules the candidate head never carried",
-      };
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+    const { scratch, head } = retainedCorpusProbe;
+    const candidate = enumerateProbe(candidateModule, scratch, head);
+    const mutant = enumerateProbe(mutantModule, scratch, head);
+    return {
+      candidateGreen:
+        candidate.sourceFiles.includes("tracked.ts") &&
+        !candidate.sourceFiles.includes("ignored-generated/authorization.ts"),
+      mutantRed: mutant.sourceFiles.includes("ignored-generated/authorization.ts"),
+      candidateObservation: "the tracked surface is an object query against the candidate-head commit",
+      mutantObservation: "a filesystem walk enumerates ignored generated modules the candidate head never carried",
+    };
   }
 
   if (id === "MUT-AC3-ANONYMOUS-ALL-TRANSPARENT") {
@@ -1348,20 +1346,14 @@ function discriminate(descriptor, candidateModule, mutantModule) {
   }
 
   if (id === "MUT-AC6-PARTITION-NARROW-REGISTRY-HITS") {
-    return withScratchRepo(
-      "consent-partition-",
-      ({ scratch }) => {
-        const candidate = analyzeScratch(scratch, {}, candidateModule);
-        const mutant = analyzeScratch(scratch, {}, mutantModule);
-        return {
-          candidateGreen: candidate.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
-          mutantRed: !mutant.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
-          candidateObservation: "an unregistered consumption at an arbitrary path is reported",
-          mutantObservation: "narrowing to registry hits hides the unregistered consumption",
-        };
-      },
-      new Map([["arbitrary/authorization.ts", repoFile(descriptor.fixture)]]),
-    );
+    const candidate = analyzeScratch(retainedPartitionNarrowScratch, {}, candidateModule);
+    const mutant = analyzeScratch(retainedPartitionNarrowScratch, {}, mutantModule);
+    return {
+      candidateGreen: candidate.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
+      mutantRed: !mutant.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
+      candidateObservation: "an unregistered consumption at an arbitrary path is reported",
+      mutantObservation: "narrowing to registry hits hides the unregistered consumption",
+    };
   }
 
   if (id.startsWith("MUT-AC6-DIGEST-OMIT-")) {
