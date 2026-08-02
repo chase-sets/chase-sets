@@ -145,6 +145,9 @@ function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const eventStore: EventStore = {
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
+      if (typeof input.expectedVersion !== "number") {
+        throw new Error("Product Measures fixture requires a numeric expected stream version.");
+      }
       let streamVersion = input.expectedVersion;
       for (const event of input.events) {
         streamVersion += 1;
