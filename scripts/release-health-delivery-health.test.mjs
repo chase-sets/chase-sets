@@ -3,14 +3,17 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   DELIVERY_HEALTH_VERSION,
   buildDeliveryHealth,
+  collectDeliveryHealth,
   createGitHubClient,
   normalizeDeliveryConclusion,
   parseSliMarker,
   percentileSummary,
   publishSliIssues,
   readDeliveryHealthPolicy,
+  readEphemeralVerificationArchive,
   renderSliMarker,
   unzipJsonEntries,
+  validateEphemeralVerificationRecord,
 } from "./release-health-delivery-health.mjs";
 
 let policy;
@@ -119,7 +122,14 @@ describe("delivery-health/v1", () => {
     });
     expect(current.releases.staging).toMatchObject({ eligible: 10, applied: 9, denominator: 10 });
     expect(current.releases.production).toMatchObject({ eligible: 9, numerator: 9, denominator: 9, rollbacks: 0 });
-    expect(current.releases.ephemeral).toMatchObject({ eligible: 20, success: 19, failure: 1, skipped: 1 });
+    expect(current.releases.ephemeral).toMatchObject({
+      automaticRuns: 20,
+      manualRuns: 1,
+      eligible: 20,
+      success: 19,
+      failure: 1,
+      skipped: 0,
+    });
     expect(current.failureSignatures).toMatchObject({
       sourceCount: 2,
       openMutationCircuitCount: 1,
@@ -228,9 +238,11 @@ describe("delivery-health/v1", () => {
       ),
     ];
     source.ephemeralRuns = Array.from({ length: 25 }, (_, index) =>
-      run(1_000 + index, "workflow_run", "success", {
+      run(1_000 + index, "workflow_dispatch", "success", {
         updated_at: iso(index),
         jobs: [ephemeralJob("success")],
+        verificationArtifact: verificationRecord({ workflowRunId: String(1_000 + index) }),
+        artifactCollectionStatus: "collected",
       }),
     );
     const lastN = buildDeliveryHealth({
@@ -357,6 +369,232 @@ describe("delivery-health/v1", () => {
   });
 });
 
+describe("ephemeral verification release assurance", () => {
+  it("closes the retained schema and requires bounded timezone-bearing evidence", () => {
+    const valid = verificationRecord();
+    expect(validateEphemeralVerificationRecord(valid)).toEqual(valid);
+    for (const [name, candidate, error] of [
+      ["top-level unknown", { ...valid, unknown: { nested: true } }, "closed schema mismatch"],
+      ["nested unknown", { ...valid, workloads: [{ name: "platform-smoke", unknown: true }] }, "workloads"],
+      ["date-only", { ...valid, checkedAt: "2026-07-18" }, "checkedAt"],
+      ["malformed instant", { ...valid, checkedAt: "not-an-instant" }, "checkedAt"],
+      ["out-of-range instant", { ...valid, checkedAt: "2200-01-01T00:00:00.000Z" }, "checkedAt"],
+      [
+        "missing discriminator",
+        Object.fromEntries(Object.entries(valid).filter(([key]) => key !== "trigger")),
+        "missing=trigger",
+      ],
+      ["mutable image identity", { ...valid, imageDigest: "latest" }, "imageDigest"],
+    ]) {
+      expect(() => validateEphemeralVerificationRecord(candidate), name).toThrow(error);
+    }
+  });
+
+  it("counts only artifact-proven automatic runs and round-trips their discriminator", () => {
+    const source = {
+      ephemeralRuns: [
+        run(29_788_571_657, "workflow_dispatch", "failure", {
+          head_branch: "codex/issue-5828",
+          jobs: [ephemeralJob("failure")],
+          verificationArtifact: verificationRecord({
+            workflowRunId: "29788571657",
+            trigger: "manual",
+            producerRunId: null,
+            producerRunAttempt: null,
+            result: "failure",
+            failurePhase: "provider-registration",
+            persistentStagingResult: "not-applicable",
+          }),
+          artifactCollectionStatus: "collected",
+        }),
+        run(29_788_571_658, "workflow_dispatch", "success", {
+          jobs: [ephemeralJob("success")],
+          verificationArtifact: verificationRecord({ workflowRunId: "29788571658" }),
+          artifactCollectionStatus: "collected",
+        }),
+      ],
+    };
+    const result = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    });
+    expect(result.record.windows.rolling24h.releases.ephemeral).toMatchObject({
+      automaticRuns: 1,
+      manualRuns: 1,
+      numerator: 1,
+      denominator: 1,
+    });
+    const persisted = JSON.parse(JSON.stringify(result.record));
+    expect(persisted.query.sourceRuns.ephemeralVerification).toContainEqual(
+      expect.objectContaining({
+        id: 29_788_571_658,
+        trigger: "automatic",
+        producerRunId: "400",
+        producerRunAttempt: "1",
+      }),
+    );
+    expect(result.markdown).toContain("1 automatic runs; 1 manual proofs");
+  });
+
+  it("keeps pending-timeout failures out of the numerator and retains rerun identity", () => {
+    const source = {
+      ephemeralRuns: [
+        run(700, "workflow_dispatch", "failure", {
+          jobs: [ephemeralJob("failure")],
+          verificationArtifact: verificationRecord({
+            workflowRunId: "700",
+            result: "failure",
+            failurePhase: "promoted-release-handoff-pending-timeout",
+            imageRepository: null,
+            imageDigest: null,
+            releaseCommit: null,
+            teardownResult: "not-required",
+          }),
+          artifactCollectionStatus: "collected",
+        }),
+        run(701, "workflow_dispatch", "success", {
+          run_attempt: 2,
+          jobs: [ephemeralJob("success")],
+          verificationArtifact: verificationRecord({ workflowRunId: "701", workflowRunAttempt: "2" }),
+          artifactCollectionStatus: "collected",
+        }),
+      ],
+    };
+    const ephemeral = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record.windows.rolling24h.releases.ephemeral;
+    expect(ephemeral).toMatchObject({
+      numerator: 1,
+      denominator: 2,
+      failure: 1,
+      outcomes: { "retry-pass/flake": 1, "deterministic-failure": 1 },
+    });
+  });
+
+  it("windows all counts and separates inferred displacement from other cancellation", () => {
+    const source = {
+      ephemeralRuns: [
+        run(800, "workflow_dispatch", "cancelled", {
+          created_at: iso(80),
+          run_started_at: iso(79),
+          updated_at: iso(60),
+          jobs: [ephemeralJob("cancelled")],
+          verificationArtifact: verificationRecord({
+            workflowRunId: "800",
+            result: "failure",
+            failurePhase: "workflow-cancelled-or-setup",
+          }),
+          artifactCollectionStatus: "collected",
+        }),
+        run(801, "workflow_dispatch", "success", {
+          created_at: iso(70),
+          updated_at: iso(50),
+          jobs: [ephemeralJob("success")],
+          verificationArtifact: verificationRecord({ workflowRunId: "801" }),
+          artifactCollectionStatus: "collected",
+        }),
+        run(802, "workflow_dispatch", "cancelled", {
+          created_at: iso(40),
+          run_started_at: iso(39),
+          updated_at: iso(30),
+          jobs: [ephemeralJob("cancelled")],
+          verificationArtifact: verificationRecord({
+            workflowRunId: "802",
+            result: "failure",
+            failurePhase: "workflow-cancelled-or-setup",
+          }),
+          artifactCollectionStatus: "collected",
+        }),
+        run(803, "workflow_dispatch", "success", {
+          updated_at: iso(1_500),
+          jobs: [ephemeralJob("success")],
+          verificationArtifact: verificationRecord({ workflowRunId: "803" }),
+          artifactCollectionStatus: "collected",
+        }),
+      ],
+    };
+    const ephemeral = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+    }).record.windows.rolling24h.releases.ephemeral;
+    expect(ephemeral).toMatchObject({
+      automaticRuns: 3,
+      displaced: 1,
+      cancelledOther: 1,
+      numerator: 1,
+      denominator: 2,
+    });
+  });
+
+  it("collects the discriminator through artifact discovery and fails completeness when the payload is omitted", async () => {
+    const archive = buildZip([
+      [
+        "ephemeral-verification/ephemeral-verification.json",
+        JSON.stringify(verificationRecord({ workflowRunId: "900" })),
+        8,
+      ],
+    ]);
+    const collect = async (withArtifact) =>
+      collectDeliveryHealth(
+        {
+          repository: "chase-sets/chase-sets",
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          publicationMode: "hourly",
+          updateIssues: false,
+          fetchImpl: async () => new Response(),
+        },
+        { policy, client: collectorClient({ archive, withArtifact }) },
+      );
+
+    const collected = await collect(true);
+    expect(collected.record.windows.rolling24h.releases.ephemeral).toMatchObject({ numerator: 1, denominator: 1 });
+    expect(collected.record.query.sourceRuns.ephemeralVerification).toContainEqual(
+      expect.objectContaining({ id: 900, trigger: "automatic", artifactCollectionStatus: "collected" }),
+    );
+
+    const omitted = await collect(false);
+    expect(omitted.record.completeness.reasons).toContain("missing-ephemeral-evidence:900");
+    expect(omitted.record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+  });
+
+  it("reads the canonical record without rejecting a large sibling payload", () => {
+    const archive = buildZip([
+      ["ephemeral-verification/ephemeral-verification.json", JSON.stringify(verificationRecord()), 8],
+      ["ephemeral-verification/representative-commerce-state.json", `{"padding":"${"x".repeat(11 * 1024 * 1024)}"}`, 0],
+    ]);
+    const entries = unzipJsonEntries(archive, {
+      include: (name) => name.endsWith("ephemeral-verification.json"),
+      maxEntryBytes: 256 * 1024,
+    });
+    expect([...entries.keys()]).toEqual(["ephemeral-verification/ephemeral-verification.json"]);
+  });
+
+  it("rejects an artifact directory whose canonical payload is absent or malformed", () => {
+    expect(() => readEphemeralVerificationArchive(buildZip([["notes.json", "{}", 0]]), 91)).toThrow(
+      "ephemeral-verification-canonical-payload-absent: artifact 91",
+    );
+    expect(() =>
+      readEphemeralVerificationArchive(
+        buildZip([["ephemeral-verification/ephemeral-verification.json", "{not-json", 0]]),
+        92,
+      ),
+    ).toThrow("ephemeral-verification-canonical-payload-malformed: artifact 92");
+  });
+});
+
 describe("canonical SLI issues", () => {
   it("round-trips hidden markers and updates one existing issue per SLI", async () => {
     const marker = renderSliMarker({ schemaVersion: "delivery-health-sli/v1", sli: "merge-group-success" });
@@ -468,10 +706,32 @@ function representativeSource() {
   });
   const ephemeralRuns = [
     ...Array.from({ length: 19 }, (_, index) =>
-      run(500 + index, "workflow_run", "success", { jobs: [ephemeralJob("success")] }),
+      run(500 + index, "workflow_dispatch", "success", {
+        jobs: [ephemeralJob("success")],
+        verificationArtifact: verificationRecord({ workflowRunId: String(500 + index) }),
+        artifactCollectionStatus: "collected",
+      }),
     ),
-    run(520, "workflow_run", "failure", { jobs: [ephemeralJob("failure")] }),
-    run(521, "workflow_run", "success", { jobs: [ephemeralJob("skipped")] }),
+    run(520, "workflow_dispatch", "failure", {
+      jobs: [ephemeralJob("failure")],
+      verificationArtifact: verificationRecord({
+        workflowRunId: "520",
+        result: "failure",
+        failurePhase: "release-deploy",
+      }),
+      artifactCollectionStatus: "collected",
+    }),
+    run(521, "workflow_dispatch", "success", {
+      jobs: [ephemeralJob("success")],
+      verificationArtifact: verificationRecord({
+        workflowRunId: "521",
+        trigger: "manual",
+        producerRunId: null,
+        producerRunAttempt: null,
+        persistentStagingResult: "not-applicable",
+      }),
+      artifactCollectionStatus: "collected",
+    }),
   ];
   return {
     pulls,
@@ -559,6 +819,33 @@ function ephemeralJob(conclusion) {
   return { name: "Verify Release in Ephemeral Namespace", conclusion, steps: [] };
 }
 
+function verificationRecord(overrides = {}) {
+  const record = {
+    schemaVersion: "ephemeral-verification/v1",
+    releaseCommit: "a".repeat(40),
+    imageRepository: "registry.digitalocean.com/chase-sets/chase-sets-platform",
+    imageDigest: `sha256:${"b".repeat(64)}`,
+    producerRunId: "400",
+    producerRunAttempt: "1",
+    trigger: "automatic",
+    namespace: "chase-sets-verify-500-1",
+    workflowRunId: "500",
+    workflowRunAttempt: "1",
+    result: "success",
+    failurePhase: null,
+    teardownResult: "success",
+    persistentStagingResult: "success",
+    persistentStagingRetained: true,
+    workloads: ["representative-commerce-state", "platform-smoke", "stripe-money-smoke"],
+    checkedAt: "2026-07-18T11:20:00.000Z",
+    ...overrides,
+  };
+  if (!Object.hasOwn(overrides, "namespace")) {
+    record.namespace = `chase-sets-verify-${record.workflowRunId}-${record.workflowRunAttempt}`;
+  }
+  return record;
+}
+
 function iso(minutesAgo) {
   return new Date(Date.parse("2026-07-18T12:00:00.000Z") - minutesAgo * 60_000).toISOString();
 }
@@ -572,6 +859,51 @@ function sli(id, status) {
     value: 0.5,
     sample: 10,
     target: { operator: "gte", value: 0.9, minimumSample: 10 },
+  };
+}
+
+function collectorClient({ archive, withArtifact }) {
+  const ephemeralRun = run(900, "workflow_dispatch", "success", {
+    head_branch: "main",
+    created_at: iso(60),
+    updated_at: iso(40),
+  });
+  return {
+    json: async (request) => {
+      if (request === "https://api.github.com/graphql") {
+        return {
+          data: {
+            repository: {
+              pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+            },
+          },
+        };
+      }
+      if (String(request).includes("platform-ephemeral-verification.yml")) {
+        return { workflow_runs: [ephemeralRun] };
+      }
+      return { workflow_runs: [] };
+    },
+    paginate: async (request) => {
+      if (String(request).includes("/actions/runs/900/jobs")) return [ephemeralJob("success")];
+      if (String(request).includes("/actions/runs/900/artifacts")) {
+        return withArtifact
+          ? [
+              {
+                id: 90,
+                name: `ephemeral-verification-${"a".repeat(40)}-900-1`,
+                expired: false,
+                size_in_bytes: archive.length,
+                archive_download_url: "https://example.invalid/artifacts/90.zip",
+              },
+            ]
+          : [];
+      }
+      return [];
+    },
+    request: async () => new Response(archive),
+    markTruncated: () => {},
+    status: () => ({ truncated: [], errors: [] }),
   };
 }
 

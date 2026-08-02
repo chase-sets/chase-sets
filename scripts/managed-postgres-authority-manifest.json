@@ -1369,168 +1369,168 @@
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_BUSINESS_SIGNING_KEY_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#12",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "VOYAGE_API_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Configure verification Kubernetes context#8",
+      "stepAnchor": "name:Configure verification Kubernetes context#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Configure verification Kubernetes context#8",
+      "stepAnchor": "name:Configure verification Kubernetes context#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Configure verification Kubernetes context#8",
+      "stepAnchor": "name:Configure verification Kubernetes context#10",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
@@ -1551,56 +1551,56 @@
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Register verification provider webhooks#11",
+      "stepAnchor": "name:Register verification provider webhooks#13",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Register verification provider webhooks#11",
+      "stepAnchor": "name:Register verification provider webhooks#13",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Smoke check#17",
+      "stepAnchor": "name:Smoke check#19",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "test-credentials"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Smoke check#17",
+      "stepAnchor": "name:Smoke check#19",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "test-credentials"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Stripe money smoke#18",
+      "stepAnchor": "name:Stripe money smoke#20",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "test-credentials"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Stripe money smoke#18",
+      "stepAnchor": "name:Stripe money smoke#20",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "test-credentials"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Stripe money smoke#18",
+      "stepAnchor": "name:Stripe money smoke#20",
       "secretName": "STRIPE_PUBLISHABLE_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
-      "stepAnchor": "name:Stripe money smoke#18",
+      "stepAnchor": "name:Stripe money smoke#20",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },
@@ -3031,6 +3031,20 @@
       "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "delete-stale-verification-webhooks",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "delete-stale-verification-webhooks",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",

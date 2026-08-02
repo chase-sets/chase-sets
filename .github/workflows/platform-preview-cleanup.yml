@@ -709,6 +709,69 @@ jobs:
         if: always()
         run: pnpm run platform:kubernetes-deployment -- teardown --namespace "${{ matrix.namespace }}" --release "${{ matrix.release }}" --timeout 5m
 
+  # Provider cleanup is intentionally discovered from completed workflow runs,
+  # independently of Kubernetes namespaces. This catches the case where the
+  # in-run provider teardown failed but namespace teardown succeeded, leaving
+  # no namespace for discover-stale-verification to find (#6245 / #5832).
+  discover-stale-verification-webhooks:
+    name: Discover Stale Verification Webhooks
+    if: github.event_name == 'schedule' && github.event.schedule == '17 10 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      target_count: ${{ steps.targets.outputs.target_count }}
+    steps:
+      - name: Resolve completed verification runs independent of namespaces
+        id: targets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          lower_bound="$(date -u -d '72 hours ago' +'%Y-%m-%dT%H:%M:%SZ')"
+          upper_bound="$(date -u -d '24 hours ago' +'%Y-%m-%dT%H:%M:%SZ')"
+          response="$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/platform-ephemeral-verification.yml/runs?status=completed&created=${lower_bound}..${upper_bound}&per_page=100")"
+          observed="$(jq '.workflow_runs | length' <<< "$response")"
+          if [ "$observed" -eq 100 ]; then
+            echo "The bounded stale-webhook window contains at least 100 runs; refusing a truncated cleanup set." >&2
+            exit 1
+          fi
+          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
+          {
+            echo "matrix=${matrix}"
+            echo "target_count=$(jq '.include | length' <<< "$matrix")"
+          } >> "$GITHUB_OUTPUT"
+
+  delete-stale-verification-webhooks:
+    name: Delete Stale Verification Webhooks
+    needs: discover-stale-verification-webhooks
+    if: needs.discover-stale-verification-webhooks.outputs.target_count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-stale-verification-webhooks.outputs.matrix) }}
+    concurrency:
+      group: platform-verification-webhooks-${{ matrix.slug }}
+      cancel-in-progress: false
+    env:
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Delete stale verification provider webhooks independent of namespaces
+        env:
+          PLATFORM_API_BASE_URL: https://${{ matrix.slug }}-marketplace.preview.chasesets.com
+        run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
+
   # Independent stale-resource backstop for merge-gate verification
   # namespaces (#5838). Selection is strict labels PLUS bounded naming
   # (chase-sets-gate-<run>-<attempt> carrying the merge-gate purpose label and

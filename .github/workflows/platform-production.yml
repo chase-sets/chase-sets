@@ -4212,6 +4212,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  dispatch-ephemeral-verification:
+    name: Dispatch Ephemeral Verification
+    needs: deploy-production
+    if: >
+      always() &&
+      needs.deploy-production.result == 'success' &&
+      vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch automatic ephemeral verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run platform-ephemeral-verification.yml \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f producer_run_id="${{ github.run_id }}" \
+            -f producer_run_attempt="${{ github.run_attempt }}" \
+            -f dispatch_source=automatic
+
   notify-production-deploy-incident:
     name: Notify Production Deploy Incident
     runs-on: ubuntu-latest
