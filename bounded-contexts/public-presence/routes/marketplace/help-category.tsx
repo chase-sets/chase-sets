@@ -12,7 +12,10 @@ export function loader({ params }: LoaderFunctionArgs) {
   if (articles.length === 0) {
     throw new Response(t("publicPresence.help.notFound"), { status: 404 });
   }
-  return { category: params.category, articles };
+  return {
+    category: params.category,
+    articles: articles.map(({ audience, title, description, href }) => ({ audience, title, description, href })),
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {

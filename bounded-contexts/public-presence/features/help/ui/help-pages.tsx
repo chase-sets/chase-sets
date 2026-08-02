@@ -109,7 +109,15 @@ export function HelpHubPage() {
   );
 }
 
-export function HelpCategoryPage({ category, articles }: { category: HelpCategory; articles: readonly HelpArticle[] }) {
+export type HelpArticleCard = Pick<HelpArticle, "audience" | "title" | "description" | "href">;
+
+export function HelpCategoryPage({
+  category,
+  articles,
+}: {
+  category: HelpCategory;
+  articles: readonly HelpArticleCard[];
+}) {
   return (
     <PublicPresencePageShell>
       <Page>
@@ -134,7 +142,7 @@ export function HelpCategoryPage({ category, articles }: { category: HelpCategor
   );
 }
 
-function ArticleCard({ article }: { article: HelpArticle }) {
+function ArticleCard({ article }: { article: HelpArticleCard }) {
   return (
     <Surface element="article" elevated>
       <Stack gap={3}>

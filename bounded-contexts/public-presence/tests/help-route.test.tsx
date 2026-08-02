@@ -7,7 +7,9 @@ import { loader as faqRedirectLoader } from "../routes/marketplace/faq";
 import { loader as protectionRedirectLoader } from "../routes/marketplace/order-protection";
 import { loader as refundsRedirectLoader } from "../routes/marketplace/refunds-and-returns";
 import { resolvePublicPolicyArticle } from "../features/help/integrations/resolve-public-policy-article";
+import { helpCategories, publicHelpArticles } from "../features/help/domain/article-catalog";
 import type { HelpArticle } from "../features/help/domain/article-model";
+import * as helpRouteData from "../features/help/ui/help-route-data";
 import { HelpArticlePage } from "../features/help/ui/help-pages";
 import {
   collectUnresolvedPolicyValueOccurrences,
@@ -139,11 +141,54 @@ function stubPolicyResponse(response: unknown) {
 }
 
 describe("public help routes", () => {
-  it("loads known categories and articles", async () => {
+  it("serializes every category member as exactly the ordered card projection", () => {
+    let examinedMembers = 0;
+
+    for (const category of helpCategories) {
+      const data = categoryLoader({ request, params: { category }, context: {} } as never);
+      const canonicalArticles = publicHelpArticles.filter((article) => article.category === category);
+
+      expect(Object.keys(data).sort()).toEqual(["articles", "category"]);
+      expect(data.category).toBe(category);
+      expect(data.articles).toHaveLength(canonicalArticles.length);
+      expect(data.articles).toEqual(
+        canonicalArticles.map(({ audience, title, description, href }) => ({ audience, title, description, href })),
+      );
+      for (const article of data.articles) {
+        expect(Object.keys(article).sort()).toEqual(["audience", "description", "href", "title"]);
+      }
+      examinedMembers += data.articles.length;
+    }
+
+    expect(examinedMembers).toBeGreaterThan(0);
+  });
+
+  it("keeps canonically complete primary and related records for every token-free article", async () => {
+    const tokenFreeArticles = publicHelpArticles.filter((article) => article.policyValueKeys.length === 0);
+    expect(tokenFreeArticles.length).toBeGreaterThan(0);
+    let examinedRelatedRecords = 0;
+
+    for (const canonicalArticle of tokenFreeArticles) {
+      const data = await articleLoader({
+        request: new Request(`https://chasesets.com${canonicalArticle.href}`),
+        params: { category: canonicalArticle.category, slug: canonicalArticle.slug },
+        context: {},
+      } as never);
+
+      expect.soft(data.article, `primary ${canonicalArticle.href}`).toEqual(canonicalArticle);
+      for (const related of data.related) {
+        const canonicalRelated = publicHelpArticles.find((article) => article.href === related.href);
+        expect.soft(canonicalRelated, `canonical related ${related.href}`).toBeDefined();
+        expect.soft(related, `related ${canonicalArticle.href} -> ${related.href}`).toEqual(canonicalRelated);
+        examinedRelatedRecords += 1;
+      }
+    }
+
+    expect(examinedRelatedRecords).toBeGreaterThan(0);
+  });
+
+  it("loads known articles", async () => {
     stubPolicyValuesFetch();
-    expect(categoryLoader({ request, params: { category: "buying" }, context: {} } as never)).toMatchObject({
-      category: "buying",
-    });
     await expect(
       articleLoader({ request, params: { category: "buying", slug: "order-protection" }, context: {} } as never),
     ).resolves.toMatchObject({ article: { title: "Order protection" } });
@@ -625,10 +670,25 @@ describe("public help routes", () => {
     );
   });
 
-  it("returns 404 responses for unknown categories and articles", async () => {
-    expect(() => categoryLoader({ request, params: { category: "missing" }, context: {} } as never)).toThrowError(
-      Response,
-    );
+  it("returns exact 404 responses for unknown and empty categories and unknown articles", async () => {
+    const captureCategoryResponse = (category: string) => {
+      try {
+        categoryLoader({ request, params: { category }, context: {} } as never);
+      } catch (error) {
+        return error;
+      }
+      throw new Error(`Expected category '${category}' to return a 404 Response.`);
+    };
+
+    const unknownCategory = captureCategoryResponse("missing");
+    expect(unknownCategory).toBeInstanceOf(Response);
+    expect((unknownCategory as Response).status).toBe(404);
+
+    vi.spyOn(helpRouteData, "listHelpArticlesByCategory").mockReturnValueOnce([]);
+    const emptyCategory = captureCategoryResponse("buying");
+    expect(emptyCategory).toBeInstanceOf(Response);
+    expect((emptyCategory as Response).status).toBe(404);
+
     await expect(
       articleLoader({ request, params: { category: "buying", slug: "missing" }, context: {} } as never),
     ).rejects.toBeInstanceOf(Response);
