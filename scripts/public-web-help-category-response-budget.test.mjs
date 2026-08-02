@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { findHeavySlotClient } from "./lib/heavy-slot.mjs";
+import { findHeavySlotClient as findRealHeavySlotClient } from "./lib/heavy-slot.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 import {
   EXPECTED_SALVAGE_HEAD,
@@ -16,9 +16,16 @@ const candidateCommit = "a".repeat(40);
 const candidateParent = "b".repeat(40);
 const routePath = "bounded-contexts/public-presence/routes/marketplace/help-category.tsx";
 const cardPath = "bounded-contexts/public-presence/features/help/ui/help-pages.tsx";
-const resolvedOuterClient = findHeavySlotClient(path.join(repoRoot, "scripts", "lib"));
-if (!resolvedOuterClient) throw new Error("test precondition: repository must resolve the shared heavy-slot client");
-const containerRoot = path.dirname(path.dirname(resolvedOuterClient));
+const syntheticContainerRoot = path.join(path.parse(repoRoot).root, "synthetic-heavy-slot-container");
+const syntheticClient = path.join(syntheticContainerRoot, ".orchestrator", "heavy-slot.cjs");
+const resolvedOuterClient = findRealHeavySlotClient(path.join(repoRoot, "scripts", "lib"));
+const containerRoot = resolvedOuterClient ? path.dirname(path.dirname(resolvedOuterClient)) : null;
+
+if (!resolvedOuterClient) {
+  console.warn(
+    "[public-web-help-category-response-budget] skipping real positional resolver controls: repository has no shared heavy-slot client ancestor",
+  );
+}
 
 const candidateSmokeOutput = [
   `[public-route-smoke] Derived 43 members at ${EXPECTED_SALVAGE_HEAD}: 41 fetchable, 2 indeterminate, 5 strict healthy targets.`,
@@ -32,7 +39,11 @@ const mutantSmokeOutput = [
   "- [response-too-large] help-category:selling (/help/selling) exceeded 122727 bytes.",
 ].join("\n");
 
-function createHarness({ worktreePath = path.join(containerRoot, "review-6441-hermetic"), failAt } = {}) {
+function createHarness({
+  worktreePath = path.join(syntheticContainerRoot, "review-6441-hermetic"),
+  failAt,
+  findHeavySlotClient = () => syntheticClient,
+} = {}) {
   const spawned = [];
   const fetched = [];
   const removed = [];
@@ -175,7 +186,7 @@ describe("public-web help category response-budget driver", () => {
   it("refusal-no-effect clears ambient token authority and reports the named admission diagnostic", async () => {
     const harness = createHarness();
     harness.dependencies.acquireHeavySlot.mockReturnValue(false);
-    const findClient = vi.fn(findHeavySlotClient);
+    const findClient = vi.fn(() => syntheticClient);
     harness.dependencies.findHeavySlotClient = findClient;
 
     const promise = runWithHarness(harness, {
@@ -194,10 +205,11 @@ describe("public-web help category response-budget driver", () => {
     expect(harness.dependencies.removePath).not.toHaveBeenCalled();
   });
 
-  it("temp-placement-resolves-no-client and refuses install, build, and start through the named diagnostic", async () => {
-    const tempWorktree = path.join(tmpdir(), "review-6441-hermetic");
-    expect(findHeavySlotClient(path.join(tempWorktree, "scripts", "lib"))).toBeNull();
-    const harness = createHarness({ worktreePath: tempWorktree });
+  it("rejects an injected null disposable resolver with zero install, build, and start effects", async () => {
+    const findClient = vi.fn((startDirectory) =>
+      startDirectory === path.join(repoRoot, "scripts", "lib") ? syntheticClient : null,
+    );
+    const harness = createHarness({ findHeavySlotClient: findClient });
 
     let failure;
     try {
@@ -210,24 +222,59 @@ describe("public-web help category response-budget driver", () => {
     expect(failure.code).toBe("HEAVY_CLIENT_RESOLUTION_MISMATCH");
     expect(failure.effectLog).toContain("placement-check:null");
     expect(failure.effectLog).toContain("diagnostic:heavy-client-resolution-mismatch");
+    expect(findClient).toHaveBeenCalledWith(path.join(repoRoot, "scripts", "lib"));
+    expect(findClient).toHaveBeenCalledWith(path.join(harness.worktreePath, "scripts", "lib"));
     expect(harness.spawned.map((spec) => spec.id)).not.toContain("install-dependencies");
     expect(harness.spawned.map((spec) => spec.id)).not.toContain("build-candidate");
     expect(harness.spawned.map((spec) => spec.id)).not.toContain("start-candidate");
-    expect(harness.removed).toContain(tempWorktree);
+    expect(failure.effectLog).not.toContain("spawn:install-dependencies");
+    expect(failure.effectLog).not.toContain("spawn:build-candidate");
+    expect(failure.effectLog).not.toContain("spawn:start-candidate");
+    expect(harness.removed).toContain(harness.worktreePath);
   });
 
-  it("in-container-placement-resolves-outer-client before install and preserves the outer token", async () => {
-    const inContainerWorktree = path.join(containerRoot, "review-6441-hermetic-positive");
-    expect(findHeavySlotClient(path.join(inContainerWorktree, "scripts", "lib"))).toBe(resolvedOuterClient);
-    const harness = createHarness({ worktreePath: inContainerWorktree });
-    const receipt = await runWithHarness(harness);
+  describe.runIf(resolvedOuterClient !== null)("real positional resolver controls", () => {
+    it("temp-placement-resolves-no-client and refuses install, build, and start through the named diagnostic", async () => {
+      const tempWorktree = path.join(tmpdir(), "review-6441-hermetic");
+      expect(findRealHeavySlotClient(path.join(tempWorktree, "scripts", "lib"))).toBeNull();
+      const harness = createHarness({
+        worktreePath: tempWorktree,
+        findHeavySlotClient: findRealHeavySlotClient,
+      });
 
-    const placementIndex = receipt.effectLog.findIndex((effect) => effect.startsWith("placement-check:"));
-    const installIndex = receipt.effectLog.indexOf("spawn:install-dependencies");
-    expect(placementIndex).toBeGreaterThan(0);
-    expect(installIndex).toBeGreaterThan(placementIndex);
-    expect(receipt.resolvedClient).toBe(resolvedOuterClient);
-    expect(harness.spawned.every((spec) => spec.env.CHASE_SETS_HEAVY_SLOT_ID === ownerToken)).toBe(true);
+      let failure;
+      try {
+        await runWithHarness(harness);
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(HelpCategoryResponseBudgetError);
+      expect(failure.code).toBe("HEAVY_CLIENT_RESOLUTION_MISMATCH");
+      expect(failure.effectLog).toContain("placement-check:null");
+      expect(failure.effectLog).toContain("diagnostic:heavy-client-resolution-mismatch");
+      expect(harness.spawned.map((spec) => spec.id)).not.toContain("install-dependencies");
+      expect(harness.spawned.map((spec) => spec.id)).not.toContain("build-candidate");
+      expect(harness.spawned.map((spec) => spec.id)).not.toContain("start-candidate");
+      expect(harness.removed).toContain(tempWorktree);
+    });
+
+    it("in-container-placement-resolves-outer-client before install and preserves the outer token", async () => {
+      const inContainerWorktree = path.join(containerRoot, "review-6441-hermetic-positive");
+      expect(findRealHeavySlotClient(path.join(inContainerWorktree, "scripts", "lib"))).toBe(resolvedOuterClient);
+      const harness = createHarness({
+        worktreePath: inContainerWorktree,
+        findHeavySlotClient: findRealHeavySlotClient,
+      });
+      const receipt = await runWithHarness(harness);
+
+      const placementIndex = receipt.effectLog.findIndex((effect) => effect.startsWith("placement-check:"));
+      const installIndex = receipt.effectLog.indexOf("spawn:install-dependencies");
+      expect(placementIndex).toBeGreaterThan(0);
+      expect(installIndex).toBeGreaterThan(placementIndex);
+      expect(receipt.resolvedClient).toBe(resolvedOuterClient);
+      expect(harness.spawned.every((spec) => spec.env.CHASE_SETS_HEAVY_SLOT_ID === ownerToken)).toBe(true);
+    });
   });
 
   it("fails closed by terminating every started process and removing every created path after a mid-run failure", async () => {
