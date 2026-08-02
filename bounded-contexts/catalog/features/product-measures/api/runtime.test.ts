@@ -126,22 +126,44 @@ function storedEvent(streamVersion: number, eventType = "catalog.product-measure
   };
 }
 
+const eventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+};
+
+function resolvedStoredEvent(streamVersion: number, payload: StoredEvent["payload"]): StoredEvent {
+  return {
+    ...storedEvent(streamVersion, "catalog.catalog-item.product-measures-resolved"),
+    payload,
+  };
+}
+
 function createEventStore(existingEvents: readonly StoredEvent[] = []) {
+  const events = [...existingEvents];
   const appended: AppendToStreamInput[] = [];
   const reads: ReadStreamInput[] = [];
   const eventStore: EventStore = {
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
+      let streamVersion = input.expectedVersion;
+      for (const event of input.events) {
+        streamVersion += 1;
+        events.push({
+          ...storedEvent(streamVersion, event.eventType),
+          streamId: input.streamId,
+          payload: event.payload,
+        });
+      }
       return [];
     }),
     readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
       reads.push(input);
       const fromIndex = (input.fromVersion ?? 1) - 1;
-      return existingEvents.slice(fromIndex, fromIndex + (input.limit ?? 500));
+      return events.slice(fromIndex, fromIndex + (input.limit ?? 500));
     },
     readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
-  return { eventStore, appended, reads };
+  return { eventStore, events, appended, reads };
 }
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -149,6 +171,73 @@ function createCheckpointStore(): ProjectionCheckpointStore {
     loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
     saveCheckpoint: async () => undefined,
   };
+}
+
+async function createProfiledMeasureFixture(existingEvents: readonly StoredEvent[] = []) {
+  const { db } = createMeasureDb({
+    catalog_item_id: "cat_1",
+    blueprint_id: "bp_card",
+    category_ids: ["cat_pokemon"],
+    canonical_dimension_order: ["form"],
+    dimension_rules: [
+      {
+        dimensionId: "form",
+        required: true,
+        allowedOptions: [{ optionId: "raw" }, { optionId: "graded" }],
+      },
+    ],
+  });
+  const store = createEventStore(existingEvents);
+  const services = createProductMeasureRuntime({
+    db,
+    eventStore: store.eventStore,
+    checkpointStore: createCheckpointStore(),
+  });
+
+  await services.upsertProfile({
+    profileId: "p_card",
+    key: "pokemon-card",
+    name: "Pokemon card",
+    matchCategoryIds: ["cat_pokemon"],
+    precedence: 100,
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    confidence: "measured",
+  });
+
+  return { db, services, ...store };
+}
+
+async function resolvedCandidatePayload() {
+  const fixture = await createProfiledMeasureFixture();
+  await fixture.services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+  const payload = fixture.appended[0]?.events[0]?.payload;
+  if (!payload) {
+    throw new Error("Product Measures fixture did not author its initial resolved fact.");
+  }
+  return { db: fixture.db, payload };
+}
+
+function reverseObjectProperties(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(reverseObjectProperties);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .reverse()
+        .map(([key, entry]) => [key, reverseObjectProperties(entry)]),
+    );
+  }
+  return value;
+}
+
+function resolvedFactCount(events: readonly StoredEvent[]): number {
+  return events.filter(({ eventType }) => eventType === "catalog.catalog-item.product-measures-resolved").length;
 }
 
 describe("product measure runtime", () => {
@@ -328,5 +417,122 @@ describe("product measure runtime", () => {
     expect(reads.map((read) => read.fromVersion)).toEqual([1, 501]);
     expect(appended).toHaveLength(1);
     expect(appended[0]?.expectedVersion).toBe(501);
+
+    const matchingHistory = [
+      ...Array.from({ length: 500 }, (_, index) => storedEvent(index + 1)),
+      resolvedStoredEvent(501, { products: [], catalogItemId: "cat_1" }),
+    ];
+    const matchingStore = createEventStore(matchingHistory);
+    const matchingServices = createProductMeasureRuntime({
+      db,
+      eventStore: matchingStore.eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await matchingServices.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+
+    expect(matchingStore.reads.map((read) => read.fromVersion)).toEqual([1, 501]);
+    expect(matchingStore.appended).toHaveLength(0);
+  });
+
+  it("does not append an unchanged resolved fact after nested JSONB key reordering", async () => {
+    const { db, payload } = await resolvedCandidatePayload();
+    const reorderedPayload = reverseObjectProperties(payload) as StoredEvent["payload"];
+    expect(Object.keys(reorderedPayload)).not.toEqual(Object.keys(payload));
+    expect(Object.keys((reorderedPayload.products as unknown[])[0] as object)).not.toEqual(
+      Object.keys((payload.products as unknown[])[0] as object),
+    );
+
+    const store = createEventStore([resolvedStoredEvent(1, reorderedPayload)]);
+    const services = createProductMeasureRuntime({
+      db,
+      eventStore: store.eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+
+    expect(store.appended).toHaveLength(0);
+    expect(resolvedFactCount(store.events)).toBe(1);
+  });
+
+  it("appends one resolved fact when products or their array order changes", async () => {
+    const { db, payload } = await resolvedCandidatePayload();
+    const candidate = structuredClone(payload) as Record<string, unknown>;
+    const products = candidate.products as Record<string, unknown>[];
+    const cases = [
+      {
+        name: "one Product measure changes",
+        payload: { ...candidate, products: [{ ...products[0], unitWeightOunces: 9.5 }, ...products.slice(1)] },
+      },
+      { name: "Product array order changes", payload: { ...candidate, products: [...products].reverse() } },
+    ];
+
+    for (const testCase of cases) {
+      const store = createEventStore([resolvedStoredEvent(1, testCase.payload as StoredEvent["payload"])]);
+      const services = createProductMeasureRuntime({
+        db,
+        eventStore: store.eventStore,
+        checkpointStore: createCheckpointStore(),
+      });
+      const before = resolvedFactCount(store.events);
+
+      await services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+
+      expect(resolvedFactCount(store.events) - before, testCase.name).toBe(1);
+      expect(store.appended, testCase.name).toHaveLength(1);
+    }
+  });
+
+  it("settles repeated Product Measures resolution at one semantic snapshot", async () => {
+    const fixture = await createProfiledMeasureFixture();
+
+    await fixture.services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+    await fixture.services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+    await fixture.services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+
+    expect(resolvedFactCount(fixture.events)).toBe(1);
+    expect(fixture.appended).toHaveLength(1);
+  });
+
+  it("requires exact identity and JSON shape for an unchanged Product Measures fact", async () => {
+    const { db, payload } = await resolvedCandidatePayload();
+    const candidate = structuredClone(payload) as Record<string, unknown>;
+    const products = candidate.products as Record<string, unknown>[];
+    const [firstProduct, ...remainingProducts] = products;
+    const { measureVersion: _missingMeasureVersion, ...missingNestedKey } = firstProduct;
+    const cases = [
+      { name: "mismatched Catalog Item identity", payload: { ...candidate, catalogItemId: "cat_other" } },
+      { name: "missing top-level products key", payload: { catalogItemId: "cat_1" } },
+      { name: "extra top-level key", payload: { ...candidate, unexpected: true } },
+      { name: "malformed products value", payload: { ...candidate, products: {} } },
+      {
+        name: "missing nested measure key",
+        payload: { ...candidate, products: [missingNestedKey, ...remainingProducts] },
+      },
+      {
+        name: "extra nested measure key",
+        payload: { ...candidate, products: [{ ...firstProduct, unexpected: true }, ...remainingProducts] },
+      },
+      {
+        name: "malformed nested measure value",
+        payload: { ...candidate, products: [{ ...firstProduct, selectedOptions: {} }, ...remainingProducts] },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const store = createEventStore([resolvedStoredEvent(1, testCase.payload as StoredEvent["payload"])]);
+      const services = createProductMeasureRuntime({
+        db,
+        eventStore: store.eventStore,
+        checkpointStore: createCheckpointStore(),
+      });
+      const before = resolvedFactCount(store.events);
+
+      await services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+
+      expect(resolvedFactCount(store.events) - before, testCase.name).toBe(1);
+      expect(store.appended, testCase.name).toHaveLength(1);
+    }
   });
 });
