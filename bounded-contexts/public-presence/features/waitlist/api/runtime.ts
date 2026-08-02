@@ -1,6 +1,7 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -211,6 +212,12 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
               ],
             },
           ]);
+          // The atomic append has committed; this bypasses the command handler, so
+          // this write path owes the read-after-write commit recording itself.
+          recordCommittedEvents(
+            results.flatMap((result) => result.storedEvents),
+            "public-presence",
+          );
           const signupEvents = results.find((result) => result.streamId === streamId)?.storedEvents ?? [];
           return { signupId, version: signupEvents.at(-1)?.streamVersion ?? loaded.version };
         } catch (error) {
@@ -247,7 +254,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
         const issuedAt = now().toISOString();
         const provisioningId = generateReferralLinkProvisioningId(deps.randomBytes);
         try {
-          await repository.append({
+          const storedEvents = await repository.append({
             streamId,
             wakeSourceContextName: "public-presence",
             expectedVersion: loaded.version,
@@ -266,6 +273,9 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
               },
             ],
           });
+          // Same bypass as the first-time signup append: the provisioning write goes
+          // straight through the repository, so it records its own committed events.
+          recordCommittedEvents(storedEvents, "public-presence");
           return createReferralLinkProvisioningReceipt({
             provisioningId,
             publicReferralCode: loaded.state.publicReferralCode,

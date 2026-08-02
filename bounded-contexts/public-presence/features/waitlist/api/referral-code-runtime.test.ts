@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -20,13 +21,17 @@ const source = {
   utmTerm: null,
 };
 
-function runtime(eventStore: EventStore, randomBytes = (length: number) => new Uint8Array(length).fill(3)) {
+function runtime(
+  eventStore: EventStore,
+  randomBytes = (length: number) => new Uint8Array(length).fill(3),
+  now: () => Date = () => new Date("2026-08-02T00:00:00.000Z"),
+) {
   return createWaitlistRuntime({
     eventStore,
     checkpointStore: {} as never,
     db: { query: vi.fn(async () => ({ rows: [] })) },
     policies: {} as never,
-    now: () => new Date("2026-08-02T00:00:00.000Z"),
+    now,
     randomBytes,
   });
 }
@@ -181,5 +186,93 @@ describe("Public Referral Code runtime", () => {
       ),
     ).rejects.toThrow("does not have an issued Public Referral Code");
     expect(memory.allEvents).toHaveLength(beforeStaleRequest);
+  });
+
+  it("issue-6445-ac-1 records a first-time signup's committed events across both appended streams", async () => {
+    const memory = createInMemoryEventStore();
+    const services = runtime(memory.eventStore);
+
+    const first = await runWithEventCommitMetadata(async () => {
+      const result = await services.submitWaitlistSignup(signup("receipt@example.com"), context);
+      return { result, metadata: getEventCommitMetadata() };
+    });
+
+    const issuedCode = memory.allEvents.find(
+      (event) => event.eventType === "public-presence.waitlist-referral-code.issued",
+    )?.payload.publicReferralCode as string;
+    const firstSource = first.metadata.sources.find((entry) => entry.sourceContextName === "public-presence");
+    // Never mere header/metadata presence: the decoded source, its context name
+    // and a real maxGlobalPosition are all asserted.
+    expect(firstSource).toBeDefined();
+    expect(firstSource?.eventIds.length).toBeGreaterThan(0);
+    expect(BigInt(firstSource?.maxGlobalPosition ?? "0")).toBeGreaterThan(0n);
+    const streamByEventId = new Map(
+      first.metadata.committedEvents.map((event) => [String(event.eventId), event.streamId]),
+    );
+    expect(new Set(firstSource?.eventIds.map((eventId) => streamByEventId.get(eventId)))).toEqual(
+      new Set([
+        `public-presence.waitlist-referral-code-${publicReferralCodeDigest(issuedCode)}`,
+        `public-presence.waitlist-signup-${first.result.signupId}`,
+      ]),
+    );
+
+    // In-suite control: the repeat-signup branch commits through the command
+    // handler, which has always recorded, and stays green on the same runtime in
+    // the same run -- so a red first-write assertion isolates the bypassing path.
+    const repeat = await runWithEventCommitMetadata(async () => {
+      await services.submitWaitlistSignup(signup("receipt@example.com"), context);
+      return getEventCommitMetadata();
+    });
+    const repeatSource = repeat.sources.find((entry) => entry.sourceContextName === "public-presence");
+    expect(repeatSource?.eventIds.length).toBeGreaterThan(0);
+    expect(BigInt(repeatSource?.maxGlobalPosition ?? "0")).toBeGreaterThan(
+      BigInt(firstSource?.maxGlobalPosition ?? "0"),
+    );
+  });
+
+  it("issue-6445-ac-2 records a first provisioning's committed events and records nothing on replay", async () => {
+    const memory = createInMemoryEventStore();
+    let entropy = 40;
+    let tick = 0;
+    const services = runtime(
+      memory.eventStore,
+      (length) => new Uint8Array(length).fill(entropy++),
+      // Advancing clock and entropy: a replay that re-entered the write path
+      // would mint a different provisioningId and issuedAt.
+      () => new Date(Date.UTC(2026, 7, 2, 0, 0, tick++)),
+    );
+    const created = await services.submitWaitlistSignup(signup("provision-receipt@example.com"), context);
+    const tuple = { utm_source: "creator" as const, utm_medium: "video", utm_campaign: "creator-y" };
+
+    const firstProvisioning = await runWithEventCommitMetadata(async () => {
+      const receipt = await services.provisionReferralLink({ signupId: created.signupId, tuple }, context);
+      return { receipt, metadata: getEventCommitMetadata() };
+    });
+    const replay = await runWithEventCommitMetadata(async () => {
+      const receipt = await services.provisionReferralLink({ signupId: created.signupId, tuple }, context);
+      return { receipt, metadata: getEventCommitMetadata() };
+    });
+
+    // Control asserted first, so deleting only the provisioning recording call
+    // leaves these green and reddens exactly the governing assertion below: the
+    // idempotent replay appends nothing, records nothing, and still returns the
+    // identical frozen receipt with its original provisioningId and issuedAt.
+    expect(replay.metadata.sources).toEqual([]);
+    expect(replay.metadata.committedEvents).toHaveLength(0);
+    expect(replay.receipt).toEqual(firstProvisioning.receipt);
+    expect(replay.receipt.payload.provisioningId).toBe(firstProvisioning.receipt.payload.provisioningId);
+    expect(replay.receipt.payload.issuedAt).toBe(firstProvisioning.receipt.payload.issuedAt);
+    expect(
+      memory.allEvents.filter((event) => event.eventType === "public-presence.waitlist-referral-link.provisioned"),
+    ).toHaveLength(1);
+
+    const provisioningSource = firstProvisioning.metadata.sources.find(
+      (entry) => entry.sourceContextName === "public-presence",
+    );
+    expect(provisioningSource?.eventIds).toHaveLength(1);
+    expect(BigInt(provisioningSource?.maxGlobalPosition ?? "0")).toBeGreaterThan(0n);
+    expect(firstProvisioning.metadata.committedEvents.map((event) => event.eventType)).toEqual([
+      "public-presence.waitlist-referral-link.provisioned",
+    ]);
   });
 });
