@@ -21,6 +21,15 @@ const source = {
   utmTerm: null,
 };
 
+// The exact events one first-time signup commits, in the order its atomic
+// two-stream append writes them: the digest reservation, then the signup
+// stream's recorded and issued pair.
+const firstWriteEventTypes = [
+  "public-presence.waitlist-referral-code.reserved",
+  "public-presence.waitlist-signup.recorded",
+  "public-presence.waitlist-referral-code.issued",
+];
+
 function runtime(
   eventStore: EventStore,
   randomBytes = (length: number) => new Uint8Array(length).fill(3),
@@ -197,6 +206,15 @@ describe("Public Referral Code runtime", () => {
       return { result, metadata: getEventCommitMetadata() };
     });
 
+    // Authority is the event store's own committed log, never a count derived
+    // from the receipt under test. A losing attempt is spliced back out of it,
+    // so it holds exactly the events this first write committed, in commit
+    // order, and it is pinned here before any receipt surface is compared to it.
+    const committed = [...memory.allEvents];
+    const committedEventIds = committed.map((event) => String(event.eventId));
+    expect(committed.map((event) => event.eventType)).toEqual(firstWriteEventTypes);
+    expect(new Set(committedEventIds).size).toBe(committedEventIds.length);
+
     const issuedCode = memory.allEvents.find(
       (event) => event.eventType === "public-presence.waitlist-referral-code.issued",
     )?.payload.publicReferralCode as string;
@@ -206,6 +224,19 @@ describe("Public Referral Code runtime", () => {
     expect(firstSource).toBeDefined();
     expect(firstSource?.eventIds.length).toBeGreaterThan(0);
     expect(BigInt(firstSource?.maxGlobalPosition ?? "0")).toBeGreaterThan(0n);
+
+    // Exact first-write authority: both receipt surfaces must carry every
+    // committed id, once each, in commit order, with the exact reserved /
+    // recorded / issued types and the exact committed horizon. Presence checks
+    // and a set of covered stream ids cannot see partial or duplicate
+    // recording -- one stream carries two of the three events, so keeping only
+    // its first event still covers it, and a set collapses duplicates.
+    expect(first.metadata.committedEvents.map((event) => String(event.eventId))).toEqual(committedEventIds);
+    expect(firstSource?.eventIds).toEqual(committedEventIds);
+    expect(new Set(firstSource?.eventIds ?? []).size).toBe(committedEventIds.length);
+    expect(first.metadata.committedEvents.map((event) => event.eventType)).toEqual(firstWriteEventTypes);
+    expect(firstSource?.maxGlobalPosition).toBe(committed.at(-1)?.globalPosition);
+
     const streamByEventId = new Map(
       first.metadata.committedEvents.map((event) => [String(event.eventId), event.streamId]),
     );
@@ -274,5 +305,19 @@ describe("Public Referral Code runtime", () => {
     expect(firstProvisioning.metadata.committedEvents.map((event) => event.eventType)).toEqual([
       "public-presence.waitlist-referral-link.provisioned",
     ]);
+    // Same exact authority as the first-time signup: the ids the store actually
+    // committed for this provisioning, once each, on both receipt surfaces --
+    // never the signup's earlier events and never a duplicate of its own.
+    const committedProvisioning = memory.allEvents
+      .filter((event) => event.eventType === "public-presence.waitlist-referral-link.provisioned")
+      .map((event) => String(event.eventId));
+    expect(committedProvisioning).toHaveLength(1);
+    expect(firstProvisioning.metadata.committedEvents.map((event) => String(event.eventId))).toEqual(
+      committedProvisioning,
+    );
+    expect(provisioningSource?.eventIds).toEqual(committedProvisioning);
+    expect(provisioningSource?.maxGlobalPosition).toBe(
+      memory.allEvents.find((event) => String(event.eventId) === committedProvisioning[0])?.globalPosition,
+    );
   });
 });
