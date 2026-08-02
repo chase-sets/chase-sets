@@ -92,6 +92,24 @@ describe("public-web route inventory", () => {
     expect(inventory.trackedFileRule).toBe(trackedFileRule);
   });
 
+  it.each([
+    ["buying", "community-guidelines-and-enforcement"],
+    ["selling", "intellectual-property-and-dmca"],
+    ["selling", "prohibited-and-restricted-items"],
+    ["selling", "sales-tax"],
+    ["selling", "tax-reporting-1099k"],
+  ])("expands the tracked compliance article /help/%s/%s without a manual route", (category, slug) => {
+    const inventory = derivePublicWebRouteInventory({ rootDir: repoRoot });
+    expect(inventory.members).toContainEqual(
+      expect.objectContaining({
+        kind: "EXPANDED",
+        memberId: `help-article:${category}:${slug}`,
+        path: `/help/${category}/${slug}`,
+        expansionSource: expect.stringContaining(generatedHelpCatalogPath),
+      }),
+    );
+  });
+
   it("uses the classifier default arm to fail closed for an unknown shape", () => {
     const manifestPath = "bounded-contexts/pricing/context.json";
     const original = readFileSync(path.join(repoRoot, manifestPath), "utf8");

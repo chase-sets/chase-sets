@@ -29,6 +29,13 @@ const strictRoutes = STRICT_PUBLIC_ROUTE_MEMBER_IDS.map((memberId) => {
   return member;
 });
 const strictPaths = new Set(strictRoutes.map((route) => route.path));
+const complianceArticlePaths = [
+  "/help/buying/community-guidelines-and-enforcement",
+  "/help/selling/intellectual-property-and-dmca",
+  "/help/selling/prohibited-and-restricted-items",
+  "/help/selling/sales-tax",
+  "/help/selling/tax-reporting-1099k",
+];
 
 function writeHtml(response, body = "<!doctype html><html><body>healthy</body></html>", status = 200) {
   response.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
@@ -299,6 +306,7 @@ describe("public web route smoke real CLI", () => {
     const fetchable = inventory.members.filter((member) => member.kind !== "INDETERMINATE");
     expect(fixture.requests).toHaveLength(fetchable.length);
     for (const member of fetchable) expect(fixture.requests).toContain(member.path);
+    for (const articlePath of complianceArticlePaths) expect(fixture.requests).toContain(articlePath);
     for (const member of inventory.partition.INDETERMINATE) {
       expect(result.stdout).toContain(`INDETERMINATE ${member.memberId} ${member.path}: ${member.reason}`);
     }
