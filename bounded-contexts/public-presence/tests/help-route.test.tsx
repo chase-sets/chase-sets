@@ -206,7 +206,7 @@ describe("public help routes", () => {
     });
 
     const categoryData = categoryLoader({ request, params: { category }, context: {} } as never);
-    expect(categoryData.articles.map((article) => article.slug)).toContain(slug);
+    expect(categoryData.articles.map((article) => article.href)).toContain(`/help/${category}/${slug}`);
   });
 
   it("resolves token-bearing articles from the public whitelisted policy read", async () => {
