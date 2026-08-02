@@ -184,6 +184,23 @@ describe("shared in-memory event store", () => {
     await expect(assertPageLimit(createInMemoryEventStore().eventStore.readAll)).resolves.toBeUndefined();
   });
 
+  it("uses an exact inclusive caller horizon and refuses a future bound", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "test.horizon",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.one"), event("test.two"), event("test.three")],
+    });
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "2" as never })).resolves.toMatchObject([
+      { globalPosition: "1" },
+      { globalPosition: "2" },
+    ]);
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "4" as never })).rejects.toMatchObject({
+      code: "infrastructure_failure",
+    });
+  });
+
   it("is idempotent for a repeated event id and rejects changed event data", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     const input = {
@@ -284,6 +301,36 @@ describe("shared in-memory event store", () => {
     await expect(eventStore.readStream({ streamId: "test.guarded" })).resolves.toHaveLength(1);
     // A guard writes nothing to the stream it protects.
     await expect(eventStore.readStream({ streamId: "test.authority" })).resolves.toHaveLength(0);
+  });
+
+  it("rolls back every in-memory participant when a late idempotency mismatch fails", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "test.existing",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.original", "evt_collision")],
+    });
+    await expect(
+      eventStore.appendToStreams!([
+        {
+          streamId: "test.must-roll-back",
+          expectedVersion: "no_stream",
+          context,
+          events: [event("test.created")],
+        },
+        {
+          streamId: "test.existing",
+          expectedVersion: 1,
+          context,
+          events: [event("test.changed", "evt_collision")],
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(eventStore.readStream({ streamId: "test.must-roll-back" })).resolves.toHaveLength(0);
+    await expect(eventStore.readStream({ streamId: "test.existing" })).resolves.toMatchObject([
+      { eventType: "test.original" },
+    ]);
   });
 
   it("keeps global reads gap-free across atomic append batches", async () => {

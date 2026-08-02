@@ -53,6 +53,7 @@ export function createPublicPresenceServices(
     eventStore,
     checkpointStore,
     db,
+    pool,
     notificationOutbox,
     policies,
   });

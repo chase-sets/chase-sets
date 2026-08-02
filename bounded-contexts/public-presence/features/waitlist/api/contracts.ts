@@ -6,6 +6,12 @@ import type {
   WaitlistSource,
 } from "../domain/common";
 import type { WaveOneAdmissionBarStatus } from "../read-model/campaign-admission-bar-policy";
+export type {
+  CreatorUtmTuple,
+  PublicReferralCodeCoverageReceipt,
+  ReferralLinkProvisioningReceipt,
+  ReferralLinkProvisioningRequest,
+} from "../domain/public-referral-code";
 
 export type SubmitWaitlistSignupRequest = Readonly<{
   email: string;

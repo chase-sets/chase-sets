@@ -242,11 +242,25 @@ export function createInMemoryEventStore(): InMemoryEventStore {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
       }
 
-      const results = inputs.map((input) => ({
-        streamId: input.streamId,
-        storedEvents: input.events.length === 0 ? [] : appendToStream(input),
-      }));
-      return results;
+      const priorGlobalPosition = globalPosition;
+      const priorStreams = new Map([...streams].map(([streamId, events]) => [streamId, [...events]]));
+      const priorAllEvents = [...allEvents];
+      const priorEventsById = new Map(eventsById);
+
+      try {
+        return inputs.map((input) => ({
+          streamId: input.streamId,
+          storedEvents: input.events.length === 0 ? [] : appendToStream(input),
+        }));
+      } catch (error) {
+        globalPosition = priorGlobalPosition;
+        streams.clear();
+        for (const [streamId, events] of priorStreams) streams.set(streamId, events);
+        allEvents.splice(0, allEvents.length, ...priorAllEvents);
+        eventsById.clear();
+        for (const [eventId, event] of priorEventsById) eventsById.set(eventId, event);
+        throw error;
+      }
     },
     appendToStreamsIndependently: async (inputs) => {
       const results: AppendToStreamsIndependentResult[] = [];
@@ -277,8 +291,18 @@ export function createInMemoryEventStore(): InMemoryEventStore {
     readAll: async (input?: ReadAllInput) => {
       const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_MAX);
       const after = BigInt(input?.afterGlobalPosition ?? "0");
+      const safeHead = globalPosition;
+      const atOrBefore = BigInt(input?.atOrBeforeGlobalPosition ?? safeHead.toString());
+      if (atOrBefore > safeHead) {
+        throw createEventStoreError(
+          "infrastructure_failure",
+          "Requested global event horizon is beyond the gap-safe event store head.",
+          { requestedGlobalPosition: atOrBefore.toString(), safeHeadGlobalPosition: safeHead.toString() },
+        );
+      }
       return allEvents
         .filter((event) => BigInt(event.globalPosition) > after)
+        .filter((event) => BigInt(event.globalPosition) <= atOrBefore)
         .filter((event) => !input?.tenantId || event.tenantId === input.tenantId)
         .filter((event) => !input?.eventTypes?.length || input.eventTypes.includes(event.eventType))
         .filter(

@@ -18,6 +18,19 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
     commandHandler: vi.fn() as never,
     submitWaitlistSignup: vi.fn(async () => ({ signupId: "wls_test", version: 1 })),
     provideWaitlistCohortQuality: vi.fn(async () => ({ signupId: "wls_test", version: 2 })),
+    provisionReferralLink: vi.fn(async () => ({
+      schemaVersion: "referral-link-provisioning/v1" as const,
+      payload: {
+        provisioningId: "wlp_AAAAAAAAAAAAAAAAAAAAAA",
+        publicReferralCode: "wlr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        tuple: { utm_source: "creator" as const, utm_medium: "video", utm_campaign: "launch" },
+        referralLink:
+          "https://chasesets.com/?ref=wlr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&utm_source=creator&utm_medium=video&utm_campaign=launch",
+        issuedAt: "2026-08-02T00:00:00.000Z",
+      },
+      receiptSha256: "0".repeat(64),
+    })),
+    reconcilePublicReferralCodes: vi.fn() as never,
     listWaitlistSignups: vi.fn(async () => ({ items: [], total: 0 })),
     getWaitlistMetrics: vi.fn(async () => ({
       total_count: 0,
@@ -280,6 +293,102 @@ describe("public presence API", () => {
       search: "todd",
       sort: undefined,
     });
+  });
+
+  it("issue-6418-ac-4 protects the sole referral-link join with session, permission, CSRF, and no-store", async () => {
+    const provisionReferralLink = vi.fn(createServices().provisionReferralLink);
+    const services = createServices({ provisionReferralLink });
+    const body = {
+      signupId: "wls_creator",
+      tuple: { utm_source: "creator", utm_medium: "video", utm_campaign: "launch" },
+    };
+    const unauthenticated = await adminAppFor(services, null).request("/waitlist/referral-link/provision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+      body: JSON.stringify(body),
+    });
+    const forbidden = await adminAppFor(services, actorWithPermissions()).request("/waitlist/referral-link/provision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+      body: JSON.stringify(body),
+    });
+    const missingCsrf = await adminAppFor(services).request("/waitlist/referral-link/provision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const allowed = await adminAppFor(services).request("/waitlist/referral-link/provision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+      body: JSON.stringify(body),
+    });
+
+    expect(unauthenticated.status).toBe(401);
+    expect(forbidden.status).toBe(403);
+    expect(missingCsrf.status).toBe(403);
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("Cache-Control")).toBe("no-store");
+    expect(JSON.stringify(await allowed.json())).not.toContain("wls_creator");
+    expect(provisionReferralLink).toHaveBeenCalledWith(
+      body,
+      expect.objectContaining({ audit: expect.objectContaining({ performedByUserId: "usr_test" }) }),
+    );
+  });
+
+  it("issue-6418-ac-4 rejects nested unknowns and invalid creator tuples before provisioning", async () => {
+    const provisionReferralLink = vi.fn(createServices().provisionReferralLink);
+    const app = adminAppFor(createServices({ provisionReferralLink }));
+    for (const body of [
+      {
+        signupId: "wls_creator",
+        tuple: { utm_source: "creator", utm_medium: "video", utm_campaign: "launch", unknown: true },
+      },
+      { signupId: "wls_creator", tuple: { utm_source: "other", utm_medium: "video", utm_campaign: "launch" } },
+      {
+        signupId: "wls_creator",
+        tuple: { utm_source: "creator", utm_medium: "x".repeat(121), utm_campaign: "launch" },
+      },
+      { signupId: "wls_creator", tuple: { utm_source: "creator", utm_medium: "video", utm_campaign: "2026/08/02" } },
+    ]) {
+      const response = await app.request("/waitlist/referral-link/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }
+    expect(provisionReferralLink).not.toHaveBeenCalled();
+  });
+
+  it("issue-6418-ac-4 keeps stale provisioning failures private and out of logs", async () => {
+    const sensitiveFailure = "wls_stale stale@example.com wlr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const provisionReferralLink = vi.fn(async () => {
+      throw new Error(sensitiveFailure);
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await adminAppFor(createServices({ provisionReferralLink })).request(
+        "/waitlist/referral-link/provision",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+          body: JSON.stringify({
+            signupId: "wls_stale",
+            tuple: { utm_source: "creator", utm_medium: "video", utm_campaign: "launch" },
+          }),
+        },
+      );
+      const responseText = await response.text();
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(responseText).not.toContain("wls_stale");
+      expect(responseText).not.toContain("stale@example.com");
+      expect(responseText).not.toContain("wlr_");
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("requires public-presence.view for the campaign analytics dashboard and returns its three sections", async () => {

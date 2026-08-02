@@ -14,6 +14,7 @@ import {
 import {
   EVENT_STORE_READ_PAGE_SIZE_MAX,
   ZERO_GLOBAL_POSITION,
+  compareGlobalPosition,
   globalPositionFromBigInt,
   parseGlobalPosition,
 } from "@chase-sets/event-core/storage";
@@ -447,11 +448,19 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         async () => {
           try {
             const safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
+            const atOrBeforeGlobalPosition = input?.atOrBeforeGlobalPosition ?? safeHeadGlobalPosition;
+            if (compareGlobalPosition(atOrBeforeGlobalPosition, safeHeadGlobalPosition) > 0) {
+              throw createEventStoreError(
+                "infrastructure_failure",
+                "Requested global event horizon is beyond the gap-safe event store head.",
+                { requestedGlobalPosition: atOrBeforeGlobalPosition, safeHeadGlobalPosition },
+              );
+            }
             const result = await pool.query<DbEventRow>(
               buildReadAllSql(eventsTable, input),
               buildReadAllParams({
                 afterGlobalPosition,
-                safeHeadGlobalPosition,
+                atOrBeforeGlobalPosition,
                 limit,
                 tenantId: input?.tenantId,
                 eventTypes: input?.eventTypes,
@@ -524,7 +533,7 @@ type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArg
 
 type ReadAllQueryInput = Readonly<{
   afterGlobalPosition: GlobalPosition;
-  safeHeadGlobalPosition: GlobalPosition;
+  atOrBeforeGlobalPosition: GlobalPosition;
   limit: number;
   tenantId?: ReadAllInput["tenantId"];
   eventTypes?: readonly string[];
@@ -570,7 +579,7 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
 }
 
 function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
-  const params: unknown[] = [input.afterGlobalPosition, input.safeHeadGlobalPosition];
+  const params: unknown[] = [input.afterGlobalPosition, input.atOrBeforeGlobalPosition];
 
   if (input.tenantId) {
     params.push(input.tenantId);

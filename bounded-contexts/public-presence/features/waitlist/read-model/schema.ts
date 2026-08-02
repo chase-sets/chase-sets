@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const waitlistSchemaSql = `
 CREATE TABLE IF NOT EXISTS public_presence_waitlist_signups (
   signup_id text PRIMARY KEY,
@@ -12,6 +14,8 @@ CREATE TABLE IF NOT EXISTS public_presence_waitlist_signups (
   utm_campaign text NULL,
   utm_content text NULL,
   utm_term text NULL,
+  public_referral_code text NULL,
+  public_referral_code_issued_at timestamptz NULL,
   submitted_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -46,6 +50,12 @@ ALTER TABLE public_presence_waitlist_signups
 ALTER TABLE public_presence_waitlist_signups
   ADD COLUMN IF NOT EXISTS admitted_at timestamptz NULL;
 
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS public_referral_code text NULL;
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS public_referral_code_issued_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS public_presence_waitlist_signups_role_idx
   ON public_presence_waitlist_signups (role, updated_at DESC);
 
@@ -55,7 +65,21 @@ CREATE INDEX IF NOT EXISTS public_presence_waitlist_signups_utm_source_idx
 -- No index on referred_by_signup_id yet: prelaunch waitlist volume is small
 -- enough that the admin ranking query and referral-summary count scan the
 -- table directly. Add CREATE INDEX CONCURRENTLY through the schemaMigrations
--- ledger in unlogged-projection-migrations.ts if volume grows enough to
+-- ledger in this module if volume grows enough to
 -- matter (structure gate forbids boot-time indexes on migration-added
 -- columns).
 `;
+
+export const waitlistSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260802_public_presence_referral_codes",
+    description:
+      "Project immutable Public Referral Codes for operator review without using projection presence as coverage.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE public_presence_waitlist_signups ADD COLUMN IF NOT EXISTS public_referral_code text NULL;",
+      "ALTER TABLE public_presence_waitlist_signups ADD COLUMN IF NOT EXISTS public_referral_code_issued_at timestamptz NULL;",
+      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS public_presence_waitlist_signups_public_referral_code_uidx ON public_presence_waitlist_signups (public_referral_code) WHERE public_referral_code IS NOT NULL;",
+    ],
+  },
+];

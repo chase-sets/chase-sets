@@ -28,7 +28,7 @@
     { "workspace": "@chase-sets/product-measures", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/product-selection", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/provider-webhook-inbox", "script": "test", "estimatedDurationSeconds": 5 },
-    { "workspace": "@chase-sets/public-presence", "script": "test", "estimatedDurationSeconds": 52 },
+    { "workspace": "@chase-sets/public-presence", "script": "test:unit", "estimatedDurationSeconds": 52 },
     { "workspace": "@chase-sets/realtime", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/review-eligibility", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/seller-attention-queue", "script": "test", "estimatedDurationSeconds": 5 },

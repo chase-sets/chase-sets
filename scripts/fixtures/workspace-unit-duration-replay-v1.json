@@ -248,9 +248,9 @@
       "runId": 30054895589,
       "runAttempt": 1,
       "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
+      "invocation": "test:unit--test-profile=db",
       "workspace": "@chase-sets/public-presence",
-      "script": "test",
+      "script": "test:unit",
       "observedDurationMs": 56002
     },
     {
@@ -572,9 +572,9 @@
       "runId": 30060154233,
       "runAttempt": 1,
       "jobId": 89380059115,
-      "invocation": "test--exclude-test-profile=db",
+      "invocation": "test:unit--test-profile=db",
       "workspace": "@chase-sets/public-presence",
-      "script": "test",
+      "script": "test:unit",
       "observedDurationMs": 47845
     },
     {

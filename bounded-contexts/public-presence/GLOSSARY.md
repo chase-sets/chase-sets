@@ -65,6 +65,33 @@ Notes:
 - Duplicate normalized email submissions update the existing signup.
 - Waitlist Signup is not an Account, User, Buyer, or Seller.
 
+## Public Referral Code
+
+A **Public Referral Code** is the immutable opaque `wlr_` capability issued to one Waitlist Signup from at least 24 cryptographically secure random bytes.
+
+Notes:
+
+- It is never derived from or used as the private Waitlist Signup identity.
+- Its raw value appears only on the signup's issuance event and protected provisioning receipt; uniqueness is reserved by its SHA-256 digest.
+- Projection presence never proves complete issuance coverage; the fixed-horizon Event Store reconciliation owns that proof.
+
+## Waitlist Referral Code
+
+**Waitlist Referral Code** is the event-language noun for a Public Referral Code. It exists to keep reservation and issuance facts inside the Waitlist bounded-context language without creating a second kind of code.
+
+## Waitlist Referral Link
+
+A **Waitlist Referral Link** is the complete `https://chasesets.com/` URL produced by the protected provisioner from one issued Public Referral Code and one validated creator UTM tuple.
+
+## Referral Link Provisioning ID
+
+A **Referral Link Provisioning ID** is the opaque `wlp_` identifier for one idempotent protected referral-link provisioning audit fact.
+
+Notes:
+
+- It is generated from at least 16 cryptographically secure random bytes.
+- The audit fact stores tuple and link digests, actor, and time, but never the Public Referral Code or complete link.
+
 ## Promo Bar Message
 
 A **Promo Bar Message** is public marketplace copy shown in the site promo bar to communicate temporary or evergreen marketplace-wide information.

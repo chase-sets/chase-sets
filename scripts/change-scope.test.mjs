@@ -553,6 +553,42 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(false);
   });
 
+  it("issue-6418 keeps Public Presence reconciliation selected by verify:test-db", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/public-presence/features/waitlist/api/referral-code-reconciliation.db.test.ts"],
+      workspaces: [
+        {
+          ...workspace(
+            baseDir,
+            "bounded-contexts",
+            "public-presence",
+            "@chase-sets/public-presence",
+            {},
+            {
+              testProfile: "db",
+            },
+          ),
+          packageJson: {
+            name: "@chase-sets/public-presence",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: {
+              test: "test",
+              "test:unit": "test:unit",
+              "test:db": "vitest run features/waitlist/api/referral-code-reconciliation.db.test.ts",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@chase-sets/public-presence"]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.dbTestsRequired).toBe(true);
+  });
+
   it("routes a test-only change enrolled only in a non-default DB partition", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

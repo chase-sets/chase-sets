@@ -220,6 +220,26 @@ describe("postgres event store", () => {
     ]);
   });
 
+  it("queries an accepted caller horizon exactly and refuses a future horizon", async () => {
+    const queries: { sql: string; params: readonly unknown[] }[] = [];
+    const pool = {
+      query: async (sql: string, params: readonly unknown[] = []) => {
+        queries.push({ sql, params });
+        return sql.includes("append_fence") ? { rows: [{ head: "10" }] } : { rows: [] };
+      },
+    } satisfies Pick<PgTransactionalPool, "query">;
+    const store = createPostgresEventStore({ pool: pool as PgTransactionalPool });
+
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "7" as never, limit: 5 })).resolves.toEqual([]);
+    expect(queries[1].params).toEqual(["0", "7", 5]);
+
+    queries.splice(0);
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "11" as never, limit: 5 })).rejects.toMatchObject({
+      code: "infrastructure_failure",
+    });
+    expect(queries).toHaveLength(1);
+  });
+
   it("keeps mixed stream-prefix shapes local to each OR arm", async () => {
     const queries: { sql: string; params: readonly unknown[] }[] = [];
     const store = createPostgresEventStore({

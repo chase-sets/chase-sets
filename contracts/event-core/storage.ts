@@ -127,6 +127,11 @@ export type ReadStreamInput = Readonly<{
 
 export type ReadAllInput = Readonly<{
   afterGlobalPosition?: GlobalPosition;
+  /**
+   * Inclusive caller-supplied global horizon. Implementations must reject a
+   * position beyond their gap-safe head instead of silently narrowing it.
+   */
+  atOrBeforeGlobalPosition?: GlobalPosition;
   tenantId?: TenantId;
   eventTypes?: readonly string[];
   streamPrefixes?: readonly string[];

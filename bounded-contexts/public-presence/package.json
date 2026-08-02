@@ -11,11 +11,18 @@
     "compile:developer-articles": "node --experimental-strip-types ./features/developer-portal/integrations/compile-developer-articles.mjs",
     "check:developer-articles": "node --experimental-strip-types ./features/developer-portal/integrations/compile-developer-articles.mjs --check",
     "pretest": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
+    "pretest:unit": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
+    "pretest:db": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:watch": "vitest --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/waitlist/api/referral-code-reconciliation.db.test.ts",
+    "test:watch": "vitest --config ./tests/vitest.config.mjs --exclude features/waitlist/api/referral-code-reconciliation.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/waitlist/api/referral-code-reconciliation.db.test.ts",
     "generate:landing-image-variants": "node ./features/waitlist/ui/assets/generate-image-variants.mjs",
     "generate:og-images": "node ./features/waitlist/ui/assets/generate-og-images.mjs"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   },
   "exports": {
     ".": "./index.ts",
@@ -44,6 +51,7 @@
     "react-router": "^7.14.0"
   },
   "devDependencies": {
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "jsdom": "^29.0.2",

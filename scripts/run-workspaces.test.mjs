@@ -213,6 +213,62 @@ describe("run-workspaces", () => {
     expect(runs).toEqual(["@test/db-fast"]);
   });
 
+  it("issue-6418 three-branch guard selects Public Presence exactly once for unit and DB profiles", async () => {
+    const candidate = workspace(
+      "@chase-sets/public-presence",
+      { test: "test", "test:unit": "test:unit", "test:db": "test:db" },
+      "db",
+    );
+    const runs = [];
+    const run = async (_command, args) => runs.push({ workspace: args[1], script: args[3] });
+
+    await runWorkspaceScripts({
+      argv: ["test", "--exclude-test-profile=db"],
+      buildInvocation,
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/fast", "test", 1)]),
+      listWorkspaces: () => [workspace("@chase-sets/fast", { test: "test" }), candidate],
+      loadEnvironment: () => {},
+      run,
+    });
+    expect(runs).not.toContainEqual({ workspace: "@chase-sets/public-presence", script: "test" });
+
+    runs.length = 0;
+    await runWorkspaceScripts({
+      argv: ["test:unit", "--test-profile=db"],
+      buildInvocation,
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/public-presence", "test:unit", 52)]),
+      listWorkspaces: () => [candidate],
+      loadEnvironment: () => {},
+      run,
+    });
+    expect(runs).toEqual([{ workspace: "@chase-sets/public-presence", script: "test:unit" }]);
+
+    runs.length = 0;
+    await runWorkspaceScripts({
+      argv: [DB_TEST_SCRIPT_SELECTOR],
+      buildInvocation,
+      listWorkspaces: () => [candidate],
+      loadEnvironment: () => {},
+      run,
+    });
+    expect(runs).toEqual([{ workspace: "@chase-sets/public-presence", script: "test:db" }]);
+  });
+
+  it("issue-6418 lifecycle-bypass guard keeps pretest aliases exact and isolates only reconciliation DB tests", () => {
+    const packageJson = JSON.parse(readFileSync("bounded-contexts/public-presence/package.json", "utf8"));
+    expect(packageJson.scripts["pretest:unit"]).toBe(packageJson.scripts.pretest);
+    expect(packageJson.scripts["pretest:db"]).toBe(packageJson.scripts.pretest);
+    expect(packageJson.scripts["test:unit"]).toBe(
+      "vitest run --config ./tests/vitest.config.mjs --exclude features/waitlist/api/referral-code-reconciliation.db.test.ts",
+    );
+    expect(packageJson.scripts["test:watch"]).toBe(
+      "vitest --config ./tests/vitest.config.mjs --exclude features/waitlist/api/referral-code-reconciliation.db.test.ts",
+    );
+    expect(packageJson.scripts["test:db"]).toBe(
+      "vitest run --config ./tests/vitest.config.mjs features/waitlist/api/referral-code-reconciliation.db.test.ts",
+    );
+  });
+
   it("returns nonzero semantics with a failed-workspace summary", async () => {
     const failedMessages = [];
     const originalError = console.error;
@@ -937,7 +993,7 @@ describe("closed duration scheduling contracts", () => {
     ]);
     expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
     expect(fifoMs).toBe(882_800);
-    expect(lptMs).toBe(793_100);
+    expect(lptMs).toBe(793_000);
     expect(reduction).toBe("10.2");
   });
 });

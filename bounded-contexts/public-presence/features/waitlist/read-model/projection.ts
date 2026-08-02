@@ -4,6 +4,7 @@ import type {
   WaitlistSignupAdmittedPayload,
   WaitlistSignupRecordedPayload,
   WaitlistSignupUpdatedPayload,
+  WaitlistReferralCodeIssuedPayload,
 } from "@chase-sets/event-core";
 import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -120,6 +121,17 @@ async function applyAdmission(db: PgQueryable, data: WaitlistSignupAdmittedPaylo
   );
 }
 
+async function applyPublicReferralCode(db: PgQueryable, data: WaitlistReferralCodeIssuedPayload) {
+  await db.query(
+    `UPDATE public_presence_waitlist_signups
+     SET public_referral_code = $2,
+         public_referral_code_issued_at = $3,
+         updated_at = GREATEST(updated_at, $3::timestamptz)
+     WHERE signup_id = $1`,
+    [data.signupId, data.publicReferralCode, data.issuedAt],
+  );
+}
+
 export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return defineProjectorHandlers<
     Pick<
@@ -128,6 +140,7 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
       | "public-presence.waitlist-signup.updated"
       | "public-presence.waitlist-signup.cohort-quality-provided"
       | "public-presence.waitlist-signup.admitted"
+      | "public-presence.waitlist-referral-code.issued"
     >
   >({
     "public-presence.waitlist-signup.recorded": async (event) => {
@@ -143,6 +156,9 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
     },
     "public-presence.waitlist-signup.admitted": async (event) => {
       await applyAdmission(db, event.data);
+    },
+    "public-presence.waitlist-referral-code.issued": async (event) => {
+      await applyPublicReferralCode(db, event.data);
     },
   });
 }

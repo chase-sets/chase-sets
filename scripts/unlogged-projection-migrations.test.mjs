@@ -177,6 +177,9 @@ function addForeignKeyStatement(relationship) {
 function isSupportedAlterStatement(statement) {
   return (
     /^ALTER TABLE (?:IF EXISTS )?[a-z][a-z0-9_]* SET UNLOGGED;$/.test(statement) ||
+    /^ALTER TABLE [a-z][a-z0-9_]* ADD COLUMN IF NOT EXISTS [a-z][a-z0-9_]* (?:text|timestamptz) NULL;$/.test(
+      statement,
+    ) ||
     /^ALTER TABLE [a-z][a-z0-9_]* DROP CONSTRAINT IF EXISTS [a-z][a-z0-9_]*;$/.test(statement) ||
     /^ALTER TABLE [a-z][a-z0-9_]* ADD CONSTRAINT [a-z][a-z0-9_]* FOREIGN KEY \([a-z0-9_, ]+\) REFERENCES [a-z][a-z0-9_]* \([a-z0-9_, ]+\)(?: ON DELETE (?:CASCADE|SET NULL|RESTRICT|NO ACTION))? NOT VALID;$/.test(
       statement,
