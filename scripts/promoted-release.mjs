@@ -54,6 +54,17 @@ export function validatePromotedReleaseRecord(record, expected = {}) {
   return errors;
 }
 
+export async function readPromotedReleaseRecord(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`promoted-release-handoff-absent: canonical handoff file ${String(path)} was not found.`);
+    }
+    throw error;
+  }
+}
+
 function normalizeImageRepository(value) {
   const image = String(value ?? "")
     .trim()
@@ -91,7 +102,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (command === "validate") {
-    const record = JSON.parse(await readFile(readOption(argv, "--file"), "utf8"));
+    const record = await readPromotedReleaseRecord(readOption(argv, "--file"));
     assertValid(
       validatePromotedReleaseRecord(record, {
         producerRunId: readOption(argv, "--expected-producer-run-id"),

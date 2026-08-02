@@ -19,9 +19,59 @@ const FAILURE_OUTCOMES = new Set(["deterministic-failure"]);
 const INTENTIONAL_OUTCOMES = new Set([
   "intentional-superseded/coalesced",
   "cancelled-by-newer-candidate",
+  "automatic-concurrency-displaced",
   "skipped/not-eligible",
 ]);
 const SLI_MARKER_PATTERN = /<!--\s*delivery-health-sli\/v1\s+({[\s\S]*?})\s*-->/;
+const EPHEMERAL_VERIFICATION_VERSION = "ephemeral-verification/v1";
+const EPHEMERAL_RECORD_KEYS = new Set([
+  "schemaVersion",
+  "releaseCommit",
+  "imageRepository",
+  "imageDigest",
+  "producerRunId",
+  "producerRunAttempt",
+  "trigger",
+  "namespace",
+  "workflowRunId",
+  "workflowRunAttempt",
+  "result",
+  "failurePhase",
+  "teardownResult",
+  "persistentStagingResult",
+  "persistentStagingRetained",
+  "workloads",
+  "checkedAt",
+]);
+const EPHEMERAL_FAILURE_PHASES = new Set([
+  "promoted-release-handoff-pending-timeout",
+  "promoted-release-handoff-absent",
+  "promoted-release-handoff-invalid",
+  "promoted-release-handoff-wait",
+  "promoted-release-handoff-validation",
+  "trusted-default-branch-checkout",
+  "release-commit-checkout",
+  "release-workspace-install",
+  "terraform-setup",
+  "doctl-setup",
+  "promoted-release-image-resolution",
+  "kubernetes-context",
+  "namespace-reset",
+  "registry-authority",
+  "provider-registration",
+  "runtime-secrets",
+  "release-deploy",
+  "ingress-readiness",
+  "representative-commerce-state",
+  "platform-smoke",
+  "stripe-money-smoke",
+  "provider-teardown",
+  "namespace-teardown",
+  "workflow-cancelled-or-setup",
+]);
+const EPHEMERAL_WORKLOADS = new Set(["representative-commerce-state", "platform-smoke", "stripe-money-smoke"]);
+const EPHEMERAL_ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
+const EPHEMERAL_RECORD_MAX_BYTES = 256 * 1024;
 
 export function parseDeliveryHealthArgs(argv, env = process.env) {
   return {
@@ -46,6 +96,7 @@ export async function readDeliveryHealthPolicy(path = DELIVERY_HEALTH_POLICY_PAT
 
 export function normalizeDeliveryConclusion(input = {}) {
   const reason = `${input.reason ?? ""} ${input.attemptReason ?? ""}`.toLowerCase();
+  if (input.displaced === true) return "automatic-concurrency-displaced";
   if (/supersed|coalesc/.test(reason)) return "intentional-superseded/coalesced";
   if (/newer|stale-release|stale-candidate/.test(reason)) return "cancelled-by-newer-candidate";
   const conclusion = String(input.conclusion ?? "").toLowerCase();
@@ -169,6 +220,8 @@ async function collectSourceData({ options, policy, client, queryStart }) {
   );
 
   const releaseRecordsByRun = new Map();
+  const ephemeralRecordsByRun = new Map();
+  const ephemeralArtifactStatusByRun = new Map();
   const artifactFailures = [];
   await mapConcurrent(actualRuns, policy.collection.concurrency, async (run) => {
     try {
@@ -176,6 +229,16 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       releaseRecordsByRun.set(String(run.id), records);
     } catch (error) {
       artifactFailures.push({ runId: run.id, error: boundedError(error) });
+    }
+  });
+  await mapConcurrent(ephemeralRuns, policy.collection.concurrency, async (run) => {
+    try {
+      const result = await fetchEphemeralVerificationArtifact(client, run);
+      ephemeralArtifactStatusByRun.set(String(run.id), result.status);
+      if (result.record) ephemeralRecordsByRun.set(String(run.id), result.record);
+    } catch (error) {
+      ephemeralArtifactStatusByRun.set(String(run.id), "invalid");
+      artifactFailures.push({ runId: run.id, artifact: "ephemeral-verification", error: boundedError(error) });
     }
   });
 
@@ -188,7 +251,13 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       jobs: jobsByRun.get(String(run.id)) ?? [],
       releaseArtifacts: releaseRecordsByRun.get(String(run.id)) ?? [],
     })),
-    ephemeralRuns: ephemeralRuns.map((run) => ({ ...run, jobs: jobsByRun.get(String(run.id)) ?? [] })),
+    ephemeralRuns: ephemeralRuns.map((run) => ({
+      ...run,
+      jobs: jobsByRun.get(String(run.id)) ?? [],
+      verificationArtifact: ephemeralRecordsByRun.get(String(run.id)) ?? null,
+      artifactCollectionStatus: ephemeralArtifactStatusByRun.get(String(run.id)) ?? "omitted",
+    })),
+    collection: { ephemeralArtifacts: true },
     circuits: circuitIssues.map((issue) => normalizeCircuitIssue(issue)).filter(Boolean),
     artifactFailures,
     sourceFailures,
@@ -217,6 +286,17 @@ export function buildDeliveryHealth(input) {
         releaseDispatch: normalized.dispatchRuns.map((run) => run.id),
         platformDeploy: normalized.deployRuns.map((run) => run.id),
         ephemeralVerification: normalized.ephemeralRuns.map((run) => run.id),
+      },
+      sourceRuns: {
+        ephemeralVerification: normalized.ephemeralRuns.map((run) => ({
+          id: run.id,
+          runAttempt: run.run_attempt ?? run.runAttempt ?? null,
+          trigger: run.verificationArtifact?.trigger ?? null,
+          producerRunId: run.verificationArtifact?.producerRunId ?? null,
+          producerRunAttempt: run.verificationArtifact?.producerRunAttempt ?? null,
+          failurePhase: run.verificationArtifact?.failurePhase ?? null,
+          artifactCollectionStatus: run.artifactCollectionStatus ?? null,
+        })),
       },
     },
     completeness,
@@ -298,6 +378,8 @@ function normalizeSource(source = {}) {
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
+    collection:
+      source.collection?.ephemeralArtifacts === true ? { ephemeralArtifacts: true } : { ephemeralArtifacts: false },
   };
 }
 
@@ -471,7 +553,6 @@ function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
     window,
     runTimestamp,
   );
-  ephemeralRuns = selectMetricSeries(ephemeralRuns, window, runTimestamp);
   const actualOutcomes = actualRuns.map((run) => actualReleaseOutcome(run));
   const actualCounts = countBy(actualOutcomes, (entry) => entry.outcome);
   const actualNumerator = sumOutcomes(actualCounts, SUCCESS_OUTCOMES);
@@ -479,7 +560,7 @@ function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
   const actualDenominator = actualNumerator + actualFailures;
   const staging = summarizeStage(actualRuns, "staging");
   const production = summarizeStage(actualRuns, "production");
-  const ephemeral = summarizeEphemeral(ephemeralRuns);
+  const ephemeral = summarizeEphemeral(ephemeralRuns, window);
   return {
     dispatch: summarizeRuns(dispatchRuns),
     actual: {
@@ -554,33 +635,77 @@ function summarizeStage(runs, stage) {
   };
 }
 
-function summarizeEphemeral(runs) {
-  const entries = runs.map((run) => {
+function summarizeEphemeral(runs, window) {
+  const windowedRuns = selectByWindow(runs, window, runTimestamp);
+  const automaticWindowRuns = windowedRuns.filter((run) => run.verificationArtifact?.trigger === "automatic");
+  const manualWindowRuns = windowedRuns.filter((run) => run.verificationArtifact?.trigger === "manual");
+  const otherWindowRuns = windowedRuns.filter(
+    (run) => !["automatic", "manual"].includes(run.verificationArtifact?.trigger),
+  );
+  const automaticRuns = selectMetricSeries(automaticWindowRuns, window, runTimestamp);
+  const manualRuns = selectMetricSeries(manualWindowRuns, window, runTimestamp);
+  const otherRuns = selectMetricSeries(otherWindowRuns, window, runTimestamp);
+  const entries = automaticWindowRuns.map((run) => {
     const job = (run.jobs ?? []).find((candidate) =>
       /verify release in ephemeral namespace/i.test(candidate.name ?? ""),
     );
-    const eligible = (job?.conclusion ?? run.conclusion) !== "skipped";
+    const conclusion = job?.conclusion ?? run.conclusion;
     return {
-      eligible,
-      conclusion: job?.conclusion ?? run.conclusion,
+      run,
+      conclusion: run.verificationArtifact?.result ?? conclusion,
+      jobConclusion: conclusion,
       runAttempt: run.run_attempt ?? run.runAttempt,
+      eligible: conclusion !== "skipped",
+      displaced: isConcurrencyDisplaced(run, automaticWindowRuns, conclusion),
     };
   });
-  const eligible = entries.filter((entry) => entry.eligible);
-  const outcomes = countBy(entries, (entry) => normalizeDeliveryConclusion(entry));
+  const classified = entries.map((entry) => ({ ...entry, outcome: normalizeDeliveryConclusion(entry) }));
+  const metricEntries = selectMetricSeries(
+    classified.filter((entry) => SUCCESS_OUTCOMES.has(entry.outcome) || FAILURE_OUTCOMES.has(entry.outcome)),
+    window,
+    (entry) => runTimestamp(entry.run),
+  );
+  const intentionalEntries = selectMetricSeries(
+    classified.filter((entry) => !SUCCESS_OUTCOMES.has(entry.outcome) && !FAILURE_OUTCOMES.has(entry.outcome)),
+    window,
+    (entry) => runTimestamp(entry.run),
+  );
+  const outcomes = {
+    ...countBy(metricEntries, (entry) => entry.outcome),
+    ...countBy(intentionalEntries, (entry) => entry.outcome),
+  };
   const numerator = sumOutcomes(outcomes, SUCCESS_OUTCOMES);
   const failures = sumOutcomes(outcomes, FAILURE_OUTCOMES);
   const denominator = numerator + failures;
   return {
-    eligible: eligible.length,
+    automaticRuns: automaticRuns.length,
+    manualRuns: manualRuns.length,
+    otherRuns: otherRuns.length,
+    eligible: denominator,
     success: numerator,
     failure: failures,
-    skipped: entries.length - eligible.length,
+    skipped: outcomes["skipped/not-eligible"] ?? 0,
+    displaced: outcomes["automatic-concurrency-displaced"] ?? 0,
+    cancelledOther: [...metricEntries, ...intentionalEntries].filter(
+      (entry) => entry.jobConclusion === "cancelled" && entry.outcome !== "automatic-concurrency-displaced",
+    ).length,
     outcomes,
     numerator,
     denominator,
     successRate: denominator > 0 ? numerator / denominator : null,
   };
+}
+
+function isConcurrencyDisplaced(run, automaticRuns, conclusion) {
+  if (conclusion !== "cancelled") return false;
+  const cancelledAt = Date.parse(run.updated_at ?? run.completedAt ?? "");
+  const startedAt = Date.parse(run.run_started_at ?? run.runStartedAt ?? run.created_at ?? run.createdAt ?? "");
+  if (!Number.isFinite(cancelledAt) || !Number.isFinite(startedAt)) return false;
+  return automaticRuns.some((candidate) => {
+    if (String(candidate.id) === String(run.id)) return false;
+    const createdAt = Date.parse(candidate.created_at ?? candidate.createdAt ?? "");
+    return Number.isFinite(createdAt) && createdAt >= startedAt && createdAt <= cancelledAt;
+  });
 }
 
 function summarizeFailureSignatures(circuits) {
@@ -679,12 +804,23 @@ function buildCompleteness(source, apiStatus = {}) {
     )
     .filter((run) => (run.releaseArtifacts ?? []).every((record) => record.schemaVersion !== "release-health/v1"))
     .map((run) => run.id);
+  const missingEphemeralArtifacts = source.collection.ephemeralArtifacts
+    ? source.ephemeralRuns
+        .filter((run) => {
+          const job = (run.jobs ?? []).find((candidate) =>
+            /verify release in ephemeral namespace/i.test(candidate.name ?? ""),
+          );
+          return job && job.conclusion !== "skipped" && ["absent", "omitted"].includes(run.artifactCollectionStatus);
+        })
+        .map((run) => run.id)
+    : [];
   const reasons = [
     ...truncated.map((entry) => `truncated:${entry}`),
     ...errors.map((entry) => `api:${boundedError(entry)}`),
     ...source.artifactFailures.map((entry) => `artifact:${entry.runId}`),
     ...source.sourceFailures.map((entry) => `source:${entry.source}`),
     ...missingReleaseArtifacts.map((runId) => `missing-release-health:${runId}`),
+    ...missingEphemeralArtifacts.map((runId) => `missing-ephemeral-evidence:${runId}`),
     ...(source.pulls.some((pull) => pull.nestedDataTruncated) ? ["truncated:pull-request-nested-data"] : []),
   ];
   return {
@@ -700,6 +836,7 @@ function buildCompleteness(source, apiStatus = {}) {
     artifacts: {
       failedRunIds: source.artifactFailures.map((entry) => entry.runId),
       missingSuccessfulReleaseRunIds: missingReleaseArtifacts,
+      omittedEphemeralVerificationRunIds: missingEphemeralArtifacts,
     },
   };
 }
@@ -732,6 +869,7 @@ export function renderDeliveryHealthMarkdown(record) {
     `- PRs: ${current.prs.created} created; ${current.prs.merged} merged; ${current.prs.stillOpen} still open; reviews ${current.prs.reviews.submitted} submitted / ${current.prs.reviews.approved} approved.`,
     `- Platform PR: ${current.prs.platformPr.pullRequest.cancellations + current.prs.platformPr.mergeGroup.cancellations} cancellations; ${current.prs.platformPr.combined.retries} retries. Intentional outcomes remain visible and are excluded from success denominators.`,
     `- Release: ${current.releases.dispatch.runCount} dispatch candidates; ${current.releases.actual.runCount} actual decisions; ${current.releases.actual.preMutationFailures} pre-mutation failures; ${current.releases.actual.supersededOrCoalesced} superseded/coalesced.`,
+    `- Ephemeral verification: ${current.releases.ephemeral.automaticRuns} automatic runs; ${current.releases.ephemeral.manualRuns} manual proofs; ${current.releases.ephemeral.otherRuns} unclassified runs; ${current.releases.ephemeral.displaced} concurrency-displaced and ${current.releases.ephemeral.cancelledOther} other cancellations.`,
     `- Staging: ${formatRate(current.releases.staging)}; duration p50/p90 ${formatSeconds(current.releases.staging.durationSeconds.p50)} / ${formatSeconds(current.releases.staging.durationSeconds.p90)}.`,
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
     "",
@@ -1035,7 +1173,175 @@ async function fetchReleaseHealthArtifacts(client, runId) {
   return records;
 }
 
-export function unzipJsonEntries(buffer) {
+async function fetchEphemeralVerificationArtifact(client, run) {
+  const artifacts = await client.paginate(
+    `/actions/runs/${run.id}/artifacts?per_page=100`,
+    (payload) => payload?.artifacts,
+    { source: `ephemeral-artifacts:${run.id}`, maxPages: 2 },
+  );
+  const runAttempt = run.run_attempt ?? run.runAttempt;
+  const suffix = `-${run.id}-${runAttempt}`;
+  const selected = artifacts.filter(
+    (artifact) =>
+      artifact.expired !== true &&
+      String(artifact.name ?? "").startsWith("ephemeral-verification-") &&
+      String(artifact.name ?? "").endsWith(suffix),
+  );
+  if (selected.length === 0) return { status: "absent", record: null };
+  if (selected.length !== 1) {
+    throw new Error(`ephemeral-verification-artifact-ambiguous: run ${run.id} attempt ${runAttempt}.`);
+  }
+  const [artifact] = selected;
+  if (
+    !Number.isInteger(artifact.size_in_bytes) ||
+    artifact.size_in_bytes < 1 ||
+    artifact.size_in_bytes > EPHEMERAL_ARCHIVE_MAX_BYTES
+  ) {
+    throw new Error(`ephemeral-verification-artifact-size-invalid: artifact ${artifact.id}.`);
+  }
+  const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length < 1 || bytes.length > EPHEMERAL_ARCHIVE_MAX_BYTES) {
+    throw new Error(`ephemeral-verification-artifact-size-invalid: artifact ${artifact.id}.`);
+  }
+  const record = readEphemeralVerificationArchive(bytes, artifact.id);
+  if (
+    record &&
+    (String(record.workflowRunId) !== String(run.id) || String(record.workflowRunAttempt) !== String(runAttempt))
+  ) {
+    throw new Error(`ephemeral-verification-run-identity-mismatch: run ${run.id} attempt ${runAttempt}.`);
+  }
+  return record ? { status: "collected", record } : { status: "legacy", record: null };
+}
+
+export function readEphemeralVerificationArchive(bytes, artifactId = "unknown") {
+  const entries = unzipJsonEntries(bytes, {
+    include: (name) => basename(name) === "ephemeral-verification.json",
+    maxEntryBytes: EPHEMERAL_RECORD_MAX_BYTES,
+  });
+  const canonical = [...entries.entries()].filter(([name]) => basename(name) === "ephemeral-verification.json");
+  if (canonical.length !== 1) {
+    throw new Error(`ephemeral-verification-canonical-payload-absent: artifact ${artifactId}.`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(canonical[0][1].toString("utf8"));
+  } catch {
+    throw new Error(`ephemeral-verification-canonical-payload-malformed: artifact ${artifactId}.`);
+  }
+  return validateEphemeralVerificationRecord(parsed);
+}
+
+export function validateEphemeralVerificationRecord(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    throw new Error("ephemeral-verification-record-invalid: record must be an object.");
+  }
+  if (record.schemaVersion !== EPHEMERAL_VERIFICATION_VERSION) {
+    throw new Error(`ephemeral-verification-record-invalid: schemaVersion must be ${EPHEMERAL_VERIFICATION_VERSION}.`);
+  }
+  const legacyKeys = new Set([
+    "schemaVersion",
+    "releaseCommit",
+    "namespace",
+    "workflowRunId",
+    "workflowRunAttempt",
+    "result",
+    "persistentStagingResult",
+    "workloads",
+    "persistentStagingRetained",
+    "checkedAt",
+  ]);
+  const keys = Object.keys(record);
+  if (
+    !Object.hasOwn(record, "trigger") &&
+    keys.length === legacyKeys.size &&
+    keys.every((key) => legacyKeys.has(key))
+  ) {
+    return null;
+  }
+  const unknown = keys.filter((key) => !EPHEMERAL_RECORD_KEYS.has(key));
+  const missing = [...EPHEMERAL_RECORD_KEYS].filter((key) => !Object.hasOwn(record, key));
+  if (unknown.length > 0 || missing.length > 0) {
+    throw new Error(
+      `ephemeral-verification-record-invalid: closed schema mismatch (unknown=${unknown.join(",") || "none"}; missing=${missing.join(",") || "none"}).`,
+    );
+  }
+  if (!isNullableMatch(record.releaseCommit, /^[0-9a-f]{40}$/u)) invalidEphemeralField("releaseCommit");
+  if (
+    !isNullableMatch(
+      record.imageRepository,
+      /^registry\.digitalocean\.com\/[a-z0-9][a-z0-9-]{0,62}\/chase-sets-platform$/u,
+    )
+  )
+    invalidEphemeralField("imageRepository");
+  if (!isNullableMatch(record.imageDigest, /^sha256:[0-9a-f]{64}$/u)) invalidEphemeralField("imageDigest");
+  if (!new Set(["automatic", "manual"]).has(record.trigger)) invalidEphemeralField("trigger");
+  if (!/^chase-sets-verify-[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$/u.test(record.namespace ?? ""))
+    invalidEphemeralField("namespace");
+  for (const field of ["workflowRunId", "workflowRunAttempt"]) {
+    if (!isBoundedPositiveIntegerString(record[field], field === "workflowRunId" ? 20 : 6))
+      invalidEphemeralField(field);
+  }
+  if (record.namespace !== `chase-sets-verify-${record.workflowRunId}-${record.workflowRunAttempt}`)
+    invalidEphemeralField("namespace identity");
+  if (record.trigger === "automatic") {
+    if (!isBoundedPositiveIntegerString(record.producerRunId, 20)) invalidEphemeralField("producerRunId");
+    if (!isBoundedPositiveIntegerString(record.producerRunAttempt, 6)) invalidEphemeralField("producerRunAttempt");
+  } else if (record.producerRunId !== null || record.producerRunAttempt !== null) {
+    invalidEphemeralField("manual producer identity");
+  }
+  if (!new Set(["success", "failure"]).has(record.result)) invalidEphemeralField("result");
+  if (record.result === "success" && record.failurePhase !== null) invalidEphemeralField("failurePhase");
+  if (record.result === "failure" && !EPHEMERAL_FAILURE_PHASES.has(record.failurePhase))
+    invalidEphemeralField("failurePhase");
+  if (!new Set(["success", "failure", "not-required"]).has(record.teardownResult))
+    invalidEphemeralField("teardownResult");
+  if (!new Set(["success", "not-applicable"]).has(record.persistentStagingResult))
+    invalidEphemeralField("persistentStagingResult");
+  if (typeof record.persistentStagingRetained !== "boolean") invalidEphemeralField("persistentStagingRetained");
+  if (
+    !Array.isArray(record.workloads) ||
+    record.workloads.length < 1 ||
+    record.workloads.length > EPHEMERAL_WORKLOADS.size ||
+    new Set(record.workloads).size !== record.workloads.length ||
+    record.workloads.some((workload) => typeof workload !== "string" || !EPHEMERAL_WORKLOADS.has(workload))
+  )
+    invalidEphemeralField("workloads");
+  if (!isBoundedTimezoneInstant(record.checkedAt)) invalidEphemeralField("checkedAt");
+  if (record.result === "success" && (!record.releaseCommit || !record.imageRepository || !record.imageDigest)) {
+    throw new Error("ephemeral-verification-record-invalid: successful records require immutable release identity.");
+  }
+  return structuredClone(record);
+}
+
+function invalidEphemeralField(field) {
+  throw new Error(`ephemeral-verification-record-invalid: ${field}.`);
+}
+
+function isNullableMatch(value, pattern) {
+  return value === null || (typeof value === "string" && pattern.test(value));
+}
+
+function isBoundedPositiveIntegerString(value, maxLength) {
+  return typeof value === "string" && value.length <= maxLength && /^[1-9][0-9]*$/u.test(value);
+}
+
+function isBoundedTimezoneInstant(value) {
+  if (
+    typeof value !== "string" ||
+    value.length > 40 ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)
+  )
+    return false;
+  const timestamp = Date.parse(value);
+  return (
+    Number.isFinite(timestamp) &&
+    timestamp >= Date.parse("2020-01-01T00:00:00.000Z") &&
+    timestamp <= Date.parse("2100-01-01T00:00:00.000Z")
+  );
+}
+
+export function unzipJsonEntries(buffer, options = {}) {
   const entries = new Map();
   const eocd = findEndOfCentralDirectory(buffer);
   if (eocd < 0) throw new Error("Artifact archive is not a supported ZIP file.");
@@ -1056,11 +1362,17 @@ export function unzipJsonEntries(buffer) {
     const localExtraLength = buffer.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
     const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
-    if (name.toLowerCase().endsWith(".json")) {
-      if (uncompressedSize > 2 * 1024 * 1024) throw new Error(`Artifact JSON entry ${name} exceeds 2 MiB.`);
-      if (method === 0) entries.set(name, compressed);
-      else if (method === 8) entries.set(name, inflateRawSync(compressed));
+    if (name.toLowerCase().endsWith(".json") && (options.include?.(name) ?? true)) {
+      const maxEntryBytes = options.maxEntryBytes ?? 2 * 1024 * 1024;
+      if (uncompressedSize > maxEntryBytes) throw new Error(`Artifact JSON entry ${name} exceeds its byte bound.`);
+      let contents;
+      if (method === 0) contents = compressed;
+      else if (method === 8) contents = inflateRawSync(compressed);
       else throw new Error(`Artifact ZIP uses unsupported compression method ${method}.`);
+      if (contents.length !== uncompressedSize || contents.length > maxEntryBytes)
+        throw new Error(`Artifact JSON entry ${name} has an invalid expanded size.`);
+      if (entries.has(name)) throw new Error(`Artifact ZIP contains duplicate JSON entry ${name}.`);
+      entries.set(name, contents);
     }
     offset += 46 + fileNameLength + extraLength + commentLength;
   }
