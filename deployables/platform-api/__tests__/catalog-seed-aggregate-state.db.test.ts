@@ -1,4 +1,4 @@
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, countEventsWithPrefix } from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogIntegrationSeedRequirements, inspectCatalogIntegrationSeedState } from "@chase-sets/catalog/server";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -279,6 +279,15 @@ async function countEventType(streamId: string, eventType: string): Promise<numb
   return Number(result.rows[0]?.count ?? 0);
 }
 
+async function productMeasuresResolvedEventCount(): Promise<number> {
+  const result = await pools.catalog.query<Readonly<{ count: string }>>(
+    `SELECT COUNT(*) AS count
+     FROM event_store_events
+     WHERE event_type = 'catalog.catalog-item.product-measures-resolved'`,
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 async function expectCatalogOnlyHarnessConnections(): Promise<void> {
   const ownedDatabaseNames = Object.values(databaseUrls).map((databaseUrl) =>
     new URL(databaseUrl).pathname.replace(/^\//u, ""),
@@ -315,6 +324,32 @@ describe("Catalog integration aggregate-state seed", () => {
 
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
     expect(await requiredEventCounts()).toEqual(afterBootOne);
+  });
+
+  it("does not re-author unchanged Product Measures facts on scenario-seed repeat", async () => {
+    const runtime = await prepareCatalog();
+    const profile = profileShapes[0];
+
+    await ordinaryBoot(runtime, profile);
+    const afterCleanAuthoringBoot = {
+      catalogEvents: await countEventsWithPrefix(pools.catalog, catalogModule.streamPrefix),
+      productMeasuresResolved: await productMeasuresResolvedEventCount(),
+    };
+    expect(afterCleanAuthoringBoot.productMeasuresResolved).toBe(scenarioCatalogItemIds.length);
+
+    await ordinaryBoot(runtime, profile);
+    const afterCompletedStateBoot = {
+      catalogEvents: await countEventsWithPrefix(pools.catalog, catalogModule.streamPrefix),
+      productMeasuresResolved: await productMeasuresResolvedEventCount(),
+    };
+    expect(afterCompletedStateBoot).toEqual(afterCleanAuthoringBoot);
+
+    await ordinaryBoot(runtime, profile);
+    const afterNextOrdinaryBoot = {
+      catalogEvents: await countEventsWithPrefix(pools.catalog, catalogModule.streamPrefix),
+      productMeasuresResolved: await productMeasuresResolvedEventCount(),
+    };
+    expect(afterNextOrdinaryBoot).toEqual(afterCompletedStateBoot);
   });
 
   it("NC-1 resumes an undrained Dimension seed without duplicate creation", async () => {

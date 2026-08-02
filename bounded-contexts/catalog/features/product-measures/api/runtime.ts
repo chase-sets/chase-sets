@@ -173,9 +173,7 @@ async function resolveCatalogItemMeasures(
     const lastResolved = [...existingEvents]
       .reverse()
       .find((event) => event.eventType === "catalog.catalog-item.product-measures-resolved");
-    if (
-      JSON.stringify(lastResolved?.payload ?? null) === JSON.stringify({ catalogItemId, products: resolvedProducts })
-    ) {
+    if (jsonValuesEqual(lastResolved?.payload ?? null, { catalogItemId, products: resolvedProducts })) {
       return;
     }
     await deps.eventStore.appendToStream({
@@ -399,4 +397,22 @@ function profileMatches(
       (selected) => selected.dimensionId === required.dimensionId && selected.optionId === required.optionId,
     ),
   );
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(sortJson(left)) === JSON.stringify(sortJson(right));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJson);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, sortJson(entry)]),
+    );
+  }
+  return value;
 }
