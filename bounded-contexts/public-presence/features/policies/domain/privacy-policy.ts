@@ -19,7 +19,7 @@ export const requiredPrivacyPolicySubjectIds = [
 export type PrivacyPolicySubjectId = (typeof requiredPrivacyPolicySubjectIds)[number];
 
 /**
- * Draft privacy notice content for counsel review (issue #5689). Every
+ * Draft privacy notice content for counsel review. Every
  * section remains counsel-required and the artifact stays fail-closed:
  * non-published, non-effective, and non-consent-activatable until qualified
  * counsel reviews the exact candidate and a separately authorized change
