@@ -40,6 +40,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/discovery-search-embedding-backfill.mjs",
   "scripts/discovery-search-relevance-embeddings.mjs",
   "scripts/discovery-search-relevance.mjs",
+  "scripts/ds-regen.mjs",
   "scripts/easypost-refund-event-replay.mjs",
   "scripts/emergency-recovery-guide.mjs",
   "scripts/environment-topology-guard.mjs",

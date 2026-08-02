@@ -36,6 +36,10 @@ export const SUBCOMMANDS = {
     script: "campaign-start-gate.mjs",
     description: "Campaign-start checklist gate for the beta-signup surface.",
   },
+  "design-system:regen": {
+    script: "ds-regen.mjs",
+    description: "Regenerate every generated design-system ledger in fixed order.",
+  },
   "catalog:provider-refresh-status": {
     script: "catalog-provider-refresh-status.mjs",
     description: "Support-safe scheduled provider scope refresh health check for the catalog context.",
