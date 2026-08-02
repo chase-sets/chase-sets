@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
+  Box,
   Button,
   Card,
   CommerceActionBar,
@@ -9,6 +10,7 @@ import {
   ProductOptions,
   ProgressiveDisclosure,
   SegmentedControl,
+  Show,
   Stack,
   Text,
   formatMarketplaceNumber,
@@ -346,8 +348,8 @@ export function buildItemDetailPageView({
           );
 
           return (
-            <div id="select-options" data-product-options-surface data-product-id={selectedProductId ?? ""}>
-              <div data-product-options-mobile className="md:hidden">
+            <Box id="select-options" data-product-options-surface data-product-id={selectedProductId ?? ""}>
+              <Show below="md" data-product-options-mobile>
                 <MobileProductOptionsDisclosure
                   canStartCollapsed={canStartCollapsed}
                   selectedOptions={selectedOptions}
@@ -355,8 +357,8 @@ export function buildItemDetailPageView({
                 >
                   {selector}
                 </MobileProductOptionsDisclosure>
-              </div>
-              <div data-product-options-desktop className="hidden md:block">
+              </Show>
+              <Show above="md" data-product-options-desktop>
                 <Card variant="feature">
                   <Stack gap={3}>
                     <Stack gap={1}>
@@ -373,8 +375,8 @@ export function buildItemDetailPageView({
                     </Stack>
                   </Stack>
                 </Card>
-              </div>
-            </div>
+              </Show>
+            </Box>
           );
         })()
       : null;
