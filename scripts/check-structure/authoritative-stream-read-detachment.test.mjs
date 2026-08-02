@@ -38,6 +38,8 @@ describe("authoritative-stream-read-detachment-acceptance-control", () => {
       ["packages/detachment.ts", "readStream", "CANONICAL_VALUE_ESCAPE"],
       ["packages/detachment.ts", "readStream", "CANONICAL_VALUE_ESCAPE"],
       ["packages/detachment.ts", '"readStream"', "CANONICAL_VALUE_ESCAPE"],
+      ["packages/detachment.ts", "kLiteral", "CANONICAL_VALUE_ESCAPE"],
+      ["packages/detachment.ts", "kUnionWith", "CANONICAL_VALUE_ESCAPE"],
       ["packages/detachment.ts", "store[dynamicKey]", "CANONICAL_RECEIVER_DYNAMIC_KEY"],
       ["packages/detachment.ts", "readStream: destructured", "CANONICAL_VALUE_ESCAPE"],
       ["packages/detachment.ts", "readStream: assigned", "CANONICAL_VALUE_ESCAPE"],
@@ -93,10 +95,12 @@ describe("authoritative-stream-read-detachment-acceptance-control", () => {
       ["packages/logical.ts", '"readStream"', "CANONICAL_VALUE_ESCAPE"],
       ["packages/logical.ts", '"readStream"', "CANONICAL_VALUE_ESCAPE"],
       ["packages/logical.ts", '"readStream"', "CANONICAL_VALUE_ESCAPE"],
+      ["packages/logical.ts", "kUnionWith", "CANONICAL_VALUE_ESCAPE"],
+      ["packages/logical.ts", '"readStream"', "CANONICAL_VALUE_ESCAPE"],
     ]);
-    expect(logical.totals.detachmentEscapeSites).toBe(9);
-    expect(logical.totals.resolvedAggregateFragments).toBeGreaterThanOrEqual(10);
-    expect(logical.totals.opaqueAggregateFragments).toBe(2);
+    expect(logical.totals.detachmentEscapeSites).toBe(11);
+    expect(logical.totals.resolvedAggregateFragments).toBe(16);
+    expect(logical.totals.opaqueAggregateFragments).toBe(3);
 
     const sharedAliasKey = sourceNode(logical, "packages/logical.ts", '"readStream"', "sharedArgs");
     expect(logical.diagnostics.filter((entry) => entry.node === sharedAliasKey)).toHaveLength(1);
@@ -133,6 +137,8 @@ describe("authoritative-stream-read-adapter-key-cardinality-control", () => {
       const declaration = functionDeclaration(adapter, "packages/adapters.ts", name);
       expect(fragmentNodesWithin(adapter, declaration)).toEqual([]);
     }
+    expect(adapter.totals.resolvedAggregateFragments).toBe(2);
+    expect(adapter.totals.opaqueAggregateFragments).toBe(0);
     expect(adapter.program.getSemanticDiagnostics().length).toBeGreaterThan(0);
   });
 
@@ -285,6 +291,9 @@ declare const stores: readonly EventStore[];
 declare const input: ReadStreamInput;
 declare const fallback: EventStore["readStream"];
 declare const dynamicKey: string;
+declare const kLiteral: "readStream";
+declare const kUnionWith: "readStream" | "readAll";
+declare const kUnionWithout: "readAll" | "toString";
 declare const holder: { store: EventStore };
 type Twin = { readStream: EventStore["readStream"] };
 type Unrelated = { readStream: () => string };
@@ -298,6 +307,9 @@ void moved.readStream(input);
 const projected = store.readStream;
 const sameLineA = store.readStream, sameLineB = store.readStream;
 const computedProjection = store["readStream"];
+const literalAliasProjection = store[kLiteral];
+const unionWithProjection = store[kUnionWith];
+const unionWithoutProjection = store[kUnionWithout];
 const dynamicProjection = store[dynamicKey];
 const twinProjection = twin.readStream;
 const unrelatedProjection = unrelated.readStream;
@@ -321,7 +333,8 @@ const implementation: EventStore = {
   readStream: async () => [],
   readAll: async () => [],
 };
-void projected; void sameLineA; void sameLineB; void computedProjection; void dynamicProjection; void twinProjection; void unrelatedProjection;
+void projected; void sameLineA; void sameLineB; void computedProjection; void literalAliasProjection; void unionWithProjection;
+void unionWithoutProjection; void dynamicProjection; void twinProjection; void unrelatedProjection;
 void mixedProjection; void absentProjection; void dynamicTwinProjection; void destructured; void assigned; void reader;
 void renamed; void readStream; void nested; void computed; void parameter; void implementation;
 `,
@@ -336,6 +349,8 @@ import type { EventStore } from "../contracts/event-core/event-store";
 declare const store: EventStore;
 declare function pick(...values: readonly unknown[]): unknown;
 declare const typedPick: (...values: readonly unknown[]) => unknown;
+declare const kUnionWith: "readStream" | "readAll";
+declare const opaqueTail: readonly unknown[];
 declare class Extract { constructor(...values: readonly unknown[]); }
 pick(store, "readStream");
 pick(store, "readAll");
@@ -353,6 +368,8 @@ let mutableArgs = [store, "readStream"];
 pick(...mutableArgs);
 const opaqueHolder = { values: [store, "readStream"] } as const;
 typedPick.apply(...([, opaqueHolder, [store, "readStream"]] as const));
+pick(store, kUnionWith);
+typedPick.apply(undefined, [store, "readStream", ...opaqueTail]);
 `,
   };
 }

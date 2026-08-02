@@ -522,7 +522,6 @@ function normalizeLogicalArguments(analysis, callee, argumentsList) {
       const packed = logicalArguments[1];
       if (!packed.expression) return [];
       const expanded = resolveAggregate(analysis, packed.expression, { nodes: new Set(), symbols: new Set() });
-      if (expanded.some((fragment) => fragment.kind === "opaque")) return [];
       logicalArguments = expanded;
     }
     target = unwrapTransparentExpression(adapter.target);
