@@ -194,6 +194,21 @@ describe("public help routes", () => {
     ).resolves.toMatchObject({ article: { title: "Order protection" } });
   });
 
+  it.each([
+    ["buying", "community-guidelines-and-enforcement", "Community guidelines and enforcement"],
+    ["selling", "intellectual-property-and-dmca", "Intellectual property and DMCA"],
+    ["selling", "prohibited-and-restricted-items", "Prohibited and restricted items"],
+    ["selling", "sales-tax", "Sales tax for sellers"],
+    ["selling", "tax-reporting-1099k", "Tax reporting and Form 1099-K"],
+  ])("loads the compiled compliance article /help/%s/%s through the generic route", async (category, slug, title) => {
+    await expect(articleLoader({ request, params: { category, slug }, context: {} } as never)).resolves.toMatchObject({
+      article: { slug, category, locale: "en", title, href: `/help/${category}/${slug}` },
+    });
+
+    const categoryData = categoryLoader({ request, params: { category }, context: {} } as never);
+    expect(categoryData.articles.map((article) => article.slug)).toContain(slug);
+  });
+
   it("resolves token-bearing articles from the public whitelisted policy read", async () => {
     const fetch = stubPolicyValuesFetch();
 

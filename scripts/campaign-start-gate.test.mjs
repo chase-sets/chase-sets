@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +12,13 @@ import {
 import { repoRoot } from "./lib/repo.mjs";
 
 const checkedAt = "2026-07-13T12:00:00.000Z";
+const complianceArticlePaths = [
+  "bounded-contexts/public-presence/features/help/domain/articles/community-guidelines-and-enforcement.en.md",
+  "bounded-contexts/public-presence/features/help/domain/articles/intellectual-property-and-dmca.en.md",
+  "bounded-contexts/public-presence/features/help/domain/articles/prohibited-and-restricted-items.en.md",
+  "bounded-contexts/public-presence/features/help/domain/articles/sales-tax.en.md",
+  "bounded-contexts/public-presence/features/help/domain/articles/tax-reporting-1099k.en.md",
+];
 
 describe("campaign start gate checklist", () => {
   it("passes every automated row against the real repository and requires operator evidence to fully pass", () => {
@@ -35,6 +42,24 @@ describe("campaign start gate checklist", () => {
     expect(productionRow.status).toBe("pending");
     expect(checklist.passesCampaignStartGate).toBe(false);
     expect(checklist.operatorSetup.pendingKeys).toContain("waitlist-signup-verified-in-production");
+  });
+
+  it("keeps counsel-gated compliance drafts isolated from campaign activation evidence", () => {
+    const gateSource = readFileSync(new URL("./campaign-start-gate.mjs", import.meta.url), "utf8");
+    const checklist = buildCampaignStartGateChecklist({
+      repoRoot,
+      reference: "CAMPAIGN-START-GATE-2026-07-13",
+      owner: "Operations",
+      checkedAt,
+    });
+    const serializedEvidence = JSON.stringify(checklist.checklist);
+
+    for (const articlePath of complianceArticlePaths) {
+      expect(gateSource).not.toContain(articlePath);
+      expect(serializedEvidence).not.toContain(path.basename(articlePath, ".en.md"));
+    }
+    expect(checklist.checklist.filter((row) => row.automated).every((row) => row.status === "pass")).toBe(true);
+    expect(checklist.passesCampaignStartGate).toBe(false);
   });
 
   it("passes the full gate once operator evidence records a verified production signup", () => {

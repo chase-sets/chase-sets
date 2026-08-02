@@ -19,7 +19,11 @@ promiseTable:
       ]
   - claim: A review is tied to one completed order between its two parties, self-review is rejected, and operator withdrawal or redaction of a review requires a recorded reason.
     issues: ["#5693"]
-    tests: ["bounded-contexts/marketplace/features/reviews/domain/domain.test.ts"]
+    tests:
+      [
+        "bounded-contexts/marketplace/features/reviews/domain/directional-review-disposition.test.ts",
+        "bounded-contexts/marketplace/features/reviews/domain/domain.test.ts",
+      ]
   - claim: A reported active listing auto-unlists only at the distinct-reporter threshold, review reports join the same moderation queue without automatic removal, and duplicate reports from the same reporter are rejected.
     issues: ["#5693"]
     tests: ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]

@@ -21,6 +21,7 @@ promiseTable:
     tests:
       [
         "bounded-contexts/identity/features/accounts/domain/domain.test.ts",
+        "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
         "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
       ]
 ---

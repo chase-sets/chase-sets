@@ -4,6 +4,356 @@ import type { HelpArticle } from "../article-model";
 
 export const helpArticles = [
   {
+    slug: "community-guidelines-and-enforcement",
+    locale: "en",
+    title: "Community guidelines and enforcement",
+    description:
+      "The conduct rules for buying, reviewing, and reporting on Chase Sets, why transactions stay on the platform, and how recorded, human moderation and account enforcement work.",
+    audience: "buyer",
+    category: "buying",
+    reviewedAt: "2026-08-02",
+    citedPolicies: [],
+    relatedFlows: [],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "Accounts cannot offer on their own listings, cannot add their own listings to cart, and same-account order creation is rejected.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/checkout/features/cart/domain/domain.test.ts",
+          "bounded-contexts/ordering/features/orders/domain/domain.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A review is tied to one completed order between its two parties, self-review is rejected, and operator withdrawal or redaction of a review requires a recorded reason.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/marketplace/features/reviews/domain/directional-review-disposition.test.ts",
+          "bounded-contexts/marketplace/features/reviews/domain/domain.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A reported active listing auto-unlists only at the distinct-reporter threshold, review reports join the same moderation queue without automatic removal, and duplicate reports from the same reporter are rejected.",
+        issues: ["#5693"],
+        tests: ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"],
+      },
+      {
+        claim:
+          "Every moderation action on reported content is recorded with the action taken, the acting operator, and any required note.",
+        issues: ["#5693"],
+        tests: ["bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts"],
+      },
+    ],
+    href: "/help/buying/community-guidelines-and-enforcement",
+    headings: [
+      {
+        level: 2,
+        id: "the-short-version",
+        text: "The short version",
+      },
+      {
+        level: 2,
+        id: "buy-and-sell-in-good-faith",
+        text: "Buy and sell in good faith",
+      },
+      {
+        level: 2,
+        id: "reviews",
+        text: "Reviews",
+      },
+      {
+        level: 2,
+        id: "reporting-content",
+        text: "Reporting content",
+      },
+      {
+        level: 2,
+        id: "how-enforcement-works",
+        text: "How enforcement works",
+      },
+      {
+        level: 2,
+        id: "if-you-think-we-got-it-wrong",
+        text: "If you think we got it wrong",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "the-short-version",
+        text: "The short version",
+        content: [
+          {
+            type: "text",
+            value: "The short version",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Deal honestly, keep your transactions on Chase Sets, and treat the people on the other side of a trade the way you would want to be treated. The rest of this article spells out what that means for buying, reviewing, and reporting, and what happens when someone breaks the rules.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "buy-and-sell-in-good-faith",
+        text: "Buy and sell in good faith",
+        content: [
+          {
+            type: "text",
+            value: "Buy and sell in good faith",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Complete your purchases.",
+            },
+            {
+              type: "text",
+              value: " An order is a real commitment to the seller on the other side.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Keep transactions on Chase Sets.",
+            },
+            {
+              type: "text",
+              value:
+                " Do not use the marketplace to find a buyer or seller and then move the deal off the platform to avoid fees. A deal completed off Chase Sets is outside ",
+            },
+            {
+              type: "link",
+              label: "Order protection",
+              href: "/help/buying/order-protection",
+            },
+            {
+              type: "text",
+              value:
+                ", the support process, and everything else the platform provides, and arranging one is a policy violation for both sides.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "No self-dealing.",
+            },
+            {
+              type: "text",
+              value:
+                " Buying from yourself is blocked outright: you cannot make an offer on your own listing, add your own listing to your cart, or create an order with yourself on both sides.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Do not manipulate prices or listings.",
+            },
+            {
+              type: "text",
+              value: " Pricing scams are a reportable offense on any listing.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "reviews",
+        text: "Reviews",
+        content: [
+          {
+            type: "text",
+            value: "Reviews",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Reviews on Chase Sets are transactional: a review is always attached to one completed order, only the two parties to that order can review each other, and each direction gets at most one active review. You cannot review yourself, and review windows close, so leave feedback while it is fresh.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Write about the transaction — the item, the communication, the outcome. A review must not contain:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "harassment or abuse",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "hateful or discriminatory content",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "someone's personal information",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "spam or manipulation, including feedback traded, bought, or coordinated to game a rating",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The reviewed account can post one public response to a revealed review. Responses follow the same conduct rules.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "reporting-content",
+        text: "Reporting content",
+        content: [
+          {
+            type: "text",
+            value: "Reporting content",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "If you see a listing or review that breaks the rules, report it from the page it appears on. Listing reports accept a structured reason — counterfeit concern, stolen photos, prohibited item, pricing scam, or other — and anyone can submit one, signed in or not. Review reports require a signed-in account and use their own reasons: harassment or abuse, hate or discrimination, personal information, spam or manipulation, or other. Each person can report a given piece of content once, and you can add a short explanation to help the review.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "how-enforcement-works",
+        text: "How enforcement works",
+        content: [
+          {
+            type: "text",
+            value: "How enforcement works",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Reports feed a Trust & Safety queue where a person reviews each case and decides the outcome. Depending on what the review finds, the reviewer may dismiss the report, contact the seller, unlist a listing, withdraw a review or redact its written feedback, or escalate the account for suspension. Every action is recorded with who took it and why, and review-scoped actions always carry a written reason.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Two automatic behaviors exist, and only two: an active listing is unlisted automatically when enough distinct people report it, and duplicate reports from the same person are rejected. A reported review is never removed automatically — a person decides.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "At the account level, an account can be suspended and later reactivated once the underlying issue is resolved, or closed, which is final. Serious or repeated violations are what put an account on that path.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "if-you-think-we-got-it-wrong",
+        text: "If you think we got it wrong",
+        content: [
+          {
+            type: "text",
+            value: "If you think we got it wrong",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Enforcement decisions are made by people, and people can be wrong. If a report you filed was dismissed, or an action was taken against your content or account and you believe it was a mistake, contact ",
+          },
+          {
+            type: "link",
+            label: "support",
+            href: "/contact",
+          },
+          {
+            type: "text",
+            value: " or email ",
+          },
+          {
+            type: "link",
+            label: "support@chasesets.com",
+            href: "mailto:support@chasesets.com",
+          },
+          {
+            type: "text",
+            value:
+              " and ask for the decision to be reconsidered. There is no separate in-product appeal form today; reconsideration goes through support, and a person reviews it.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
     slug: "order-protection",
     locale: "en",
     title: "Order protection",
@@ -2766,6 +3116,451 @@ export const helpArticles = [
     ],
   },
   {
+    slug: "intellectual-property-and-dmca",
+    locale: "en",
+    title: "Intellectual property and DMCA",
+    description:
+      "How Chase Sets handles copyright and other intellectual-property complaints, how to send a DMCA notice or counter-notice, where to send it, and how repeat infringement affects an account.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-08-02",
+    citedPolicies: [],
+    relatedFlows: [],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "Listings reported for counterfeit concerns or stolen photos enter the recorded Trust & Safety moderation queue, and an active listing auto-unlists when the distinct-reporter threshold is reached.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
+          "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Accounts move through an event-sourced active, suspended, and closed state machine, and content moderation can escalate an account for suspension.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/identity/features/accounts/domain/domain.test.ts",
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
+          "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/intellectual-property-and-dmca",
+    headings: [
+      {
+        level: 2,
+        id: "your-listings-and-other-people-s-work",
+        text: "Your listings and other people's work",
+      },
+      {
+        level: 2,
+        id: "two-ways-to-raise-an-infringement-problem",
+        text: "Two ways to raise an infringement problem",
+      },
+      {
+        level: 2,
+        id: "what-a-dmca-notice-must-contain",
+        text: "What a DMCA notice must contain",
+      },
+      {
+        level: 2,
+        id: "where-to-send-a-notice",
+        text: "Where to send a notice",
+      },
+      {
+        level: 2,
+        id: "if-your-listing-is-taken-down-counter-notices",
+        text: "If your listing is taken down: counter-notices",
+      },
+      {
+        level: 2,
+        id: "repeat-infringement",
+        text: "Repeat infringement",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "your-listings-and-other-people-s-work",
+        text: "Your listings and other people's work",
+        content: [
+          {
+            type: "text",
+            value: "Your listings and other people's work",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Two rules cover most intellectual-property situations on Chase Sets:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Sell genuine products.",
+            },
+            {
+              type: "text",
+              value:
+                " Every listing is created against a Chase Sets catalog entry, and the item you ship must genuinely be that product. Counterfeits and reproductions presented as genuine are covered in ",
+            },
+            {
+              type: "link",
+              label: "Prohibited and restricted items",
+              href: "/help/selling/prohibited-and-restricted-items",
+            },
+            {
+              type: "text",
+              value: ".",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Use your own photos and words.",
+            },
+            {
+              type: "text",
+              value:
+                " Your listing photos must show your actual item. Copying another seller's photos can be flagged with a stolen-photos report, and using content you have no right to use can also draw a formal infringement notice.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "If someone reports your listing, it goes to Trust & Safety review; enough distinct reports unlist an active listing automatically while a person reviews it. Every moderation action is recorded with who took it and why.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "two-ways-to-raise-an-infringement-problem",
+        text: "Two ways to raise an infringement problem",
+        content: [
+          {
+            type: "text",
+            value: "Two ways to raise an infringement problem",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "If content on Chase Sets uses your work without permission, you can raise it two ways:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: true,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Report it in place.",
+            },
+            {
+              type: "text",
+              value:
+                " Use the report control on the listing — for example a counterfeit concern or stolen photos. This is the fastest path for straightforward cases and is open to anyone.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Send a formal DMCA notice.",
+            },
+            {
+              type: "text",
+              value:
+                " The Digital Millennium Copyright Act gives copyright owners a formal notice-and-takedown path, described below. Use it when you want the statutory process, when you act for another rights holder, or when the in-place report does not fit the situation.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-a-dmca-notice-must-contain",
+        text: "What a DMCA notice must contain",
+        content: [
+          {
+            type: "text",
+            value: "What a DMCA notice must contain",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Under ",
+          },
+          {
+            type: "link",
+            label: "Section 512 of the Copyright Act",
+            href: "https://www.copyright.gov/512/",
+          },
+          {
+            type: "text",
+            value:
+              ", a notification of claimed infringement must include, in substance (reviewed against the U.S. Copyright Office's Section 512 materials on August 2, 2026):",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value:
+                "identification of the copyrighted work you claim is infringed, or a representative list if there are many",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "identification of the material you claim is infringing, with enough location detail — on Chase Sets, the listing or review URL — for it to be found",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "your name, address, telephone number, and email address",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "a statement that you have a good-faith belief the use is not authorized by the copyright owner, its agent, or the law",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "a statement that the information in the notice is accurate and, under penalty of perjury, that you are authorized to act for the copyright owner",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "your physical or electronic signature",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A knowingly false claim of infringement carries legal exposure under the statute, so send a notice only for work you own or are authorized to act for.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "where-to-send-a-notice",
+        text: "Where to send a notice",
+        content: [
+          {
+            type: "text",
+            value: "Where to send a notice",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Send DMCA notices for Chase Sets to the designated contact:",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Todd Skelton, Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "For general questions about a notice you sent or received, you can also reach ",
+          },
+          {
+            type: "link",
+            label: "support@chasesets.com",
+            href: "mailto:support@chasesets.com",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "As of the August 2, 2026 review, a matching current record for this contact could not be verified in the U.S. Copyright Office's public ",
+          },
+          {
+            type: "link",
+            label: "DMCA Designated Agent Directory",
+            href: "https://dmca.copyright.gov/osp/",
+          },
+          {
+            type: "text",
+            value: ", so this article carries the status marker ",
+          },
+          {
+            type: "code",
+            value: "registration-status-unverified",
+          },
+          {
+            type: "text",
+            value: ". This marker is removed only when a current directory record is verified.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "if-your-listing-is-taken-down-counter-notices",
+        text: "If your listing is taken down: counter-notices",
+        content: [
+          {
+            type: "text",
+            value: "If your listing is taken down: counter-notices",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "If material you posted is removed after an infringement notice and you believe the removal was a mistake or misidentification, Section 512 provides a counter-notice path. A counter-notice must include, in substance:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "your physical or electronic signature",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "identification of the removed material and where it appeared before removal",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "a statement under penalty of perjury that you have a good-faith belief the material was removed as a result of mistake or misidentification",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "your name, address, and telephone number, and consent to federal court jurisdiction as the statute describes",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Send counter-notices to the same contact listed above; a person reviews each one under the statute's procedure. The statute provides that a service provider restores material no less than ten and no more than fourteen business days after receiving a valid counter-notice, unless the original claimant notifies the provider that it has filed a court action seeking to restrain the alleged infringement.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "repeat-infringement",
+        text: "Repeat infringement",
+        content: [
+          {
+            type: "text",
+            value: "Repeat infringement",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Section 512 conditions its safe harbor on a policy that provides for terminating repeat infringers in appropriate circumstances. On Chase Sets, infringement findings can escalate beyond the listing: content moderation can escalate an account for suspension, and an account can be suspended or, for the most serious cases, closed. A suspended account can be reactivated once the underlying issue is resolved; closure is final.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "This article describes the statutory framework and Chase Sets' handling in plain language; it is not legal advice, and questions about your own rights or exposure belong with your own counsel.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
     slug: "inventory-csv-import",
     locale: "en",
     title: "Import inventory from a CSV file",
@@ -3405,6 +4200,581 @@ export const helpArticles = [
             {
               type: "text",
               value: "Treat any listings the commit creates as drafts until you inspect and publish them.",
+            },
+          ],
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
+    slug: "prohibited-and-restricted-items",
+    locale: "en",
+    title: "Prohibited and restricted items",
+    description:
+      "What you can list on Chase Sets, why every listing starts from the catalog, which items and photos are never allowed, and how reports and removal work.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-08-02",
+    citedPolicies: [],
+    relatedFlows: [],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "Every listing is created from an inventory item that references one Chase Sets catalog entry, and there is no free-text listing path.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A listing cannot be published until the photo-evidence and seller-trust requirements resolved from the active listing-evidence policy are met.",
+        issues: ["#4358"],
+        tests: [
+          "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts",
+          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A reported active listing is automatically unlisted only when the distinct-reporter threshold is reached, and every moderation action on a report is recorded.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
+          "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/prohibited-and-restricted-items",
+    headings: [
+      {
+        level: 2,
+        id: "every-listing-starts-from-the-catalog",
+        text: "Every listing starts from the catalog",
+      },
+      {
+        level: 2,
+        id: "items-you-must-not-list",
+        text: "Items you must not list",
+      },
+      {
+        level: 2,
+        id: "photos-must-be-yours",
+        text: "Photos must be yours",
+      },
+      {
+        level: 2,
+        id: "restricted-rather-than-prohibited",
+        text: "Restricted rather than prohibited",
+      },
+      {
+        level: 2,
+        id: "how-reports-and-removal-work",
+        text: "How reports and removal work",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "every-listing-starts-from-the-catalog",
+        text: "Every listing starts from the catalog",
+        content: [
+          {
+            type: "text",
+            value: "Every listing starts from the catalog",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets is a trading-card marketplace built on a closed catalog. You create a listing by picking the exact catalog entry for the product you are selling, recording it as an inventory item, and listing that item. There is no free-text listing form, so an item the catalog does not describe cannot be listed at all.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              'That design does most of the "prohibited items" work for you: the question is never whether a category of goods is allowed, but whether your specific item genuinely is the catalog product you selected. You are responsible for choosing the catalog entry that correctly matches the item in your hand.',
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "items-you-must-not-list",
+        text: "Items you must not list",
+        content: [
+          {
+            type: "text",
+            value: "Items you must not list",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Counterfeit or fake cards.",
+            },
+            {
+              type: "text",
+              value:
+                " A counterfeit is not the catalog product it imitates. Listing one against a genuine card's catalog entry misrepresents the item, and buyers and visitors can flag it with a counterfeit-concern report.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Proxies, customs, and reproductions presented as genuine.",
+            },
+            {
+              type: "text",
+              value:
+                " The same rule applies: a proxy or reproduction is not the genuine catalog product, so listing it as one is treated the same way as any other counterfeit concern.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Items you do not have the right to sell.",
+            },
+            {
+              type: "text",
+              value:
+                " Only list items you own, or are authorized by the owner to sell, and that you actually have. Do not list items you hope to acquire only after a sale.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Items that infringe someone's intellectual property.",
+            },
+            {
+              type: "text",
+              value: " See ",
+            },
+            {
+              type: "link",
+              label: "Intellectual property and DMCA",
+              href: "/help/selling/intellectual-property-and-dmca",
+            },
+            {
+              type: "text",
+              value: " for how infringement claims are handled.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "photos-must-be-yours",
+        text: "Photos must be yours",
+        content: [
+          {
+            type: "text",
+            value: "Photos must be yours",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Your listing photos must show the actual item you are selling. Photos copied from another seller's listing or lifted from elsewhere can be flagged with a stolen-photos report, and stock or catalog images never satisfy a photo-evidence requirement. The photo rules, including which conditions require photos, are covered in ",
+          },
+          {
+            type: "link",
+            label: "Condition and photo standards",
+            href: "/help/selling/condition-and-photo-standards",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "restricted-rather-than-prohibited",
+        text: "Restricted rather than prohibited",
+        content: [
+          {
+            type: "text",
+            value: "Restricted rather than prohibited",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Some listings are allowed but carry extra requirements before they can go live:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "A listing at the top raw conditions needs a condition photo of the actual card.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "A graded listing needs slab, front, and back photos plus the grading company, grade, and certification number.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "Listings above a price threshold carry an added seller-trust requirement, so your account needs a track record or a qualifying badge first.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "These requirements come from the active listing-evidence policy, and the listing composer blocks publication until every requirement is satisfied. ",
+          },
+          {
+            type: "link",
+            label: "Condition and photo standards",
+            href: "/help/selling/condition-and-photo-standards",
+          },
+          {
+            type: "text",
+            value: " explains each one.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "how-reports-and-removal-work",
+        text: "How reports and removal work",
+        content: [
+          {
+            type: "text",
+            value: "How reports and removal work",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Anyone who sees a problem listing, signed in or not, can report it with a structured reason: counterfeit concern, stolen photos, prohibited item, pricing scam, or other. Each person can report a given listing once, and an optional explanation helps the review.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Reports go to Trust & Safety review, where a person looks at the listing and decides what to do; each recorded action captures who took it and why. If enough distinct reporters flag the same active listing, it is unlisted automatically while review happens. Serious or repeated problems can escalate to account-level enforcement, described in ",
+          },
+          {
+            type: "link",
+            label: "Community guidelines and enforcement",
+            href: "/help/buying/community-guidelines-and-enforcement",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "If your listing was removed and you believe that was a mistake, contact ",
+          },
+          {
+            type: "link",
+            label: "support",
+            href: "/contact",
+          },
+          {
+            type: "text",
+            value: " and ask for the decision to be looked at again.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
+    slug: "sales-tax",
+    locale: "en",
+    title: "Sales tax for sellers",
+    description:
+      "How U.S. marketplace facilitator laws work, how Chase Sets tracks state-by-state activity and fails closed on collection, and which sales-tax responsibilities stay yours.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-08-02",
+    citedPolicies: [],
+    relatedFlows: [],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "State-by-state marketplace activity is evaluated against per-state registration thresholds into readiness statuses, no-statewide-sales-tax states are kept out of provider requirements, and complex local-administration states are held for manual review.",
+        issues: ["#5693"],
+        tests: ["bounded-contexts/ordering/tests/tax-nexus-tracking.test.ts"],
+      },
+      {
+        claim:
+          "In production, when a state requires live tax collection and no provider-backed tax-quote resolver is composed, the quote request is rejected before an order can record an implicit zero-tax snapshot.",
+        issues: ["#5693"],
+        tests: ["deployables/platform-api/__tests__/tax-readiness.test.ts"],
+      },
+      {
+        claim:
+          "Every order records an immutable tax snapshot, and the order total must reconcile the item subtotal, shipping, sales tax, and any authenticity-check fee.",
+        issues: ["#5693"],
+        tests: ["bounded-contexts/ordering/features/orders/domain/domain.test.ts"],
+      },
+    ],
+    href: "/help/selling/sales-tax",
+    headings: [
+      {
+        level: 2,
+        id: "two-separate-questions",
+        text: "Two separate questions",
+      },
+      {
+        level: 2,
+        id: "what-marketplace-facilitator-laws-do",
+        text: "What marketplace facilitator laws do",
+      },
+      {
+        level: 2,
+        id: "how-chase-sets-handles-sales-tax-today",
+        text: "How Chase Sets handles sales tax today",
+      },
+      {
+        level: 2,
+        id: "what-stays-your-responsibility",
+        text: "What stays your responsibility",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "two-separate-questions",
+        text: "Two separate questions",
+        content: [
+          {
+            type: "text",
+            value: "Two separate questions",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Sales tax on a marketplace involves two different questions that are easy to blur together: what the marketplace is responsible for under state law, and what remains your responsibility as a seller. This article explains both sides for U.S. sales, as reviewed on August 2, 2026. It is general information, not tax or legal advice — whether any rule applies to your situation depends on facts a help article cannot know.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-marketplace-facilitator-laws-do",
+        text: "What marketplace facilitator laws do",
+        content: [
+          {
+            type: "text",
+            value: "What marketplace facilitator laws do",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Since the states began taxing remote commerce broadly, many have adopted marketplace facilitator laws. Under these laws, a business that operates a marketplace and facilitates third-party sales is required to collect and remit sales tax on the sales it facilitates once its activity in the state exceeds that state's thresholds, per the ",
+          },
+          {
+            type: "link",
+            label: "Streamlined Sales Tax Governing Board's marketplace facilitator guidance",
+            href: "https://www.streamlinedsalestax.org/for-businesses/marketplace-facilitator",
+          },
+          {
+            type: "text",
+            value:
+              " (accessed August 2, 2026). Thresholds vary by state: a common benchmark is $100,000 in sales or 200 transactions, with some states setting higher or lower marks.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The same guidance is explicit that facilitator collection does not always end a seller's own duties: a marketplace seller may still be required to register and file returns in a state, particularly for sales made outside a marketplace.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "how-chase-sets-handles-sales-tax-today",
+        text: "How Chase Sets handles sales tax today",
+        content: [
+          {
+            type: "text",
+            value: "How Chase Sets handles sales tax today",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets tracks its marketplace activity in every U.S. state and the District of Columbia against per-state registration thresholds. Each state carries a readiness status that moves from monitoring through approaching-threshold and prepare-registration to registration-required and collection-required as activity grows. States with no statewide sales tax are kept out of collection requirements, and a small set of states with complex local tax administration is always held for manual review rather than automated threshold logic.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The system is built to fail closed. In production, if a state requires live collection and no provider-backed tax-quote service is composed, the checkout quote request is rejected — an order is never created with a silently missing tax amount. Every order that is created records an immutable tax snapshot, and the order total must reconcile the item subtotal, shipping, sales tax, and any authenticity-check fee exactly.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "This article deliberately does not state whether tax is being collected on your sales in any specific state. That posture is decided per jurisdiction through a gated launch-readiness process that requires review by accounting and counsel, and it can change as marketplace activity crosses state thresholds. Chase Sets does not currently send sellers a notification when a state's collection posture changes.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-stays-your-responsibility",
+        text: "What stays your responsibility",
+        content: [
+          {
+            type: "text",
+            value: "What stays your responsibility",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Your own registrations and filings.",
+            },
+            {
+              type: "text",
+              value:
+                " If you sell outside Chase Sets, or a state's rules require registration from you even where a facilitator collects, those obligations are yours.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Your income tax.",
+            },
+            {
+              type: "text",
+              value:
+                " Sales tax and income tax are separate; marketplace proceeds are still your business income. See ",
+            },
+            {
+              type: "link",
+              label: "Tax reporting and Form 1099-K",
+              href: "/help/selling/tax-reporting-1099k",
+            },
+            {
+              type: "text",
+              value: ".",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Your records.",
+            },
+            {
+              type: "text",
+              value: " Keep your own record of what you sold and where it shipped. Your payout history in ",
+            },
+            {
+              type: "link",
+              label: "Getting paid",
+              href: "/help/selling/getting-paid",
+            },
+            {
+              type: "text",
+              value: " shows the marketplace side.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Your facts.",
+            },
+            {
+              type: "text",
+              value:
+                " Whether any state's rules reach your activity depends on your volumes, locations, and product mix. For real decisions, work with a tax professional.",
             },
           ],
         ],
@@ -4522,6 +5892,250 @@ export const helpArticles = [
             type: "text",
             value:
               ". Return-to-sender and carrier exceptions are recorded against the shipment and give support a concrete record to review.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
+    slug: "tax-reporting-1099k",
+    locale: "en",
+    title: "Tax reporting and Form 1099-K",
+    description:
+      "What Form 1099-K is, the current federal reporting threshold, which reporting questions are still being resolved for Chase Sets, and how taxpayer information fits into payout setup.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-08-02",
+    citedPolicies: [],
+    relatedFlows: [],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "Payout readiness records the payment processor's outstanding requirements, including the tax-id requirement, and payout requests are blocked until payout readiness is ready.",
+        issues: ["#5693"],
+        tests: [
+          "bounded-contexts/settlement/features/payout-readiness/domain/domain.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/tax-reporting-1099k",
+    headings: [
+      {
+        level: 2,
+        id: "what-form-1099-k-is",
+        text: "What Form 1099-K is",
+      },
+      {
+        level: 2,
+        id: "the-federal-threshold",
+        text: "The federal threshold",
+      },
+      {
+        level: 2,
+        id: "what-is-still-being-resolved-for-chase-sets",
+        text: "What is still being resolved for Chase Sets",
+      },
+      {
+        level: 2,
+        id: "what-this-means-in-practice",
+        text: "What this means in practice",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "what-form-1099-k-is",
+        text: "What Form 1099-K is",
+        content: [
+          {
+            type: "text",
+            value: "What Form 1099-K is",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Form 1099-K is a U.S. information return. Payment apps and online marketplaces — third-party settlement organizations, in the statute's terms — use it to report payments received for goods or services to the IRS and to the person who received them. It reports gross payment volume; it is not a bill, and it does not by itself decide what tax you owe.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "the-federal-threshold",
+        text: "The federal threshold",
+        content: [
+          {
+            type: "text",
+            value: "The federal threshold",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "As of this article's August 2, 2026 review, the IRS states that third-party settlement organizations are required to file Form 1099-K when the gross amount of payments to a payee for goods or services exceeds $20,000 and the number of transactions exceeds 200, per ",
+          },
+          {
+            type: "link",
+            label: "Understanding your Form 1099-K",
+            href: "https://www.irs.gov/businesses/understanding-your-form-1099-k",
+          },
+          {
+            type: "text",
+            value: " and the ",
+          },
+          {
+            type: "link",
+            label: "IRS Form 1099-K FAQs",
+            href: "https://www.irs.gov/newsroom/form-1099-k-faqs",
+          },
+          {
+            type: "text",
+            value:
+              " (both accessed August 2, 2026). The FAQs note this threshold was retroactively reinstated by legislation, so older articles you find elsewhere may describe thresholds that no longer apply.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Your state may have its own information-reporting rules that differ from the federal threshold; check your state revenue department's current guidance.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-is-still-being-resolved-for-chase-sets",
+        text: "What is still being resolved for Chase Sets",
+        content: [
+          {
+            type: "text",
+            value: "What is still being resolved for Chase Sets",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets processes buyer payments through its payment processor. Which entity, if any, is the filer of record for reporting on your Chase Sets activity — and how the federal threshold applies to a given account — are questions this article does not decide; they are reserved for review with qualified tax counsel. Do not assume from this article that a form is or is not coming for your activity. When those answers are settled, this article will be revised, and its review date above tells you how current it is.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "What ships today is narrower: before your account can receive payouts, payout setup collects identity, business, and taxpayer information through the payment processor, and payout requests are blocked until every outstanding requirement — including the tax-id requirement — is complete. There is currently no tax-form dashboard, running 1099-K threshold tracker, or in-product tax-form delivery in your account.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-this-means-in-practice",
+        text: "What this means in practice",
+        content: [
+          {
+            type: "text",
+            value: "What this means in practice",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Report your income either way.",
+            },
+            {
+              type: "text",
+              value:
+                " The IRS is unambiguous that you must report income from selling goods or services on your tax return whether or not you receive a Form 1099-K.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Keep your own records.",
+            },
+            {
+              type: "text",
+              value: " Your sales history and payout detail, described in ",
+            },
+            {
+              type: "link",
+              label: "Getting paid",
+              href: "/help/selling/getting-paid",
+            },
+            {
+              type: "text",
+              value:
+                ", show gross proceeds, fees, and payouts — keep your own copies alongside your cost records, since gross reported volume is not the same as profit.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Keep payout information current.",
+            },
+            {
+              type: "text",
+              value:
+                " Accurate taxpayer information in payout setup is what keeps your payouts flowing and any required reporting correct.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Ask a professional.",
+            },
+            {
+              type: "text",
+              value:
+                " How marketplace income, card costs, and collectibles rules interact in your return depends on your situation. This article is general information, not tax advice.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Sales tax is a separate topic with its own rules; see ",
+          },
+          {
+            type: "link",
+            label: "Sales tax for sellers",
+            href: "/help/selling/sales-tax",
+          },
+          {
+            type: "text",
+            value: ".",
           },
         ],
       },

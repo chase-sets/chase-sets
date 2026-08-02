@@ -12,6 +12,11 @@ const launchCriticalArticles = [
   "sales-fees",
   "seller-migration-tcgplayer-ebay",
   "shipping-requirements",
+  "community-guidelines-and-enforcement",
+  "intellectual-property-and-dmca",
+  "prohibited-and-restricted-items",
+  "sales-tax",
+  "tax-reporting-1099k",
 ] as const;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -19,7 +24,7 @@ describe.each(launchCriticalArticles)("%s public promise gate", (slug) => {
   const article = publicHelpArticles.find((candidate) => candidate.slug === slug && candidate.locale === "en");
 
   it("maps every published behavioral promise to a committed enforcing test", () => {
-    expect(article, `${slug}.en.md must remain in the launch-critical corpus`).toBeDefined();
+    expect(article, `${slug}.en.md must remain in the promise-gated corpus`).toBeDefined();
     expect(article!.promiseTable.length).toBeGreaterThan(0);
 
     for (const promise of article!.promiseTable) {
