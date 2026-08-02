@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   ConsentAuthorizationGuardError,
   analyzeConsentAuthorizationSites,
@@ -125,18 +125,25 @@ function scratchExecGit(scratch) {
 function initScratchRepo(prefix) {
   const scratch = mkdtempSync(path.join(tmpdir(), prefix));
   runGit(scratch, ["init", "--quiet", "--initial-branch=main"]);
-  // A scratch repository inherits the machine's global core.autocrlf, which
-  // would rewrite blob bytes on add and make an object-bound corpus disagree
-  // with the bytes this suite wrote.
-  for (const [key, value] of [
-    ["core.autocrlf", "false"],
-    ["core.eol", "lf"],
-    ["commit.gpgsign", "false"],
-    ["user.email", "guard@chase-sets.test"],
-    ["user.name", "Consent authorization guard"],
-  ]) {
-    runGit(scratch, ["config", key, value]);
-  }
+  // Written in one append rather than five `git config` invocations: every Git
+  // process spawned here is charged to a test's budget, and a scratch
+  // repository inherits the machine's global core.autocrlf, which would rewrite
+  // blob bytes on add and make an object-bound corpus disagree with the bytes
+  // this suite wrote.
+  appendFileSync(
+    path.join(scratch, ".git", "config"),
+    [
+      "[core]",
+      "\tautocrlf = false",
+      "\teol = lf",
+      "[commit]",
+      "\tgpgsign = false",
+      "[user]",
+      "\temail = guard@chase-sets.test",
+      "\tname = Consent authorization guard",
+      "",
+    ].join("\n"),
+  );
   return scratch;
 }
 
@@ -263,6 +270,150 @@ function buildMergeGroupScratchRepo(prefix) {
       }),
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module-scope scratch evidence                                              */
+/*                                                                            */
+/* Every scratch repository below is built and analysed once, here, so that    */
+/* its Git process spawns are not charged to an individual test's budget. Only */
+/* the arrangement is hoisted; every assertion still lives in its own test.    */
+/* -------------------------------------------------------------------------- */
+
+const retainedScratchRepos = [];
+
+// Arbitrary commit-sha-shaped values, derived at run time so that no
+// commit-sha literal is ever committed anywhere in this footprint.
+const arbitraryFrozenSha = createHash("sha1")
+  .update("consent-authorization-frozen-provenance-negative-control")
+  .digest("hex");
+const absentCandidateHead = createHash("sha1").update("consent-authorization-absent-candidate-head").digest("hex");
+
+function observationOf(result, expectedHead) {
+  return {
+    environment: result.environment,
+    candidateHead: result.candidateHead,
+    analyzedTree: result.provenance.roles.analyzedTree.sha,
+    boundToHead: result.candidateHead === expectedHead,
+    unionsUntrackedNonignored: result.corpus.unionsUntrackedNonignored,
+    surface: result.surface,
+    violations: result.violations.length,
+  };
+}
+
+function analyzeHostedScratch(environment) {
+  return analyzeConsentAuthorizationSites({
+    repoRoot: environment.scratch,
+    authorityRoot: repoRoot,
+    registry,
+    schema: registrySchema,
+    execGit: scratchExecGit(environment.scratch),
+    deriveProvenance: environment.deriveProvenance,
+  });
+}
+
+function buildClassifiedEnvironmentEvidence() {
+  const plain = buildProductScratchRepo("consent-plain-");
+  const plainResult = analyzeScratch(plain.scratch);
+  rmSync(plain.scratch, { recursive: true, force: true });
+
+  // Retained: MUT-CORPUS-BIND-ANALYZED-TREE re-analyses this exact checkout.
+  const pullRequest = buildPullRequestScratchRepo("consent-pr-env-");
+  retainedScratchRepos.push(pullRequest.scratch);
+  const pullRequestResult = analyzeHostedScratch(pullRequest);
+
+  const mergeGroup = buildMergeGroupScratchRepo("consent-mg-env-");
+  const mergeGroupResult = analyzeHostedScratch(mergeGroup);
+  rmSync(mergeGroup.scratch, { recursive: true, force: true });
+
+  return {
+    plain: { result: plainResult, head: plain.head },
+    pullRequest: { environment: pullRequest, result: pullRequestResult },
+    mergeGroup: { result: mergeGroupResult, head: mergeGroup.head },
+    observations: [
+      observationOf(plainResult, plain.head),
+      observationOf(pullRequestResult, pullRequest.head),
+      observationOf(mergeGroupResult, mergeGroup.head),
+    ],
+  };
+}
+
+function buildUnresolvedCandidateHeadEvidence() {
+  const { scratch } = buildProductScratchRepo("consent-unresolved-");
+  const calls = [];
+  const execGit = (args, options) => {
+    calls.push(args.join(" "));
+    return scratchExecGit(scratch)(args, options);
+  };
+  let thrown = null;
+  try {
+    enumerateConsentAuthorizationCorpus({
+      repoRoot: scratch,
+      execGit,
+      candidateHead: absentCandidateHead,
+      environment: "plain",
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  rmSync(scratch, { recursive: true, force: true });
+  return { calls, thrown };
+}
+
+function buildBuiltVersusCleanEvidence() {
+  const { scratch } = buildProductScratchRepo("consent-built-clean-", new Map([[".gitignore", "dist/\n"]]));
+  const clean = analyzeScratch(scratch);
+  writeScratchFile(scratch, "dist/generated.ts", repoFile(`${fixtureRoot}/corpus/ignored-generated/authorization.ts`));
+  writeScratchFile(
+    scratch,
+    "bounded-contexts/identity/features/consents/api/route.ts",
+    `${repoFile(`${fixtureRoot}/route.ts`)}\nfunction uncommittedSeventh() {\n  authorizeConsentForActor(context);\n}\n`,
+  );
+  const built = analyzeScratch(scratch);
+  rmSync(scratch, { recursive: true, force: true });
+  return { clean, built };
+}
+
+function buildMainAdvanceEvidence() {
+  const { scratch, head } = buildProductScratchRepo("consent-main-advance-");
+  const before = analyzeScratch(scratch);
+  writeScratchFile(scratch, "docs/unrelated-main-advance.md", "Ordinary unrelated movement of main.\n");
+  const advanced = commitScratch(scratch, "unrelated main advance");
+  runGit(scratch, ["update-ref", "refs/remotes/origin/main", advanced]);
+  const after = analyzeScratch(scratch);
+  rmSync(scratch, { recursive: true, force: true });
+  return { before, after, head, advanced };
+}
+
+function buildPlantedSiteEvidence(prefix, relativePath, fixturePath) {
+  const { scratch } = buildProductScratchRepo(prefix, new Map([[relativePath, repoFile(fixturePath)]]));
+  const result = analyzeScratch(scratch);
+  rmSync(scratch, { recursive: true, force: true });
+  return result;
+}
+
+const classifiedEnvironments = buildClassifiedEnvironmentEvidence();
+const unresolvedCandidateHead = buildUnresolvedCandidateHeadEvidence();
+const builtVersusClean = buildBuiltVersusCleanEvidence();
+const mainAdvance = buildMainAdvanceEvidence();
+const driftResult = buildPlantedSiteEvidence(
+  "consent-drift-",
+  "arbitrary/authorization.ts",
+  `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
+);
+const testNamedDirectoryResult = buildPlantedSiteEvidence(
+  "consent-test-dir-",
+  "ordinary.test.data/authorization.ts",
+  `${fixtureRoot}/corpus/ordinary.test.data/authorization.ts`,
+);
+const arbitraryPathResult = buildPlantedSiteEvidence(
+  "consent-arbitrary-",
+  "zz-unrelated/plain-directory/module.ts",
+  `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
+);
+
+afterAll(() => {
+  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
+});
 
 /* -------------------------------------------------------------------------- */
 /* Scripted provenance -- the shipped ordered resolver, never a merge-base call */
@@ -506,11 +657,6 @@ function footprintFiles() {
 /* -------------------------------------------------------------------------- */
 /* Mutation ledger                                                            */
 /* -------------------------------------------------------------------------- */
-
-const arbitraryFrozenSha = createHash("sha1")
-  .update("consent-authorization-frozen-provenance-negative-control")
-  .digest("hex");
-const absentCandidateHead = createHash("sha1").update("consent-authorization-absent-candidate-head").digest("hex");
 
 function mutationCase(caseId, acId, fixture, symbol, clauseId, violation, owner, surface) {
   return {
@@ -1306,32 +1452,31 @@ function discriminate(descriptor, candidateModule, mutantModule) {
   }
 
   if (id === "MUT-CORPUS-BIND-ANALYZED-TREE") {
-    const environment = buildPullRequestScratchRepo("consent-pull-request-");
-    try {
-      const options = {
-        repoRoot: environment.scratch,
-        authorityRoot: repoRoot,
-        registry,
-        schema: registrySchema,
-        execGit: scratchExecGit(environment.scratch),
-        deriveProvenance: environment.deriveProvenance,
-      };
-      const candidate = candidateModule.analyzeConsentAuthorizationSites(options);
-      const mutant = mutantModule.analyzeConsentAuthorizationSites(options);
-      return {
-        candidateGreen:
-          candidate.candidateHead === environment.head &&
-          candidate.provenance.roles.analyzedTree.sha === environment.analyzedTree &&
-          candidate.violations.length === 0,
-        mutantRed:
-          mutant.candidateHead === environment.analyzedTree &&
-          mutant.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
-        candidateObservation: "the corpus is the reviewed head object, so an unrelated main advance cannot make it red",
-        mutantObservation: "binding the corpus to the analyzed merged tree makes an unchanged authority red",
-      };
-    } finally {
-      rmSync(environment.scratch, { recursive: true, force: true });
-    }
+    // Reuses the retained module-scope pull-request checkout: the base tip
+    // advanced with a seventh site, the reviewed head did not, and HEAD is the
+    // synthetic merge commit carrying both.
+    const environment = classifiedEnvironments.pullRequest.environment;
+    const options = {
+      repoRoot: environment.scratch,
+      authorityRoot: repoRoot,
+      registry,
+      schema: registrySchema,
+      execGit: scratchExecGit(environment.scratch),
+      deriveProvenance: environment.deriveProvenance,
+    };
+    const candidate = candidateModule.analyzeConsentAuthorizationSites(options);
+    const mutant = mutantModule.analyzeConsentAuthorizationSites(options);
+    return {
+      candidateGreen:
+        candidate.candidateHead === environment.head &&
+        candidate.provenance.roles.analyzedTree.sha === environment.analyzedTree &&
+        candidate.violations.length === 0,
+      mutantRed:
+        mutant.candidateHead === environment.analyzedTree &&
+        mutant.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
+      candidateObservation: "the corpus is the reviewed head object, so an unrelated main advance cannot make it red",
+      mutantObservation: "binding the corpus to the analyzed merged tree makes an unchanged authority red",
+    };
   }
 
   throw new Error(`${id} has no discrimination`);
@@ -1591,186 +1736,98 @@ describe("Consent authorization sites", () => {
   });
 
   it("binds the corpus to the candidate-head object in every classified environment", () => {
-    const observations = [];
-
-    withScratchRepo("consent-plain-", ({ scratch, head }) => {
-      const result = analyzeScratch(scratch);
-      observations.push({
-        environment: result.environment,
-        candidateHead: result.candidateHead,
-        analyzedTree: result.provenance.roles.analyzedTree.sha,
-        boundToHead: result.candidateHead === head,
-        unionsUntrackedNonignored: result.corpus.unionsUntrackedNonignored,
-        surface: result.surface,
-        violations: result.violations.length,
-      });
-      expect(result.candidateHead).toBe(head);
-      expect(result.candidateHeadRole).toBe(candidateHeadProvenanceRole);
-      expect(result.corpus.unionsUntrackedNonignored).toBe(true);
-      expect(result.partitionDigest).toBe(registry.partitionDigest);
-      expect(result.violations).toEqual([]);
-    });
-
-    const pullRequest = buildPullRequestScratchRepo("consent-pr-env-");
-    try {
-      const result = analyzeConsentAuthorizationSites({
-        repoRoot: pullRequest.scratch,
-        authorityRoot: repoRoot,
-        registry,
-        schema: registrySchema,
-        execGit: scratchExecGit(pullRequest.scratch),
-        deriveProvenance: pullRequest.deriveProvenance,
-      });
-      observations.push({
-        environment: result.environment,
-        candidateHead: result.candidateHead,
-        analyzedTree: result.provenance.roles.analyzedTree.sha,
-        boundToHead: result.candidateHead === pullRequest.head,
-        unionsUntrackedNonignored: result.corpus.unionsUntrackedNonignored,
-        surface: result.surface,
-        violations: result.violations.length,
-      });
-      expect(result.environment).toBe("pull-request-merge-ref");
-      expect(result.candidateHead).toBe(pullRequest.head);
-      expect(result.provenance.roles.analyzedTree.sha).toBe(pullRequest.analyzedTree);
-      expect(result.corpus.unionsUntrackedNonignored).toBe(false);
-      expect(result.partitionDigest).toBe(registry.partitionDigest);
-      expect(result.violations).toEqual([]);
-    } finally {
-      rmSync(pullRequest.scratch, { recursive: true, force: true });
-    }
-
-    const mergeGroup = buildMergeGroupScratchRepo("consent-mg-env-");
-    try {
-      const result = analyzeConsentAuthorizationSites({
-        repoRoot: mergeGroup.scratch,
-        authorityRoot: repoRoot,
-        registry,
-        schema: registrySchema,
-        execGit: scratchExecGit(mergeGroup.scratch),
-        deriveProvenance: mergeGroup.deriveProvenance,
-      });
-      observations.push({
-        environment: result.environment,
-        candidateHead: result.candidateHead,
-        analyzedTree: result.provenance.roles.analyzedTree.sha,
-        boundToHead: result.candidateHead === mergeGroup.head,
-        unionsUntrackedNonignored: result.corpus.unionsUntrackedNonignored,
-        surface: result.surface,
-        violations: result.violations.length,
-      });
-      expect(result.environment).toBe("merge-group");
-      expect(result.candidateHead).toBe(mergeGroup.head);
-      expect(result.corpus.unionsUntrackedNonignored).toBe(false);
-      expect(result.partitionDigest).toBe(registry.partitionDigest);
-      expect(result.violations).toEqual([]);
-    } finally {
-      rmSync(mergeGroup.scratch, { recursive: true, force: true });
-    }
-
+    const { plain, pullRequest, mergeGroup, observations } = classifiedEnvironments;
     process.stdout.write(`candidate-head-binding=${JSON.stringify(observations)}\n`);
+
     expect(observations.map(({ environment }) => environment)).toEqual([
       "plain",
       "pull-request-merge-ref",
       "merge-group",
     ]);
     expect(observations.every(({ boundToHead }) => boundToHead)).toBe(true);
+    expect(observations.map(({ violations }) => violations)).toEqual([0, 0, 0]);
+    expect(observations.map(({ surface }) => surface)).toEqual([
+      { scanned: 6, total: 6 },
+      { scanned: 6, total: 6 },
+      { scanned: 6, total: 6 },
+    ]);
+    expect(observations.map(({ unionsUntrackedNonignored }) => unionsUntrackedNonignored)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+
+    expect(plain.result.candidateHead).toBe(plain.head);
+    expect(plain.result.candidateHeadRole).toBe(candidateHeadProvenanceRole);
+    expect(plain.result.partitionDigest).toBe(registry.partitionDigest);
+
+    // The pull-request checkout is the one that discriminates: the analyzed
+    // synthetic merge commit is a different object from the reviewed head, and
+    // the guard asserts about the reviewed head.
+    expect(pullRequest.result.candidateHead).toBe(pullRequest.environment.head);
+    expect(pullRequest.result.provenance.roles.analyzedTree.sha).toBe(pullRequest.environment.analyzedTree);
+    expect(pullRequest.result.candidateHead).not.toBe(pullRequest.environment.analyzedTree);
+    expect(pullRequest.result.partitionDigest).toBe(registry.partitionDigest);
+
+    expect(mergeGroup.result.candidateHead).toBe(mergeGroup.head);
+    expect(mergeGroup.result.partitionDigest).toBe(registry.partitionDigest);
   });
 
   it("fails closed under a named error when the candidate-head object cannot be resolved", () => {
-    withScratchRepo("consent-unresolved-", ({ scratch }) => {
-      const calls = [];
-      const execGit = (args, options) => {
-        calls.push(args.join(" "));
-        return scratchExecGit(scratch)(args, options);
-      };
-      let thrown = null;
-      try {
-        enumerateConsentAuthorizationCorpus({
-          repoRoot: scratch,
-          execGit,
-          candidateHead: absentCandidateHead,
-          environment: "plain",
-        });
-      } catch (error) {
-        thrown = error;
-      }
-      expect(thrown).toBeInstanceOf(ConsentAuthorizationGuardError);
-      expect(thrown.code).toBe("consent-authorization-candidate-head-unresolved");
-      expect(thrown.reachedClause).toBe("candidate-head-object");
-      expect(calls.some((call) => call.startsWith("ls-tree"))).toBe(false);
-      expect(calls.some((call) => call.includes("HEAD"))).toBe(false);
-      process.stdout.write(`candidate-head-unresolved-calls=${JSON.stringify(calls)}\n`);
-    });
+    const { calls, thrown } = unresolvedCandidateHead;
+    process.stdout.write(`candidate-head-unresolved-calls=${JSON.stringify(calls)}\n`);
+    expect(thrown).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(thrown.code).toBe("consent-authorization-candidate-head-unresolved");
+    expect(thrown.reachedClause).toBe("candidate-head-object");
+    // No enumeration was attempted and nothing fell back to HEAD.
+    expect(calls.some((call) => call.startsWith("ls-tree"))).toBe(false);
+    expect(calls.some((call) => call.includes("HEAD"))).toBe(false);
   });
 
   it("produces an identical partition from a built worktree and a clean worktree", () => {
-    withScratchRepo(
-      "consent-built-clean-",
-      ({ scratch }) => {
-        const clean = analyzeScratch(scratch);
-        writeScratchFile(
-          scratch,
-          "dist/generated.ts",
-          repoFile(`${fixtureRoot}/corpus/ignored-generated/authorization.ts`),
-        );
-        writeScratchFile(
-          scratch,
-          "bounded-contexts/identity/features/consents/api/route.ts",
-          `${repoFile(`${fixtureRoot}/route.ts`)}\nfunction uncommittedSeventh() {\n  authorizeConsentForActor(context);\n}\n`,
-        );
-        const built = analyzeScratch(scratch);
-        process.stdout.write(
-          `built-vs-clean=${JSON.stringify({
-            cleanSurface: clean.surface,
-            builtSurface: built.surface,
-            cleanDigest: clean.partitionDigest,
-            builtDigest: built.partitionDigest,
-            cleanFiles: clean.corpus.files.length,
-            builtFiles: built.corpus.files.length,
-          })}\n`,
-        );
-        // Both runs are compared against the committed expectation rather than
-        // against each other, so neither side of any equality is a live run.
-        const expectedCorpusFiles = [...productFixtureFiles.keys()].toSorted();
-        expect(clean.partitionDigest).toBe(registry.partitionDigest);
-        expect(built.partitionDigest).toBe(registry.partitionDigest);
-        expect(clean.surface).toEqual({ scanned: 6, total: 6 });
-        expect(built.surface).toEqual({ scanned: 6, total: 6 });
-        expect(clean.violations).toEqual([]);
-        expect(built.violations).toEqual([]);
-        expect(clean.corpus.files).toEqual(expectedCorpusFiles);
-        expect(built.corpus.files).toEqual(expectedCorpusFiles);
-      },
-      new Map([[".gitignore", "dist/\n"]]),
+    const { clean, built } = builtVersusClean;
+    process.stdout.write(
+      `built-vs-clean=${JSON.stringify({
+        cleanSurface: clean.surface,
+        builtSurface: built.surface,
+        cleanDigest: clean.partitionDigest,
+        builtDigest: built.partitionDigest,
+        cleanFiles: clean.corpus.files.length,
+        builtFiles: built.corpus.files.length,
+      })}\n`,
     );
+    // Both runs are compared against the committed expectation rather than
+    // against each other, so neither side of any equality is a live run.
+    const expectedCorpusFiles = [...productFixtureFiles.keys()].toSorted();
+    expect(clean.partitionDigest).toBe(registry.partitionDigest);
+    expect(built.partitionDigest).toBe(registry.partitionDigest);
+    expect(clean.surface).toEqual({ scanned: 6, total: 6 });
+    expect(built.surface).toEqual({ scanned: 6, total: 6 });
+    expect(clean.violations).toEqual([]);
+    expect(built.violations).toEqual([]);
+    expect(clean.corpus.files).toEqual(expectedCorpusFiles);
+    expect(built.corpus.files).toEqual(expectedCorpusFiles);
   });
 
   it("stays green and republishes provenance when main advances without changing the partition", () => {
-    withScratchRepo("consent-main-advance-", ({ scratch, head }) => {
-      const before = analyzeScratch(scratch);
-      writeScratchFile(scratch, "docs/unrelated-main-advance.md", "Ordinary unrelated movement of main.\n");
-      const advanced = commitScratch(scratch, "unrelated main advance");
-      runGit(scratch, ["update-ref", "refs/remotes/origin/main", advanced]);
-      const after = analyzeScratch(scratch);
-      process.stdout.write(
-        `class-a-main-advance=${JSON.stringify({
-          beforeHead: before.candidateHead,
-          afterHead: after.candidateHead,
-          beforeDigest: before.partitionDigest,
-          afterDigest: after.partitionDigest,
-        })}\n`,
-      );
-      expect(before.candidateHead).toBe(head);
-      expect(after.candidateHead).toBe(advanced);
-      expect(before.partitionDigest).toBe(registry.partitionDigest);
-      expect(after.partitionDigest).toBe(registry.partitionDigest);
-      expect(before.surface).toEqual({ scanned: 6, total: 6 });
-      expect(after.surface).toEqual({ scanned: 6, total: 6 });
-      expect(before.violations).toEqual([]);
-      expect(after.violations).toEqual([]);
-      expect(after.drift).toBe(null);
-    });
+    const { before, after, head, advanced } = mainAdvance;
+    process.stdout.write(
+      `class-a-main-advance=${JSON.stringify({
+        beforeHead: before.candidateHead,
+        afterHead: after.candidateHead,
+        beforeDigest: before.partitionDigest,
+        afterDigest: after.partitionDigest,
+      })}\n`,
+    );
+    expect(before.candidateHead).toBe(head);
+    expect(after.candidateHead).toBe(advanced);
+    expect(before.partitionDigest).toBe(registry.partitionDigest);
+    expect(after.partitionDigest).toBe(registry.partitionDigest);
+    expect(before.surface).toEqual({ scanned: 6, total: 6 });
+    expect(after.surface).toEqual({ scanned: 6, total: 6 });
+    expect(before.violations).toEqual([]);
+    expect(after.violations).toEqual([]);
+    expect(after.drift).toBe(null);
   });
 
   it("keeps line-only movement in one owner green with an identical digest", () => {
@@ -1796,32 +1853,23 @@ describe("Consent authorization sites", () => {
   });
 
   it("fails closed with an exact recount and delta when the observed partition changes", () => {
-    withScratchRepo(
-      "consent-drift-",
-      ({ scratch }) => {
-        const result = analyzeScratch(scratch);
-        process.stdout.write(`partition-drift=${JSON.stringify(result.drift)}\n`);
-        expect(result.violations.some(({ code }) => code === "consent-authorization-partition-drift")).toBe(true);
-        expect(result.drift.added).toEqual([
-          {
-            file: "arbitrary/authorization.ts",
-            owner: "seventhProbe",
-            constructor: "authorizeConsentForActor",
-            ordinal: 1,
-          },
-        ]);
-        expect(result.drift.removed).toEqual([]);
-        expect(result.drift.previousTotal).toBe(6);
-        expect(result.drift.currentTotal).toBe(7);
-        expect(result.drift.previousCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
-        expect(result.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 3 });
-        expect(result.drift.previousDigest).toBe(registry.partitionDigest);
-        expect(result.drift.currentDigest).not.toBe(registry.partitionDigest);
+    process.stdout.write(`partition-drift=${JSON.stringify(driftResult.drift)}\n`);
+    expect(driftResult.violations.some(({ code }) => code === "consent-authorization-partition-drift")).toBe(true);
+    expect(driftResult.drift.added).toEqual([
+      {
+        file: "arbitrary/authorization.ts",
+        owner: "seventhProbe",
+        constructor: "authorizeConsentForActor",
+        ordinal: 1,
       },
-      new Map([
-        ["arbitrary/authorization.ts", repoFile(`${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`)],
-      ]),
-    );
+    ]);
+    expect(driftResult.drift.removed).toEqual([]);
+    expect(driftResult.drift.previousTotal).toBe(6);
+    expect(driftResult.drift.currentTotal).toBe(7);
+    expect(driftResult.drift.previousCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
+    expect(driftResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 3 });
+    expect(driftResult.drift.previousDigest).toBe(registry.partitionDigest);
+    expect(driftResult.drift.currentDigest).not.toBe(registry.partitionDigest);
   });
 
   it("fails deletion of a registered site", () => {
@@ -1887,47 +1935,29 @@ describe("Consent authorization sites", () => {
   it("enters ordinary source under a test-named directory into the corpus", () => {
     expect(isConsentAuthorizationTestSource("arbitrary/ordinary.test.data/authorization.ts")).toBe(false);
     expect(isConsentAuthorizationTestSource("arbitrary/ordinary.test.ts")).toBe(true);
-    withScratchRepo(
-      "consent-test-dir-",
-      ({ scratch }) => {
-        const result = analyzeScratch(scratch);
-        expect(result.corpus.files).toContain("ordinary.test.data/authorization.ts");
-        expect(
-          result.violations.some(
-            ({ code, site }) =>
-              code === "consent-authorization-site-unregistered" && site?.owner === "ordinaryDirectoryProbe",
-          ),
-        ).toBe(true);
-      },
-      new Map([
-        ["ordinary.test.data/authorization.ts", repoFile(`${fixtureRoot}/corpus/ordinary.test.data/authorization.ts`)],
-      ]),
-    );
+    expect(testNamedDirectoryResult.corpus.files).toContain("ordinary.test.data/authorization.ts");
+    expect(
+      testNamedDirectoryResult.violations.some(
+        ({ code, site }) =>
+          code === "consent-authorization-site-unregistered" && site?.owner === "ordinaryDirectoryProbe",
+      ),
+    ).toBe(true);
   });
 
   it("finds an unregistered site at an arbitrary path through real discovery", () => {
-    withScratchRepo(
-      "consent-arbitrary-",
-      ({ scratch }) => {
-        const result = analyzeScratch(scratch);
-        process.stdout.write(
-          `arbitrary-path-discovery=${JSON.stringify({ surface: result.surface, files: result.corpus.files })}\n`,
-        );
-        expect(result.surface).toEqual({ scanned: 7, total: 7 });
-        expect(result.corpus.files).toContain("zz-unrelated/plain-directory/module.ts");
-        expect(
-          result.violations.some(
-            ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhProbe",
-          ),
-        ).toBe(true);
-      },
-      new Map([
-        [
-          "zz-unrelated/plain-directory/module.ts",
-          repoFile(`${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`),
-        ],
-      ]),
+    process.stdout.write(
+      `arbitrary-path-discovery=${JSON.stringify({
+        surface: arbitraryPathResult.surface,
+        files: arbitraryPathResult.corpus.files,
+      })}\n`,
     );
+    expect(arbitraryPathResult.surface).toEqual({ scanned: 7, total: 7 });
+    expect(arbitraryPathResult.corpus.files).toContain("zz-unrelated/plain-directory/module.ts");
+    expect(
+      arbitraryPathResult.violations.some(
+        ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhProbe",
+      ),
+    ).toBe(true);
   });
 
   it("reads every expectation from committed data and never from a live analysis run", () => {

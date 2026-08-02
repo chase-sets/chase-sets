@@ -38,24 +38,26 @@ const httpMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const commitShaPattern = /^[0-9a-f]{40}$/;
 
 /**
- * #6361 settled Option C: the guard asserts about the tree named by
- * `candidateHead`. `analyzedTree` is recorded as provenance and asserted about
- * nowhere, so a pull-request synthetic merge commit never becomes semantic
- * authority. #6364 already resolves this role for every classified checkout --
+ * The guard asserts about the tree named by `candidateHead`, never about the
+ * tree it happens to be executing over. `analyzedTree` is recorded as
+ * provenance and asserted about nowhere, so a pull-request synthetic merge
+ * commit never becomes semantic authority. The candidate-provenance module
+ * already resolves this role for every classified checkout --
  * `landingCandidate` is `pull_request.head.sha` under `pull_request`,
  * `merge_group.head_sha` under `merge_group`, and exact `HEAD` in a plain
  * checkout -- so this guard reads that role rather than adding a second
- * resolution path.
+ * resolution path of its own.
  */
 export const candidateHeadProvenanceRole = "landingCandidate";
 
 /**
- * #6361 and #6347 finding F6: a value resolved at run time from Git is
- * recorded, never compared against a committed literal. This expectation set is
- * empty by construction, and its emptiness is the property AC1 asserts -- a
- * single entry here is precisely the defect that failed hosted run 30659850723
- * on a frozen base constant. It is declared rather than omitted so that the
- * negative control has an arbitrary literal of its own to supply.
+ * A value resolved at run time from Git is recorded, never compared against a
+ * committed literal. This expectation set is empty by construction, and its
+ * emptiness is the property the guard's suite asserts: a single entry here is
+ * exactly the frozen-base-constant defect that turns an unchanged authority red
+ * the moment ordinary unrelated movement of the base branch lands. It is
+ * declared rather than omitted so that the negative control has an arbitrary
+ * literal of its own to supply and can therefore discriminate.
  */
 export const frozenProvenanceExpectations = Object.freeze([]);
 
@@ -134,7 +136,7 @@ function gitBuffer(execGit, args, reachedClause, options) {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Provenance -- consumed from #6364, never re-derived here.                  */
+/* Provenance -- consumed from guard-candidate-provenance.mjs, never re-derived */
 /* ------------------------------------------------------------------------ */
 
 export function deriveConsentAuthorizationProvenanceOutcome(deriveProvenance) {
@@ -162,8 +164,9 @@ export function deriveConsentAuthorizationProvenanceOutcome(deriveProvenance) {
 
 /**
  * Governing clause of MUT-PROV-ACCEPT-UNRESOLVED. Only a successfully derived
- * provenance record may pass; every #6364 failure is surfaced under the name
- * #6364 assigned it and exits nonzero, and there is no fallback record.
+ * provenance record may pass; every candidate-provenance failure is surfaced
+ * under the name that module assigned it and exits nonzero, and there is no
+ * fallback record.
  */
 export function requireResolvedProvenance(outcome) {
   if (!outcome.ok) {
@@ -178,11 +181,11 @@ export function requireResolvedProvenance(outcome) {
 }
 
 /**
- * #6365 owns the compiler grammar. Its committed total key partition decides
- * which keys are semantic compiler identity and which are environmental
- * provenance, and only the semantic keys are compared -- which is exactly what
- * keeps a lockfile-only change green. Governing variable of
- * MUT-ARTIFACT-COMPARE-ENVIRONMENTAL.
+ * The owner-context derivation module owns the compiler grammar. Its committed
+ * total key partition decides which keys are semantic compiler identity and
+ * which are environmental provenance, and only the semantic keys are compared
+ * -- which is exactly what keeps a lockfile-only change green. Governing
+ * variable of MUT-ARTIFACT-COMPARE-ENVIRONMENTAL.
  */
 export function consentAuthorizationOwnerContextComparedKeys(partition) {
   return partition.semantic;
