@@ -76,7 +76,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "data-categories-and-sources",
       title: "Information Chase Sets collects, and where it comes from",
       draftText:
-        "Chase Sets collects account and profile information you provide when you register, such as your display name, email address, a phone number when you provide one for phone-based sign-in, and your password, passkey, or other sign-in credential. Before launch, the waitlist collects your email address, whether you want to buy or sell, your interests, an optional marketing-updates consent choice, and, for seller signups, a self-reported inventory-size bucket. Using the marketplace creates activity records: Listings and the photos and descriptions you attach to them, Offers, Orders, reviews, Wallet ledger entries, and payout requests. Fulfilling an order uses the shipping address the order is delivered to. Contacting Chase Sets creates support and feedback records: Support Requests, the evidence you and the other party attach to them, and survey or feedback responses. Your browser also supplies technical information: the first-party cookies described in the cookies section below, and bounded analytics events that include the page path, campaign (UTM) parameters, and the referrer of the page you arrived from. Chase Sets collects this information directly from you and your device; from other users, for example when a buyer or seller opens a Support Request about your order or reports a Listing; and from its payment processor, in the form of provider references and provider-neutral payout-readiness statuses rather than the underlying verification details.",
+        "Chase Sets collects account and profile information you provide when you register, such as your display name, email address, a phone number when you provide one for phone-based sign-in, and your password, passkey, or other sign-in credential. When you choose Google or Facebook social login, Chase Sets receives a mapped profile from that identity provider containing its provider subject identifier, any available email address and email-verification status, display name, given name, and family name. Before launch, the waitlist collects your email address, whether you want to buy or sell, your interests, an optional marketing-updates consent choice, and, for seller signups, a self-reported inventory-size bucket. Using the marketplace creates activity records: Listings and the photos and descriptions you attach to them, Offers, Orders, reviews, Wallet ledger entries, and payout requests. Fulfilling an order uses the shipping address the order is delivered to. Contacting Chase Sets creates support and feedback records: Support Requests, the evidence you and the other party attach to them, and survey or feedback responses. Your browser also supplies technical information: the first-party cookies described in the cookies section below, and bounded analytics events that include the page path, campaign (UTM) parameters, and the referrer of the page you arrived from. Chase Sets collects this information directly from you and your device; from Google or Facebook when you choose that provider for social login; from other users, for example when a buyer or seller opens a Support Request about your order or reports a Listing; and from its payment processor, in the form of provider references and provider-neutral payout-readiness statuses rather than the underlying verification details.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
@@ -92,6 +92,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-75",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:32-50",
           "bounded-contexts/auth/support/request-support/cookies.ts:1-3",
+          "bounded-contexts/auth/support/social-login-support/providers.ts:146-207",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:27-34",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:60",
         ],
@@ -110,6 +111,11 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
               "Waitlist signup source capture is limited to page path, referrer, and the five UTM parameters; marketing-updates consent is optional while early-access contact is implied by signing up.",
             evidenceRef:
               "bounded-contexts/public-presence/features/waitlist/domain/common.ts:42-50; bounded-contexts/public-presence/features/waitlist/domain/domain.ts:111-114",
+          },
+          {
+            assertion:
+              "The shipped social-login provider registry contains Google and Facebook; their mapped profiles contain a provider subject, email and verification status, display name, given name, and family name where available.",
+            evidenceRef: "bounded-contexts/auth/support/social-login-support/providers.ts:146-207",
           },
         ],
       },
@@ -153,7 +159,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "recipients-and-disclosures",
       title: "Who receives personal information",
       draftText:
-        "Chase Sets shares personal information with the service providers it uses to run the marketplace: Stripe, which processes payments and payout-account onboarding as described in the next section; a postage provider, which verifies shipping addresses and creates shipping labels; an email-delivery provider and a text-messaging provider, which deliver transactional messages; and the cloud infrastructure providers that host the marketplace and store uploaded images. Chase Sets also shares information with other users when a transaction requires it — for example, the order and delivery details a sale needs to be fulfilled, and the evidence both parties can see inside a Support Request — and with authorities or other parties where Chase Sets believes in good faith that disclosure is required or permitted by law, including responding to legal process and protecting the marketplace and its users. Chase Sets' public landing pages do not load third-party advertising or analytics scripts.",
+        "Chase Sets shares personal information with the service providers it uses to run the marketplace: Stripe, which processes payments and payout-account onboarding as described in the next section; a postage provider, which verifies shipping addresses and creates shipping labels; an email-delivery provider and a text-messaging provider, which deliver transactional messages; and the cloud infrastructure providers that host the marketplace and store uploaded images. Separately, when you choose Google or Facebook social login, Chase Sets sends that identity provider an authentication request identifying that you are signing in to Chase Sets. Chase Sets also shares information with other users when a transaction requires it — for example, the order and delivery details a sale needs to be fulfilled, and the evidence both parties can see inside a Support Request — and with authorities or other parties where Chase Sets believes in good faith that disclosure is required or permitted by law, including responding to legal process and protecting the marketplace and its users. Chase Sets' public landing pages do not load third-party advertising or analytics scripts.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
@@ -165,21 +171,23 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "infrastructure/ses-email/index.ts:1-21",
           "infrastructure/twilio-messaging/index.ts:1-20",
           "infrastructure/digitalocean",
+          "bounded-contexts/auth/support/social-login-support/providers.ts:146-207",
           "bounded-contexts/marketplace/GLOSSARY.md:26-27",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:32-50",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:5",
         ],
         openQuestions: [
           "Whether each provider (Stripe, the postage, email, messaging, and hosting providers) is a 'service provider'/'contractor'/'processor' or an independent business under applicable state law, and whether the required contract terms are in place, is a counsel judgment; this draft deliberately names functions, not legal roles.",
+          "Whether Google or Facebook has a particular legal role in the social-login interaction, and whether that role requires additional characterization, is a counsel judgment; this draft identifies the authentication interaction without assigning either provider a legal role.",
           "Whether the notice must name providers individually or may describe categories is a counsel formatting judgment.",
           "Exactly which order and account fields a counterparty (buyer or seller) sees at each order stage has no single citable source line; before publication, the counsel packet should attach a concrete counterparty-visibility inventory rather than rely on this section's summary sentence.",
         ],
         assumptions: [
           {
             assertion:
-              "The shipped outbound-provider surface consists of Stripe (payments/connect), EasyPost-backed postage and address verification, SES-backed transactional email, Twilio-backed SMS/RCS messaging, and DigitalOcean-hosted infrastructure with an environment asset bucket for images; no advertising-network adapter exists.",
+              "The shipped outbound-provider surface consists of Google and Facebook social login, Stripe (payments/connect), EasyPost-backed postage and address verification, SES-backed transactional email, Twilio-backed SMS/RCS messaging, and DigitalOcean-hosted infrastructure with an environment asset bucket for images; no advertising-network adapter exists.",
             evidenceRef:
-              "infrastructure/ directory inventory at head fc0d3ff927ef3b63fd9a1948d674ee0423f5744d; bounded-contexts/marketplace/GLOSSARY.md:26-27",
+              "bounded-contexts/auth/support/social-login-support/providers.ts:146-207; infrastructure/ directory inventory at head fc0d3ff927ef3b63fd9a1948d674ee0423f5744d; bounded-contexts/marketplace/GLOSSARY.md:26-27",
           },
         ],
       },
@@ -225,7 +233,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "cookies-and-analytics",
       title: "Cookies and analytics",
       draftText:
-        "Chase Sets sets three first-party cookies: a session cookie (chase_sets_session) that keeps you signed in, an account-selection cookie (chase_sets_account_selection) used while you choose which account to act as, and a guest-checkout cookie (chase_sets_guest_checkout) that keeps a guest purchase working before you have an Account. Their lifetimes are fixed deployment settings, not values an administrator can change from the app; the signed-in session defaults to fourteen days. Chase Sets' landing-page and campaign analytics are first-party and provider-neutral: no third-party analytics vendor SDK, vendor cookie, or third-party script is added to the page. Analytics events carry bounded properties such as the page path, section, and status, together with the campaign UTM parameters — utm_source, utm_medium, and utm_campaign as operational funnel labels, with utm_content and utm_term recorded as durable waitlist source fields — and the referrer of the page you arrived from, so Chase Sets can measure which campaigns and referring pages bring visitors to the marketplace. These events are kept free of email addresses, account identifiers, and raw URLs.",
+        "Chase Sets uses first-party cookies for sign-in sessions (chase_sets_session), selecting which Account to act as (chase_sets_account_selection), guest checkout (chase_sets_guest_checkout), an anonymous cart (chase_sets_anonymous_cart), an anonymous sell list (chase_sets_anonymous_sell_list), anonymous saved lists (chase_sets_anonymous_saved_lists), anonymous product alerts (chase_sets_anonymous_product_alerts), anonymous Listing drafts (chase_sets_anonymous_listing_drafts), anonymous Listing reports (chase_sets_anonymous_reports), and the color-mode preference (chase_sets_color_mode). The Auth session, account-selection, and guest-checkout cookie lifetimes are fixed deployment settings, not values an administrator can change from the app; the signed-in session defaults to fourteen days. Your browser also stores recent searches and the theme preference in localStorage, and unfinished review drafts in sessionStorage. Chase Sets' landing-page and campaign analytics are first-party and provider-neutral: no third-party analytics vendor SDK, vendor cookie, or third-party script is added to the page. Analytics events carry bounded properties such as the page path, section, and status, together with the campaign UTM parameters — utm_source, utm_medium, and utm_campaign as operational funnel labels, with utm_content and utm_term recorded as durable waitlist source fields — and the referrer of the page you arrived from, so Chase Sets can measure which campaigns and referring pages bring visitors to the marketplace. These events are kept free of email addresses, account identifiers, and raw URLs.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
@@ -234,6 +242,14 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         productTruthRefs: [
           "bounded-contexts/auth/support/request-support/cookies.ts:1-3",
           "bounded-contexts/auth/docs/security-lifetimes.md:13-25",
+          "bounded-contexts/checkout/support/request-support/guest-checkout.ts:3-5",
+          "bounded-contexts/collections/features/saved-lists/api/anonymous-cookie.ts:3",
+          "bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:3",
+          "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:3-4",
+          "bounded-contexts/identity/features/preferences/api/color-mode-cookie.ts:3",
+          "bounded-contexts/discovery/features/search/ui/header-search.tsx:173-205",
+          "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:101-161",
+          "packages/design-system/src/theme/theme-toggle.tsx:51-70",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:3-7",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:27-34",
           "bounded-contexts/public-presence/features/waitlist/domain/common.ts:42-50",
@@ -245,9 +261,15 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         assumptions: [
           {
             assertion:
-              "The three names in cookies.ts are the complete first-party cookie set Auth defines; session and guest-checkout lifetimes derive from the nine env-tier security lifetimes.",
+              "The exported chase_sets_* cookie-name constants owned by Auth, Checkout, Collections, Discovery, Marketplace, and Identity are the complete shipped first-party cookie inventory in this candidate; Auth session and guest-checkout lifetimes derive from the nine env-tier security lifetimes.",
             evidenceRef:
-              "bounded-contexts/auth/support/request-support/cookies.ts:1-3; bounded-contexts/auth/docs/security-lifetimes.md:13-25",
+              "bounded-contexts/auth/support/request-support/cookies.ts:1-3; bounded-contexts/checkout/support/request-support/guest-checkout.ts:3-5; bounded-contexts/collections/features/saved-lists/api/anonymous-cookie.ts:3; bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:3; bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:3-4; bounded-contexts/identity/features/preferences/api/color-mode-cookie.ts:3; bounded-contexts/auth/docs/security-lifetimes.md:13-25",
+          },
+          {
+            assertion:
+              "Shipped browser storage keeps recent searches and the theme preference in localStorage and unfinished review drafts in sessionStorage.",
+            evidenceRef:
+              "bounded-contexts/discovery/features/search/ui/header-search.tsx:173-205; bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:101-161; packages/design-system/src/theme/theme-toggle.tsx:51-70",
           },
         ],
       },
@@ -415,7 +437,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           },
           {
             assertion:
-              "Issue #4929 (card scanning) is open and unshipped at candidate head fc0d3ff927ef3b63fd9a1948d674ee0423f5744d; no scanning or image-recognition decision surface exists in the codebase.",
+              "Issue #4929 (card scanning) is open and unshipped at head fc0d3ff927ef3b63fd9a1948d674ee0423f5744d; no scanning or image-recognition decision surface exists in the codebase.",
             evidenceRef: "issue #4929 (open); repository search at fc0d3ff927ef3b63fd9a1948d674ee0423f5744d",
           },
         ],

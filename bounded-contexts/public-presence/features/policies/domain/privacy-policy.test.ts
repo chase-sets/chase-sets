@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { evaluateCanonicalClaimConsistency } from "./canonical-claim-guard";
@@ -19,13 +19,25 @@ const requiredEvidenceBySubject: Readonly<Record<string, readonly string[]>> = {
   "privacy-notice-scope": ["features/policies/domain/policy-registry.ts:25-33"],
   "data-categories-and-sources": [
     "auth/features/registration/ui/register-page.tsx:60-66",
+    "auth/support/social-login-support/providers.ts:146-207",
     "public-presence/features/waitlist/domain/common.ts:27-50",
   ],
   "purposes-of-use": ["auth/support/api-support/registration-gates.ts:4-25"],
-  "recipients-and-disclosures": ["infrastructure/stripe-payments/index.ts:1464-1494"],
+  "recipients-and-disclosures": [
+    "auth/support/social-login-support/providers.ts:146-207",
+    "infrastructure/stripe-payments/index.ts:1464-1494",
+  ],
   "stripe-managed-processing": ["docs/adr/0006-stripe-connect-custom-account-experience.md:58-64"],
   "cookies-and-analytics": [
     "auth/support/request-support/cookies.ts:1-3",
+    "checkout/support/request-support/guest-checkout.ts:3-5",
+    "collections/features/saved-lists/api/anonymous-cookie.ts:3",
+    "discovery/support/request-support/anonymous-product-alert.ts:3",
+    "marketplace/support/request-support/anonymous-listing-draft.ts:3-4",
+    "identity/features/preferences/api/color-mode-cookie.ts:3",
+    "discovery/features/search/ui/header-search.tsx:173-205",
+    "marketplace/features/reviews/ui/review-submission-page.tsx:101-161",
+    "packages/design-system/src/theme/theme-toggle.tsx:51-70",
     "public-presence/docs/landing-page-analytics.md:27-34",
   ],
   "gpc-and-sale-share": ["public-presence/docs/landing-page-analytics.md:5"],
@@ -82,6 +94,66 @@ function privacyPolicyViolations(artifact: PublicPolicyArtifact): readonly strin
   }
 
   return violations;
+}
+
+function productionTypeScriptFilesUnder(directory: string): readonly string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "tests" || entry.name === "__tests__") return [];
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) return productionTypeScriptFilesUnder(entryPath);
+    if (!entry.isFile() || !/\.(?:ts|tsx)$/.test(entry.name) || /\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)) {
+      return [];
+    }
+    return [entryPath];
+  });
+}
+
+let shippedCookieNameCache: readonly string[] | undefined;
+
+function shippedCookieNames(): readonly string[] {
+  if (shippedCookieNameCache) return shippedCookieNameCache;
+  const names = productionTypeScriptFilesUnder(resolve(repoRoot, "bounded-contexts")).flatMap((sourcePath) =>
+    Array.from(
+      readFileSync(sourcePath, "utf8").matchAll(
+        /\bexport const [A-Z0-9_]*COOKIE_NAME\s*=\s*["'](chase_sets_[a-z0-9_]+)["']/g,
+      ),
+      (match) => match[1],
+    ),
+  );
+  shippedCookieNameCache = Array.from(new Set(names)).sort();
+  return shippedCookieNameCache;
+}
+
+let shippedSocialLoginProviderNameCache: readonly string[] | undefined;
+
+function shippedSocialLoginProviderNames(): readonly string[] {
+  if (shippedSocialLoginProviderNameCache) return shippedSocialLoginProviderNameCache;
+  const registrySource = readFileSync(
+    resolve(repoRoot, "bounded-contexts/auth/support/social-login-support/providers.ts"),
+    "utf8",
+  );
+  shippedSocialLoginProviderNameCache = Array.from(
+    new Set(Array.from(registrySource.matchAll(/\bproviderName:\s*["']([a-z0-9-]+)["']/g), (match) => match[1])),
+  ).sort();
+  return shippedSocialLoginProviderNameCache;
+}
+
+function sectionDraftText(artifact: PublicPolicyArtifact, sectionId: string): string {
+  return artifact.sections.find((section) => section.id === sectionId)?.draftText ?? "";
+}
+
+function missingShippedCookieDisclosures(artifact: PublicPolicyArtifact): readonly string[] {
+  const disclosure = sectionDraftText(artifact, "cookies-and-analytics");
+  return shippedCookieNames().filter((cookieName) => !disclosure.includes(cookieName));
+}
+
+function missingSocialLoginProviderDisclosures(artifact: PublicPolicyArtifact): readonly string[] {
+  const sources = sectionDraftText(artifact, "data-categories-and-sources").toLowerCase();
+  const recipients = sectionDraftText(artifact, "recipients-and-disclosures").toLowerCase();
+  return shippedSocialLoginProviderNames().flatMap((providerName) => [
+    ...(sources.includes(providerName) ? [] : [`sources:${providerName}`]),
+    ...(recipients.includes(providerName) ? [] : [`recipients:${providerName}`]),
+  ]);
 }
 
 function withSection(
@@ -148,6 +220,36 @@ describe("Privacy Policy artifact", () => {
       false,
     );
     expect(isConsentActivatable(privacyPolicyArtifact, requiredPrivacyPolicySubjectIds)).toBe(false);
+  });
+
+  it("derives every shipped chase_sets cookie constant across bounded contexts and requires it in the operative disclosure", () => {
+    expect(shippedCookieNames().length).toBeGreaterThan(0);
+    expect(missingShippedCookieDisclosures(privacyPolicyArtifact)).toEqual([]);
+  });
+
+  it("rejects a one-cookie omission mutant in the operative disclosure", () => {
+    const omittedCookie = shippedCookieNames()[0];
+    expect(omittedCookie).toBeDefined();
+    const mutant = withSection("cookies-and-analytics", (section) => ({
+      ...section,
+      draftText: section.draftText.replace(omittedCookie!, ""),
+    }));
+    expect(missingShippedCookieDisclosures(mutant)).toEqual([omittedCookie]);
+  });
+
+  it("derives shipped social-login providers from the registry and requires each in sources and recipients", () => {
+    expect(shippedSocialLoginProviderNames().length).toBeGreaterThan(0);
+    expect(missingSocialLoginProviderDisclosures(privacyPolicyArtifact)).toEqual([]);
+  });
+
+  it("rejects a one-provider omission mutant in either required disclosure", () => {
+    const omittedProvider = shippedSocialLoginProviderNames()[0];
+    expect(omittedProvider).toBeDefined();
+    const mutant = withSection("recipients-and-disclosures", (section) => ({
+      ...section,
+      draftText: section.draftText.replace(new RegExp(`\\b${omittedProvider}\\b`, "i"), "the identity provider"),
+    }));
+    expect(missingSocialLoginProviderDisclosures(mutant)).toEqual([`recipients:${omittedProvider}`]);
   });
 
   it("would become ready only after every subject and publication field is counsel-approved", () => {
