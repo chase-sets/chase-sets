@@ -1,7 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { publicHelpArticles } from "../domain/article-catalog";
+import { helpCategories, listHelpArticlesByCategory, publicHelpArticles } from "../domain/article-catalog";
 import { resolveArticlePolicyValues } from "../domain/resolve-article-policy-values";
 import {
   POLICY_VALUE_KEY_ATTRIBUTE,
@@ -12,7 +12,7 @@ import {
   POLICY_VALUES_DEGRADED_STATE,
   parsePolicyValueKeys,
 } from "../domain/policy-value-state";
-import { HelpArticlePage, HelpCategoryPage, HelpHubPage } from "./help-pages";
+import { helpAudienceLabel, HelpArticlePage, HelpCategoryPage, HelpHubPage, type HelpArticleCard } from "./help-pages";
 
 function unresolvedMarkerKeys() {
   return [...document.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`)]
@@ -75,12 +75,41 @@ describe("public help pages", () => {
     expect(screen.queryByRole("heading", { name: "For developers" })).toBeNull();
   });
 
-  it("renders a category's compiled article cards", () => {
-    const articles = publicHelpArticles.filter((article) => article.category === "buying");
-    render(<HelpCategoryPage category="buying" articles={articles} />, { wrapper: MemoryRouter });
-    expect(screen.getByRole("heading", { name: "Buying", level: 1 })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Order protection" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Refunds and returns" })).toBeTruthy();
+  it.each(helpCategories)("renders every %s category card in catalog order with exact card fields", (category) => {
+    const canonicalArticles = listHelpArticlesByCategory(category);
+    expect(canonicalArticles.length).toBeGreaterThan(0);
+    const cards: readonly HelpArticleCard[] = canonicalArticles.map(({ audience, title, description, href }) => ({
+      audience,
+      title,
+      description,
+      href,
+    }));
+
+    const { container } = render(<HelpCategoryPage category={category} articles={cards} />, {
+      wrapper: MemoryRouter,
+    });
+    const renderedCards = [...container.querySelectorAll("article")];
+
+    expect(renderedCards).toHaveLength(canonicalArticles.length);
+    for (const [index, article] of canonicalArticles.entries()) {
+      const card = renderedCards[index];
+      expect(card).toBeDefined();
+      const cardQueries = within(card!);
+      expect(cardQueries.getByText(helpAudienceLabel(article.audience))).toBeTruthy();
+      expect(cardQueries.getByRole("heading", { name: article.title })).toBeTruthy();
+      expect(cardQueries.getByText(article.description)).toBeTruthy();
+      expect(cardQueries.getByRole("link", { name: "Read article" }).getAttribute("href")).toBe(article.href);
+    }
+  });
+
+  it("keeps category consumers on the card-only component prop", () => {
+    type CategoryArticle = Parameters<typeof HelpCategoryPage>[0]["articles"][number];
+    const readArticleOnlyField = (article: CategoryArticle) => {
+      // @ts-expect-error Category cards deliberately do not expose compiled article blocks.
+      return article.blocks;
+    };
+
+    expect(readArticleOnlyField).toBeTypeOf("function");
   });
 
   it("renders compiled blocks, review metadata, a table of contents, and related articles", () => {
