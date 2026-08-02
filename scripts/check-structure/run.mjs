@@ -25,6 +25,7 @@ import { validateIaRegistry } from "./ia-registry-guard.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
+import { validateDoksIngressChartVersion } from "./doks-ingress-chart-version.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs";
@@ -3405,6 +3406,9 @@ export async function runStructureCheck(options = {}) {
   for (const violation of bootSchemaDdlDisciplineViolations) {
     violations.push(`${violation.file}:${violation.line}: ${violation.message}`);
   }
+
+  const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
+  violations.push(...doksIngressChartVersionResult.violations);
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

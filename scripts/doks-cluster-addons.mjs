@@ -1,11 +1,66 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const chartDir = path.join(scriptDir, "..", "infrastructure", "helm", "doks-ingress");
+const chartYamlPath = path.join(chartDir, "Chart.yaml");
+
+function chartVersionParseError(message) {
+  const error = new Error(`DOKS_INGRESS_CHART_VERSION_UNPARSABLE: ${message}`);
+  error.code = "DOKS_INGRESS_CHART_VERSION_UNPARSABLE";
+  return error;
+}
+
+function parseQuotedChartVersion(rawValue) {
+  const quote = rawValue[0];
+  let closingIndex = -1;
+  for (let index = 1; index < rawValue.length; index += 1) {
+    if (rawValue[index] !== quote) continue;
+    if (quote === "'" && rawValue[index + 1] === "'") {
+      index += 1;
+      continue;
+    }
+    if (quote === '"' && rawValue[index - 1] === "\\") continue;
+    closingIndex = index;
+    break;
+  }
+  if (closingIndex === -1) {
+    throw chartVersionParseError("the top-level version scalar has an unterminated quote.");
+  }
+
+  const remainder = rawValue.slice(closingIndex + 1).trim();
+  if (remainder && !remainder.startsWith("#")) {
+    throw chartVersionParseError("the top-level version scalar has content after its closing quote.");
+  }
+  return rawValue.slice(1, closingIndex);
+}
+
+export function parseDoksIngressChartVersion(source) {
+  const matches = String(source)
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("version:"));
+  if (matches.length !== 1) {
+    throw chartVersionParseError(`expected exactly one top-level version key, but found ${matches.length}.`);
+  }
+
+  const rawValue = matches[0].slice("version:".length).trim();
+  const value =
+    rawValue.startsWith("'") || rawValue.startsWith('"')
+      ? parseQuotedChartVersion(rawValue)
+      : rawValue.split("#", 1)[0].trim();
+  if (!value) {
+    throw chartVersionParseError("the top-level version scalar is empty.");
+  }
+  return value;
+}
+
+export function readDoksIngressChartVersion(chartPath = chartYamlPath) {
+  return parseDoksIngressChartVersion(readFileSync(chartPath, "utf8"));
+}
 
 // Pinned upstream releases. Bump deliberately with an operator note; the DOKS
 // cutover proves ingress and cert issuance against these exact versions.

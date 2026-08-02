@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyDoksDnsTokenSecret,
@@ -8,8 +9,10 @@ import {
   doksDnsTokenSecretName,
   doksDnsTokenSecretNamespace,
   loadBalancerName,
+  parseDoksIngressChartVersion,
   pinned,
   planClusterAddons,
+  readDoksIngressChartVersion,
 } from "./doks-cluster-addons.mjs";
 
 const ingressNginxValues = readFileSync(
@@ -18,6 +21,63 @@ const ingressNginxValues = readFileSync(
 );
 
 describe("doks cluster addons planner", () => {
+  it("reads the local chart version through the shared parser", () => {
+    const chartPath = resolve("infrastructure", "helm", "doks-ingress", "Chart.yaml");
+    const chartSource = readFileSync(chartPath, "utf8");
+
+    expect(readDoksIngressChartVersion()).toBe(parseDoksIngressChartVersion(chartSource));
+  });
+
+  it("reads an injected chart path without mutating the tracked chart", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "doks-ingress-chart-version-"));
+    const fixturePath = join(fixtureRoot, "Chart.yaml");
+    try {
+      writeFileSync(fixturePath, "apiVersion: v2\nname: fixture\nversion: 9.8.7\n", "utf8");
+      expect(readDoksIngressChartVersion(fixturePath)).toBe("9.8.7");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("parses only one unambiguous top-level Chart.yaml version scalar", () => {
+    const accepted = [
+      ["version: 1.2.3\n", "1.2.3"],
+      ["version:   1.2.3   \n", "1.2.3"],
+      ["version: '1.2.3'\n", "1.2.3"],
+      ['version: "1.2.3"\n', "1.2.3"],
+      ["version: 1.2.3 # release version\n", "1.2.3"],
+      ['version: "1.2.3" # release version\n', "1.2.3"],
+    ];
+    for (const [source, expected] of accepted) {
+      expect(parseDoksIngressChartVersion(source)).toBe(expected);
+    }
+
+    const rejected = [
+      "name: fixture\n",
+      "version:\n",
+      "version: 1.2.3\nversion: 2.0.0\n",
+      "metadata:\n  version: 1.2.3\n",
+      "# version: 1.2.3\n",
+    ];
+    for (const source of rejected) {
+      expect(() => parseDoksIngressChartVersion(source)).toThrow("DOKS_INGRESS_CHART_VERSION_UNPARSABLE");
+    }
+  });
+
+  it("does not duplicate the current local chart version literal", () => {
+    expect(readFileSync(resolve("scripts", "doks-cluster-addons.mjs"), "utf8")).not.toContain("0.1.0");
+  });
+
+  it("keeps every script import dependency-free and backed by Node built-ins", () => {
+    const source = readFileSync(resolve("scripts", "doks-cluster-addons.mjs"), "utf8");
+    const importSpecifiers = [...source.matchAll(/\bfrom\s+["']([^"']+)["']|^\s*import\s+["']([^"']+)["']/gm)].map(
+      (match) => match[1] ?? match[2],
+    );
+
+    expect(importSpecifiers.length).toBeGreaterThan(0);
+    expect(importSpecifiers.every((specifier) => specifier.startsWith("node:"))).toBe(true);
+  });
+
   it("plans repos, controller, cert-manager, and issuers in order", () => {
     const steps = planClusterAddons({ environment: "staging" });
     expect(steps.map((step) => step.name)).toEqual([
