@@ -41,9 +41,10 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     databaseSuffix: "platform_api_authoritative_seed_resume",
     cases: Object.freeze([
       "derives the exact active and source-only seed universe for every host profile",
-      "keeps every scenario-seed stream prefix at zero delta on ordinary boot two",
+      "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+      "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
       "does not re-author Settlement while its payout projection lags the stream",
-      "reconciles every inspecting scenario-seed context to identity-matching active state",
+      "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
       "enumerates stream-sourced seed-state coverage from the runtime mount list",
       "resumes every converted context after its UNLOGGED guard projections are truncated",
       "accepts a seeded resolution after the real deadline sweep advances it to closed",
