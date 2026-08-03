@@ -1,8 +1,26 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  applyAllowedNormalizedDeltas,
+  assertDryRunMatchesGolden,
+  assertGoldenProvenance,
+  createDanglingCommit,
+  dryRunEnvironments,
+  emptyAllowedNormalizedDeltas,
+  initializePlannerFixtureRepository,
+  normalizeCheckoutRootOnly,
+  normalizeDryRunOutput,
+  originMainRef,
+  readCommittedGoldens,
+  repositoryGitInventory,
+  runGit,
+  runRealDryRun,
+  withFixtureShallowBoundary,
+  withTemporaryDirectory,
+} from "./doks-cluster-addons-golden.test-helper.mjs";
 import {
   applyDoksDnsTokenSecret,
   buildDoksDnsTokenSecretManifest,
@@ -19,6 +37,11 @@ const ingressNginxValues = readFileSync(
   resolve("infrastructure", "helm", "doks-ingress", "ingress-nginx-values.yaml"),
   "utf8",
 );
+
+const repositoryRoot = realpathSync(resolve("."));
+const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
+const historicalNonexistentProvenance = "93172b2173e40bdd0089c63a28b58cd86466a6b9";
+const committedGoldens = readCommittedGoldens(repositoryRoot);
 
 describe("doks cluster addons planner", () => {
   it("reads the local chart version through the shared parser", () => {
@@ -249,5 +272,353 @@ describe("doks cluster addons planner", () => {
     const serialized = JSON.stringify(steps.map((step) => ({ name: step.name, command: step.command.join(" ") })));
     expect(serialized).not.toContain("digitalocean-dns-token");
     expect(serialized.toLowerCase()).not.toContain("access-token");
+  });
+});
+
+describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
+  let syntheticSuiteRoot;
+  let captureFixture;
+  let movingMainFixture;
+
+  beforeAll(() => {
+    syntheticSuiteRoot = realpathSync(mkdtempSync(join(repositoryRoot, ".doks-golden-suite-")));
+    try {
+      const captureRoot = join(syntheticSuiteRoot, "capture");
+      const movingMainRoot = join(syntheticSuiteRoot, "moving-main");
+      captureFixture = {
+        root: captureRoot,
+        ...initializePlannerFixtureRepository({
+          root: captureRoot,
+          sourceGitRoot: repositoryRoot,
+          sourceSha: goldenProvenance,
+          goldens: committedGoldens,
+        }),
+      };
+      movingMainFixture = {
+        root: movingMainRoot,
+        ...initializePlannerFixtureRepository({
+          root: movingMainRoot,
+          sourceGitRoot: repositoryRoot,
+          sourceSha: goldenProvenance,
+          goldens: committedGoldens,
+          advanceCount: 2,
+        }),
+      };
+    } catch (error) {
+      rmSync(syntheticSuiteRoot, { recursive: true, force: true });
+      throw error;
+    }
+  });
+
+  afterAll(() => {
+    rmSync(syntheticSuiteRoot, { recursive: true, force: true });
+    expect(existsSync(syntheticSuiteRoot)).toBe(false);
+  });
+
+  it("matches the staging and production immutable goldens through the real CLI", () => {
+    for (const environment of dryRunEnvironments) {
+      assertDryRunMatchesGolden({
+        environment,
+        golden: committedGoldens[environment],
+        actual: runRealDryRun({ repositoryRoot, environment }),
+      });
+    }
+  });
+
+  it("records an explicit zero-entry normalized-delta allowlist", () => {
+    expect(emptyAllowedNormalizedDeltas).toEqual([]);
+  });
+
+  it("verifies the recorded main-ancestor provenance and reconstructs both goldens", () => {
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: repositoryRoot,
+        provenanceSha: goldenProvenance,
+        goldens: committedGoldens,
+        baseRef: originMainRef,
+      }),
+    ).not.toThrow();
+  });
+
+  it("reaches the named nonexistent-provenance-object failure for the historical bad SHA", () => {
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: repositoryRoot,
+        provenanceSha: historicalNonexistentProvenance,
+        goldens: committedGoldens,
+        baseRef: originMainRef,
+      }),
+    ).toThrow(`golden-provenance-object-does-not-exist: ${historicalNonexistentProvenance}`);
+  });
+
+  it("reaches the distinct not-an-ancestor failure in a non-shallow fixture", () => {
+    const danglingSha = createDanglingCommit(captureFixture.root);
+
+    expect(runGit(["rev-parse", "--is-shallow-repository"], captureFixture.root)).toBe("false");
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: captureFixture.root,
+        provenanceSha: danglingSha,
+        goldens: committedGoldens,
+        baseRef: originMainRef,
+      }),
+    ).toThrow(`golden-provenance-not-an-ancestor: ${danglingSha} -> ${originMainRef}`);
+  });
+
+  it("survives planner-unrelated moving-main advances that reject the predecessor predicate", () => {
+    expect(movingMainFixture.baseSha).not.toBe(movingMainFixture.mainSha);
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: movingMainFixture.root,
+        provenanceSha: movingMainFixture.baseSha,
+        goldens: committedGoldens,
+        baseRef: originMainRef,
+      }),
+    ).not.toThrow();
+
+    const predecessorMergeBase = runGit(["merge-base", "HEAD", originMainRef], movingMainFixture.root);
+    expect(predecessorMergeBase).toBe(movingMainFixture.mainSha);
+    expect(predecessorMergeBase).not.toBe(movingMainFixture.baseSha);
+  });
+
+  it("canonicalizes Windows and posix repository-token separators while the predecessor does not", () => {
+    const escapedRoot = JSON.stringify(repositoryRoot).slice(1, -1);
+    const windowsShape = `{"command":"--values ${escapedRoot}\\\\infrastructure\\\\helm\\\\doks-ingress\\\\values.yaml"}\n`;
+    const posixShape = `{"command":"--values ${escapedRoot}/infrastructure/helm/doks-ingress/values.yaml"}\n`;
+
+    expect(normalizeDryRunOutput(windowsShape, repositoryRoot)).toBe(normalizeDryRunOutput(posixShape, repositoryRoot));
+    expect(normalizeCheckoutRootOnly(windowsShape, repositoryRoot)).not.toBe(
+      normalizeCheckoutRootOnly(posixShape, repositoryRoot),
+    );
+  });
+
+  it("does not absorb annotation escapes or an absolute path outside the repository token", () => {
+    const annotationDrift = committedGoldens.staging.replace("service\\\\.beta", "service\\\\.betx");
+    expect(() =>
+      assertDryRunMatchesGolden({
+        environment: "staging",
+        golden: committedGoldens.staging,
+        actual: normalizeDryRunOutput(annotationDrift, repositoryRoot),
+      }),
+    ).toThrow("dry-run-parity-mismatch: staging line 23");
+
+    const outsidePathDrift = committedGoldens.staging.replace(
+      "--atomic --wait --timeout 10m",
+      "--values C:\\\\outside\\\\must-remain-visible.yaml --atomic --wait --timeout 10m",
+    );
+    expect(() =>
+      assertDryRunMatchesGolden({
+        environment: "staging",
+        golden: committedGoldens.staging,
+        actual: normalizeDryRunOutput(outsidePathDrift, repositoryRoot),
+      }),
+    ).toThrow("dry-run-parity-mismatch: staging line 23");
+
+    const embeddedRepositoryToken = "prefix<repo>\\\\must-remain-visible";
+    expect(normalizeDryRunOutput(embeddedRepositoryToken, repositoryRoot)).toBe(embeddedRepositoryToken);
+  });
+
+  it("rejects an adversarial planner-and-golden rebaseline that the predecessor admits", () => {
+    const originalFragment = "<repo>/infrastructure/helm/doks-ingress --namespace cert-manager";
+    const rebaselinedFragment =
+      "<repo>/infrastructure/helm/doks-ingress --values <repo>/infrastructure/helm/doks-ingress/values.yaml --namespace cert-manager";
+    const adversarialGoldens = {
+      ...committedGoldens,
+      staging: committedGoldens.staging.replace(originalFragment, rebaselinedFragment),
+    };
+
+    expect(adversarialGoldens.staging).not.toBe(committedGoldens.staging);
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: captureFixture.root,
+        provenanceSha: captureFixture.baseSha,
+        goldens: adversarialGoldens,
+        baseRef: originMainRef,
+      }),
+    ).toThrow("golden-provenance-reconstruction-mismatch: staging line");
+
+    expect(() =>
+      assertDryRunMatchesGolden({
+        environment: "staging",
+        golden: adversarialGoldens.staging,
+        actual: adversarialGoldens.staging,
+      }),
+    ).not.toThrow();
+    expect(runGit(["cat-file", "-t", captureFixture.baseSha], captureFixture.root)).toBe("commit");
+    expect(runGit(["merge-base", "HEAD", originMainRef], captureFixture.root)).toBe(captureFixture.baseSha);
+  });
+
+  it.each(dryRunEnvironments)("reaches the %s line diff when one captured golden byte drifts", (environment) => {
+    const actual = runRealDryRun({ repositoryRoot, environment });
+    const driftedGolden = committedGoldens[environment].replace(
+      `"environment": "${environment}"`,
+      `"environment": "${environment}x"`,
+    );
+    expect(() => assertDryRunMatchesGolden({ environment, golden: driftedGolden, actual })).toThrow(
+      `dry-run-parity-mismatch: ${environment} line 2`,
+    );
+  });
+
+  it.each(dryRunEnvironments)("reaches the %s line diff when one command token is added", (environment) => {
+    const actual = runRealDryRun({ repositoryRoot, environment }).replace("--force-update", "--force-update --debug");
+    expect(() => assertDryRunMatchesGolden({ environment, golden: committedGoldens[environment], actual })).toThrow(
+      `dry-run-parity-mismatch: ${environment} line 7`,
+    );
+  });
+
+  it("rejects an unallowlisted normalized delta", () => {
+    const actual = runRealDryRun({ repositoryRoot, environment: "production" }).replace(
+      "--force-update",
+      "--force-update --debug",
+    );
+    expect(() =>
+      assertDryRunMatchesGolden({ environment: "production", golden: committedGoldens.production, actual }),
+    ).toThrow("dry-run-parity-mismatch: production line 7");
+  });
+
+  it("permits a temporary exact normalized-delta allowlist entry", () => {
+    const goldenFragment = "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update";
+    const currentFragment = `${goldenFragment} --debug`;
+    const actual = runRealDryRun({ repositoryRoot, environment: "staging" }).replace(goldenFragment, currentFragment);
+    expect(() =>
+      assertDryRunMatchesGolden({
+        environment: "staging",
+        golden: committedGoldens.staging,
+        actual,
+        allowlist: [
+          {
+            name: "test-only ingress repo debug token",
+            decision: "synthetic proof for #6166; not committed policy",
+            goldenFragment,
+            currentFragment,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects an allowlist entry whose golden fragment is absent", () => {
+    expect(() =>
+      applyAllowedNormalizedDeltas(committedGoldens.staging, [
+        {
+          name: "absent fragment",
+          decision: "synthetic proof for #6166; not committed policy",
+          goldenFragment: "this fragment is not present",
+          currentFragment: "replacement",
+        },
+      ]),
+    ).toThrow("dry-run-allowlist-invalid-entry: absent fragment");
+  });
+
+  it("rejects an allowlist entry whose golden fragment is non-unique", () => {
+    expect(() =>
+      applyAllowedNormalizedDeltas(committedGoldens.staging, [
+        {
+          name: "non-unique fragment",
+          decision: "synthetic proof for #6166; not committed policy",
+          goldenFragment: "--atomic",
+          currentFragment: "--atomic --debug",
+        },
+      ]),
+    ).toThrow("dry-run-allowlist-invalid-entry: non-unique fragment");
+  });
+
+  it("fails closed with a named guard error outside a Git repository", () => {
+    let nonGitRoot;
+    withTemporaryDirectory("doks-golden-non-git-", (root) => {
+      nonGitRoot = root;
+      expect(() =>
+        assertGoldenProvenance({
+          gitRoot: root,
+          provenanceSha: goldenProvenance,
+          goldens: committedGoldens,
+          baseRef: originMainRef,
+        }),
+      ).toThrow("golden-provenance-not-a-git-repository");
+    });
+    expect(existsSync(nonGitRoot)).toBe(false);
+  });
+
+  it("fails closed with a named guard error when the origin/main authority is missing", () => {
+    const missingRef = "refs/remotes/origin/does-not-exist";
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: repositoryRoot,
+        provenanceSha: goldenProvenance,
+        goldens: committedGoldens,
+        baseRef: missingRef,
+      }),
+    ).toThrow(`golden-provenance-base-ref-missing: ${missingRef}`);
+  });
+
+  it("classifies non-reachability as shallow-undecidable when the visible main root is a boundary", () => {
+    withFixtureShallowBoundary(captureFixture.root, captureFixture.mainSha, () => {
+      const danglingSha = createDanglingCommit(captureFixture.root, "shallow undecidable local commit");
+
+      expect(runGit(["rev-parse", "--is-shallow-repository"], captureFixture.root)).toBe("true");
+      expect(runGit(["cat-file", "-t", danglingSha], captureFixture.root)).toBe("commit");
+      expect(() =>
+        assertGoldenProvenance({
+          gitRoot: captureFixture.root,
+          provenanceSha: danglingSha,
+          goldens: committedGoldens,
+          baseRef: originMainRef,
+        }),
+      ).toThrow(`golden-provenance-ancestry-undecidable-shallow: ${danglingSha} -> ${originMainRef}`);
+    });
+    expect(runGit(["rev-parse", "--is-shallow-repository"], captureFixture.root)).toBe("false");
+  });
+
+  it("passes in a shallow repository when the provenance ancestry answer is positive", () => {
+    withFixtureShallowBoundary(captureFixture.root, captureFixture.mainSha, () => {
+      expect(runGit(["rev-parse", "--is-shallow-repository"], captureFixture.root)).toBe("true");
+      expect(() =>
+        assertGoldenProvenance({
+          gitRoot: captureFixture.root,
+          provenanceSha: captureFixture.mainSha,
+          goldens: committedGoldens,
+          baseRef: originMainRef,
+        }),
+      ).not.toThrow();
+    });
+    expect(runGit(["rev-parse", "--is-shallow-repository"], captureFixture.root)).toBe("false");
+  });
+
+  it("removes a successful reconstruction root without changing refs or worktrees", () => {
+    const before = repositoryGitInventory(repositoryRoot);
+    const reconstructionRoots = [];
+    assertGoldenProvenance({
+      gitRoot: repositoryRoot,
+      provenanceSha: goldenProvenance,
+      goldens: committedGoldens,
+      baseRef: originMainRef,
+      onReconstructionRoot: (root) => reconstructionRoots.push(root),
+    });
+
+    expect(reconstructionRoots).toHaveLength(1);
+    expect(reconstructionRoots.every((root) => !existsSync(root))).toBe(true);
+    expect(repositoryGitInventory(repositoryRoot)).toEqual(before);
+  });
+
+  it("removes a failing reconstruction root without changing refs or worktrees", () => {
+    const before = repositoryGitInventory(repositoryRoot);
+    const reconstructionRoots = [];
+    const failingGoldens = {
+      ...committedGoldens,
+      production: committedGoldens.production.replace('"environment": "production"', '"environment": "productionx"'),
+    };
+    expect(() =>
+      assertGoldenProvenance({
+        gitRoot: repositoryRoot,
+        provenanceSha: goldenProvenance,
+        goldens: failingGoldens,
+        baseRef: originMainRef,
+        onReconstructionRoot: (root) => reconstructionRoots.push(root),
+      }),
+    ).toThrow("golden-provenance-reconstruction-mismatch: production line 2");
+
+    expect(reconstructionRoots).toHaveLength(1);
+    expect(reconstructionRoots.every((root) => !existsSync(root))).toBe(true);
+    expect(repositoryGitInventory(repositoryRoot)).toEqual(before);
   });
 });
