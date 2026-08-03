@@ -27,6 +27,94 @@ export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 const STAGING_CONTEXT_DATABASE_PREFIX = "chase_sets_staging_";
 const STAGING_DATABASE_CONTEXT_TOKEN_OVERRIDES = new Map([["platform_ops", "platform-operations"]]);
+// godo formats API failures as "METHOD URL: <status> <message>"; retain only the matched status token.
+const DOCTL_STATUS_READ_FAILURE_MATCHES = Object.freeze([
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 408 ",
+    safeToken: "doctl-http-408",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 425 ",
+    safeToken: "doctl-http-425",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 429 ",
+    safeToken: "doctl-http-429",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 500 ",
+    safeToken: "doctl-http-500",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 502 ",
+    safeToken: "doctl-http-502",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 503 ",
+    safeToken: "doctl-http-503",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 504 ",
+    safeToken: "doctl-http-504",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 400 ",
+    safeToken: "doctl-http-400",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 401 ",
+    safeToken: "doctl-http-401",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 403 ",
+    safeToken: "doctl-http-403",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 404 ",
+    safeToken: "doctl-http-404",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 409 ",
+    safeToken: "doctl-http-409",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 410 ",
+    safeToken: "doctl-http-410",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 422 ",
+    safeToken: "doctl-http-422",
+  },
+]);
+const SAFE_DOCTL_SPAWN_CODES = new Set(["EACCES", "ENOENT", "ENOEXEC", "EPERM"]);
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
   { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
@@ -130,12 +218,27 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
             timeoutMs: options.forkTimeoutMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS,
             pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS,
           },
-          dependencies,
+          {
+            ...dependencies,
+            classifyStatusReadFailure,
+          },
         )
       : { outcome: "missing-cluster-id", fork, elapsedMs: 0 };
     const latestFork = availability.fork ?? fork;
     const forkFinishedMs = now();
     const forkReachedAvailable = availability.outcome === "available";
+    const statusReadFailure = availability.statusReadFailure
+      ? {
+          stage: "fork-status-read-failed",
+          classification: availability.statusReadFailure.classification,
+          outcome: forkReachedAvailable ? "recovered" : "failed",
+          lastKnownStatus: availability.statusReadFailure.lastKnownStatus,
+          attemptCount: availability.statusReadFailure.attemptCount,
+          code: availability.statusReadFailure.code,
+          pollingFinishedAt: isoFromMs(forkFinishedMs),
+          pollingElapsedMs: availability.statusReadFailure.elapsedMs,
+        }
+      : null;
     record = {
       ...record,
       fork: {
@@ -152,6 +255,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         forkAvailableAt: forkReachedAvailable ? isoFromMs(forkFinishedMs) : null,
         forkToAvailableMs: forkReachedAvailable ? forkFinishedMs - forkStartedMs : null,
       },
+      forkStatusReadFailure: statusReadFailure,
     };
 
     if (!fork.clusterId) {
@@ -163,6 +267,10 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
     } else if (availability.outcome === "failed") {
       record.errors.push(
         `Staging restore drill fork '${forkName}' entered failed status '${latestFork.status ?? "unknown"}'.`,
+      );
+    } else if (availability.outcome === "status-read-failed") {
+      record.errors.push(
+        JSON.stringify(availability.statusReadFailure?.diagnostic ?? { classification: "fork-status-read-failed" }),
       );
     } else if (availability.outcome !== "available") {
       record.errors.push(`Staging restore drill fork '${forkName}' did not report an available outcome.`);
@@ -200,7 +308,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         ...record.fork,
         clusterId: forkClusterId,
         name: forkName,
-        status: forkClusterId ? "validation-failed" : "create-failed",
+        status: record.fork.status ?? (forkClusterId ? "unknown" : "create-failed"),
       },
       errors: [...record.errors, ...describeFailure(error, "digitalocean-restore-drill-failed")],
     };
@@ -416,6 +524,7 @@ function createBaseRecord(options, errors) {
       checkedDatabaseCount: 0,
       checks: [],
     },
+    forkStatusReadFailure: null,
     cleanup: {
       attempted: false,
       clusterId: null,
@@ -517,6 +626,41 @@ function stagingDatabaseCheckFromName(databaseName) {
 
 function describeFailure(error, classification) {
   return [JSON.stringify(safeFailureFields(classification, error))];
+}
+
+function classifyStatusReadFailure(error) {
+  const matched = matchDoctlStatusReadFailure(error);
+  const code = matched?.safeToken ?? safeDoctlSpawnCode(error);
+  const diagnostic = {
+    classification: "fork-status-read-failed",
+    ...(code ? { code } : {}),
+  };
+  return {
+    classification: matched?.classification ?? "unknown",
+    code,
+    diagnostic,
+  };
+}
+
+function matchDoctlStatusReadFailure(error) {
+  if (
+    !Number.isInteger(error?.code) ||
+    error.code <= 0 ||
+    error.killed !== false ||
+    error.signal !== null ||
+    typeof error.stderr !== "string"
+  ) {
+    return null;
+  }
+  return (
+    DOCTL_STATUS_READ_FAILURE_MATCHES.find(
+      (candidate) => candidate.exitCode === error.code && error.stderr.includes(candidate.stderrToken),
+    ) ?? null
+  );
+}
+
+function safeDoctlSpawnCode(error) {
+  return typeof error?.code === "string" && SAFE_DOCTL_SPAWN_CODES.has(error.code) ? error.code : null;
 }
 
 function isoFromMs(value) {
