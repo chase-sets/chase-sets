@@ -379,14 +379,14 @@ describe("ordering seed", () => {
         status: generated.status,
       });
 
-      const generatedCount = await generatedDb.query(
+      const generatedCount = (await generatedDb.query(
         "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1",
         [generated.streamId],
-      );
-      const reservedCount = await reservedDb.query(
+      )) as Readonly<{ rows: readonly Readonly<{ count: string }>[] }>;
+      const reservedCount = (await reservedDb.query(
         "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1",
         [reserved.streamId],
-      );
+      )) as Readonly<{ rows: readonly Readonly<{ count: string }>[] }>;
       expect(generated.eventCount).toBe(Number(generatedCount.rows[0]?.count));
       expect(reserved.eventCount).toBe(Number(reservedCount.rows[0]?.count));
 
