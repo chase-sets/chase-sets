@@ -272,8 +272,11 @@ const seedInspectorDerivationSources: Readonly<Record<string, string>> = {
 /**
  * The pinned expected identity corpus: one `contextName|aggregateName|id|key`
  * row per report every inspecting context must produce after a completed
- * scenario-seed boot, sorted. Both the exact set and its cardinality are
- * asserted, so a dropped, renamed, or added seed aggregate fails this file.
+ * scenario-seed boot, in the default `Array.prototype.sort` code-unit order
+ * `corpusViolations` compares with. Both the exact set and its cardinality are
+ * asserted, so a dropped, renamed, or added seed aggregate fails this file, and
+ * the literal's uniqueness and canonical order are asserted in the case below
+ * rather than left to this comment.
  */
 const frozenSeedIdentityCorpus: readonly string[] = [
   "auth|Session|ses_seed_collector_session|collector",
@@ -696,6 +699,15 @@ async function orderStreamEventTypes(orderId: string): Promise<readonly string[]
  * rewrites `updated_at` with `now()` on every pass through its
  * `ON CONFLICT DO UPDATE`, so that column — and only that column — is excluded
  * from the freeze; `created_at` is written once on insert and is frozen.
+ *
+ * The column list is not transcribed from prose. It must cover every column of
+ * the canonical `public_presence_promo_bar_messages` table except the single
+ * intentional exclusion, and `promoSchemaParityViolations` asserts exactly that
+ * against the live relation the freeze reads, so a column added to the read
+ * model can never silently fall outside the freeze. `starts_at`/`ends_at` are
+ * the promo scheduling window `promoBarStatus` and the live visibility query
+ * both consume; the seed never writes them, which is what the schedule-window
+ * mutant in phase two proves.
  */
 type PromoBarSemanticRow = Readonly<{
   id: string;
@@ -706,6 +718,8 @@ type PromoBarSemanticRow = Readonly<{
   tone: string;
   is_active: boolean;
   display_order: number;
+  starts_at: string | null;
+  ends_at: string | null;
   created_at: string;
 }>;
 type PromoBarRow = PromoBarSemanticRow & Readonly<{ updated_at: string }>;
@@ -730,6 +744,14 @@ type PublicPresenceSeedOutput = Readonly<{
 const publicPresenceSeedPromoIds = ["pbm_seed_beta_listing_fees", "pbm_seed_shipping_credit"] as const;
 const publicPresenceBetaWavePolicyKey = "public-presence.beta-waves";
 const policyDocumentStreamPrefix = "platform-policy.document-";
+const publicPresencePromoTableName = "public_presence_promo_bar_messages";
+
+/**
+ * The sole authorized omission from the promo freeze: the column the seed
+ * deliberately rewrites on every pass. Every other canonical column must be
+ * frozen, which `promoSchemaParityViolations` enforces executably.
+ */
+const promoIntentionallyExcludedColumns = ["updated_at"] as const;
 
 function promoSemanticColumns(row: PromoBarRow): PromoBarSemanticRow {
   return {
@@ -741,6 +763,8 @@ function promoSemanticColumns(row: PromoBarRow): PromoBarSemanticRow {
     tone: row.tone,
     is_active: row.is_active,
     display_order: row.display_order,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
     created_at: row.created_at,
   };
 }
@@ -800,6 +824,7 @@ function promoIdAndOrderMismatches(
 async function publicPresencePromoRows(): Promise<readonly PromoBarRow[]> {
   const result = await pools["public-presence"].query<PromoBarRow>(
     `SELECT id, title, description, href, link_label, tone, is_active, display_order,
+            starts_at::text AS starts_at, ends_at::text AS ends_at,
             created_at::text AS created_at, updated_at::text AS updated_at
        FROM public_presence_promo_bar_messages
       WHERE id = ANY($1::text[])
@@ -807,6 +832,80 @@ async function publicPresencePromoRows(): Promise<readonly PromoBarRow[]> {
     [[...publicPresenceSeedPromoIds]],
   );
   return result.rows;
+}
+
+/**
+ * The canonical column set of the relation `publicPresencePromoRows` actually
+ * reads. `to_regclass` resolves through the same connection's `search_path`, so
+ * this is the table the freeze queries, not a same-named table in another
+ * schema.
+ */
+async function publicPresencePromoTableColumns(): Promise<readonly string[]> {
+  const result = await pools["public-presence"].query<Readonly<{ column_name: string }>>(
+    `SELECT attname AS column_name
+       FROM pg_attribute
+      WHERE attrelid = to_regclass($1)
+        AND attnum > 0
+        AND NOT attisdropped
+      ORDER BY attname ASC`,
+    [publicPresencePromoTableName],
+  );
+  return result.rows.map((row) => row.column_name);
+}
+
+/**
+ * Executable schema-to-freeze parity. The frozen projection's own key set —
+ * taken from a captured row, so it is what `promoSemanticColumns` really
+ * produces rather than a second hand-written list — plus the single authorized
+ * exclusion must equal the canonical table exactly. A promo column that is
+ * neither frozen nor deliberately excluded is a silent hole in the freeze, and
+ * that is the omission #6484 F1 found.
+ */
+function promoSchemaParityViolations(
+  semantic: readonly PromoBarSemanticRow[],
+  schemaColumns: readonly string[],
+): readonly string[] {
+  const violations: string[] = [];
+  const sample = semantic[0];
+  if (!sample) {
+    return ["the promo freeze captured no rows, so its column coverage cannot be established"];
+  }
+  if (schemaColumns.length === 0) {
+    return [`'${publicPresencePromoTableName}' did not resolve on the Public Presence search_path`];
+  }
+  const frozenColumns = Object.keys(sample).sort();
+  const accountedFor = new Set([...frozenColumns, ...promoIntentionallyExcludedColumns]);
+  for (const column of schemaColumns) {
+    if (!accountedFor.has(column)) {
+      violations.push(`canonical promo column '${column}' is neither frozen nor intentionally excluded`);
+    }
+  }
+  const schemaColumnSet = new Set(schemaColumns);
+  for (const column of accountedFor) {
+    if (!schemaColumnSet.has(column)) {
+      violations.push(`'${column}' is accounted for by the freeze but is not a column of the canonical table`);
+    }
+  }
+  // Every captured row must carry the same key set, or the parity established
+  // from `sample` would not hold for the rows actually compared.
+  for (const row of semantic) {
+    const rowColumns = Object.keys(row).sort();
+    if (rowColumns.join(",") !== frozenColumns.join(",")) {
+      violations.push(`promo row '${row.id}' projects ${rowColumns.join(",")}, not ${frozenColumns.join(",")}`);
+    }
+  }
+  return violations;
+}
+
+function describePromoSchemaParity(semantic: readonly PromoBarSemanticRow[], schemaColumns: readonly string[]): string {
+  const frozenColumns = Object.keys(semantic[0] ?? {}).sort();
+  const accountedFor = new Set([...frozenColumns, ...promoIntentionallyExcludedColumns]);
+  return (
+    `[#6490 promo schema parity] schemaColumns=${schemaColumns.join(",")}; ` +
+    `frozenColumns=${frozenColumns.join(",")}; ` +
+    `intentionallyExcluded=${[...promoIntentionallyExcludedColumns].join(",")}; ` +
+    `missingSemanticColumns=${schemaColumns.filter((column) => !accountedFor.has(column)).join(",") || "(none)"}`
+  );
 }
 
 async function publicPresenceBetaWavePolicyRow(): Promise<PolicyDocumentSemanticRow | undefined> {
@@ -1530,6 +1629,18 @@ describe("authoritative seed resume", () => {
     const bootOneSeconds = (Date.now() - bootOneStartedAt) / 1000;
     const afterBootOne = await eligiblePrefixCounts(runtime);
     const publicPresenceAfterBootOne = await capturePublicPresenceSeedOutput();
+
+    // The freeze is only as good as its column coverage, so that coverage is
+    // established against the canonical table before anything is frozen against
+    // it. This is the executable form of the schema-to-freeze probe: the
+    // reported `missingSemanticColumns` must be empty.
+    const promoSchemaColumns = await publicPresencePromoTableColumns();
+    console.log(describePromoSchemaParity(publicPresenceAfterBootOne.promoSemantic, promoSchemaColumns));
+    expect(
+      promoSchemaParityViolations(publicPresenceAfterBootOne.promoSemantic, promoSchemaColumns),
+      "every canonical promo column must be frozen or intentionally excluded",
+    ).toEqual([]);
+
     console.log(`[#6396 phase] boot-one=${bootOneSeconds.toFixed(1)}s`);
     for (const context of eligible) {
       console.log(
@@ -1678,6 +1789,7 @@ describe("authoritative seed resume", () => {
     for (const row of publicPresenceAfterBootTwo.promoRows) {
       console.log(
         `[#6490 public-presence promo] ${row.id} tone=${row.tone} active=${row.is_active} order=${row.display_order} ` +
+          `starts=${JSON.stringify(row.starts_at)} ends=${JSON.stringify(row.ends_at)} ` +
           `created=${row.created_at} title=${JSON.stringify(row.title)}`,
       );
     }
@@ -1693,9 +1805,9 @@ describe("authoritative seed resume", () => {
       throw new Error("Public Presence is not mounted with a seed.");
     }
 
-    // Mutant one: a single promo semantic column. The frozen comparison must see
-    // it while the predecessor `id` + `display_order` comparison cannot, and the
-    // seed must reconcile it back.
+    // Mutant one: a single promo semantic column the seed owns. The frozen
+    // comparison must see it while the predecessor `id` + `display_order`
+    // comparison cannot, and the seed must reconcile it back.
     const mutatedPromoId = publicPresenceSeedPromoIds[0];
     await pools["public-presence"].query("UPDATE public_presence_promo_bar_messages SET tone = $2 WHERE id = $1", [
       mutatedPromoId,
@@ -1721,7 +1833,87 @@ describe("authoritative seed resume", () => {
       "re-invoking only the Public Presence seed must reconcile the mutated column back",
     ).toEqual([]);
 
-    // Mutant two: delete the exact policy row and insert an unrelated active
+    // Mutant two: the promo scheduling window, one column at a time. These are
+    // the columns the live visibility query and `promoBarStatus` read to decide
+    // whether a promo is showing at all, so a freeze blind to them would report
+    // green while the seeded promo bar changed what it displays. Only the named
+    // window column varies in each pass — every other column is left exactly as
+    // the seed authored it, and the predecessor `id` + `display_order`
+    // comparison is executed against the same rows, so the freeze is proven
+    // discriminating rather than reaching the same verdict through some other
+    // clause.
+    const scheduleMutantPromoId = publicPresenceSeedPromoIds[1];
+    const frozenSchedulePromo = receipt.publicPresence.promoSemantic.find((row) => row.id === scheduleMutantPromoId);
+    if (!frozenSchedulePromo) {
+      throw new Error(`The freeze does not carry promo row '${scheduleMutantPromoId}'.`);
+    }
+    console.log(
+      `[#6490 promo schedule] seeded window for ${scheduleMutantPromoId}: ` +
+        `starts_at=${JSON.stringify(frozenSchedulePromo.starts_at)} ends_at=${JSON.stringify(frozenSchedulePromo.ends_at)}`,
+    );
+
+    // Each statement sets exactly one window column and clears the other, so a
+    // single column differs from the freeze on every pass.
+    const scheduleWindowMutants = [
+      {
+        column: "starts_at",
+        sql: `UPDATE public_presence_promo_bar_messages
+                 SET starts_at = $2::timestamptz, ends_at = NULL
+               WHERE id = $1`,
+        value: "2026-01-02T03:04:05+00:00",
+      },
+      {
+        column: "ends_at",
+        sql: `UPDATE public_presence_promo_bar_messages
+                 SET starts_at = NULL, ends_at = $2::timestamptz
+               WHERE id = $1`,
+        value: "2026-01-03T03:04:05+00:00",
+      },
+    ] as const;
+
+    for (const mutant of scheduleWindowMutants) {
+      await pools["public-presence"].query(mutant.sql, [scheduleMutantPromoId, mutant.value]);
+      const scheduleMutatedRows = await publicPresencePromoRows();
+      const scheduleViolations = promoFrozenMismatches(receipt.publicPresence.promoSemantic, scheduleMutatedRows);
+      const scheduleViolationColumns = scheduleViolations
+        .map((violation) => /^promo '[^']+'\.([a-z_]+):/.exec(violation)?.[1])
+        .filter((column): column is string => column !== undefined)
+        .sort();
+      expect(
+        scheduleViolationColumns,
+        `the freeze must report exactly '${mutant.column}' when only that window column moves`,
+      ).toEqual([mutant.column]);
+      expect(
+        promoIdAndOrderMismatches(receipt.publicPresence.promoSemantic, scheduleMutatedRows),
+        `the id + display_order comparison must be blind to the '${mutant.column}' mutation`,
+      ).toEqual([]);
+      console.log(
+        `[#6490 promo schedule mutant] ${mutant.column}: frozen violations=${JSON.stringify(scheduleViolations)}; ` +
+          "id+display_order-only violations=0",
+      );
+    }
+
+    // The seed's `ON CONFLICT DO UPDATE` never writes the scheduling window, so
+    // unlike the tone mutant a re-invocation cannot reconcile it. That is
+    // executed rather than asserted in a comment, and it is why the window is
+    // then restored directly to the values the freeze captured.
+    await publicPresenceMount.module.seed(publicPresenceMount.pool, publicPresenceMount.services, seedOptions);
+    expect(
+      promoFrozenMismatches(receipt.publicPresence.promoSemantic, await publicPresencePromoRows()).length,
+      "the seed does not own the promo scheduling window, so re-invoking it cannot reconcile the mutation",
+    ).toBeGreaterThan(0);
+    await pools["public-presence"].query(
+      `UPDATE public_presence_promo_bar_messages
+          SET starts_at = $2::timestamptz, ends_at = $3::timestamptz
+        WHERE id = $1`,
+      [scheduleMutantPromoId, frozenSchedulePromo.starts_at, frozenSchedulePromo.ends_at],
+    );
+    expect(
+      promoFrozenMismatches(receipt.publicPresence.promoSemantic, await publicPresencePromoRows()),
+      "restoring the scheduling window must return the promo freeze to green",
+    ).toEqual([]);
+
+    // Mutant three: delete the exact policy row and insert an unrelated active
     // one. A global active-row count cannot see this; the exact-row assertion
     // must, and the re-invoked seed then authors a duplicate policy document on
     // a stream the `public-presence.` prefix invariant never counts.
@@ -1937,6 +2129,18 @@ describe("authoritative seed resume", () => {
 
   it("reconciles every inspecting scenario-seed context to its frozen identity corpus and active state", async () => {
     await expectZeroRelationCaseEntry("frozen identity corpus");
+
+    // The literal's shape, asserted instead of claimed by its comment. The
+    // canonical order is the one `corpusViolations` compares with — the default
+    // `Array.prototype.sort` code-unit order — not a culture-aware collation,
+    // which orders `identity|API Key|…` and `identity|Account|…` the other way
+    // around and would call this same literal unsorted.
+    expect(new Set(frozenSeedIdentityCorpus).size, "the pinned corpus literal must have no duplicate identity").toBe(
+      frozenSeedIdentityCorpus.length,
+    );
+    expect(frozenSeedIdentityCorpus, "the pinned corpus literal must be in canonical sorted order").toEqual(
+      [...frozenSeedIdentityCorpus].sort(),
+    );
 
     const runtime = createHost();
     await ordinaryBoot(runtime);
