@@ -841,12 +841,13 @@ describe("authoritative seed resume", () => {
     );
     expect(promoBarAfter.rows.length, "Public Presence seeds promo-bar rows").toBeGreaterThan(0);
     expect(promoBarAfter.rows, "promo-bar output is idempotent across boot two").toEqual(promoBarBefore.rows);
-    expect(betaWavePolicyAfter.rows, "policy output is idempotent across boot two").toEqual(
-      betaWavePolicyBefore.rows,
-    );
+    expect(betaWavePolicyAfter.rows, "policy output is idempotent across boot two").toEqual(betaWavePolicyBefore.rows);
     for (const contextName of frozenNonInspectingSeedContexts) {
       const context = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
-      expect(context?.module.inspectSeedState, `${contextName} must not claim inspected aggregate state`).toBeUndefined();
+      expect(
+        context?.module.inspectSeedState,
+        `${contextName} must not claim inspected aggregate state`,
+      ).toBeUndefined();
     }
 
     console.log(
@@ -908,9 +909,7 @@ describe("authoritative seed resume", () => {
     expect(laggingSettlement!.projectionHandlerSets).toHaveLength(settlementMount!.projectionHandlerSets.length - 1);
     // Everything except the withheld handler set is the identical object.
     for (const entry of laggingRuntime.mountedContexts) {
-      const original = landingRuntime.mountedContexts.find(
-        (candidate) => candidate.contextName === entry.contextName,
-      )!;
+      const original = landingRuntime.mountedContexts.find((candidate) => candidate.contextName === entry.contextName)!;
       expect(entry.pool).toBe(original.pool);
       expect(entry.services).toBe(original.services);
       expect(entry.mountRole).toBe(original.mountRole);
@@ -1023,6 +1022,11 @@ describe("authoritative seed resume", () => {
     const inspecting = eligibleScenarioSeedContexts(runtime).filter((context) => context.inspects);
     expect(inspecting.map((context) => context.contextName).sort()).toEqual([...frozenInspectingSeedContexts]);
 
+    // The whole table is emitted before anything is asserted, so a single
+    // non-active aggregate cannot truncate the omission-revealing evidence.
+    const notActive: string[] = [];
+    const rehydratedNothing: string[] = [];
+    const duplicateIdentities: string[] = [];
     for (const context of inspecting) {
       const mount = runtime.mountedContexts.find((entry) => entry.contextName === context.contextName)!;
       const reports = await mount.module.inspectSeedState!(mount.pool, seedOptions);
@@ -1032,11 +1036,6 @@ describe("authoritative seed resume", () => {
       );
       const identities = new Set<string>();
       for (const report of reports) {
-        console.log(
-          `[#6396 aggregate-state]   ${context.contextName} ${report.aggregateName} '${report.key}' ` +
-            `id=${report.id} kind=${report.kind} status=${report.status ?? "-"} ` +
-            `events=${report.eventCount} stream=${report.streamId}`,
-        );
         // Identity-matching: every report names a concrete, unique seed identity
         // rehydrated from a non-empty authoritative stream. A present container
         // or a bare stream id is not an aggregate.
@@ -1044,15 +1043,33 @@ describe("authoritative seed resume", () => {
         expect(report.key, `${context.contextName} '${report.id}' has no seed key`).toBeTruthy();
         expect(report.streamId, `${context.contextName} '${report.key}' has no stream`).toBeTruthy();
         const identity = `${report.aggregateName}:${report.id}`;
-        expect(identities.has(identity), `${context.contextName} reports '${identity}' twice`).toBe(false);
+        if (identities.has(identity)) {
+          duplicateIdentities.push(`${context.contextName} ${identity}`);
+        }
         identities.add(identity);
-        expect(report.eventCount, `${context.contextName} '${report.key}' rehydrated no events`).toBeGreaterThan(0);
-        expect(
-          report.kind,
-          `${context.contextName} '${report.key}' finished kind=${report.kind} status=${report.status ?? "-"}`,
-        ).toBe("active");
+        if (report.kind !== "active") {
+          notActive.push(
+            `${context.contextName} ${report.aggregateName} '${report.key}' id=${report.id} ` +
+              `kind=${report.kind} status=${report.status ?? "-"} events=${report.eventCount} ` +
+              `stream=${report.streamId}`,
+          );
+        }
+        if (report.eventCount <= 0) {
+          rehydratedNothing.push(`${context.contextName} '${report.key}' id=${report.id}`);
+        }
       }
     }
+    for (const entry of notActive) {
+      console.log(`[#6396 aggregate-state NOT-ACTIVE] ${entry}`);
+    }
+    expect(duplicateIdentities, "an aggregate identity was reported more than once").toEqual([]);
+    expect(notActive, `inspecting contexts finished with non-active seed aggregates:\n${notActive.join("\n")}`).toEqual(
+      [],
+    );
+    expect(
+      rehydratedNothing,
+      `seed aggregates reported without rehydrating any events:\n${rehydratedNothing.join("\n")}`,
+    ).toEqual([]);
 
     // Marketplace business status `draft` is not aggregate kind `draft`: the
     // seeded draft listing is a complete aggregate whose business status is
@@ -1080,9 +1097,7 @@ describe("authoritative seed resume", () => {
       [walletStreamId, settlementReservedSeedIds.ledgerEntries.pendingSaleCredit],
     );
     expect(released.rows, "the seeded pending sale credit was never released").toHaveLength(1);
-    await pools.settlement.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [
-      walletStreamId,
-    ]);
+    await pools.settlement.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [walletStreamId]);
     await pools.settlement.query(
       `DELETE FROM event_store_events
         WHERE stream_id = $1
