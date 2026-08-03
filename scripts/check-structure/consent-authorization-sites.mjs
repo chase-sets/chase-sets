@@ -155,8 +155,48 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * The clause each reported violation code is decided at. The guard publishes
+ * the clause alongside the code so that a first failing clause is read off an
+ * executed run rather than asserted about it: a mutation receipt that claims a
+ * governing clause must be able to point at the clause the guard actually
+ * reached first.
+ */
+export const consentAuthorizationClauseByCode = Object.freeze({
+  "consent-authorization-registry-invalid": "registry.committed-rows",
+  "consent-authorization-provenance-frozen-mismatch": "provenance.frozen-expectations",
+  "consent-authorization-coverage-invalid": "coverage.committed-rows",
+  "consent-authorization-declaration-invalid": "declaration.expected-exports",
+  "consent-authorization-declaration-missing": "declaration.expected-exports",
+  "consent-authorization-owner-ambiguous": "owner.stability",
+  "consent-authorization-site-unregistered": "reconciliation.observed-completeness",
+  "consent-authorization-site-missing": "reconciliation.registry-completeness",
+  "consent-authorization-import-invalid": "reference.owning-import",
+  "consent-authorization-import-missing": "reference.owning-import",
+  "consent-authorization-reference-unclassified": "reference.classification",
+  "consent-authorization-noncanonical-module-access": "reference.canonical-module-binding",
+  "consent-authorization-partition-drift": "reconciliation.partition-digest",
+  "consent-authorization-mutation-enumeration-drift": "mutation.enumeration",
+  "consent-authorization-mutation-count-drift": "mutation.enumeration",
+  "consent-authorization-mutation-incomplete": "mutation.enumeration",
+  "consent-authorization-mutation-provenance-missing": "mutation.receipt-provenance",
+  "consent-authorization-mutation-provenance-mismatch": "mutation.receipt-provenance",
+  "consent-authorization-mutation-receipt-digest-mismatch": "mutation.receipt-binding",
+});
+
+// Owner-context authority failures are named by the derivation module, which
+// owns their vocabulary; they are all reached at the one clause this guard
+// consults it at.
+const ownerContextClause = "derivation.owner-context-authority";
+
 function finding(code, message, details = {}) {
-  return { code, message, ...details };
+  return {
+    code,
+    clause:
+      consentAuthorizationClauseByCode[code] ?? (code.startsWith("derivation-artifact-") ? ownerContextClause : null),
+    message,
+    ...details,
+  };
 }
 
 function readJson(rootDir, relativePath) {
@@ -734,15 +774,26 @@ function importDetails(node) {
   };
 }
 
+/**
+ * Every census-visible reference carries the identity of the analyzer arm that
+ * decided it, at the granularity one committed coverage row is written at. The
+ * arm is what the coverage matrix is total against: a branch that can decide a
+ * reference and carries no row, or a row naming an arm no branch can reach,
+ * fails closed. A declaration and a bare identifier reference in a position
+ * that is neither a key nor an acquisition specifier carry no arm, because
+ * neither is a member of either axis grammar.
+ */
 function computedConstructorProperty(node) {
   if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) return null;
   if (!constructorNames.has(node.text)) return null;
-  if (ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node) return node.text;
+  if (ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node) {
+    return { constructor: node.text, axis: "key", arm: "computed-property:element-access" };
+  }
   if (
     (ts.isBindingElement(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) &&
     node.parent.propertyName === node
   ) {
-    return node.text;
+    return { constructor: node.text, axis: "key", arm: "computed-property:binding-element-property-name" };
   }
   if (
     ts.isComputedPropertyName(node.parent) &&
@@ -750,7 +801,7 @@ function computedConstructorProperty(node) {
     ts.isBindingElement(node.parent.parent) &&
     node.parent.parent.propertyName === node.parent
   ) {
-    return node.text;
+    return { constructor: node.text, axis: "key", arm: "computed-property:binding-element-computed-name" };
   }
   return null;
 }
@@ -780,6 +831,69 @@ function reachesCanonicalModule(relativeFile, specifier) {
 
 function canonicalSpecifierText(node) {
   return node && ts.isStringLiteral(node) ? node.text : null;
+}
+
+/**
+ * The two acquisition forms the canonical-module classifier recognises. They
+ * are declared here rather than spelled inline so that the census arm authority
+ * reads the same two names the classifier dispatches on.
+ */
+export const consentAuthorizationAcquisitionArms = Object.freeze(["dynamic-import", "require"]);
+
+/**
+ * The specifier expression shapes the acquisition classifier dispositions by
+ * name. Each member is one branch: `folded` says whether this analyzer can fold
+ * the shape to one definite specifier string, and only the string-literal shape
+ * can be, because folding the other three is the declared-open residual the
+ * sibling slice owns. Every
+ * specifier expression whose kind no member names routes to the named
+ * `runtime-unknown` default arm by construction, so a shape this table does not
+ * carry is an admitted unknown rather than a silent drop.
+ */
+export const consentAuthorizationSpecifierShapeDispositions = Object.freeze(
+  [
+    { shape: "string-literal", syntaxKind: "StringLiteral", folded: true },
+    { shape: "no-substitution-template", syntaxKind: "NoSubstitutionTemplateLiteral", folded: false },
+    { shape: "identifier", syntaxKind: "Identifier", folded: false },
+    { shape: "concatenation", syntaxKind: "BinaryExpression", folded: false },
+  ].map((entry) => Object.freeze(entry)),
+);
+
+export const consentAuthorizationSpecifierRuntimeUnknownArm = "specifier:runtime-unknown";
+
+/**
+ * The disposition table must name compiler syntax kinds, and exactly one member
+ * may fold, so the table can never quietly widen into the declared-open
+ * residual the sibling slice owns.
+ */
+export function assertConsentAuthorizationSpecifierShapeDispositions(
+  dispositions = consentAuthorizationSpecifierShapeDispositions,
+) {
+  const unresolved = dispositions
+    .map(({ syntaxKind }) => syntaxKind)
+    .filter((syntaxKind) => typeof ts.SyntaxKind[syntaxKind] !== "number");
+  const shapes = dispositions.map(({ shape }) => shape);
+  const duplicated = shapes.filter((shape, index) => shapes.indexOf(shape) !== index);
+  if (unresolved.length > 0 || duplicated.length > 0 || dispositions.filter(({ folded }) => folded).length !== 1) {
+    throw guardFailure(
+      "consent-authorization-specifier-shape-disposition-invalid",
+      "coverage.specifier-shape-disposition",
+      "the committed specifier shape disposition does not name distinct compiler syntax kinds with exactly one folded shape",
+      { unresolved, duplicated },
+    );
+  }
+  return dispositions;
+}
+
+// Resolved through the compiler's forward mapping, never through its reverse
+// one: several syntax kinds share a numeric value with a boundary alias, so
+// `ts.SyntaxKind[node.kind]` answers `FirstTemplateToken` where the disposition
+// names `NoSubstitutionTemplateLiteral`.
+function consentAuthorizationSpecifierShape(node) {
+  return (
+    consentAuthorizationSpecifierShapeDispositions.find((entry) => ts.SyntaxKind[entry.syntaxKind] === node.kind) ??
+    null
+  );
 }
 
 // A `const` name whose value is not one resolvable string -- two declarations of
@@ -843,7 +957,7 @@ export function resolveConsentAuthorizationConstantKey(node, bindings, seen = ne
   return null;
 }
 
-function noncanonicalAccess(relativeFile, sourceFile, node, form, binding) {
+function noncanonicalAccess(relativeFile, sourceFile, node, form, binding, arm = `specifier:${form}`) {
   return {
     file: relativeFile,
     constructor: null,
@@ -851,6 +965,8 @@ function noncanonicalAccess(relativeFile, sourceFile, node, form, binding) {
     referenceClass: "noncanonical-module-access",
     form,
     binding,
+    axis: "specifier",
+    arm,
     syntaxKind: ts.SyntaxKind[node.kind],
   };
 }
@@ -863,7 +979,7 @@ function noncanonicalAccess(relativeFile, sourceFile, node, form, binding) {
  * never a violation: an ordinary `object[runtimeKey]` in an unrelated file owes
  * this guard nothing.
  */
-function admittedUnknown(relativeFile, sourceFile, node, axis, arm) {
+function admittedUnknown(relativeFile, sourceFile, node, axis, arm, form = null) {
   return {
     file: relativeFile,
     constructor: null,
@@ -871,6 +987,7 @@ function admittedUnknown(relativeFile, sourceFile, node, axis, arm) {
     referenceClass: "admitted-unknown",
     axis,
     arm,
+    form,
     syntaxKind: ts.SyntaxKind[node.kind],
   };
 }
@@ -920,18 +1037,25 @@ function collectCanonicalModuleBinding(relativeFile, sourceFile, node, bindings,
   if (!ts.isCallExpression(node) || node.arguments.length !== 1) return;
   const acquired =
     node.expression.kind === ts.SyntaxKind.ImportKeyword
-      ? "dynamic-import"
+      ? consentAuthorizationAcquisitionArms[0]
       : ts.isIdentifier(node.expression) && node.expression.text === "require"
-        ? "require"
+        ? consentAuthorizationAcquisitionArms[1]
         : null;
   if (!acquired) return;
   const specifier = node.arguments[0];
-  if (canonicalSpecifierText(specifier) === null) {
-    unknowns.push(admittedUnknown(relativeFile, sourceFile, specifier, "specifier", acquired));
+  // The acquisition and the specifier shape together name one census arm, so a
+  // dynamic import written as a no-substitution template is a different
+  // published arm from the same import written as a string literal, and from
+  // the same template shape taken through `require`.
+  const disposition = consentAuthorizationSpecifierShape(specifier);
+  const arm = disposition ? `${acquired}:${disposition.shape}` : consentAuthorizationSpecifierRuntimeUnknownArm;
+  const text = disposition?.folded === true ? canonicalSpecifierText(specifier) : null;
+  if (text === null) {
+    unknowns.push(admittedUnknown(relativeFile, sourceFile, specifier, "specifier", arm, acquired));
     return;
   }
-  if (reachesCanonicalModule(relativeFile, canonicalSpecifierText(specifier))) {
-    accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, acquired, null));
+  if (reachesCanonicalModule(relativeFile, text)) {
+    accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, acquired, null, arm));
   }
 }
 
@@ -975,11 +1099,19 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
       } else {
         const imported = importDetails(node);
         if (imported) {
-          references.push({ ...base, referenceClass: "import", ...imported });
+          references.push({
+            ...base,
+            referenceClass: "import",
+            axis: "specifier",
+            arm: "specifier:canonical-named-import",
+            ...imported,
+          });
         } else if (ts.isCallExpression(node.parent) && node.parent.expression === node) {
           references.push({
             ...base,
             referenceClass: "consumption",
+            axis: "key",
+            arm: "consumption:direct-identifier",
             owner: deriveConsentAuthorizationOwner(node, artifact),
             position: node.getStart(sourceFile),
           });
@@ -992,13 +1124,15 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
         }
       }
     } else {
-      const constructor = computedConstructorProperty(node);
-      if (constructor) {
+      const computed = computedConstructorProperty(node);
+      if (computed) {
         references.push({
           file: relativeFile,
-          constructor,
+          constructor: computed.constructor,
           line: lineFor(sourceFile, node),
           referenceClass: "unexpected",
+          axis: computed.axis,
+          arm: computed.arm,
           syntaxKind: ts.SyntaxKind[node.parent.kind],
         });
       }
@@ -1021,11 +1155,16 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
       continue;
     }
     if (!constructorNames.has(key)) continue;
+    // The arm is the outermost key form the resolver folded, so every branch of
+    // the constant-key grammar is its own published census arm rather than one
+    // undifferentiated "resolved key".
     references.push({
       file: relativeFile,
       constructor: key,
       line: lineFor(sourceFile, access),
       referenceClass: "unexpected",
+      axis: "key",
+      arm: `constant-key:${ts.SyntaxKind[argument.kind]}`,
       syntaxKind: ts.SyntaxKind[access.kind],
     });
   }
@@ -1265,6 +1404,212 @@ export function assertConsentAuthorizationCoveragePartition(coverage, derivedAxe
   return committed;
 }
 
+/* -- Census arm authority -- one identity per committed coverage row ------- */
+
+function stringLiteralText(node) {
+  return node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
+}
+
+function objectLiteralStringProperty(node, name) {
+  if (!ts.isObjectLiteralExpression(node)) return null;
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property)) continue;
+    if ((ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === name) {
+      return stringLiteralText(property.initializer);
+    }
+  }
+  return null;
+}
+
+function collectNodes(root, predicate) {
+  const found = [];
+  const visit = (node) => {
+    if (predicate(node)) found.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return found;
+}
+
+/**
+ * Every object literal the analyzer emits a reference from that names both its
+ * axis and its arm as written literals. This is the analyzer's own text, so an
+ * arm that is deleted from the code disappears from the derived set.
+ */
+function collectWrittenAxisArms(sourceFile) {
+  return collectNodes(sourceFile, ts.isObjectLiteralExpression)
+    .map((node) => ({ axis: objectLiteralStringProperty(node, "axis"), arm: objectLiteralStringProperty(node, "arm") }))
+    .filter(({ axis, arm }) => axis !== null && arm !== null);
+}
+
+function collectCalleeStringArguments(sourceFile, calleeName, indexes) {
+  return collectNodes(
+    sourceFile,
+    (node) => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === calleeName,
+  )
+    .map((node) => indexes.map((index) => stringLiteralText(node.arguments[index])))
+    .filter((values) => values.every((value) => value !== null));
+}
+
+function declaredArrayLiteral(sourceFile, name) {
+  for (const declaration of collectNodes(
+    sourceFile,
+    (node) => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name,
+  )) {
+    const arrays = collectNodes(declaration, ts.isArrayLiteralExpression);
+    if (arrays.length > 0) return arrays[0];
+  }
+  return null;
+}
+
+function declaredStringConstant(sourceFile, name) {
+  for (const declaration of collectNodes(
+    sourceFile,
+    (node) => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name,
+  )) {
+    const text = stringLiteralText(declaration.initializer);
+    if (text !== null) return text;
+  }
+  return null;
+}
+
+function requireDerived(values, what) {
+  if (!Array.isArray(values) || values.length === 0) {
+    throw guardFailure(
+      "consent-authorization-coverage-arm-underived",
+      "coverage.arm-authority",
+      `${what} could not be read out of the analyzer's own source, so the census arm set cannot be derived`,
+      { what },
+    );
+  }
+  return values;
+}
+
+/**
+ * The census arm identities, at the granularity one committed coverage row is
+ * written at, read out of the analyzer's own parsed source.
+ *
+ * The key axis is the acquisition-free half: one arm per written classification
+ * position, one arm per constant-key fold the resolver branches on -- minus the
+ * two literal kinds the element-access loop skips because a literal key is
+ * already decided at the literal itself -- and the two named default arms an
+ * unfoldable key routes to. The specifier axis is the canonical named import,
+ * one arm per written non-acquisition access form, the full cross product of
+ * the acquisition forms and the dispositioned specifier shapes, and the named
+ * runtime-unknown default arm. Sixteen specifier shapes therefore have sixteen
+ * derived identities rather than four parent node kinds.
+ */
+export function deriveConsentAuthorizationCensusArms({ analyzerSource } = {}) {
+  const source = analyzerSource ?? readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const sourceFile = ts.createSourceFile(
+    "consent-authorization-census-arm-authority.mjs",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+
+  const written = collectWrittenAxisArms(sourceFile);
+  const foldedKinds = collectBranchedExpressionKinds(
+    sourceFile,
+    consentAuthorizationCoverageAxisAuthorities.key,
+    "node",
+  );
+  const literalKeyKinds = collectBranchedExpressionKinds(sourceFile, "scanConsentAuthorizationSource", "argument");
+  const outerFoldedKinds = foldedKinds.filter((kind) => !literalKeyKinds.includes(kind));
+  const defaultKeyArms = collectCalleeStringArguments(sourceFile, "admittedUnknown", [3, 4])
+    .filter(([axis]) => axis === "key")
+    .map(([, arm]) => arm);
+
+  const accessForms = collectCalleeStringArguments(sourceFile, "noncanonicalAccess", [3]).map(([form]) => form);
+  const acquisitions = (declaredArrayLiteral(sourceFile, "consentAuthorizationAcquisitionArms")?.elements ?? [])
+    .map(stringLiteralText)
+    .filter((value) => value !== null);
+  const shapes = (declaredArrayLiteral(sourceFile, "consentAuthorizationSpecifierShapeDispositions")?.elements ?? [])
+    .map((element) => objectLiteralStringProperty(element, "shape"))
+    .filter((value) => value !== null);
+  const runtimeUnknownArm = declaredStringConstant(sourceFile, "consentAuthorizationSpecifierRuntimeUnknownArm");
+
+  requireDerived(outerFoldedKinds, "the constant-key fold branch set");
+  requireDerived(defaultKeyArms, "the named key default arms");
+  requireDerived(accessForms, "the written non-canonical access forms");
+  requireDerived(acquisitions, "the acquisition arms");
+  requireDerived(shapes, "the specifier shape dispositions");
+  requireDerived(runtimeUnknownArm === null ? [] : [runtimeUnknownArm], "the specifier runtime-unknown default arm");
+
+  const unique = (values) => [...new Set(values)].sort();
+  return {
+    key: unique([
+      ...written.filter(({ axis }) => axis === "key").map(({ arm }) => arm),
+      ...outerFoldedKinds.map((kind) => `constant-key:${kind}`),
+      ...defaultKeyArms,
+    ]),
+    specifier: unique([
+      ...written.filter(({ axis }) => axis === "specifier").map(({ arm }) => arm),
+      ...accessForms.map((form) => `specifier:${form}`),
+      ...acquisitions.flatMap((acquisition) => shapes.map((shape) => `${acquisition}:${shape}`)),
+      runtimeUnknownArm,
+    ]),
+  };
+}
+
+export function consentAuthorizationCommittedCensusArms(coverage) {
+  const arms = { key: [], specifier: [] };
+  for (const row of coverage?.rows ?? []) {
+    if ((row?.axis === "key" || row?.axis === "specifier") && typeof row.arm === "string") arms[row.axis].push(row.arm);
+  }
+  return { key: [...new Set(arms.key)].sort(), specifier: [...new Set(arms.specifier)].sort() };
+}
+
+/**
+ * Governing clause of the coverage totality at row granularity. Three
+ * properties are asserted together, and any one of them alone would leave a
+ * coordinated row-plus-fixture omission green:
+ *
+ *  - every derived arm is witnessed by at least one committed row, so deleting
+ *    the only row for an arm fails closed;
+ *  - every committed row names an arm the analyzer can reach, so a row kept
+ *    after its branch is gone fails closed;
+ *  - every recorded census outcome is witnessed, and no two rows share one
+ *    (axis, arm, expression kind, census) identity, so no row is a duplicate of
+ *    another and the negative rows cannot all be deleted.
+ *
+ * Arms whose expression-kind domain is closed by the analyzer's own branch set
+ * carry exactly one row each. The two unfoldable-key default arms are open by
+ * construction -- any expression kind can reach them -- so their committed rows
+ * are witnesses of that residual rather than a partition of it.
+ */
+export function assertConsentAuthorizationCensusArmPartition(coverage, derivedArms) {
+  const arms = derivedArms ?? deriveConsentAuthorizationCensusArms();
+  const committed = consentAuthorizationCommittedCensusArms(coverage);
+  const rows = coverage?.rows ?? [];
+  const differences = [];
+  for (const axis of ["key", "specifier"]) {
+    const witnessed = rows.filter((row) => row.axis === axis && row.census !== "silent").map((row) => row.arm);
+    const unwitnessed = arms[axis].filter((arm) => !witnessed.includes(arm));
+    const underived = committed[axis].filter((arm) => !arms[axis].includes(arm));
+    if (unwitnessed.length > 0 || underived.length > 0) differences.push({ axis, unwitnessed, underived });
+  }
+  const unwitnessedOutcomes = coverageCensusOutcomes.filter((outcome) => !rows.some((row) => row.census === outcome));
+  if (unwitnessedOutcomes.length > 0) {
+    differences.push({ axis: "census-outcome", unwitnessed: unwitnessedOutcomes, underived: [] });
+  }
+  const identities = rows.map((row) => [row.axis, row.arm ?? "", row.expressionKind, row.census].join("\0"));
+  const duplicated = [...new Set(identities.filter((identity, index) => identities.indexOf(identity) !== index))];
+  if (duplicated.length > 0) {
+    differences.push({ axis: "row-identity", unwitnessed: [], underived: duplicated.map((key) => key.split("\0")[1]) });
+  }
+  if (differences.length > 0) {
+    throw guardFailure(
+      "consent-authorization-coverage-partition-partial",
+      "coverage.arm-partition",
+      "the committed census coverage matrix does not carry exactly one witnessed row identity per analyzer census arm",
+      { differences },
+    );
+  }
+  return committed;
+}
+
 export function listConsentAuthorizationCensusFixtures({
   repoRoot: rootDir = repoRoot,
   execGit = (args, options) => defaultExecGit(args, rootDir, options),
@@ -1327,6 +1672,12 @@ export function collectConsentAuthorizationCoverageViolations(coverage, schema, 
     if (row.disposition !== "declared-open" && row.owner !== undefined) {
       violations.push(`${label}: only a declared-open row carries an owning issue`);
     }
+    // A row the analyzer emits something for names the arm that emitted it; a
+    // silent row is the assertion that no arm emits anything, so it carries
+    // none. Either way the row's arm state is decided, never omitted.
+    if ((row.census === "silent") === (typeof row.arm === "string")) {
+      violations.push(`${label}: exactly a non-silent row names the analyzer census arm that decides it`);
+    }
   }
 
   if (Array.isArray(censusFixtureFiles)) {
@@ -1356,11 +1707,18 @@ export function observeConsentAuthorizationCoverageRow(row, source, artifact) {
   const unknowns = references.filter(
     (reference) => reference.referenceClass === "admitted-unknown" && reference.axis === row.axis,
   );
+  const census = matched.length > 0 ? "classified" : unknowns.length > 0 ? "admitted-unknown" : "silent";
   return {
     rowId: row.rowId,
-    census: matched.length > 0 ? "classified" : unknowns.length > 0 ? "admitted-unknown" : "silent",
+    census,
     matchedReferences: matched.length,
     admittedUnknownKinds: [...new Set(unknowns.map(({ syntaxKind }) => syntaxKind))].sort(),
+    // The arms the live analyzer actually reached for this row's own fixture,
+    // so a committed arm is bound to an executed observation and not merely to
+    // a name that also appears in the analyzer's text.
+    observedArms: [
+      ...new Set((census === "classified" ? matched : unknowns).map(({ arm }) => arm).filter(Boolean)),
+    ].sort(),
   };
 }
 
@@ -1386,6 +1744,44 @@ function siteIdentity(site) {
 
 function importKey(site) {
   return [site.file, site.constructor].join("\0");
+}
+
+/**
+ * The complete canonical identity of one owning import: which file binds which
+ * constructor, out of which written module specifier, under which local and
+ * imported names, and whether the binding is aliased or type-only. Nothing here
+ * is a summary -- a redirected specifier, a rename, or a type-only binding all
+ * change this record, so the partition digest separates them.
+ */
+function importIdentity(imported) {
+  return {
+    file: imported.file,
+    constructor: imported.constructor,
+    source: imported.source ?? null,
+    localName: imported.localName ?? null,
+    importedName: imported.importedName ?? null,
+    aliased: imported.aliased === true,
+    typeOnly: imported.typeOnly === true,
+  };
+}
+
+/**
+ * The specifier a registered owning file must write to reach the declaration
+ * module, derived from the two paths rather than committed anywhere, so the
+ * expected side of the import delta is a fact about the registry and the
+ * declaration module and never a frozen literal.
+ */
+export function expectedConsentAuthorizationImportIdentity(site) {
+  const relative = path.posix.relative(path.posix.dirname(normalizePath(site.file)), declarationModulePath);
+  return {
+    file: normalizePath(site.file),
+    constructor: site.constructor,
+    source: relative.startsWith(".") ? relative : `./${relative}`,
+    localName: site.constructor,
+    importedName: site.constructor,
+    aliased: false,
+    typeOnly: false,
+  };
 }
 
 function resolvesToDeclarationModule(imported) {
@@ -1457,7 +1853,7 @@ function addOrdinals(consumptions) {
 export function digestConsentAuthorizationPartition({ declarations, imports, consumptions }) {
   const stable = {
     declarations: declarations.map(({ file, constructor }) => ({ file, constructor })),
-    imports: imports.map(({ file, constructor }) => ({ file, constructor })),
+    imports: imports.map(importIdentity),
     consumptions: consumptions.map(({ file, owner, constructor, ordinal, classification }) => ({
       file,
       owner,
@@ -1473,7 +1869,70 @@ export function digestConsentAuthorizationPartition({ declarations, imports, con
 /* Mutation aggregate                                                        */
 /* ------------------------------------------------------------------------ */
 
-export function collectMutationAggregateViolations(aggregate, enumeration) {
+/**
+ * The provenance fields every mutation receipt and the aggregate record. They
+ * are recorded, never a frozen expectation -- but a recorded value that is not
+ * the value the live analysis produced is a stale receipt, and a stale receipt
+ * proves nothing about the head it claims.
+ */
+export const consentAuthorizationReceiptProvenanceFields = Object.freeze([
+  "environment",
+  "candidateHeadRole",
+  "candidateHead",
+  "analyzedTree",
+  "baseTipAtAnalysis",
+]);
+
+/**
+ * The provenance a receipt executed at this head must carry, derived from one
+ * live analysis result rather than restated anywhere.
+ */
+export function deriveConsentAuthorizationReceiptProvenance(result) {
+  return {
+    environment: result?.environment ?? null,
+    candidateHeadRole: result?.candidateHeadRole ?? null,
+    candidateHead: result?.candidateHead ?? null,
+    analyzedTree: result?.provenance?.roles?.analyzedTree?.sha ?? null,
+    baseTipAtAnalysis: result?.provenance?.roles?.baseTipAtAnalysis?.sha ?? null,
+  };
+}
+
+/**
+ * Governing clause of the receipt-provenance authority. A well-formed value of
+ * the right shape is not evidence: every recorded field is compared against the
+ * live expectation, so a syntactically valid forty-character sha from another
+ * commit, another environment, or another candidate-head role is rejected under
+ * a stable named failure instead of passing the schema.
+ */
+export function collectMutationProvenanceViolations(scope, observed, expected) {
+  const violations = [];
+  for (const field of consentAuthorizationReceiptProvenanceFields) {
+    const value = observed?.[field];
+    if (typeof value !== "string" || value.length === 0) {
+      violations.push(
+        finding("consent-authorization-mutation-provenance-missing", `${scope}: ${field} is absent or not a string`, {
+          scope,
+          field,
+          expected: expected?.[field] ?? null,
+          observed: value ?? null,
+        }),
+      );
+      continue;
+    }
+    if (value !== expected?.[field]) {
+      violations.push(
+        finding(
+          "consent-authorization-mutation-provenance-mismatch",
+          `${scope}: ${field} does not equal the live analysis provenance`,
+          { scope, field, expected: expected?.[field] ?? null, observed: value },
+        ),
+      );
+    }
+  }
+  return violations;
+}
+
+export function collectMutationAggregateViolations(aggregate, enumeration, options = {}) {
   const violations = [];
   const executed = aggregate.receipts.map(({ caseId }) => caseId);
   const committed = [...enumeration.cases];
@@ -1502,6 +1961,38 @@ export function collectMutationAggregateViolations(aggregate, enumeration) {
           observed: aggregate.counts[key],
         }),
       );
+    }
+  }
+
+  // Provenance authority. The aggregate and every receipt it binds are checked
+  // against one live expectation, and each receipt is checked against the
+  // aggregate as well, so no receipt can be fresh in the aggregate and stale in
+  // itself or the other way round.
+  const { expectedProvenance = null, receipts = null } = options;
+  if (expectedProvenance) {
+    violations.push(...collectMutationProvenanceViolations("aggregate", aggregate.provenance, expectedProvenance));
+  }
+  if (Array.isArray(receipts)) {
+    const bound = new Map(aggregate.receipts.map((entry) => [entry.caseId, entry]));
+    for (const receipt of receipts) {
+      const scope = `receipt:${receipt?.caseId ?? "unnamed"}`;
+      if (expectedProvenance) {
+        violations.push(...collectMutationProvenanceViolations(scope, receipt?.provenance, expectedProvenance));
+      }
+      violations.push(
+        ...collectMutationProvenanceViolations(`${scope}/aggregate`, receipt?.provenance, aggregate.provenance),
+      );
+      const entry = bound.get(receipt?.caseId);
+      const digest = sha256(JSON.stringify(receipt));
+      if (!entry || entry.sha256 !== digest) {
+        violations.push(
+          finding(
+            "consent-authorization-mutation-receipt-digest-mismatch",
+            `${scope}: the aggregate does not bind this receipt's exact bytes`,
+            { scope, expected: entry?.sha256 ?? null, observed: digest },
+          ),
+        );
+      }
     }
   }
   return violations;
@@ -1552,6 +2043,8 @@ export function analyzeConsentAuthorizationSites(options = {}) {
   const censusCoverageSchema =
     options.censusCoverageSchema ?? loadConsentAuthorizationCensusCoverageSchema({ repoRoot: authorityRoot });
   const coverageAxes = assertConsentAuthorizationCoveragePartition(censusCoverage, options.coverageAxes);
+  assertConsentAuthorizationSpecifierShapeDispositions();
+  const coverageArms = assertConsentAuthorizationCensusArmPartition(censusCoverage, options.coverageArms);
   const censusFixtureFiles =
     options.censusFixtureFiles ??
     listConsentAuthorizationCensusFixtures({ repoRoot: authorityRoot, execGit: execAuthorityGit });
@@ -1742,15 +2235,47 @@ export function analyzeConsentAuthorizationSites(options = {}) {
   };
   const added = consumptions.filter((site) => !registryKeys.has(siteKey(site))).map(siteIdentity);
   const removed = registrySites.filter((site) => !observedKeys.has(siteKey(site))).map(siteIdentity);
+
+  // The owning-import edge is part of the partition, so its delta is reported
+  // in the same terms as the consumption delta: an import redirected onto
+  // another module preserves every call and still moves the digest and names an
+  // expected and an observed identity here.
+  const expectedImportIdentities = [
+    ...new Map(
+      registrySites.map((site) => {
+        const identity = expectedConsentAuthorizationImportIdentity(site);
+        return [importKey(identity), identity];
+      }),
+    ).values(),
+  ];
+  const observedImportIdentities = imports.map(importIdentity);
+  const identityOf = (identity) => JSON.stringify(identity);
+  const observedImportIdentitySet = new Set(observedImportIdentities.map(identityOf));
+  const expectedImportIdentitySet = new Set(expectedImportIdentities.map(identityOf));
+  const addedImports = observedImportIdentities.filter(
+    (identity) => !expectedImportIdentitySet.has(identityOf(identity)),
+  );
+  const removedImports = expectedImportIdentities.filter(
+    (identity) => !observedImportIdentitySet.has(identityOf(identity)),
+  );
+
   const drift =
-    added.length > 0 || removed.length > 0 || partitionDigest !== expectedPartitionDigest
+    added.length > 0 ||
+    removed.length > 0 ||
+    addedImports.length > 0 ||
+    removedImports.length > 0 ||
+    partitionDigest !== expectedPartitionDigest
       ? {
           added,
           removed,
+          addedImports,
+          removedImports,
           previousCounts: registryCounts,
           currentCounts: partition.counts,
           previousTotal: registrySites.length,
           currentTotal: consumptions.length,
+          previousImportTotal: expectedImportIdentities.length,
+          currentImportTotal: observedImportIdentities.length,
           previousDigest: expectedPartitionDigest,
           currentDigest: partitionDigest,
         }
@@ -1759,7 +2284,7 @@ export function analyzeConsentAuthorizationSites(options = {}) {
     violations.push(
       finding(
         "consent-authorization-partition-drift",
-        `the observed partition changed: ${drift.previousTotal} registered and ${drift.currentTotal} observed consumptions, ${added.length} added and ${removed.length} removed, digest ${drift.previousDigest} to ${drift.currentDigest}`,
+        `the observed partition changed: ${drift.previousTotal} registered and ${drift.currentTotal} observed consumptions, ${added.length} added and ${removed.length} removed, ${drift.previousImportTotal} expected and ${drift.currentImportTotal} observed owning imports, ${addedImports.length} added and ${removedImports.length} removed, digest ${drift.previousDigest} to ${drift.currentDigest}`,
         { drift },
       ),
     );
@@ -1803,6 +2328,8 @@ export function analyzeConsentAuthorizationSites(options = {}) {
       counts: consentAuthorizationCoverageCounts(censusCoverage),
       axisAuthorities: consentAuthorizationCoverageAxisAuthorities,
       axes: coverageAxes,
+      arms: coverageArms,
+      specifierShapes: consentAuthorizationSpecifierShapeDispositions.map(({ shape }) => shape),
     },
     census: {
       defaultArm: "admitted-unknown",
@@ -1829,6 +2356,7 @@ export function formatConsentAuthorizationCensus(result) {
     `coverage-rows=${result.coverage.rows} classified=${result.coverage.counts.classified} declared-open=${result.coverage.counts["declared-open"]} silent-by-design=${result.coverage.counts["silent-by-design"]}`,
     `coverage-key-axis=${result.coverage.axes.key.join(",")} authority=${result.coverage.axisAuthorities.key}`,
     `coverage-specifier-axis=${result.coverage.axes.specifier.join(",")} authority=${result.coverage.axisAuthorities.specifier}`,
+    `coverage-key-arms=${result.coverage.arms.key.length} coverage-specifier-arms=${result.coverage.arms.specifier.length} specifier-shapes=${result.coverage.specifierShapes.join(",")}`,
     `census-default-arm=${result.census.defaultArm} admitted-unknowns=${result.census.admittedUnknownTotal} shapes=${
       result.census.admittedUnknowns
         .map((entry) => `${entry.axis}:${entry.arm}:${entry.expressionKind}=${entry.count}`)

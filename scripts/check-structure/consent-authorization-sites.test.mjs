@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,28 +9,39 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   ConsentAuthorizationGuardError,
   analyzeConsentAuthorizationSites,
+  assertConsentAuthorizationCensusArmPartition,
   assertConsentAuthorizationCoveragePartition,
   assertConsentAuthorizationExtensionDisposition,
+  assertConsentAuthorizationSpecifierShapeDispositions,
   candidateHeadProvenanceRole,
   collectConsentAuthorizationCoverageViolations,
   collectConsentAuthorizationRegistryViolations,
   collectFrozenProvenanceViolations,
   collectMutationAggregateViolations,
+  collectMutationProvenanceViolations,
+  consentAuthorizationAcquisitionArms,
   consentAuthorizationCaseEnumerationPath,
   consentAuthorizationCensusCoveragePath,
   consentAuthorizationCensusCoverageSchemaPath,
   consentAuthorizationCensusFixtureRoot,
+  consentAuthorizationClauseByCode,
+  consentAuthorizationCommittedCensusArms,
   consentAuthorizationCoverageAxisAuthorities,
   consentAuthorizationCoverageAxisKinds,
   consentAuthorizationCoverageCounts,
   consentAuthorizationDeclaredOpenOwner,
   consentAuthorizationExtensionDispositions,
+  consentAuthorizationReceiptProvenanceFields,
   consentAuthorizationRegistryPath,
   consentAuthorizationRegistrySchemaPath,
+  consentAuthorizationSpecifierShapeDispositions,
+  deriveConsentAuthorizationCensusArms,
   deriveConsentAuthorizationCoverageAxes,
   deriveConsentAuthorizationProvenanceOutcome,
+  deriveConsentAuthorizationReceiptProvenance,
   digestConsentAuthorizationPartition,
   enumerateConsentAuthorizationCorpus,
+  expectedConsentAuthorizationImportIdentity,
   frozenProvenanceExpectations,
   isConsentAuthorizationTestSource,
   listConsentAuthorizationCensusFixtures,
@@ -101,6 +112,7 @@ const censusCoverage = loadConsentAuthorizationCensusCoverage();
 const censusCoverageSchema = loadConsentAuthorizationCensusCoverageSchema();
 const censusFixtureFiles = listConsentAuthorizationCensusFixtures();
 const derivedCoverageAxes = deriveConsentAuthorizationCoverageAxes();
+const derivedCensusArms = deriveConsentAuthorizationCensusArms();
 const enumeration = loadConsentAuthorizationCaseEnumeration();
 const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-case-enumeration-v1.schema.json`);
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
@@ -298,6 +310,9 @@ const arbitraryFrozenSha = createHash("sha1")
   .update("consent-authorization-frozen-provenance-negative-control")
   .digest("hex");
 const absentCandidateHead = createHash("sha1").update("consent-authorization-absent-candidate-head").digest("hex");
+// Well-formed, forty lowercase hexadecimal characters, and not any value the
+// live analysis produced: exactly the shape a stale receipt carries.
+const staleProvenanceSha = createHash("sha1").update("consent-authorization-stale-receipt-provenance").digest("hex");
 
 function observationOf(result, expectedHead) {
   return {
@@ -395,6 +410,32 @@ function buildMainAdvanceEvidence() {
   return { before, after, head, advanced };
 }
 
+/**
+ * One owning import redirected onto a same-named module the declaration does
+ * not live in, with all six registered calls preserved. The consumption
+ * partition is byte-for-byte what the registry carries; only the owning-import
+ * edge moved.
+ */
+const redirectedImportSpecifier = "../domain/consent-recording-authorization-alternate";
+
+function buildRedirectedImportEvidence() {
+  const { scratch } = buildProductScratchRepo(
+    "consent-import-redirect-",
+    new Map([
+      [
+        "bounded-contexts/identity/features/consents/api/terms-route.ts",
+        repoFile(`${fixtureRoot}/terms-route.ts`).replace(
+          '"../domain/consent-recording-authorization"',
+          `"${redirectedImportSpecifier}"`,
+        ),
+      ],
+    ]),
+  );
+  const result = analyzeScratch(scratch);
+  rmSync(scratch, { recursive: true, force: true });
+  return result;
+}
+
 function buildPlantedSiteEvidence(prefix, relativePath, fixturePath) {
   const { scratch } = buildProductScratchRepo(prefix, new Map([[relativePath, repoFile(fixturePath)]]));
   const result = analyzeScratch(scratch);
@@ -472,6 +513,32 @@ const arbitraryControlResult = analyzeScratch(retainedArbitraryControlScratch);
 const unresolvedCandidateHead = buildUnresolvedCandidateHeadEvidence();
 const builtVersusClean = buildBuiltVersusCleanEvidence();
 const mainAdvance = buildMainAdvanceEvidence();
+const redirectedImportResult = buildRedirectedImportEvidence();
+
+/**
+ * The coordinated row-plus-fixture omission the census arm authority exists to
+ * catch, run through the whole guard once here so no individual test pays for a
+ * repository analysis.
+ */
+const omittedCoverageRowId = "specifier-no-substitution-template-dynamic-import";
+const coverageWithoutOmittedRow = {
+  ...censusCoverage,
+  rows: censusCoverage.rows.filter(({ rowId }) => rowId !== omittedCoverageRowId),
+};
+const censusFixturesWithoutOmittedRow = censusFixtureFiles.filter(
+  (file) => !file.endsWith(`/${omittedCoverageRowId}.ts`),
+);
+const coordinatedOmissionGuardFailure = (() => {
+  try {
+    analyzeScratch(retainedPartitionNarrowScratch, {
+      censusCoverage: coverageWithoutOmittedRow,
+      censusFixtureFiles: censusFixturesWithoutOmittedRow,
+    });
+  } catch (error) {
+    return error;
+  }
+  return null;
+})();
 const driftResult = buildPlantedSiteEvidence(
   "consent-drift-",
   "arbitrary/authorization.ts",
@@ -1135,7 +1202,7 @@ function sourceMutationFor(descriptor) {
     (ts.isBindingElement(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) &&
     node.parent.propertyName === node
   ) {
-    return node.text;
+    return { constructor: node.text, axis: "key", arm: "computed-property:binding-element-property-name" };
   }
   if (
     ts.isComputedPropertyName(node.parent) &&
@@ -1143,7 +1210,7 @@ function sourceMutationFor(descriptor) {
     ts.isBindingElement(node.parent.parent) &&
     node.parent.parent.propertyName === node.parent
   ) {
-    return node.text;
+    return { constructor: node.text, axis: "key", arm: "computed-property:binding-element-computed-name" };
   }`,
       "",
     ],
@@ -1167,9 +1234,19 @@ function sourceMutationFor(descriptor) {
       '  if (registry.sites.length !== 6) violations.push("registry must contain exactly six sites");',
       '  if (false && registry.sites.length !== 6) violations.push("registry must contain exactly six sites");',
     ],
+    // The governing variable is the observed partition itself, not one clause
+    // that reads it. Narrowing the observed consumptions to the rows the
+    // registry already carries is the historical defect in one rewrite, and it
+    // bypasses every consumer at once -- the unregistered-site clause, the
+    // added/removed delta, the counts and the digest -- so the mutant guard is
+    // green rather than red at a later clause.
     "MUT-AC6-PARTITION-NARROW-REGISTRY-HITS": [
-      "    } else if (!registryKeys.has(siteKey(site))) {",
-      "    } else if (false && !registryKeys.has(siteKey(site))) {",
+      `  const consumptions = addOrdinals(references.filter((reference) => reference.referenceClass === "consumption")).map(
+    (site) => ({ ...site, classification: constructorClassifications.get(site.constructor) }),
+  );`,
+      `  const consumptions = addOrdinals(references.filter((reference) => reference.referenceClass === "consumption"))
+    .map((site) => ({ ...site, classification: constructorClassifications.get(site.constructor) }))
+    .filter((site) => (Array.isArray(registry?.sites) ? registry.sites : []).some((row) => siteKey(row) === siteKey(site)));`,
     ],
     "MUT-AC10-CORPUS-EXTENSION-OMIT-MTS": [
       '    { extension: ts.Extension.Mts, scriptKind: "TS", reason: "TypeScript ECMAScript module" },',
@@ -1233,6 +1310,159 @@ function sourceMutationFor(descriptor) {
   if (!pair) throw new Error(`${id} has no declared source mutation`);
   return { kind: "clause-order", source, candidateFragment: pair[0], mutantFragment: pair[1] };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Executed guard -- real processes, read-back exit codes and clauses          */
+/* -------------------------------------------------------------------------- */
+
+const partitionNarrowCaseId = "MUT-AC6-PARTITION-NARROW-REGISTRY-HITS";
+
+/**
+ * The rewrite this case carried before the observed-partition repair. It
+ * disables one clause that reads the observed partition and leaves every other
+ * consumer of it intact, so the guard it produces is still nonzero -- at the
+ * later partition-drift clause, not at the clause the receipt claimed. It is
+ * retained as the meta-test's negative control: the harness must reject it.
+ */
+const priorPartitionNarrowMutant = Object.freeze([
+  "    } else if (!registryKeys.has(siteKey(site))) {",
+  "    } else if (false && !registryKeys.has(siteKey(site))) {",
+]);
+
+/**
+ * A standalone entrypoint that runs the analyzer over a checkout and applies
+ * the shipped entrypoint's own exit rule, then applies the unchanged acceptance
+ * assertion for the governing AC -- the unregistered seventh consumption at an
+ * arbitrary path is reported -- and exits with its result. Everything the
+ * receipt records about this case is read back off a finished process.
+ */
+function guardRunnerSource() {
+  const provenanceModule = pathToFileURL(
+    path.join(repoRoot, "scripts/check-structure/guard-candidate-provenance.mjs"),
+  ).href;
+  return `import { execFileSync } from "node:child_process";
+
+const [moduleUrl, scratch, authorityRoot] = process.argv.slice(2);
+const guard = await import(moduleUrl);
+const { deriveGuardCandidateProvenance } = await import(${JSON.stringify(provenanceModule)});
+const execGit = (args, options = {}) =>
+  execFileSync("git", args, {
+    cwd: scratch,
+    encoding: "buffer",
+    stdio: ["pipe", "pipe", "pipe"],
+    maxBuffer: 1024 * 1024 * 1024,
+    ...options,
+  });
+
+const result = guard.analyzeConsentAuthorizationSites({
+  repoRoot: scratch,
+  authorityRoot,
+  registry: guard.loadConsentAuthorizationRegistry({ repoRoot: authorityRoot }),
+  schema: guard.loadConsentAuthorizationRegistrySchema({ repoRoot: authorityRoot }),
+  execGit,
+  deriveProvenance: () => deriveGuardCandidateProvenance({ env: {}, execGit: (args) => execGit(args) }),
+});
+
+const guardExitCode = result.violations.length > 0 ? 1 : 0;
+const acceptanceClauseId = guard.consentAuthorizationClauseByCode["consent-authorization-site-unregistered"];
+const reported = result.violations.filter(
+  (violation) =>
+    violation.code === "consent-authorization-site-unregistered" && violation.site?.owner === "seventhProbe",
+);
+const acceptancePassed = reported.length === 1;
+process.stdout.write(
+  JSON.stringify({
+    guardExitCode,
+    guardViolationCodes: result.violations.map((violation) => violation.code),
+    guardFirstFailingClauseId: result.violations[0]?.clause ?? "",
+    acceptanceClauseId,
+    acceptancePassed,
+  }) + "\\n",
+);
+process.stdout.write(guard.formatConsentAuthorizationCensus(result) + "\\n");
+if (!acceptancePassed) {
+  process.stderr.write("acceptance failed at " + acceptanceClauseId + "\\n");
+}
+process.exitCode = acceptancePassed ? 0 : 1;
+`;
+}
+
+function runGuardProbe(runnerPath, modulePath, scratchRepo) {
+  const outcome = spawnSync(process.execPath, [runnerPath, pathToFileURL(modulePath).href, scratchRepo, repoRoot], {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    maxBuffer: 1024 * 1024 * 64,
+  });
+  const stdout = outcome.stdout ?? "";
+  const stderr = outcome.stderr ?? "";
+  if (!stdout.startsWith("{")) {
+    throw new Error(
+      `${path.basename(modulePath)} produced no executed-guard report (status=${outcome.status}): ${stderr.slice(0, 800)}`,
+    );
+  }
+  const report = JSON.parse(stdout.slice(0, stdout.indexOf("\n")));
+  const acceptanceExitCode = outcome.status ?? 1;
+  return {
+    acceptanceClauseId: report.acceptanceClauseId,
+    run: {
+      guardExitCode: report.guardExitCode,
+      guardViolationCodes: report.guardViolationCodes,
+      guardFirstFailingClauseId: report.guardFirstFailingClauseId,
+      acceptanceExitCode,
+      acceptanceResult: acceptanceExitCode === 0 ? "pass" : "fail",
+      acceptanceFirstFailingClauseId: acceptanceExitCode === 0 ? "" : report.acceptanceClauseId,
+      stdoutSha256: sha256(stdout),
+      stderrSha256: sha256(stderr),
+    },
+  };
+}
+
+/**
+ * A mutant whose own guard is still nonzero has not bypassed the property the
+ * case claims; whatever clause it fails at is not the clause the rewrite
+ * targeted, so any first-failing clause written from it would be manufactured.
+ */
+function assertExecutedMutantBypasses(caseId, run) {
+  if (run.guardExitCode !== 0) {
+    throw new Error(
+      `${caseId} mutant guard still exits ${run.guardExitCode} at ${run.guardFirstFailingClauseId}, so the rewrite does not bypass every consumer of the governing input`,
+    );
+  }
+  return run;
+}
+
+function buildExecutedPartitionNarrowEvidence() {
+  const descriptor = mutationCases.find(({ caseId }) => caseId === partitionNarrowCaseId);
+  const mutation = sourceMutationFor(descriptor);
+  const scratch = mkdtempSync(path.join(tmpdir(), "consent-executed-guard-"));
+  retainedScratchRepos.push(scratch);
+  const runnerPath = path.join(scratch, "guard-runner.mjs");
+  writeFileSync(runnerPath, guardRunnerSource());
+  const write = (name, source) => {
+    const target = path.join(scratch, name);
+    writeFileSync(target, source);
+    return target;
+  };
+  const mutantSource = mutation.source.replace(mutation.candidateFragment, mutation.mutantFragment);
+  const priorSource = mutation.source.replace(priorPartitionNarrowMutant[0], priorPartitionNarrowMutant[1]);
+  const probe = (name, source) => runGuardProbe(runnerPath, write(name, source), retainedPartitionNarrowScratch);
+  const candidate = probe("executed-candidate.mjs", mutation.source);
+  const mutant = probe("executed-mutant.mjs", mutantSource);
+  const prior = probe("executed-prior-mutant.mjs", priorSource);
+  return {
+    descriptor,
+    command: "node <runner> <analyzer-module-url> <checkout> <authority-root>",
+    runner: `${suitePath}#guardRunnerSource`,
+    acceptanceClauseId: candidate.acceptanceClauseId,
+    candidate: candidate.run,
+    mutant: mutant.run,
+    priorMutant: prior.run,
+    priorRewrote: priorSource !== mutation.source,
+    mutantRewrote: mutantSource !== mutation.source,
+  };
+}
+
+const executedPartitionNarrow = buildExecutedPartitionNarrowEvidence();
 
 const neutralOwnerSource = `function neutralRegisteredOwner() {
   authorizeConsentForActor(context);
@@ -1602,14 +1832,28 @@ function discriminate(descriptor, candidateModule, mutantModule) {
     };
   }
 
-  if (id === "MUT-AC6-PARTITION-NARROW-REGISTRY-HITS") {
-    const candidate = analyzeScratch(retainedPartitionNarrowScratch, {}, candidateModule);
-    const mutant = analyzeScratch(retainedPartitionNarrowScratch, {}, mutantModule);
+  if (id === partitionNarrowCaseId) {
+    // Both sides are read back off finished processes: the candidate's guard is
+    // nonzero and first fails at the governing clause, and the mutant's guard is
+    // green outright, which is what proves the one rewrite bypassed every
+    // consumer of the observed partition rather than only the clause it names.
+    const { candidate, mutant } = executedPartitionNarrow;
     return {
-      candidateGreen: candidate.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
-      mutantRed: !mutant.violations.some(({ code }) => code === "consent-authorization-site-unregistered"),
-      candidateObservation: "an unregistered consumption at an arbitrary path is reported",
-      mutantObservation: "narrowing to registry hits hides the unregistered consumption",
+      candidateGreen:
+        candidate.acceptanceExitCode === 0 &&
+        candidate.acceptanceResult === "pass" &&
+        candidate.guardExitCode === 1 &&
+        candidate.guardFirstFailingClauseId === descriptor.clauseId,
+      mutantRed:
+        mutant.acceptanceExitCode > 0 &&
+        mutant.acceptanceResult === "fail" &&
+        mutant.acceptanceFirstFailingClauseId === descriptor.clauseId &&
+        mutant.guardExitCode === 0 &&
+        mutant.guardViolationCodes.length === 0,
+      candidateObservation:
+        "the executed guard exits nonzero for the unregistered consumption at an arbitrary path and first fails at the observed-completeness clause",
+      mutantObservation:
+        "narrowing the observed partition to registry hits exits the executed guard green, so the acceptance test fails at the observed-completeness clause",
     };
   }
 
@@ -1810,6 +2054,16 @@ async function generateReceipt(descriptor) {
         throw new Error(`${descriptor.caseId} changed a preserved committed input`);
       }
 
+      // The executed cases record what two real processes did. A mutant whose
+      // own guard is still nonzero has not bypassed the property it claims to,
+      // so its "first failing clause" would be manufactured; the harness
+      // rejects it here rather than writing it into a receipt.
+      const executed = descriptor.caseId === partitionNarrowCaseId ? executedPartitionNarrow : null;
+      if (executed) assertExecutedMutantBypasses(descriptor.caseId, executed.mutant);
+      const candidateExitCode = executed ? executed.candidate.acceptanceExitCode : outcome.candidateGreen ? 0 : 1;
+      const mutantExitCode = executed ? executed.mutant.acceptanceExitCode : outcome.mutantRed ? 1 : 0;
+      const firstFailingClauseId = executed ? executed.mutant.acceptanceFirstFailingClauseId : descriptor.clauseId;
+
       const receipt = {
         contractVersion: "consent-authorization-mutation/v1",
         caseId: descriptor.caseId,
@@ -1842,28 +2096,43 @@ async function generateReceipt(descriptor) {
         mutationActive: true,
         preservedVariableHashes: { candidate: preservedBefore, mutant: preservedAfter },
         candidateSubrun: {
-          exitCode: 0,
-          result: "pass",
+          exitCode: candidateExitCode,
+          result: candidateExitCode === 0 ? "pass" : "fail",
           observation: outcome.candidateObservation,
-          clauseTrace: ["scratch.import", "preserved-inputs.equal", `${descriptor.clauseId}:pass`],
-          stdoutSha256: sha256(outcome.candidateObservation),
-          stderrSha256: sha256(""),
+          clauseTrace: executed
+            ? ["scratch.import", "preserved-inputs.equal", "guard.executed", `${descriptor.clauseId}:pass`]
+            : ["scratch.import", "preserved-inputs.equal", `${descriptor.clauseId}:pass`],
+          stdoutSha256: executed ? executed.candidate.stdoutSha256 : sha256(outcome.candidateObservation),
+          stderrSha256: executed ? executed.candidate.stderrSha256 : sha256(""),
         },
         mutantSubrun: {
-          exitCode: 1,
-          result: "fail",
+          exitCode: mutantExitCode,
+          result: mutantExitCode === 0 ? "pass" : "fail",
           observation: outcome.mutantObservation,
-          clauseTrace: ["scratch.import", "preserved-inputs.equal", descriptor.clauseId],
-          stdoutSha256: sha256(outcome.mutantObservation),
-          stderrSha256: sha256(descriptor.clauseId),
+          clauseTrace: executed
+            ? ["scratch.import", "preserved-inputs.equal", "guard.executed", firstFailingClauseId]
+            : ["scratch.import", "preserved-inputs.equal", descriptor.clauseId],
+          stdoutSha256: executed ? executed.mutant.stdoutSha256 : sha256(outcome.mutantObservation),
+          stderrSha256: executed ? executed.mutant.stderrSha256 : sha256(descriptor.clauseId),
         },
+        ...(executed
+          ? {
+              executedGuard: {
+                command: executed.command,
+                runner: executed.runner,
+                acceptanceClauseId: executed.acceptanceClauseId,
+                candidate: executed.candidate,
+                mutant: executed.mutant,
+              },
+            }
+          : {}),
         expected: {
           violation: descriptor.violation,
           owner: descriptor.owner,
           surface: descriptor.surface,
           digest: registry.partitionDigest,
         },
-        firstFailingClauseId: descriptor.clauseId,
+        firstFailingClauseId,
         noEarlierClause,
         timestamps: { startedAt, finishedAt: new Date().toISOString() },
         status: "valid",
@@ -2142,6 +2411,195 @@ describe("Consent authorization sites", () => {
     expect(driftResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 3 });
     expect(driftResult.drift.previousDigest).toBe(registry.partitionDigest);
     expect(driftResult.drift.currentDigest).not.toBe(registry.partitionDigest);
+  });
+
+  it("fails an owning import redirected onto another module while every registered call is preserved", () => {
+    process.stdout.write(
+      `owning-import-redirect=${JSON.stringify({
+        drift: redirectedImportResult.drift,
+        codes: redirectedImportResult.violations.map(({ code }) => code).toSorted(),
+      })}\n`,
+    );
+
+    // The consumption partition did not move: six registered calls, nothing
+    // added, nothing removed. Only the owning-import edge changed.
+    expect(redirectedImportResult.partition.consumptions).toHaveLength(6);
+    expect(redirectedImportResult.drift.added).toEqual([]);
+    expect(redirectedImportResult.drift.removed).toEqual([]);
+    expect(redirectedImportResult.drift.previousTotal).toBe(6);
+    expect(redirectedImportResult.drift.currentTotal).toBe(6);
+    expect(redirectedImportResult.drift.currentCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
+
+    // The digest separates the two owning-import identities, so drift is
+    // reported rather than the redirect passing as an unchanged partition.
+    expect(redirectedImportResult.violations.some(({ code }) => code === "consent-authorization-partition-drift")).toBe(
+      true,
+    );
+    expect(redirectedImportResult.drift.previousDigest).toBe(registry.partitionDigest);
+    expect(redirectedImportResult.drift.currentDigest).not.toBe(registry.partitionDigest);
+
+    // And the delta names the expected and observed import identities, so the
+    // report is readable without recomputing the digest.
+    const redirectedFile = "bounded-contexts/identity/features/consents/api/terms-route.ts";
+    expect(redirectedImportResult.drift.addedImports).toEqual([
+      {
+        file: redirectedFile,
+        constructor: "authorizeConsentForActor",
+        source: redirectedImportSpecifier,
+        localName: "authorizeConsentForActor",
+        importedName: "authorizeConsentForActor",
+        aliased: false,
+        typeOnly: false,
+      },
+    ]);
+    expect(redirectedImportResult.drift.removedImports).toEqual([
+      expectedConsentAuthorizationImportIdentity(registry.sites.find(({ file }) => file === redirectedFile)),
+    ]);
+    expect(redirectedImportResult.drift.previousImportTotal).toBe(5);
+    expect(redirectedImportResult.drift.currentImportTotal).toBe(5);
+    expect(redirectedImportResult.violations.some(({ code }) => code === "consent-authorization-import-invalid")).toBe(
+      true,
+    );
+
+    // The real tree is the control: identical owning-import identities on both
+    // sides, so no delta and no drift.
+    expect(realTreeResult.drift).toBe(null);
+    expect(registry.sites.map((site) => expectedConsentAuthorizationImportIdentity(site).source).every(Boolean)).toBe(
+      true,
+    );
+  });
+
+  it("carries one witnessed census arm identity per committed coverage row", () => {
+    const committedArms = consentAuthorizationCommittedCensusArms(censusCoverage);
+    process.stdout.write(
+      `census-arms=${JSON.stringify({
+        derived: derivedCensusArms,
+        committed: committedArms,
+        specifierShapes: consentAuthorizationSpecifierShapeDispositions,
+        acquisitions: consentAuthorizationAcquisitionArms,
+      })}\n`,
+    );
+    expect(assertConsentAuthorizationSpecifierShapeDispositions()).toHaveLength(4);
+    expect(derivedCensusArms.key).toEqual(committedArms.key);
+    expect(derivedCensusArms.specifier).toEqual(committedArms.specifier);
+
+    // Sixteen specifier shapes, sixteen identities -- not four parent kinds.
+    expect(derivedCensusArms.specifier).toHaveLength(16);
+    expect(censusCoverage.rows.filter(({ axis }) => axis === "specifier")).toHaveLength(16);
+    expect(consentAuthorizationCoverageAxisKinds(censusCoverage).specifier).toHaveLength(4);
+    for (const acquisition of consentAuthorizationAcquisitionArms) {
+      for (const { shape } of consentAuthorizationSpecifierShapeDispositions) {
+        expect(derivedCensusArms.specifier).toContain(`${acquisition}:${shape}`);
+      }
+    }
+
+    // Every non-silent row's arm is one the live analyzer actually reached over
+    // that row's own fixture, and the silent row reaches none.
+    const observed = censusCoverage.rows.map((row) => ({
+      rowId: row.rowId,
+      arm: row.arm ?? null,
+      observedArms: observeConsentAuthorizationCoverageRow(row, repoFile(row.fixture), ownerContexts).observedArms,
+    }));
+    process.stdout.write(`census-arm-observations=${JSON.stringify(observed)}\n`);
+    expect(
+      observed.filter(({ arm, observedArms }) =>
+        arm === null ? observedArms.length > 0 : !observedArms.includes(arm),
+      ),
+    ).toEqual([]);
+    expect(observed.filter(({ arm }) => arm === null)).toHaveLength(1);
+    expect(assertConsentAuthorizationCensusArmPartition(censusCoverage, derivedCensusArms)).toEqual(committedArms);
+  });
+
+  it("fails closed when a census coverage row and its fixture are removed together", () => {
+    const removedRowId = omittedCoverageRowId;
+    const withoutRow = coverageWithoutOmittedRow;
+    const withoutFixture = censusFixturesWithoutOmittedRow;
+    expect(withoutRow.rows).toHaveLength(censusCoverage.rows.length - 1);
+    expect(withoutFixture).toHaveLength(censusFixtureFiles.length - 1);
+
+    const capture = (run) => {
+      try {
+        run();
+      } catch (error) {
+        return error;
+      }
+      return null;
+    };
+
+    // The row-level and kind-level authorities are both blind to this omission:
+    // the fixture bijection shrinks with the row, and sixteen specifier shapes
+    // share four parent node kinds. Recorded rather than assumed.
+    const survivors = {
+      fixtureBijection: collectConsentAuthorizationCoverageViolations(withoutRow, censusCoverageSchema, {
+        censusFixtureFiles: withoutFixture,
+      }),
+      kindPartition: capture(() => assertConsentAuthorizationCoveragePartition(withoutRow, derivedCoverageAxes)),
+    };
+    process.stdout.write(`coordinated-omission-survivors=${JSON.stringify(survivors)}\n`);
+    expect(survivors.fixtureBijection).toEqual([]);
+    expect(survivors.kindPartition).toBe(null);
+
+    // The arm authority is not.
+    const omitted = capture(() => assertConsentAuthorizationCensusArmPartition(withoutRow, derivedCensusArms));
+    expect(omitted).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(omitted.code).toBe("consent-authorization-coverage-partition-partial");
+    expect(omitted.details.differences).toEqual([
+      { axis: "specifier", unwitnessed: ["dynamic-import:no-substitution-template"], underived: [] },
+    ]);
+
+    // And the guard consults it, so the omission is red at the entrypoint too.
+    expect(coordinatedOmissionGuardFailure).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(coordinatedOmissionGuardFailure.code).toBe("consent-authorization-coverage-partition-partial");
+    expect(coordinatedOmissionGuardFailure.reachedClause).toBe("coverage.arm-partition");
+
+    // The other direction: a committed row naming an arm the analyzer cannot
+    // reach, and a duplicated row identity.
+    const underived = capture(() =>
+      assertConsentAuthorizationCensusArmPartition(
+        {
+          ...censusCoverage,
+          rows: censusCoverage.rows.map((row) =>
+            row.rowId === removedRowId ? { ...row, arm: "dynamic-import:unreachable-shape" } : row,
+          ),
+        },
+        derivedCensusArms,
+      ),
+    );
+    expect(underived).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(underived.details.differences).toEqual([
+      {
+        axis: "specifier",
+        unwitnessed: ["dynamic-import:no-substitution-template"],
+        underived: ["dynamic-import:unreachable-shape"],
+      },
+    ]);
+
+    const silentRow = censusCoverage.rows.find(({ census }) => census === "silent");
+    const withoutSilence = capture(() =>
+      assertConsentAuthorizationCensusArmPartition(
+        { ...censusCoverage, rows: censusCoverage.rows.filter((row) => row !== silentRow) },
+        derivedCensusArms,
+      ),
+    );
+    expect(withoutSilence).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(withoutSilence.details.differences).toEqual([
+      { axis: "census-outcome", unwitnessed: ["silent"], underived: [] },
+    ]);
+
+    // A row that carries an arm where it must carry none, and one that carries
+    // none where it must carry an arm, are both rejected by the row validator.
+    expect(
+      collectConsentAuthorizationCoverageViolations(
+        {
+          ...censusCoverage,
+          rows: censusCoverage.rows.map((row) =>
+            row === silentRow ? { ...row, arm: "consumption:direct-identifier" } : row,
+          ),
+        },
+        censusCoverageSchema,
+        { censusFixtureFiles },
+      ).some((entry) => entry.includes("analyzer census arm")),
+    ).toBe(true);
   });
 
   it("fails deletion of a registered site", () => {
@@ -2485,6 +2943,148 @@ describe("Consent authorization sites", () => {
     ]);
   });
 
+  it("rejects a stale but well-formed receipt and aggregate provenance", () => {
+    const live = deriveConsentAuthorizationReceiptProvenance(realTreeResult);
+    const receiptFor = (provenance, caseId = "MUT-PROBE") => ({ caseId, provenance });
+    const aggregateFor = (provenance, receipts) => ({
+      provenance,
+      receipts: receipts.map((receipt) => ({ caseId: receipt.caseId, sha256: sha256(JSON.stringify(receipt)) })),
+      counts: {
+        total: receipts.length,
+        candidateGreen: receipts.length,
+        mutantRed: receipts.length,
+        active: receipts.length,
+        preserved: receipts.length,
+      },
+    });
+    const enumerationFor = (receipts) => ({ cases: receipts.map(({ caseId }) => caseId) });
+    const codesFor = (violations) => violations.map(({ code, field }) => [code, field]).toSorted();
+
+    const controls = [
+      { name: "fresh exact head", provenance: live },
+      { name: "stale candidate head", provenance: { ...live, candidateHead: staleProvenanceSha } },
+      { name: "stale analyzed tree", provenance: { ...live, analyzedTree: staleProvenanceSha } },
+      { name: "stale base tip", provenance: { ...live, baseTipAtAnalysis: staleProvenanceSha } },
+      { name: "other environment", provenance: { ...live, environment: "merge-group" } },
+      { name: "other candidate-head role", provenance: { ...live, candidateHeadRole: "analyzedTree" } },
+      { name: "malformed sha", provenance: { ...live, candidateHead: staleProvenanceSha.slice(0, 39) } },
+      { name: "missing field", provenance: { ...live, analyzedTree: undefined } },
+    ];
+    const observed = controls.map((control) => ({
+      name: control.name,
+      executable: codesFor(collectMutationProvenanceViolations("receipt:probe", control.provenance, live)),
+      schema: validateAgainstSchema(control.provenance, receiptSchema.properties.provenance).length,
+    }));
+    process.stdout.write(`receipt-provenance-controls=${JSON.stringify(observed)}\n`);
+
+    // The three commit-sha fields, the environment and the role are all
+    // rejected under one stable named failure; a value the schema already
+    // rejects keeps being rejected there too.
+    expect(observed[0]).toEqual({ name: "fresh exact head", executable: [], schema: 0 });
+    expect(observed.slice(1, 6).map(({ executable }) => executable)).toEqual([
+      [["consent-authorization-mutation-provenance-mismatch", "candidateHead"]],
+      [["consent-authorization-mutation-provenance-mismatch", "analyzedTree"]],
+      [["consent-authorization-mutation-provenance-mismatch", "baseTipAtAnalysis"]],
+      [["consent-authorization-mutation-provenance-mismatch", "environment"]],
+      [["consent-authorization-mutation-provenance-mismatch", "candidateHeadRole"]],
+    ]);
+    // The four stale-but-valid controls are invisible to the schema; that is
+    // the whole reason the executable authority exists.
+    expect(observed.slice(1, 5).map(({ schema }) => schema)).toEqual([0, 0, 0, 0]);
+    expect(observed[6].executable).toEqual([["consent-authorization-mutation-provenance-mismatch", "candidateHead"]]);
+    expect(observed[6].schema).toBeGreaterThan(0);
+    expect(observed[7].executable).toEqual([["consent-authorization-mutation-provenance-missing", "analyzedTree"]]);
+    expect(observed[7].schema).toBeGreaterThan(0);
+    expect(consentAuthorizationReceiptProvenanceFields).toHaveLength(5);
+
+    // Aggregate-level: a stale aggregate, a receipt that disagrees with an
+    // otherwise fresh aggregate, and a receipt the aggregate does not bind.
+    const fresh = receiptFor(live);
+    expect(
+      collectMutationAggregateViolations(aggregateFor(live, [fresh]), enumerationFor([fresh]), {
+        expectedProvenance: live,
+        receipts: [fresh],
+      }),
+    ).toEqual([]);
+
+    const staleAggregate = collectMutationAggregateViolations(
+      aggregateFor({ ...live, candidateHead: staleProvenanceSha }, [fresh]),
+      enumerationFor([fresh]),
+      { expectedProvenance: live, receipts: [fresh] },
+    );
+    expect(staleAggregate.map(({ code, scope }) => [code, scope]).toSorted()).toEqual([
+      ["consent-authorization-mutation-provenance-mismatch", "aggregate"],
+      ["consent-authorization-mutation-provenance-mismatch", "receipt:MUT-PROBE/aggregate"],
+    ]);
+
+    const staleReceipt = receiptFor({ ...live, analyzedTree: staleProvenanceSha });
+    expect(
+      collectMutationAggregateViolations(aggregateFor(live, [staleReceipt]), enumerationFor([staleReceipt]), {
+        expectedProvenance: live,
+        receipts: [staleReceipt],
+      })
+        .map(({ code, scope }) => [code, scope])
+        .toSorted(),
+    ).toEqual([
+      ["consent-authorization-mutation-provenance-mismatch", "receipt:MUT-PROBE"],
+      ["consent-authorization-mutation-provenance-mismatch", "receipt:MUT-PROBE/aggregate"],
+    ]);
+
+    expect(
+      collectMutationAggregateViolations(aggregateFor(live, [receiptFor(live)]), enumerationFor([fresh]), {
+        expectedProvenance: live,
+        receipts: [{ ...fresh, command: "an unbound rewrite" }],
+      }).map(({ code }) => code),
+    ).toEqual(["consent-authorization-mutation-receipt-digest-mismatch"]);
+  });
+
+  it("proves the executed guard, and rejects a mutant whose own guard is still nonzero", () => {
+    const { candidate, mutant, priorMutant, priorRewrote, mutantRewrote, acceptanceClauseId } = executedPartitionNarrow;
+    process.stdout.write(
+      `executed-partition-narrow=${JSON.stringify({ acceptanceClauseId, candidate, mutant, priorMutant })}\n`,
+    );
+    expect(mutantRewrote).toBe(true);
+    expect(priorRewrote).toBe(true);
+    expect(acceptanceClauseId).toBe(consentAuthorizationClauseByCode["consent-authorization-site-unregistered"]);
+
+    // The corrected candidate stays red for the seventh site, and the clause it
+    // first fails at is read back off the finished process.
+    expect(candidate.guardExitCode).toBe(1);
+    expect(candidate.guardViolationCodes).toContain("consent-authorization-site-unregistered");
+    expect(candidate.guardFirstFailingClauseId).toBe("reconciliation.observed-completeness");
+    expect(candidate.acceptanceExitCode).toBe(0);
+    expect(candidate.acceptanceResult).toBe("pass");
+    expect(candidate.acceptanceFirstFailingClauseId).toBe("");
+
+    // The one-rewrite bypass mutant's own guard is green -- no clause is
+    // reached at all -- so the unchanged acceptance test is red at the intended
+    // clause rather than at a later one.
+    expect(mutant.guardExitCode).toBe(0);
+    expect(mutant.guardViolationCodes).toEqual([]);
+    expect(mutant.guardFirstFailingClauseId).toBe("");
+    expect(mutant.acceptanceExitCode).toBeGreaterThan(0);
+    expect(mutant.acceptanceResult).toBe("fail");
+    expect(mutant.acceptanceFirstFailingClauseId).toBe("reconciliation.observed-completeness");
+    expect(assertExecutedMutantBypasses(partitionNarrowCaseId, mutant)).toBe(mutant);
+
+    // The rewrite this case carried before the repair disabled one clause and
+    // left the rest of the partition's consumers intact: its guard is still
+    // nonzero, at a later clause, so the harness refuses it.
+    expect(priorMutant.guardExitCode).toBe(1);
+    expect(priorMutant.guardViolationCodes).not.toContain("consent-authorization-site-unregistered");
+    expect(priorMutant.guardViolationCodes).toContain("consent-authorization-partition-drift");
+    expect(priorMutant.guardFirstFailingClauseId).toBe("reconciliation.partition-digest");
+    expect(() => assertExecutedMutantBypasses(partitionNarrowCaseId, priorMutant)).toThrow(
+      /mutant guard still exits 1 at reconciliation\.partition-digest/,
+    );
+
+    // Every code the guard can report names the clause it is decided at, so a
+    // first failing clause is always readable off a run.
+    expect(Object.values(consentAuthorizationClauseByCode).every((clause) => clause.includes("."))).toBe(true);
+    expect(realTreeResult.violations).toEqual([]);
+    expect(driftResult.violations.every(({ clause }) => typeof clause === "string" && clause.length > 0)).toBe(true);
+  });
+
   it("rejects nested unknown, out-of-range, and date-only registry and receipt data", () => {
     const nested = readJsonFixture(`${fixtureRoot}/registry/nested-unknown.json`);
     expect(validateAgainstSchema(nested, registrySchema).some((entry) => entry.includes("unknown member"))).toBe(true);
@@ -2711,7 +3311,14 @@ it("matches executed receipts against the committed case enumeration", async () 
   process.stdout.write(`${JSON.stringify(aggregate)}\n`);
 
   expect(validateAgainstSchema(aggregate, aggregateSchema)).toEqual([]);
-  expect(collectMutationAggregateViolations(aggregate, enumeration)).toEqual([]);
+  // The provenance authority runs over the aggregate and over every receipt it
+  // binds, against the live analysis rather than against anything committed.
+  expect(
+    collectMutationAggregateViolations(aggregate, enumeration, {
+      expectedProvenance: deriveConsentAuthorizationReceiptProvenance(realTreeResult),
+      receipts,
+    }),
+  ).toEqual([]);
   expect(aggregate.receipts.map(({ caseId }) => caseId).toSorted()).toEqual([...enumeration.cases].toSorted());
   expect(new Set(aggregate.receipts.map(({ caseId }) => caseId)).size).toBe(enumeration.reconciliation.total);
   expect(aggregate.counts).toEqual({

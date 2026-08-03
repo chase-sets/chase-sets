@@ -378,6 +378,125 @@
         }
       }
     },
+    "executedGuard": {
+      "type": "object",
+      "description": "A real out-of-process execution of the guard and of the unchanged acceptance test, for the candidate and for the mutant. Every exit code, violation code and clause here is read back off a finished process; none of it is asserted about the run.",
+      "additionalProperties": false,
+      "required": ["command", "runner", "acceptanceClauseId", "candidate", "mutant"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptanceClauseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate": {
+          "description": "The candidate side, written out in full rather than referenced so the schema stays recursively closed under the committed validator.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "guardExitCode",
+            "guardViolationCodes",
+            "guardFirstFailingClauseId",
+            "acceptanceExitCode",
+            "acceptanceResult",
+            "acceptanceFirstFailingClauseId",
+            "stdoutSha256",
+            "stderrSha256"
+          ],
+          "properties": {
+            "guardExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "guardViolationCodes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "guardFirstFailingClauseId": {
+              "type": "string"
+            },
+            "acceptanceExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "acceptanceResult": {
+              "type": "string",
+              "enum": ["pass", "fail"]
+            },
+            "acceptanceFirstFailingClauseId": {
+              "type": "string"
+            },
+            "stdoutSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "stderrSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "mutant": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "guardExitCode",
+            "guardViolationCodes",
+            "guardFirstFailingClauseId",
+            "acceptanceExitCode",
+            "acceptanceResult",
+            "acceptanceFirstFailingClauseId",
+            "stdoutSha256",
+            "stderrSha256"
+          ],
+          "properties": {
+            "guardExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "guardViolationCodes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "guardFirstFailingClauseId": {
+              "type": "string"
+            },
+            "acceptanceExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "acceptanceResult": {
+              "type": "string",
+              "enum": ["pass", "fail"]
+            },
+            "acceptanceFirstFailingClauseId": {
+              "type": "string"
+            },
+            "stdoutSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "stderrSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
     "firstFailingClauseId": {
       "type": "string",
       "minLength": 1
