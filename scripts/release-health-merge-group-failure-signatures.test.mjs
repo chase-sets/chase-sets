@@ -202,6 +202,27 @@ describe("delivery failure fingerprint normalization", () => {
     expect(failures[0].signature).toBe(failures[1].signature);
   });
 
+  it("keeps one release-health root-cause fingerprint across volatile node-readiness renditions", () => {
+    const messages = [
+      "Warning FailedScheduling 50m (x8 over 39m) default-scheduler 0/5 nodes are available: 4 node(s) had untolerated taint(s). readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule run_id=30202917958 pod marketplace-api-6ff7f59b68-bn8vx",
+      "Warning FailedScheduling 4m19s (x2 over 3m) default-scheduler 0/2 nodes are available: 2 node(s) had untolerated taint(s). readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule run_id=30525227116 pod marketplace-api-7cc8d6f579-q2k7m",
+    ];
+    const failures = messages.map(
+      (message) =>
+        extractFailureSignatures(completeFailedStepLog(message), {
+          lane: "staging",
+          workflow: "Platform Deploy",
+          jobName: "Deploy Staging",
+          stepName: "Deploy staging Kubernetes release",
+          ...FAILED_STEP_CONTEXT,
+        })[0],
+    );
+
+    expect(failures.every(({ rootCauseSignature }) => rootCauseSignature !== null)).toBe(true);
+    expect(new Set(failures.map(({ rootCauseSignature }) => rootCauseSignature)).size).toBe(1);
+    expect(new Set(failures.map(({ rootCauseFingerprint }) => rootCauseFingerprint)).size).toBe(1);
+  });
+
   it("ignores workflow-command and ANSI tails after a keyword-free semantic line", () => {
     const message = "PRODUCTION_RESTORE_POINT_QUOTA_EXCEEDED: snapshot capacity is exhausted";
     const [failure] = extractFailureSignatures(

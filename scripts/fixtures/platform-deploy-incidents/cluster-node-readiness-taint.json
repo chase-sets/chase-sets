@@ -1,0 +1,19 @@
+{
+  "name": "DOKS critical-readiness taint blocks workload scheduling",
+  "input": {
+    "phase": "staging-deploy",
+    "diagnostics": [
+      {
+        "taint": "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule",
+        "event": "Warning FailedScheduling 4m25s (x8 over 39m) default-scheduler 0/2 nodes are available: 2 node(s) had untolerated taint(s)."
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "cluster-node-readiness-taint",
+    "affectedComponent": "doks-cluster",
+    "phase": "cluster-scheduling",
+    "providerReason": "Pods are unschedulable behind the DOKS critical-readiness taint.",
+    "blocking": true
+  }
+}

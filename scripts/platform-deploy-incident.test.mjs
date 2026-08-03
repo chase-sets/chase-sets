@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   DEPLOY_ROOT_CAUSE_CODES,
@@ -174,6 +175,8 @@ describe("deployment root-cause taxonomy", () => {
       "blocking-staging-verification",
       "production-verification",
       "superseded-pre-mutation",
+      "cluster-node-readiness-taint",
+      "registry-image-pull-authorization",
       "unknown",
     ]);
   });
@@ -301,6 +304,297 @@ describe("deployment root-cause taxonomy", () => {
 
     expect(first.rootCauseSignature).toBe(equivalent.rootCauseSignature);
     expect(unrelated.rootCauseSignature).not.toBe(first.rootCauseSignature);
+  });
+
+  it("deduplicates byte-equivalent node-readiness records across volatile run and workload identities", () => {
+    const first = classifyDeploymentRootCause({
+      phase: "staging-deploy",
+      diagnostics: [
+        {
+          capturedAt: "2026-07-26T13:27:13.967Z",
+          release: "chase-sets-staging-a",
+          namespace: "chase-sets-staging-a",
+          runId: 30202917958,
+          runUrl: "https://github.com/chase-sets/chase-sets/actions/runs/30202917958",
+          workloads: [
+            {
+              pod: "marketplace-api-6ff7f59b68-bn8vx",
+              node: "pool-platform-7a9d",
+              event:
+                "Warning FailedScheduling 50m (x8 over 39m) default-scheduler 0/5 nodes are available: 1 node(s) were unschedulable, 4 node(s) had untolerated taint(s).",
+              taint: "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule",
+            },
+          ],
+        },
+      ],
+    });
+    const second = classifyDeploymentRootCause({
+      phase: "staging-deploy",
+      diagnostics: [
+        {
+          runUrl: "https://github.com/chase-sets/chase-sets/actions/runs/30525227116/attempts/2",
+          runId: 30525227116,
+          namespace: "chase-sets-staging-b",
+          release: "chase-sets-staging-b",
+          capturedAt: "2026-07-31T22:48:59.001Z",
+          workloads: [
+            {
+              taint: "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule",
+              event:
+                "Warning FailedScheduling 4m19s (x2 over 3m) default-scheduler 0/2 nodes are available: 2 node(s) had untolerated taint(s).",
+              node: "pool-platform-f48c",
+              pod: "marketplace-api-7cc8d6f579-q2k7m",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+
+    const registryRenditions = [
+      {
+        namespace: "chase-sets-staging-a",
+        pod: "marketplace-worker-0",
+        message:
+          "ErrImagePull: Failed to pull image registry.digitalocean.com/example/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: failed to authorize: 401 Unauthorized",
+      },
+      {
+        message:
+          "ErrImagePull: Failed to pull image registry.digitalocean.com/example/worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: failed to authorize: 401 Unauthorized",
+        pod: "marketplace-worker-7",
+        namespace: "chase-sets-staging-b",
+      },
+    ].map((diagnostic) => classifyDeploymentRootCause({ phase: "staging-deploy", diagnostics: [diagnostic] }));
+
+    expect(JSON.stringify(registryRenditions[1])).toBe(JSON.stringify(registryRenditions[0]));
+  });
+
+  it("keeps five distinct actionable causes in five recurrence identities", () => {
+    const classifyUnknown = (message) =>
+      classifyDeploymentRootCause({
+        phase: "staging-deploy",
+        steps: [{ name: "provider", phase: "ERROR", reasonCode: "ProviderFailure", message }],
+      });
+    const records = [
+      classifyDeploymentRootCause({
+        diagnostics: ["readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule"],
+      }),
+      classifyDeploymentRootCause({
+        diagnostics: ["ErrImagePull: failed to authorize image pull: 401 Unauthorized"],
+      }),
+      classifyDeploymentRootCause({ diagnostics: ["Error acquiring the state lock"] }),
+      classifyUnknown("Provider rejected operation with code E1042"),
+      classifyUnknown("Provider rejected operation with code E1043"),
+    ];
+
+    expect(records.map(({ rootCauseCode }) => rootCauseCode)).toEqual([
+      "cluster-node-readiness-taint",
+      "registry-image-pull-authorization",
+      "terraform-provider-or-state",
+      "unknown",
+      "unknown",
+    ]);
+    expect(new Set(records.map(({ rootCauseSignature }) => rootCauseSignature)).size).toBe(5);
+
+    expect(
+      classifyDeploymentRootCause({
+        diagnostics: ["ImagePullBackOff: Failed to pull image registry.example/api: dial tcp: i/o timeout"],
+      }).rootCauseCode,
+    ).toBe("unknown");
+    expect(
+      classifyDeploymentRootCause({
+        diagnostics: [
+          "ImagePullBackOff: Failed to pull image registry.example/api: dial tcp: i/o timeout",
+          "Unrelated API authorization denied",
+        ],
+      }).rootCauseCode,
+    ).toBe("unknown");
+  });
+
+  it("selects a deterministic bounded cause from unknown diagnostic fallbacks without masking codes", () => {
+    const classifyUnknownDiagnostics = (diagnostics) =>
+      classifyDeploymentRootCause({ phase: "staging-deploy", diagnostics });
+    const first = classifyUnknownDiagnostics([
+      { capturedAt: "2026-07-26T13:27:13.967Z" },
+      { provider: "example", detail: "Provider rejected operation with code E1042" },
+    ]);
+    const reordered = classifyUnknownDiagnostics([
+      { detail: "Provider rejected operation with code E1042", provider: "other-rendition" },
+      { capturedAt: "2026-07-31T22:48:59.001Z" },
+    ]);
+    const distinct = classifyUnknownDiagnostics([{ detail: "Provider rejected operation with code E1043" }]);
+
+    expect(first).toMatchObject({
+      rootCauseCode: "unknown",
+      providerReason: "Provider rejected operation with code E1042",
+    });
+    expect(reordered.rootCauseSignature).toBe(first.rootCauseSignature);
+    expect(distinct.rootCauseSignature).not.toBe(first.rootCauseSignature);
+  });
+
+  it("lets node-readiness evidence outrank bootstrap timeout text without shadowing bootstrap alone", () => {
+    const bootstrap = "Schema bootstrap command timed out before migration completed";
+    expect(
+      classifyDeploymentRootCause({
+        diagnostics: [bootstrap, "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule"],
+      }).rootCauseCode,
+    ).toBe("cluster-node-readiness-taint");
+    expect(classifyDeploymentRootCause({ diagnostics: [bootstrap] }).rootCauseCode).toBe("doks-bootstrap-or-migration");
+    expect(
+      classifyDeploymentRootCause({
+        diagnostics: [
+          "Warning FailedScheduling: 0/2 nodes are available: 2 node(s) had untolerated taint(s)",
+          "workload.example/reserved=true:NoSchedule",
+        ],
+      }).rootCauseCode,
+    ).toBe("unknown");
+  });
+
+  it("is invariant to diagnostic ordering and absent optional sources", () => {
+    const cause = "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule";
+    const event =
+      "Warning FailedScheduling 4m25s (x8 over 39m) default-scheduler 0/2 nodes are available: 2 node(s) had untolerated taint(s).";
+    const variants = [
+      { diagnostics: [{ capturedAt: "2026-07-26T13:27:13.967Z" }, cause, event], logs: [] },
+      { diagnostics: [event, cause, { capturedAt: "2026-07-31T22:48:59.001Z" }] },
+      { diagnostics: [cause], logs: [{ output: event }] },
+    ].map((input) => classifyDeploymentRootCause({ phase: "staging-deploy", ...input }));
+
+    expect(new Set(variants.map(({ rootCauseSignature }) => rootCauseSignature)).size).toBe(1);
+    expect(new Set(variants.map(({ providerReason }) => providerReason))).toEqual(
+      new Set(["Pods are unschedulable behind the DOKS critical-readiness taint."]),
+    );
+  });
+
+  it("selects one bounded cause line instead of retaining the diagnostics provider body", () => {
+    const rootCause = classifyDeploymentRootCause({
+      phase: "staging-deploy",
+      diagnostics: [
+        {
+          artifact: "platform-kubernetes-diagnostics",
+          capturedAt: "2026-07-26T13:27:13.967Z",
+          commands: [
+            {
+              output:
+                "Warning FailedScheduling 4m25s default-scheduler 0/2 nodes are available: 2 node(s) had untolerated taint(s).",
+            },
+          ],
+          taint: "readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule",
+        },
+      ],
+    });
+    const summary = renderDeployRootCauseSummary(rootCause);
+    const body = buildDeployIncidentBody({ ...rootCause, rootCausePhase: rootCause.phase });
+
+    expect(rootCause.providerReason).toBe("Pods are unschedulable behind the DOKS critical-readiness taint.");
+    expect(rootCause.providerReason.length).toBeLessThanOrEqual(500);
+    for (const output of [summary, body]) expect(output).not.toContain("platform-kubernetes-diagnostics");
+  });
+
+  it("excludes adversarial secrets from classification, renders, and the CLI output artifact", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-secret-control-"));
+    const diagnosticsPath = join(directory, "diagnostics.json");
+    const outputPath = join(directory, "root-cause.json");
+    const secretMarker = "issue-6156-secret-marker";
+    const cleanInput = {
+      phase: "staging-deploy",
+      diagnostics: ["readiness.k8s.io/DOKSCriticalComponentsReady=pending:NoSchedule"],
+    };
+    const adversarialInput = {
+      ...cleanInput,
+      diagnostics: [...cleanInput.diagnostics, `token=${secretMarker}`],
+    };
+
+    try {
+      const clean = classifyDeploymentRootCause(cleanInput);
+      const adversarial = classifyDeploymentRootCause(adversarialInput);
+      const summary = renderDeployRootCauseSummary(adversarial);
+      const body = buildDeployIncidentBody({ ...adversarial, rootCausePhase: adversarial.phase });
+      writeFileSync(
+        diagnosticsPath,
+        JSON.stringify({
+          taint: cleanInput.diagnostics[0],
+          credentials: `token=${secretMarker}`,
+        }),
+      );
+      const cli = spawnSync(
+        process.execPath,
+        [
+          resolve("scripts/platform-deploy-incident.mjs"),
+          "--command",
+          "classify-root-cause",
+          "--phase",
+          "staging-deploy",
+          "--diagnostics",
+          diagnosticsPath,
+          "--out",
+          outputPath,
+        ],
+        { encoding: "utf8" },
+      );
+
+      expect(cli.status, cli.stderr).toBe(0);
+      expect(adversarial.rootCauseCode).toBe("cluster-node-readiness-taint");
+      expect(adversarial.rootCauseSignature).toBe(clean.rootCauseSignature);
+      for (const output of [JSON.stringify(adversarial), summary, body, readFileSync(outputPath, "utf8")]) {
+        expect(output).not.toContain(secretMarker);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reproduces the canonical signature through the workflow's two-stage derivation for every code", () => {
+    for (const fixture of rootCauseFixtures) {
+      const firstStage = classifyDeploymentRootCause(fixture.input);
+      expect(firstStage).toMatchObject(fixture.expected);
+      const shared = {
+        rootCauseSummary: firstStage.rootCauseSummary,
+        affectedComponent: firstStage.affectedComponent,
+        rootCausePhase: firstStage.phase,
+        remediation: firstStage.remediation,
+        providerReason: firstStage.providerReason,
+      };
+      const secondStage =
+        firstStage.rootCauseCode === "superseded-pre-mutation"
+          ? classifyPlatformDeployRun({
+              resolveReleaseResult: "success",
+              buildImageResult: "success",
+              deployStagingResult: "success",
+              deployProductionResult: "skipped",
+              recordStagingHealthResult: "success",
+              stagingApplied: "false",
+              ...shared,
+            })
+          : firstStage.rootCauseCode === "production-verification"
+            ? classifyPlatformDeployRun({
+                deployStagingResult: "success",
+                deployProductionResult: "failure",
+                productionRootCauseCode: firstStage.rootCauseCode,
+                ...shared,
+              })
+            : classifyPlatformDeployRun({
+                deployStagingResult: "failure",
+                deployProductionResult: "skipped",
+                stagingRootCauseCode: firstStage.rootCauseCode,
+                ...shared,
+              });
+
+      expect(secondStage.rootCauseSignature, firstStage.rootCauseCode).toBe(firstStage.rootCauseSignature);
+      const body = buildDeployIncidentBody({
+        ...secondStage,
+        ...(firstStage.rootCauseCode === "unknown"
+          ? {}
+          : { affectedComponent: "forged-component", rootCausePhase: "forged-phase" }),
+        rootCauseSignature: "forged-fallback-signature",
+      });
+      expect(body).toContain(`\`${firstStage.rootCauseSignature}\``);
+      expect(body).toContain(`- Affected component: ${firstStage.affectedComponent}`);
+      expect(body).toContain(`- Phase: ${firstStage.phase}`);
+      expect(body).not.toContain("forged-fallback-signature");
+      if (firstStage.rootCauseCode !== "unknown") expect(body).not.toContain("forged-");
+    }
   });
 
   it("takes providerReason from the step that drove a multi-failure classification", () => {

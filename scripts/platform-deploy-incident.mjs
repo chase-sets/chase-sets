@@ -20,6 +20,8 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
+  "cluster-node-readiness-taint",
+  "registry-image-pull-authorization",
   "unknown",
 ]);
 
@@ -69,6 +71,20 @@ const ROOT_CAUSES = Object.freeze({
     phase: "pre-mutation",
     affectedComponent: "deploy-lane",
   },
+  "cluster-node-readiness-taint": {
+    summary: "Cluster nodes are not ready to schedule deployment workloads.",
+    remediation: "Restore managed node readiness and remove the scheduling block before retrying the deployment.",
+    phase: "cluster-scheduling",
+    affectedComponent: "doks-cluster",
+    canonicalProviderReason: "Pods are unschedulable behind the DOKS critical-readiness taint.",
+  },
+  "registry-image-pull-authorization": {
+    summary: "The cluster could not authorize a deployment image pull.",
+    remediation: "Restore registry pull authorization for the deployment workload before retrying.",
+    phase: "image-pull",
+    affectedComponent: "container-registry",
+    canonicalProviderReason: "Registry authorization was denied while pulling a deployment image.",
+  },
   unknown: {
     summary: "The deployment failed without a known safe classification.",
     remediation: "Inspect the redacted provider reason and diagnostic artifacts before retrying or recovering.",
@@ -112,10 +128,20 @@ function boundedProviderReason(value) {
 
 function diagnosticText(input) {
   const logs = (input.logs ?? []).map((entry) => entry.output ?? entry.error ?? "");
-  const diagnostics = (input.diagnostics ?? []).map((entry) =>
-    typeof entry === "string" ? entry : JSON.stringify(entry),
-  );
+  const diagnostics = (input.diagnostics ?? []).flatMap(diagnosticScalarLines);
   return redactDeployDiagnosticText([...logs, ...diagnostics, input.message ?? ""].join("\n"));
+}
+
+function diagnosticScalarLines(value) {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") return value.split(/\r?\n/);
+  if (Array.isArray(value)) return value.flatMap(diagnosticScalarLines);
+  if (typeof value === "object") {
+    return Object.keys(value)
+      .sort((left, right) => left.localeCompare(right))
+      .flatMap((key) => diagnosticScalarLines(value[key]));
+  }
+  return [String(value)];
 }
 
 function normalizedSteps(input) {
@@ -158,10 +184,17 @@ function relevantProviderReason(steps, text, providerStep) {
   if (reason) {
     return boundedProviderReason(reason);
   }
-  const firstLine = text
+  const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find(Boolean);
+    .filter(Boolean)
+    .sort((left, right) => normalizedSignatureReason(left).localeCompare(normalizedSignatureReason(right)));
+  const firstLine =
+    lines.find((line) =>
+      /error|fail|denied|rejected|unauthorized|timeout|taint|refused|invalid|collision|mismatch|exhausted|quota|reason/i.test(
+        line,
+      ),
+    ) ?? lines[0];
   return boundedProviderReason(firstLine || "No provider reason was captured.");
 }
 
@@ -170,7 +203,8 @@ function relevantTextLine(text, pattern) {
     text
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .find((line) => pattern.test(line)) ?? "",
+      .filter((line) => pattern.test(line))
+      .sort((left, right) => normalizedSignatureReason(left).localeCompare(normalizedSignatureReason(right)))[0] ?? "",
   );
 }
 
@@ -189,27 +223,38 @@ function providerOverridesForMatch(steps, text, pattern) {
 function normalizedSignatureReason(providerReason) {
   return String(providerReason ?? "")
     .normalize("NFKC")
+    .replace(/\b\d{4}-\d{2}-\d{2}[T ][0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?Z\b/gi, "<timestamp>")
+    .replace(/\/actions\/runs\/\d+(?:\/attempts\/\d+)?/gi, "/actions/runs/<run>")
+    .replace(/\b(run(?:[_ -]?id)?[=: #]+)\d+\b/gi, "$1<run>")
+    .replace(/\b\d+(?:\.\d+)?(?:ms|s|m|h|d)(?:\d+(?:\.\d+)?(?:ms|s|m|h|d))*\b/gi, "<duration>")
+    .replace(/\bx\d+\b/gi, "x<count>")
+    .replace(/\b\d+\/\d+(?=\s+nodes?\b)/gi, "<count>/<count>")
+    .replace(/\b\d+(?=\s+nodes?\(s\))/gi, "<count>")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
 
-function rootCauseSignature(rootCauseCode, affectedComponent, phase, providerReason) {
-  return createHash("sha256")
-    .update([rootCauseCode, affectedComponent, phase, normalizedSignatureReason(providerReason)].join("|"))
-    .digest("hex")
-    .slice(0, 12);
+function recurrenceIdentityFor(rootCauseCode, affectedComponent, phase, providerReason) {
+  const canonicalProviderReason = normalizedSignatureReason(
+    ROOT_CAUSES[rootCauseCode]?.canonicalProviderReason ?? providerReason,
+  );
+  const canonicalIdentity = [rootCauseCode, affectedComponent, phase, canonicalProviderReason].join("|");
+  return {
+    rootCauseSignature: createHash("sha256").update(canonicalIdentity).digest("hex").slice(0, 12),
+  };
 }
 
 function rootCauseRecord(code, input, steps, text, overrides = {}) {
   const definition = ROOT_CAUSES[code] ?? ROOT_CAUSES.unknown;
   const failedComponent = steps.find((step) => /error|fail|cancel|timeout/i.test(step.phase))?.componentName;
   const affectedComponent =
-    overrides.affectedComponent ||
-    input.affectedComponent ||
-    (code === "unknown" && failedComponent ? failedComponent : definition.affectedComponent);
-  const phase = overrides.phase || definition.phase;
+    code === "unknown"
+      ? overrides.affectedComponent || input.affectedComponent || failedComponent || definition.affectedComponent
+      : definition.affectedComponent;
+  const phase = code === "unknown" ? overrides.phase || definition.phase : definition.phase;
   const providerReason = overrides.providerReason || relevantProviderReason(steps, text, overrides.providerStep);
+  const recurrenceIdentity = recurrenceIdentityFor(code, affectedComponent, phase, providerReason);
   return {
     schemaVersion: ROOT_CAUSE_SCHEMA_VERSION,
     rootCauseCode: code,
@@ -218,7 +263,7 @@ function rootCauseRecord(code, input, steps, text, overrides = {}) {
     phase,
     remediation: definition.remediation,
     providerReason,
-    rootCauseSignature: rootCauseSignature(code, affectedComponent, phase, providerReason),
+    rootCauseSignature: recurrenceIdentity.rootCauseSignature,
     blocking: code !== "staging-advisory-seed-or-e2e" && code !== "superseded-pre-mutation",
   };
 }
@@ -237,6 +282,14 @@ export function classifyDeploymentRootCause(input = {}) {
     /Error acquiring the state lock|Failed to (?:load|save|persist) state|errored\.tfstate|terraform provider|Provider produced inconsistent|Backend initialization required/i;
   const doksBootstrapPattern =
     /Schema bootstrap|bootstrap (?:command )?(?:timed out|failed)|lock_timeout|lock was not acquired|migration.{0,60}(?:failed|timeout)|seed-api-host.{0,60}exceeded/i;
+  const clusterNodeReadinessPattern =
+    /readiness\.k8s\.io\/DOKSCriticalComponentsReady\s*=\s*pending(?::|\s+)NoSchedule/i;
+  const registryImagePullPattern = /ErrImagePull|ImagePullBackOff|Failed to pull image|pull image/i;
+  const registryAuthorizationPattern =
+    /unauthorized|authorization (?:failed|denied)|pull access denied|denied: requested access|failed to authorize/i;
+  const registryAuthorizationFailure = allText
+    .split(/\r?\n/)
+    .some((line) => registryImagePullPattern.test(line) && registryAuthorizationPattern.test(line));
   const stagingAdvisoryPattern =
     /advisory.{0,40}(?:seed|e2e)|(?:seed|e2e).{0,40}advisory|end-to-end.{0,80}auth(?:entication|orization)|e2e.{0,80}(?:login|auth(?:entication|orization))/i;
   const stagingVerificationPattern =
@@ -263,6 +316,11 @@ export function classifyDeploymentRootCause(input = {}) {
       providerOverridesForMatch(steps, text, terraformPattern),
     );
   }
+  if (clusterNodeReadinessPattern.test(allText)) {
+    return rootCauseRecord("cluster-node-readiness-taint", input, steps, text, {
+      providerReason: ROOT_CAUSES["cluster-node-readiness-taint"].canonicalProviderReason,
+    });
+  }
   if (/doks-bootstrap|migration/.test(phaseHint) || doksBootstrapPattern.test(allText)) {
     return rootCauseRecord(
       "doks-bootstrap-or-migration",
@@ -271,6 +329,11 @@ export function classifyDeploymentRootCause(input = {}) {
       text,
       providerOverridesForMatch(steps, text, doksBootstrapPattern),
     );
+  }
+  if (registryAuthorizationFailure) {
+    return rootCauseRecord("registry-image-pull-authorization", input, steps, text, {
+      providerReason: ROOT_CAUSES["registry-image-pull-authorization"].canonicalProviderReason,
+    });
   }
   if (/staging-advisory/.test(phaseHint) || stagingAdvisoryPattern.test(allText)) {
     return rootCauseRecord(
@@ -358,7 +421,6 @@ function rootCauseFromCode(code, input = {}) {
     ...rootCause,
     rootCauseSummary: input.rootCauseSummary || rootCause.rootCauseSummary,
     remediation: input.remediation || rootCause.remediation,
-    rootCauseSignature: input.rootCauseSignature || rootCause.rootCauseSignature,
   };
 }
 
@@ -414,8 +476,8 @@ export function buildDeployIncidentBody(input = {}) {
 
 - Root cause: \`${rootCause.rootCauseCode}\`
 - Summary: ${input.rootCauseSummary || rootCause.rootCauseSummary}
-- Affected component: ${input.affectedComponent || rootCause.affectedComponent}
-- Phase: ${input.rootCausePhase || rootCause.phase}
+- Affected component: ${rootCause.affectedComponent}
+- Phase: ${rootCause.phase}
 - Provider reason: ${boundedProviderReason(input.providerReason || rootCause.providerReason)}
 - Workflow run: ${input.runUrl || "unavailable"}
 - Release commit: ${input.releaseCommit || "unavailable"}
@@ -423,7 +485,7 @@ export function buildDeployIncidentBody(input = {}) {
 
 Remediation: ${input.remediation || rootCause.remediation}
 
-This signal is keyed by root-cause signature \`${input.rootCauseSignature || rootCause.rootCauseSignature}\`. Repeated active failures add per-run evidence here without hiding a different root cause.`;
+This signal is keyed by root-cause signature \`${rootCause.rootCauseSignature}\`. Repeated active failures add per-run evidence here without hiding a different root cause.`;
 }
 
 export function classifySupersededNoOpIncident({ title = "", body = "" } = {}) {

@@ -1,0 +1,19 @@
+{
+  "name": "registry authorization denies deployment image pull",
+  "input": {
+    "phase": "staging-deploy",
+    "diagnostics": [
+      {
+        "reason": "ErrImagePull",
+        "message": "Failed to pull image registry.digitalocean.com/example/api: denied: requested access to the resource is denied"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "registry-image-pull-authorization",
+    "affectedComponent": "container-registry",
+    "phase": "image-pull",
+    "providerReason": "Registry authorization was denied while pulling a deployment image.",
+    "blocking": true
+  }
+}
