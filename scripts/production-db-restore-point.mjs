@@ -170,35 +170,79 @@ export async function waitForDigitalOceanDatabaseForkAvailability(options, depen
     status: null,
     createdAt: null,
   };
+  let statusReadAttemptCount = 0;
+  let statusReadFailure = null;
+
+  const result = (outcome, completedAtMs) => ({
+    outcome,
+    fork: latest,
+    elapsedMs: completedAtMs - startedAtMs,
+    ...(statusReadFailure
+      ? {
+          statusReadFailure: {
+            ...statusReadFailure,
+            attemptCount: statusReadAttemptCount,
+            elapsedMs: completedAtMs - startedAtMs,
+          },
+        }
+      : {}),
+  });
 
   if (isDatabaseAvailable(latest.status)) {
-    return { outcome: "available", fork: latest, elapsedMs: 0 };
+    return result("available", startedAtMs);
   }
 
   while (true) {
-    if (now() >= deadlineMs) {
-      return { outcome: "timeout", fork: latest, elapsedMs: now() - startedAtMs };
+    const beforeReadMs = now();
+    if (beforeReadMs >= deadlineMs) {
+      return result("timeout", beforeReadMs);
     }
 
-    latest = await readDigitalOceanDatabaseCluster(
-      {
-        doctlPath: options.doctlPath,
-        clusterId: options.clusterId,
-        forkName: options.forkName,
-      },
-      exec,
-    );
+    statusReadAttemptCount += 1;
+    try {
+      latest = await readDigitalOceanDatabaseCluster(
+        {
+          doctlPath: options.doctlPath,
+          clusterId: options.clusterId,
+          forkName: options.forkName,
+        },
+        exec,
+      );
+    } catch (error) {
+      if (typeof dependencies.classifyStatusReadFailure !== "function") {
+        throw error;
+      }
+      const classified = dependencies.classifyStatusReadFailure(error);
+      if (!classified || !["transient", "permanent", "unknown"].includes(classified.classification)) {
+        throw error;
+      }
+      statusReadFailure = {
+        ...classified,
+        lastKnownStatus: latest.status ?? null,
+      };
+      const failedAtMs = now();
+      if (classified.classification !== "transient") {
+        return result("status-read-failed", failedAtMs);
+      }
+      const remainingAfterFailureMs = deadlineMs - failedAtMs;
+      if (remainingAfterFailureMs <= 0) {
+        return result("timeout", failedAtMs);
+      }
+      await delay(Math.min(pollIntervalMs, remainingAfterFailureMs));
+      continue;
+    }
 
     if (isDatabaseAvailable(latest.status)) {
-      return { outcome: "available", fork: latest, elapsedMs: now() - startedAtMs };
+      return result("available", now());
     }
     if (isDatabaseFailure(latest.status)) {
-      return { outcome: "failed", fork: latest, elapsedMs: now() - startedAtMs };
+      return result("failed", now());
     }
 
-    const remainingMs = deadlineMs - now();
+    const afterReadMs = now();
+    const remainingMs = deadlineMs - afterReadMs;
     if (remainingMs <= 0) {
-      return { outcome: "timeout", fork: latest, elapsedMs: now() - startedAtMs };
+      return result("timeout", afterReadMs);
     }
 
     await delay(Math.min(pollIntervalMs, remainingMs));

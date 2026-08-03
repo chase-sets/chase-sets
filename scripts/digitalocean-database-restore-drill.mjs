@@ -27,6 +27,15 @@ export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 const STAGING_CONTEXT_DATABASE_PREFIX = "chase_sets_staging_";
 const STAGING_DATABASE_CONTEXT_TOKEN_OVERRIDES = new Map([["platform_ops", "platform-operations"]]);
+const TRANSIENT_STATUS_READ_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const TRANSIENT_STATUS_READ_PROVIDER_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+]);
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
   { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
@@ -130,12 +139,27 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
             timeoutMs: options.forkTimeoutMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS,
             pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS,
           },
-          dependencies,
+          {
+            ...dependencies,
+            classifyStatusReadFailure,
+          },
         )
       : { outcome: "missing-cluster-id", fork, elapsedMs: 0 };
     const latestFork = availability.fork ?? fork;
     const forkFinishedMs = now();
     const forkReachedAvailable = availability.outcome === "available";
+    const statusReadFailure = availability.statusReadFailure
+      ? {
+          stage: "fork-status-read-failed",
+          classification: availability.statusReadFailure.classification,
+          outcome: forkReachedAvailable ? "recovered" : "failed",
+          lastKnownStatus: availability.statusReadFailure.lastKnownStatus,
+          attemptCount: availability.statusReadFailure.attemptCount,
+          code: availability.statusReadFailure.code,
+          pollingFinishedAt: isoFromMs(forkFinishedMs),
+          pollingElapsedMs: availability.statusReadFailure.elapsedMs,
+        }
+      : null;
     record = {
       ...record,
       fork: {
@@ -152,6 +176,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         forkAvailableAt: forkReachedAvailable ? isoFromMs(forkFinishedMs) : null,
         forkToAvailableMs: forkReachedAvailable ? forkFinishedMs - forkStartedMs : null,
       },
+      forkStatusReadFailure: statusReadFailure,
     };
 
     if (!fork.clusterId) {
@@ -163,6 +188,10 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
     } else if (availability.outcome === "failed") {
       record.errors.push(
         `Staging restore drill fork '${forkName}' entered failed status '${latestFork.status ?? "unknown"}'.`,
+      );
+    } else if (availability.outcome === "status-read-failed") {
+      record.errors.push(
+        JSON.stringify(availability.statusReadFailure?.diagnostic ?? { classification: "fork-status-read-failed" }),
       );
     } else if (availability.outcome !== "available") {
       record.errors.push(`Staging restore drill fork '${forkName}' did not report an available outcome.`);
@@ -200,7 +229,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         ...record.fork,
         clusterId: forkClusterId,
         name: forkName,
-        status: forkClusterId ? "validation-failed" : "create-failed",
+        status: record.fork.status ?? (forkClusterId ? "unknown" : "create-failed"),
       },
       errors: [...record.errors, ...describeFailure(error, "digitalocean-restore-drill-failed")],
     };
@@ -416,6 +445,7 @@ function createBaseRecord(options, errors) {
       checkedDatabaseCount: 0,
       checks: [],
     },
+    forkStatusReadFailure: null,
     cleanup: {
       attempted: false,
       clusterId: null,
@@ -517,6 +547,26 @@ function stagingDatabaseCheckFromName(databaseName) {
 
 function describeFailure(error, classification) {
   return [JSON.stringify(safeFailureFields(classification, error))];
+}
+
+function classifyStatusReadFailure(error) {
+  const safeFields = safeFailureFields("fork-status-read-failed", error);
+  const isTransient =
+    TRANSIENT_STATUS_READ_HTTP_STATUSES.has(safeFields.status) ||
+    TRANSIENT_STATUS_READ_PROVIDER_CODES.has(safeFields.code);
+  const isPermanent = Number.isInteger(safeFields.status) && safeFields.status >= 400 && safeFields.status < 500;
+  return {
+    classification: isTransient ? "transient" : isPermanent ? "permanent" : "unknown",
+    code: safeStatusReadCode(safeFields),
+    diagnostic: safeFields,
+  };
+}
+
+function safeStatusReadCode(fields) {
+  if (Number.isInteger(fields.status)) {
+    return `http-${fields.status}`;
+  }
+  return fields.code ?? null;
 }
 
 function isoFromMs(value) {

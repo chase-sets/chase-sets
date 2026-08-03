@@ -42,6 +42,7 @@ runs:
         ALERT_ISSUE_TITLE: ${{ inputs.issue-title }}
         ALERT_LABELS: ${{ inputs.labels }}
         ALERT_DRY_RUN: ${{ inputs.dry-run }}
+        ALERT_RUN_ATTEMPT: ${{ github.run_attempt }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -55,6 +56,7 @@ runs:
             .map((label) => label.trim())
             .filter(Boolean);
           const dryRun = process.env.ALERT_DRY_RUN === "true";
+          const runAttempt = process.env.ALERT_RUN_ATTEMPT?.trim();
 
           if (!workflowName) {
             core.setFailed("workflow-name is required.");
@@ -64,10 +66,14 @@ runs:
             core.setFailed("alert-status must be failure, warning, or success.");
             return;
           }
+          if (!/^[1-9]\d*$/.test(runAttempt ?? "")) {
+            core.setFailed("github.run_attempt must be a positive integer.");
+            return;
+          }
 
           const { owner, repo } = context.repo;
           const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-          const marker = `<!-- scheduled-workflow-alert:${workflowName}:${context.runId}:${context.runAttempt}:${status} -->`;
+          const marker = `<!-- scheduled-workflow-alert:${workflowName}:${context.runId}:${runAttempt}:${status} -->`;
           const statusLabel = status === "success" ? "recovered" : status;
           const bodyLines = [
             marker,
@@ -76,7 +82,7 @@ runs:
             `- Workflow: ${workflowName}`,
             `- Status: ${status}`,
             `- Run: ${runUrl}`,
-            `- Run attempt: ${context.runAttempt}`,
+            `- Run attempt: ${runAttempt}`,
             `- Event: ${context.eventName}`,
             `- Ref: ${context.ref}`,
             `- SHA: ${context.sha}`,
@@ -105,6 +111,8 @@ runs:
                   wouldClose: status === "success" && Boolean(issue),
                   labels,
                   runUrl,
+                  marker,
+                  commentBody,
                 },
                 null,
                 2,
