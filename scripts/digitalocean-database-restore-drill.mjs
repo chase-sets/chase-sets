@@ -27,15 +27,94 @@ export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 const STAGING_CONTEXT_DATABASE_PREFIX = "chase_sets_staging_";
 const STAGING_DATABASE_CONTEXT_TOKEN_OVERRIDES = new Map([["platform_ops", "platform-operations"]]);
-const TRANSIENT_STATUS_READ_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
-const TRANSIENT_STATUS_READ_PROVIDER_CODES = new Set([
-  "EAI_AGAIN",
-  "ECONNRESET",
-  "EHOSTUNREACH",
-  "ENETDOWN",
-  "ENETUNREACH",
-  "ETIMEDOUT",
+// godo formats API failures as "METHOD URL: <status> <message>"; retain only the matched status token.
+const DOCTL_STATUS_READ_FAILURE_MATCHES = Object.freeze([
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 408 ",
+    safeToken: "doctl-http-408",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 425 ",
+    safeToken: "doctl-http-425",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 429 ",
+    safeToken: "doctl-http-429",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 500 ",
+    safeToken: "doctl-http-500",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 502 ",
+    safeToken: "doctl-http-502",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 503 ",
+    safeToken: "doctl-http-503",
+  },
+  {
+    classification: "transient",
+    exitCode: 1,
+    stderrToken: ": 504 ",
+    safeToken: "doctl-http-504",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 400 ",
+    safeToken: "doctl-http-400",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 401 ",
+    safeToken: "doctl-http-401",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 403 ",
+    safeToken: "doctl-http-403",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 404 ",
+    safeToken: "doctl-http-404",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 409 ",
+    safeToken: "doctl-http-409",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 410 ",
+    safeToken: "doctl-http-410",
+  },
+  {
+    classification: "permanent",
+    exitCode: 1,
+    stderrToken: ": 422 ",
+    safeToken: "doctl-http-422",
+  },
 ]);
+const SAFE_DOCTL_SPAWN_CODES = new Set(["EACCES", "ENOENT", "ENOEXEC", "EPERM"]);
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
   { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
@@ -550,23 +629,38 @@ function describeFailure(error, classification) {
 }
 
 function classifyStatusReadFailure(error) {
-  const safeFields = safeFailureFields("fork-status-read-failed", error);
-  const isTransient =
-    TRANSIENT_STATUS_READ_HTTP_STATUSES.has(safeFields.status) ||
-    TRANSIENT_STATUS_READ_PROVIDER_CODES.has(safeFields.code);
-  const isPermanent = Number.isInteger(safeFields.status) && safeFields.status >= 400 && safeFields.status < 500;
+  const matched = matchDoctlStatusReadFailure(error);
+  const code = matched?.safeToken ?? safeDoctlSpawnCode(error);
+  const diagnostic = {
+    classification: "fork-status-read-failed",
+    ...(code ? { code } : {}),
+  };
   return {
-    classification: isTransient ? "transient" : isPermanent ? "permanent" : "unknown",
-    code: safeStatusReadCode(safeFields),
-    diagnostic: safeFields,
+    classification: matched?.classification ?? "unknown",
+    code,
+    diagnostic,
   };
 }
 
-function safeStatusReadCode(fields) {
-  if (Number.isInteger(fields.status)) {
-    return `http-${fields.status}`;
+function matchDoctlStatusReadFailure(error) {
+  if (
+    !Number.isInteger(error?.code) ||
+    error.code <= 0 ||
+    error.killed !== false ||
+    error.signal !== null ||
+    typeof error.stderr !== "string"
+  ) {
+    return null;
   }
-  return fields.code ?? null;
+  return (
+    DOCTL_STATUS_READ_FAILURE_MATCHES.find(
+      (candidate) => candidate.exitCode === error.code && error.stderr.includes(candidate.stderrToken),
+    ) ?? null
+  );
+}
+
+function safeDoctlSpawnCode(error) {
+  return typeof error?.code === "string" && SAFE_DOCTL_SPAWN_CODES.has(error.code) ? error.code : null;
 }
 
 function isoFromMs(value) {

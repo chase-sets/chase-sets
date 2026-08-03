@@ -1,5 +1,7 @@
+import { execFile as execFileCallback } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 import {
   DEFAULT_STAGING_DATABASE_CHECKS,
   DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS,
@@ -12,7 +14,9 @@ import {
 } from "./digitalocean-database-restore-drill.mjs";
 
 const SYNTHETIC_DOCTL_PATH = resolve("artifacts", "synthetic-provider-cli-issue-6497.exe");
+const MISSING_DOCTL_PATH = resolve("artifacts", "missing-provider-cli-issue-6497.exe");
 const SYNTHETIC_FORK_ID = "synthetic-fork-6497-status-read";
+const realExecFile = promisify(execFileCallback);
 
 const baseOptions = {
   doctlPath: SYNTHETIC_DOCTL_PATH,
@@ -285,17 +289,11 @@ describe("digitalocean database restore drill", () => {
     ]);
   });
 
-  it("retries one explicitly transient status-read failure, validates, and deletes the synthetic fork exactly once", async () => {
+  it("retries one allowlisted transient real-child status-read failure and deletes the synthetic fork exactly once", async () => {
     const calls = [];
     const sleeps = [];
     let currentMs = 0;
     let getAttempts = 0;
-    const transientFailure = new Error(
-      "provider response https://api.synthetic.invalid token=synthetic-secret body={private:true}",
-    );
-    transientFailure.status = 503;
-    transientFailure.code = "ETIMEDOUT";
-    transientFailure.stderr = "certificate=synthetic-certificate-secret";
 
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, sourceClusterId: "synthetic-source-6497", forkTimeoutMs: 65_000 },
@@ -313,7 +311,12 @@ describe("digitalocean database restore drill", () => {
               stdout: `${SYNTHETIC_FORK_ID}\tcs-stg-drill-20260703-987654321-2\tforking\t2026-07-03T07:23:01Z\n`,
             };
           }
-          if (args[1] === "get" && getAttempts++ === 0) throw transientFailure;
+          if (args[1] === "get" && getAttempts++ === 0) {
+            return await realDoctlFailure(
+              "Error: GET https://api.synthetic.invalid/v2/databases/synthetic-secret: 503 Service Unavailable\n" +
+                "token=synthetic-secret provider-body=private",
+            );
+          }
           if (args[1] === "get") {
             return {
               stdout: `${SYNTHETIC_FORK_ID}\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:23:01Z\n`,
@@ -344,7 +347,7 @@ describe("digitalocean database restore drill", () => {
         outcome: "recovered",
         lastKnownStatus: "forking",
         attemptCount: 2,
-        code: "http-503",
+        code: "doctl-http-503",
         pollingFinishedAt: "1970-01-01T00:00:30.000Z",
         pollingElapsedMs: 30_000,
       },
@@ -352,23 +355,30 @@ describe("digitalocean database restore drill", () => {
       cleanup: { status: "deleted" },
     });
     expect(JSON.stringify(result.record)).not.toMatch(
-      /synthetic-secret|private:true|synthetic-certificate-secret|api\.synthetic\.invalid/,
+      /synthetic-secret|provider-body|private|api\.synthetic\.invalid|Service Unavailable/,
     );
   });
 
   it.each([
-    { name: "permanent", status: 401, code: "http-401", classification: "permanent" },
-    { name: "unknown", status: undefined, code: null, classification: "unknown" },
+    {
+      name: "allowlisted permanent real-child exit",
+      failure: () =>
+        realDoctlFailure(
+          "Error: GET https://api.synthetic.invalid/v2/databases/synthetic-secret: 403 Forbidden\n" +
+            "token=synthetic-secret provider-body=private",
+        ),
+      code: "doctl-http-403",
+      classification: "permanent",
+    },
+    {
+      name: "real ENOENT",
+      failure: () => realExecFile(MISSING_DOCTL_PATH, ["databases", "get", SYNTHETIC_FORK_ID]),
+      code: "ENOENT",
+      classification: "unknown",
+    },
   ])("fails closed on a $name status-read failure with bounded evidence and exact cleanup", async (control) => {
     const calls = [];
     let currentMs = 12_000;
-    const statusFailure = new Error(
-      "provider body token=synthetic-secret https://api.synthetic.invalid/private certificate=synthetic-ca",
-    );
-    statusFailure.code = control.status ? "PROVIDER_RESPONSE" : "unsafe code with secret token";
-    statusFailure.status = control.status;
-    statusFailure.stdout = "synthetic provider response body";
-    statusFailure.stderr = "synthetic stderr token=do-not-retain";
 
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, sourceClusterId: "synthetic-source-6497" },
@@ -385,7 +395,7 @@ describe("digitalocean database restore drill", () => {
           }
           if (args[1] === "get") {
             currentMs += 750;
-            throw statusFailure;
+            return await control.failure();
           }
           if (args[1] === "delete") return { stdout: "" };
           throw new Error(`Unexpected synthetic command: ${args.join(" ")}`);
@@ -413,20 +423,19 @@ describe("digitalocean database restore drill", () => {
     expect(result.record.errors).toContain(
       JSON.stringify({
         classification: "fork-status-read-failed",
-        ...(control.status ? { status: control.status, code: "PROVIDER_RESPONSE" } : {}),
+        code: control.code,
       }),
     );
     expect(calls.filter((args) => args[1] === "delete")).toEqual([
       ["databases", "delete", SYNTHETIC_FORK_ID, "--force"],
     ]);
     expect(JSON.stringify(result.record)).not.toMatch(
-      /validation-failed|synthetic-secret|synthetic stderr|provider response body|api\.synthetic\.invalid|synthetic-ca/,
+      /validation-failed|synthetic-secret|provider-body|private|api\.synthetic\.invalid|Forbidden/,
     );
   });
 
   it("keeps the first status-read cause visible when synthetic fork cleanup also fails", async () => {
     let currentMs = 0;
-    const statusFailure = Object.assign(new Error("private provider body"), { status: 403 });
     const cleanupFailure = Object.assign(new Error("cleanup token=synthetic-secret"), { status: 502 });
     const result = await performDigitalOceanDatabaseRestoreDrill(
       baseOptions,
@@ -441,7 +450,10 @@ describe("digitalocean database restore drill", () => {
           }
           if (args[1] === "get") {
             currentMs += 500;
-            throw statusFailure;
+            return await realDoctlFailure(
+              "Error: GET https://api.synthetic.invalid/v2/databases/private: 403 Forbidden\n" +
+                "token=synthetic-secret",
+            );
           }
           if (args[1] === "delete") throw cleanupFailure;
           throw new Error(`Unexpected synthetic command: ${args.join(" ")}`);
@@ -456,17 +468,16 @@ describe("digitalocean database restore drill", () => {
     });
     expect(result.record.cleanup).toMatchObject({ status: "delete-failed" });
     expect(result.record.errors).toEqual([
-      '{"classification":"fork-status-read-failed","status":403}',
+      '{"classification":"fork-status-read-failed","code":"doctl-http-403"}',
       '{"classification":"restore-drill-fork-delete-failed","status":502}',
     ]);
-    expect(JSON.stringify(result.record)).not.toMatch(/private provider body|synthetic-secret/);
+    expect(JSON.stringify(result.record)).not.toMatch(/api\.synthetic\.invalid|private|Forbidden|synthetic-secret/);
   });
 
   it("retains timeout semantics when transient status reads exhaust the existing deadline", async () => {
     const calls = [];
     const sleeps = [];
     let currentMs = 0;
-    const transientFailure = Object.assign(new Error("synthetic private provider body"), { status: 503 });
     const result = await performDigitalOceanDatabaseRestoreDrill(
       { ...baseOptions, forkTimeoutMs: 65_000, forkPollIntervalMs: 30_000 },
       trustedDependencies({
@@ -483,7 +494,12 @@ describe("digitalocean database restore drill", () => {
               stdout: `${SYNTHETIC_FORK_ID}\tcs-stg-drill-20260703-987654321-2\tforking\t2026-07-03T07:23:01Z\n`,
             };
           }
-          if (args[1] === "get") throw transientFailure;
+          if (args[1] === "get") {
+            return await realDoctlFailure(
+              "Error: GET https://api.synthetic.invalid/v2/databases/private: 503 Service Unavailable\n" +
+                "token=synthetic-secret",
+            );
+          }
           if (args[1] === "delete") return { stdout: "" };
           throw new Error(`Unexpected synthetic command: ${args.join(" ")}`);
         },
@@ -498,7 +514,7 @@ describe("digitalocean database restore drill", () => {
       outcome: "failed",
       lastKnownStatus: "forking",
       attemptCount: 3,
-      code: "http-503",
+      code: "doctl-http-503",
       pollingElapsedMs: 65_000,
     });
     expect(result.record.errors).toEqual([
@@ -507,7 +523,9 @@ describe("digitalocean database restore drill", () => {
       "last observed status: forking",
     ]);
     expect(result.record.cleanup.status).toBe("deleted");
-    expect(JSON.stringify(result.record)).not.toContain("synthetic private provider body");
+    expect(JSON.stringify(result.record)).not.toMatch(
+      /api\.synthetic\.invalid|private|Service Unavailable|synthetic-secret/,
+    );
   });
 
   it("fails closed before calling doctl outside staging", async () => {
@@ -752,4 +770,11 @@ function fakeClientClass(options = {}) {
 function clock(values) {
   let index = 0;
   return () => values[Math.min(index++, values.length - 1)];
+}
+
+async function realDoctlFailure(stderr) {
+  return await realExecFile(process.execPath, [
+    "-e",
+    `process.stderr.write(${JSON.stringify(stderr)}); process.exit(1);`,
+  ]);
 }
