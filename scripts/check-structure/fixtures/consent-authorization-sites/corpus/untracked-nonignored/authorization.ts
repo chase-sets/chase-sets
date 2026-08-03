@@ -1,0 +1,3 @@
+function untrackedProbe() {
+  authorizeConsentForActor(context);
+}

@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization mutation aggregate",
+  "description": "The executed mutation ledger for one candidate head. Its receipt identifiers are reconciled against the committed case enumeration, never against the generator that produced the cases.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "provenance",
+    "ownerContexts",
+    "enumeration",
+    "censusCoverage",
+    "receipts",
+    "counts",
+    "reconciliation",
+    "valid"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["consent-authorization-mutation-aggregate/v1"]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "candidateHeadRole", "candidateHead", "analyzedTree", "baseTipAtAnalysis"],
+      "properties": {
+        "environment": {
+          "type": "string",
+          "enum": ["plain", "pull-request-merge-ref", "merge-group"]
+        },
+        "candidateHeadRole": {
+          "type": "string",
+          "enum": ["landingCandidate"]
+        },
+        "candidateHead": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "analyzedTree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "baseTipAtAnalysis": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "ownerContexts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactSha256",
+        "partitionSha256",
+        "sourceSha256",
+        "runtimeSetHash",
+        "namedEvaluationSetHash",
+        "dispositionSetHash"
+      ],
+      "properties": {
+        "artifactSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "partitionSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runtimeSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "namedEvaluationSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dispositionSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "enumeration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "censusCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "rows", "classified", "declaredOpen", "silentByDesign"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "classified": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "declaredOpen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "silentByDesign": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "minItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caseId", "sha256"],
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^MUT-[A-Z0-9-]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "candidateGreen", "mutantRed", "active", "preserved"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "candidateGreen": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "mutantRed": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "preserved": {
+          "type": "integer",
+          "minimum": 30
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["salvageHeadTotal", "retiredTotal", "carriedTotal", "addedTotal", "total"],
+      "properties": {
+        "salvageHeadTotal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retiredTotal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "carriedTotal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "addedTotal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "valid": {
+      "enum": [true]
+    }
+  }
+}

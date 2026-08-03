@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "partitionDigest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328",
+  "sites": [
+    {
+      "file": "bounded-contexts/identity/features/consents/api/terms-route.ts",
+      "owner": "termsOfServiceConsentRoutes > POST /accept",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "Authorizes the authenticated actor before recording acceptance of the active Terms of Service version."
+    },
+    {
+      "file": "bounded-contexts/identity/features/consents/api/route.ts",
+      "owner": "consentRoutes > POST /:id/withdraw",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "Authorizes the authenticated actor before withdrawing a Consent record."
+    },
+    {
+      "file": "bounded-contexts/identity/api.ts",
+      "owner": "planPersonalIdentityRegistration",
+      "constructor": "authorizeConsentForSelfRegistration",
+      "ordinal": 1,
+      "classification": "self-registration",
+      "reason": "Authorizes the registration plan to record the registering user's verified Consent bundle."
+    },
+    {
+      "file": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "owner": "buildScenarioIdentityReconcilers > consentReconciler",
+      "constructor": "authorizeConsentForProvisioning",
+      "ordinal": 1,
+      "classification": "provisioning",
+      "reason": "Permanent #6120 provisioning exemption for scenario Consent reconciliation."
+    },
+    {
+      "file": "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "owner": "reconcileRepresentativeConsent",
+      "constructor": "authorizeConsentForProvisioning",
+      "ordinal": 1,
+      "classification": "provisioning",
+      "reason": "Permanent #6120 provisioning exemption for representative Consent reconciliation."
+    },
+    {
+      "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "owner": "provisionAdminQaActorFixture",
+      "constructor": "authorizeConsentForProvisioning",
+      "ordinal": 1,
+      "classification": "provisioning",
+      "reason": "Permanent #6120 provisioning exemption for the admin QA actor fixture."
+    }
+  ]
+}

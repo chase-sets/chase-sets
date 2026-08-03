@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization mutation case enumeration",
+  "description": "The committed case identifiers the aggregate reconciles executed receipts against, plus the exact reconciliation against the salvage head's closed cases.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "version", "reconciliation", "cases", "carried", "added", "retired"],
+  "properties": {
+    "contractVersion": { "type": "string", "enum": ["consent-authorization-case-enumeration/v1"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "salvageHead",
+        "salvageHeadTotal",
+        "retiredTotal",
+        "carriedTotal",
+        "addedTotal",
+        "total",
+        "retirementAuthority"
+      ],
+      "properties": {
+        "salvageHead": { "type": "string", "minLength": 1 },
+        "salvageHeadTotal": { "type": "integer", "minimum": 1 },
+        "retiredTotal": { "type": "integer", "minimum": 1 },
+        "carriedTotal": { "type": "integer", "minimum": 1 },
+        "addedTotal": { "type": "integer", "minimum": 1 },
+        "total": { "type": "integer", "minimum": 1 },
+        "retirementAuthority": { "type": "string", "minLength": 1 }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^MUT-[A-Z0-9-]+$" }
+    },
+    "carried": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^MUT-[A-Z0-9-]+$" }
+    },
+    "added": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^MUT-[A-Z0-9-]+$" }
+    },
+    "retired": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^MUT-[A-Z0-9-]+$" }
+    }
+  }
+}
