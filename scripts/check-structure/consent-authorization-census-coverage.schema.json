@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization census coverage matrix",
+  "description": "The finite, committed matrix of constructor-reference key shapes and canonical-module acquisition specifier shapes the census meets. A census coverage row is one shape: a stable row identifier, the fixture expressing it, the arbitrary path that fixture is planted at, the compiler expression kind its governing branch keys on, the record the analyzer would emit if it classified the shape, and the observable census outcome the analyzer actually produces. A declared-open shape is a bounded residual whose owning issue is named on the row; it is admitted as an unknown and counted, never dropped in silence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "version", "axisAuthorities", "rows"],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["consent-authorization-census-coverage/v1"]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "axisAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "specifier"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "specifier": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rowId",
+          "axis",
+          "expressionKind",
+          "shape",
+          "fixture",
+          "plantedAt",
+          "signature",
+          "disposition",
+          "census"
+        ],
+        "properties": {
+          "rowId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+          },
+          "axis": {
+            "type": "string",
+            "enum": ["key", "specifier"]
+          },
+          "expressionKind": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z]+$"
+          },
+          "shape": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fixture": {
+            "type": "string",
+            "pattern": "^scripts/check-structure/fixtures/consent-authorization-sites/census/[a-z0-9-]+\\.ts$"
+          },
+          "plantedAt": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+\\.ts$"
+          },
+          "signature": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["referenceClass"],
+            "properties": {
+              "referenceClass": {
+                "type": "string",
+                "enum": ["declaration", "import", "consumption", "unexpected", "noncanonical-module-access"]
+              },
+              "form": {
+                "type": "string",
+                "enum": [
+                  "default-import",
+                  "namespace-import",
+                  "namespace-re-export",
+                  "import-equals",
+                  "dynamic-import",
+                  "require",
+                  "dynamic-key",
+                  "escaping-binding"
+                ]
+              },
+              "constructor": {
+                "type": "string",
+                "enum": [
+                  "authorizeConsentForActor",
+                  "authorizeConsentForSelfRegistration",
+                  "authorizeConsentForProvisioning"
+                ]
+              },
+              "syntaxKind": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z]+$"
+              }
+            }
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["classified", "declared-open", "silent-by-design"]
+          },
+          "census": {
+            "type": "string",
+            "enum": ["classified", "admitted-unknown", "silent"]
+          },
+          "owner": {
+            "type": "string",
+            "pattern": "^#[0-9]+$"
+          }
+        }
+      }
+    }
+  }
+}

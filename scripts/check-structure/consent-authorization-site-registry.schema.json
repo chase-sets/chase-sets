@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization site registry",
+  "description": "Frozen semantic authority for the six Consent recording authorization consumption sites. A consent authorization site is one call of one canonical constructor; its semantic identity is (repository-relative file, owner, constructor, ordinal) and never a line number; the partition digest is the sha256 of that identity set; partition drift is any change to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "partitionDigest", "sites"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "partitionDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "owner", "constructor", "ordinal", "classification", "reason"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^/\\\\][^\\\\]*\\.(?:ts|tsx|mjs)$"
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "constructor": {
+            "type": "string",
+            "enum": [
+              "authorizeConsentForActor",
+              "authorizeConsentForSelfRegistration",
+              "authorizeConsentForProvisioning"
+            ]
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "classification": {
+            "type": "string",
+            "enum": ["actor", "self-registration", "provisioning"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

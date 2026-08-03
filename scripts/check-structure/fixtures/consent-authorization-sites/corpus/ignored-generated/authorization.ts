@@ -1,0 +1,3 @@
+function ignoredProbe() {
+  authorizeConsentForActor(context);
+}
