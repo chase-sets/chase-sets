@@ -42,6 +42,7 @@ const repositoryRoot = realpathSync(resolve("."));
 const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
 const historicalNonexistentProvenance = "93172b2173e40bdd0089c63a28b58cd86466a6b9";
 const committedGoldens = readCommittedGoldens(repositoryRoot);
+const movingMainRef = "refs/remotes/fixture/moving-main";
 
 describe("doks cluster addons planner", () => {
   it("reads the local chart version through the shared parser", () => {
@@ -283,26 +284,28 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
   beforeAll(() => {
     syntheticSuiteRoot = realpathSync(mkdtempSync(join(repositoryRoot, ".doks-golden-suite-")));
     try {
-      const captureRoot = join(syntheticSuiteRoot, "capture");
-      const movingMainRoot = join(syntheticSuiteRoot, "moving-main");
+      const fixtureRoot = join(syntheticSuiteRoot, "planner");
+      const fixture = initializePlannerFixtureRepository({
+        root: fixtureRoot,
+        sourceGitRoot: repositoryRoot,
+        sourceSha: goldenProvenance,
+        goldens: committedGoldens,
+        advanceCount: 2,
+      });
+      runGit(["update-ref", "--stdin"], fixtureRoot, {
+        input: [`update ${movingMainRef} ${fixture.mainSha}`, `update ${originMainRef} ${fixture.baseSha}`, ""].join(
+          "\n",
+        ),
+      });
       captureFixture = {
-        root: captureRoot,
-        ...initializePlannerFixtureRepository({
-          root: captureRoot,
-          sourceGitRoot: repositoryRoot,
-          sourceSha: goldenProvenance,
-          goldens: committedGoldens,
-        }),
+        root: fixtureRoot,
+        baseSha: fixture.baseSha,
+        mainSha: fixture.baseSha,
       };
       movingMainFixture = {
-        root: movingMainRoot,
-        ...initializePlannerFixtureRepository({
-          root: movingMainRoot,
-          sourceGitRoot: repositoryRoot,
-          sourceSha: goldenProvenance,
-          goldens: committedGoldens,
-          advanceCount: 2,
-        }),
+        root: fixtureRoot,
+        baseRef: movingMainRef,
+        ...fixture,
       };
     } catch (error) {
       rmSync(syntheticSuiteRoot, { recursive: true, force: true });
@@ -372,11 +375,11 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
         gitRoot: movingMainFixture.root,
         provenanceSha: movingMainFixture.baseSha,
         goldens: committedGoldens,
-        baseRef: originMainRef,
+        baseRef: movingMainFixture.baseRef,
       }),
     ).not.toThrow();
 
-    const predecessorMergeBase = runGit(["merge-base", "HEAD", originMainRef], movingMainFixture.root);
+    const predecessorMergeBase = runGit(["merge-base", "HEAD", movingMainFixture.baseRef], movingMainFixture.root);
     expect(predecessorMergeBase).toBe(movingMainFixture.mainSha);
     expect(predecessorMergeBase).not.toBe(movingMainFixture.baseSha);
   });

@@ -268,27 +268,27 @@ export function initializePlannerFixtureRepository({ root, sourceGitRoot, source
     ...process.env,
     GIT_INDEX_FILE: join(root, ".git", "doks-golden-fixture.index"),
   };
-  runGit(["read-tree", `${sourceSha}^{tree}`], root, { env: fixtureIndexEnvironment });
+  runGit(["read-tree", "--prefix=scripts", `${sourceSha}:scripts`], root, { env: fixtureIndexEnvironment });
+  runGit(
+    ["read-tree", "--prefix=infrastructure/helm/doks-ingress", `${sourceSha}:infrastructure/helm/doks-ingress`],
+    root,
+    {
+      env: fixtureIndexEnvironment,
+    },
+  );
+  const fixtureIndexEntries = [];
   for (const environment of dryRunEnvironments) {
     const blob = runGit(["hash-object", "-w", "--stdin"], root, { input: goldens[environment] });
-    runGit(
-      [
-        "update-index",
-        "--add",
-        "--cacheinfo",
-        "100644",
-        blob,
-        `scripts/fixtures/doks-cluster-addons.dry-run.${environment}.golden.txt`,
-      ],
-      root,
-      { env: fixtureIndexEnvironment },
-    );
+    fixtureIndexEntries.push(`100644 ${blob}\tscripts/fixtures/doks-cluster-addons.dry-run.${environment}.golden.txt`);
   }
+  runGit(["update-index", "--add", "--index-info"], root, {
+    env: fixtureIndexEnvironment,
+    input: `${fixtureIndexEntries.join("\n")}\n`,
+  });
   const fixtureTree = runGit(["write-tree"], root, { env: fixtureIndexEnvironment });
   const baseSha = runGit(["commit-tree", fixtureTree, "-m", "capture DOKS dry-run goldens"], root, {
     env: fixtureGitEnvironment(),
   });
-  runGit(["update-ref", "refs/heads/main", baseSha], root);
 
   let mainSha = baseSha;
   for (let index = 1; index <= advanceCount; index += 1) {
@@ -300,9 +300,14 @@ export function initializePlannerFixtureRepository({ root, sourceGitRoot, source
       },
     );
   }
-  runGit(["update-ref", "refs/heads/main", mainSha], root);
-  runGit(["update-ref", originMainRef, mainSha], root);
-  runGit(["update-ref", "refs/heads/candidate", mainSha], root);
+  runGit(["update-ref", "--stdin"], root, {
+    input: [
+      `update refs/heads/main ${mainSha}`,
+      `update ${originMainRef} ${mainSha}`,
+      `update refs/heads/candidate ${mainSha}`,
+      "",
+    ].join("\n"),
+  });
   runGit(["symbolic-ref", "HEAD", "refs/heads/candidate"], root);
   return { baseSha, mainSha };
 }
