@@ -20,9 +20,13 @@ import {
 } from "@chase-sets/platform-runtime/api";
 import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
-import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
+// Deployables may only consume a context's public entrypoints, so a
+// `seed-support/*` import is a structure-gate violation here. Identity
+// re-exports its seed ids through its public `server` entrypoint, so bind to
+// that; Payments and Settlement do not, so their two ids are inlined below the
+// same way this file already inlines `requiredDraftListingId`. Each inlined id
+// is guarded by an assertion that fails loudly if the seed renames it.
+import { identitySeedIds } from "@chase-sets/identity/server";
 import { describe, expect, it } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
@@ -366,11 +370,21 @@ const settlementPayoutCheckpointKey = createCheckpointKey({
   sourceContextName: "settlement",
   subscriptionVersion: 1,
 });
-const seededPayoutIds = [
-  settlementReservedSeedIds.payouts.completed,
-  settlementReservedSeedIds.payouts.failed,
-] as const;
-const settlementSeedPrerequisitePaymentId = paymentsReservedSeedIds.payments.acceptedOfferCaptured;
+/**
+ * Mirrors of `settlementReservedSeedIds` (`bounded-contexts/settlement/support/
+ * seed-support/ids.ts`) and `paymentsReservedSeedIds.payments
+ * .acceptedOfferCaptured` (`bounded-contexts/payments/support/seed-support/
+ * ids.ts`). Neither context re-exports them through a public entrypoint a
+ * deployable may import, and `check-structure` rejects a `seed-support/*`
+ * import from `deployables/`. Every one of these is asserted present against
+ * the real seeded state below, so a rename fails this file loudly rather than
+ * silently skipping an arm.
+ */
+const settlementSeedCompletedPayoutId = "pyo_seed_completed";
+const settlementSeedFailedPayoutId = "pyo_seed_failed";
+const settlementSeedPendingSaleCreditId = "led_seed_pending_sale_credit";
+const seededPayoutIds = [settlementSeedCompletedPayoutId, settlementSeedFailedPayoutId] as const;
+const settlementSeedPrerequisitePaymentId = "pay_seed_offer_captured";
 const settlementSeedSellerAccountId = identitySeedIds.demo.accountId;
 
 /**
@@ -943,7 +957,7 @@ describe("authoritative seed resume", () => {
 
     // Paired prerequisite negative: give the seed real work to do, then prove an
     // unrelated captured row cannot stand in for the exact missing target.
-    const completedPayoutStreamId = `settlement.payout-${settlementReservedSeedIds.payouts.completed}`;
+    const completedPayoutStreamId = `settlement.payout-${settlementSeedCompletedPayoutId}`;
     await pools.settlement.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [
       completedPayoutStreamId,
     ]);
@@ -952,7 +966,7 @@ describe("authoritative seed resume", () => {
       "UPDATE event_store_streams SET current_version = 0, updated_at = now() WHERE stream_id = $1",
       [completedPayoutStreamId],
     );
-    expect(await payoutsMissingFromStreams()).toEqual([settlementReservedSeedIds.payouts.completed]);
+    expect(await payoutsMissingFromStreams()).toEqual([settlementSeedCompletedPayoutId]);
     const withWorkPending = await countEventsWithPrefix(pools.settlement, "settlement.");
 
     const unrelatedPaymentId = "pay_seed_unrelated_negative_control";
@@ -985,7 +999,7 @@ describe("authoritative seed resume", () => {
       await countEventsWithPrefix(pools.settlement, "settlement."),
       "an unrelated captured row must not stand in for the exact missing prerequisite",
     ).toBe(withWorkPending);
-    expect(await payoutsMissingFromStreams()).toEqual([settlementReservedSeedIds.payouts.completed]);
+    expect(await payoutsMissingFromStreams()).toEqual([settlementSeedCompletedPayoutId]);
 
     // Restore the exact target and the same seed does the pending work.
     await pools.settlement.query(
@@ -1094,7 +1108,7 @@ describe("authoritative seed resume", () => {
         WHERE stream_id = $1
           AND event_type = 'settlement.wallet.ledger-entry-available-recorded'
           AND payload->>'ledgerEntryId' = $2`,
-      [walletStreamId, settlementReservedSeedIds.ledgerEntries.pendingSaleCredit],
+      [walletStreamId, settlementSeedPendingSaleCreditId],
     );
     expect(released.rows, "the seeded pending sale credit was never released").toHaveLength(1);
     await pools.settlement.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [walletStreamId]);
@@ -1103,14 +1117,14 @@ describe("authoritative seed resume", () => {
         WHERE stream_id = $1
           AND event_type = 'settlement.wallet.ledger-entry-available-recorded'
           AND payload->>'ledgerEntryId' = $2`,
-      [walletStreamId, settlementReservedSeedIds.ledgerEntries.pendingSaleCredit],
+      [walletStreamId, settlementSeedPendingSaleCreditId],
     );
 
     const draftReports = await settlementMount.module.inspectSeedState!(settlementMount.pool, seedOptions);
     expect(draftReports).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: settlementReservedSeedIds.ledgerEntries.pendingSaleCredit,
+          id: settlementSeedPendingSaleCreditId,
           kind: "draft",
         }),
       ]),
@@ -1125,7 +1139,7 @@ describe("authoritative seed resume", () => {
     expect(reconciledReports).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: settlementReservedSeedIds.ledgerEntries.pendingSaleCredit,
+          id: settlementSeedPendingSaleCreditId,
           kind: "active",
         }),
       ]),
