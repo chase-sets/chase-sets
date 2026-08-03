@@ -161,6 +161,8 @@
             "untrackedProbe",
             "ignoredProbe",
             "seventhProbe",
+            "seventhModuleProbe",
+            "namespaceBindingProbe",
             "digestProbe",
             "movedDigestProbe",
             "termsOfServiceConsentRoutes > POST /accept",

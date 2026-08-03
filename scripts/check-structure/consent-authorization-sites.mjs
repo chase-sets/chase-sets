@@ -38,6 +38,72 @@ const httpMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const commitShaPattern = /^[0-9a-f]{40}$/;
 
 /**
+ * The candidate corpus is bounded by an extension set, so that set is a derived
+ * grammar member and is derived from the compiler API the guard already parses
+ * with: `ts.Extension` is the compiler's own total enumeration of the
+ * extensions it recognises. Every member is dispositioned here by name, and
+ * `assertConsentAuthorizationExtensionDisposition` fails closed the moment the
+ * enumeration and this table disagree in either direction, so a compiler
+ * upgrade that introduces a module extension turns the guard red rather than
+ * silently narrowing the surface it claims to have censused.
+ *
+ * Every extension that names a JavaScript or TypeScript module is scanned,
+ * because any of them can carry a call expression: `.mts` and `.d.mts` are
+ * carried by the candidate head today, and `.cts`, `.d.cts`, `.js`, `.jsx` and
+ * `.cjs` are admitted by the grammar that supports them rather than by whether
+ * a file using one happens to exist. `.json` and `.tsbuildinfo` are the only
+ * excluded members: neither is a module, so neither can hold a consumption.
+ */
+export const consentAuthorizationExtensionDispositions = Object.freeze(
+  [
+    { extension: ts.Extension.Ts, scriptKind: "TS", reason: "TypeScript module" },
+    { extension: ts.Extension.Dts, scriptKind: "TS", reason: "TypeScript declaration module" },
+    { extension: ts.Extension.Tsx, scriptKind: "TSX", reason: "TypeScript module with JSX syntax" },
+    { extension: ts.Extension.Mts, scriptKind: "TS", reason: "TypeScript ECMAScript module" },
+    { extension: ts.Extension.Dmts, scriptKind: "TS", reason: "TypeScript ECMAScript declaration module" },
+    { extension: ts.Extension.Cts, scriptKind: "TS", reason: "TypeScript CommonJS module" },
+    { extension: ts.Extension.Dcts, scriptKind: "TS", reason: "TypeScript CommonJS declaration module" },
+    { extension: ts.Extension.Js, scriptKind: "JS", reason: "JavaScript module" },
+    { extension: ts.Extension.Jsx, scriptKind: "JSX", reason: "JavaScript module with JSX syntax" },
+    { extension: ts.Extension.Mjs, scriptKind: "JS", reason: "JavaScript ECMAScript module" },
+    { extension: ts.Extension.Cjs, scriptKind: "JS", reason: "JavaScript CommonJS module" },
+    { extension: ts.Extension.Json, scriptKind: null, reason: "data document, never a module that can call" },
+    { extension: ts.Extension.TsBuildInfo, scriptKind: null, reason: "build metadata, never a module that can call" },
+  ].map((entry) => Object.freeze({ ...entry, scanned: entry.scriptKind !== null })),
+);
+
+// Longest first, so `.d.mts` is never decided by the `.mts` arm and
+// `.tsbuildinfo` is never decided by the `.ts` arm.
+const dispositionsByLongestExtension = consentAuthorizationExtensionDispositions.toSorted(
+  (left, right) => right.extension.length - left.extension.length,
+);
+
+/**
+ * Governing clause of MUT-AC10-EXTENSION-DISPOSITION-OPEN. The committed
+ * disposition must cover the compiler's enumeration exactly; a member on either
+ * side alone is an unresolved grammar, not a narrower corpus.
+ */
+export function assertConsentAuthorizationExtensionDisposition(enumerated = Object.values(ts.Extension)) {
+  const dispositioned = consentAuthorizationExtensionDispositions.map(({ extension }) => extension);
+  const undispositioned = enumerated.filter((extension) => !dispositioned.includes(extension));
+  const unenumerated = dispositioned.filter((extension) => !enumerated.includes(extension));
+  if (undispositioned.length > 0 || unenumerated.length > 0) {
+    throw guardFailure(
+      "consent-authorization-extension-disposition-partial",
+      "corpus.extension-disposition",
+      "the committed extension disposition does not cover the compiler's enumerated extension set exactly",
+      { undispositioned, unenumerated },
+    );
+  }
+  return consentAuthorizationExtensionDispositions;
+}
+
+export function consentAuthorizationExtensionDisposition(file) {
+  const normalized = normalizePath(file);
+  return dispositionsByLongestExtension.find((entry) => normalized.endsWith(entry.extension)) ?? null;
+}
+
+/**
  * The guard asserts about the tree named by `candidateHead`, never about the
  * tree it happens to be executing over. `analyzedTree` is recorded as
  * provenance and asserted about nowhere, so a pull-request synthetic merge
@@ -239,7 +305,7 @@ export function isConsentAuthorizationTestSource(relativeFile) {
 }
 
 function isCandidateSourceExtension(file) {
-  return /\.(?:ts|tsx|mjs)$/.test(file);
+  return consentAuthorizationExtensionDisposition(file)?.scanned === true;
 }
 
 function parseTreeEntries(raw) {
@@ -304,6 +370,7 @@ export function enumerateConsentAuthorizationCorpus({
       { observed: candidateHead ?? null },
     );
   }
+  assertConsentAuthorizationExtensionDisposition();
 
   let existence;
   try {
@@ -357,6 +424,9 @@ export function enumerateConsentAuthorizationCorpus({
     sourceFiles,
     scannedFiles,
     unionsUntrackedNonignored,
+    scannedExtensions: consentAuthorizationExtensionDispositions
+      .filter(({ scanned }) => scanned)
+      .map(({ extension }) => extension),
     surface: { scanned: scannedFiles.length, total: sourceFiles.length },
   };
 }
@@ -386,9 +456,16 @@ export function readConsentAuthorizationCorpusSources({
 /* ------------------------------------------------------------------------ */
 
 function scriptKindFor(file) {
-  if (file.endsWith(".tsx")) return ts.ScriptKind.TSX;
-  if (file.endsWith(".mjs")) return ts.ScriptKind.JS;
-  return ts.ScriptKind.TS;
+  const disposition = consentAuthorizationExtensionDisposition(file);
+  if (!disposition?.scanned) {
+    throw guardFailure(
+      "consent-authorization-script-kind-unresolved",
+      "parsing.script-kind",
+      `${file} has no committed scanned script kind, so it cannot be parsed under a guessed grammar`,
+      { file, disposition: disposition?.extension ?? null },
+    );
+  }
+  return ts.ScriptKind[disposition.scriptKind];
 }
 
 function modifiersInclude(node, kind) {
@@ -664,6 +741,160 @@ function computedConstructorProperty(node) {
   return null;
 }
 
+/* -- Canonical-module bindings and constant keys -------------------------- */
+
+const declarationModulePath = declarationFile.slice(0, -path.extname(declarationFile).length);
+
+/**
+ * A specifier reaches the canonical module when it resolves onto the
+ * declaration module's path, with or without a written extension. This is
+ * deliberately broader than the canonical-import check in
+ * `resolvesToDeclarationModule`: that clause decides whether a named import is
+ * the one canonical binding and must stay exact, while this clause decides
+ * whether a non-canonical form reached the module at all, where a wider net
+ * only ever reports more.
+ */
+function reachesCanonicalModule(relativeFile, specifier) {
+  if (typeof specifier !== "string" || !specifier.startsWith(".")) return false;
+  const resolved = path.posix.normalize(
+    path.posix.join(path.posix.dirname(normalizePath(relativeFile)), normalizePath(specifier)),
+  );
+  const disposition = consentAuthorizationExtensionDisposition(resolved);
+  const withoutExtension = disposition ? resolved.slice(0, -disposition.extension.length) : resolved;
+  return resolved === declarationModulePath || withoutExtension === declarationModulePath;
+}
+
+function canonicalSpecifierText(node) {
+  return node && ts.isStringLiteral(node) ? node.text : null;
+}
+
+// A `const` name whose value is not one resolvable string -- two declarations of
+// one name, or a value this resolver cannot fold -- is unresolved, never a
+// guess.
+const ambiguousConstantBinding = Symbol("ambiguous-constant-binding");
+
+// Expressions that carry their operand's value unchanged, so a key wrapped in
+// one of them is still the same constant key.
+const valueTransparentExpressionKinds = new Set([
+  ts.SyntaxKind.ParenthesizedExpression,
+  ts.SyntaxKind.AsExpression,
+  ts.SyntaxKind.SatisfiesExpression,
+  ts.SyntaxKind.NonNullExpression,
+  ts.SyntaxKind.TypeAssertionExpression,
+]);
+
+function collectConstantStringBinding(node, bindings) {
+  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
+  const list = node.parent;
+  if (!ts.isVariableDeclarationList(list) || (list.flags & ts.NodeFlags.Const) === 0) return;
+  bindings.set(node.name.text, bindings.has(node.name.text) ? ambiguousConstantBinding : node.initializer);
+}
+
+/**
+ * Governing clause of MUT-AC4-CONSTANT-KEY-UNRESOLVED and
+ * MUT-AC4-TEMPLATE-KEY-UNRESOLVED. Folds the key forms whose value is fixed by
+ * the module's own text -- string and template literals, `const` bindings over
+ * them, template substitution, and `+` concatenation -- and returns null for
+ * every key that is not, so a resolved key is a fact and an unresolved key is
+ * an admitted unknown.
+ */
+export function resolveConsentAuthorizationConstantKey(node, bindings, seen = new Set()) {
+  if (!node) return null;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (valueTransparentExpressionKinds.has(node.kind)) {
+    return resolveConsentAuthorizationConstantKey(node.expression, bindings, seen);
+  }
+  if (ts.isTemplateExpression(node)) {
+    let text = node.head.text;
+    for (const span of node.templateSpans) {
+      const resolved = resolveConsentAuthorizationConstantKey(span.expression, bindings, seen);
+      if (resolved === null) return null;
+      text += resolved + span.literal.text;
+    }
+    return text;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = resolveConsentAuthorizationConstantKey(node.left, bindings, seen);
+    const right = resolveConsentAuthorizationConstantKey(node.right, bindings, seen);
+    return left === null || right === null ? null : left + right;
+  }
+  if (ts.isIdentifier(node)) {
+    const bound = bindings.get(node.text);
+    if (bound === undefined || bound === ambiguousConstantBinding || seen.has(node.text)) return null;
+    seen.add(node.text);
+    const resolved = resolveConsentAuthorizationConstantKey(bound, bindings, seen);
+    seen.delete(node.text);
+    return resolved;
+  }
+  return null;
+}
+
+function noncanonicalAccess(relativeFile, sourceFile, node, form, binding) {
+  return {
+    file: relativeFile,
+    constructor: null,
+    line: lineFor(sourceFile, node),
+    referenceClass: "noncanonical-module-access",
+    form,
+    binding,
+    syntaxKind: ts.SyntaxKind[node.kind],
+  };
+}
+
+/**
+ * Governing clause of MUT-AC4-NAMESPACE-BINDING-UNTRACKED. Every form that
+ * reaches the canonical module without being one canonical named import binds
+ * or republishes the whole module surface, and the census cannot see a
+ * constructor reached through it. Each form is recorded where it is written,
+ * and the local names it binds are returned so their uses can be classified.
+ */
+function collectCanonicalModuleBinding(relativeFile, sourceFile, node, bindings, accesses) {
+  if (
+    ts.isImportDeclaration(node) &&
+    reachesCanonicalModule(relativeFile, canonicalSpecifierText(node.moduleSpecifier))
+  ) {
+    const clause = node.importClause;
+    if (clause?.name) {
+      bindings.set(clause.name.text, clause.name);
+      accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, "default-import", clause.name.text));
+    }
+    if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+      bindings.set(clause.namedBindings.name.text, clause.namedBindings.name);
+      accesses.push(
+        noncanonicalAccess(relativeFile, sourceFile, node, "namespace-import", clause.namedBindings.name.text),
+      );
+    }
+    return;
+  }
+  if (
+    ts.isExportDeclaration(node) &&
+    reachesCanonicalModule(relativeFile, canonicalSpecifierText(node.moduleSpecifier)) &&
+    (!node.exportClause || ts.isNamespaceExport(node.exportClause))
+  ) {
+    accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, "namespace-re-export", null));
+    return;
+  }
+  if (
+    ts.isImportEqualsDeclaration(node) &&
+    ts.isExternalModuleReference(node.moduleReference) &&
+    reachesCanonicalModule(relativeFile, canonicalSpecifierText(node.moduleReference.expression))
+  ) {
+    bindings.set(node.name.text, node.name);
+    accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, "import-equals", node.name.text));
+    return;
+  }
+  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return;
+  const acquired =
+    node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ? "dynamic-import"
+      : ts.isIdentifier(node.expression) && node.expression.text === "require"
+        ? "require"
+        : null;
+  if (acquired && reachesCanonicalModule(relativeFile, canonicalSpecifierText(node.arguments[0]))) {
+    accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, acquired, null));
+  }
+}
+
 export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
   const sourceFile = ts.createSourceFile(
     relativeFile,
@@ -673,7 +904,14 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
     scriptKindFor(relativeFile),
   );
   const references = [];
+  const constantBindings = new Map();
+  const canonicalBindings = new Map();
+  const canonicalAccesses = [];
+  const elementAccesses = [];
   const visit = (node) => {
+    collectConstantStringBinding(node, constantBindings);
+    collectCanonicalModuleBinding(relativeFile, sourceFile, node, canonicalBindings, canonicalAccesses);
+    if (ts.isElementAccessExpression(node)) elementAccesses.push(node);
     if (ts.isIdentifier(node) && constructorNames.has(node.text)) {
       const base = { file: relativeFile, constructor: node.text, line: lineFor(sourceFile, node) };
       if (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) {
@@ -716,6 +954,58 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+
+  // The constant bindings are complete only once the whole module has been
+  // walked, so every key that is constant by resolution rather than by literal
+  // is folded here. A key written as a literal is already classified at the
+  // literal itself by `computedConstructorProperty`, and is skipped so that one
+  // reference is never counted twice.
+  for (const access of elementAccesses) {
+    const argument = access.argumentExpression;
+    if (!argument || ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) continue;
+    const key = resolveConsentAuthorizationConstantKey(argument, constantBindings);
+    if (key === null || !constructorNames.has(key)) continue;
+    references.push({
+      file: relativeFile,
+      constructor: key,
+      line: lineFor(sourceFile, access),
+      referenceClass: "unexpected",
+      syntaxKind: ts.SyntaxKind[access.kind],
+    });
+  }
+
+  references.push(...canonicalAccesses);
+  if (canonicalBindings.size > 0) {
+    const declarationNames = new Set(canonicalBindings.values());
+    const visitBindingUse = (node) => {
+      if (ts.isIdentifier(node) && canonicalBindings.has(node.text) && !declarationNames.has(node)) {
+        const parent = node.parent;
+        const isMemberName =
+          (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+          (ts.isPropertyAssignment(parent) && parent.name === node) ||
+          (ts.isQualifiedName(parent) && parent.right === node);
+        if (!isMemberName) {
+          if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+            // A statically written member name is decided by its own
+            // identifier: it is classified when it spells a constructor, and
+            // provably is not one otherwise.
+          } else if (ts.isElementAccessExpression(parent) && parent.expression === node) {
+            // A key that resolves is already classified above or at its
+            // literal; a key that does not resolve could name any export of the
+            // module, so it fails closed.
+            if (resolveConsentAuthorizationConstantKey(parent.argumentExpression, constantBindings) === null) {
+              references.push(noncanonicalAccess(relativeFile, sourceFile, parent, "dynamic-key", node.text));
+            }
+          } else {
+            references.push(noncanonicalAccess(relativeFile, sourceFile, node, "escaping-binding", node.text));
+          }
+        }
+      }
+      ts.forEachChild(node, visitBindingUse);
+    };
+    visitBindingUse(sourceFile);
+  }
+
   return references;
 }
 
@@ -916,6 +1206,9 @@ export function analyzeConsentAuthorizationSites(options = {}) {
     (site) => ({ ...site, classification: constructorClassifications.get(site.constructor) }),
   );
   const unexpected = references.filter((reference) => reference.referenceClass === "unexpected");
+  const noncanonicalAccesses = references.filter(
+    (reference) => reference.referenceClass === "noncanonical-module-access",
+  );
   const registrySites = Array.isArray(registry?.sites) ? registry.sites : [];
 
   const expectedDeclarations = new Set(consentAuthorizationConstructors.map((name) => `${declarationFile}\0${name}`));
@@ -1018,6 +1311,16 @@ export function analyzeConsentAuthorizationSites(options = {}) {
     );
   }
 
+  for (const reference of noncanonicalAccesses) {
+    violations.push(
+      finding(
+        "consent-authorization-noncanonical-module-access",
+        `${reference.file}:${reference.line} reaches the declaration module as ${reference.form}, which the census cannot see a constructor through`,
+        { reference },
+      ),
+    );
+  }
+
   const partition = {
     declarations,
     imports,
@@ -1075,6 +1378,8 @@ export function analyzeConsentAuthorizationSites(options = {}) {
       honoredIgnoreSources: corpus.unionsUntrackedNonignored
         ? [".gitignore", ".git/info/exclude", "core.excludesFile"]
         : [],
+      extensionAuthority: "ts.Extension",
+      scannedExtensions: corpus.scannedExtensions,
       files: corpus.scannedFiles,
     },
     ownerContexts: {
@@ -1104,6 +1409,7 @@ export function formatConsentAuthorizationCensus(result) {
     `scanned=${result.surface.scanned}/total=${result.surface.total} tracked-authority='${result.corpus.trackedAuthority}'`,
     `untracked-union=${result.corpus.unionsUntrackedNonignored} untracked-authority='${result.corpus.untrackedAuthority ?? "none"}'`,
     `honored-ignore-rules=${ignore.length > 0 ? ignore.join(",") : "none (tracked objects only)"}`,
+    `scanned-extensions=${result.corpus.scannedExtensions.join(",")} extension-authority=${result.corpus.extensionAuthority}`,
     `partitionDigest=${result.partitionDigest} expected=${result.expectedPartitionDigest}`,
   ].join("\n");
 }

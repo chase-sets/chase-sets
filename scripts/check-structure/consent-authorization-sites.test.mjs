@@ -9,11 +9,13 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   ConsentAuthorizationGuardError,
   analyzeConsentAuthorizationSites,
+  assertConsentAuthorizationExtensionDisposition,
   candidateHeadProvenanceRole,
   collectConsentAuthorizationRegistryViolations,
   collectFrozenProvenanceViolations,
   collectMutationAggregateViolations,
   consentAuthorizationCaseEnumerationPath,
+  consentAuthorizationExtensionDispositions,
   consentAuthorizationRegistryPath,
   consentAuthorizationRegistrySchemaPath,
   deriveConsentAuthorizationProvenanceOutcome,
@@ -407,6 +409,32 @@ function buildRetainedCorpusProbeRepo() {
   return { scratch, head };
 }
 
+/**
+ * The arbitrary paths the repaired surface is decided at. None of them carries
+ * fixture vocabulary: each is an ordinary directory two levels below the root,
+ * so the guard reaches them by code shape rather than by recognising a friendly
+ * name, and the namespace-binding module's relative specifier resolves onto the
+ * real declaration module only because the path is exactly this deep.
+ */
+const arbitraryControlPlantings = new Map([
+  [
+    "zz-unrelated/plain-directory/module.mts",
+    `${fixtureRoot}/reconciliation/unregistered-seventh-module-typescript.mts`,
+  ],
+  ["zz-unrelated/plain-directory/constant-key.ts", `${fixtureRoot}/references/constant-key.ts`],
+  ["zz-unrelated/plain-directory/template-key.ts", `${fixtureRoot}/references/template-key.ts`],
+  ["zz-unrelated/plain-directory/namespace-binding.ts", `${fixtureRoot}/references/namespace-binding-dynamic-key.ts`],
+]);
+
+function buildRetainedArbitraryControlRepo() {
+  const { scratch } = buildProductScratchRepo(
+    "consent-arbitrary-controls-",
+    new Map([...arbitraryControlPlantings].map(([relative, fixture]) => [relative, repoFile(fixture)])),
+  );
+  retainedScratchRepos.push(scratch);
+  return scratch;
+}
+
 function buildRetainedPartitionNarrowRepo() {
   const { scratch } = buildProductScratchRepo(
     "consent-partition-narrow-",
@@ -421,6 +449,8 @@ function buildRetainedPartitionNarrowRepo() {
 const classifiedEnvironments = buildClassifiedEnvironmentEvidence();
 const retainedCorpusProbe = buildRetainedCorpusProbeRepo();
 const retainedPartitionNarrowScratch = buildRetainedPartitionNarrowRepo();
+const retainedArbitraryControlScratch = buildRetainedArbitraryControlRepo();
+const arbitraryControlResult = analyzeScratch(retainedArbitraryControlScratch);
 const unresolvedCandidateHead = buildUnresolvedCandidateHeadEvidence();
 const builtVersusClean = buildBuiltVersusCleanEvidence();
 const mainAdvance = buildMainAdvanceEvidence();
@@ -733,6 +763,56 @@ const mutationCases = [
     "tracked surface authority",
   ),
   mutationCase(
+    "MUT-AC10-CORPUS-EXTENSION-OMIT-MTS",
+    "AC11",
+    `${fixtureRoot}/reconciliation/unregistered-seventh-module-typescript.mts`,
+    "consentAuthorizationExtensionDispositions / module TypeScript arm",
+    "corpus.extension-disposition.mts",
+    "consent-authorization-site-unregistered",
+    "seventhModuleProbe",
+    "module TypeScript candidate source",
+  ),
+  mutationCase(
+    "MUT-AC10-EXTENSION-DISPOSITION-OPEN",
+    "AC11",
+    `${fixtureRoot}/reconciliation/unregistered-seventh-module-typescript.mts`,
+    "assertConsentAuthorizationExtensionDisposition / fail-closed arm",
+    "corpus.extension-disposition.totality",
+    "consent-authorization-extension-disposition-partial",
+    null,
+    "compiler-enumerated extension set",
+  ),
+  mutationCase(
+    "MUT-AC4-CONSTANT-KEY-UNRESOLVED",
+    "AC6",
+    `${fixtureRoot}/references/constant-key.ts`,
+    "resolveConsentAuthorizationConstantKey / identifier arm",
+    "reference.constant-key",
+    "consent-authorization-reference-unclassified",
+    null,
+    "constant-bound element access key",
+  ),
+  mutationCase(
+    "MUT-AC4-TEMPLATE-KEY-UNRESOLVED",
+    "AC6",
+    `${fixtureRoot}/references/template-key.ts`,
+    "resolveConsentAuthorizationConstantKey / template arm",
+    "reference.template-key",
+    "consent-authorization-reference-unclassified",
+    null,
+    "template-derived element access key",
+  ),
+  mutationCase(
+    "MUT-AC4-NAMESPACE-BINDING-UNTRACKED",
+    "AC6",
+    `${fixtureRoot}/references/namespace-binding-dynamic-key.ts`,
+    "collectCanonicalModuleBinding / canonical binding collection",
+    "reference.canonical-module-binding",
+    "consent-authorization-noncanonical-module-access",
+    "namespaceBindingProbe",
+    "canonical namespace binding reached by a dynamic key",
+  ),
+  mutationCase(
     "MUT-AC2-SCHEMA-OPEN-NESTED",
     "AC5",
     `${fixtureRoot}/registry/nested-unknown.json`,
@@ -1032,6 +1112,26 @@ function sourceMutationFor(descriptor) {
       "    } else if (!registryKeys.has(siteKey(site))) {",
       "    } else if (false && !registryKeys.has(siteKey(site))) {",
     ],
+    "MUT-AC10-CORPUS-EXTENSION-OMIT-MTS": [
+      '    { extension: ts.Extension.Mts, scriptKind: "TS", reason: "TypeScript ECMAScript module" },',
+      '    { extension: ts.Extension.Mts, scriptKind: null, reason: "TypeScript ECMAScript module" },',
+    ],
+    "MUT-AC10-EXTENSION-DISPOSITION-OPEN": [
+      "  if (undispositioned.length > 0 || unenumerated.length > 0) {",
+      "  if (false && (undispositioned.length > 0 || unenumerated.length > 0)) {",
+    ],
+    "MUT-AC4-CONSTANT-KEY-UNRESOLVED": [
+      "  if (ts.isIdentifier(node)) {\n    const bound = bindings.get(node.text);",
+      "  if (false && ts.isIdentifier(node)) {\n    const bound = bindings.get(node.text);",
+    ],
+    "MUT-AC4-TEMPLATE-KEY-UNRESOLVED": [
+      "  if (ts.isTemplateExpression(node)) {\n    let text = node.head.text;",
+      "  if (false && ts.isTemplateExpression(node)) {\n    let text = node.head.text;",
+    ],
+    "MUT-AC4-NAMESPACE-BINDING-UNTRACKED": [
+      "    collectCanonicalModuleBinding(relativeFile, sourceFile, node, canonicalBindings, canonicalAccesses);\n",
+      "",
+    ],
     "MUT-PROV-ACCEPT-UNRESOLVED": ["  if (!outcome.ok) {", "  if (false && !outcome.ok) {"],
     "MUT-BASE-FROZEN-CONSTANT": [
       "export const frozenProvenanceExpectations = Object.freeze([]);",
@@ -1224,6 +1324,83 @@ function discriminate(descriptor, candidateModule, mutantModule) {
       mutantRed: mutant.sourceFiles.includes("ignored-generated/authorization.ts"),
       candidateObservation: "the tracked surface is an object query against the candidate-head commit",
       mutantObservation: "a filesystem walk enumerates ignored generated modules the candidate head never carried",
+    };
+  }
+
+  if (id === "MUT-AC10-CORPUS-EXTENSION-OMIT-MTS") {
+    const seventh = (result) =>
+      result.violations.some(
+        ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhModuleProbe",
+      );
+    return {
+      candidateGreen: seventh(analyzeScratch(retainedArbitraryControlScratch, {}, candidateModule)),
+      mutantRed: !seventh(analyzeScratch(retainedArbitraryControlScratch, {}, mutantModule)),
+      candidateObservation:
+        "a committed module TypeScript source at an arbitrary path enters the corpus and its unregistered consumption is reported",
+      mutantObservation: "excluding the module TypeScript extension hides the whole file and the site with it",
+    };
+  }
+
+  if (id === "MUT-AC10-EXTENSION-DISPOSITION-OPEN") {
+    // An arbitrary extension the committed disposition does not name, so the
+    // enumeration and the table disagree in exactly one member.
+    const enumerated = [...Object.values(ts.Extension), ".zz-unenumerated"];
+    let candidateThrew = null;
+    try {
+      candidateModule.assertConsentAuthorizationExtensionDisposition(enumerated);
+    } catch (error) {
+      candidateThrew = error;
+    }
+    return {
+      candidateGreen:
+        candidateThrew?.code === "consent-authorization-extension-disposition-partial" &&
+        candidateThrew.name === "ConsentAuthorizationGuardError" &&
+        candidateModule.assertConsentAuthorizationExtensionDisposition().length ===
+          consentAuthorizationExtensionDispositions.length,
+      mutantRed:
+        mutantModule.assertConsentAuthorizationExtensionDisposition(enumerated).length ===
+        consentAuthorizationExtensionDispositions.length,
+      candidateObservation:
+        "an extension the compiler enumerates but the committed disposition does not name fails closed under its named guard error",
+      mutantObservation: "bypassing the totality arm accepts an undispositioned compiler extension",
+    };
+  }
+
+  if (id === "MUT-AC4-CONSTANT-KEY-UNRESOLVED" || id === "MUT-AC4-TEMPLATE-KEY-UNRESOLVED") {
+    const source = repoFile(descriptor.fixture);
+    const at = id.endsWith("CONSTANT-KEY-UNRESOLVED")
+      ? "zz-unrelated/plain-directory/constant-key.ts"
+      : "zz-unrelated/plain-directory/template-key.ts";
+    const unclassified = (module) =>
+      module
+        .scanConsentAuthorizationSource(at, source, ownerContexts)
+        .filter(({ referenceClass }) => referenceClass === "unexpected");
+    const candidate = unclassified(candidateModule);
+    return {
+      candidateGreen:
+        candidate.length === 1 &&
+        candidate[0].constructor === "authorizeConsentForActor" &&
+        candidate[0].syntaxKind === "ElementAccessExpression",
+      mutantRed: unclassified(mutantModule).length === 0,
+      candidateObservation: "an element access key that is constant only after resolution still fails closed",
+      mutantObservation: "dropping the resolution arm lets the constant key through unclassified",
+    };
+  }
+
+  if (id === "MUT-AC4-NAMESPACE-BINDING-UNTRACKED") {
+    const source = repoFile(descriptor.fixture);
+    const at = "zz-unrelated/plain-directory/namespace-binding.ts";
+    const forms = (module) =>
+      module
+        .scanConsentAuthorizationSource(at, source, ownerContexts)
+        .filter(({ referenceClass }) => referenceClass === "noncanonical-module-access")
+        .map(({ form }) => form)
+        .toSorted();
+    return {
+      candidateGreen: JSON.stringify(forms(candidateModule)) === JSON.stringify(["dynamic-key", "namespace-import"]),
+      mutantRed: forms(mutantModule).length === 0,
+      candidateObservation: "a canonical namespace binding and the dynamic key taken through it both fail closed",
+      mutantObservation: "untracked canonical bindings let a dynamically keyed namespace call disappear",
     };
   }
 
@@ -1950,6 +2127,111 @@ describe("Consent authorization sites", () => {
         ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhProbe",
       ),
     ).toBe(true);
+  });
+
+  it("dispositions the compiler's enumerated extension set exactly and fails closed on a member it does not name", () => {
+    const enumerated = Object.values(ts.Extension);
+    const dispositioned = consentAuthorizationExtensionDispositions.map(({ extension }) => extension);
+    process.stdout.write(
+      `extension-disposition=${JSON.stringify(
+        consentAuthorizationExtensionDispositions.map(({ extension, scanned, scriptKind }) => [
+          extension,
+          scanned,
+          scriptKind,
+        ]),
+      )}\n`,
+    );
+    expect(dispositioned.toSorted()).toEqual(enumerated.toSorted());
+    expect(assertConsentAuthorizationExtensionDisposition()).toHaveLength(enumerated.length);
+
+    // Every module extension is scanned and only the two non-module members are
+    // not, so the corpus is bounded by what the grammar supports rather than by
+    // what the candidate head happens to carry.
+    const scanned = consentAuthorizationExtensionDispositions
+      .filter((entry) => entry.scanned)
+      .map(({ extension }) => extension);
+    expect(scanned).toContain(ts.Extension.Mts);
+    expect(scanned).toContain(ts.Extension.Dmts);
+    expect(scanned).toContain(ts.Extension.Cts);
+    expect(scanned).toContain(ts.Extension.Dcts);
+    expect(
+      consentAuthorizationExtensionDispositions
+        .filter((entry) => !entry.scanned)
+        .map(({ extension }) => extension)
+        .toSorted(),
+    ).toEqual([ts.Extension.Json, ts.Extension.TsBuildInfo].toSorted());
+    expect(consentAuthorizationExtensionDispositions.every(({ reason }) => reason.trim().length > 0)).toBe(true);
+
+    let thrown = null;
+    try {
+      assertConsentAuthorizationExtensionDisposition([...enumerated, ".zz-unenumerated"]);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ConsentAuthorizationGuardError);
+    expect(thrown.code).toBe("consent-authorization-extension-disposition-partial");
+    expect(thrown.details.undispositioned).toEqual([".zz-unenumerated"]);
+  });
+
+  it("censuses committed module TypeScript source at an arbitrary path", () => {
+    process.stdout.write(
+      `arbitrary-controls=${JSON.stringify({
+        surface: arbitraryControlResult.surface,
+        files: arbitraryControlResult.corpus.files,
+        codes: arbitraryControlResult.violations.map(({ code }) => code).toSorted(),
+      })}\n`,
+    );
+    expect(arbitraryControlResult.corpus.files).toContain("zz-unrelated/plain-directory/module.mts");
+    expect(arbitraryControlResult.surface).toEqual({ scanned: 10, total: 10 });
+    expect(
+      arbitraryControlResult.violations.some(
+        ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhModuleProbe",
+      ),
+    ).toBe(true);
+    expect(arbitraryControlResult.corpus.extensionAuthority).toBe("ts.Extension");
+  });
+
+  it("fails constant-key and template-key element accesses discovered at arbitrary paths", () => {
+    const unclassified = arbitraryControlResult.violations.filter(
+      ({ code, reference }) =>
+        code === "consent-authorization-reference-unclassified" &&
+        reference?.syntaxKind === "ElementAccessExpression" &&
+        reference.file.startsWith("zz-unrelated/"),
+    );
+    expect(unclassified.map(({ reference }) => [reference.file, reference.constructor]).toSorted()).toEqual([
+      ["zz-unrelated/plain-directory/constant-key.ts", "authorizeConsentForActor"],
+      ["zz-unrelated/plain-directory/template-key.ts", "authorizeConsentForActor"],
+    ]);
+
+    // A key that is genuinely unrelated stays silent, so the resolver reports a
+    // resolved fact rather than every computed access it meets.
+    expect(
+      scanConsentAuthorizationSource(
+        "zz-unrelated/plain-directory/neighbour.ts",
+        'const key = "authorizeConsentForNobody";\nauthorization[key](context);\nauthorization[runtimeKey](context);\n',
+        ownerContexts,
+      ),
+    ).toEqual([]);
+  });
+
+  it("fails closed on a canonical namespace binding and the dynamic key taken through it", () => {
+    const accesses = arbitraryControlResult.violations.filter(
+      ({ code }) => code === "consent-authorization-noncanonical-module-access",
+    );
+    expect(accesses.map(({ reference }) => reference.form).toSorted()).toEqual(["dynamic-key", "namespace-import"]);
+    expect(
+      accesses.every(({ reference }) => reference.file === "zz-unrelated/plain-directory/namespace-binding.ts"),
+    ).toBe(true);
+
+    // A namespace binding of an unrelated module is not the canonical module,
+    // so no dynamic key through it is reported.
+    expect(
+      scanConsentAuthorizationSource(
+        "zz-unrelated/plain-directory/neighbour.ts",
+        'import * as neighbour from "./unrelated-module";\nexport const value = neighbour[runtimeKey](context);\n',
+        ownerContexts,
+      ),
+    ).toEqual([]);
   });
 
   it("reads every expectation from committed data and never from a live analysis run", () => {
