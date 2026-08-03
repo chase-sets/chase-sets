@@ -3643,6 +3643,9 @@ describe("Consent authorization sites", () => {
 
   it("rejects a stale but well-formed receipt and aggregate provenance", () => {
     const live = deriveConsentAuthorizationReceiptProvenance(realTreeResult);
+    const otherEnvironment = receiptSchema.properties.provenance.properties.environment.enum.find(
+      (environment) => environment !== live.environment,
+    );
     const receiptFor = (provenance, caseId = "MUT-PROBE") => ({ caseId, provenance });
     const aggregateFor = (provenance, receipts) => ({
       provenance,
@@ -3663,7 +3666,7 @@ describe("Consent authorization sites", () => {
       { name: "stale candidate head", provenance: { ...live, candidateHead: staleProvenanceSha } },
       { name: "stale analyzed tree", provenance: { ...live, analyzedTree: staleProvenanceSha } },
       { name: "stale base tip", provenance: { ...live, baseTipAtAnalysis: staleProvenanceSha } },
-      { name: "other environment", provenance: { ...live, environment: "merge-group" } },
+      { name: "other environment", provenance: { ...live, environment: otherEnvironment } },
       { name: "other candidate-head role", provenance: { ...live, candidateHeadRole: "analyzedTree" } },
       { name: "malformed sha", provenance: { ...live, candidateHead: staleProvenanceSha.slice(0, 39) } },
       { name: "missing field", provenance: { ...live, analyzedTree: undefined } },
