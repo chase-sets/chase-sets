@@ -40,6 +40,7 @@ import {
   consentAuthorizationReceiptProvenanceFields,
   consentAuthorizationRegistryPath,
   consentAuthorizationRegistrySchemaPath,
+  consentAuthorizationSpecifierRuntimeUnknownArm,
   consentAuthorizationSpecifierShapeDispositions,
   deriveConsentAuthorizationCensusArms,
   deriveConsentAuthorizationCoverageAxes,
@@ -3445,6 +3446,53 @@ describe("Consent authorization sites", () => {
       ownerContexts,
     );
     expect(neighbourNamespace.filter(({ referenceClass }) => referenceClass !== "admitted-unknown")).toEqual([]);
+  });
+
+  // Acquisition arity is not part of the census grammar. Both forms accept
+  // trailing arguments -- `import(specifier, options)` carries an
+  // import-attributes bag and `require(specifier, extra)` is ordinary
+  // JavaScript -- and neither changes which module the first specifier reaches.
+  // An arity-exact gate would drop a canonical acquisition out of the census
+  // entirely while its one-argument twin stayed classified, so each form is
+  // pinned to the identical class and arm at both arities.
+  it("classifies canonical acquisition identically with and without trailing arguments", () => {
+    const canonicalSpecifier =
+      "../../bounded-contexts/identity/features/consents/domain/consent-recording-authorization";
+    const acquire = (source) =>
+      scanConsentAuthorizationSource("zz-unrelated/plain-directory/acquisition-arity.ts", source, ownerContexts).map(
+        ({ referenceClass, form, axis, arm }) => ({ referenceClass, form, axis, arm }),
+      );
+
+    const canonicalDynamicImport = {
+      referenceClass: "noncanonical-module-access",
+      form: "dynamic-import",
+      axis: "specifier",
+      arm: "dynamic-import:string-literal",
+    };
+    const canonicalRequire = { ...canonicalDynamicImport, form: "require", arm: "require:string-literal" };
+
+    expect(acquire(`export const probe = () => import("${canonicalSpecifier}");`)).toEqual([canonicalDynamicImport]);
+    expect(acquire(`export const probe = () => import("${canonicalSpecifier}", { with: {} });`)).toEqual([
+      canonicalDynamicImport,
+    ]);
+    expect(acquire(`export const probe = require("${canonicalSpecifier}");`)).toEqual([canonicalRequire]);
+    expect(acquire(`export const probe = require("${canonicalSpecifier}", { paths: [] });`)).toEqual([
+      canonicalRequire,
+    ]);
+
+    // The residual arm is unchanged in both arities: an unrelated runtime
+    // specifier owes this guard nothing, so it stays a counted admitted unknown
+    // rather than becoming a violation or disappearing from the census.
+    const runtimeUnknown = {
+      referenceClass: "admitted-unknown",
+      form: "require",
+      axis: "specifier",
+      arm: consentAuthorizationSpecifierRuntimeUnknownArm,
+    };
+    expect(acquire("export const probe = (request) => require(request.specifier);")).toEqual([runtimeUnknown]);
+    expect(acquire("export const probe = (request) => require(request.specifier, { paths: [] });")).toEqual([
+      runtimeUnknown,
+    ]);
   });
 
   it("matches every census coverage row against the real analyzer", () => {

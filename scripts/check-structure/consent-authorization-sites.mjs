@@ -1192,7 +1192,14 @@ function collectCanonicalModuleBinding(relativeFile, sourceFile, node, bindings,
     accesses.push(noncanonicalAccess(relativeFile, sourceFile, node, "import-equals", node.name.text));
     return;
   }
-  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return;
+  // Acquisition is decided by the callee and the first argument alone. Both
+  // forms accept trailing arguments -- `import(specifier, options)` carries an
+  // import-attributes bag and `require(specifier, extra)` is ordinary
+  // JavaScript -- and neither changes which module the first specifier reaches.
+  // Requiring exactly one argument would therefore let a canonical acquisition
+  // leave the census entirely, so the gate requires only that a first argument
+  // exists and everything after it is classified exactly as before.
+  if (!ts.isCallExpression(node) || node.arguments.length < 1) return;
   const acquired =
     node.expression.kind === ts.SyntaxKind.ImportKeyword
       ? consentAuthorizationAcquisitionArms[0]
