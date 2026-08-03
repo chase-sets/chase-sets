@@ -330,6 +330,22 @@ async function eligiblePrefixCounts(runtime: ApiHostRuntime): Promise<Readonly<R
 }
 
 /**
+ * Relation count per active context database. The harness reset drops every
+ * object the test user owns, so a clean case entry is zero relations
+ * everywhere — including `event_store_events`, which only the boot creates.
+ */
+async function activeContextRelationCounts(): Promise<Readonly<Record<string, number>>> {
+  const counts: Record<string, number> = {};
+  for (const contextName of platformApiContextNames) {
+    const result = await poolFor(contextName).query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema = 'public'",
+    );
+    counts[contextName] = Number(result.rows[0]?.count ?? 0);
+  }
+  return counts;
+}
+
+/**
  * Re-invokes every eligible module seed in host seed order. This is the caller
  * shape `platform-runtime/api.ts` uses at its three full-drain sites within a
  * single boot: `seed:<context>`, `projection-drain:<context>` (which seeds
@@ -754,10 +770,15 @@ describe("authoritative seed resume", () => {
     const eligible = eligibleScenarioSeedContexts(runtime);
 
     // Schema-isolation receipt: the harness resets all 19 active context schemas
-    // before each case, so this case starts with no retained state anywhere.
+    // before each case. The reset is total — `DROP OWNED BY CURRENT_USER
+    // CASCADE` leaves each context database with no relations at all — so this
+    // case cannot inherit retained state from any earlier case, and the
+    // event-store tables themselves only exist once this boot bootstraps them.
     expect(platformApiContextNames).toHaveLength(19);
-    const atCaseEntry = await eligiblePrefixCounts(runtime);
-    expect(Object.values(atCaseEntry).every((count) => count === 0), JSON.stringify(atCaseEntry)).toBe(true);
+    const relationsAtCaseEntry = await activeContextRelationCounts();
+    expect(relationsAtCaseEntry, JSON.stringify(relationsAtCaseEntry)).toEqual(
+      Object.fromEntries(platformApiContextNames.map((contextName) => [contextName, 0])),
+    );
 
     const bootOneStartedAt = Date.now();
     await ordinaryBoot(runtime);
@@ -768,11 +789,16 @@ describe("authoritative seed resume", () => {
     // the eligible seeds at each of the three full-drain lifecycle points
     // `platform-runtime/api.ts` uses within one boot and assert the settled
     // prefix count is unchanged after each.
+    console.log(`[#6396 phase] boot-one=${(bootOneMs / 1000).toFixed(1)}s`);
     for (const lifecyclePoint of ["seed", "projection-drain", "seed-reconcile"] as const) {
+      const repeatStartedAt = Date.now();
       await repeatSameBootSeedLifecyclePoint(runtime);
       const afterRepeat = await eligiblePrefixCounts(runtime);
       expect(afterRepeat, `same-boot repeat at ${lifecyclePoint}`).toEqual(afterBootOne);
-      console.log(`[#6396 same-boot] ${lifecyclePoint} repeat: appended=0 across ${eligible.length} contexts`);
+      console.log(
+        `[#6396 same-boot] ${lifecyclePoint} repeat: appended=0 across ${eligible.length} contexts ` +
+          `in ${((Date.now() - repeatStartedAt) / 1000).toFixed(1)}s`,
+      );
     }
 
     // Non-inspecting owned outputs captured before boot two so their idempotence
