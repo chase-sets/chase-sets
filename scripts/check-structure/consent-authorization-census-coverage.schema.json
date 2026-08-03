@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization census coverage matrix",
+  "description": "The finite, committed matrix of constructor-reference key shapes and canonical-module acquisition specifier shapes the census meets. A census coverage row is one shape: a stable row identifier, the fixture expressing it, the arbitrary path that fixture is planted at, the compiler expression kind its governing branch keys on, the analyzer census arm that decides it at row granularity, the record the analyzer would emit if it classified the shape, and the observable census outcome the analyzer actually produces. A declared-open shape is a bounded residual whose owning issue is named on the row; it is admitted as an unknown and counted, never dropped in silence. Only a row whose census outcome is silence carries no arm, because silence is the assertion that no arm decides it. Each axis also names one generic residual arm, the open default every shape no committed identity names routes to by construction; because any expression kind can reach it, it is not partitioned by a row, and whether the matrix carries a census row for it is declared here rather than inferred from the row list.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "version", "axisAuthorities", "residualArms", "rows"],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["consent-authorization-census-coverage/v1"]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "axisAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "specifier"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "specifier": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "residualArms": {
+      "description": "The generic residual arm of each axis, and the census row that witnesses it when the matrix carries one. A residual arm with no witness row is the open default nothing is committed for; the arm authority rejects any row that carries a residual arm the declaration does not name, and rejects the deletion of a declared witness row.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "specifier"],
+      "properties": {
+        "key": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arm"],
+          "properties": {
+            "arm": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*(:[A-Za-z][A-Za-z0-9-]*)*$"
+            },
+            "witnessRow": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+            }
+          }
+        },
+        "specifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arm"],
+          "properties": {
+            "arm": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*(:[A-Za-z][A-Za-z0-9-]*)*$"
+            },
+            "witnessRow": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+            }
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rowId",
+          "axis",
+          "expressionKind",
+          "shape",
+          "fixture",
+          "plantedAt",
+          "signature",
+          "disposition",
+          "census"
+        ],
+        "properties": {
+          "rowId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+          },
+          "axis": {
+            "type": "string",
+            "enum": ["key", "specifier"]
+          },
+          "expressionKind": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z]+$"
+          },
+          "arm": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(:[A-Za-z][A-Za-z0-9-]*)*$"
+          },
+          "shape": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fixture": {
+            "type": "string",
+            "pattern": "^scripts/check-structure/fixtures/consent-authorization-sites/census/[a-z0-9-]+\\.ts$"
+          },
+          "plantedAt": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+\\.ts$"
+          },
+          "signature": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["referenceClass"],
+            "properties": {
+              "referenceClass": {
+                "type": "string",
+                "enum": ["declaration", "import", "consumption", "unexpected", "noncanonical-module-access"]
+              },
+              "form": {
+                "type": "string",
+                "enum": [
+                  "default-import",
+                  "namespace-import",
+                  "namespace-re-export",
+                  "import-equals",
+                  "dynamic-import",
+                  "require",
+                  "dynamic-key",
+                  "escaping-binding"
+                ]
+              },
+              "constructor": {
+                "type": "string",
+                "enum": [
+                  "authorizeConsentForActor",
+                  "authorizeConsentForSelfRegistration",
+                  "authorizeConsentForProvisioning"
+                ]
+              },
+              "syntaxKind": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z]+$"
+              }
+            }
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["classified", "declared-open", "silent-by-design"]
+          },
+          "census": {
+            "type": "string",
+            "enum": ["classified", "admitted-unknown", "silent"]
+          },
+          "owner": {
+            "type": "string",
+            "pattern": "^#[0-9]+$"
+          }
+        }
+      }
+    }
+  }
+}
