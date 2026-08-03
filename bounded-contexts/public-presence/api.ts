@@ -14,6 +14,7 @@ import { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createPublicPolicyValuesRoutes } from "./features/help/api/public-policy-values";
+import { normalizeReferralLinkProvisioningRequest } from "./features/waitlist/domain/public-referral-code";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
 export { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics";
@@ -268,6 +269,37 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
       total: result.total,
       count: result.items.length,
     });
+  });
+
+  app.post("/waitlist/referral-link/provision", async (c) => {
+    const noStoreHeaders = { "Cache-Control": "no-store", Pragma: "no-cache" };
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      for (const [key, value] of Object.entries(noStoreHeaders)) access.response.headers.set(key, value);
+      return access.response;
+    }
+    if (c.req.header("X-Chase-Sets-CSRF") !== "1") {
+      return c.json(
+        { error: { code: "csrf_required", message: "Same-origin mutation proof is required." } },
+        403,
+        noStoreHeaders,
+      );
+    }
+
+    try {
+      const request = normalizeReferralLinkProvisioningRequest(await c.req.json());
+      const receipt = await services.provisionReferralLink(request, actorEventStoreContext(access.actor!));
+      return c.json(receipt, 200, noStoreHeaders);
+    } catch {
+      // Deliberately substituted: the underlying failure can name the private
+      // signup id, its email, or a Public Referral Code, and none of those may
+      // reach the response or the log.
+      return c.json(
+        { error: { code: "referral_link_provisioning_failed", message: "Referral link provisioning failed." } },
+        400,
+        noStoreHeaders,
+      );
+    }
   });
 
   app.get("/waitlist/metrics", async (c) => {

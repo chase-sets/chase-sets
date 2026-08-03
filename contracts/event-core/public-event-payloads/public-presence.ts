@@ -59,9 +59,34 @@ export type WaitlistSignupAdmittedPayload = Readonly<{
   admittedAt: string;
 }>;
 
+/** Digest-only uniqueness reservation; never carries the Public Referral Code itself. */
+export type WaitlistReferralCodeReservedPayload = Readonly<{
+  codeDigest: string;
+  reservedAt: string;
+}>;
+
+export type WaitlistReferralCodeIssuedPayload = Readonly<{
+  signupId: string;
+  publicReferralCode: string;
+  issuedAt: string;
+}>;
+
+/** Code-free audit fact: tuple and link digests, actor and time, never the code or link. */
+export type WaitlistReferralLinkProvisionedPayload = Readonly<{
+  signupId: string;
+  provisioningId: string;
+  tupleSha256: string;
+  referralLinkSha256: string;
+  performedByUserId: string;
+  issuedAt: string;
+}>;
+
 export type PublicPresenceEventPayloads = Readonly<{
   "public-presence.waitlist-signup.recorded": WaitlistSignupRecordedPayload;
   "public-presence.waitlist-signup.updated": WaitlistSignupUpdatedPayload;
   "public-presence.waitlist-signup.cohort-quality-provided": WaitlistCohortQualityProvidedPayload;
   "public-presence.waitlist-signup.admitted": WaitlistSignupAdmittedPayload;
+  "public-presence.waitlist-referral-code.reserved": WaitlistReferralCodeReservedPayload;
+  "public-presence.waitlist-referral-code.issued": WaitlistReferralCodeIssuedPayload;
+  "public-presence.waitlist-referral-link.provisioned": WaitlistReferralLinkProvisionedPayload;
 }>;

@@ -14,6 +14,8 @@ export type {
   WaitlistReferralSummary,
   WaitlistSignupListItem,
   WaveOneAdmissionBarStatus,
+  ReferralLinkProvisioningRequest,
+  ReferralLinkProvisioningReceipt,
 } from "../../client";
 import { createPublicPresenceApiClient } from "../../client";
 

@@ -2128,12 +2128,16 @@
     "reason": "DELETE at bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts:256 directly synchronizes public_presence_promo_bar_messages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:93:UPDATE:public_presence_waitlist_signups",
-    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:93 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:94:UPDATE:public_presence_waitlist_signups",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:94 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:113:UPDATE:public_presence_waitlist_signups",
-    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:113 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:114:UPDATE:public_presence_waitlist_signups",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:114 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:136:UPDATE:public_presence_waitlist_signups",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:136 is not key-only: it carries the read-state predicate public_referral_code IS NULL OR public_referral_code = $2 for an immutable single-writer column, which this guard's token vocabulary does not model, and GREATEST keeps updated_at monotonic."
   },
   {
     "id": "bounded-contexts/settlement/features/payouts/read-model/projection.ts:86:UPDATE:settlement_payout_pages",

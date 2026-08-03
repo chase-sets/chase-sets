@@ -88,6 +88,17 @@ export type WaitlistSignupState = Readonly<{
   submittedAt: string | null;
   updatedAt: string | null;
   admission: Readonly<{ waveNumber: 1 | 2 | 3; invitationId: string; admittedAt: string }> | null;
+  /** The one immutable Public Referral Code issued with this signup's first write; never reissued. */
+  publicReferralCode: string | null;
+  publicReferralCodeIssuedAt: string | null;
+  /** Code-free audit history of protected referral-link provisionings, keyed by tuple and link digests. */
+  referralLinkProvisionings: readonly Readonly<{
+    provisioningId: string;
+    tupleSha256: string;
+    referralLinkSha256: string;
+    performedByUserId: string;
+    issuedAt: string;
+  }>[];
 }>;
 
 export const initialWaitlistSignupState: WaitlistSignupState = {
@@ -103,6 +114,9 @@ export const initialWaitlistSignupState: WaitlistSignupState = {
   submittedAt: null,
   updatedAt: null,
   admission: null,
+  publicReferralCode: null,
+  publicReferralCodeIssuedAt: null,
+  referralLinkProvisionings: [],
 };
 
 export type RecordWaitlistSignupCommand = Readonly<{
@@ -204,11 +218,34 @@ export type WaitlistSignupAdmittedEvent = DomainEvent<
   }>
 >;
 
+export type WaitlistReferralCodeIssuedEvent = DomainEvent<
+  "public-presence.waitlist-referral-code.issued",
+  Readonly<{
+    signupId: string;
+    publicReferralCode: string;
+    issuedAt: string;
+  }>
+>;
+
+export type WaitlistReferralLinkProvisionedEvent = DomainEvent<
+  "public-presence.waitlist-referral-link.provisioned",
+  Readonly<{
+    signupId: string;
+    provisioningId: string;
+    tupleSha256: string;
+    referralLinkSha256: string;
+    performedByUserId: string;
+    issuedAt: string;
+  }>
+>;
+
 export type WaitlistSignupEvent =
   | WaitlistSignupRecordedEvent
   | WaitlistSignupUpdatedEvent
   | WaitlistCohortQualityProvidedEvent
-  | WaitlistSignupAdmittedEvent;
+  | WaitlistSignupAdmittedEvent
+  | WaitlistReferralCodeIssuedEvent
+  | WaitlistReferralLinkProvisionedEvent;
 
 export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, WaitlistSignupCommand, WaitlistSignupEvent> = (
   state,
@@ -360,6 +397,12 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         submittedAt: event.data.recordedAt,
         updatedAt: event.data.recordedAt,
         admission: null,
+        // `recorded` is always the first event on a signup stream, so the
+        // referral facts that follow it in the same atomic append rebuild from
+        // their own events rather than from anything this case carries over.
+        publicReferralCode: null,
+        publicReferralCodeIssuedAt: null,
+        referralLinkProvisionings: [],
       };
     case "public-presence.waitlist-signup.updated":
       return {
@@ -388,6 +431,17 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
           admittedAt: event.data.admittedAt,
         },
         updatedAt: event.data.admittedAt,
+      };
+    case "public-presence.waitlist-referral-code.issued":
+      return {
+        ...state,
+        publicReferralCode: event.data.publicReferralCode,
+        publicReferralCodeIssuedAt: event.data.issuedAt,
+      };
+    case "public-presence.waitlist-referral-link.provisioned":
+      return {
+        ...state,
+        referralLinkProvisionings: [...state.referralLinkProvisionings, event.data],
       };
     default:
       return assertNever(event);

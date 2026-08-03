@@ -5,6 +5,8 @@
   "ownedNouns": [
     "public-presence",
     "waitlist-signup",
+    "waitlist-referral-code",
+    "waitlist-referral-link",
     "promo-bar-message",
     "help-article",
     "help-category",
@@ -27,7 +29,8 @@
         "public-presence.waitlist-signup.recorded",
         "public-presence.waitlist-signup.updated",
         "public-presence.waitlist-signup.cohort-quality-provided",
-        "public-presence.waitlist-signup.admitted"
+        "public-presence.waitlist-signup.admitted",
+        "public-presence.waitlist-referral-code.issued"
       ],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 10,
@@ -197,6 +200,26 @@
           "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action redirects to /welcome with the committed signup id on success and still returns the same-page error snapshot on failure.",
           "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action.",
           "bounded-contexts/public-presence/tests/welcome-route.test.ts proves the welcome route renders the referral link and progress mechanic from the redirect-carried signup id."
+        ]
+      }
+    },
+    {
+      "id": "public-presence.referral-link-provisioning-receipt",
+      "owner": "public-presence",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/public-presence/client.ts:POST H8fe80f9be127#1",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/referral-link/provision"
+      ],
+      "visibleDestination": {
+        "description": "The authenticated operator receives the frozen code-and-creator-tuple URL receipt directly from the authoritative Waitlist Signup stream; no projection read is needed to confirm the write."
+      },
+      "proof": {
+        "authoritativeResponse": "The response is a recursively closed referral-link-provisioning/v1 receipt with an RFC 8785 payload digest and no private signup identity.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves session, permission, CSRF, no-store, closed request parsing, and a private-identity-free response.",
+          "bounded-contexts/public-presence/features/waitlist/api/referral-code-runtime.test.ts proves authoritative-stream idempotency, substitution, and code-free audit history."
         ]
       }
     },
