@@ -27,6 +27,16 @@ const VALID_FILESYSTEM = Object.freeze({
   realpath: () => undefined,
 });
 const VALID_OPTIONS = Object.freeze({ filesystem: VALID_FILESYSTEM });
+const NON_STRING_INPUTS = Object.freeze([
+  Object.freeze({ name: "number", value: 7 }),
+  Object.freeze({ name: "boolean", value: true }),
+  Object.freeze({ name: "null", value: null }),
+  Object.freeze({ name: "undefined", value: undefined }),
+  Object.freeze({ name: "object", value: Object.freeze({}) }),
+  Object.freeze({ name: "array", value: Object.freeze([]) }),
+  Object.freeze({ name: "symbol", value: Symbol("input") }),
+  Object.freeze({ name: "bigint", value: 1n }),
+]);
 
 const REFERENCE_PREDICATES = Object.freeze({
   length: (value) => value.length < 1 || value.length > 300,
@@ -318,6 +328,18 @@ describe("admission-path-syntax/v1 third argument", () => {
     });
   });
 
+  it.each([
+    ["an absent filesystem member", Object.freeze({})],
+    ["an explicitly undefined filesystem member", Object.freeze({ filesystem: undefined })],
+  ])("accepts %s as selection of the successor's real filesystem", (_name, options) => {
+    expect(validateCallInputs(VALID_BASE, VALID_PATH, options)).toEqual({
+      version: VERSION,
+      outcome: "accepted",
+      segments: ["a", "b"],
+      filesystem: null,
+    });
+  });
+
   it("captures a valid seam unchanged from ordinary and null-prototype option records", () => {
     const nullPrototypeOptions = Object.assign(Object.create(null), { filesystem: VALID_FILESYSTEM });
 
@@ -494,12 +516,22 @@ describe("admission-path-syntax/v1 third argument", () => {
 });
 
 describe("admission-path-syntax/v1 ordered arms and closed records", () => {
-  it.each([
-    ["both base and path", 7, false],
-    ["only base", 7, VALID_PATH],
-    ["only path", VALID_BASE, 7],
-  ])("refuses non-string inputs deterministically when invalidity is in %s", (_name, baseDirectory, relativePath) => {
-    expect(validateCallInputs(baseDirectory, relativePath, VALID_OPTIONS)).toEqual({
+  it.each(NON_STRING_INPUTS)("refuses a $name base before every later arm", ({ value }) => {
+    expect(validateCallInputs(value, VALID_PATH, VALID_OPTIONS)).toEqual({
+      version: VERSION,
+      outcome: "input-not-a-string",
+    });
+  });
+
+  it.each(NON_STRING_INPUTS)("refuses a $name path after a valid base", ({ value }) => {
+    expect(validateCallInputs(VALID_BASE, value, VALID_OPTIONS)).toEqual({
+      version: VERSION,
+      outcome: "input-not-a-string",
+    });
+  });
+
+  it("returns the shared refusal once when both base and path are non-strings", () => {
+    expect(validateCallInputs(7, false, VALID_OPTIONS)).toEqual({
       version: VERSION,
       outcome: "input-not-a-string",
     });
@@ -567,6 +599,8 @@ describe("admission-path-syntax/v1 ordered arms and closed records", () => {
       outcome: "path-syntax-invalid",
       rule: "unknown-rule",
     };
+    const wrongVersionMemberMutant = { ...accepted, version: "admission-path-syntax/v2" };
+    const wrongOutcomeMemberMutant = { version: VERSION, outcome: "unknown-outcome" };
     const wrongArrayMemberMutant = {
       version: VERSION,
       outcome: "accepted",
@@ -584,6 +618,8 @@ describe("admission-path-syntax/v1 ordered arms and closed records", () => {
 
     expect(() => assertClosedRecord(unknownRootMemberMutant)).toThrow();
     expect(() => assertClosedRecord(wrongRuleMemberMutant)).toThrow();
+    expect(() => assertClosedRecord(wrongVersionMemberMutant)).toThrow();
+    expect(() => assertClosedRecord(wrongOutcomeMemberMutant)).toThrow();
     expect(() => assertClosedRecord(wrongArrayMemberMutant)).toThrow();
     expect(() => assertClosedRecord(unknownArrayMemberMutant)).toThrow();
   });
