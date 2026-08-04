@@ -7,6 +7,7 @@ import {
   classifySqlExecutionSurface,
   deriveChangedSqlExecutionFiles,
   listNonTestTypeScriptModules,
+  runSqlExecutionSurfaceGuard,
 } from "./sql-execution-surface.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
@@ -275,6 +276,43 @@ describe("SQL execution diff scope fail-closed controls", () => {
       ),
     ).toEqual([]);
   });
+
+  it("governs changed production SQL and excludes the byte-identical module under __tests__", () => {
+    const root = createContractRepo();
+    // One variable only: the two modules hold identical bytes and differ solely
+    // by the directory they sit in.
+    const source = 'export async function loadSeedRows(db) { await db.query("select 1"); }\n';
+    const productionFile = "deployables/platform-api/authoritative-seed-resume-support.ts";
+    const testSupportFile = "deployables/platform-api/__tests__/authoritative-seed-resume-support.ts";
+    for (const file of [productionFile, testSupportFile]) {
+      mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
+      writeFileSync(path.join(root, file), source);
+    }
+    expect(readFileSync(path.join(root, productionFile), "utf8")).toBe(
+      readFileSync(path.join(root, testSupportFile), "utf8"),
+    );
+    const changedFilesJson = JSON.stringify([productionFile, testSupportFile]);
+
+    expect(deriveChangedSqlExecutionFiles({ repoRoot: root, changedFilesJson })).toEqual([productionFile]);
+    const result = runSqlExecutionSurfaceGuard({ repoRoot: root, changedFilesJson });
+    expect(result.modules.map((module) => module.file)).toEqual([productionFile]);
+    expect(result.violations).toEqual([expect.stringContaining(`${productionFile}:1`)]);
+    expect(result.violations).not.toEqual(expect.arrayContaining([expect.stringContaining("__tests__")]));
+  });
+
+  it.each(["__tests__", "e2e", "fixtures", "tests"])(
+    "classifies a changed module under %s exactly as the repository-wide inventory does",
+    (directory) => {
+      const productionFile = "deployables/platform-api/seed-support.ts";
+      const testDirectoryFile = `deployables/platform-api/${directory}/seed-support.ts`;
+      const both = [productionFile, testDirectoryFile];
+
+      expect(deriveChangedSqlExecutionFiles({ repoRoot, changedFilesJson: JSON.stringify(both) })).toEqual([
+        productionFile,
+      ]);
+      expect(listNonTestTypeScriptModules(repoRoot, { execGit: () => both.join("\0") })).toEqual([productionFile]);
+    },
+  );
 });
 
 describe("repository-wide SQL execution partition", () => {

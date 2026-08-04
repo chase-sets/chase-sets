@@ -447,6 +447,126 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
+  // -- schedule-model shape ------------------------------------------------
+
+  it("projects the shipped units, aggregate, and minimum unit count under the closed model", () => {
+    const { schedule } = checkBootstrapDbEnrollment();
+
+    expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
+      ["test:db:1", 332_988],
+      ["test:db:2", 289_399],
+    ]);
+    expect(schedule.aggregateMs).toBe(622_387);
+    expect(schedule.aggregateWithOverheadMs).toBe(670_387);
+    expect(schedule.minimumUnitCount).toBe(2);
+    expect(schedule.observedUnitCount).toBe(2);
+  });
+
+  it.each([
+    [
+      "a negative fixed cost",
+      { testFileFixedCostMs: -1 },
+      "testFileFixedCostMs must be an integer between 0 and 3600000",
+    ],
+    [
+      "a fractional enumeration bound",
+      { maximumEnumeratedUnitCount: 2.5 },
+      "maximumEnumeratedUnitCount must be an integer between 1 and 16",
+    ],
+    [
+      "a malformed reference run identity",
+      { referenceRunId: "synthetic-invalid-run" },
+      "referenceRunId must be an integer between 1 and 9007199254740991",
+    ],
+    [
+      "a malformed reference head provenance",
+      { referenceHeadSha: "f78143573" },
+      "referenceHeadSha must be a string matching ^[0-9a-f]{40}$",
+    ],
+    [
+      "a malformed reference event provenance",
+      { referenceEvent: "Merge Group" },
+      "referenceEvent must be a string matching ^[a-z][a-z0-9_]*$",
+    ],
+    [
+      "a worker count below one",
+      { maxWorkersPerExecutionUnit: 0 },
+      "maxWorkersPerExecutionUnit must be an integer between 1 and 64",
+    ],
+    [
+      "a non-finite per-unit ceiling",
+      { executionUnitCeilingMs: Number.POSITIVE_INFINITY },
+      "executionUnitCeilingMs must be an integer between 1 and 3600000",
+    ],
+    [
+      "a nested object where a bound belongs",
+      { maximumScheduledFileCount: { value: 10 } },
+      "maximumScheduledFileCount must be an integer between 1 and 16",
+    ],
+  ])("rejects %s in the schedule model and projects nothing from it", (_label, patch, expected) => {
+    const result = checkBootstrapDbEnrollment({
+      scheduleModel: { ...bootstrapDbScheduleModel, ...patch } as never,
+    });
+
+    expect(result.violations).toEqual([`the execution-unit schedule model field ${expected}`]);
+    expect(result.schedule.units).toEqual([]);
+    expect(result.schedule.files).toEqual([]);
+    expect(result.schedule.minimumUnitCount).toBeNull();
+    expect(result.schedule.aggregateWithOverheadMs).toBe(0);
+  });
+
+  it("rejects an unknown schedule-model field rather than ignoring it", () => {
+    const result = checkBootstrapDbEnrollment({
+      scheduleModel: { ...bootstrapDbScheduleModel, syntheticEscapeHatch: true } as never,
+    });
+
+    expect(result.violations).toEqual([
+      "the execution-unit schedule model declares unknown field 'syntheticEscapeHatch'",
+    ]);
+  });
+
+  it("rejects a schedule model that omits a required field", () => {
+    const { jobOverheadMs: _omitted, ...withoutJobOverhead } = bootstrapDbScheduleModel;
+
+    expect(checkBootstrapDbEnrollment({ scheduleModel: withoutJobOverhead as never }).violations).toEqual([
+      "the execution-unit schedule model must declare jobOverheadMs",
+    ]);
+  });
+
+  it("rejects a schedule model that is not an object", () => {
+    expect(checkBootstrapDbEnrollment({ scheduleModel: [] as never }).violations).toEqual([
+      "the execution-unit schedule model must be an object",
+    ]);
+  });
+
+  it.each([
+    [
+      "fixed costs that leave no room under the per-unit ceiling",
+      { executionUnitFixedCostMs: 420_000 },
+      "testFileFixedCostMs 1248 plus executionUnitFixedCostMs 420000 must leave room under the 420000ms " +
+        "per-unit ceiling",
+    ],
+    [
+      "a job overhead at or above the aggregate ceiling",
+      { jobOverheadMs: 1_200_000 },
+      "jobOverheadMs 1200000 must be below the 1080000ms aggregate ceiling",
+    ],
+    [
+      "a unit-count enumeration bound above the file-count bound",
+      { maximumEnumeratedUnitCount: 11 },
+      "maximumEnumeratedUnitCount 11 must not exceed maximumScheduledFileCount 10",
+    ],
+  ])("rejects %s", (_label, patch, expected) => {
+    const result = checkBootstrapDbEnrollment({
+      scheduleModel: { ...bootstrapDbScheduleModel, ...patch } as never,
+    });
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([`the execution-unit schedule model is inconsistent: ${expected}`]),
+    );
+    expect(result.schedule.units).toEqual([]);
+  });
+
   it("accepts an execution unit at exactly the 420-second ceiling", async () => {
     const fixture = await createFixture([unitFileFor("edge-accept", "test:db:1", 420_000)], {
       model: singleWorkerModel(),
@@ -605,6 +725,59 @@ describe("Platform API bootstrap DB enrollment", () => {
         "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
+  });
+
+  it("fails naming a numbered unit hosted CI executes that owns no manifested DB file", async () => {
+    // The hidden unit is a real `test:db:3` script the `test:db*` selector runs.
+    // It stands its own job up, so it has to own manifested executable entries
+    // and be carried by the makespan, aggregate, and minimum-unit comparison.
+    const fixture = await createFixture(shippedShapedFiles(), {
+      ceilings: { "test:db:1": 25, "test:db:2": 27, "test:db:3": 0 },
+      extraSources: {
+        "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
+      },
+      mutatePackageJson: (packageJson) => {
+        packageJson.scripts["test:db:3"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
+      },
+    });
+    const result = runFixture(fixture);
+
+    expect(result.partitionUnitCount).toBe(3);
+    expect(result.schedule.observedUnitCount).toBe(3);
+    expect(result.violations).toEqual([
+      "test:db:3 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
+        "unit must own manifested executable DB entries",
+      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
+        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+        "budget",
+    ]);
+  });
+
+  it("rejects a selector-matching execution unit whose name is not numbered", async () => {
+    const fixture = await createFixture(shippedShapedFiles(), {
+      extraSources: {
+        "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
+      },
+      mutatePackageJson: (packageJson) => {
+        packageJson.scripts["test:db:extra"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
+      },
+    });
+
+    expect(runFixture(fixture).violations).toEqual([
+      "test:db:extra is selected and executed by the test:db* workspace selector but is not a numbered " +
+        "test:db:<number> execution unit, so its cost is never scheduled",
+    ]);
+  });
+
+  it("keeps the shipped two-unit topology exactly as hosted CI selects it", () => {
+    const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8"))
+      .scripts as Record<string, string>;
+    const selected = Object.keys(packageScripts)
+      .filter((name) => name.startsWith("test:db:") && typeof packageScripts[name] === "string")
+      .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
+
+    expect(selected).toEqual(["test:db:1", "test:db:2"]);
+    expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
   });
 
   it("refuses rather than samples when the file count leaves its declared enumeration bound", async () => {

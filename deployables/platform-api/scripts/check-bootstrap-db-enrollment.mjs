@@ -409,6 +409,26 @@ export const bootstrapDbScheduleModel = Object.freeze({
 });
 
 const dbPartitionScriptNamePattern = /^test:db:\d+$/;
+/**
+ * The selector hosted CI runs this workspace's DB profile under, and the exact
+ * selection semantics `scripts/run-workspaces.mjs` applies to it: every package
+ * script whose name starts with `test:db:` and whose command is a string, in
+ * numeric name order. The guard derives its observed execution units from that
+ * same selection rather than from the manifest, so a script CI executes cannot
+ * be absent from the schedule just because nothing declares it.
+ */
+const dbTestScriptSelector = "test:db*";
+const dbTestScriptSelectorPrefix = "test:db:";
+
+function compareExecutionUnitNames(left, right) {
+  return left.localeCompare(right, "en", { numeric: true });
+}
+
+function selectedDbPartitionScripts(packageScripts) {
+  return Object.entries(packageScripts)
+    .filter(([name, command]) => name.startsWith(dbTestScriptSelectorPrefix) && typeof command === "string")
+    .sort(([left], [right]) => compareExecutionUnitNames(left, right));
+}
 const listenerMethodNames = new Set(["listen", "serve"]);
 const bootstrapHarnessModuleBaseName = "bootstrap-db-test-support";
 const bootstrapHarnessFactoryName = "createPlatformApiBootstrapTestHarness";
@@ -955,6 +975,122 @@ function bestAssignmentAt(files, unitCount, model) {
 // than trusted at the point of use.
 // ---------------------------------------------------------------------------
 
+/**
+ * The closed schedule-model schema. Every field the model may carry is listed
+ * with the exact constraint it has to satisfy, and nothing else may appear, so
+ * a wrong type, a fractional bound, a negative cost, or a malformed provenance
+ * value is rejected before any projection is derived from it. The upper bounds
+ * are far above every shipped value; they exist so a malformed model cannot ask
+ * the assignment enumeration for an unbounded search.
+ */
+const scheduleModelFieldConstraints = Object.freeze({
+  referenceRunId: Object.freeze({ kind: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+  referenceJobId: Object.freeze({ kind: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+  referenceJobName: Object.freeze({ kind: "text", pattern: /^[A-Za-z0-9][A-Za-z0-9 ():._/-]*$/ }),
+  referenceHeadSha: Object.freeze({ kind: "text", pattern: /^[0-9a-f]{40}$/ }),
+  referenceEvent: Object.freeze({ kind: "text", pattern: /^[a-z][a-z0-9_]*$/ }),
+  maxWorkersPerExecutionUnit: Object.freeze({ kind: "integer", minimum: 1, maximum: 64 }),
+  testFileFixedCostMs: Object.freeze({ kind: "integer", minimum: 0, maximum: 3_600_000 }),
+  executionUnitFixedCostMs: Object.freeze({ kind: "integer", minimum: 0, maximum: 3_600_000 }),
+  jobOverheadMs: Object.freeze({ kind: "integer", minimum: 0, maximum: 3_600_000 }),
+  executionUnitCeilingMs: Object.freeze({ kind: "integer", minimum: 1, maximum: 3_600_000 }),
+  aggregateCeilingMs: Object.freeze({ kind: "integer", minimum: 1, maximum: 3_600_000 }),
+  maximumCaseReferenceDurationMs: Object.freeze({ kind: "integer", minimum: 1, maximum: 3_600_000 }),
+  maximumScheduledFileCount: Object.freeze({ kind: "integer", minimum: 1, maximum: 16 }),
+  maximumEnumeratedUnitCount: Object.freeze({ kind: "integer", minimum: 1, maximum: 16 }),
+});
+
+/**
+ * The relationships that have to hold between model fields for the projection
+ * to mean anything: a unit has to have room for one file's fixed costs, the job
+ * overhead has to leave aggregate budget, a single full unit plus that overhead
+ * has to fit the aggregate, and the unit-count enumeration cannot exceed the
+ * file-count enumeration it draws from.
+ */
+const scheduleModelRelationships = Object.freeze([
+  Object.freeze({
+    holds: (model) => model.testFileFixedCostMs + model.executionUnitFixedCostMs < model.executionUnitCeilingMs,
+    describe: (model) =>
+      `testFileFixedCostMs ${model.testFileFixedCostMs} plus executionUnitFixedCostMs ` +
+      `${model.executionUnitFixedCostMs} must leave room under the ${model.executionUnitCeilingMs}ms per-unit ceiling`,
+  }),
+  Object.freeze({
+    holds: (model) => model.jobOverheadMs < model.aggregateCeilingMs,
+    describe: (model) =>
+      `jobOverheadMs ${model.jobOverheadMs} must be below the ${model.aggregateCeilingMs}ms aggregate ceiling`,
+  }),
+  Object.freeze({
+    holds: (model) => model.executionUnitCeilingMs + model.jobOverheadMs <= model.aggregateCeilingMs,
+    describe: (model) =>
+      `executionUnitCeilingMs ${model.executionUnitCeilingMs} plus jobOverheadMs ${model.jobOverheadMs} must fit ` +
+      `the ${model.aggregateCeilingMs}ms aggregate ceiling`,
+  }),
+  Object.freeze({
+    holds: (model) => model.maximumEnumeratedUnitCount <= model.maximumScheduledFileCount,
+    describe: (model) =>
+      `maximumEnumeratedUnitCount ${model.maximumEnumeratedUnitCount} must not exceed maximumScheduledFileCount ` +
+      `${model.maximumScheduledFileCount}`,
+  }),
+]);
+
+function describeScheduleModelConstraint(constraint) {
+  return constraint.kind === "integer"
+    ? `an integer between ${constraint.minimum} and ${constraint.maximum}`
+    : `a string matching ${constraint.pattern.source}`;
+}
+
+function scheduleModelFieldSatisfies(value, constraint) {
+  if (constraint.kind === "integer") {
+    return (
+      typeof value === "number" &&
+      Number.isFinite(value) &&
+      Number.isInteger(value) &&
+      value >= constraint.minimum &&
+      value <= constraint.maximum
+    );
+  }
+  return typeof value === "string" && constraint.pattern.test(value);
+}
+
+/**
+ * Closes the schedule model the same way the manifest and the ceilings are
+ * closed: the exact allowed key set, every field's own type and range, the
+ * identity and provenance syntax of the reference job, and every relationship
+ * between fields. A model that fails any of these is never used to project a
+ * schedule.
+ */
+function validateScheduleModelShape(model) {
+  if (typeof model !== "object" || model === null || Array.isArray(model)) {
+    return ["the execution-unit schedule model must be an object"];
+  }
+
+  const violations = [];
+  for (const key of Object.keys(model)) {
+    if (!(key in scheduleModelFieldConstraints)) {
+      violations.push(`the execution-unit schedule model declares unknown field '${key}'`);
+    }
+  }
+  for (const [fieldName, constraint] of Object.entries(scheduleModelFieldConstraints)) {
+    if (!Object.hasOwn(model, fieldName)) {
+      violations.push(`the execution-unit schedule model must declare ${fieldName}`);
+      continue;
+    }
+    if (!scheduleModelFieldSatisfies(model[fieldName], constraint)) {
+      violations.push(
+        `the execution-unit schedule model field ${fieldName} must be ${describeScheduleModelConstraint(constraint)}`,
+      );
+    }
+  }
+  if (violations.length > 0) return violations;
+
+  for (const relationship of scheduleModelRelationships) {
+    if (!relationship.holds(model)) {
+      violations.push(`the execution-unit schedule model is inconsistent: ${relationship.describe(model)}`);
+    }
+  }
+  return violations;
+}
+
 function validateManifestShape(manifest, ceilings, model) {
   const violations = [];
   const allowedPartitionKeys = new Set(["executionUnit", "databaseSuffix", "bootBearingCases", "cases"]);
@@ -1056,6 +1192,136 @@ function bootBearingCaseCount(partition) {
   return partition.bootBearingCases === "all" ? partition.cases.length : partition.bootBearingCases.length;
 }
 
+function unprojectedExecutionUnitSchedule() {
+  return {
+    units: [],
+    files: [],
+    observedUnitCount: 0,
+    minimumUnitCount: null,
+    aggregateMs: 0,
+    aggregateWithOverheadMs: 0,
+    oneFewerUnit: null,
+    violations: [],
+  };
+}
+
+/**
+ * Projects the schedule over every observed execution unit — including a unit
+ * hosted CI executes that owns no manifested file, whose makespan is zero but
+ * whose presence still counts against the minimum-unit comparison.
+ */
+function projectExecutionUnitSchedule({
+  manifest,
+  partitionFileNames,
+  observedUnitNames,
+  executionUnitBootBearingCaseCeilings,
+  scheduleModel,
+}) {
+  const violations = [];
+  const scheduledFiles = partitionFileNames.map((fileName) => {
+    const partition = manifest[fileName];
+    const caseDurationMs = partition.cases.reduce(
+      (total, testCase) => total + (Number.isInteger(testCase?.referenceDurationMs) ? testCase.referenceDurationMs : 0),
+      0,
+    );
+    return {
+      fileName,
+      executionUnit: partition.executionUnit,
+      caseCount: partition.cases.length,
+      caseDurationMs,
+      durationMs: caseDurationMs + scheduleModel.testFileFixedCostMs,
+    };
+  });
+
+  const shippedUnits = observedUnitNames.map((scriptName) => {
+    const unitFiles = scheduledFiles.filter((file) => file.executionUnit === scriptName);
+    return {
+      scriptName,
+      files: unitFiles,
+      makespanMs: executionUnitMakespanMs(
+        unitFiles.map((file) => file.durationMs),
+        scheduleModel,
+      ),
+      bootBearingCaseCount: partitionFileNames
+        .filter((fileName) => manifest[fileName].executionUnit === scriptName)
+        .reduce((count, fileName) => count + bootBearingCaseCount(manifest[fileName]), 0),
+      bootBearingCeiling: executionUnitBootBearingCaseCeilings[scriptName] ?? null,
+    };
+  });
+
+  for (const unit of shippedUnits) {
+    if (unit.files.length > scheduleModel.maximumScheduledFileCount) {
+      violations.push(
+        `${unit.scriptName} schedules ${unit.files.length} files, above the model's declared bound of ` +
+          `${scheduleModel.maximumScheduledFileCount}`,
+      );
+      continue;
+    }
+    if (unit.makespanMs > scheduleModel.executionUnitCeilingMs) {
+      violations.push(
+        `${unit.scriptName} has a projected makespan of ${unit.makespanMs}ms, exceeding the ` +
+          `${scheduleModel.executionUnitCeilingMs}ms per-unit ceiling`,
+      );
+    }
+  }
+
+  const aggregateMs = shippedUnits.reduce((total, unit) => total + unit.makespanMs, 0);
+  const aggregateWithOverheadMs = aggregateMs + scheduleModel.jobOverheadMs;
+  if (aggregateWithOverheadMs > scheduleModel.aggregateCeilingMs) {
+    violations.push(
+      `the projected aggregate of ${aggregateMs}ms across ${shippedUnits.length} execution units plus the ` +
+        `${scheduleModel.jobOverheadMs}ms job overhead is ${aggregateWithOverheadMs}ms, exceeding the ` +
+        `${scheduleModel.aggregateCeilingMs}ms aggregate ceiling`,
+    );
+  }
+
+  const { minimumUnitCount, refusal } = computeMinimumUnitCount(scheduledFiles, scheduleModel);
+  if (refusal) {
+    violations.push(refusal);
+  } else if (shippedUnits.length > minimumUnitCount) {
+    violations.push(
+      `the shipped topology spends ${shippedUnits.length} execution units where the schedule model's ` +
+        `minimumUnitCount for the same file set is ${minimumUnitCount}; execution units of one workspace run ` +
+        "serially, so an unnecessary unit is spent aggregate budget",
+    );
+  } else if (shippedUnits.length < minimumUnitCount) {
+    violations.push(
+      `the shipped topology spends ${shippedUnits.length} execution units below the schedule model's ` +
+        `minimumUnitCount of ${minimumUnitCount}`,
+    );
+  }
+
+  const oneFewerUnit =
+    minimumUnitCount && minimumUnitCount > 1
+      ? bestAssignmentAt(scheduledFiles, minimumUnitCount - 1, scheduleModel)
+      : null;
+
+  return {
+    units: shippedUnits.map((unit) => ({
+      scriptName: unit.scriptName,
+      fileNames: unit.files.map((file) => file.fileName),
+      makespanMs: unit.makespanMs,
+      bootBearingCaseCount: unit.bootBearingCaseCount,
+      bootBearingCeiling: unit.bootBearingCeiling,
+    })),
+    files: scheduledFiles,
+    observedUnitCount: shippedUnits.length,
+    minimumUnitCount: minimumUnitCount ?? null,
+    aggregateMs,
+    aggregateWithOverheadMs,
+    oneFewerUnit: oneFewerUnit
+      ? {
+          unitCount: minimumUnitCount - 1,
+          units: oneFewerUnit.units.map((unit) => ({
+            fileNames: unit.files.map((file) => file.fileName),
+            makespanMs: unit.makespanMs,
+          })),
+        }
+      : null,
+    violations,
+  };
+}
+
 // ---------------------------------------------------------------------------
 
 export function checkBootstrapDbEnrollment({
@@ -1071,6 +1337,9 @@ export function checkBootstrapDbEnrollment({
   const filesToInspect = [];
   let packageScripts = {};
 
+  const scheduleModelViolations = validateScheduleModelShape(scheduleModel);
+  const scheduleModelIsUsable = scheduleModelViolations.length === 0;
+  violations.push(...scheduleModelViolations);
   violations.push(...validateManifestShape(manifest, executionUnitBootBearingCaseCeilings, scheduleModel));
 
   try {
@@ -1081,11 +1350,17 @@ export function checkBootstrapDbEnrollment({
 
   const partitionFileNames = Object.keys(manifest);
   const partitionMemberships = new Map(partitionFileNames.map((fileName) => [fileName, []]));
-  const partitionScripts = Object.entries(packageScripts).filter(
-    ([name, command]) => dbPartitionScriptNamePattern.test(name) && typeof command === "string",
-  );
+  const partitionScripts = selectedDbPartitionScripts(packageScripts);
   if (partitionScripts.length === 0) {
     violations.push("package.json must publish at least one numbered test:db:* partition script");
+  }
+  for (const [scriptName] of partitionScripts) {
+    if (!dbPartitionScriptNamePattern.test(scriptName)) {
+      violations.push(
+        `${scriptName} is selected and executed by the ${dbTestScriptSelector} workspace selector but is not a ` +
+          "numbered test:db:<number> execution unit, so its cost is never scheduled",
+      );
+    }
   }
   for (const [scriptName, command] of partitionScripts) {
     for (const fileName of referencedDbTestFileOrder(command)) {
@@ -1109,7 +1384,24 @@ export function checkBootstrapDbEnrollment({
     }
   }
 
-  const partitionScriptNames = new Set(partitionScripts.map(([scriptName]) => scriptName));
+  const partitionScriptNames = new Set(
+    partitionScripts
+      .map(([scriptName]) => scriptName)
+      .filter((scriptName) => dbPartitionScriptNamePattern.test(scriptName)),
+  );
+  const manifestedUnitNames = new Set(partitionFileNames.map((fileName) => manifest[fileName].executionUnit));
+  // Every numbered unit hosted CI executes has to own manifested executable DB
+  // entries. A unit that owns none is still started, still pays its own boot and
+  // job cost, and would otherwise be invisible to the makespan, the aggregate,
+  // and the minimum-unit comparison below.
+  for (const scriptName of partitionScriptNames) {
+    if (!manifestedUnitNames.has(scriptName)) {
+      violations.push(
+        `${scriptName} is executed by hosted CI but owns no manifested bootstrap DB file; every numbered ` +
+          "execution unit must own manifested executable DB entries",
+      );
+    }
+  }
   for (const scriptName of Object.keys(executionUnitBootBearingCaseCeilings)) {
     if (!partitionScriptNames.has(scriptName)) {
       violations.push(`boot-bearing case ceiling references missing execution unit ${scriptName}`);
@@ -1259,86 +1551,23 @@ export function checkBootstrapDbEnrollment({
   }
 
   // ---- schedule model ----
-  const scheduledFiles = partitionFileNames.map((fileName) => {
-    const partition = manifest[fileName];
-    const caseDurationMs = partition.cases.reduce(
-      (total, testCase) => total + (Number.isInteger(testCase?.referenceDurationMs) ? testCase.referenceDurationMs : 0),
-      0,
-    );
-    return {
-      fileName,
-      executionUnit: partition.executionUnit,
-      caseCount: partition.cases.length,
-      caseDurationMs,
-      durationMs: caseDurationMs + scheduleModel.testFileFixedCostMs,
-    };
-  });
-
-  const observedUnitNames = [...new Set(partitionFileNames.map((fileName) => manifest[fileName].executionUnit))].sort(
-    (left, right) => left.localeCompare(right, "en", { numeric: true }),
+  // The observed topology is every numbered unit hosted CI actually executes,
+  // unioned with every unit the manifest assigns files to. A unit missing from
+  // either side is a real cost the projection must still carry.
+  const observedUnitNames = [...new Set([...partitionScriptNames, ...manifestedUnitNames])].sort(
+    compareExecutionUnitNames,
   );
-  const shippedUnits = observedUnitNames.map((scriptName) => {
-    const unitFiles = scheduledFiles.filter((file) => file.executionUnit === scriptName);
-    return {
-      scriptName,
-      files: unitFiles,
-      makespanMs: executionUnitMakespanMs(
-        unitFiles.map((file) => file.durationMs),
+  // Nothing below is derived from a model that failed the closed schema above.
+  const schedule = scheduleModelIsUsable
+    ? projectExecutionUnitSchedule({
+        manifest,
+        partitionFileNames,
+        observedUnitNames,
+        executionUnitBootBearingCaseCeilings,
         scheduleModel,
-      ),
-      bootBearingCaseCount: partitionFileNames
-        .filter((fileName) => manifest[fileName].executionUnit === scriptName)
-        .reduce((count, fileName) => count + bootBearingCaseCount(manifest[fileName]), 0),
-      bootBearingCeiling: executionUnitBootBearingCaseCeilings[scriptName] ?? null,
-    };
-  });
-
-  for (const unit of shippedUnits) {
-    if (unit.files.length > scheduleModel.maximumScheduledFileCount) {
-      violations.push(
-        `${unit.scriptName} schedules ${unit.files.length} files, above the model's declared bound of ` +
-          `${scheduleModel.maximumScheduledFileCount}`,
-      );
-      continue;
-    }
-    if (unit.makespanMs > scheduleModel.executionUnitCeilingMs) {
-      violations.push(
-        `${unit.scriptName} has a projected makespan of ${unit.makespanMs}ms, exceeding the ` +
-          `${scheduleModel.executionUnitCeilingMs}ms per-unit ceiling`,
-      );
-    }
-  }
-
-  const aggregateMs = shippedUnits.reduce((total, unit) => total + unit.makespanMs, 0);
-  const aggregateWithOverheadMs = aggregateMs + scheduleModel.jobOverheadMs;
-  if (aggregateWithOverheadMs > scheduleModel.aggregateCeilingMs) {
-    violations.push(
-      `the projected aggregate of ${aggregateMs}ms across ${shippedUnits.length} execution units plus the ` +
-        `${scheduleModel.jobOverheadMs}ms job overhead is ${aggregateWithOverheadMs}ms, exceeding the ` +
-        `${scheduleModel.aggregateCeilingMs}ms aggregate ceiling`,
-    );
-  }
-
-  const { minimumUnitCount, refusal } = computeMinimumUnitCount(scheduledFiles, scheduleModel);
-  if (refusal) {
-    violations.push(refusal);
-  } else if (shippedUnits.length > minimumUnitCount) {
-    violations.push(
-      `the shipped topology spends ${shippedUnits.length} execution units where the schedule model's ` +
-        `minimumUnitCount for the same file set is ${minimumUnitCount}; execution units of one workspace run ` +
-        "serially, so an unnecessary unit is spent aggregate budget",
-    );
-  } else if (shippedUnits.length < minimumUnitCount) {
-    violations.push(
-      `the shipped topology spends ${shippedUnits.length} execution units below the schedule model's ` +
-        `minimumUnitCount of ${minimumUnitCount}`,
-    );
-  }
-
-  const oneFewerUnit =
-    minimumUnitCount && minimumUnitCount > 1
-      ? bestAssignmentAt(scheduledFiles, minimumUnitCount - 1, scheduleModel)
-      : null;
+      })
+    : unprojectedExecutionUnitSchedule();
+  violations.push(...schedule.violations);
 
   return {
     caseCount: [...discoveredCases.values()].reduce((total, enrollments) => total + enrollments.length, 0),
@@ -1350,27 +1579,13 @@ export function checkBootstrapDbEnrollment({
       [...discoveredCases].map(([caseName, enrollments]) => [caseName, enrollments[0]?.identity ?? null]),
     ),
     schedule: {
-      units: shippedUnits.map((unit) => ({
-        scriptName: unit.scriptName,
-        fileNames: unit.files.map((file) => file.fileName),
-        makespanMs: unit.makespanMs,
-        bootBearingCaseCount: unit.bootBearingCaseCount,
-        bootBearingCeiling: unit.bootBearingCeiling,
-      })),
-      files: scheduledFiles,
-      observedUnitCount: shippedUnits.length,
-      minimumUnitCount: minimumUnitCount ?? null,
-      aggregateMs,
-      aggregateWithOverheadMs,
-      oneFewerUnit: oneFewerUnit
-        ? {
-            unitCount: minimumUnitCount - 1,
-            units: oneFewerUnit.units.map((unit) => ({
-              fileNames: unit.files.map((file) => file.fileName),
-              makespanMs: unit.makespanMs,
-            })),
-          }
-        : null,
+      units: schedule.units,
+      files: schedule.files,
+      observedUnitCount: schedule.observedUnitCount,
+      minimumUnitCount: schedule.minimumUnitCount,
+      aggregateMs: schedule.aggregateMs,
+      aggregateWithOverheadMs: schedule.aggregateWithOverheadMs,
+      oneFewerUnit: schedule.oneFewerUnit,
     },
     violations,
   };

@@ -14,6 +14,23 @@ const contractNames = new Set(["PgQueryable", "PgPoolClient", "PgTransactionalPo
 const transparentTypeConstructors = new Set(["Pick", "Readonly", "Promise", "NonNullable"]);
 const moduleResolutionContextCache = new Map();
 
+const typeScriptModulePattern = /\.(?:ts|mts)$/;
+const testModuleSuffixPattern = /\.(?:test|spec|d)\.(?:ts|mts)$/;
+const testDirectorySegmentPattern = /(^|\/)(?:__tests__|e2e|fixtures|tests)(\/|$)/;
+
+/**
+ * The single definition of the governed production surface. The changed-file
+ * scope and the repository-wide inventory both classify through this predicate,
+ * so a module cannot be governed as production by one and absent from the other:
+ * a support module under a canonical test directory is test code in both, and
+ * every other TypeScript module is production code in both.
+ */
+function isGovernedProductionModule(file) {
+  return (
+    typeScriptModulePattern.test(file) && !testModuleSuffixPattern.test(file) && !testDirectorySegmentPattern.test(file)
+  );
+}
+
 export const SANCTIONED_SQL_RECEIVER_RESOLUTION =
   "introduce a locally annotated binding whose type is contract-bound and resolvable to a contract module, then execute through it";
 
@@ -672,10 +689,7 @@ export function deriveChangedSqlExecutionFiles({
       throw new SqlExecutionGuardError("SQL_DIFF_FAILED", "could not derive changed files from git diff");
     }
   }
-  return files
-    .map(normalizeRepoPath)
-    .filter((file) => /\.(?:ts|mts)$/.test(file) && !/\.(?:test|spec|d)\.(?:ts|mts)$/.test(file))
-    .sort();
+  return files.map(normalizeRepoPath).filter(isGovernedProductionModule).sort();
 }
 
 export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => defaultExecGit(args, repoRoot) } = {}) {
@@ -683,9 +697,7 @@ export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => def
     .split("\0")
     .filter(Boolean)
     .map(normalizeRepoPath)
-    .filter((file) => /\.(?:ts|mts)$/.test(file))
-    .filter((file) => !/\.(?:test|spec|d)\.(?:ts|mts)$/.test(file))
-    .filter((file) => !/(^|\/)(?:__tests__|e2e|fixtures|tests)(\/|$)/.test(file))
+    .filter(isGovernedProductionModule)
     .sort();
 }
 
