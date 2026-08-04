@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { execFile as execFileCallback } from "node:child_process";
+import { createHash } from "node:crypto";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -11,6 +12,8 @@ const execFile = promisify(execFileCallback);
 export const DIGITALOCEAN_DRIFT_DIGEST_VERSION = "digitalocean-drift-digest/v1";
 const RESTORE_POINT_PREFIX = "cs-prod-rp-";
 const RESTORE_DRILL_PREFIX = "cs-stg-drill-";
+const RESTORE_POINT_HOLD_AUTHORITY_ALIAS = "DIGITALOCEAN_DRIFT_RESTORE_POINT_HOLD_NAMES";
+const CANONICAL_DATABASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DEFAULT_REPOSITORY = "chase-sets-platform";
 
 const OBSERVABILITY_POLICIES = {
@@ -57,6 +60,10 @@ export function parseDigitalOceanDriftDigestArgs(argv, env = process.env) {
         "7",
       "DIGITALOCEAN_DRIFT_REGISTRY_RETENTION_DAYS",
     ),
+    restorePointHoldNames: parseHoldNames([
+      ...readRepeatedOptions(argv, "--hold-name"),
+      readEnv(RESTORE_POINT_HOLD_AUTHORITY_ALIAS, env),
+    ]),
   };
 }
 
@@ -75,9 +82,15 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
   const checkedAt = new Date(options.checkedAt);
   const restorePointCutoff = new Date(checkedAt.getTime() - options.restorePointMinAgeHours * 60 * 60 * 1000);
   const registryCutoff = new Date(checkedAt.getTime() - options.registryRetentionDays * 24 * 60 * 60 * 1000);
+  const restorePointHoldAuthority = resolveRestorePointHoldAuthority(
+    options.restorePointHoldNames ?? [],
+    snapshot.databases,
+  );
 
   const apps = snapshot.apps.map((app) => summarizeApp(app));
-  const databases = snapshot.databases.map((database) => summarizeDatabase(database, restorePointCutoff));
+  const databases = snapshot.databases.map((database, index) =>
+    summarizeDatabase(database, restorePointCutoff, restorePointHoldAuthority.heldDatabaseIndexes.has(index)),
+  );
   const databaseBackups = snapshot.databaseBackups.map((backup) => summarizeDatabaseBackup(backup, checkedAt));
   const registryTags = snapshot.registryTags.map((tag) => summarizeRegistryTag(tag, registryCutoff));
   const droplets = snapshot.droplets.map(summarizeDroplet);
@@ -95,6 +108,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
     ...volumes.flatMap(volumeFindings),
     ...uptimeChecks.flatMap(uptimeCheckFindings),
     ...cdns.flatMap(cdnFindings),
+    ...(restorePointHoldAuthority.finding ? [restorePointHoldAuthority.finding] : []),
     ...collection.errors.map(collectionErrorFinding),
   ];
 
@@ -113,6 +127,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       retiredComputeProvider: "digitalocean-apps",
       observability: OBSERVABILITY_POLICIES,
       databaseBackups: DATABASE_BACKUP_POLICIES,
+      restorePointHolds: restorePointHoldAuthority.policy,
     },
     collections: collection.collections,
     expectedResources: {
@@ -354,7 +369,7 @@ function componentSummaries(kind, components) {
   }));
 }
 
-function summarizeDatabase(database, restorePointCutoff) {
+function summarizeDatabase(database, restorePointCutoff, heldByAuthority) {
   const name = readField(database, "name", "Name") ?? "";
   const createdAt = readField(database, "created_at", "createdAt", "CreatedAt");
   const restorePoint = name.startsWith(RESTORE_POINT_PREFIX);
@@ -378,7 +393,7 @@ function summarizeDatabase(database, restorePointCutoff) {
     terraformRoot: databaseTerraformRoot(name),
     classification:
       restorePoint || restoreDrill
-        ? oldRestorePoint || oldRestoreDrill
+        ? (oldRestorePoint || oldRestoreDrill) && !heldByAuthority
           ? "cleanup-candidate"
           : "operator-managed"
         : classifyDatabase(name),
@@ -386,6 +401,7 @@ function summarizeDatabase(database, restorePointCutoff) {
     restoreDrill,
     oldRestorePoint,
     oldRestoreDrill,
+    heldByAuthority,
   };
 }
 
@@ -556,7 +572,7 @@ function appFindings(app) {
 }
 
 function databaseFindings(database) {
-  if (database.oldRestorePoint || database.oldRestoreDrill) {
+  if ((database.oldRestorePoint || database.oldRestoreDrill) && !database.heldByAuthority) {
     const drill = database.oldRestoreDrill;
     return [
       {
@@ -848,8 +864,10 @@ function summarizeDigest(input) {
     terraformManagedResources: resources.filter((resource) => resource.classification === "terraform-managed").length,
     unknownChaseSetsResources: resources.filter((resource) => resource.classification === "unknown-chase-sets").length,
     cleanupCandidates:
-      input.databases.filter((database) => database.oldRestorePoint || database.oldRestoreDrill).length +
-      input.registryTags.filter((tag) => tag.cleanupEligible).length,
+      input.databases.filter(
+        (database) => (database.oldRestorePoint || database.oldRestoreDrill) && !database.heldByAuthority,
+      ).length + input.registryTags.filter((tag) => tag.cleanupEligible).length,
+    heldRestorePoints: input.databases.filter((database) => database.heldByAuthority).length,
     databaseBackups: {
       observedClusters: input.databaseBackups.length,
       staleClusters: input.databaseBackups.filter((backup) => backup.stale).length,
@@ -862,6 +880,105 @@ function summarizeDigest(input) {
     warningFindings: input.findings.filter((finding) => finding.severity === "warning").length,
     collectionErrors: input.collectionErrors.length,
   };
+}
+
+function resolveRestorePointHoldAuthority(tokens, databases) {
+  if (tokens.length === 0) {
+    return {
+      heldDatabaseIndexes: new Set(),
+      policy: restorePointHoldPolicy("absent", 0, 0, 0, null),
+      finding: null,
+    };
+  }
+
+  const tokenMatches = tokens.map((token, index) => {
+    const matchingDatabaseIndexes = [];
+    for (const [databaseIndex, database] of databases.entries()) {
+      const id = readField(database, "id", "ID");
+      const name = readField(database, "name", "Name");
+      if (id === token || name === token) {
+        matchingDatabaseIndexes.push(databaseIndex);
+      }
+    }
+    const wellFormed =
+      CANONICAL_DATABASE_ID.test(token) ||
+      token.startsWith(RESTORE_POINT_PREFIX) ||
+      token.startsWith(RESTORE_DRILL_PREFIX);
+    return {
+      token,
+      index: index + 1,
+      matchingDatabaseIndexes,
+      refused: !wellFormed || matchingDatabaseIndexes.length > 1,
+    };
+  });
+  const refusedTokens = tokenMatches.filter((entry) => entry.refused);
+
+  if (refusedTokens.length > 0) {
+    return {
+      heldDatabaseIndexes: new Set(),
+      policy: restorePointHoldPolicy("refused", tokens.length, 0, 0, null),
+      finding: {
+        severity: "warning",
+        category: "restore-point-hold-authority-invalid",
+        resourceType: "hold-authority",
+        resourceName: RESTORE_POINT_HOLD_AUTHORITY_ALIAS,
+        owner: "ops",
+        terraformRoot: null,
+        action:
+          "Inspect the production restore-point cleanup hold authority and correct every malformed or ambiguous entry; no holds were applied.",
+        evidence: {
+          offendingTokens: refusedTokens.map(({ index, token }) => ({
+            index,
+            sha256Prefix: sha256(token).slice(0, 8),
+          })),
+        },
+      },
+    };
+  }
+
+  const heldDatabaseIndexes = new Set(tokenMatches.flatMap((entry) => entry.matchingDatabaseIndexes));
+  const appliedCount = tokenMatches.filter((entry) => entry.matchingDatabaseIndexes.length === 1).length;
+  return {
+    heldDatabaseIndexes,
+    policy: restorePointHoldPolicy(
+      "applied",
+      tokens.length,
+      appliedCount,
+      tokens.length - appliedCount,
+      sha256(JSON.stringify(tokens)),
+    ),
+    finding: null,
+  };
+}
+
+function restorePointHoldPolicy(status, tokenCount, appliedCount, unmatchedCount, effectiveTokenSetSha256) {
+  return {
+    status,
+    tokenCount,
+    appliedCount,
+    unmatchedCount,
+    effectiveTokenSetSha256,
+  };
+}
+
+function parseHoldNames(values) {
+  return Array.from(
+    new Set(
+      values
+        .filter(isNonEmptyString)
+        .flatMap((value) => value.split(/[,\n]/g))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function classifyApp(name) {
