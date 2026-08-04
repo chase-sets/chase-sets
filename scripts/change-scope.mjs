@@ -412,11 +412,22 @@ export function classifyChanges({
   }
 
   const unitTestsRequired = affectedWorkspaces.length > 0;
+  // A scheduler-owned artifact is the process that selects, orders, times, and
+  // bounds every DB execution unit, so a change to one must run those units.
+  // The fan-out above already unions every workspace into `affectedWorkspaceSet`
+  // for exactly this reason; this disjunct reads the same exact-path membership
+  // boolean rather than re-testing any path, and stays gated on the same
+  // DB-capability rule so it can never require a job with nothing to run.
+  const schedulerOwnedChangeRequiresDbTests =
+    schedulerOwnedArtifactChanged &&
+    affectedWorkspaces.some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return dbTestScripts(workspace).length > 0;
-    }) || [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange);
+    }) ||
+    [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange) ||
+    schedulerOwnedChangeRequiresDbTests;
   return {
     changedFiles: normalizedFiles,
     affectedWorkspaces,
