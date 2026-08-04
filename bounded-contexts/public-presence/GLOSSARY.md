@@ -92,6 +92,26 @@ Notes:
 - It is generated from at least 16 cryptographically secure random bytes.
 - The audit fact stores tuple and link digests, actor, and time, but never the Public Referral Code or complete link.
 
+## Reconciliation Subject Ledger
+
+A **Reconciliation Subject Ledger** is the record that makes one Public Referral Code reconciliation subject take exactly one refusal count: the first write on a subject key wins, and every later write on that key changes neither the recorded row nor the recorded Reconciliation Refusal Category.
+
+Notes:
+
+- A subject key is a typed discriminated value over exactly four kinds -- a `stream` keyed by its stream id, a `fact` keyed by its stream id together with its stream version, an `issued-digest` keyed by a canonical issuance digest, and a `provisioning-identity` keyed by a Referral Link Provisioning ID -- never a concatenated string, so a stream key and a fact key cannot collide on a stream id that ends in a version-shaped suffix.
+- A suppressed write is reported, never dropped: the ledger carries an inventory of every attempted later write with its key, the row that attempted it, and the category it would have moved.
+- Two rows writing one key therefore move one count, and two rows writing two keys of different kinds move two, by construction rather than by convention.
+- Owned by `features/waitlist/domain/referral-code-reconciliation-algebra.ts`; every downstream reconciliation slice imports it rather than declaring its own.
+
+## Reconciliation Refusal Category
+
+A **Reconciliation Refusal Category** is one of the six frozen, ordered names a reconciliation row can refuse a Reconciliation Subject under: `unexpected`, `mismatched`, `duplicate`, `missingRecorded`, `missingIssued`, and `missingReservation`.
+
+Notes:
+
+- The names and their order are fixed once and consumed unchanged by every downstream reconciliation slice and its retained receipt; renaming or reordering one is a breaking change to a retained artifact, not a local edit.
+- The refusal count object is built from the exported category tuple rather than hand-written, so a category added without a counter fails the typecheck.
+
 ## Promo Bar Message
 
 A **Promo Bar Message** is public marketplace copy shown in the site promo bar to communicate temporary or evergreen marketplace-wide information.

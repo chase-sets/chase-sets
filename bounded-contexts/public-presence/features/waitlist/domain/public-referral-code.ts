@@ -13,11 +13,11 @@ export const REFERRAL_LINK_PROVISIONING_SCHEMA_VERSION = "referral-link-provisio
  */
 export const PUBLIC_REFERRAL_CODE_RESERVATION_STREAM_PREFIX = "public-presence.waitlist-referral-code-";
 
-const publicReferralCodePattern = /^wlr_[A-Za-z0-9_-]{32,}$/;
+export const publicReferralCodePattern = /^wlr_[A-Za-z0-9_-]{32,}$/;
 const provisioningIdPattern = /^wlp_[A-Za-z0-9_-]{22,}$/;
-const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
+export const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
 const tupleValuePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _%+.-]*$/;
-const lowercaseSha256Pattern = /^[0-9a-f]{64}$/;
+export const lowercaseSha256Pattern = /^[0-9a-f]{64}$/;
 const utcMillisecondPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export type SecureRandomBytes = (byteLength: number) => Uint8Array;
