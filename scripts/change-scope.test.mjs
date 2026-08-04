@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
@@ -499,7 +502,7 @@ describe("change-scope", () => {
     expect(changedFiles).toEqual(["bounded-contexts/catalog/domain.ts"]);
     expect(calls).toEqual([
       { args: ["merge-base", "origin/main", "HEAD"], cwd: "/repo" },
-      { args: ["diff", "--name-only", "abc123...HEAD"], cwd: "/repo" },
+      { args: ["diff", "--no-renames", "--name-only", "abc123...HEAD"], cwd: "/repo" },
     ]);
   });
 
@@ -1337,6 +1340,128 @@ describe("change-scope", () => {
       expect(scope.dbTestsRequired).toBe(true);
       expect(toOutputMap(scope).db_tests).toBe("true");
     }
+  });
+
+  // A rename away from a frozen scheduler-owned path is the one Git status form
+  // `git diff --name-only` does not report faithfully: rename detection collapses
+  // the pair to its destination, so the frozen source path never reaches the
+  // classifier and the DB profile job it owns is silently unselected. These cases
+  // drive real Git objects through the production
+  // `listChangedFiles -> classifyChanges -> toOutputMap` chain, and each carries
+  // the rename-detected name list alongside as a control, so dropping
+  // `--no-renames` from the production diff fails them.
+  describe("scheduler-owned artifacts renamed away from their frozen paths", () => {
+    const renameAwayCases = schedulerOwnedArtifacts.map((sourcePath, index) => ({
+      index,
+      sourcePath,
+      destinationPath: `archive/${path.posix.basename(sourcePath)}`,
+    }));
+    let fixtureRoot;
+    let fixtureCommits;
+
+    // `diff.renames` is pinned on rather than inherited so the control below
+    // observes Git's own default rename detection on any host.
+    function fixtureGit(args) {
+      return execFileSync(
+        "git",
+        [
+          "-c",
+          "core.autocrlf=false",
+          "-c",
+          "diff.renames=true",
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          ...args,
+        ],
+        { cwd: fixtureRoot, encoding: "utf8", windowsHide: true },
+      );
+    }
+
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(path.join(tmpdir(), "change-scope-rename-away-"));
+      fixtureGit(["init", "--quiet", "--initial-branch=main"]);
+      for (const { sourcePath } of renameAwayCases) {
+        const target = path.join(fixtureRoot, sourcePath);
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, `scheduler-owned fixture body for ${sourcePath}\n`, "utf8");
+      }
+      mkdirSync(path.join(fixtureRoot, "archive"), { recursive: true });
+      fixtureGit(["add", "--all"]);
+      fixtureGit(["commit", "--quiet", "-m", "seed scheduler-owned artifacts"]);
+
+      // One commit per case, each renaming exactly one artifact away. Case i is
+      // then the diff from commit i to commit i+1, so every case observes a
+      // single rename with no checkout churn between them.
+      for (const { sourcePath, destinationPath } of renameAwayCases) {
+        fixtureGit(["mv", sourcePath, destinationPath]);
+        fixtureGit(["commit", "--quiet", "-m", `rename ${sourcePath} away`]);
+      }
+      fixtureCommits = fixtureGit(["log", "--format=%H", "--reverse"]).trim().split(/\r?\n/);
+    });
+
+    afterAll(() => {
+      if (fixtureRoot) {
+        rmSync(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+
+    it("covers every frozen scheduler-owned artifact with its own rename-away commit", () => {
+      expect(renameAwayCases.map((entry) => entry.sourcePath)).toEqual(schedulerOwnedArtifacts);
+      expect(fixtureCommits).toHaveLength(schedulerOwnedArtifacts.length + 1);
+      expect(new Set(fixtureCommits).size).toBe(fixtureCommits.length);
+    });
+
+    it.each(renameAwayCases)(
+      "requires DB tests when $sourcePath is renamed away to $destinationPath",
+      ({ index, sourcePath, destinationPath }) => {
+        const base = fixtureCommits[index];
+        const head = fixtureCommits[index + 1];
+
+        // Control: Git really does record this as a 100%-similarity rename, and
+        // the rename-detected name list names only the destination. That list is
+        // exactly what the production diff would return without `--no-renames`,
+        // and it does not contain the frozen path.
+        expect(fixtureGit(["diff", "--name-status", `${base}...${head}`]).trim()).toBe(
+          `R100\t${sourcePath}\t${destinationPath}`,
+        );
+        expect(
+          fixtureGit(["diff", "--name-only", `${base}...${head}`])
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean),
+        ).toEqual([destinationPath]);
+
+        // Production path: real Git objects through the exported `listChangedFiles`.
+        const changedFiles = listChangedFiles(base, head, { cwd: fixtureRoot });
+        expect([...changedFiles].sort()).toEqual([destinationPath, sourcePath].sort());
+
+        const scope = classifyChanges({ changedFiles });
+        const outputs = toOutputMap(scope);
+
+        expect(scope.changedFiles).toEqual([destinationPath, sourcePath].sort());
+        expect(scope.dbTestsRequired).toBe(true);
+        expect(outputs.db_tests).toBe("true");
+
+        // Nothing else moves: the same whole-repo fan-out a scheduler-owned
+        // change already produced, and every other output key byte-identical to
+        // the base-commit capture for that fan-out.
+        expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
+        expect(scope.affectedWorkspaces).toContain("@chase-sets/app-platform-api");
+        expect(outputs).toEqual({
+          ...baseCapturedSchedulerFanoutOutputMap(scope.changedFiles),
+          db_tests: "true",
+        });
+
+        // Discriminator: the destination path alone carries none of this, so the
+        // frozen source path recovered by `--no-renames` is what selects the job.
+        const destinationOnly = classifyChanges({ changedFiles: [destinationPath] });
+        expect(destinationOnly.dbTestsRequired).toBe(false);
+        expect(toOutputMap(destinationOnly).db_tests).toBe("false");
+        expect(destinationOnly.affectedWorkspaces).toEqual([]);
+      },
+    );
   });
 
   it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {

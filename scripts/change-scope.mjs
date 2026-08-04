@@ -468,7 +468,13 @@ export function listChangedFiles(base, head, options = {}) {
       cwd,
       encoding: "utf8",
     }).trim();
-  const output = exec("git", ["diff", "--name-only", `${mergeBase}...${head}`], {
+  // `--name-only` on its own collapses a detected rename to its destination
+  // path only, which drops the source from the changed-file set and silently
+  // unselects every gate keyed on that exact path — renaming a scheduler-owned
+  // artifact away would stop requiring the DB profile tests it owns.
+  // `--no-renames` reports a move conservatively as a deletion plus an
+  // addition, so both sides reach the classifier.
+  const output = exec("git", ["diff", "--no-renames", "--name-only", `${mergeBase}...${head}`], {
     cwd,
     encoding: "utf8",
   });
