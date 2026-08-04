@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateSqlExecutionSurfacePartition } from "./generate-sql-execution-surface-partition.mjs";
 import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
@@ -28,6 +27,23 @@ const tempRoots = [];
 
 function classify(files, root = repoRoot) {
   return classifySqlExecutionSurface({ repoRoot: root, files });
+}
+
+function partitionFromFiles(root, files) {
+  const result = classifySqlExecutionSurface({ repoRoot: root, files });
+  return {
+    sqlExecuting: result.modules.filter((module) => module.outcome === "sql-executing").map((module) => module.file),
+    unprovableForm: result.modules
+      .filter((module) => module.outcome === "unprovable-form")
+      .map((module) => module.file),
+    notSql: result.modules.filter((module) => module.outcome === "not-sql").map((module) => module.file),
+    unresolvedMemberRoots: result.unresolvedMemberRoots,
+  };
+}
+
+function partitionFromTrackedInventory(root, { execGit = undefined } = {}) {
+  const files = listNonTestTypeScriptModules(root, execGit === undefined ? {} : { execGit });
+  return partitionFromFiles(root, files);
 }
 
 function withoutChangedFilesJson(run) {
@@ -768,7 +784,7 @@ describe("repository-wide SQL execution partition", () => {
       writeFileSync(absoluteFile, "export const value = 1;\n");
     }
     const calls = [];
-    const partition = generateSqlExecutionSurfacePartition(root, {
+    const partition = partitionFromTrackedInventory(root, {
       execGit: (args) => {
         calls.push(args);
         return `${trackedFile}\0`;
@@ -801,10 +817,8 @@ describe("repository-wide SQL execution partition", () => {
     const governedSet = new Set(governedModules);
     const removedModules = legacyModules.filter((file) => !governedSet.has(file));
     const removedClassification = classify(removedModules);
-    const partition = generateSqlExecutionSurfacePartition(repoRoot);
-    const baselinePartition = JSON.parse(
-      readFileSync(path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"), "utf8"),
-    );
+    const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
+    const partition = partitionFromFiles(repoRoot, governedModules);
 
     expect(legacyModules).toHaveLength(2267);
     expect(governedModules).toHaveLength(2262);
@@ -815,17 +829,17 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(baselinePartition.sqlExecuting).toHaveLength(375);
-    expect(baselinePartition.unprovableForm).toHaveLength(3);
-    expect(baselinePartition.notSql).toHaveLength(1889);
-    expect(baselinePartition.unresolvedMemberRoots.count).toBe(263);
-    expect(partition.sqlExecuting).toEqual(baselinePartition.sqlExecuting);
-    expect(partition.unprovableForm).toEqual(baselinePartition.unprovableForm);
-    expect(partition.notSql).toEqual(baselinePartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
+    expect(legacyPartition.sqlExecuting).toHaveLength(375);
+    expect(legacyPartition.unprovableForm).toHaveLength(3);
+    expect(legacyPartition.notSql).toHaveLength(1889);
+    expect(legacyPartition.unresolvedMemberRoots.count).toBe(263);
+    expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
+    expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
+    expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
     expect(partition.notSql).toHaveLength(1884);
-    expect(partition.unresolvedMemberRoots).toEqual(baselinePartition.unresolvedMemberRoots);
-    expect(partition.sqlExecuting.filter((file) => !baselinePartition.sqlExecuting.includes(file))).toEqual([]);
-    expect(partition.unprovableForm.filter((file) => !baselinePartition.unprovableForm.includes(file))).toEqual([]);
+    expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
+    expect(partition.sqlExecuting.filter((file) => !legacyPartition.sqlExecuting.includes(file))).toEqual([]);
+    expect(partition.unprovableForm.filter((file) => !legacyPartition.unprovableForm.includes(file))).toEqual([]);
     expect(partition.sqlExecuting.length + partition.unprovableForm.length + partition.notSql.length).toBe(
       governedModules.length,
     );
@@ -834,5 +848,14 @@ describe("repository-wide SQL execution partition", () => {
         `${partition.sqlExecuting.length}/${partition.unprovableForm.length}/${partition.notSql.length}; ` +
         `unresolvedMemberRoots=${partition.unresolvedMemberRoots.count}; removed=${removedModules.join(",")}`,
     );
+  }, 120_000);
+
+  it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
+    const actual = partitionFromTrackedInventory(repoRoot);
+    const expected = JSON.parse(
+      readFileSync(path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"), "utf8"),
+    );
+
+    expect(actual).toEqual(expected);
   }, 120_000);
 });
