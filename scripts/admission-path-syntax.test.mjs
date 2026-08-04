@@ -605,7 +605,7 @@ describe("admission-path-syntax/v1 ordered arms and closed records", () => {
   });
 
   it("does not leak caller or host text and executes the echoing-refusal mutant", () => {
-    const sentinel = "CALLER_SENTINEL_ZXQ_98631";
+    const sentinel = "CALLER!SENTINEL_ZXQ_98631";
     const candidate = validateCallInputs(VALID_BASE, sentinel, undefined);
     const echoingRefusalMutant = Object.freeze({ ...candidate, offendingSegment: sentinel });
     const candidateSerialized = JSON.stringify(candidate);
