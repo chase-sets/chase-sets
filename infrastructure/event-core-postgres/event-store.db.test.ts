@@ -567,7 +567,7 @@ describeDb("postgres event store real database integration", () => {
     );
   });
 
-  it("keeps PostgreSQL and in-memory horizon projections byte-identical", async () => {
+  it("keeps one horizon across pages and excludes an append during pagination in both stores", async () => {
     const postgresStore = createPostgresEventStore({ pool: schema.pool, createEventId });
     const memoryStore = createInMemoryEventStore().eventStore;
     const inputs = [
@@ -593,23 +593,67 @@ describeDb("postgres event store real database integration", () => {
       await memoryStore.appendToStream(input);
     }
 
+    const horizon = await readGapSafeEventStoreHead(schema.pool);
     const readInput = {
-      afterGlobalPosition: "1" as never,
-      atOrBeforeGlobalPosition: "3" as never,
+      atOrBeforeGlobalPosition: horizon,
       tenantId: "tenant_a" as never,
       eventTypes: ["catalog.item.updated", "catalog.item.created"],
       streamPrefixes: ["catalog.item-differential-"],
-      limit: 10,
+      limit: 1,
     } as const;
     const project = (events: readonly StoredEvent[]) =>
       events.map(({ streamId, globalPosition, eventType }) => ({ streamId, globalPosition, eventType }));
 
-    const postgresProjection = project(await postgresStore.readAll(readInput));
-    const memoryProjection = project(await memoryStore.readAll(readInput));
+    const postgresProjection: ReturnType<typeof project>[number][] = [];
+    const memoryProjection: ReturnType<typeof project>[number][] = [];
+    let postgresCursor = "0" as StoredEvent["globalPosition"];
+    let memoryCursor = "0" as StoredEvent["globalPosition"];
+
+    const firstPostgresPage = await postgresStore.readAll({ ...readInput, afterGlobalPosition: postgresCursor });
+    const firstMemoryPage = await memoryStore.readAll({ ...readInput, afterGlobalPosition: memoryCursor });
+    postgresProjection.push(...project(firstPostgresPage));
+    memoryProjection.push(...project(firstMemoryPage));
+    postgresCursor = firstPostgresPage.at(-1)!.globalPosition;
+    memoryCursor = firstMemoryPage.at(-1)!.globalPosition;
+
+    const concurrentAppend = {
+      streamId: "catalog.item-differential-above-horizon",
+      expectedVersion: "no_stream" as const,
+      context: eventContext("tenant_a"),
+      events: [eventToStore("catalog.item.created", { itemId: "above-horizon" })],
+    };
+    await postgresStore.appendToStream(concurrentAppend);
+    await memoryStore.appendToStream(concurrentAppend);
+
+    while (true) {
+      const [postgresPage, memoryPage] = await Promise.all([
+        postgresStore.readAll({ ...readInput, afterGlobalPosition: postgresCursor }),
+        memoryStore.readAll({ ...readInput, afterGlobalPosition: memoryCursor }),
+      ]);
+      expect(project(postgresPage)).toEqual(project(memoryPage));
+      if (postgresPage.length === 0) {
+        expect(memoryPage).toEqual([]);
+        break;
+      }
+
+      const nextPostgresCursor = postgresPage.at(-1)!.globalPosition;
+      const nextMemoryCursor = memoryPage.at(-1)!.globalPosition;
+      expect(globalPositionToBigInt(nextPostgresCursor)).toBeGreaterThan(globalPositionToBigInt(postgresCursor));
+      expect(globalPositionToBigInt(nextMemoryCursor)).toBeGreaterThan(globalPositionToBigInt(memoryCursor));
+      postgresProjection.push(...project(postgresPage));
+      memoryProjection.push(...project(memoryPage));
+      postgresCursor = nextPostgresCursor;
+      memoryCursor = nextMemoryCursor;
+    }
 
     expect(JSON.stringify(postgresProjection)).toBe(JSON.stringify(memoryProjection));
     expect(postgresProjection).toEqual(memoryProjection);
     expect(postgresProjection).toEqual([
+      {
+        streamId: "catalog.item-differential-1",
+        globalPosition: "1",
+        eventType: "catalog.item.created",
+      },
       {
         streamId: "catalog.item-differential-1",
         globalPosition: "2",
@@ -621,6 +665,9 @@ describeDb("postgres event store real database integration", () => {
         eventType: "catalog.item.created",
       },
     ]);
+    expect(postgresCursor).toBe(horizon);
+    expect(memoryCursor).toBe(horizon);
+    expect(postgresProjection.map((event) => event.streamId)).not.toContain("catalog.item-differential-above-horizon");
   });
 
   it("composes the horizon with tenant, prefix, event type, and after-position predicates", async () => {
