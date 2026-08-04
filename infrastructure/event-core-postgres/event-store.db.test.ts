@@ -1,8 +1,19 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  globalPositionFromBigInt,
+  globalPositionToBigInt,
+  type EventStoreContext,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { toTransportEvent, type TransportEvent } from "@chase-sets/event-core/transport";
-import { EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY, createPostgresEventStore } from "./event-store";
+import {
+  EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+  createPostgresEventStore,
+  readGapSafeEventStoreHead,
+} from "./event-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
 import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 
@@ -495,6 +506,196 @@ describeDb("postgres event store real database integration", () => {
     ]);
   });
 
+  it("honors a captured inclusive horizon at and below its position while excluding a later append", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+
+    await appendEvents(store, "catalog.item-horizon", "tenant_a", [
+      ["catalog.item.created", { itemId: "horizon" }],
+      ["catalog.item.updated", { itemId: "horizon" }],
+    ]);
+    const horizon = await readGapSafeEventStoreHead(schema.pool);
+    await appendEvents(store, "catalog.item-above-horizon", "tenant_a", [
+      ["catalog.item.created", { itemId: "above-horizon" }],
+    ]);
+
+    const page = await store.readAll({ atOrBeforeGlobalPosition: horizon, limit: 10 });
+
+    expect(horizon).toBe("2");
+    expect(page.map((event) => event.globalPosition)).toEqual(["1", "2"]);
+    expect(page.at(-1)?.globalPosition).toBe(horizon);
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.item-above-horizon");
+  });
+
+  it("refuses a horizon above the real gap-safe head instead of clamping it", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    await appendEvents(store, "catalog.item-available", "tenant_a", [
+      ["catalog.item.created", { itemId: "available" }],
+    ]);
+    const available = await readGapSafeEventStoreHead(schema.pool);
+    const requested = globalPositionFromBigInt(globalPositionToBigInt(available) + 1n);
+
+    await expect(store.readAll({ atOrBeforeGlobalPosition: requested, limit: 10 })).rejects.toThrow(
+      `Event store read horizon ${requested} exceeds available global position ${available}.`,
+    );
+    await expect(readGapSafeEventStoreHead(schema.pool)).resolves.toBe(available);
+  });
+
+  it("refuses a malformed horizon before issuing any query to the real PostgreSQL pool", async () => {
+    let queryCount = 0;
+    const countingPool: PgTransactionalPool = {
+      query: (async (sql: string, params?: readonly unknown[]) => {
+        queryCount += 1;
+        return schema.pool.query(sql, params);
+      }) as PgTransactionalPool["query"],
+      connect: () => schema.pool.connect(),
+    };
+    const store = createPostgresEventStore({ pool: countingPool, createEventId });
+
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "007" as never, limit: 10 })).rejects.toThrow(
+      "GlobalPosition must be a canonical unsigned base-10 string.",
+    );
+    expect(queryCount).toBe(0);
+  });
+
+  it("honors zero and refuses above zero against an empty PostgreSQL event store", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+
+    await expect(readGapSafeEventStoreHead(schema.pool)).resolves.toBe("0");
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "0" as never, limit: 10 })).resolves.toEqual([]);
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "1" as never, limit: 10 })).rejects.toThrow(
+      "Event store read horizon 1 exceeds available global position 0.",
+    );
+  });
+
+  it("keeps PostgreSQL and in-memory horizon projections byte-identical", async () => {
+    const postgresStore = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const memoryStore = createInMemoryEventStore().eventStore;
+    const inputs = [
+      {
+        streamId: "catalog.item-differential-1",
+        expectedVersion: "no_stream" as const,
+        context: eventContext("tenant_a"),
+        events: [
+          eventToStore("catalog.item.created", { itemId: "differential-1" }),
+          eventToStore("catalog.item.updated", { itemId: "differential-1" }),
+        ],
+      },
+      {
+        streamId: "catalog.item-differential-2",
+        expectedVersion: "no_stream" as const,
+        context: eventContext("tenant_a"),
+        events: [eventToStore("catalog.item.created", { itemId: "differential-2" })],
+      },
+    ] as const;
+
+    for (const input of inputs) {
+      await postgresStore.appendToStream(input);
+      await memoryStore.appendToStream(input);
+    }
+
+    const readInput = {
+      afterGlobalPosition: "1" as never,
+      atOrBeforeGlobalPosition: "3" as never,
+      tenantId: "tenant_a" as never,
+      eventTypes: ["catalog.item.updated", "catalog.item.created"],
+      streamPrefixes: ["catalog.item-differential-"],
+      limit: 10,
+    } as const;
+    const project = (events: readonly StoredEvent[]) =>
+      events.map(({ streamId, globalPosition, eventType }) => ({ streamId, globalPosition, eventType }));
+
+    const postgresProjection = project(await postgresStore.readAll(readInput));
+    const memoryProjection = project(await memoryStore.readAll(readInput));
+
+    expect(JSON.stringify(postgresProjection)).toBe(JSON.stringify(memoryProjection));
+    expect(postgresProjection).toEqual(memoryProjection);
+    expect(postgresProjection).toEqual([
+      {
+        streamId: "catalog.item-differential-1",
+        globalPosition: "2",
+        eventType: "catalog.item.updated",
+      },
+      {
+        streamId: "catalog.item-differential-2",
+        globalPosition: "3",
+        eventType: "catalog.item.created",
+      },
+    ]);
+  });
+
+  it("composes the horizon with tenant, prefix, event type, and after-position predicates", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    await appendEvents(store, "catalog.item-before-cursor", "tenant_a", [
+      ["catalog.item.created", { itemId: "before-cursor" }],
+    ]);
+    await appendEvents(store, "catalog.item-foreign", "tenant_b", [["catalog.item.created", { itemId: "foreign" }]]);
+    await appendEvents(store, "catalog.item-included-1", "tenant_a", [
+      ["catalog.item.created", { itemId: "included-1" }],
+    ]);
+    await appendEvents(store, "catalog.item-wrong-type", "tenant_a", [
+      ["catalog.item.updated", { itemId: "wrong-type" }],
+    ]);
+    await appendEvents(store, "catalog.item-included-2", "tenant_a", [
+      ["catalog.item.created", { itemId: "included-2" }],
+    ]);
+    const horizon = await readGapSafeEventStoreHead(schema.pool);
+    await appendEvents(store, "catalog.item-above-horizon", "tenant_a", [
+      ["catalog.item.created", { itemId: "above-horizon" }],
+    ]);
+
+    const input = {
+      afterGlobalPosition: "1" as never,
+      atOrBeforeGlobalPosition: horizon,
+      tenantId: "tenant_a" as never,
+      eventTypes: ["catalog.item.created"],
+      streamPrefixes: ["catalog.item-"],
+      limit: 10,
+    } as const;
+    const page = await store.readAll(input);
+
+    expect(input).toEqual({
+      afterGlobalPosition: "1",
+      atOrBeforeGlobalPosition: "5",
+      tenantId: "tenant_a",
+      eventTypes: ["catalog.item.created"],
+      streamPrefixes: ["catalog.item-"],
+      limit: 10,
+    });
+    expect(page.map((event) => event.globalPosition)).toEqual(["3", "5"]);
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.item-foreign");
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.item-above-horizon");
+  });
+
+  it("preserves the 500 page and 501 refusal boundaries under a horizon", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    await appendEvents(
+      store,
+      "catalog.item-page-boundary",
+      "tenant_a",
+      Array.from(
+        { length: EVENT_STORE_READ_PAGE_SIZE_MAX },
+        (_, index) => ["catalog.item.updated", { itemId: "page-boundary", revision: index + 1 }] as const,
+      ),
+    );
+    const horizon = await readGapSafeEventStoreHead(schema.pool);
+
+    const page = await store.readAll({
+      atOrBeforeGlobalPosition: horizon,
+      limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+    });
+    const positions = page.map((event) => globalPositionToBigInt(event.globalPosition));
+
+    expect(page).toHaveLength(EVENT_STORE_READ_PAGE_SIZE_MAX);
+    expect(page.at(-1)?.globalPosition).toBe(horizon);
+    expect(positions.every((position, index) => index === 0 || position > positions[index - 1]!)).toBe(true);
+    await expect(
+      store.readAll({
+        atOrBeforeGlobalPosition: horizon,
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX + 1,
+      }),
+    ).rejects.toThrow("Event store read limit must be an integer between 1 and 500.");
+  });
+
   it("uses production event-store read indexes for filtered readAll plans", async () => {
     const store = createPostgresEventStore({ pool: schema.pool, createEventId });
 
@@ -524,14 +725,16 @@ describeDb("postgres event store real database integration", () => {
                 span_id,
                 parent_span_id,
                 trace_state
-         FROM event_store_events
-         WHERE global_position > $1::bigint
-           AND tenant_id = $2
-           AND event_type = ANY($3::text[])
-           AND ((stream_context_name = $4 AND stream_id LIKE $5 || '%' ESCAPE '\\'))
-         ORDER BY global_position ASC
-         LIMIT $6`,
-        [0, "tenant_a", ["catalog.item.created", "catalog.item.updated"], "catalog", "catalog.item-", 10],
+         FROM event_store_events AS events
+         WHERE events.global_position > $1::bigint
+           AND events.global_position <= $2::bigint
+           AND events.global_position <= $3::bigint
+           AND events.tenant_id = $4
+           AND events.event_type = ANY($5::text[])
+           AND ((events.stream_context_name = $6 AND events.stream_id LIKE $7 || '%' ESCAPE '\\'))
+         ORDER BY events.global_position ASC
+         LIMIT $8`,
+        [0, 3, 3, "tenant_a", ["catalog.item.created", "catalog.item.updated"], "catalog", "catalog.item-", 10],
       );
       const plan = explain.rows[0]?.["QUERY PLAN"] ?? "";
       const planText = JSON.stringify(plan);
