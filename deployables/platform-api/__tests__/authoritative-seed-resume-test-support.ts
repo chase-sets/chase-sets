@@ -544,8 +544,8 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "marketplace|Review|rev_seed_seller_to_buyer_withdrawn|seller-to-buyer-withdrawn",
   "ordering|Order|ord_seed_cancelled|chk_seed_cancelled",
   "ordering|Order|ord_seed_checkout_pending|chk_seed_checkout_pending",
-  "ordering|Order|ord_seed_offer_ready|off_seed_twilight_masquerade_etb",
-  "ordering|Order|ord_seed_review_eligible|off_seed_twilight_masquerade_etb_encore",
+  "ordering|Order||off_seed_twilight_masquerade_etb",
+  "ordering|Order||off_seed_twilight_masquerade_etb_encore",
   "ordering|Postage Policy|opp_seed_default|Default postage policy",
   "payments|Payment|pay_seed_cancelled_vintage_checkout|cancelled-vintage-checkout",
   "payments|Payment|pay_seed_checkout_pending|checkout-pending",
@@ -578,6 +578,17 @@ export type CollectedSeedReport = Readonly<{
 
 export function seedIdentityKey(report: BcSeedAggregateStateReport): string {
   return `${report.contextName}|${report.aggregateName}|${report.id}|${report.key}`;
+}
+
+function corpusIdentityKey(report: BcSeedAggregateStateReport): string {
+  if (
+    report.contextName === "ordering" &&
+    report.aggregateName === "Order" &&
+    orderingOfferAcceptanceSourceToFallbackOrderId.has(report.key)
+  ) {
+    return `${report.contextName}|${report.aggregateName}||${report.key}`;
+  }
+  return seedIdentityKey(report);
 }
 
 /**
@@ -646,7 +657,7 @@ export function eventCountBindingViolations(
 }
 
 export function corpusViolations(entries: readonly CollectedSeedReport[]): readonly string[] {
-  const derived = entries.map((entry) => seedIdentityKey(entry.report)).sort();
+  const derived = entries.map((entry) => corpusIdentityKey(entry.report)).sort();
   const expected = [...frozenSeedIdentityCorpus].sort();
   const violations: string[] = [];
   if (derived.length !== expected.length) {
@@ -667,27 +678,120 @@ export function corpusViolations(entries: readonly CollectedSeedReport[]): reado
  * Ordering identifies a seeded offer-acceptance order by its source identity,
  * not by the reserved id: `seedAcceptedOfferOrder` declines to author the
  * reserved stream once `listOrderStreamsForSource` finds the generated twin the
- * offer-acceptance reaction already committed. Both id sets are inlined the way
- * this file already inlines `requiredDraftListingId`, and each is asserted
- * against Ordering's own reported seed inventory below so a rename fails loudly.
+ * offer-acceptance reaction already committed. The map declares each source's
+ * reserved empty-stream fallback without positional correspondence.
  */
-export const orderingOfferAcceptanceSourceReferenceIds = [
-  "off_seed_twilight_masquerade_etb",
-  "off_seed_twilight_masquerade_etb_encore",
-] as const;
-export const orderingReservedOfferAcceptanceOrderIds = ["ord_seed_offer_ready", "ord_seed_review_eligible"] as const;
+export const orderingOfferAcceptanceSourceToFallbackOrderId: ReadonlyMap<string, string> = new Map([
+  ["off_seed_twilight_masquerade_etb", "ord_seed_offer_ready"],
+  ["off_seed_twilight_masquerade_etb_encore", "ord_seed_review_eligible"],
+]);
 
-export async function orderStreamsForOfferSource(sourceReferenceId: string): Promise<readonly string[]> {
-  const result = await pools.ordering.query<Readonly<{ order_id: string }>>(
-    `SELECT payload->>'orderId' AS order_id
+export const orderingOfferAcceptanceSourceIdentityQuery = `SELECT payload->>'orderId' AS order_id
        FROM event_store_events
       WHERE event_type = 'ordering.order.created'
         AND payload->>'sourceType' = 'offer-acceptance'
         AND payload->>'sourceReferenceId' = $1
-      ORDER BY 1 ASC`,
+      ORDER BY 1 ASC`;
+
+export async function orderStreamsForOfferSource(sourceReferenceId: string): Promise<readonly string[]> {
+  const result = await pools.ordering.query<Readonly<{ order_id: string }>>(
+    orderingOfferAcceptanceSourceIdentityQuery,
     [sourceReferenceId],
   );
   return result.rows.map((row) => row.order_id);
+}
+
+export type OrderingOfferAcceptanceReportDerivation = Readonly<{
+  sourceReferenceId: string;
+  fallbackOrderId: string;
+  reportedId: string;
+  resolvedSourceOrderId: string;
+  actualEventCount: number;
+  arm: "source-resolved-active" | "reserved-fallback-absent";
+  query: string;
+}>;
+
+export type OrderingOfferAcceptanceReportReconciliation = Readonly<{
+  derivations: readonly OrderingOfferAcceptanceReportDerivation[];
+  violations: readonly string[];
+}>;
+
+export function deriveOrderingOfferAcceptanceReportReconciliation(
+  entries: readonly CollectedSeedReport[],
+  actualStreamEventCounts: ReadonlyMap<string, number>,
+  sourceResolvedOrderIds: ReadonlyMap<string, string>,
+): OrderingOfferAcceptanceReportReconciliation {
+  const derivations: OrderingOfferAcceptanceReportDerivation[] = [];
+  const violations: string[] = [];
+
+  for (const [sourceReferenceId, fallbackOrderId] of orderingOfferAcceptanceSourceToFallbackOrderId) {
+    const matching = entries.filter(
+      ({ contextName, report }) =>
+        contextName === "ordering" &&
+        report.contextName === "ordering" &&
+        report.aggregateName === "Order" &&
+        report.key === sourceReferenceId,
+    );
+    if (matching.length !== 1) {
+      violations.push(`ordering offer source '${sourceReferenceId}' has ${matching.length} reports instead of one`);
+      continue;
+    }
+
+    const report = matching[0]!.report;
+    const resolvedSourceOrderId = sourceResolvedOrderIds.get(sourceReferenceId);
+    if (resolvedSourceOrderId === undefined) {
+      violations.push(`ordering offer source '${sourceReferenceId}' has no source-resolved order id`);
+      continue;
+    }
+    const actualEventCount = actualStreamEventCounts.get(`ordering|${report.streamId}`);
+    if (actualEventCount === undefined) {
+      violations.push(`ordering offer source '${sourceReferenceId}' stream '${report.streamId}' was never counted`);
+      continue;
+    }
+
+    const arm = actualEventCount > 0 ? "source-resolved-active" : "reserved-fallback-absent";
+    derivations.push({
+      sourceReferenceId,
+      fallbackOrderId,
+      reportedId: report.id,
+      resolvedSourceOrderId,
+      actualEventCount,
+      arm,
+      query: orderingOfferAcceptanceSourceIdentityQuery,
+    });
+
+    if (report.eventCount !== actualEventCount) {
+      violations.push(
+        `ordering offer source '${sourceReferenceId}' reports ${report.eventCount} events but its stream holds ${actualEventCount}`,
+      );
+    }
+    if (arm === "source-resolved-active") {
+      if (report.id !== resolvedSourceOrderId) {
+        violations.push(
+          `ordering offer source '${sourceReferenceId}' reports id '${report.id}' instead of source-resolved '${resolvedSourceOrderId}'`,
+        );
+      }
+      if (report.kind !== "active") {
+        violations.push(
+          `ordering offer source '${sourceReferenceId}' has ${actualEventCount} events but reports kind '${report.kind}'`,
+        );
+      }
+      continue;
+    }
+
+    if (report.id !== fallbackOrderId) {
+      violations.push(
+        `ordering offer source '${sourceReferenceId}' reports empty-stream id '${report.id}' instead of fallback '${fallbackOrderId}'`,
+      );
+    }
+    if (report.kind !== "absent" || report.eventCount !== 0) {
+      violations.push(
+        `ordering offer source '${sourceReferenceId}' has an empty stream but reports kind '${report.kind}' and ${report.eventCount} events`,
+      );
+    }
+  }
+
+  return { derivations, violations };
 }
 
 export async function orderStreamEventTypes(orderId: string): Promise<readonly string[]> {

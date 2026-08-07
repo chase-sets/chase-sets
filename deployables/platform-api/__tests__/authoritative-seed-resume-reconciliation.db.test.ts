@@ -8,6 +8,7 @@ import {
   contextEventCount,
   corpusViolations,
   createHost,
+  deriveOrderingOfferAcceptanceReportReconciliation,
   eligibleScenarioSeedContexts,
   eventCountBindingViolations,
   expectZeroRelationCaseEntry,
@@ -15,8 +16,7 @@ import {
   frozenSeedIdentityCorpus,
   invokeConvertedSeeds,
   mountBindingViolations,
-  orderingOfferAcceptanceSourceReferenceIds,
-  orderingReservedOfferAcceptanceOrderIds,
+  orderingOfferAcceptanceSourceToFallbackOrderId,
   orderStreamEventTypes,
   orderStreamsForOfferSource,
   ordinaryBoot,
@@ -70,6 +70,7 @@ describe("authoritative seed resume", () => {
     expect(frozenSeedIdentityCorpus, "the pinned corpus literal must be in canonical sorted order").toEqual(
       [...frozenSeedIdentityCorpus].sort(),
     );
+    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(285);
 
     const runtime = createHost();
     await ordinaryBoot(runtime);
@@ -209,24 +210,20 @@ describe("authoritative seed resume", () => {
         `pinned cardinality=${frozenSeedIdentityCorpus.length}`,
     );
 
-    // Ordering finishes with exactly one active order per offer source identity
-    // and no duplicate reserved stream. Its two reserved offer-acceptance ids
-    // are intentionally absent at main and are not required here.
+    // Ordering finishes with one report per offer source identity and no
+    // duplicate reserved stream. The report takes the source-resolved active arm
+    // when its stream has events, or the reserved absent arm when it is empty.
     const orderingReports = collected.filter((entry) => entry.contextName === "ordering").map((entry) => entry.report);
-    const orderingReportIds = orderingReports.map((report) => report.id);
     const orderingReportKeys = orderingReports.map((report) => report.key);
-    for (const reservedOrderId of orderingReservedOfferAcceptanceOrderIds) {
-      expect(orderingReportIds, `reserved order id '${reservedOrderId}' left Ordering's seed inventory`).toContain(
-        reservedOrderId,
-      );
-    }
+    const orderingOfferAcceptanceSourceReferenceIds = [...orderingOfferAcceptanceSourceToFallbackOrderId.keys()];
     for (const sourceReferenceId of orderingOfferAcceptanceSourceReferenceIds) {
       expect(orderingReportKeys, `offer source '${sourceReferenceId}' left Ordering's seed inventory`).toContain(
         sourceReferenceId,
       );
     }
 
-    const sourceResolvedOrderIds: string[] = [];
+    const sourceResolvedOrderIds = new Map<string, string>();
+    const sourceResolvedOrderEventCounts = new Map<string, number>();
     for (const sourceReferenceId of orderingOfferAcceptanceSourceReferenceIds) {
       const orderIds = await orderStreamsForOfferSource(sourceReferenceId);
       expect(
@@ -246,20 +243,21 @@ describe("authoritative seed resume", () => {
         `order '${orderId}' carries more than one creation event`,
       ).toHaveLength(1);
       expect(eventTypes, `order '${orderId}' is cancelled, not active`).not.toContain("ordering.order.cancelled");
-      sourceResolvedOrderIds.push(orderId);
+      sourceResolvedOrderIds.set(sourceReferenceId, orderId);
+      sourceResolvedOrderEventCounts.set(sourceReferenceId, eventTypes.length);
       console.log(
         `[#6490 ordering source-identity] source=${sourceReferenceId} order=${orderId} ` +
           `events=${eventTypes.length} types=${eventTypes.join(">")}`,
       );
     }
-    expect(new Set(sourceResolvedOrderIds).size, "two offer sources resolved to the same order").toBe(
-      sourceResolvedOrderIds.length,
+    expect(new Set(sourceResolvedOrderIds.values()).size, "two offer sources resolved to the same order").toBe(
+      sourceResolvedOrderIds.size,
     );
 
     const duplicateReservedStreams: string[] = [];
-    for (const reservedOrderId of orderingReservedOfferAcceptanceOrderIds) {
+    for (const reservedOrderId of orderingOfferAcceptanceSourceToFallbackOrderId.values()) {
       const eventTypes = await orderStreamEventTypes(reservedOrderId);
-      const isSourceResolved = sourceResolvedOrderIds.includes(reservedOrderId);
+      const isSourceResolved = [...sourceResolvedOrderIds.values()].includes(reservedOrderId);
       if (eventTypes.length > 0 && !isSourceResolved) {
         duplicateReservedStreams.push(`${reservedOrderId} (${eventTypes.length} events)`);
       }
@@ -272,12 +270,254 @@ describe("authoritative seed resume", () => {
       "a reserved offer-acceptance order stream duplicates a source-identified order",
     ).toEqual([]);
 
-    // The ten non-Ordering inspecting contexts finish identity-matching active,
-    // and every Ordering aggregate other than the two intentionally absent
-    // reserved offer-acceptance ids does too.
-    const intentionallyAbsent = new Set<string>(orderingReservedOfferAcceptanceOrderIds);
+    const liveOfferAcceptance = deriveOrderingOfferAcceptanceReportReconciliation(
+      collected,
+      actualStreamEventCounts,
+      sourceResolvedOrderIds,
+    );
+    expect(
+      liveOfferAcceptance.violations,
+      "Ordering's offer-acceptance reports do not match the derived source-identity/empty-stream rule",
+    ).toEqual([]);
+    for (const derivation of liveOfferAcceptance.derivations) {
+      console.log(
+        `[#6656 ordering source-identity derivation] source=${derivation.sourceReferenceId} arm=${derivation.arm} ` +
+          `reported=${derivation.reportedId} resolved=${derivation.resolvedSourceOrderId} ` +
+          `events=${derivation.actualEventCount} query=${JSON.stringify(derivation.query)}`,
+      );
+    }
+
+    // The corpus ignores only the reported id for the two declared offer
+    // sources. It remains sensitive to their context, aggregate name, and key.
+    const sourceIdentityCorpusReports = collected.map<CollectedSeedReport>((entry) => {
+      const resolvedOrderId =
+        entry.contextName === "ordering" && entry.report.aggregateName === "Order"
+          ? sourceResolvedOrderIds.get(entry.report.key)
+          : undefined;
+      return resolvedOrderId === undefined ? entry : { ...entry, report: { ...entry.report, id: resolvedOrderId } };
+    });
+    expect(
+      corpusViolations(sourceIdentityCorpusReports),
+      "source-resolved offer-order ids must remain in the frozen corpus",
+    ).toEqual([]);
+
+    const idScopeSource = orderingOfferAcceptanceSourceToFallbackOrderId.keys().next().value;
+    expect(idScopeSource, "the offer-acceptance source map is empty").toBeDefined();
+    const idScopeMutant = sourceIdentityCorpusReports.map<CollectedSeedReport>((entry) =>
+      entry.contextName === "ordering" && entry.report.aggregateName === "Order" && entry.report.key === idScopeSource
+        ? { ...entry, report: { ...entry.report, aggregateName: "Wrong Order" } }
+        : entry,
+    );
+    const idScopeViolations = corpusViolations(idScopeMutant);
+    expect(idScopeViolations.length, "changing a blinded row outside its id must turn the corpus red").toBeGreaterThan(
+      0,
+    );
+    expect(mountBindingViolations(idScopeMutant), "the id-scope mutant must stay green on mount binding").toEqual([]);
+    expect(
+      eventCountBindingViolations(idScopeMutant, actualStreamEventCounts),
+      "the id-scope mutant must stay green on event-count binding",
+    ).toEqual([]);
+    expect(idScopeViolations.join("\n"), "the id-scope mutant must name the changed offer source").toContain(
+      idScopeSource,
+    );
+
+    const offerAcceptanceTemplate = collected.find(
+      (entry) =>
+        entry.contextName === "ordering" &&
+        entry.report.aggregateName === "Order" &&
+        entry.report.key === idScopeSource,
+    );
+    expect(offerAcceptanceTemplate, "the offer-acceptance corpus has no template report").toBeDefined();
+    const indeterminateReport: CollectedSeedReport = {
+      ...offerAcceptanceTemplate!,
+      report: {
+        ...offerAcceptanceTemplate!.report,
+        id: "ord_seed_indeterminate_offer_acceptance",
+        key: "off_seed_indeterminate_offer_acceptance",
+        streamId: "ordering.order-ord_seed_indeterminate_offer_acceptance",
+      },
+    };
+    const defaultArmMutant = [...collected, indeterminateReport];
+    const defaultArmEventCounts = new Map(actualStreamEventCounts).set(
+      `ordering|${indeterminateReport.report.streamId}`,
+      indeterminateReport.report.eventCount,
+    );
+    const defaultArmViolations = corpusViolations(defaultArmMutant);
+    expect(defaultArmViolations).toContain("corpus cardinality 286 does not equal the pinned 285");
+    expect(mountBindingViolations(defaultArmMutant), "the default-arm mutant must stay green on mount binding").toEqual(
+      [],
+    );
+    expect(
+      eventCountBindingViolations(defaultArmMutant, defaultArmEventCounts),
+      "the default-arm mutant must stay green on event-count binding",
+    ).toEqual([]);
+
+    // Both derived-rule arms run synthetically at every head, so neither the
+    // current empty-fallback shape nor the source-resolved successor can make an
+    // arm or its mutant vacuous.
+    const sourceResolvedEventCounts = new Map(actualStreamEventCounts);
+    const sourceResolvedReports = collected.map<CollectedSeedReport>((entry) => {
+      const resolvedOrderId =
+        entry.contextName === "ordering" && entry.report.aggregateName === "Order"
+          ? sourceResolvedOrderIds.get(entry.report.key)
+          : undefined;
+      if (resolvedOrderId === undefined) return entry;
+      const eventCount = sourceResolvedOrderEventCounts.get(entry.report.key)!;
+      const streamId = `ordering.order-${resolvedOrderId}`;
+      sourceResolvedEventCounts.set(`ordering|${streamId}`, eventCount);
+      return {
+        ...entry,
+        report: { ...entry.report, id: resolvedOrderId, streamId, kind: "active", eventCount },
+      };
+    });
+    expect(mountBindingViolations(sourceResolvedReports), "source-resolved synthetic reports left Ordering").toEqual(
+      [],
+    );
+    expect(
+      eventCountBindingViolations(sourceResolvedReports, sourceResolvedEventCounts),
+      "source-resolved synthetic reports are not bound to their streams",
+    ).toEqual([]);
+    expect(corpusViolations(sourceResolvedReports), "source-resolved synthetic reports left the corpus").toEqual([]);
+    expect(
+      deriveOrderingOfferAcceptanceReportReconciliation(
+        sourceResolvedReports,
+        sourceResolvedEventCounts,
+        sourceResolvedOrderIds,
+      ).violations,
+      "the source-resolved active arm rejected its valid candidate",
+    ).toEqual([]);
+
+    let foreignOrderMutant: CollectedSeedReport[] | undefined;
+    for (const sourceReferenceId of orderingOfferAcceptanceSourceReferenceIds) {
+      const foreign = [...sourceResolvedOrderIds].find(([candidateSource]) => candidateSource !== sourceReferenceId);
+      if (!foreign) continue;
+      const [foreignSourceReferenceId, foreignOrderId] = foreign;
+      const foreignEventCount = sourceResolvedOrderEventCounts.get(foreignSourceReferenceId)!;
+      foreignOrderMutant = sourceResolvedReports.map<CollectedSeedReport>((entry) =>
+        entry.contextName === "ordering" &&
+        entry.report.aggregateName === "Order" &&
+        entry.report.key === sourceReferenceId
+          ? {
+              ...entry,
+              report: {
+                ...entry.report,
+                id: foreignOrderId,
+                streamId: `ordering.order-${foreignOrderId}`,
+                eventCount: foreignEventCount,
+              },
+            }
+          : entry,
+      );
+      break;
+    }
+    expect(foreignOrderMutant, "no foreign source-resolved order was available").toBeDefined();
+    expect(mountBindingViolations(foreignOrderMutant!), "the foreign-order mutant left Ordering").toEqual([]);
+    expect(
+      eventCountBindingViolations(foreignOrderMutant!, sourceResolvedEventCounts),
+      "the foreign-order mutant must stay green on event-count binding",
+    ).toEqual([]);
+    expect(corpusViolations(foreignOrderMutant!), "the foreign-order mutant must stay green on corpus binding").toEqual(
+      [],
+    );
+    const foreignOrderViolations = deriveOrderingOfferAcceptanceReportReconciliation(
+      foreignOrderMutant!,
+      sourceResolvedEventCounts,
+      sourceResolvedOrderIds,
+    ).violations;
+    expect(foreignOrderViolations.length, "a foreign source's order must turn the derived rule red").toBeGreaterThan(0);
+
+    const fallbackEventCounts = new Map(actualStreamEventCounts);
+    const fallbackReports = collected.map<CollectedSeedReport>((entry) => {
+      const fallbackOrderId =
+        entry.contextName === "ordering" && entry.report.aggregateName === "Order"
+          ? orderingOfferAcceptanceSourceToFallbackOrderId.get(entry.report.key)
+          : undefined;
+      if (fallbackOrderId === undefined) return entry;
+      const streamId = `ordering.order-${fallbackOrderId}`;
+      fallbackEventCounts.set(`ordering|${streamId}`, 0);
+      return {
+        ...entry,
+        report: { ...entry.report, id: fallbackOrderId, streamId, kind: "absent", status: null, eventCount: 0 },
+      };
+    });
+    expect(mountBindingViolations(fallbackReports), "empty-fallback synthetic reports left Ordering").toEqual([]);
+    expect(
+      eventCountBindingViolations(fallbackReports, fallbackEventCounts),
+      "empty-fallback synthetic reports are not bound to their streams",
+    ).toEqual([]);
+    expect(corpusViolations(fallbackReports), "empty-fallback synthetic reports left the corpus").toEqual([]);
+    expect(
+      deriveOrderingOfferAcceptanceReportReconciliation(fallbackReports, fallbackEventCounts, sourceResolvedOrderIds)
+        .violations,
+      "the reserved empty-stream fallback arm rejected its valid candidate",
+    ).toEqual([]);
+
+    const phantomActiveMutant = fallbackReports.map<CollectedSeedReport>((entry) =>
+      entry.contextName === "ordering" && entry.report.aggregateName === "Order" && entry.report.key === idScopeSource
+        ? { ...entry, report: { ...entry.report, kind: "active" } }
+        : entry,
+    );
+    expect(mountBindingViolations(phantomActiveMutant), "the phantom-active mutant left Ordering").toEqual([]);
+    expect(
+      eventCountBindingViolations(phantomActiveMutant, fallbackEventCounts),
+      "the phantom-active mutant must stay green on event-count binding",
+    ).toEqual([]);
+    expect(
+      corpusViolations(phantomActiveMutant),
+      "the phantom-active mutant must stay green on corpus binding",
+    ).toEqual([]);
+    const phantomActiveViolations = deriveOrderingOfferAcceptanceReportReconciliation(
+      phantomActiveMutant,
+      fallbackEventCounts,
+      sourceResolvedOrderIds,
+    ).violations;
+    expect(
+      phantomActiveViolations.length,
+      "an active report with an empty stream must turn the rule red",
+    ).toBeGreaterThan(0);
+
+    const unmappedFallbackId = "ord_seed_unmapped_offer_acceptance";
+    const unmappedFallbackStreamId = `ordering.order-${unmappedFallbackId}`;
+    const unmappedFallbackEventCounts = new Map(fallbackEventCounts).set(`ordering|${unmappedFallbackStreamId}`, 0);
+    const unmappedFallbackMutant = fallbackReports.map<CollectedSeedReport>((entry) =>
+      entry.contextName === "ordering" && entry.report.aggregateName === "Order" && entry.report.key === idScopeSource
+        ? { ...entry, report: { ...entry.report, id: unmappedFallbackId, streamId: unmappedFallbackStreamId } }
+        : entry,
+    );
+    expect(mountBindingViolations(unmappedFallbackMutant), "the unmapped-fallback mutant left Ordering").toEqual([]);
+    expect(
+      eventCountBindingViolations(unmappedFallbackMutant, unmappedFallbackEventCounts),
+      "the unmapped-fallback mutant must stay green on event-count binding",
+    ).toEqual([]);
+    expect(
+      corpusViolations(unmappedFallbackMutant),
+      "the unmapped-fallback mutant must stay green on corpus binding",
+    ).toEqual([]);
+    const unmappedFallbackViolations = deriveOrderingOfferAcceptanceReportReconciliation(
+      unmappedFallbackMutant,
+      unmappedFallbackEventCounts,
+      sourceResolvedOrderIds,
+    ).violations;
+    expect(unmappedFallbackViolations.length, "an undeclared fallback id must turn the rule red").toBeGreaterThan(0);
+    console.log(
+      `[#6656 ordering mutants] id-scope=red(corpus:${idScopeViolations.length}) ` +
+        `default-arm=red(corpus:${defaultArmViolations.length}) ` +
+        `foreign-order=red(source-rule:${foreignOrderViolations.length};mount=green;event-count=green) ` +
+        `phantom-active=red(source-rule:${phantomActiveViolations.length};mount=green;event-count=green) ` +
+        `unmapped-fallback=red(source-rule:${unmappedFallbackViolations.length};mount=green;event-count=green)`,
+    );
+
+    // Every report is active unless it is one of the declared Ordering
+    // offer-acceptance reports and its own reported stream is empty.
     const requiredActive = collected.filter(
-      (entry) => entry.contextName !== "ordering" || !intentionallyAbsent.has(entry.report.id),
+      (entry) =>
+        !(
+          entry.contextName === "ordering" &&
+          entry.report.contextName === "ordering" &&
+          entry.report.aggregateName === "Order" &&
+          orderingOfferAcceptanceSourceToFallbackOrderId.has(entry.report.key) &&
+          entry.report.eventCount === 0
+        ),
     );
     const notActive = requiredActive
       .filter((entry) => entry.report.kind !== "active")
