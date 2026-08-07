@@ -1598,6 +1598,57 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("maps the sole production restore-point hold authority into the drift digest alias exactly once", () => {
+    const mapping =
+      "DIGITALOCEAN_DRIFT_RESTORE_POINT_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}";
+
+    expect(platformDigitalOceanDriftDigestWorkflow.split(mapping)).toHaveLength(2);
+    expect(
+      platformDigitalOceanDriftDigestWorkflow.split("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES"),
+    ).toHaveLength(2);
+    expect(platformDigitalOceanDriftDigestWorkflow.split("DIGITALOCEAN_DRIFT_RESTORE_POINT_HOLD_NAMES")).toHaveLength(
+      2,
+    );
+  });
+
+  it("renders total restore-point hold authority fields without exposing tokens or breaking older records", () => {
+    const summaryStep = workflowStep(platformDigitalOceanDriftDigestWorkflow, "Summarize drift digest");
+    const retainedSummaryLines = [
+      "Result",
+      "Mode",
+      "Observed resources",
+      "Terraform-managed resources",
+      "Unknown Chase Sets resources",
+      "Cleanup candidates",
+      "Held restore points",
+      "Advisory findings",
+      "Warning findings",
+      "Collection errors",
+    ];
+    const holdSummaryLines = [
+      "Restore point hold authority",
+      "Restore point hold tokens",
+      "Restore point holds applied",
+      "Restore point holds unmatched",
+      "Restore point hold fingerprint",
+    ];
+
+    expect(summaryStep).toContain("if: ${{ always() }}");
+    for (const label of [...retainedSummaryLines, ...holdSummaryLines]) {
+      expect(summaryStep).toContain(`console.log(\`- ${label}:`);
+    }
+    const safeSummaryBlock = summaryStep.split("if (record.findings?.length)")[0];
+    expect(safeSummaryBlock.match(/console\.log\(`- /g)).toHaveLength(15);
+    expect(summaryStep).toContain("const restorePointHolds = record.policies?.restorePointHolds ?? {};");
+    expect(summaryStep).toContain('restorePointHolds.status ?? "absent"');
+    expect(summaryStep).toContain("restorePointHolds.tokenCount ?? 0");
+    expect(summaryStep).toContain("restorePointHolds.appliedCount ?? 0");
+    expect(summaryStep).toContain("restorePointHolds.unmatchedCount ?? 0");
+    expect(summaryStep).toContain('restorePointHolds.effectiveTokenSetSha256 ?? "none"');
+    expect(summaryStep).not.toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
+    expect(summaryStep).not.toContain("restorePointHoldNames");
+  });
+
   it("cleans preview environments on PR close and with a daily closed-PR sweep", () => {
     expect(platformPreviewCleanupWorkflow).toContain("pull_request_target:");
     expect(platformPreviewCleanupWorkflow).toContain("types:\n      - closed");
