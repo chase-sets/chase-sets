@@ -118,14 +118,16 @@ const batteryWorkUnitCeilings = Object.freeze({
   totalChildProcessSpawns: 408,
 });
 
-const committedBatteryWorkUnits = Object.freeze({
-  fullTreeAnalyses: 1,
-  scratchCorpusAnalyses: 15,
-  scratchRepositoryConstructions: 14,
-  uniqueCandidateAnalyzerModuleImports: 0,
-  analyzerSourceRewriteModuleImports: 0,
-  executedGuardNodeSubprocesses: 0,
-  totalChildProcessSpawns: 343,
+const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
+  plain: 343,
+  "pull-request-merge-ref": 345,
+  "merge-group": 342,
+});
+
+const committedProvenanceGitSpawnsByEnvironment = Object.freeze({
+  plain: 11,
+  "pull-request-merge-ref": 13,
+  "merge-group": 10,
 });
 
 function sha256(value) {
@@ -215,6 +217,15 @@ const provenanceFixtures = {
 
 const realTreeResult = deepFreeze(analyzeWithWorkUnitMeter({ repoRoot }));
 const realTreeResultDigest = sha256(JSON.stringify(realTreeResult));
+const committedBatteryWorkUnits = Object.freeze({
+  fullTreeAnalyses: 1,
+  scratchCorpusAnalyses: 15,
+  scratchRepositoryConstructions: 14,
+  uniqueCandidateAnalyzerModuleImports: 0,
+  analyzerSourceRewriteModuleImports: 0,
+  executedGuardNodeSubprocesses: 0,
+  totalChildProcessSpawns: committedTotalChildProcessSpawnsByEnvironment[realTreeResult.environment],
+});
 const realTreeProvenance = {
   environment: realTreeResult.environment,
   candidateHeadRole: realTreeResult.candidateHeadRole,
@@ -2771,7 +2782,11 @@ describe("Consent authorization sites", () => {
   it("asserts the committed battery work-unit budget from instrumented counters", () => {
     const receipt = batteryWorkUnitReceipt(batteryWorkUnits);
     process.stdout.write(`consent-authorization-work-units=${JSON.stringify(receipt)}\n`);
+    process.stdout.write(
+      `consent-authorization-total-spawn-classes=${JSON.stringify(committedTotalChildProcessSpawnsByEnvironment)}\n`,
+    );
     expect(collectBatteryWorkUnitViolations(batteryWorkUnits)).toEqual([]);
+    expect(Object.values(committedTotalChildProcessSpawnsByEnvironment).every((value) => value <= 408)).toBe(true);
     expect(sha256(JSON.stringify(realTreeResult))).toBe(realTreeResultDigest);
     expect(Object.isFrozen(realTreeResult)).toBe(true);
 
@@ -2789,15 +2804,17 @@ describe("Consent authorization sites", () => {
       "analyzerSourceRewriteModuleImports: observed value differs from committed value",
     );
 
-    const provenanceCounter = isolatedCounter();
-    const plainFixture = provenanceFixtures.plain;
-    const provenance = deriveGuardCandidateProvenance({
-      env: plainFixture.env,
-      execGit: countGit(scriptedExecGit(plainFixture.gitResponses), provenanceCounter),
-      readEventPayload: () => (plainFixture.eventPayload === null ? "{}" : JSON.stringify(plainFixture.eventPayload)),
-    });
-    expect(provenance.roles.landingCandidate.sha).toBe(plainFixture.expected.roles.landingCandidate.sha);
-    expect(provenanceCounter.totalChildProcessSpawns).toBeGreaterThan(0);
+    for (const [environment, expectedSpawns] of Object.entries(committedProvenanceGitSpawnsByEnvironment)) {
+      const provenanceCounter = isolatedCounter();
+      const fixture = provenanceFixtures[environment];
+      const provenance = deriveGuardCandidateProvenance({
+        env: fixture.env,
+        execGit: countGit(scriptedExecGit(fixture.gitResponses), provenanceCounter),
+        readEventPayload: () => (fixture.eventPayload === null ? "{}" : JSON.stringify(fixture.eventPayload)),
+      });
+      expect(provenance.roles.landingCandidate.sha).toBe(fixture.expected.roles.landingCandidate.sha);
+      expect(provenanceCounter.totalChildProcessSpawns).toBe(expectedSpawns);
+    }
 
     const authorityCounter = isolatedCounter();
     const authorityExecGit = countGit(() => Buffer.from("authority-seam"), authorityCounter);
