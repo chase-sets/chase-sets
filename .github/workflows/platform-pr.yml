@@ -242,7 +242,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The three-file bootstrap DB partition (#6035) runs with bounded
+          # The eight-file bootstrap DB partition (#6035) runs with bounded
           # --maxWorkers=3, so up to ~3 x ~20 concurrent multi-context pools
           # each cascade-drop their schemas in beforeEach. max_locks_per_transaction
           # is a postmaster-start parameter: ALTER SYSTEM only stages the
