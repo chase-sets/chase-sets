@@ -120,8 +120,8 @@ const batteryWorkUnitCeilings = Object.freeze({
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
   plain: 343,
-  "pull-request-merge-ref": 345,
-  "merge-group": 342,
+  "pull-request-merge-ref": 344,
+  "merge-group": 341,
 });
 
 const committedProvenanceGitSpawnsByEnvironment = Object.freeze({
