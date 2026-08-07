@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
@@ -68,6 +71,396 @@ const schedulerOwnedArtifacts = [
   "scripts/fixtures/workspace-unit-duration-replay-v1.json",
 ];
 
+// Paths that carry the scheduler's filename vocabulary without being members of
+// the frozen set above. They are planted, not real repository files: the point
+// is that selection is exact-path set membership, so a near-miss name must
+// classify exactly like any other unrelated script.
+const schedulerVocabularyLookalikePaths = [
+  "scripts/run-workspaces-report.mjs",
+  "scripts/lib/run-workspaces-support.mjs",
+  "scripts/fixtures/run-workspaces-legacy-v1.json",
+  "scripts/workspace-test-duration-hints-v2.json",
+  "scripts/fixtures/workspace-unit-duration-replay-v2.json",
+];
+
+// Captured offline at the base commit refs/remotes/origin/main
+// f78143573af96c636d97696b987a82990df23904 by importing the unmodified
+// classifier and calling the exported classifyChanges and toOutputMap directly.
+// A scheduler-owned change fans every workspace into the affected set, so this
+// is that fan-out's exact membership and order at the base commit. It is
+// asserted against the live workspace inventory as well, so adding a workspace
+// fails here loudly and this pin is refreshed with it.
+const baseCapturedSchedulerFanoutWorkspaces = [
+  "@chase-sets/app-admin-web",
+  "@chase-sets/app-marketplace-web",
+  "@chase-sets/app-platform-api",
+  "@chase-sets/app-platform-worker",
+  "@chase-sets/app-public-web",
+  "@chase-sets/auth",
+  "@chase-sets/auth-context",
+  "@chase-sets/authenticity",
+  "@chase-sets/bounded-context-module",
+  "@chase-sets/bounded-context-runtime",
+  "@chase-sets/catalog",
+  "@chase-sets/catalog-seed",
+  "@chase-sets/checkout",
+  "@chase-sets/checkout-order-source",
+  "@chase-sets/collections",
+  "@chase-sets/commercial-terms",
+  "@chase-sets/customer-feedback",
+  "@chase-sets/design-system",
+  "@chase-sets/discovery",
+  "@chase-sets/easypost-postage",
+  "@chase-sets/event-core",
+  "@chase-sets/event-core-postgres",
+  "@chase-sets/fulfillment",
+  "@chase-sets/http",
+  "@chase-sets/identity",
+  "@chase-sets/inventory",
+  "@chase-sets/local-email-capture",
+  "@chase-sets/localization",
+  "@chase-sets/market-estimate-display",
+  "@chase-sets/marketplace",
+  "@chase-sets/marketplace-seed-testing",
+  "@chase-sets/money-movement",
+  "@chase-sets/notification-outbox",
+  "@chase-sets/notifications",
+  "@chase-sets/object-storage",
+  "@chase-sets/observability",
+  "@chase-sets/ordering",
+  "@chase-sets/outbound-messaging",
+  "@chase-sets/payment-processing",
+  "@chase-sets/payments",
+  "@chase-sets/platform-operations",
+  "@chase-sets/platform-policy",
+  "@chase-sets/platform-runtime",
+  "@chase-sets/playwright-evidence",
+  "@chase-sets/postage-labels",
+  "@chase-sets/pricing",
+  "@chase-sets/primitives",
+  "@chase-sets/product-measures",
+  "@chase-sets/product-selection",
+  "@chase-sets/provider-webhook-inbox",
+  "@chase-sets/public-docs",
+  "@chase-sets/public-presence",
+  "@chase-sets/realtime",
+  "@chase-sets/review-eligibility",
+  "@chase-sets/seller-attention-queue",
+  "@chase-sets/seller-desk",
+  "@chase-sets/ses-email",
+  "@chase-sets/settlement",
+  "@chase-sets/stripe-config",
+  "@chase-sets/stripe-connect",
+  "@chase-sets/stripe-payments",
+  "@chase-sets/twilio-messaging",
+  "@chase-sets/typescript-compiler-api",
+  "@chase-sets/web-notifications",
+];
+
+const baseCapturedAllWorkspacesCsv = baseCapturedSchedulerFanoutWorkspaces.join(",");
+const baseCapturedAllWorkspacesJson = JSON.stringify(baseCapturedSchedulerFanoutWorkspaces);
+
+// The exact key order `toOutputMap` emits at the base commit. Asserting it per
+// corpus case closes the output schema, so a silently added or reordered output
+// cannot hide behind a value-only comparison.
+const baseCapturedOutputMapKeyOrder = [
+  "changed_files_json",
+  "affected_workspaces",
+  "affected_workspaces_json",
+  "directly_affected_workspaces_json",
+  "docs_only",
+  "local_checks",
+  "unit_tests",
+  "db_tests",
+  "e2e_tests",
+  "e2e_suites",
+  "e2e_suites_json",
+  "e2e_suite_batches_json",
+  "integration_risk_required",
+  "integration_risk_reason",
+  "build",
+  "docker_image",
+  "terraform",
+  "workflow_lint",
+  "deploy",
+  "cluster_preview",
+  "compose_smoke",
+  "exposure_posture_changed",
+  "exposure_posture_categories",
+  "exposure_posture_categories_json",
+];
+
+const baseCapturedQuietGateOutputs = {
+  e2e_tests: "false",
+  e2e_suites: "",
+  e2e_suites_json: "[]",
+  e2e_suite_batches_json: "[]",
+  integration_risk_required: "false",
+  integration_risk_reason: "No integration-risk change detected",
+  build: "false",
+  docker_image: "false",
+  terraform: "false",
+  workflow_lint: "false",
+  deploy: "false",
+  cluster_preview: "false",
+  compose_smoke: "false",
+  exposure_posture_changed: "false",
+  exposure_posture_categories: "",
+  exposure_posture_categories_json: "[]",
+};
+
+function baseCapturedSchedulerFanoutOutputMap(changedFiles) {
+  return {
+    changed_files_json: JSON.stringify(changedFiles),
+    affected_workspaces: baseCapturedAllWorkspacesCsv,
+    affected_workspaces_json: baseCapturedAllWorkspacesJson,
+    directly_affected_workspaces_json: "[]",
+    docs_only: "false",
+    local_checks: "true",
+    unit_tests: "true",
+    db_tests: "false",
+    ...baseCapturedQuietGateOutputs,
+  };
+}
+
+function baseCapturedNoWorkspaceOutputMap(changedFiles, overrides = {}) {
+  return {
+    changed_files_json: JSON.stringify(changedFiles),
+    affected_workspaces: "",
+    affected_workspaces_json: "[]",
+    directly_affected_workspaces_json: "[]",
+    docs_only: "false",
+    local_checks: "true",
+    unit_tests: "false",
+    db_tests: "false",
+    ...baseCapturedQuietGateOutputs,
+    ...overrides,
+  };
+}
+
+// The old-versus-new corpus. `baseDbTests` and `baseOutputMap` are the values
+// the unmodified classifier produced at the base commit; `expectedDbTests` is
+// what the extended predicate must produce. Recording both is what makes the
+// set of changed classifications an asserted fact rather than a claim.
+const dbTestsOldVersusNewCorpus = [
+  {
+    name: "scheduler-owned artifact scripts/run-workspaces.mjs",
+    changedFiles: ["scripts/run-workspaces.mjs"],
+    baseDbTests: "false",
+    expectedDbTests: "true",
+    changesDbTests: true,
+    baseOutputMap: baseCapturedSchedulerFanoutOutputMap(["scripts/run-workspaces.mjs"]),
+  },
+  {
+    name: "scheduler-owned artifact scripts/run-workspaces.test.mjs",
+    changedFiles: ["scripts/run-workspaces.test.mjs"],
+    baseDbTests: "false",
+    expectedDbTests: "true",
+    changesDbTests: true,
+    baseOutputMap: baseCapturedSchedulerFanoutOutputMap(["scripts/run-workspaces.test.mjs"]),
+  },
+  {
+    name: "scheduler-owned artifact scripts/workspace-test-duration-hints-v1.json",
+    changedFiles: ["scripts/workspace-test-duration-hints-v1.json"],
+    baseDbTests: "false",
+    expectedDbTests: "true",
+    changesDbTests: true,
+    baseOutputMap: baseCapturedSchedulerFanoutOutputMap(["scripts/workspace-test-duration-hints-v1.json"]),
+  },
+  {
+    name: "scheduler-owned artifact scripts/fixtures/workspace-unit-duration-replay-v1.json",
+    changedFiles: ["scripts/fixtures/workspace-unit-duration-replay-v1.json"],
+    baseDbTests: "false",
+    expectedDbTests: "true",
+    changesDbTests: true,
+    baseOutputMap: baseCapturedSchedulerFanoutOutputMap(["scripts/fixtures/workspace-unit-duration-replay-v1.json"]),
+  },
+  {
+    name: "documentation-only change",
+    changedFiles: ["docs/runbooks/release-process-evolution.md"],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap(["docs/runbooks/release-process-evolution.md"], {
+      docs_only: "true",
+      exposure_posture_changed: "true",
+      exposure_posture_categories: "rollout-policy",
+      exposure_posture_categories_json: '["rollout-policy"]',
+    }),
+  },
+  {
+    name: "workflow-only change",
+    changedFiles: [".github/workflows/platform-pr.yml"],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap([".github/workflows/platform-pr.yml"], {
+      workflow_lint: "true",
+      cluster_preview: "true",
+    }),
+  },
+  {
+    name: "change-scope classifier-only change",
+    changedFiles: ["scripts/change-scope.mjs"],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap(["scripts/change-scope.mjs"]),
+  },
+  {
+    name: "this slice's own footprint",
+    changedFiles: ["scripts/change-scope.mjs", "scripts/change-scope.test.mjs"],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap(["scripts/change-scope.mjs", "scripts/change-scope.test.mjs"]),
+  },
+  {
+    name: "db-test-preflight-only change",
+    changedFiles: ["scripts/db-test-preflight.mjs"],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap(["scripts/db-test-preflight.mjs"]),
+  },
+  {
+    name: "unrelated bounded-context change",
+    changedFiles: ["bounded-contexts/ordering/features/tax-quotes/domain/tax-quote.ts"],
+    baseDbTests: "true",
+    expectedDbTests: "true",
+    changesDbTests: false,
+    baseOutputMap: {
+      changed_files_json: '["bounded-contexts/ordering/features/tax-quotes/domain/tax-quote.ts"]',
+      affected_workspaces:
+        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/ordering,@chase-sets/payments,@chase-sets/settlement",
+      affected_workspaces_json:
+        '["@chase-sets/app-admin-web","@chase-sets/app-marketplace-web","@chase-sets/app-platform-api","@chase-sets/app-platform-worker","@chase-sets/checkout","@chase-sets/discovery","@chase-sets/marketplace-seed-testing","@chase-sets/ordering","@chase-sets/payments","@chase-sets/settlement"]',
+      directly_affected_workspaces_json: '["@chase-sets/ordering"]',
+      docs_only: "false",
+      local_checks: "true",
+      unit_tests: "true",
+      db_tests: "true",
+      ...baseCapturedQuietGateOutputs,
+      build: "true",
+      docker_image: "true",
+      deploy: "true",
+      compose_smoke: "true",
+      exposure_posture_changed: "true",
+      exposure_posture_categories: "live-money-provider,tax-posture",
+      exposure_posture_categories_json: '["live-money-provider","tax-posture"]',
+    },
+  },
+  {
+    name: "root shared vitest config change",
+    changedFiles: ["vitest.shared.mjs"],
+    baseDbTests: "true",
+    expectedDbTests: "true",
+    changesDbTests: false,
+    baseOutputMap: {
+      ...baseCapturedSchedulerFanoutOutputMap(["vitest.shared.mjs"]),
+      directly_affected_workspaces_json: baseCapturedAllWorkspacesJson,
+      db_tests: "true",
+    },
+  },
+  {
+    name: "DB-capable deployable script change",
+    changedFiles: ["deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs"],
+    baseDbTests: "true",
+    expectedDbTests: "true",
+    changesDbTests: false,
+    baseOutputMap: {
+      changed_files_json: '["deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs"]',
+      affected_workspaces: "@chase-sets/app-platform-api",
+      affected_workspaces_json: '["@chase-sets/app-platform-api"]',
+      directly_affected_workspaces_json: '["@chase-sets/app-platform-api"]',
+      docs_only: "false",
+      local_checks: "true",
+      unit_tests: "true",
+      db_tests: "true",
+      ...baseCapturedQuietGateOutputs,
+      e2e_tests: "true",
+      e2e_suites:
+        "marketplace_browse,marketplace_account,marketplace_checkout,marketplace_seller,catalog_admin_integrations,catalog_admin_modeling,admin_growth,admin_commerce,admin_support,admin_platform,admin_auth,admin_access",
+      e2e_suites_json:
+        '["marketplace_browse","marketplace_account","marketplace_checkout","marketplace_seller","catalog_admin_integrations","catalog_admin_modeling","admin_growth","admin_commerce","admin_support","admin_platform","admin_auth","admin_access"]',
+      e2e_suite_batches_json:
+        '["catalog_admin_integrations,admin_auth","catalog_admin_modeling,admin_platform","marketplace_checkout,admin_support","marketplace_browse,marketplace_account","admin_commerce,admin_access","marketplace_seller,admin_growth"]',
+      build: "true",
+      docker_image: "true",
+      deploy: "true",
+      compose_smoke: "true",
+    },
+  },
+  {
+    name: "empty changed-file list",
+    changedFiles: [],
+    baseDbTests: "false",
+    expectedDbTests: "false",
+    changesDbTests: false,
+    baseOutputMap: baseCapturedNoWorkspaceOutputMap([], { local_checks: "false" }),
+  },
+];
+
+const dbTestsOldVersusNewCorpusCaseNames = [
+  "scheduler-owned artifact scripts/run-workspaces.mjs",
+  "scheduler-owned artifact scripts/run-workspaces.test.mjs",
+  "scheduler-owned artifact scripts/workspace-test-duration-hints-v1.json",
+  "scheduler-owned artifact scripts/fixtures/workspace-unit-duration-replay-v1.json",
+  "documentation-only change",
+  "workflow-only change",
+  "change-scope classifier-only change",
+  "this slice's own footprint",
+  "db-test-preflight-only change",
+  "unrelated bounded-context change",
+  "root shared vitest config change",
+  "DB-capable deployable script change",
+  "empty changed-file list",
+];
+
+const dbTestsCorpusCaseKeys = [
+  "name",
+  "changedFiles",
+  "baseDbTests",
+  "expectedDbTests",
+  "changesDbTests",
+  "baseOutputMap",
+];
+
+// The changed-file set the dependent slice is predicted to touch, with the
+// output map the unmodified classifier produced for it at the base commit.
+const dependentSliceBaseCapture = {
+  changedFiles: [
+    "scripts/run-workspaces.mjs",
+    "scripts/run-workspaces.test.mjs",
+    "scripts/db-test-preflight.mjs",
+    "scripts/db-test-preflight.test.mjs",
+    ".github/workflows/platform-pr.yml",
+  ],
+  baseDbTests: "false",
+  expectedDbTests: "true",
+  baseOutputMap: {
+    ...baseCapturedSchedulerFanoutOutputMap([
+      ".github/workflows/platform-pr.yml",
+      "scripts/db-test-preflight.mjs",
+      "scripts/db-test-preflight.test.mjs",
+      "scripts/run-workspaces.mjs",
+      "scripts/run-workspaces.test.mjs",
+    ]),
+    workflow_lint: "true",
+    cluster_preview: "true",
+  },
+};
+
+function workspaceWithScripts(baseDir, root, dirName, name, scripts) {
+  return {
+    name,
+    dir: path.join(baseDir, root, dirName),
+    dirName,
+    root,
+    packageJson: { name, dependencies: {}, scripts },
+  };
+}
+
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   return {
     name,
@@ -109,7 +502,7 @@ describe("change-scope", () => {
     expect(changedFiles).toEqual(["bounded-contexts/catalog/domain.ts"]);
     expect(calls).toEqual([
       { args: ["merge-base", "origin/main", "HEAD"], cwd: "/repo" },
-      { args: ["diff", "--name-only", "abc123...HEAD"], cwd: "/repo" },
+      { args: ["diff", "--no-renames", "--name-only", "abc123...HEAD"], cwd: "/repo" },
     ]);
   });
 
@@ -760,7 +1153,7 @@ describe("change-scope", () => {
         directlyAffectedWorkspaces: [],
         directlyRuntimeAffectedWorkspaces: [],
         directlyTestOnlyAffectedWorkspaces: [],
-        dbTestsRequired: false,
+        dbTestsRequired: true,
         e2eSuiteIds: [],
         e2eTestsRequired: false,
         integrationRiskRequired: false,
@@ -776,6 +1169,300 @@ describe("change-scope", () => {
       });
     },
   );
+
+  it.each(schedulerOwnedArtifacts)(
+    "requires DB profile tests for scheduler-owned artifact %s and preserves its base fan-out",
+    (schedulerOwnedArtifact) => {
+      const scope = classifyChanges({ changedFiles: [schedulerOwnedArtifact] });
+      const outputs = toOutputMap(scope);
+
+      expect(scope.dbTestsRequired).toBe(true);
+      expect(outputs.db_tests).toBe("true");
+
+      // The fan-out is the reason the DB job has work to do, so it is asserted
+      // for membership and order against the base capture, not merely for
+      // length or for containing the DB-capable deployable.
+      expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
+      expect(scope.affectedWorkspaces).toEqual(listWorkspacePackages({ repoRoot }).map((entry) => entry.name));
+      expect(scope.affectedWorkspaces).toHaveLength(baseCapturedSchedulerFanoutWorkspaces.length);
+      expect(scope.affectedWorkspaces).toContain("@chase-sets/app-platform-api");
+      expect(outputs.affected_workspaces).toBe(baseCapturedAllWorkspacesCsv);
+      expect(outputs.affected_workspaces_json).toBe(baseCapturedAllWorkspacesJson);
+    },
+  );
+
+  it("keeps the scheduler-owned artifact set at exactly its four frozen members", () => {
+    expect(schedulerOwnedArtifacts).toEqual([
+      "scripts/run-workspaces.mjs",
+      "scripts/run-workspaces.test.mjs",
+      "scripts/workspace-test-duration-hints-v1.json",
+      "scripts/fixtures/workspace-unit-duration-replay-v1.json",
+    ]);
+
+    // Membership is proven behaviourally in both directions: every member fans
+    // out to every workspace and requires DB tests, and no near-miss path does.
+    for (const member of schedulerOwnedArtifacts) {
+      const scope = classifyChanges({ changedFiles: [member] });
+      expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
+      expect(scope.dbTestsRequired).toBe(true);
+    }
+
+    for (const nonMember of [
+      ...schedulerVocabularyLookalikePaths,
+      "scripts/change-scope.mjs",
+      "scripts/db-test-preflight.mjs",
+    ]) {
+      const scope = classifyChanges({ changedFiles: [nonMember] });
+      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.dbTestsRequired).toBe(false);
+    }
+  });
+
+  it.each(schedulerVocabularyLookalikePaths)(
+    "leaves scheduler-vocabulary lookalike %s classified as an ordinary script change",
+    (lookalikePath) => {
+      const scope = classifyChanges({ changedFiles: [lookalikePath] });
+      const outputs = toOutputMap(scope);
+
+      expect(scope.dbTestsRequired).toBe(false);
+      expect(outputs.db_tests).toBe("false");
+      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(outputs).toEqual(baseCapturedNoWorkspaceOutputMap([lookalikePath]));
+    },
+  );
+
+  it("closes the old-versus-new db_tests corpus over its enumerated cases", () => {
+    expect(dbTestsOldVersusNewCorpus.map((testCase) => testCase.name)).toEqual(dbTestsOldVersusNewCorpusCaseNames);
+    expect(new Set(dbTestsOldVersusNewCorpusCaseNames).size).toBe(dbTestsOldVersusNewCorpusCaseNames.length);
+
+    for (const testCase of dbTestsOldVersusNewCorpus) {
+      expect(Object.keys(testCase).sort()).toEqual([...dbTestsCorpusCaseKeys].sort());
+      expect(Array.isArray(testCase.changedFiles)).toBe(true);
+      expect(["true", "false"]).toContain(testCase.baseDbTests);
+      expect(["true", "false"]).toContain(testCase.expectedDbTests);
+      expect(testCase.changesDbTests).toBe(testCase.baseDbTests !== testCase.expectedDbTests);
+      expect(Object.keys(testCase.baseOutputMap)).toEqual(baseCapturedOutputMapKeyOrder);
+      expect(testCase.baseOutputMap.db_tests).toBe(testCase.baseDbTests);
+    }
+  });
+
+  it("changes db_tests for exactly the scheduler-owned artifact cases across the whole corpus", () => {
+    const observed = dbTestsOldVersusNewCorpus.map((testCase) => ({
+      name: testCase.name,
+      changedFiles: testCase.changedFiles,
+      previous: testCase.baseDbTests,
+      next: toOutputMap(classifyChanges({ changedFiles: testCase.changedFiles })).db_tests,
+    }));
+
+    for (const [index, entry] of observed.entries()) {
+      expect(entry.next).toBe(dbTestsOldVersusNewCorpus[index].expectedDbTests);
+    }
+
+    const changedCaseFileSets = observed
+      .filter((entry) => entry.previous !== entry.next)
+      .map((entry) => entry.changedFiles);
+
+    // Set equality, not containment: a predicate that also flipped an unrelated
+    // case would pass a containment check and must fail here.
+    expect(changedCaseFileSets).toEqual(schedulerOwnedArtifacts.map((artifact) => [artifact]));
+  });
+
+  it("keeps every output except db_tests byte-identical to the base commit for every corpus case", () => {
+    for (const testCase of dbTestsOldVersusNewCorpus) {
+      const scope = classifyChanges({ changedFiles: testCase.changedFiles });
+      const outputs = toOutputMap(scope);
+
+      expect(Object.keys(outputs)).toEqual(baseCapturedOutputMapKeyOrder);
+      expect(outputs.db_tests).toBe(testCase.expectedDbTests);
+      expect({ ...outputs, db_tests: testCase.baseDbTests }).toEqual(testCase.baseOutputMap);
+      expect(String(scope.dbTestsRequired)).toBe(testCase.expectedDbTests);
+    }
+  });
+
+  it("requires DB profile tests for the dependent slice's predicted changed-file set", () => {
+    const scope = classifyChanges({ changedFiles: dependentSliceBaseCapture.changedFiles });
+    const outputs = toOutputMap(scope);
+
+    expect(dependentSliceBaseCapture.baseDbTests).toBe("false");
+    expect(outputs.db_tests).toBe("true");
+    expect(outputs.db_tests).toBe(dependentSliceBaseCapture.expectedDbTests);
+    expect(scope.dbTestsRequired).toBe(true);
+    expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
+    expect({ ...outputs, db_tests: dependentSliceBaseCapture.baseDbTests }).toEqual(
+      dependentSliceBaseCapture.baseOutputMap,
+    );
+  });
+
+  it("still reports no DB tests for a scheduler-owned change when no workspace exposes a DB script", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const workspacesWithoutDbScripts = [
+      workspaceWithScripts(baseDir, "packages", "design-system", "@test/design-system", { test: "test" }),
+      workspaceWithScripts(baseDir, "deployables", "platform-api", "@test/platform-api", {
+        test: "test",
+        "test:unit": "test:unit",
+      }),
+    ];
+
+    for (const schedulerOwnedArtifact of schedulerOwnedArtifacts) {
+      const scope = classifyChanges({
+        baseDir,
+        changedFiles: [schedulerOwnedArtifact],
+        workspaces: workspacesWithoutDbScripts,
+      });
+
+      // The fan-out still names every workspace; only the DB requirement is
+      // withheld, because there is no DB execution unit to run.
+      expect(scope.affectedWorkspaces).toEqual(["@test/design-system", "@test/platform-api"]);
+      expect(scope.unitTestsRequired).toBe(true);
+      expect(scope.dbTestsRequired).toBe(false);
+      expect(toOutputMap(scope).db_tests).toBe("false");
+    }
+  });
+
+  it("requires DB tests for a scheduler-owned change as soon as one injected workspace exposes a DB script", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const workspacesWithOneDbScript = [
+      workspaceWithScripts(baseDir, "packages", "design-system", "@test/design-system", { test: "test" }),
+      workspaceWithScripts(baseDir, "deployables", "platform-api", "@test/platform-api", {
+        "test:unit": "test:unit",
+        "test:db:1": "vitest run __tests__/partition-one.db.test.ts",
+      }),
+    ];
+
+    for (const schedulerOwnedArtifact of schedulerOwnedArtifacts) {
+      const scope = classifyChanges({
+        baseDir,
+        changedFiles: [schedulerOwnedArtifact],
+        workspaces: workspacesWithOneDbScript,
+      });
+
+      expect(scope.affectedWorkspaces).toEqual(["@test/design-system", "@test/platform-api"]);
+      expect(scope.dbTestsRequired).toBe(true);
+      expect(toOutputMap(scope).db_tests).toBe("true");
+    }
+  });
+
+  // A rename away from a frozen scheduler-owned path is the one Git status form
+  // `git diff --name-only` does not report faithfully: rename detection collapses
+  // the pair to its destination, so the frozen source path never reaches the
+  // classifier and the DB profile job it owns is silently unselected. These cases
+  // drive real Git objects through the production
+  // `listChangedFiles -> classifyChanges -> toOutputMap` chain, and each carries
+  // the rename-detected name list alongside as a control, so dropping
+  // `--no-renames` from the production diff fails them.
+  describe("scheduler-owned artifacts renamed away from their frozen paths", () => {
+    const renameAwayCases = schedulerOwnedArtifacts.map((sourcePath, index) => ({
+      index,
+      sourcePath,
+      destinationPath: `archive/${path.posix.basename(sourcePath)}`,
+    }));
+    let fixtureRoot;
+    let fixtureCommits;
+
+    // `diff.renames` is pinned on rather than inherited so the control below
+    // observes Git's own default rename detection on any host.
+    function fixtureGit(args) {
+      return execFileSync(
+        "git",
+        [
+          "-c",
+          "core.autocrlf=false",
+          "-c",
+          "diff.renames=true",
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          ...args,
+        ],
+        { cwd: fixtureRoot, encoding: "utf8", windowsHide: true },
+      );
+    }
+
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(path.join(tmpdir(), "change-scope-rename-away-"));
+      fixtureGit(["init", "--quiet", "--initial-branch=main"]);
+      for (const { sourcePath } of renameAwayCases) {
+        const target = path.join(fixtureRoot, sourcePath);
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, `scheduler-owned fixture body for ${sourcePath}\n`, "utf8");
+      }
+      mkdirSync(path.join(fixtureRoot, "archive"), { recursive: true });
+      fixtureGit(["add", "--all"]);
+      fixtureGit(["commit", "--quiet", "-m", "seed scheduler-owned artifacts"]);
+
+      // One commit per case, each renaming exactly one artifact away. Case i is
+      // then the diff from commit i to commit i+1, so every case observes a
+      // single rename with no checkout churn between them.
+      for (const { sourcePath, destinationPath } of renameAwayCases) {
+        fixtureGit(["mv", sourcePath, destinationPath]);
+        fixtureGit(["commit", "--quiet", "-m", `rename ${sourcePath} away`]);
+      }
+      fixtureCommits = fixtureGit(["log", "--format=%H", "--reverse"]).trim().split(/\r?\n/);
+    });
+
+    afterAll(() => {
+      if (fixtureRoot) {
+        rmSync(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+
+    it("covers every frozen scheduler-owned artifact with its own rename-away commit", () => {
+      expect(renameAwayCases.map((entry) => entry.sourcePath)).toEqual(schedulerOwnedArtifacts);
+      expect(fixtureCommits).toHaveLength(schedulerOwnedArtifacts.length + 1);
+      expect(new Set(fixtureCommits).size).toBe(fixtureCommits.length);
+    });
+
+    it.each(renameAwayCases)(
+      "requires DB tests when $sourcePath is renamed away to $destinationPath",
+      ({ index, sourcePath, destinationPath }) => {
+        const base = fixtureCommits[index];
+        const head = fixtureCommits[index + 1];
+
+        // Control: Git really does record this as a 100%-similarity rename, and
+        // the rename-detected name list names only the destination. That list is
+        // exactly what the production diff would return without `--no-renames`,
+        // and it does not contain the frozen path.
+        expect(fixtureGit(["diff", "--name-status", `${base}...${head}`]).trim()).toBe(
+          `R100\t${sourcePath}\t${destinationPath}`,
+        );
+        expect(
+          fixtureGit(["diff", "--name-only", `${base}...${head}`])
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean),
+        ).toEqual([destinationPath]);
+
+        // Production path: real Git objects through the exported `listChangedFiles`.
+        const changedFiles = listChangedFiles(base, head, { cwd: fixtureRoot });
+        expect([...changedFiles].sort()).toEqual([destinationPath, sourcePath].sort());
+
+        const scope = classifyChanges({ changedFiles });
+        const outputs = toOutputMap(scope);
+
+        expect(scope.changedFiles).toEqual([destinationPath, sourcePath].sort());
+        expect(scope.dbTestsRequired).toBe(true);
+        expect(outputs.db_tests).toBe("true");
+
+        // Nothing else moves: the same whole-repo fan-out a scheduler-owned
+        // change already produced, and every other output key byte-identical to
+        // the base-commit capture for that fan-out.
+        expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
+        expect(scope.affectedWorkspaces).toContain("@chase-sets/app-platform-api");
+        expect(outputs).toEqual({
+          ...baseCapturedSchedulerFanoutOutputMap(scope.changedFiles),
+          db_tests: "true",
+        });
+
+        // Discriminator: the destination path alone carries none of this, so the
+        // frozen source path recovered by `--no-renames` is what selects the job.
+        const destinationOnly = classifyChanges({ changedFiles: [destinationPath] });
+        expect(destinationOnly.dbTestsRequired).toBe(false);
+        expect(toOutputMap(destinationOnly).db_tests).toBe("false");
+        expect(destinationOnly.affectedWorkspaces).toEqual([]);
+      },
+    );
+  });
 
   it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {
     const scope = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
