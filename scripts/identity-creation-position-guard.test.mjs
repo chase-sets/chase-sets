@@ -4,12 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { identityCommandAnchors } from "./identity-creation-position-guard.mjs";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { executeIdentityCreationPositionGuard, identityCommandAnchors } from "./identity-creation-position-guard.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const guardEntrypoint = path.join(repositoryRoot, "scripts", "identity-creation-position-guard.mjs");
 const registryPath = "scripts/identity-creation-positions.json";
 const schemaPath = "scripts/identity-creation-positions.schema.json";
 const testPath = "scripts/identity-creation-position-guard.test.mjs";
@@ -27,7 +26,7 @@ function commandPosition(command, terminator = "") {
   return ["type", `: "${command}"`, terminator].join("");
 }
 
-beforeAll(async () => {
+async function createFixture() {
   fixtureRoot = await mkdtemp(path.join(tmpdir(), "identity-position-guard-"));
   await git(["init", "--quiet"], fixtureRoot);
   await git(["config", "user.email", "identity-position-guard@example.test"], fixtureRoot);
@@ -48,15 +47,17 @@ beforeAll(async () => {
   await git(["add", "."], fixtureRoot);
   await git(["commit", "--quiet", "-m", "identity position guard fixture"], fixtureRoot);
   fixtureBase = (await git(["rev-parse", "HEAD"], fixtureRoot)).stdout.trim();
+}
+
+afterAll(async () => {
+  if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true });
 });
+
+await createFixture();
 
 beforeEach(async () => {
   await git(["reset", "--hard", fixtureBase], fixtureRoot);
   await git(["clean", "-fdx"], fixtureRoot);
-});
-
-afterAll(async () => {
-  if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true });
 });
 
 describe("identity creation position guard real discovery", () => {
@@ -530,25 +531,7 @@ describe("identity creation position guard real discovery", () => {
 });
 
 async function runGuard(root = fixtureRoot) {
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      [guardEntrypoint, "--repository-root", root, "--json"],
-      {
-        cwd: repositoryRoot,
-        encoding: "utf8",
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
-    return { exitCode: 0, stdout, stderr, report: JSON.parse(stdout) };
-  } catch (error) {
-    return {
-      exitCode: error.code,
-      stdout: error.stdout ?? "",
-      stderr: error.stderr ?? "",
-      report: JSON.parse(error.stdout ?? "{}"),
-    };
-  }
+  return executeIdentityCreationPositionGuard({ repositoryRoot: root, json: true });
 }
 
 async function git(args, cwd, options = {}) {
