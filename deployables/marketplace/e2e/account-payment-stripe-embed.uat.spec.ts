@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
 
 // Manual staging UAT (issue #3974): the confirmation-card defect cluster left
@@ -45,6 +45,71 @@ const stripeTestCard = {
   postalCode: "94103",
 };
 
+// #6015 AC-08. The Ink & Foil re-value hands Stripe a set of appearance values this
+// repository has never sent before, including a dark --border that is an rgba() alpha
+// hairline rather than a hex. Whether Stripe accepts an alpha colour in colorBorder and
+// in the .Input / .Block rule borders is a provider fact; internal fixtures have passed
+// every internal gate and still been rejected live (#5811).
+//
+// Stripe reports a rejected or unparsable appearance value as a console warning, not as
+// a failed promise, so an unstyled Element otherwise reads as a green run. These helpers
+// promote that console traffic to a test failure and record the transcript at the exact
+// lifecycle moments the appearance object is consumed.
+const stripeAppearanceRejectionPattern =
+  /IntegrationError|Invalid value for (?:appearance|elements)|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i;
+
+type ConsoleTranscript = {
+  readonly entries: string[];
+  readonly rejections: string[];
+};
+
+function watchStripeConsole(page: Page): ConsoleTranscript {
+  const entries: string[] = [];
+  const rejections: string[] = [];
+
+  page.on("console", (message) => {
+    const entry = `[${message.type()}] ${message.text()}`;
+    entries.push(entry);
+    if (stripeAppearanceRejectionPattern.test(message.text())) {
+      rejections.push(entry);
+    }
+  });
+  page.on("pageerror", (error) => {
+    const entry = `[pageerror] ${error.message}`;
+    entries.push(entry);
+    if (stripeAppearanceRejectionPattern.test(error.message)) {
+      rejections.push(entry);
+    }
+  });
+
+  return { entries, rejections };
+}
+
+async function recordLifecycleMoment(page: Page, transcript: ConsoleTranscript, moment: string) {
+  await test.info().attach(`stripe-appearance:${moment}:console`, {
+    body: transcript.entries.join("\n") || "<no console output>",
+    contentType: "text/plain",
+  });
+  await test.info().attach(`stripe-appearance:${moment}:screenshot`, {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+  expect(
+    transcript.rejections,
+    `Stripe rejected or warned on an appearance value at the '${moment}' lifecycle moment`,
+  ).toEqual([]);
+}
+
+// The dark tokens reach Stripe only on the mode transition: observeStripeAppearance
+// watches data-color-mode and re-issues elements.update({ appearance }). Asserting the
+// light mount alone proves nothing about the dark values.
+async function toggleColorMode(page: Page, mode: "light" | "dark") {
+  const root = page.locator("[data-chase-theme]").first();
+  await expect(root).toBeVisible();
+  await root.evaluate((element, nextMode) => element.setAttribute("data-color-mode", nextMode), mode);
+  await expect(root).toHaveAttribute("data-color-mode", mode);
+}
+
 test.describe("stripe embed confirmation UAT", () => {
   test("mounts the real Payment Element, confirms with a Stripe test card, and captures via webhook @stripe-embed-uat", async ({
     page,
@@ -60,6 +125,8 @@ test.describe("stripe embed confirmation UAT", () => {
       "MARKETPLACE_E2E_EMAIL and MARKETPLACE_E2E_PASSWORD are required for the Stripe embed confirmation UAT.",
     );
 
+    const transcript = watchStripeConsole(page);
+
     await page.goto("/sign-in?returnTo=%2Faccount%2Fpurchases");
     await signInWithPassword(page, new URL(page.url()).origin, { email: buyerEmail, password: buyerPassword });
 
@@ -70,6 +137,18 @@ test.describe("stripe embed confirmation UAT", () => {
     const embedContainer = page.getByTestId("payment-element-container");
     await expect(embedContainer).toBeVisible({ timeout: embedReadyTimeoutMs });
     await expect(page.getByTestId("payment-element-skeleton")).toHaveCount(0, { timeout: embedReadyTimeoutMs });
+
+    // Lifecycle moment 1: the mount request completed with the light appearance.
+    await toggleColorMode(page, "light");
+    await recordLifecycleMoment(page, transcript, "elements-mount-light");
+
+    // Lifecycle moment 2: the mode change drives elements.update({ appearance }) with
+    // the dark values, including the rgba() border anchor.
+    await toggleColorMode(page, "dark");
+    await expect(embedContainer).toBeVisible();
+    await recordLifecycleMoment(page, transcript, "elements-update-dark");
+
+    await toggleColorMode(page, "light");
 
     const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
     await stripeFrame.locator('input[name="number"]').fill(stripeTestCard.number);
@@ -103,6 +182,37 @@ test.describe("stripe embed confirmation UAT", () => {
         },
       )
       .toBe("captured");
+
+    await recordLifecycleMoment(page, transcript, "elements-post-confirmation");
+  });
+
+  // Lifecycle moment 3. createStripeConnectAppearance emits an entirely different
+  // variable set (actionPrimaryColorText, badgeNeutralColorBorder,
+  // formHighlightColorBorder, ...) than the Elements object, so Stripe's acceptance of
+  // the Elements appearance proves nothing about the Connect one.
+  test("initialises the Connect embedded component with the re-valued appearance @stripe-embed-uat", async ({
+    page,
+  }) => {
+    test.setTimeout(embedReadyTimeoutMs + 120_000);
+    test.skip(!runStripeEmbedUat, "Set STRIPE_EMBED_UAT=true to run the Stripe embed confirmation UAT.");
+    test.skip(
+      !buyerEmail || !buyerPassword,
+      "MARKETPLACE_E2E_EMAIL and MARKETPLACE_E2E_PASSWORD are required for the Stripe embed confirmation UAT.",
+    );
+
+    const transcript = watchStripeConsole(page);
+
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fpayouts%2Fsetup");
+    await signInWithPassword(page, new URL(page.url()).origin, { email: buyerEmail, password: buyerPassword });
+    await page.goto("/account/payouts/setup", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: embedReadyTimeoutMs });
+
+    await toggleColorMode(page, "light");
+    await recordLifecycleMoment(page, transcript, "connect-initialisation-light");
+
+    await toggleColorMode(page, "dark");
+    await recordLifecycleMoment(page, transcript, "connect-initialisation-dark");
   });
 });
 

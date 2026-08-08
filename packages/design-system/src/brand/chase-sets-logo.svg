@@ -2,16 +2,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
   <style>
     :root {
-      --chase-logo-start: #0f766e;
-      --chase-logo-mid: #1d5fd6;
-      --chase-logo-end: #174db0;
+      --chase-logo-start: #8a682a;
+      --chase-logo-mid: #c9a44e;
+      --chase-logo-end: #a87e2f;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --chase-logo-start: #2dd4bf;
-        --chase-logo-mid: #5b8ef4;
-        --chase-logo-end: #93c5fd;
+        --chase-logo-start: #b9863b;
+        --chase-logo-mid: #edd28d;
+        --chase-logo-end: #d4a94e;
       }
     }
   </style>

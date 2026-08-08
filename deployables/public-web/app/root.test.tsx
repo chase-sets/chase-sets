@@ -40,6 +40,6 @@ describe("public-web root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain('name="theme-color" content="#020617"');
+    expect(html).toContain('name="theme-color" content="#0e0c15"');
   });
 });

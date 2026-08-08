@@ -87,14 +87,14 @@ export function createStripeElementsAppearance({
   includeRules = true,
   scope = null,
 }: StripeElementsAppearanceOptions = {}): StripeElementsAppearance {
-  const primary = token("--primary", "#1d5fd6", scope);
+  const primary = token("--primary", "#4845c6", scope);
   const background = token("--card", "#ffffff", scope);
-  const surface = token("--surface-2", "#f8fafc", scope);
-  const text = token("--foreground", "#0f172a", scope);
-  const secondaryText = token("--text-secondary", "#334155", scope);
-  const mutedText = token("--text-muted", "#64748b", scope);
-  const border = token("--border", "#e2e8f0", scope);
-  const focus = token("--ring", "#2563eb", scope);
+  const surface = token("--surface-2", "#f7f5f1", scope);
+  const text = token("--foreground", "#211d33", scope);
+  const secondaryText = token("--text-secondary", "#4d4763", scope);
+  const mutedText = token("--text-muted", "#7d7791", scope);
+  const border = token("--border", "#e6e2d9", scope);
+  const focus = token("--ring", "#5b58d6", scope);
   const danger = token("--destructive", "#b91c1c", scope);
   const success = token("--success", "#15803d", scope);
   const warning = token("--warning", "#b45309", scope);
@@ -129,7 +129,7 @@ export function createStripeElementsAppearance({
             ".Block": {
               backgroundColor: surface,
               border: `1px solid ${border}`,
-              boxShadow: token("--shadow-sm", "0 1px 2px rgba(15, 23, 42, 0.06)", scope),
+              boxShadow: token("--shadow-sm", "0 1px 2px rgba(33, 29, 51, 0.07)", scope),
             },
             ".Input": {
               backgroundColor: surface,
@@ -174,11 +174,11 @@ export function createStripeElementsAppearance({
 
 export function createStripeConnectAppearance({ scope = null }: StripeAppearanceOptions = {}): StripeConnectAppearance {
   const background = token("--card", "#ffffff", scope);
-  const surface = token("--surface-2", "#f8fafc", scope);
-  const text = token("--foreground", "#0f172a", scope);
-  const secondaryText = token("--text-secondary", "#334155", scope);
-  const border = token("--border", "#e2e8f0", scope);
-  const primary = token("--primary", "#1d5fd6", scope);
+  const surface = token("--surface-2", "#f7f5f1", scope);
+  const text = token("--foreground", "#211d33", scope);
+  const secondaryText = token("--text-secondary", "#4d4763", scope);
+  const border = token("--border", "#e6e2d9", scope);
+  const primary = token("--primary", "#4845c6", scope);
   const danger = token("--destructive", "#b91c1c", scope);
 
   return {
@@ -229,8 +229,8 @@ export function createStripeConnectAppearance({ scope = null }: StripeAppearance
       formAccentColor: primary,
       formBackgroundColor: surface,
       formBorderRadius: pxToken("--radius", "0.5rem", scope),
-      formHighlightColorBorder: token("--ring", "#2563eb", scope),
-      formPlaceholderTextColor: token("--text-muted", "#64748b", scope),
+      formHighlightColorBorder: token("--ring", "#5b58d6", scope),
+      formPlaceholderTextColor: token("--text-muted", "#7d7791", scope),
       headingLgFontSize: pxToken("--font-size-xl", "1.25rem", scope),
       headingLgFontWeight: "700",
       headingLgTextTransform: "none",
@@ -246,7 +246,7 @@ export function createStripeConnectAppearance({ scope = null }: StripeAppearance
       labelMdFontWeight: "600",
       labelMdTextTransform: "none",
       offsetBackgroundColor: surface,
-      overlayBackdropColor: token("--overlay", "rgba(29, 27, 24, 0.35)", scope),
+      overlayBackdropColor: token("--overlay", "rgba(33, 29, 51, 0.35)", scope),
       overlayBorderRadius: pxToken("--radius-lg", "0.75rem", scope),
       overlayZIndex: Number.parseInt(token("--z-modal", "60", scope), 10),
       spacingUnit: pxToken("--space-2", "0.5rem", scope),

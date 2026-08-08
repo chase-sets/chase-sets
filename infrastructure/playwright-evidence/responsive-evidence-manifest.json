@@ -560,7 +560,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -568,7 +571,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -576,14 +582,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -591,7 +603,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-360"
@@ -623,7 +637,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -631,7 +648,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -639,14 +659,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -654,7 +680,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-390"
@@ -686,7 +714,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -694,7 +725,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -702,14 +736,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 0, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 0,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -717,7 +757,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet"
@@ -749,7 +791,10 @@
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet-frozen-control"
@@ -781,7 +826,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-360"
@@ -813,7 +860,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-390"
@@ -845,7 +894,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-tablet"
@@ -877,21 +928,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-360"
@@ -923,21 +980,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-390"
@@ -969,21 +1032,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-tablet"
@@ -1697,6 +1766,541 @@
         }
       ],
       "artifact": "item-detail-product-options-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-browse-mobile-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "browse landing carries the Ink & Foil light palette at 390x844 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-browse:light"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-browse-results",
+        "selector": "main",
+        "populatedSelector": "a[href^='/items/']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-browse-mobile-light-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "ink-foil-browse-mobile-light-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-browse-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-browse-mobile-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "browse landing carries the Ink & Foil dark palette at 390x844 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-browse:dark"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-browse-results",
+        "selector": "main",
+        "populatedSelector": "a[href^='/items/']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-browse-mobile-dark-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "ink-foil-browse-mobile-dark-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-browse-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-browse-desktop-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "browse landing carries the Ink & Foil light palette at 1280x900 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-browse:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-browse-results",
+        "selector": "main",
+        "populatedSelector": "a[href^='/items/']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-browse-desktop-light-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-browse-desktop-light-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-browse-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-browse-desktop-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "browse landing carries the Ink & Foil dark palette at 1280x900 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-browse:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-browse-results",
+        "selector": "main",
+        "populatedSelector": "a[href^='/items/']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-browse-desktop-dark-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-browse-desktop-dark-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-browse-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-detail-desktop-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "item detail carries the Ink & Foil light palette at 1280x900 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace item detail",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-item-detail:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "item-detail-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-item-detail-desktop-light-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-item-detail-desktop-light-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-detail-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-detail-desktop-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "item detail carries the Ink & Foil dark palette at 1280x900 @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace item detail",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-item-detail:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "item-detail-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-item-detail-desktop-dark-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-item-detail-desktop-dark-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-detail-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-checkout-payment-desktop-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "checkout payment step carries the Ink & Foil light palette at 1280x900 @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "marketplace buy checkout session",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-buy-checkout-session:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "buy-checkout-session-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-checkout-payment-desktop-light-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-checkout-payment-desktop-light-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-checkout-payment-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-checkout-payment-desktop-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "checkout payment step carries the Ink & Foil dark palette at 1280x900 @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "marketplace buy checkout session",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-buy-checkout-session:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "buy-checkout-session-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-checkout-payment-desktop-dark-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-checkout-payment-desktop-dark-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-checkout-payment-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-brand-foil-wordmark-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "the brand foil wordmark renders its gold gradient in light mode @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-brand-wordmark:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "brand-foil-wordmark-light",
+        "selector": "a:has(> svg[data-color-mode='auto'])",
+        "populatedSelector": ":scope > svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-brand-foil-wordmark-light-mark-width",
+          "scope": "target",
+          "selector": ":scope > svg[data-color-mode='auto']",
+          "property": "width",
+          "assertion": {
+            "equals": 20,
+            "tolerance": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-brand-foil-wordmark-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-brand-foil-wordmark-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "the brand foil wordmark renders its gold gradient in dark mode @marketplace-browse @browser-e2e-seed",
+      "route": {
+        "name": "marketplace browse landing",
+        "path": "/"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:marketplace-brand-wordmark:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "brand-foil-wordmark-dark",
+        "selector": "a:has(> svg[data-color-mode='auto'])",
+        "populatedSelector": ":scope > svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-brand-foil-wordmark-dark-mark-width",
+          "scope": "target",
+          "selector": ":scope > svg[data-color-mode='auto']",
+          "property": "width",
+          "assertion": {
+            "equals": 20,
+            "tolerance": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-brand-foil-wordmark-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-desktop-light",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "projection operations workbench carries the Ink & Foil light palette at 1280x900 @admin-platform",
+      "route": {
+        "name": "admin projection operations workbench",
+        "path": "/platform/projections"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:admin-platform-projections:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "admin-projection-operations-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-admin-workbench-desktop-light-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-admin-workbench-desktop-light-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-desktop-dark",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "projection operations workbench carries the Ink & Foil dark palette at 1280x900 @admin-platform",
+      "route": {
+        "name": "admin projection operations workbench",
+        "path": "/platform/projections"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:admin-platform-projections:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "admin-projection-operations-main",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-admin-workbench-desktop-dark-target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "ink-foil-admin-workbench-desktop-dark-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-desktop-dark"
+    },
+    {
+      "kind": "negative-control",
+      "id": "ink-foil-empty-results-negative-control",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-evidence.spec.ts",
+      "testTitle": "refuses to capture an unpopulated browse result set @marketplace-browse",
+      "route": {
+        "name": "ink & foil empty results fixture",
+        "path": "/ink-foil/empty-results"
+      },
+      "fixture": {
+        "identity": "ink-foil-evidence:empty-results:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "ink-foil-empty-results",
+        "selector": "main[data-evidence-target='results']",
+        "populatedSelector": "a[href^='/items/']"
+      },
+      "measurements": [
+        {
+          "identity": "ink-foil-empty-results-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        }
+      ],
+      "artifact": "ink-foil-empty-results-negative-control"
     }
   ]
 }

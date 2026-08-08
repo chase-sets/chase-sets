@@ -605,12 +605,12 @@ describe("marketplace account payment route", () => {
       appearance: expect.objectContaining({
         theme: "flat",
         variables: expect.objectContaining({
-          colorPrimary: "#1d5fd6",
-          colorText: "#0f172a",
+          colorPrimary: "#4845c6",
+          colorText: "#211d33",
         }),
         rules: expect.objectContaining({
           ".Input": expect.objectContaining({
-            color: "#0f172a",
+            color: "#211d33",
           }),
         }),
       }),
@@ -753,8 +753,8 @@ describe("marketplace account payment route", () => {
         appearance: {
           theme: "flat",
           variables: expect.objectContaining({
-            colorPrimary: "#1d5fd6",
-            colorText: "#0f172a",
+            colorPrimary: "#4845c6",
+            colorText: "#211d33",
           }),
         },
       },

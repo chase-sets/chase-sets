@@ -2,6 +2,8 @@
 @import "@fontsource/ibm-plex-sans/latin-500.css";
 @import "@fontsource/ibm-plex-sans/latin-600.css";
 @import "@fontsource/ibm-plex-sans/latin-700.css";
+@import "@fontsource/space-grotesk/latin.css";
+@import "@fontsource/ibm-plex-mono/latin.css";
 @import "tailwindcss";
 @config "../../../../tailwind.config.ts";
 @source "../**/*.{ts,tsx}";
@@ -13,28 +15,28 @@
   [data-chase-theme][data-color-mode="light"],
   [data-chase-theme-scope][data-color-mode="light"] {
     color-scheme: light;
-    --background: #f8fafc;
-    --foreground: #0f172a;
+    --background: #f7f5f1;
+    --foreground: #211d33;
     --card: #ffffff;
-    --card-foreground: #0f172a;
+    --card-foreground: #211d33;
     --popover: #ffffff;
-    --popover-foreground: #0f172a;
-    --primary: #1d5fd6;
+    --popover-foreground: #211d33;
+    --primary: #4845c6;
     --primary-foreground: #ffffff;
-    --primary-hover: #174db0;
-    --primary-active: #123f91;
-    --primary-soft: #dbeafe;
-    --overlay: rgba(29, 27, 24, 0.35);
-    --secondary: #f1f5f9;
-    --secondary-foreground: #334155;
-    --muted: #e2e8f0;
-    --muted-foreground: #64748b;
+    --primary-hover: #3b38ad;
+    --primary-active: #312e94;
+    --primary-soft: #e6e5fb;
+    --overlay: rgba(33, 29, 51, 0.35);
+    --secondary: #efece5;
+    --secondary-foreground: #4d4763;
+    --muted: #e6e2d9;
+    --muted-foreground: #7d7791;
     --accent: var(--primary);
     --accent-foreground: var(--primary-foreground);
-    --border: #e2e8f0;
-    --border-strong: #cbd5e1;
-    --input: #cbd5e1;
-    --ring: #2563eb;
+    --border: #e6e2d9;
+    --border-strong: #d4cfc2;
+    --input: #d4cfc2;
+    --ring: #5b58d6;
 
     /* Semantic status color tokens: soft, base, hover, active, contrast. */
     --success: #15803d;
@@ -61,31 +63,40 @@
     --info-contrast: #ffffff;
     --trust: #0f766e;
     --trust-soft: #ccfbf1;
-    --deal: #b45309;
+    /* Deal and rating are re-tuned within their amber/orange families, not
+     * re-hued: at the pre-change head --deal #b45309 on --deal-soft reads 4.38:1
+     * and --rating #d97706 on --rating-soft reads 2.86:1, both below the 4.5:1
+     * status-on-soft floor. */
+    --deal: #9c4611;
     --deal-soft: #ffedd5;
-    --rating: #d97706;
+    --rating: #8a5a06;
     --rating-soft: #fef3c7;
-    --surface-2: #f8fafc;
-    --surface-3: #f1f5f9;
+    --surface-2: #f7f5f1;
+    --surface-3: #efece5;
     --elevated: #ffffff;
-    --disabled-bg: #e2e8f0;
-    --disabled-text: #94a3b8;
-    --text-primary: #0f172a;
-    --text-secondary: #334155;
-    --text-muted: #64748b;
-    --text-disabled: #94a3b8;
-    --chase-logo-start: #0f766e;
-    --chase-logo-mid: #1d5fd6;
-    --chase-logo-end: #174db0;
-    --page-spotlight-a: rgba(29, 95, 214, 0.05);
-    --page-spotlight-b: rgba(15, 118, 110, 0.04);
+    --disabled-bg: #e6e2d9;
+    --disabled-text: #9a94ab;
+    --text-primary: #211d33;
+    --text-secondary: #4d4763;
+    --text-muted: #7d7791;
+    --text-disabled: #9a94ab;
+    /* Brand foil: the gold identity gradient, defined once here and consumed only
+     * by the wordmark and the canonical brand-foil text utility. It is a design-system
+     * presentation term and is NOT the catalog domain term "holofoil"
+     * (bounded-contexts/catalog/GLOSSARY.md), which is the canonical provider finish
+     * option key. Never reuse "foil" for a catalog-facing string. */
+    --chase-logo-start: #8a682a;
+    --chase-logo-mid: #c9a44e;
+    --chase-logo-end: #a87e2f;
+    --page-spotlight-a: rgba(72, 69, 198, 0.05);
+    --page-spotlight-b: rgba(201, 164, 78, 0.04);
     --surface-line: rgba(255, 255, 255, 0.86);
-    --surface-depth: rgba(15, 23, 42, 0.04);
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --shadow-md: 0 8px 20px -16px rgba(15, 23, 42, 0.28);
-    --shadow-lg: 0 18px 38px -28px rgba(15, 23, 42, 0.34);
-    --shadow-overlay: 0 24px 64px -32px rgba(15, 23, 42, 0.42);
-    --display-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --surface-depth: rgba(33, 29, 51, 0.05);
+    --shadow-sm: 0 1px 2px rgba(33, 29, 51, 0.07);
+    --shadow-md: 0 8px 20px -16px rgba(33, 29, 51, 0.3);
+    --shadow-lg: 0 18px 38px -28px rgba(33, 29, 51, 0.36);
+    --shadow-overlay: 0 24px 64px -32px rgba(33, 29, 51, 0.44);
+    --display-font: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
     --body-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
     --mono-font: "IBM Plex Mono", ui-monospace, monospace;
     --radius: 0.5rem;
@@ -151,28 +162,31 @@
   }
 
   :root {
-    --dark-background: #020617;
-    --dark-foreground: #f8fafc;
-    --dark-card: #0f172a;
-    --dark-card-foreground: #f8fafc;
-    --dark-popover: #111827;
-    --dark-popover-foreground: #f8fafc;
-    --dark-primary: #5b8ef4;
-    --dark-primary-foreground: #061329;
-    --dark-primary-hover: #7ca4f8;
-    --dark-primary-active: #a8c2fb;
-    --dark-primary-soft: #172554;
-    --dark-overlay: rgba(29, 27, 24, 0.35);
-    --dark-secondary: #1e293b;
-    --dark-secondary-foreground: #cbd5e1;
-    --dark-muted: #334155;
-    --dark-muted-foreground: #94a3b8;
+    --dark-background: #0e0c15;
+    --dark-foreground: #f2effa;
+    --dark-card: #1a1626;
+    --dark-card-foreground: #f2effa;
+    --dark-popover: #211c30;
+    --dark-popover-foreground: #f2effa;
+    --dark-primary: #8a97ff;
+    --dark-primary-foreground: #14102a;
+    --dark-primary-hover: #a1acff;
+    --dark-primary-active: #b8c1ff;
+    --dark-primary-soft: #232048;
+    --dark-overlay: rgba(10, 8, 17, 0.55);
+    --dark-secondary: #211c30;
+    --dark-secondary-foreground: #b6b0c9;
+    --dark-muted: #322c4a;
+    --dark-muted-foreground: #857e9c;
     --dark-accent: var(--dark-primary);
     --dark-accent-foreground: var(--dark-primary-foreground);
-    --dark-border: #334155;
-    --dark-border-strong: #475569;
-    --dark-input: #475569;
-    --dark-ring: #93c5fd;
+    /* The ratified dark border is an alpha ink hairline. --dark-input carries the
+     * ratified opaque equivalent #3a3450 because a field edge must not composite
+     * differently against card, elevated and popover surfaces. */
+    --dark-border: rgba(242, 239, 250, 0.08);
+    --dark-border-strong: #4a4363;
+    --dark-input: #3a3450;
+    --dark-ring: #b8c1ff;
 
     /* Dark semantic status color tokens: map through dark selectors below. */
     --dark-success: #4ade80;
@@ -203,26 +217,28 @@
     --dark-deal-soft: #451a03;
     --dark-rating: #fbbf24;
     --dark-rating-soft: #422006;
-    --dark-surface-2: #0b1220;
-    --dark-surface-3: #1e293b;
-    --dark-elevated: #111827;
-    --dark-disabled-bg: #1e293b;
-    --dark-disabled-text: #64748b;
-    --dark-text-primary: #f8fafc;
-    --dark-text-secondary: #cbd5e1;
-    --dark-text-muted: #94a3b8;
-    --dark-text-disabled: #64748b;
-    --dark-chase-logo-start: #2dd4bf;
-    --dark-chase-logo-mid: #5b8ef4;
-    --dark-chase-logo-end: #93c5fd;
-    --dark-page-spotlight-a: rgba(91, 142, 244, 0.06);
-    --dark-page-spotlight-b: rgba(45, 212, 191, 0.045);
-    --dark-surface-line: rgba(255, 255, 255, 0.06);
-    --dark-surface-depth: rgba(0, 0, 0, 0.24);
-    --dark-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
-    --dark-shadow-md: 0 12px 30px -22px rgba(0, 0, 0, 0.8);
-    --dark-shadow-lg: 0 22px 60px -34px rgba(0, 0, 0, 0.9);
-    --dark-shadow-overlay: 0 32px 80px -34px rgba(0, 0, 0, 0.92);
+    --dark-surface-2: #14111c;
+    --dark-surface-3: #2a2540;
+    --dark-elevated: #211c30;
+    --dark-disabled-bg: #211c30;
+    --dark-disabled-text: #5c5675;
+    --dark-text-primary: #f2effa;
+    --dark-text-secondary: #b6b0c9;
+    --dark-text-muted: #857e9c;
+    --dark-text-disabled: #5c5675;
+    /* Brand foil, dark mode. See the light-mode declaration above for the term and
+     * for the catalog "holofoil" distinction this must never be conflated with. */
+    --dark-chase-logo-start: #b9863b;
+    --dark-chase-logo-mid: #edd28d;
+    --dark-chase-logo-end: #d4a94e;
+    --dark-page-spotlight-a: rgba(138, 151, 255, 0.06);
+    --dark-page-spotlight-b: rgba(212, 169, 78, 0.045);
+    --dark-surface-line: rgba(242, 239, 250, 0.06);
+    --dark-surface-depth: rgba(6, 5, 11, 0.28);
+    --dark-shadow-sm: 0 1px 2px rgba(6, 5, 11, 0.32);
+    --dark-shadow-md: 0 12px 30px -22px rgba(6, 5, 11, 0.82);
+    --dark-shadow-lg: 0 22px 60px -34px rgba(6, 5, 11, 0.9);
+    --dark-shadow-overlay: 0 32px 80px -34px rgba(6, 5, 11, 0.92);
   }
 
   [data-theme="dark"],
@@ -433,8 +449,8 @@
     --color-focus-ring: var(--ring);
     --color-accent-hover: var(--primary-hover);
     --color-accent-active: var(--primary-active);
-    --font-display: "IBM Plex Sans";
-    --font-heading: "IBM Plex Sans";
+    --font-display: "Space Grotesk";
+    --font-heading: "Space Grotesk";
     --font-body: "IBM Plex Sans";
     --font-mono: "IBM Plex Mono";
     /* Type scale */
