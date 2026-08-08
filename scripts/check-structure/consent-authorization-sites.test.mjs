@@ -119,9 +119,9 @@ const batteryWorkUnitCeilings = Object.freeze({
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
-  plain: 343,
-  "pull-request-merge-ref": 344,
-  "merge-group": 341,
+  plain: 344,
+  "pull-request-merge-ref": 345,
+  "merge-group": 342,
 });
 
 const committedProvenanceGitSpawnsByEnvironment = Object.freeze({
@@ -157,10 +157,13 @@ function rawGit(cwd) {
     });
 }
 
-function countGit(delegate, counter = batteryWorkUnits) {
+function countGit(delegate, counter = batteryWorkUnits, recordInvocation = null) {
   return (args, options = {}) => {
+    const before = counter.totalChildProcessSpawns;
     counter.totalChildProcessSpawns += 1;
-    return delegate(args, options);
+    const result = delegate(args, options);
+    recordInvocation?.({ args, before, after: counter.totalChildProcessSpawns });
+    return result;
   };
 }
 
@@ -175,7 +178,11 @@ function analyzeWithWorkUnitMeter(options = {}) {
   if (analysisRoot === path.resolve(repoRoot)) batteryWorkUnits.fullTreeAnalyses += 1;
   else batteryWorkUnits.scratchCorpusAnalyses += 1;
   const countedExecGit = countGit(options.execGit ?? rawGit(analysisRoot));
-  const countedExecAuthorityGit = countGit(options.execAuthorityGit ?? rawGit(authorityRoot));
+  const countedExecAuthorityGit = countGit(
+    options.execAuthorityGit ?? rawGit(authorityRoot),
+    batteryWorkUnits,
+    options.recordAuthorityGitInvocation,
+  );
   const suppliedDerivation = options.deriveProvenance;
   return analyzeConsentAuthorizationSites({
     ...options,
@@ -199,7 +206,14 @@ const registry = loadConsentAuthorizationRegistry();
 const registrySchema = loadConsentAuthorizationRegistrySchema();
 const censusCoverage = loadConsentAuthorizationCensusCoverage();
 const censusCoverageSchema = loadConsentAuthorizationCensusCoverageSchema();
-const censusFixtureFiles = listConsentAuthorizationCensusFixtures({ repoRoot, execGit: countGit(rawGit(repoRoot)) });
+let directlyCalledAnalyzerExportSpawnEvidence = null;
+let directExecFileSyncSpawnEvidence = null;
+const censusFixtureFiles = listConsentAuthorizationCensusFixtures({
+  repoRoot,
+  execGit: countGit(rawGit(repoRoot), batteryWorkUnits, (evidence) => {
+    directlyCalledAnalyzerExportSpawnEvidence = evidence;
+  }),
+});
 const derivedCoverageAxes = deriveConsentAuthorizationCoverageAxes();
 const derivedCensusArms = deriveConsentAuthorizationCensusArms();
 const enumeration = loadConsentAuthorizationCaseEnumeration();
@@ -215,7 +229,15 @@ const provenanceFixtures = {
   "merge-group": readJsonFixture(`${provenanceFixtureRoot}/merge-group.json`),
 };
 
-const realTreeResult = deepFreeze(analyzeWithWorkUnitMeter({ repoRoot }));
+let authoritySideListingSpawnEvidence = null;
+const realTreeResult = deepFreeze(
+  analyzeWithWorkUnitMeter({
+    repoRoot,
+    recordAuthorityGitInvocation: (evidence) => {
+      authoritySideListingSpawnEvidence = evidence;
+    },
+  }),
+);
 const realTreeResultDigest = sha256(JSON.stringify(realTreeResult));
 const committedBatteryWorkUnits = Object.freeze({
   fullTreeAnalyses: 1,
@@ -463,10 +485,10 @@ function buildClassifiedEnvironmentEvidence() {
 function buildUnresolvedCandidateHeadEvidence() {
   const { scratch } = buildProductScratchRepo("consent-unresolved-");
   const calls = [];
-  const execGit = (args, options) => {
+  const execGit = countGit((args, options) => {
     calls.push(args.join(" "));
     return scratchExecGit(scratch)(args, options);
-  };
+  });
   let thrown = null;
   try {
     enumerateConsentAuthorizationCorpus({
@@ -1057,23 +1079,26 @@ export function collectAnalyzerExpectationOrigins(relativeFile, source) {
 }
 
 function footprintFiles() {
-  const listed = runCountedChildProcess(
-    "git",
-    [
-      "ls-files",
-      "-z",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--",
-      "scripts/check-structure/consent-authorization-*",
-      `${fixtureRoot}`,
-    ],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-    },
-  );
+  const args = [
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--",
+    "scripts/check-structure/consent-authorization-*",
+    `${fixtureRoot}`,
+  ];
+  const before = batteryWorkUnits.totalChildProcessSpawns;
+  const listed = runCountedChildProcess("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  directExecFileSyncSpawnEvidence = {
+    args,
+    before,
+    after: batteryWorkUnits.totalChildProcessSpawns,
+  };
   return listed.split("\0").filter(Boolean).sort();
 }
 
@@ -1167,11 +1192,53 @@ function isolatedCounter() {
   return { totalChildProcessSpawns: 0 };
 }
 
-function countDirectInvocation(delegate, counter) {
-  return (...args) => {
-    counter.totalChildProcessSpawns += 1;
-    return delegate(...args);
+function collectSpawnMeterControlViolations(controls) {
+  return Object.entries(controls).flatMap(([name, evidence]) =>
+    evidence !== null && evidence.after - evidence.before === 1
+      ? []
+      : [`${name}: counting wrapper did not meter one spawn`],
+  );
+}
+
+function assertRealSpawnMeterControls() {
+  const realSpawnMeterControls = {
+    "authority-side listing": authoritySideListingSpawnEvidence,
+    "direct execFileSync": directExecFileSyncSpawnEvidence,
+    "directly-called analyzer export": directlyCalledAnalyzerExportSpawnEvidence,
   };
+  expect(realSpawnMeterControls["authority-side listing"]?.args).toEqual([
+    "ls-files",
+    "-z",
+    "--",
+    consentAuthorizationCensusFixtureRoot,
+  ]);
+  expect(realSpawnMeterControls["direct execFileSync"]?.args).toEqual([
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--",
+    "scripts/check-structure/consent-authorization-*",
+    fixtureRoot,
+  ]);
+  expect(realSpawnMeterControls["directly-called analyzer export"]?.args).toEqual([
+    "ls-files",
+    "-z",
+    "--",
+    consentAuthorizationCensusFixtureRoot,
+  ]);
+  expect(collectSpawnMeterControlViolations(realSpawnMeterControls)).toEqual([]);
+
+  for (const [name, evidence] of Object.entries(realSpawnMeterControls)) {
+    const withoutCountingWrapper = {
+      ...realSpawnMeterControls,
+      [name]: evidence === null ? null : { ...evidence, after: evidence.before },
+    };
+    expect(collectSpawnMeterControlViolations(withoutCountingWrapper)).toEqual([
+      `${name}: counting wrapper did not meter one spawn`,
+    ]);
+  }
 }
 
 function registerAnalyzerModuleImport(kind, counter = batteryWorkUnits) {
@@ -2785,6 +2852,7 @@ describe("Consent authorization sites", () => {
     process.stdout.write(
       `consent-authorization-total-spawn-classes=${JSON.stringify(committedTotalChildProcessSpawnsByEnvironment)}\n`,
     );
+    assertRealSpawnMeterControls();
     expect(collectBatteryWorkUnitViolations(batteryWorkUnits)).toEqual([]);
     expect(Object.values(committedTotalChildProcessSpawnsByEnvironment).every((value) => value <= 408)).toBe(true);
     expect(sha256(JSON.stringify(realTreeResult))).toBe(realTreeResultDigest);
@@ -2815,22 +2883,5 @@ describe("Consent authorization sites", () => {
       expect(provenance.roles.landingCandidate.sha).toBe(fixture.expected.roles.landingCandidate.sha);
       expect(provenanceCounter.totalChildProcessSpawns).toBe(expectedSpawns);
     }
-
-    const authorityCounter = isolatedCounter();
-    const authorityExecGit = countGit(() => Buffer.from("authority-seam"), authorityCounter);
-    authorityExecGit(["ls-files", "-z", "--", consentAuthorizationCensusFixtureRoot]);
-    expect(authorityCounter.totalChildProcessSpawns).toBe(1);
-
-    const directCounter = isolatedCounter();
-    countDirectInvocation(() => Buffer.alloc(0), directCounter)("git", ["ls-files"]);
-    expect(directCounter.totalChildProcessSpawns).toBe(1);
-
-    const exportedHelperCounter = isolatedCounter();
-    const listed = listConsentAuthorizationCensusFixtures({
-      repoRoot,
-      execGit: countGit(() => Buffer.from(`${censusCoverage.rows[0].fixture}\0`), exportedHelperCounter),
-    });
-    expect(listed).toEqual([censusCoverage.rows[0].fixture]);
-    expect(exportedHelperCounter.totalChildProcessSpawns).toBe(1);
   });
 });
