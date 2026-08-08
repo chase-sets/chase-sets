@@ -3,18 +3,18 @@
   "digestBound": {
     "aggregate": {
       "counts": {
-        "total": 30,
-        "candidateGreen": 30,
-        "mutantRed": 30,
-        "active": 30,
-        "preserved": 30
+        "total": 39,
+        "candidateGreen": 39,
+        "mutantRed": 39,
+        "active": 39,
+        "preserved": 39
       },
       "reconciliation": {
         "salvageHeadTotal": 43,
         "retiredTotal": 24,
         "carriedTotal": 19,
-        "addedTotal": 11,
-        "total": 30
+        "addedTotal": 20,
+        "total": 39
       },
       "validStatus": "valid"
     },
@@ -214,6 +214,258 @@
           "preservedStatus": "preserved"
         },
         "evidenceSha256": "b057fd2992588a19df68a384a716cd300fa6f8d0bbbd1821ab622b52e57b3390"
+      },
+      {
+        "caseId": "MUT-AC13-COMPUTED-BINDING-ELEMENT-SKIPPED",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "a188ccd7b834179cddd71b40fff4d0975aff0d9d1834e60701d1a08b8a04af6b",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-reference-unclassified",
+            "owner": "not-applicable",
+            "surface": "computed binding-element constant key",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.computed-binding-element-key",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "7f938bc27ab021a9fe37a396fe7726929c7f38dfa5baa04bd5d3025319d3eccd",
+            "stderrSha256": "5d9ae0850434dea06a21601d8ade8f580dc7582b341fb9785caf034d3692df8f"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "e35345297c12a7d1b1cca6e1968c3aa6a3eb3c796612fd17665df5745944b621"
+      },
+      {
+        "caseId": "MUT-AC13-CONST-KEY-FILE-GLOBAL-SCOPE",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "e3ef1ad8dc2748c6de8d81887942fc0a77a7315d87d9d034dca59b89dccfb089",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-reference-unclassified",
+            "owner": "not-applicable",
+            "surface": "sibling lexical constant bindings",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.constant-key.declaration-scope",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "36d6208f04d8ddb053ccd7ce68ffe4aad51308f296b28d7e3805d27ee23d72bf",
+            "stderrSha256": "d9c296bb19970fc565bdb161fc346af1a7a8d03b7766247a72028d032c139d12"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "ad253db2f21475d56f8802394f8c8cace1650483c6690d3cb73e4b529d41cf09"
+      },
+      {
+        "caseId": "MUT-AC13-COVERAGE-FLIP-WITHOUT-RESOLVER",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "6219da8b46aed3381a7c921dc07b87982abd858a87cc0e2ecc21cc88f7d8fd26",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-coverage-invalid",
+            "owner": "not-applicable",
+            "surface": "resolved-key coverage row",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "coverage.resolved-key-observation",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "139d43dd3ed7864b3d59b3e21867c7a758c685d7cf474a30e9ea8f5f7d0812f6",
+            "stderrSha256": "cef69aee4f64414886f09f7bc528dd1d15a4714fff023ec9ebe7e1096adee6a0"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "b3d6083b13d7ecee0e847423a38d2f3161e95082aac64f3578c1690ad5769988"
+      },
+      {
+        "caseId": "MUT-AC13-NEAREST-BINDING-OUTERMOST",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "4561682e738413c93a2dc2a62c7c3504b1ba46e0f9f14d559371ddeb61a40f26",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-reference-unclassified",
+            "owner": "not-applicable",
+            "surface": "nested lexical constant binding",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.constant-key.nearest-binding",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "19e0d2092e83e25982eebd56a97df8f7c2b4b7be7c451b9fd7aa62da4c9cf6e4",
+            "stderrSha256": "fc5515267dfaaa146a59d420d332174c6d60a74245bf9aeb1c2b3daf528e270b"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "0dd725020e57df2488c40a0228a15d1d16363020e153ed24410b0967982747ef"
+      },
+      {
+        "caseId": "MUT-AC13-TEMPLATE-KEY-SHADOW-UNRESOLVED",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "dd5512e5fcd34c001d843df3c56fe0a98766924f2a713e55082954b72e654b93",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-reference-unclassified",
+            "owner": "not-applicable",
+            "surface": "shadowed template-derived key",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.shadowed-template-key",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "8ba7f0157f40091a0571e58b676b661a659a86152647856d7d3581bf5574cdf8",
+            "stderrSha256": "0f1b41f3200403c5fb68f21af3360e888a36e82df1d5900585a2c5540cdbfb53"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "c2c423fbe7ab475665462668874c94735b0dbcacf12ae3c71269c26e2249262e"
+      },
+      {
+        "caseId": "MUT-AC14-ACQUISITION-CLASSIFIED-IN-FIRST-WALK",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "c838b3bb4ba06be8a70e3e36ef24c731419376fd656e7ec2a3e2c55c77d37864",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-census-drift",
+            "owner": "not-applicable",
+            "surface": "forward-declared unrelated acquisition specifier",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.specifier-post-walk-classification",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "b95994a1bf4597ce2f85bca58b401f051b14c1b4f7f5fac5bb98cb78d224c385",
+            "stderrSha256": "97853c05cf8a29ea04d0cfbb040870f77ea2c58e0c45f3f04ad8457a49a42b31"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "834aef8d9bd71f3a46b68496ed4e15500cc40359bf816c3c7b651b2c736f90ec"
+      },
+      {
+        "caseId": "MUT-AC14-RUNTIME-UNKNOWN-DROPPED",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "99473b3f6642e3b44ae08e93422a13876954fbd750aa91827e01b19c62a0fe02",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-census-drift",
+            "owner": "not-applicable",
+            "surface": "published runtime-unknown acquisition",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "census.runtime-unknown-acquisition",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "2d15a813e62e4981367cf444e870fa98153dbf41f48ddf866fa9d5594222977f",
+            "stderrSha256": "ecd7e6823584ff4f97046e455113f116b45639924f9eee21958d0a76c822ef43"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "700f4f98fc354bfa2c49bf50c9446be149d20ed7ee9d3902411b219c6f3505ed"
+      },
+      {
+        "caseId": "MUT-AC14-SPECIFIER-CONCAT-UNFOLDED",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "2d2d3e5664eccb1cf86812437204993bd8d7aee635757494558369047fcbadb1",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-noncanonical-module-access",
+            "owner": "not-applicable",
+            "surface": "concatenated canonical acquisition",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.specifier-concatenation",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "800dfad72ddc352022f8b7e215ac69806ddef5a7313384c7c17972fbe001c2c8",
+            "stderrSha256": "c62cb90bad07330e4f2fe45f3486debb124df576949d8772192cb3e7a91330c1"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "4566f1c77c23371f807b770cb8a94a44ef684204a2cbcdb5bcced38d52ce1714"
+      },
+      {
+        "caseId": "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY",
+        "evidence": {
+          "candidate": {
+            "exitCode": 0,
+            "result": "pass",
+            "stdoutSha256": "27506c2a6e69ec213d1b664ba6a973405611dbf9115b3bea38d7d227f4d4d12f",
+            "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "expected": {
+            "violation": "consent-authorization-noncanonical-module-access",
+            "owner": "not-applicable",
+            "surface": "lexical-constant canonical acquisition",
+            "digest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328"
+          },
+          "firstFailingClauseId": "reference.specifier-shape-folding",
+          "mutant": {
+            "exitCode": 1,
+            "result": "fail",
+            "stdoutSha256": "899e6fa2f1b99c9b1077b3d3df4f6544a1382047ae7bd21f5064eb3718a96794",
+            "stderrSha256": "11479b0db113f358dc16acb198e8c6c667ee4c0eee2997c92612704caf8e851a"
+          },
+          "mutationStatus": "active",
+          "noEarlierClauseStatus": "proven",
+          "preservedStatus": "preserved"
+        },
+        "evidenceSha256": "ed217ee6c7598fdef7d7009eadce72319faef550fe89c69463315e4f99dd3791"
       },
       {
         "caseId": "MUT-AC2-REGISTRY-DROP-ONE-SITE",
@@ -876,11 +1128,11 @@
         },
         {
           "path": "scripts/check-structure/consent-authorization-case-enumeration.json",
-          "sha256": "3b6106eec02315b288fbdec7812a77ea4f4fa4da02be7576e679539d348fbc04"
+          "sha256": "5f6c167b50da656f8c892973d960155aff77e21558b0800a41e81a990b069811"
         },
         {
           "path": "scripts/check-structure/consent-authorization-census-coverage.json",
-          "sha256": "879c42c98a9e3727fac493bbf9750ecbd2b5fe75c26d63ff92d47979c7c5b715"
+          "sha256": "447641347c64cfb8e129794e59c0f0d85319c70bae6a3a6fcb3357b6166343b2"
         },
         {
           "path": "scripts/check-structure/consent-authorization-census-coverage.schema.json",
@@ -888,7 +1140,7 @@
         },
         {
           "path": "scripts/check-structure/consent-authorization-mutation-evidence.mjs",
-          "sha256": "010fd7ca25990f719198276e942595cd8d65cbe81a96b8bb1e4796086f4e00c0"
+          "sha256": "d6fedb1358c628f6f92fa09305aeb487a09f9a2d32c70cd25b8409e0292a891d"
         },
         {
           "path": "scripts/check-structure/consent-authorization-site-registry.json",
@@ -900,7 +1152,7 @@
         },
         {
           "path": "scripts/check-structure/consent-authorization-sites.mjs",
-          "sha256": "85fb80a08366c12069350da1d5ff3a1c5c98149cf17e0496bf093d6e30713d41"
+          "sha256": "0cc6ba7863b3c97e7197df9fab663023814e84eaf3b8d9bbef2dfcf173614a6a"
         },
         {
           "path": "scripts/check-structure/fixtures/consent-authorization-sites/admin-qa-actor-fixtures.ts",
@@ -1207,12 +1459,36 @@
           "sha256": "bbfabb8cd65b625078e669f773a547005f32f7ab20fbf44aa6770c2b96b973a0"
         },
         {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/duplicate-same-scope-binding-key.ts",
+          "sha256": "1407bd288b47b5742e33b844ae10e04c461d6496b19ff69ec1d3678d79e9e650"
+        },
+        {
           "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/namespace-binding-dynamic-key.ts",
           "sha256": "fc64919661d23f5ba0e8dfbf83787ccd4dd50e38d4b79c0801997c38f0cebda4"
         },
         {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/nested-shadowing-key.ts",
+          "sha256": "32bee06c82fee027eeb4d8ca07c46c7c68aa5714c34fe65abec04914ba89ebc5"
+        },
+        {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/non-const-binding-key.ts",
+          "sha256": "116c91192670af84c12ace720b7fa81923925b1315bdaa91e60b7680a2116b10"
+        },
+        {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/sibling-scope-keys.ts",
+          "sha256": "6e89e341411125036c7ebfee0529536187d36d888a2d47b1cdc6a930b5165011"
+        },
+        {
           "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/template-key.ts",
           "sha256": "e1f7c71cf47e5fc059c93ccac8446fa56a5521d42db3323da6db53a107f01b6a"
+        },
+        {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/unrelated-module-dynamic-import.ts",
+          "sha256": "6bb84bebc38ee2e95988404157e4a09de53c4b4877d203de38bb2a870ccdf33b"
+        },
+        {
+          "path": "scripts/check-structure/fixtures/consent-authorization-sites/references/unrelated-module-require.ts",
+          "sha256": "c533b53579dd30892958e10467f9f35d36909bd3f5c426602c27d9e11f966062"
         },
         {
           "path": "scripts/check-structure/fixtures/consent-authorization-sites/registry/nested-unknown.json",
@@ -1283,34 +1559,34 @@
           "sha256": "a026a6d63e14e983e988633fff593c1ec719681bd83c6c42ecdd2488aaff890f"
         }
       ],
-      "inventorySha256": "0c3c0a29c654213fe512700272a56b259bbba89b11e9f9fbfbdb640bec43c453"
+      "inventorySha256": "677803ab8b685c46497d0d3a995785758cdc59609ce22f71006ba2c4bcff652c"
     },
     "workUnits": {
       "reconciliationGitLsFilesSpawns": 1,
       "compilerSurfaceSourceParses": 7,
-      "trackedFilesDigested": 105
+      "trackedFilesDigested": 111
     }
   },
   "floatingProvenance": {
     "environment": "plain",
-    "generationHead": "git:a18a28547b04fabf102b811ac5d0dca7e1559f37",
-    "generatedAt": "2026-08-08T02:44:43.516Z",
-    "completedAt": "2026-08-08T02:44:49.820Z",
+    "generationHead": "git:4e55c2898a54b1fb75a954e76bed99493b3213b7",
+    "generatedAt": "2026-08-08T05:51:40.154Z",
+    "completedAt": "2026-08-08T05:51:46.958Z",
     "roles": {
       "analyzedTree": {
-        "sha": "git:a18a28547b04fabf102b811ac5d0dca7e1559f37",
+        "sha": "git:4e55c2898a54b1fb75a954e76bed99493b3213b7",
         "source": "git-head"
       },
       "reviewedHead": {
-        "sha": "git:a18a28547b04fabf102b811ac5d0dca7e1559f37",
+        "sha": "git:4e55c2898a54b1fb75a954e76bed99493b3213b7",
         "source": "git-head"
       },
       "landingCandidate": {
-        "sha": "git:a18a28547b04fabf102b811ac5d0dca7e1559f37",
+        "sha": "git:4e55c2898a54b1fb75a954e76bed99493b3213b7",
         "source": "git-head"
       },
       "baseTipAtAnalysis": {
-        "sha": "git:8730c4454fff8e9ec509f90c1d93d780dabc70e0",
+        "sha": "git:074e8e81ce9a27e4edf26d9b39806652ecb6eb44",
         "source": "git-qualified-remote-ref"
       },
       "eventBaseSnapshot": {
@@ -1318,7 +1594,7 @@
         "source": "absent-outside-pull-request"
       },
       "forkPoint": {
-        "sha": "git:8730c4454fff8e9ec509f90c1d93d780dabc70e0",
+        "sha": "git:074e8e81ce9a27e4edf26d9b39806652ecb6eb44",
         "source": "git-merge-base"
       }
     },
