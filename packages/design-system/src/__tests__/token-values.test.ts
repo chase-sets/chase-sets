@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import { chaseTheme } from "../theme/tokens";
 
 // Ink & Foil re-foundation guard (#6015).
@@ -656,6 +659,47 @@ describe("token values", () => {
       expect(packageJson.dependencies?.["@fontsource/ibm-plex-mono"]).toBeTruthy();
       expect(rawStyles).toContain('@import "@fontsource/space-grotesk/latin.css";');
       expect(rawStyles).toContain('@import "@fontsource/ibm-plex-mono/latin.css";');
+    });
+  });
+
+  // AC-06. The brand foil is hardcoded at four sites: the chaseSetsLogoSvg string's two
+  // blocks, the forced light/dark palettes, and the var() fallbacks. No test renders the
+  // sibling .svg asset, so it is the site most likely to be forgotten; it is asserted
+  // here against the same table as the component.
+  describe("AC-06 the brand foil reaches every hardcoded logo site", () => {
+    const LIGHT_FOIL = ["#8a682a", "#c9a44e", "#a87e2f"] as const;
+    const DARK_FOIL = ["#b9863b", "#edd28d", "#d4a94e"] as const;
+    const svgAssetPath = resolve(dirname(fileURLToPath(import.meta.url)), "../brand/chase-sets-logo.svg");
+
+    function stopColors(markup: string): string[] {
+      return [...markup.matchAll(/stop-color="([^"]+)"/g)].map((match) => match[1]!);
+    }
+
+    it("renders the forced light palette", () => {
+      expect(stopColors(renderToString(createElement(ChaseSetsLogo, { colorMode: "light" })))).toEqual([...LIGHT_FOIL]);
+    });
+
+    it("renders the forced dark palette", () => {
+      expect(stopColors(renderToString(createElement(ChaseSetsLogo, { colorMode: "dark" })))).toEqual([...DARK_FOIL]);
+    });
+
+    it("renders token references with the re-valued fallbacks in auto mode", () => {
+      expect(stopColors(renderToString(createElement(ChaseSetsLogo, { colorMode: "auto" })))).toEqual([
+        `var(--chase-logo-start, ${LIGHT_FOIL[0]})`,
+        `var(--chase-logo-mid, ${LIGHT_FOIL[1]})`,
+        `var(--chase-logo-end, ${LIGHT_FOIL[2]})`,
+      ]);
+    });
+
+    it("keeps the inline SVG string and the sibling .svg asset on the same foil table", () => {
+      const asset = readFileSync(svgAssetPath, "utf8");
+
+      for (const markup of [chaseSetsLogoSvg, asset]) {
+        for (const hex of [...LIGHT_FOIL, ...DARK_FOIL]) {
+          expect(markup).toContain(hex);
+        }
+        expect(markup).not.toMatch(/#(?:0f766e|1d5fd6|174db0|2dd4bf|5b8ef4|93c5fd)/);
+      }
     });
   });
 
