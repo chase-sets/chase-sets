@@ -2,10 +2,17 @@ import { expect, test } from "@playwright/test";
 
 // Real-browser lifecycle proof for the counsel-pending /privacy candidate.
 //
+// `/privacy` is a Public Presence route contributed to the public-web deployable
+// only, so this spec lives beside that deployable and runs on the public-web
+// Playwright project against PUBLIC_WEB_URL. The marketplace host does not serve
+// the route at all: pointing this spec at it renders the marketplace not-found
+// shell and fails for the wrong reason.
+//
 // Every wait keys on a selector, a URL, or a DOM state. `networkidle` is never
-// used: marketplace routes keep SSE-backed connections open, so a network-idle
-// wait would either hang or pass for the wrong reason. Nothing here builds a
-// synthetic DOM — the assertions read the page the real route adapter renders.
+// used: public-web shares the platform runtime shell with hosts that keep
+// SSE-backed connections open, so a network-idle wait would either hang or pass
+// for the wrong reason. Nothing here builds a synthetic DOM — the assertions
+// read the page the real route adapter renders.
 
 const privacySubjectIds = [
   "privacy-notice-scope",
@@ -32,8 +39,21 @@ const packetOnlyMarkers = [
   "privacy-product-truth-inventory.mjs",
 ] as const;
 
-test.describe("public privacy policy route", () => {
-  test("renders the counsel-pending candidate with agreeing body and metadata @marketplace-public", async ({
+test.describe("public-presence/public-web privacy policy route", () => {
+  // Negative control for the host this suite reads. Playwright resolves the
+  // project and its baseURL before any assertion here, so a spec that drifts
+  // back under another deployable's testMatch — or a public-web project wired to
+  // some other host — fails on the routing fact instead of silently asserting
+  // against a not-found shell.
+  test.beforeEach(({ baseURL }, testInfo) => {
+    expect(testInfo.project.name, "the privacy policy candidate is public-web coverage").toBe("public-web-chromium");
+    const configuredPublicWebUrl = process.env.PUBLIC_WEB_URL;
+    if (configuredPublicWebUrl) {
+      expect(baseURL, "the public-web project must target PUBLIC_WEB_URL").toBe(configuredPublicWebUrl);
+    }
+  });
+
+  test("renders the counsel-pending candidate with agreeing body and metadata @public-web-public-presence", async ({
     page,
   }) => {
     await page.goto("/privacy", { waitUntil: "domcontentloaded" });
@@ -101,7 +121,7 @@ test.describe("public privacy policy route", () => {
     expect(bodyText).not.toContain("Effective date:");
   });
 
-  test("links every subject from the on-page table of contents @marketplace-public", async ({ page }) => {
+  test("links every subject from the on-page table of contents @public-web-public-presence", async ({ page }) => {
     await page.goto("/privacy", { waitUntil: "domcontentloaded" });
     const tableOfContents = page.locator('nav[aria-label="Document sections"]');
     await expect(tableOfContents).toBeVisible();

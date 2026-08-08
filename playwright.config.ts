@@ -10,9 +10,15 @@ const retryTelemetryReporterPath = "./deployables/admin-web/e2e/support/retry-te
 const sandbox = resolveWorktreeSandbox();
 const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
+const publicWebBaseUrl = process.env.PUBLIC_WEB_URL ?? sandbox.urls.publicWeb;
 const isCi = Boolean(process.env.CI);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
+// The browser-e2e dev-system targets boot platform-api, platform-worker,
+// admin-web, and marketplace — not public-web. So the public-web project exists
+// exactly when a caller names a running public-web host, and public-web specs
+// never fall through to another deployable's host.
+const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);
 const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
 const projects = [
@@ -27,6 +33,15 @@ const projects = [
           name: "admin-web-chromium",
           testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
           use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
+        },
+      ]
+    : []),
+  ...(includePublicWebProject
+    ? [
+        {
+          name: "public-web-chromium",
+          testMatch: "deployables/public-web/e2e/**/*.spec.ts",
+          use: { ...devices["Desktop Chrome"], baseURL: publicWebBaseUrl },
         },
       ]
     : []),
