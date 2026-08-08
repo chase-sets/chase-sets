@@ -1722,6 +1722,7 @@
     "bounded-contexts/public-presence/features/policies/domain/payments-terms.ts",
     "bounded-contexts/public-presence/features/policies/domain/policy-artifact.ts",
     "bounded-contexts/public-presence/features/policies/domain/policy-registry.ts",
+    "bounded-contexts/public-presence/features/policies/domain/privacy-policy-product-truth.ts",
     "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
     "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts",
     "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts",

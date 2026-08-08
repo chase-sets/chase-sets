@@ -552,19 +552,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.policies.section.counselRequired": "Counsel-approved language required",
   "publicPresence.info.policies.toc.label": "Document sections",
   "publicPresence.info.policies.toc.title": "On this page",
-  "publicPresence.info.privacy.collect.body":
-    "Chase Sets collects email, account intent, selected interests, consent timestamp, and basic source attribution such as referrer and UTM values when visitors request early access.",
-  "publicPresence.info.privacy.collect.title": "Information collected",
-  "publicPresence.info.privacy.control.body":
-    "Contact support@chasesets.com to ask about public-site information, early access records, or removal from product updates.",
-  "publicPresence.info.privacy.control.title": "Your choices",
-  "publicPresence.info.privacy.description":
-    "This plain-language privacy notice explains what Chase Sets collects on the public site and early access surfaces.",
   "publicPresence.info.privacy.eyebrow": "Privacy",
-  "publicPresence.info.privacy.title": "Privacy Policy",
-  "publicPresence.info.privacy.use.body":
-    "Chase Sets uses waitlist information to understand early demand, prioritize early access, and send product updates when consent is provided.",
-  "publicPresence.info.privacy.use.title": "How it is used",
   "publicPresence.info.sellerAgreement.eyebrow": "Seller agreement",
   "publicPresence.info.sellerFees.description":
     "Chase Sets publishes one standard seller fee schedule for every account, with fee terms confirmed before inventory goes live.",

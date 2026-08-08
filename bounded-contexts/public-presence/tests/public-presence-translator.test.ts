@@ -30,7 +30,6 @@ describe("public presence translator", () => {
       "publicPresence.footer.description",
       "publicPresence.info.contact.description",
       "publicPresence.info.contact.status.body",
-      "publicPresence.info.privacy.description",
       "publicPresence.routes.privacy.meta.description",
       "publicPresence.routes.terms.meta.description",
     ];

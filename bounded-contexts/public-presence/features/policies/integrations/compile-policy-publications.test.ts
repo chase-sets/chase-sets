@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,7 +8,27 @@ import { renderPublicPolicyPublicationContracts } from "./compile-policy-publica
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(integrationsDirectory, "../../..");
+const repoRoot = resolve(integrationsDirectory, "../../../../..");
 const compilerScript = resolve(integrationsDirectory, "compile-policy-publications.mjs");
+
+const siblingPublicationModules = [
+  "terms-of-service-publication.ts",
+  "seller-agreement-publication.ts",
+  "payments-terms-publication.ts",
+  "agent-connector-terms-publication.ts",
+  "authenticity-service-terms-publication.ts",
+  "founders-offer-terms-publication.ts",
+] as const;
+
+/** Runs the real compiler entrypoint in a fresh process, so the Privacy
+ *  cited-source digest is re-resolved from the working tree rather than
+ *  reusing this process's memoized value. */
+function runCompilerCheck() {
+  return spawnSync(process.execPath, ["--experimental-strip-types", compilerScript, "--check"], {
+    cwd: packageRoot,
+    encoding: "utf8",
+  });
+}
 
 function withEditedArtifact(policyKey: string): readonly PublicPolicyRegistryEntry[] {
   return publicPolicyRegistry.map((entry) =>
@@ -189,12 +210,72 @@ describe("public policy corpus compiler", () => {
   });
 
   it("passes --check through the real compiler entrypoint and reports discovered generated modules", () => {
-    const result = spawnSync(process.execPath, ["--experimental-strip-types", compilerScript, "--check"], {
-      cwd: packageRoot,
-      encoding: "utf8",
-    });
+    const result = runCompilerCheck();
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("8/8 generated modules current (7 documents + index)");
   });
+
+  it("isolates a Privacy content-only edit to Privacy's module and fingerprint", async () => {
+    const baseline = await renderPublicPolicyPublicationContracts();
+    const editedRegistry = withEditedArtifact("privacy-policy");
+    const editedPrivacy = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "privacy-policy");
+    const baselinePrivacy = publicPolicyRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === "privacy-policy",
+    );
+    // A true content-only control: no metadata or version moves with it.
+    expect(editedPrivacy?.artifact.metadata).toEqual(baselinePrivacy?.artifact.metadata);
+
+    const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+    const changed = regenerated.filter(
+      (module) => baseline.find((entry) => entry.relativePath === module.relativePath)?.content !== module.content,
+    );
+    expect(changed.map((module) => module.relativePath)).toEqual(["privacy-policy-publication.ts"]);
+
+    const fingerprintOf = (modules: readonly { relativePath: string; content: string }[]) =>
+      modules
+        .find((module) => module.relativePath === "privacy-policy-publication.ts")
+        ?.content.match(/contentFingerprint: "(sha256:[a-f0-9]{64})"/)?.[1];
+    expect(fingerprintOf(regenerated)).not.toBe(fingerprintOf(baseline));
+
+    for (const sibling of [...siblingPublicationModules, "index.ts"]) {
+      expect(regenerated.find((module) => module.relativePath === sibling)?.content, sibling).toBe(
+        baseline.find((module) => module.relativePath === sibling)?.content,
+      );
+    }
+  });
+
+  it("stales only Privacy for a cited-source-only change, leaving every sibling and the index byte-identical", () => {
+    // The cited byte range of one first-party cookie name binding. The edit is
+    // whitespace-only inside the cited line: the AST, the derived subject, the
+    // line count, and every sibling document are unchanged, so any staleness
+    // can only come from Privacy's cited-source evidence digest.
+    const citedModule = resolve(
+      repoRoot,
+      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts",
+    );
+    const original = readFileSync(citedModule, "utf8");
+    const marker =
+      'export const MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME = "chase_sets_anonymous_listing_drafts";';
+    expect(original).toContain(marker);
+
+    expect(runCompilerCheck().status).toBe(0);
+    try {
+      writeFileSync(citedModule, original.replace(marker, `${marker.slice(0, -1)}  ;`), "utf8");
+      const stale = runCompilerCheck();
+      expect(stale.status).not.toBe(0);
+      const staleModules = `${stale.stdout}${stale.stderr}`
+        .split(/\r?\n/)
+        .filter((line) => line.includes("stale generated module:"))
+        .map((line) => line.slice(line.lastIndexOf("stale generated module:")).trim());
+      expect(staleModules).toHaveLength(1);
+      expect(staleModules[0]).toContain("privacy-policy-publication.ts");
+      for (const sibling of [...siblingPublicationModules, "index.ts"]) {
+        expect(staleModules[0], sibling).not.toContain(sibling);
+      }
+    } finally {
+      writeFileSync(citedModule, original, "utf8");
+    }
+    expect(runCompilerCheck().status).toBe(0);
+  }, 120_000);
 });

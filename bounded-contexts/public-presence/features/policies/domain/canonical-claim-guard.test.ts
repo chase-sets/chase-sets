@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
+import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
 import { evaluateCanonicalClaimConsistency } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
@@ -261,5 +261,50 @@ describe("canonical claim consistency guard", () => {
     expect(syntheticViolations.length).toBeGreaterThanOrEqual(2);
     expect(syntheticViolations.some((violation) => violation.claimId === "wallet-no-interest")).toBe(true);
     expect(syntheticViolations.some((violation) => violation.claimId === "wallet-deposit-and-fdic-posture")).toBe(true);
+  });
+  it("rejects a sibling artifact that cites adjacent evidence instead of the canonical provenance identity", () => {
+    const canonicalRefs = canonicalClaimRegistry["payment-charge-timing-and-capture"].productTruthRefs;
+    expect(canonicalRefs.length).toBeGreaterThan(0);
+
+    // The whole live corpus is consistent before the mutation.
+    expect(evaluateCanonicalClaimConsistency(publicPolicyRegistry, repoRoot)).toEqual([]);
+
+    // Privacy keeps the same settled claim but swaps one canonical citation for
+    // an adjacent range that still resolves and still contains a required
+    // keyword, so only the provenance-identity rule can catch it.
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1464-1494";
+    expect(canonicalRefs).not.toContain(adjacentRef);
+    const drifted = publicPolicyRegistry.map((entry) =>
+      entry.artifact.metadata.policyKey === "privacy-policy"
+        ? ({
+            ...entry,
+            artifact: {
+              ...entry.artifact,
+              sections: entry.artifact.sections.map((section) =>
+                section.id === "stripe-managed-processing"
+                  ? {
+                      ...section,
+                      reviewManifest: {
+                        ...section.reviewManifest,
+                        canonicalClaims: [
+                          { claimId: "payment-charge-timing-and-capture", productTruthRefs: [adjacentRef] },
+                        ],
+                      },
+                    }
+                  : section,
+              ),
+            },
+          } as PublicPolicyRegistryEntry)
+        : entry,
+    );
+
+    const violations = evaluateCanonicalClaimConsistency(drifted, repoRoot);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      policyKey: "privacy-policy",
+      sectionId: "stripe-managed-processing",
+      claimId: "payment-charge-timing-and-capture",
+    });
+    expect(violations[0].reason).toContain("exact product-truth provenance identity");
   });
 });

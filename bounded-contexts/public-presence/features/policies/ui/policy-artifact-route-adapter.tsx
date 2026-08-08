@@ -3,6 +3,7 @@ import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-ter
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
+import { privacyPolicyArtifact } from "../domain/privacy-policy";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 import {
@@ -74,6 +75,32 @@ export function PaymentsTermsRouteAdapter({
   artifact = paymentsTermsPolicyArtifact,
 }: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
   return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.paymentsTerms.eyebrow")} />;
+}
+
+/**
+ * /privacy stays indexable while the artifact is counsel-pending: the notice
+ * is the canonical public privacy surface a visitor must be able to find, and
+ * the page's own posture — banner, metadata, and machine publication status —
+ * already says the document is not yet effective. Posture comes from the
+ * artifact through the canonical resolver, never from a route-local prop.
+ */
+export function buildPrivacyPolicyMeta(artifact: PublicPolicyArtifact = privacyPolicyArtifact): MetaDescriptor[] {
+  return buildPolicyArtifactMeta(
+    artifact,
+    {
+      title: t("publicPresence.routes.privacy.meta.title"),
+      description: t("publicPresence.routes.privacy.meta.description"),
+    },
+    { noindexWhilePending: false },
+  );
+}
+
+export const privacyPolicyMeta: MetaFunction = () => buildPrivacyPolicyMeta();
+
+export function PrivacyPolicyRouteAdapter({
+  artifact = privacyPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
+  return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.privacy.eyebrow")} />;
 }
 
 export const agentTermsMeta: MetaFunction = () =>
