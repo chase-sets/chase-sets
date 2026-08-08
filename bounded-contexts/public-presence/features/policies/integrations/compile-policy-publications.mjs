@@ -4,6 +4,7 @@ import { registerHooks } from "node:module";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format } from "prettier";
+import { computePrivacyCitedSourceDigest } from "./privacy-product-truth-inventory.mjs";
 
 // The registry's domain modules use the repo-standard extensionless relative
 // imports, which raw `node --experimental-strip-types` cannot resolve on its
@@ -26,6 +27,7 @@ registerHooks({
 const { isConsentActivatable, validatePublicPolicyArtifactStructure } = await import("../domain/policy-artifact.ts");
 const { publicPolicyRegistry } = await import("../domain/policy-registry.ts");
 const { evaluateCanonicalClaimConsistency } = await import("../domain/canonical-claim-guard.ts");
+const { privacyProductTruthBindings } = await import("../domain/privacy-policy-product-truth.ts");
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(integrationsDirectory, "../../../../..");
@@ -69,6 +71,18 @@ function assertValidCorpus(registry) {
   }
 }
 
+// Privacy's owned fingerprint input additionally covers the exact cited
+// product-truth source bytes, so any change to a cited cookie, Web Storage,
+// provider-loader, dependency edge, CSP policy, service-worker policy,
+// registration root, or provider mapper stales exactly one generated module:
+// privacy-policy-publication.ts. Resolved once per process; the bindings and
+// the cited files do not change mid-compile.
+let privacyCitedSourceDigest;
+function privacySourceEvidenceDigest() {
+  privacyCitedSourceDigest ??= computePrivacyCitedSourceDigest(repoRoot, privacyProductTruthBindings);
+  return privacyCitedSourceDigest;
+}
+
 function fingerprintArtifactContent(artifact) {
   const ownedContent = {
     title: artifact.title,
@@ -90,6 +104,9 @@ function fingerprintArtifactContent(artifact) {
         })),
       },
     })),
+    ...(artifact.metadata.policyKey === "privacy-policy"
+      ? { sourceEvidenceDigest: privacySourceEvidenceDigest() }
+      : {}),
   };
   return `sha256:${createHash("sha256").update(JSON.stringify(ownedContent)).digest("hex")}`;
 }

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import ts from "@chase-sets/typescript-compiler-api";
 import { isIsoTimestamp, validateEvidenceReference } from "./marketplace-evidence-references.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { repoRoot as defaultRepoRoot } from "./lib/repo.mjs";
@@ -34,7 +35,24 @@ export const LAUNCH_CONFIG_PATH = "bounded-contexts/public-presence/features/wai
 
 export const PRIVACY_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/privacy.tsx";
 export const TERMS_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/terms.tsx";
-export const PRIVACY_LOCALE_PATH = "contracts/localization/locales/en/public-presence.ts";
+
+// The canonical Privacy disclosure now lives in the Public Policy Artifact,
+// not in a route-local locale string. This gate reads the artifact's
+// `cookies-and-analytics` subject through the TypeScript AST — the same
+// operative `draftText` the /privacy page renders — so a passing row means the
+// published notice really discloses campaign attribution, and moving or
+// emptying that subject fails the gate instead of silently passing on an
+// unrelated `utm` token elsewhere in a locale catalogue.
+export const PRIVACY_POLICY_SOURCE_PATH = "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts";
+export const PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID = "cookies-and-analytics";
+export const REQUIRED_PRIVACY_CAMPAIGN_DISCLOSURE_TOKENS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "referrer",
+];
 
 export const LANDING_CONVERSION_SURFACE_FILES = [
   "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
@@ -160,24 +178,98 @@ function buildAnalyticsUtmRow(repoRootPath) {
   };
 }
 
+/**
+ * Reads the operative `draftText` of one Public Policy Artifact subject
+ * through the TypeScript AST. Returns `null` when the artifact, the subject,
+ * or a literal draft text cannot be resolved, so every unresolved shape fails
+ * the gate rather than defaulting to satisfied.
+ */
+export function readPolicyArtifactSubjectDraftText(source, subjectId) {
+  let sourceFile;
+  try {
+    sourceFile = ts.createSourceFile("privacy-policy.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  } catch {
+    return null;
+  }
+
+  const literalPropertyText = (objectLiteral, propertyName) => {
+    for (const property of objectLiteral.properties) {
+      if (!ts.isPropertyAssignment(property)) continue;
+      const name = ts.isIdentifier(property.name)
+        ? property.name.text
+        : ts.isStringLiteralLike(property.name)
+          ? property.name.text
+          : undefined;
+      if (name !== propertyName) continue;
+      return concatenatedStringLiteral(property.initializer);
+    }
+    return null;
+  };
+
+  let found = null;
+  const visit = (node) => {
+    if (found === null && ts.isObjectLiteralExpression(node)) {
+      const id = literalPropertyText(node, "id");
+      if (id === subjectId) {
+        found = literalPropertyText(node, "draftText");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+/** Resolves a string literal or a `"a" + "b"` concatenation of string
+ *  literals; anything else is unresolved. */
+function concatenatedStringLiteral(expression) {
+  if (ts.isStringLiteralLike(expression)) return expression.text;
+  if (ts.isParenthesizedExpression(expression)) return concatenatedStringLiteral(expression.expression);
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = concatenatedStringLiteral(expression.left);
+    const right = concatenatedStringLiteral(expression.right);
+    return left === null || right === null ? null : left + right;
+  }
+  return null;
+}
+
 function buildLegalPrivacyRow(repoRootPath) {
   const missingRoutes = [PRIVACY_ROUTE_PATH, TERMS_ROUTE_PATH].filter(
     (relativePath) => !existsSync(path.join(repoRootPath, relativePath)),
   );
-  const localePath = path.join(repoRootPath, PRIVACY_LOCALE_PATH);
-  const localeExists = existsSync(localePath);
-  const disclosesUtmCollection = localeExists && /utm/i.test(readFileSync(localePath, "utf8"));
-  const status = missingRoutes.length === 0 && disclosesUtmCollection ? "pass" : "fail";
+  const privacySourcePath = path.join(repoRootPath, PRIVACY_POLICY_SOURCE_PATH);
+  const privacySourceExists = existsSync(privacySourcePath);
+  const canonicalDisclosure = privacySourceExists
+    ? readPolicyArtifactSubjectDraftText(
+        readFileSync(privacySourcePath, "utf8"),
+        PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID,
+      )
+    : null;
+  const canonicalSubjectResolved = typeof canonicalDisclosure === "string";
+  const lowered = canonicalSubjectResolved ? canonicalDisclosure.toLowerCase() : "";
+  const missingDisclosureTokens = canonicalSubjectResolved
+    ? REQUIRED_PRIVACY_CAMPAIGN_DISCLOSURE_TOKENS.filter((token) => !lowered.includes(token))
+    : [...REQUIRED_PRIVACY_CAMPAIGN_DISCLOSURE_TOKENS];
+  const disclosesCampaignAttribution = canonicalSubjectResolved && missingDisclosureTokens.length === 0;
+  const status = missingRoutes.length === 0 && disclosesCampaignAttribution ? "pass" : "fail";
   return {
     key: "legal-privacy-surfaces-adequate",
     label: "Legal/privacy surfaces adequate for collecting signups",
     automated: true,
     status,
-    evidence: { missingRoutes, localeExists, disclosesUtmCollection },
+    evidence: {
+      missingRoutes,
+      canonicalPrivacySourcePath: PRIVACY_POLICY_SOURCE_PATH,
+      canonicalPrivacySubjectId: PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID,
+      privacySourceExists,
+      canonicalSubjectResolved,
+      missingDisclosureTokens,
+      disclosesCampaignAttribution,
+    },
     note:
       status === "pass"
-        ? "Privacy and terms routes exist and the privacy copy discloses UTM/referrer collection."
-        : `Legal/privacy evidence incomplete: missing routes [${missingRoutes.join(", ")}]; UTM disclosure present=${disclosesUtmCollection}.`,
+        ? `Privacy and terms routes exist and the canonical '${PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID}' Privacy subject discloses UTM/referrer collection.`
+        : `Legal/privacy evidence incomplete: missing routes [${missingRoutes.join(", ")}]; canonical Privacy subject resolved=${canonicalSubjectResolved}; missing disclosure tokens [${missingDisclosureTokens.join(", ")}].`,
   };
 }
 

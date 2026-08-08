@@ -108,6 +108,22 @@ export function evaluateCanonicalClaimConsistency(
         }
 
         if (definition.status === "settled") {
+          // One provenance identity per shared claim: a sibling artifact may
+          // not cite adjacent or narrower evidence for the same material
+          // claim, so cross-document drift fails structurally.
+          if (
+            claimRef.productTruthRefs.length !== definition.productTruthRefs.length ||
+            claimRef.productTruthRefs.some((ref, index) => ref !== definition.productTruthRefs[index])
+          ) {
+            violations.push({
+              policyKey,
+              sectionId: section.id,
+              claimId: claimRef.claimId,
+              reason:
+                "does not cite this canonical claim's exact product-truth provenance identity " +
+                `(${definition.productTruthRefs.join("; ")}).`,
+            });
+          }
           if (claimRef.productTruthRefs.length === 0) {
             violations.push({
               policyKey,
