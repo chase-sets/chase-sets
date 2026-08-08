@@ -106,6 +106,9 @@ const batteryWorkUnits = {
   analyzerSourceRewriteModuleImports: 0,
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: 0,
+  reconciliationGitLsFilesSpawns: 0,
+  compilerSurfaceSourceParses: 0,
+  trackedFilesDigested: 0,
 };
 
 const batteryWorkUnitCeilings = Object.freeze({
@@ -116,6 +119,9 @@ const batteryWorkUnitCeilings = Object.freeze({
   analyzerSourceRewriteModuleImports: 0,
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: 408,
+  reconciliationGitLsFilesSpawns: 3,
+  compilerSurfaceSourceParses: 7,
+  trackedFilesDigested: 105,
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
@@ -220,6 +226,8 @@ const enumeration = loadConsentAuthorizationCaseEnumeration();
 const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-case-enumeration-v1.schema.json`);
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
 const aggregateSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-aggregate-v1.schema.json`);
+const evidenceReceipt = readJsonFixture("scripts/check-structure/consent-authorization-evidence-receipt.json");
+Object.assign(batteryWorkUnits, evidenceReceipt.digestBound.workUnits);
 const ownerContexts = loadTypeScriptOwnerContextArtifact();
 const ownerContextPartition = loadTypeScriptOwnerContextPartition();
 const ownerContextSchema = loadTypeScriptOwnerContextSchema();
@@ -247,6 +255,7 @@ const committedBatteryWorkUnits = Object.freeze({
   analyzerSourceRewriteModuleImports: 0,
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: committedTotalChildProcessSpawnsByEnvironment[realTreeResult.environment],
+  ...evidenceReceipt.digestBound.workUnits,
 });
 const realTreeProvenance = {
   environment: realTreeResult.environment,
