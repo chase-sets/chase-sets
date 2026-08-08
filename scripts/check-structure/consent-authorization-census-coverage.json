@@ -223,9 +223,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-shadowed-lexical-constant-element-access.ts",
       "plantedAt": "zz-unrelated/plain-directory/key-shadowed-lexical-constant-element-access.ts",
       "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "key-shadowed-lexical-constant-template-element-access",
@@ -236,9 +235,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-shadowed-lexical-constant-template-element-access.ts",
       "plantedAt": "zz-unrelated/plain-directory/key-shadowed-lexical-constant-template-element-access.ts",
       "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "key-computed-binding-element-over-lexical-constant",
@@ -249,9 +247,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-computed-binding-element-over-lexical-constant.ts",
       "plantedAt": "zz-unrelated/plain-directory/key-computed-binding-element-over-lexical-constant.ts",
       "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "key-computed-binding-element-over-constant-template",
@@ -262,9 +259,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-computed-binding-element-over-constant-template.ts",
       "plantedAt": "zz-unrelated/plain-directory/key-computed-binding-element-over-constant-template.ts",
       "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "key-unrelated-constructor-like-string",
@@ -394,9 +390,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-no-substitution-template-dynamic-import.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-no-substitution-template-dynamic-import.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-lexical-constant-dynamic-import",
@@ -407,9 +402,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-lexical-constant-dynamic-import.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-lexical-constant-dynamic-import.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-constant-concatenation-dynamic-import",
@@ -420,9 +414,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-constant-concatenation-dynamic-import.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-constant-concatenation-dynamic-import.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-no-substitution-template-require",
@@ -433,9 +426,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-no-substitution-template-require.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-no-substitution-template-require.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-lexical-constant-require",
@@ -446,9 +438,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-lexical-constant-require.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-lexical-constant-require.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-constant-concatenation-require",
@@ -459,9 +450,8 @@
       "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-constant-concatenation-require.ts",
       "plantedAt": "zz-unrelated/plain-directory/specifier-constant-concatenation-require.ts",
       "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
-      "disposition": "declared-open",
-      "census": "admitted-unknown",
-      "owner": "#6493"
+      "disposition": "classified",
+      "census": "classified"
     },
     {
       "rowId": "specifier-runtime-unknown",

@@ -368,13 +368,13 @@ describe("Consent authorization evidence receipt", () => {
   it("keeps the battery verifier outside the real mutation harness", () => {
     expect(mutationEvidenceCases).toEqual([]);
     expect(executeConsentAuthorizationMutationEvidence).toBeUndefined();
-    expect(receipt.digestBound.cases).toHaveLength(30);
+    expect(receipt.digestBound.cases).toHaveLength(39);
     expect(receipt.digestBound.aggregate.counts).toEqual({
-      total: 30,
-      candidateGreen: 30,
-      mutantRed: 30,
-      active: 30,
-      preserved: 30,
+      total: 39,
+      candidateGreen: 39,
+      mutantRed: 39,
+      active: 39,
+      preserved: 39,
     });
   });
 });

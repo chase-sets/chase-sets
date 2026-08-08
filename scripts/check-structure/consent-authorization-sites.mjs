@@ -839,8 +839,9 @@ function reachesCanonicalModule(relativeFile, specifier) {
   return resolved === declarationModulePath || withoutExtension === declarationModulePath;
 }
 
-function canonicalSpecifierText(node) {
-  return node && ts.isStringLiteral(node) ? node.text : null;
+function canonicalSpecifierText(node, bindings = null) {
+  if (node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))) return node.text;
+  return bindings === null ? null : resolveConsentAuthorizationConstantKey(node, bindings);
 }
 
 /**
@@ -853,9 +854,7 @@ export const consentAuthorizationAcquisitionArms = Object.freeze(["dynamic-impor
 /**
  * The specifier expression shapes the acquisition classifier dispositions by
  * name. Each member is one branch: `folded` says whether this analyzer can fold
- * the shape to one definite specifier string, and only the string-literal shape
- * can be, because folding the other three is the declared-open residual the
- * sibling slice owns. Every
+ * the shape to one definite specifier string. Every
  * specifier expression whose kind no member names routes to the named
  * `runtime-unknown` default arm by construction, so a shape this table does not
  * carry is an admitted unknown rather than a silent drop.
@@ -863,18 +862,18 @@ export const consentAuthorizationAcquisitionArms = Object.freeze(["dynamic-impor
 export const consentAuthorizationSpecifierShapeDispositions = Object.freeze(
   [
     { shape: "string-literal", syntaxKind: "StringLiteral", folded: true },
-    { shape: "no-substitution-template", syntaxKind: "NoSubstitutionTemplateLiteral", folded: false },
-    { shape: "identifier", syntaxKind: "Identifier", folded: false },
-    { shape: "concatenation", syntaxKind: "BinaryExpression", folded: false },
+    { shape: "no-substitution-template", syntaxKind: "NoSubstitutionTemplateLiteral", folded: true },
+    { shape: "identifier", syntaxKind: "Identifier", folded: true },
+    { shape: "concatenation", syntaxKind: "BinaryExpression", folded: true },
   ].map((entry) => Object.freeze(entry)),
 );
 
 export const consentAuthorizationSpecifierRuntimeUnknownArm = "specifier:runtime-unknown";
 
 /**
- * The disposition table must name compiler syntax kinds, and exactly one member
- * may fold, so the table can never quietly widen into the declared-open
- * residual the sibling slice owns.
+ * The disposition table must name compiler syntax kinds, and every named member
+ * must fold. An expression shape the resolver cannot fold stays outside the
+ * table and reaches the runtime-unknown residual by construction.
  */
 export function assertConsentAuthorizationSpecifierShapeDispositions(
   dispositions = consentAuthorizationSpecifierShapeDispositions,
@@ -884,11 +883,11 @@ export function assertConsentAuthorizationSpecifierShapeDispositions(
     .filter((syntaxKind) => typeof ts.SyntaxKind[syntaxKind] !== "number");
   const shapes = dispositions.map(({ shape }) => shape);
   const duplicated = shapes.filter((shape, index) => shapes.indexOf(shape) !== index);
-  if (unresolved.length > 0 || duplicated.length > 0 || dispositions.filter(({ folded }) => folded).length !== 1) {
+  if (unresolved.length > 0 || duplicated.length > 0 || dispositions.some(({ folded }) => folded !== true)) {
     throw guardFailure(
       "consent-authorization-specifier-shape-disposition-invalid",
       "coverage.specifier-shape-disposition",
-      "the committed specifier shape disposition does not name distinct compiler syntax kinds with exactly one folded shape",
+      "the committed specifier shape disposition does not name distinct compiler syntax kinds that all fold",
       { unresolved, duplicated },
     );
   }
@@ -906,8 +905,8 @@ function consentAuthorizationSpecifierShape(node) {
   );
 }
 
-// A `const` name whose value is not one resolvable string -- two declarations of
-// one name, or a value this resolver cannot fold -- is unresolved, never a
+// A name whose nearest declaration is not one resolvable `const` string --
+// including duplicate declarations in one scope -- is unresolved, never a
 // guess.
 const ambiguousConstantBinding = Symbol("ambiguous-constant-binding");
 
@@ -921,11 +920,121 @@ const valueTransparentExpressionKinds = new Set([
   ts.SyntaxKind.TypeAssertionExpression,
 ]);
 
-function collectConstantStringBinding(node, bindings) {
-  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
-  const list = node.parent;
-  if (!ts.isVariableDeclarationList(list) || (list.flags & ts.NodeFlags.Const) === 0) return;
-  bindings.set(node.name.text, bindings.has(node.name.text) ? ambiguousConstantBinding : node.initializer);
+function isConsentAuthorizationDeclarationScope(candidate) {
+  return (
+    ts.isSourceFile(candidate) ||
+    ts.isBlock(candidate) ||
+    ts.isFunctionLike(candidate) ||
+    ts.isModuleBlock(candidate) ||
+    ts.isForStatement(candidate) ||
+    ts.isForInStatement(candidate) ||
+    ts.isForOfStatement(candidate) ||
+    ts.isCatchClause(candidate) ||
+    ts.isCaseBlock(candidate)
+  );
+}
+
+function declarationScopeFor(candidate) {
+  for (let current = candidate; current; current = current.parent) {
+    if (isConsentAuthorizationDeclarationScope(current)) return current;
+  }
+  return candidate.getSourceFile();
+}
+
+function variableDeclarationScope(candidate, list) {
+  if ((list.flags & ts.NodeFlags.BlockScoped) !== 0) return declarationScopeFor(candidate.parent);
+  for (let current = candidate.parent; current; current = current.parent) {
+    if (ts.isFunctionLike(current) || ts.isSourceFile(current)) return current;
+  }
+  return candidate.getSourceFile();
+}
+
+function registerConstantBinding(state, scope, name, binding) {
+  let local = state.byScope.get(scope);
+  if (!local) {
+    local = new Map();
+    state.byScope.set(scope, local);
+  }
+  local.set(name, local.has(name) ? ambiguousConstantBinding : binding);
+  let scopes = state.nameScopes.get(name);
+  if (!scopes) {
+    scopes = new Set();
+    state.nameScopes.set(name, scopes);
+  }
+  scopes.add(scope);
+}
+
+function collectConstantStringBinding(candidate, state) {
+  if (ts.isVariableDeclaration(candidate) && ts.isIdentifier(candidate.name)) {
+    const list = candidate.parent;
+    const isConstant =
+      ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0 && candidate.initializer;
+    const scope = ts.isVariableDeclarationList(list)
+      ? variableDeclarationScope(candidate, list)
+      : declarationScopeFor(candidate.parent);
+    registerConstantBinding(
+      state,
+      scope,
+      candidate.name.text,
+      isConstant
+        ? { name: candidate.name.text, initializer: candidate.initializer, scope, state }
+        : ambiguousConstantBinding,
+    );
+    return;
+  }
+
+  if (ts.isBindingElement(candidate) && ts.isIdentifier(candidate.name)) {
+    registerConstantBinding(
+      state,
+      declarationScopeFor(candidate.parent),
+      candidate.name.text,
+      ambiguousConstantBinding,
+    );
+    return;
+  }
+
+  if (ts.isParameter(candidate) && ts.isIdentifier(candidate.name)) {
+    registerConstantBinding(
+      state,
+      declarationScopeFor(candidate.parent),
+      candidate.name.text,
+      ambiguousConstantBinding,
+    );
+    return;
+  }
+
+  const declaredName =
+    (ts.isFunctionDeclaration(candidate) || ts.isClassDeclaration(candidate) || ts.isEnumDeclaration(candidate)) &&
+    candidate.name &&
+    ts.isIdentifier(candidate.name)
+      ? candidate.name.text
+      : ts.isImportClause(candidate) && candidate.name
+        ? candidate.name.text
+        : (ts.isNamespaceImport(candidate) || ts.isImportSpecifier(candidate)) && ts.isIdentifier(candidate.name)
+          ? candidate.name.text
+          : null;
+  if (declaredName !== null) {
+    registerConstantBinding(state, declarationScopeFor(candidate.parent), declaredName, ambiguousConstantBinding);
+  }
+}
+
+function constantBindingsForScope(scope, state) {
+  const flattened = new Map();
+  for (let current = scope; current; current = declarationScopeFor(current.parent)) {
+    for (const [name, binding] of state.byScope.get(current) ?? []) {
+      if (!flattened.has(name)) flattened.set(name, binding);
+    }
+    if (ts.isSourceFile(current)) break;
+  }
+  return flattened;
+}
+
+function constantBindingsForPosition(position, state) {
+  return constantBindingsForScope(declarationScopeFor(position), state);
+}
+
+function isConstantBindingRecord(binding) {
+  return binding !== null && typeof binding === "object" && "initializer" in binding && "scope" in binding;
 }
 
 /**
@@ -958,10 +1067,11 @@ export function resolveConsentAuthorizationConstantKey(node, bindings, seen = ne
   }
   if (ts.isIdentifier(node)) {
     const bound = bindings.get(node.text);
-    if (bound === undefined || bound === ambiguousConstantBinding || seen.has(node.text)) return null;
-    seen.add(node.text);
-    const resolved = resolveConsentAuthorizationConstantKey(bound, bindings, seen);
-    seen.delete(node.text);
+    if (!isConstantBindingRecord(bound) || seen.has(bound)) return null;
+    seen.add(bound);
+    const declarationBindings = constantBindingsForScope(bound.scope, bound.state);
+    const resolved = resolveConsentAuthorizationConstantKey(bound.initializer, declarationBindings, seen);
+    seen.delete(bound);
     return resolved;
   }
   return null;
@@ -973,9 +1083,9 @@ export function resolveConsentAuthorizationConstantKey(node, bindings, seen = ne
  * The constant-key outcomes this analyzer already decides at a key position,
  * named so the coverage seam can be handed the outcome that was observed rather
  * than recomputing one. `written-literal` is a key decided at its own literal;
- * `shadowed-lexical-constant` is a key that names a constant binding this
- * analyzer already marked ambiguous because the name is declared more than
- * once; `lexical-constant` is a key that names collected constant bindings; and
+ * `shadowed-lexical-constant` is a key that names a constant binding whose name
+ * is declared in more than one scope; `lexical-constant` is a key that names
+ * collected constant bindings; and
  * `runtime` is every other key. A tag says which outcome the position reached
  * and never what the key spells: no folded value leaves this function, so
  * reading one cannot reach a constructor name.
@@ -994,8 +1104,12 @@ export function consentAuthorizationConstantKeyOutcome(node, bindings = noConsta
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return "written-literal";
   const names = collectNodes(node, ts.isIdentifier).map((identifier) => identifier.text);
   if (names.length === 0) return "runtime";
-  if (names.some((name) => bindings.get(name) === ambiguousConstantBinding)) return "shadowed-lexical-constant";
-  return names.every((name) => bindings.has(name)) ? "lexical-constant" : "runtime";
+  const records = names.map((name) => bindings.get(name));
+  if (records.some((binding) => !isConstantBindingRecord(binding))) return "runtime";
+  if (records.some((binding) => binding.state.nameScopes.get(binding.name)?.size > 1)) {
+    return "shadowed-lexical-constant";
+  }
+  return "lexical-constant";
 }
 
 export const consentAuthorizationKeySyntaxRoles = Object.freeze(["element-access", "binding-element"]);
@@ -1157,7 +1271,16 @@ function admittedUnknown(relativeFile, sourceFile, node, axis, arm, form = null)
  * constructor reached through it. Each form is recorded where it is written,
  * and the local names it binds are returned so their uses can be classified.
  */
-function collectCanonicalModuleBinding(relativeFile, sourceFile, node, bindings, accesses, unknowns) {
+function collectCanonicalModuleBinding(
+  relativeFile,
+  sourceFile,
+  node,
+  constantBindingState,
+  bindings,
+  accesses,
+  unknowns,
+  acquisitions,
+) {
   if (
     ts.isImportDeclaration(node) &&
     reachesCanonicalModule(relativeFile, canonicalSpecifierText(node.moduleSpecifier))
@@ -1214,7 +1337,13 @@ function collectCanonicalModuleBinding(relativeFile, sourceFile, node, bindings,
   // the same template shape taken through `require`.
   const disposition = consentAuthorizationSpecifierShape(specifier);
   const arm = disposition ? `${acquired}:${disposition.shape}` : consentAuthorizationSpecifierRuntimeUnknownArm;
-  const text = disposition?.folded === true ? canonicalSpecifierText(specifier) : null;
+  acquisitions.push({ node, specifier, acquired, arm, disposition, constantBindingState, accesses, unknowns });
+}
+
+function classifyCanonicalModuleAcquisition(relativeFile, sourceFile, acquisition) {
+  const { node, specifier, acquired, arm, disposition, constantBindingState, accesses, unknowns } = acquisition;
+  const bindings = constantBindingsForPosition(specifier, constantBindingState);
+  const text = disposition?.folded === true ? canonicalSpecifierText(specifier, bindings) : null;
   if (text === null) {
     unknowns.push(admittedUnknown(relativeFile, sourceFile, specifier, "specifier", arm, acquired));
     return;
@@ -1233,15 +1362,25 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
     scriptKindFor(relativeFile),
   );
   const references = [];
-  const constantBindings = new Map();
+  const constantBindingState = { byScope: new Map(), nameScopes: new Map() };
   const canonicalBindings = new Map();
   const canonicalAccesses = [];
   const unknowns = [];
   const elementAccesses = [];
   const computedBindingKeys = [];
+  const acquisitions = [];
   const visit = (node) => {
-    collectConstantStringBinding(node, constantBindings);
-    collectCanonicalModuleBinding(relativeFile, sourceFile, node, canonicalBindings, canonicalAccesses, unknowns);
+    collectConstantStringBinding(node, constantBindingState);
+    collectCanonicalModuleBinding(
+      relativeFile,
+      sourceFile,
+      node,
+      constantBindingState,
+      canonicalBindings,
+      canonicalAccesses,
+      unknowns,
+      acquisitions,
+    );
     if (ts.isElementAccessExpression(node)) elementAccesses.push(node);
     if (
       ts.isBindingElement(node) &&
@@ -1305,6 +1444,10 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
   };
   visit(sourceFile);
 
+  for (const acquisition of acquisitions) {
+    classifyCanonicalModuleAcquisition(relativeFile, sourceFile, acquisition);
+  }
+
   // The constant bindings are complete only once the whole module has been
   // walked, so every key that is constant by resolution rather than by literal
   // is folded here. A key written as a literal is already classified at the
@@ -1313,6 +1456,8 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
   for (const access of elementAccesses) {
     const argument = access.argumentExpression;
     if (!argument || ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) continue;
+    const constantBindings = constantBindingsForPosition(argument, constantBindingState);
+    const constantKeyOutcome = consentAuthorizationConstantKeyOutcome(argument, constantBindings);
     const key = resolveConsentAuthorizationConstantKey(argument, constantBindings);
     if (key === null) {
       unknowns.push(
@@ -1321,49 +1466,53 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
           sourceFile,
           argument,
           "key",
-          deriveConsentAuthorizationKeyCoverageIdentity(
-            "element-access",
-            argument.kind,
-            consentAuthorizationConstantKeyOutcome(argument, constantBindings),
-          ),
+          deriveConsentAuthorizationKeyCoverageIdentity("element-access", argument.kind, constantKeyOutcome),
         ),
       );
       continue;
     }
     if (!constructorNames.has(key)) continue;
-    // The arm is the outermost key form the resolver folded, so every branch of
-    // the constant-key grammar is its own published census arm rather than one
-    // undifferentiated "resolved key".
+    const coverageIdentity = deriveConsentAuthorizationKeyCoverageIdentity(
+      "element-access",
+      argument.kind,
+      constantKeyOutcome,
+    );
     references.push({
       file: relativeFile,
       constructor: key,
       line: lineFor(sourceFile, access),
       referenceClass: "unexpected",
       axis: "key",
-      arm: `constant-key:${ts.SyntaxKind[argument.kind]}`,
+      arm:
+        coverageIdentity === consentAuthorizationKeyRuntimeUnknownArm
+          ? `constant-key:${ts.SyntaxKind[argument.kind]}`
+          : coverageIdentity,
       syntaxKind: ts.SyntaxKind[access.kind],
     });
   }
 
   // Counted after the walk for the same reason: the coverage seam is told which
   // constant-key outcome this position reached, and that outcome is only decided
-  // once every constant binding in the module has been collected. No key is
-  // folded here -- a computed binding-element key stays an admitted unknown, and
-  // resolving one is the sibling slice's work, not this arm's.
+  // once every constant binding in the module has been collected.
   for (const key of computedBindingKeys) {
-    unknowns.push(
-      admittedUnknown(
-        relativeFile,
-        sourceFile,
-        key,
-        "key",
-        deriveConsentAuthorizationKeyCoverageIdentity(
-          "binding-element",
-          key.kind,
-          consentAuthorizationConstantKeyOutcome(key, constantBindings),
-        ),
-      ),
-    );
+    const constantBindings = constantBindingsForPosition(key, constantBindingState);
+    const constantKeyOutcome = consentAuthorizationConstantKeyOutcome(key, constantBindings);
+    const arm = deriveConsentAuthorizationKeyCoverageIdentity("binding-element", key.kind, constantKeyOutcome);
+    const resolved = resolveConsentAuthorizationConstantKey(key, constantBindings);
+    if (resolved === null) {
+      unknowns.push(admittedUnknown(relativeFile, sourceFile, key, "key", arm));
+      continue;
+    }
+    if (!constructorNames.has(resolved)) continue;
+    references.push({
+      file: relativeFile,
+      constructor: resolved,
+      line: lineFor(sourceFile, key),
+      referenceClass: "unexpected",
+      axis: "key",
+      arm: arm === consentAuthorizationKeyRuntimeUnknownArm ? `constant-key:${ts.SyntaxKind[key.kind]}` : arm,
+      syntaxKind: ts.SyntaxKind[key.parent.kind],
+    });
   }
 
   references.push(...canonicalAccesses);
@@ -1385,6 +1534,7 @@ export function scanConsentAuthorizationSource(relativeFile, source, artifact) {
             // A key that resolves is already classified above or at its
             // literal; a key that does not resolve could name any export of the
             // module, so it fails closed.
+            const constantBindings = constantBindingsForPosition(parent.argumentExpression, constantBindingState);
             if (resolveConsentAuthorizationConstantKey(parent.argumentExpression, constantBindings) === null) {
               references.push(noncanonicalAccess(relativeFile, sourceFile, parent, "dynamic-key", node.text));
             }
