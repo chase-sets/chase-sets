@@ -51,10 +51,7 @@ function blockBody(name: BlockName): string {
 
 function declarationMap(name: BlockName): Record<string, string> {
   return Object.fromEntries(
-    [...blockBody(name).matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);\s*$/gm)].map((match) => [
-      match[1]!,
-      match[2]!.trim(),
-    ]),
+    [...blockBody(name).matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);\s*$/gm)].map((match) => [match[1]!, match[2]!.trim()]),
   );
 }
 
