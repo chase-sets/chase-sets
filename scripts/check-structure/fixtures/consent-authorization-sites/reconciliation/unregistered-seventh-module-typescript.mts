@@ -1,0 +1,3 @@
+function seventhModuleProbe() {
+  authorizeConsentForActor(context);
+}

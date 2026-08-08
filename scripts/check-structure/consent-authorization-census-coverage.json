@@ -1,0 +1,479 @@
+{
+  "contractVersion": "consent-authorization-census-coverage/v1",
+  "version": 1,
+  "axisAuthorities": {
+    "key": "resolveConsentAuthorizationConstantKey",
+    "specifier": "collectCanonicalModuleBinding"
+  },
+  "residualArms": {
+    "key": { "arm": "key:runtime-unknown" },
+    "specifier": { "arm": "specifier:runtime-unknown", "witnessRow": "specifier-runtime-unknown" }
+  },
+  "rows": [
+    {
+      "rowId": "key-direct-identifier-call",
+      "axis": "key",
+      "expressionKind": "Identifier",
+      "arm": "consumption:direct-identifier",
+      "shape": "the canonical constructor called directly through its own identifier",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-direct-identifier-call.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-direct-identifier-call.ts",
+      "signature": { "referenceClass": "consumption", "constructor": "authorizeConsentForActor" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-string-literal-element-access",
+      "axis": "key",
+      "expressionKind": "StringLiteral",
+      "arm": "key:element-access:written-string-literal",
+      "shape": "element access whose key is written as a string literal",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-string-literal-element-access.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-string-literal-element-access.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-no-substitution-template-element-access",
+      "axis": "key",
+      "expressionKind": "NoSubstitutionTemplateLiteral",
+      "arm": "computed-property:element-access",
+      "shape": "element access whose key is written as a no-substitution template",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-no-substitution-template-element-access.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-no-substitution-template-element-access.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-string-literal-binding-element-property-name",
+      "axis": "key",
+      "expressionKind": "StringLiteral",
+      "arm": "computed-property:binding-element-property-name",
+      "shape": "a binding element whose property name is a string literal",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-string-literal-binding-element-property-name.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-string-literal-binding-element-property-name.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "BindingElement"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-string-literal-computed-property-name-in-binding-element",
+      "axis": "key",
+      "expressionKind": "StringLiteral",
+      "arm": "computed-property:binding-element-computed-name",
+      "shape": "a computed property name inside a binding element written as a string literal",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-string-literal-computed-property-name-in-binding-element.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-string-literal-computed-property-name-in-binding-element.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ComputedPropertyName"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-lexical-constant",
+      "axis": "key",
+      "expressionKind": "Identifier",
+      "arm": "constant-key:Identifier",
+      "shape": "element access over an unshadowed lexical constant",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-lexical-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-lexical-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-constant-template-expression",
+      "axis": "key",
+      "expressionKind": "TemplateExpression",
+      "arm": "constant-key:TemplateExpression",
+      "shape": "element access over a template expression whose substitutions are unshadowed lexical constants",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-constant-template-expression.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-constant-template-expression.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-constant-concatenation",
+      "axis": "key",
+      "expressionKind": "BinaryExpression",
+      "arm": "constant-key:BinaryExpression",
+      "shape": "element access over constant concatenation",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-constant-concatenation.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-constant-concatenation.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-parenthesized-constant",
+      "axis": "key",
+      "expressionKind": "ParenthesizedExpression",
+      "arm": "constant-key:ParenthesizedExpression",
+      "shape": "element access over a parenthesized constant key",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-parenthesized-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-parenthesized-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-as-expression-constant",
+      "axis": "key",
+      "expressionKind": "AsExpression",
+      "arm": "constant-key:AsExpression",
+      "shape": "element access over a constant key wrapped in an as expression",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-as-expression-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-as-expression-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-satisfies-expression-constant",
+      "axis": "key",
+      "expressionKind": "SatisfiesExpression",
+      "arm": "constant-key:SatisfiesExpression",
+      "shape": "element access over a constant key wrapped in a satisfies expression",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-satisfies-expression-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-satisfies-expression-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-non-null-constant",
+      "axis": "key",
+      "expressionKind": "NonNullExpression",
+      "arm": "constant-key:NonNullExpression",
+      "shape": "element access over a constant key wrapped in a non-null assertion",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-non-null-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-non-null-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-element-access-over-type-assertion-constant",
+      "axis": "key",
+      "expressionKind": "TypeAssertionExpression",
+      "arm": "constant-key:TypeAssertionExpression",
+      "shape": "element access over a constant key wrapped in an angle-bracket type assertion",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-element-access-over-type-assertion-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-element-access-over-type-assertion-constant.ts",
+      "signature": {
+        "referenceClass": "unexpected",
+        "constructor": "authorizeConsentForActor",
+        "syntaxKind": "ElementAccessExpression"
+      },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "key-shadowed-lexical-constant-element-access",
+      "axis": "key",
+      "expressionKind": "Identifier",
+      "arm": "key:element-access:shadowed-lexical-constant:identifier",
+      "shape": "element access whose constant key is shadowed by a second lexical binding of the same name",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-shadowed-lexical-constant-element-access.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-shadowed-lexical-constant-element-access.ts",
+      "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "key-shadowed-lexical-constant-template-element-access",
+      "axis": "key",
+      "expressionKind": "TemplateExpression",
+      "arm": "key:element-access:shadowed-lexical-constant:template-expression",
+      "shape": "the template-key form of a constant key shadowed by a second lexical binding of the same name",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-shadowed-lexical-constant-template-element-access.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-shadowed-lexical-constant-template-element-access.ts",
+      "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "key-computed-binding-element-over-lexical-constant",
+      "axis": "key",
+      "expressionKind": "Identifier",
+      "arm": "key:binding-element:lexical-constant:identifier",
+      "shape": "a computed binding-element key over a lexical constant",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-computed-binding-element-over-lexical-constant.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-computed-binding-element-over-lexical-constant.ts",
+      "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "key-computed-binding-element-over-constant-template",
+      "axis": "key",
+      "expressionKind": "TemplateExpression",
+      "arm": "key:binding-element:lexical-constant:template-expression",
+      "shape": "the template form of a computed binding-element key over a lexical constant",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-computed-binding-element-over-constant-template.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-computed-binding-element-over-constant-template.ts",
+      "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "key-unrelated-constructor-like-string",
+      "axis": "key",
+      "expressionKind": "StringLiteral",
+      "shape": "an unrelated constructor-like string that is never used as a key",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/key-unrelated-constructor-like-string.ts",
+      "plantedAt": "zz-unrelated/plain-directory/key-unrelated-constructor-like-string.ts",
+      "signature": { "referenceClass": "unexpected", "constructor": "authorizeConsentForActor" },
+      "disposition": "silent-by-design",
+      "census": "silent"
+    },
+    {
+      "rowId": "specifier-canonical-named-import",
+      "axis": "specifier",
+      "expressionKind": "ImportDeclaration",
+      "arm": "specifier:canonical-named-import",
+      "shape": "the canonical named import of a constructor from the declaration module",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-canonical-named-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-canonical-named-import.ts",
+      "signature": { "referenceClass": "import", "constructor": "authorizeConsentForActor" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-namespace-import",
+      "axis": "specifier",
+      "expressionKind": "ImportDeclaration",
+      "arm": "specifier:namespace-import",
+      "shape": "a namespace import of the declaration module",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-namespace-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-namespace-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "namespace-import" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-default-import",
+      "axis": "specifier",
+      "expressionKind": "ImportDeclaration",
+      "arm": "specifier:default-import",
+      "shape": "a default import of the declaration module",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-default-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-default-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "default-import" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-import-equals",
+      "axis": "specifier",
+      "expressionKind": "ImportEqualsDeclaration",
+      "arm": "specifier:import-equals",
+      "shape": "the import-equals form over the declaration module",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-import-equals.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-import-equals.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "import-equals" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-namespace-re-export",
+      "axis": "specifier",
+      "expressionKind": "ExportDeclaration",
+      "arm": "specifier:namespace-re-export",
+      "shape": "a namespace re-export of the declaration module",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-namespace-re-export.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-namespace-re-export.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "namespace-re-export" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-namespace-binding-dynamic-key",
+      "axis": "specifier",
+      "expressionKind": "ImportDeclaration",
+      "arm": "specifier:dynamic-key",
+      "shape": "a canonical namespace binding reached through a key the analyzer cannot fold",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-namespace-binding-dynamic-key.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-namespace-binding-dynamic-key.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-key" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-escaping-namespace-binding",
+      "axis": "specifier",
+      "expressionKind": "ImportDeclaration",
+      "arm": "specifier:escaping-binding",
+      "shape": "an escaping canonical namespace binding",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-escaping-namespace-binding.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-escaping-namespace-binding.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "escaping-binding" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-string-literal-dynamic-import",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "dynamic-import:string-literal",
+      "shape": "a dynamic import whose specifier is a string literal",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-string-literal-dynamic-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-string-literal-dynamic-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-string-literal-require",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "require:string-literal",
+      "shape": "a require call whose specifier is a string literal",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-string-literal-require.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-string-literal-require.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
+      "disposition": "classified",
+      "census": "classified"
+    },
+    {
+      "rowId": "specifier-no-substitution-template-dynamic-import",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "dynamic-import:no-substitution-template",
+      "shape": "a dynamic import whose specifier is a no-substitution template",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-no-substitution-template-dynamic-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-no-substitution-template-dynamic-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-lexical-constant-dynamic-import",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "dynamic-import:identifier",
+      "shape": "a dynamic import whose specifier is a lexical constant",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-lexical-constant-dynamic-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-lexical-constant-dynamic-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-constant-concatenation-dynamic-import",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "dynamic-import:concatenation",
+      "shape": "a dynamic import whose specifier is constant concatenation",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-constant-concatenation-dynamic-import.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-constant-concatenation-dynamic-import.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "dynamic-import" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-no-substitution-template-require",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "require:no-substitution-template",
+      "shape": "a require call whose specifier is a no-substitution template",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-no-substitution-template-require.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-no-substitution-template-require.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-lexical-constant-require",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "require:identifier",
+      "shape": "a require call whose specifier is a lexical constant",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-lexical-constant-require.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-lexical-constant-require.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-constant-concatenation-require",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "require:concatenation",
+      "shape": "a require call whose specifier is constant concatenation",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-constant-concatenation-require.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-constant-concatenation-require.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
+      "disposition": "declared-open",
+      "census": "admitted-unknown",
+      "owner": "#6493"
+    },
+    {
+      "rowId": "specifier-runtime-unknown",
+      "axis": "specifier",
+      "expressionKind": "CallExpression",
+      "arm": "specifier:runtime-unknown",
+      "shape": "a genuinely runtime-unknown acquisition specifier",
+      "fixture": "scripts/check-structure/fixtures/consent-authorization-sites/census/specifier-runtime-unknown.ts",
+      "plantedAt": "zz-unrelated/plain-directory/specifier-runtime-unknown.ts",
+      "signature": { "referenceClass": "noncanonical-module-access", "form": "require" },
+      "disposition": "silent-by-design",
+      "census": "admitted-unknown"
+    }
+  ]
+}

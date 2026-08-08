@@ -1,0 +1,1 @@
+const neutralLocal = () => authorizeConsentForActor(context);
