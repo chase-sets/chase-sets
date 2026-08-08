@@ -5,8 +5,14 @@ import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-
 // already exist on each issue. Collection is deliberately completed and
 // reconciled before the first write: partial board state must never drive a
 // partial synchronization.
+//
+// Status is a projection, never a second source of truth. The native issue type
+// and `status:tracking-only` are the inputs; `Epic` and `Tracking` are two of
+// the outputs. Every open issue therefore derives exactly one status, which is
+// what makes an unassigned Epic or continuity record impossible rather than
+// merely swept once by hand.
 
-export const DERIVED_STATUSES = Object.freeze(["Backlog", "Refined", "Blocked"]);
+export const DERIVED_STATUSES = Object.freeze(["Backlog", "Refined", "Blocked", "Epic", "Tracking"]);
 export const TERMINAL_STATUSES = Object.freeze(["Landed", "Canceled"]);
 export const NON_EXECUTABLE_MILESTONES = Object.freeze(["Deferred / Incubation", "Operations"]);
 export const REQUIRED_STATUS_OPTIONS = Object.freeze([...DERIVED_STATUSES, ...TERMINAL_STATUSES]);
@@ -114,6 +120,11 @@ function normalizedStateReason(issue) {
   return typeof issue.stateReason === "string" ? issue.stateReason.trim().toLowerCase().replaceAll("-", "_") : null;
 }
 
+// Total over every open issue: closed terminal -> Epic -> Tracking -> Blocked ->
+// Refined/Backlog. The form of the work outranks its continuity marker, so a
+// pathological untyped legacy epic also carrying `status:tracking-only` is an
+// `Epic`. Native type outranks the legacy `kind:epic` label inside
+// backlog-classify.mjs, which owns that decision.
 export function deriveStatus(issue) {
   const input = toBacklogInput(issue);
   if (input.state === "closed") {
@@ -125,8 +136,8 @@ export function deriveStatus(issue) {
       `closed issue has unsupported state reason ${reason === null || reason === "" ? "(none)" : reason}`,
     );
   }
-  if (classifiedEpic(input)) return null;
-  if (isTrackingOnly(input)) return null;
+  if (classifiedEpic(input)) return "Epic";
+  if (isTrackingOnly(input)) return "Tracking";
   if (input.blockedByCount > 0) return "Blocked";
   return classified(input) ? "Refined" : "Backlog";
 }
@@ -168,8 +179,10 @@ export function planStatusUpdates(items) {
   const updates = [];
   for (const item of items) {
     const input = toBacklogInput(item.issue);
+    // Total: every issue derives a status or deriveStatus throws. There is no
+    // "leave it alone" arm, which is what previously stranded Epics and
+    // tracking-only records with no Status at all.
     const next = deriveStatus(item.issue);
-    if (next === null) continue;
     const reopenedTerminal =
       input.state === "open" &&
       normalizedStateReason(item.issue) === "reopened" &&

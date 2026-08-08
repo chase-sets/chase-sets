@@ -96,7 +96,11 @@ Stable rule IDs map to the checklist:
    it as that Epic's native sub-issue. A future parent-or-standalone gate
    (including any `status:standalone` label) would require a new fixed-scope
    change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
-   records that it is not current controller behavior.
+   records that it is not current controller behavior. The delivery board's
+   Status is derived from these same facts, never hand-written: a native
+   **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
+   projects to `Tracking`, both non-executable
+   (`docs/contributing/backlog-model.md`).
    **`ready-00-dependencies-resolved`:** the complete native `Blocked by`
    collection contains no open blocker.
 1. **`ready-01-repo-evidence`:** repo evidence pointers present (≥2) and

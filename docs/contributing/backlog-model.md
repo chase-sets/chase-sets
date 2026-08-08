@@ -145,10 +145,56 @@ classified only when all of these hold:
 
 Unknown or malformed inputs fail closed. `status:tracking-only` issues are
 continuity records, not backlog; generated status reports them separately and
-the board sync leaves their current status untouched.
+the board sync projects them to the non-executable `Tracking` status.
 
 - **Refined / classified** — passes the current classification gate.
 - **Backlog** — captured but not classified. Normal for far-horizon work.
+
+## Delivery-board Status is derived, never hand-written
+
+The board's **Status** field is a projection of facts that already live on the
+issue. `scripts/project-status-sync.mjs` recomputes it; agents and operators
+create the *inputs* (native issue type, `status:tracking-only`, milestone,
+labels, dependencies, closure reason) and never hand-write a derived Status.
+Hand-setting one is not durable: the next sync overwrites it. In particular, a
+native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
+projects to `Tracking`.
+
+The derivation is total — every issue on the board resolves to exactly one
+status, so a newly filed Epic or continuity record can never sit unassigned.
+Precedence, first match wins:
+
+| # | Fact | Status |
+|---|---|---|
+| 1 | closed as completed | `Landed` |
+| 2 | closed as not planned or duplicate | `Canceled` |
+| 3 | native type **Epic** (or `kind:epic` on an untyped legacy issue) | `Epic` |
+| 4 | non-Epic carrying `status:tracking-only` | `Tracking` |
+| 5 | open native blocking dependency | `Blocked` |
+| 6 | classified (`refined ≡ classified`) | `Refined` |
+| 7 | otherwise | `Backlog` |
+
+Any other closure reason fails closed rather than guessing. Row 3 outranks row
+4: the *form* of the work is authoritative, so a pathological untyped legacy
+epic that also carries `status:tracking-only` is an `Epic`. Because the native
+type wins over the legacy label, a native **Slice** carrying `kind:epic` takes
+the ordinary rows 5–7.
+
+`Epic` and `Tracking` are **non-executable** statuses. They are never dispatch
+candidates, and a normal slice wrongly placed in either is corrected back to
+`Backlog`, `Refined`, or `Blocked`.
+
+`In lane`, `In review`, and `Landed` are **controller-owned** while present on
+an open issue: the sync preserves them rather than seizing an active lane. The
+one exception is an explicitly reopened terminal item, which returns to derived
+ownership. Preservation is not a claim that the lane state is still live —
+[#6560](https://github.com/chase-sets/chase-sets/issues/6560) owns proving and
+clearing stale lane ownership.
+
+The board's option IDs live in the `DELIVERY_STATUS_OPTION_IDS` repository
+variable, never in code or in a skill. The sync requires a non-empty option ID
+for every derived and terminal status and fails before it reads or writes
+anything when one is missing.
 
 Parent attachment is **reported, not gating**: the roadmap shows classified
 issues with no native parent per wave and in total, but `hasParent` does not
