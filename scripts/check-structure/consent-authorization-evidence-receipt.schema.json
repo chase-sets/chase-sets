@@ -22,11 +22,11 @@
               "additionalProperties": false,
               "required": ["total", "candidateGreen", "mutantRed", "active", "preserved"],
               "properties": {
-                "total": { "enum": [30] },
-                "candidateGreen": { "enum": [30] },
-                "mutantRed": { "enum": [30] },
-                "active": { "enum": [30] },
-                "preserved": { "enum": [30] }
+                "total": { "enum": [39] },
+                "candidateGreen": { "enum": [39] },
+                "mutantRed": { "enum": [39] },
+                "active": { "enum": [39] },
+                "preserved": { "enum": [39] }
               }
             },
             "reconciliation": {
@@ -37,8 +37,8 @@
                 "salvageHeadTotal": { "enum": [43] },
                 "retiredTotal": { "enum": [24] },
                 "carriedTotal": { "enum": [19] },
-                "addedTotal": { "enum": [11] },
-                "total": { "enum": [30] }
+                "addedTotal": { "enum": [20] },
+                "total": { "enum": [39] }
               }
             },
             "validStatus": { "enum": ["valid"] }

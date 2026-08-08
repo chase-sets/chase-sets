@@ -33,7 +33,7 @@ export const consentAuthorizationEvidenceFailureCodes = Object.freeze({
 export const consentAuthorizationEvidenceWorkUnitCeilings = Object.freeze({
   reconciliationGitLsFilesSpawns: 3,
   compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 105,
+  trackedFilesDigested: 111,
 });
 
 export class ConsentAuthorizationEvidenceError extends Error {
@@ -1073,7 +1073,7 @@ if (!evidenceVerifierOnly) {
    * coverage identities back to the exact three arm names the parked head
    * published, and changes nothing else. It is test-only and has no production
    * entrypoint, performs no Git, GitHub, or network access, copies no parked
-   * source, and is outside the thirty-case mutation ledger: its only job is to
+   * source, and is outside the committed mutation ledger: its only job is to
    * reproduce the parked arm sharing so the repair can be shown to be what
    * removes the survivors.
    */
@@ -1781,6 +1781,96 @@ if (!evidenceVerifierOnly) {
       "committed census coverage disposition",
     ),
     mutationCase(
+      "MUT-AC13-CONST-KEY-FILE-GLOBAL-SCOPE",
+      "AC13",
+      `${fixtureRoot}/references/sibling-scope-keys.ts`,
+      "collectConstantStringBinding / declaration scope",
+      "reference.constant-key.declaration-scope",
+      "consent-authorization-reference-unclassified",
+      null,
+      "sibling lexical constant bindings",
+    ),
+    mutationCase(
+      "MUT-AC13-NEAREST-BINDING-OUTERMOST",
+      "AC13",
+      `${fixtureRoot}/references/nested-shadowing-key.ts`,
+      "constantBindingsForScope / nearest binding",
+      "reference.constant-key.nearest-binding",
+      "consent-authorization-reference-unclassified",
+      null,
+      "nested lexical constant binding",
+    ),
+    mutationCase(
+      "MUT-AC13-COMPUTED-BINDING-ELEMENT-SKIPPED",
+      "AC13",
+      `${fixtureRoot}/census/key-computed-binding-element-over-lexical-constant.ts`,
+      "scanConsentAuthorizationSource / computed binding-element fold",
+      "reference.computed-binding-element-key",
+      "consent-authorization-reference-unclassified",
+      null,
+      "computed binding-element constant key",
+    ),
+    mutationCase(
+      "MUT-AC13-TEMPLATE-KEY-SHADOW-UNRESOLVED",
+      "AC13",
+      `${fixtureRoot}/census/key-shadowed-lexical-constant-template-element-access.ts`,
+      "resolveConsentAuthorizationConstantKey / shadowed template arm",
+      "reference.shadowed-template-key",
+      "consent-authorization-reference-unclassified",
+      null,
+      "shadowed template-derived key",
+    ),
+    mutationCase(
+      "MUT-AC13-COVERAGE-FLIP-WITHOUT-RESOLVER",
+      "AC13",
+      consentAuthorizationCensusCoveragePath,
+      "loadConsentAuthorizationCensusCoverage / resolved-key row disposition",
+      "coverage.resolved-key-observation",
+      "consent-authorization-coverage-invalid",
+      null,
+      "resolved-key coverage row",
+    ),
+    mutationCase(
+      "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY",
+      "AC14",
+      `${fixtureRoot}/census/specifier-lexical-constant-dynamic-import.ts`,
+      "consentAuthorizationSpecifierShapeDispositions / folded shapes",
+      "reference.specifier-shape-folding",
+      "consent-authorization-noncanonical-module-access",
+      null,
+      "lexical-constant canonical acquisition",
+    ),
+    mutationCase(
+      "MUT-AC14-SPECIFIER-CONCAT-UNFOLDED",
+      "AC14",
+      `${fixtureRoot}/census/specifier-constant-concatenation-dynamic-import.ts`,
+      "resolveConsentAuthorizationConstantKey / concatenation arm",
+      "reference.specifier-concatenation",
+      "consent-authorization-noncanonical-module-access",
+      null,
+      "concatenated canonical acquisition",
+    ),
+    mutationCase(
+      "MUT-AC14-ACQUISITION-CLASSIFIED-IN-FIRST-WALK",
+      "AC14",
+      `${fixtureRoot}/references/unrelated-module-dynamic-import.ts`,
+      "collectCanonicalModuleBinding / deferred acquisition",
+      "reference.specifier-post-walk-classification",
+      "consent-authorization-census-drift",
+      null,
+      "forward-declared unrelated acquisition specifier",
+    ),
+    mutationCase(
+      "MUT-AC14-RUNTIME-UNKNOWN-DROPPED",
+      "AC14",
+      `${fixtureRoot}/census/specifier-runtime-unknown.ts`,
+      "classifyCanonicalModuleAcquisition / admitted unknown",
+      "census.runtime-unknown-acquisition",
+      "consent-authorization-census-drift",
+      null,
+      "published runtime-unknown acquisition",
+    ),
+    mutationCase(
       "MUT-CORPUS-BIND-ANALYZED-TREE",
       "AC11",
       `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
@@ -1845,6 +1935,20 @@ if (!evidenceVerifierOnly) {
         source: `export default ${JSON.stringify(censusCoverage)};\n`,
         candidateFragment: JSON.stringify(censusCoverage.rows[0]),
         mutantFragment: JSON.stringify({ ...censusCoverage.rows[0], disposition: "silent-by-design" }),
+      };
+    }
+    if (id === "MUT-AC13-COVERAGE-FLIP-WITHOUT-RESOLVER") {
+      const row = censusCoverage.rows.find(({ rowId }) => rowId === "key-shadowed-lexical-constant-element-access");
+      return {
+        kind: "data-substitution",
+        source: `export default ${JSON.stringify(censusCoverage)};\n`,
+        candidateFragment: JSON.stringify(row),
+        mutantFragment: JSON.stringify({
+          ...row,
+          disposition: "declared-open",
+          census: "admitted-unknown",
+          owner: "#6493",
+        }),
       };
     }
 
@@ -1940,8 +2044,57 @@ if (!evidenceVerifierOnly) {
         "  if (false && ts.isTemplateExpression(node)) {\n    let text = node.head.text;",
       ],
       "MUT-AC4-NAMESPACE-BINDING-UNTRACKED": [
-        "    collectCanonicalModuleBinding(relativeFile, sourceFile, node, canonicalBindings, canonicalAccesses, unknowns);\n",
+        `    collectCanonicalModuleBinding(
+      relativeFile,
+      sourceFile,
+      node,
+      constantBindingState,
+      canonicalBindings,
+      canonicalAccesses,
+      unknowns,
+      acquisitions,
+    );\n`,
         "",
+      ],
+      "MUT-AC13-CONST-KEY-FILE-GLOBAL-SCOPE": [
+        `    const scope = ts.isVariableDeclarationList(list)
+      ? variableDeclarationScope(candidate, list)
+      : declarationScopeFor(candidate.parent);`,
+        "    const scope = candidate.getSourceFile();",
+      ],
+      "MUT-AC13-NEAREST-BINDING-OUTERMOST": [
+        "      if (!flattened.has(name)) flattened.set(name, binding);",
+        "      flattened.set(name, binding);",
+      ],
+      "MUT-AC13-COMPUTED-BINDING-ELEMENT-SKIPPED": [
+        `    const arm = deriveConsentAuthorizationKeyCoverageIdentity("binding-element", key.kind, constantKeyOutcome);
+    const resolved = resolveConsentAuthorizationConstantKey(key, constantBindings);`,
+        `    const arm = deriveConsentAuthorizationKeyCoverageIdentity("binding-element", key.kind, constantKeyOutcome);
+    const resolved = null;`,
+      ],
+      "MUT-AC13-TEMPLATE-KEY-SHADOW-UNRESOLVED": [
+        "  if (ts.isTemplateExpression(node)) {\n    let text = node.head.text;",
+        "  if (false && ts.isTemplateExpression(node)) {\n    let text = node.head.text;",
+      ],
+      "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY": [
+        `    { shape: "no-substitution-template", syntaxKind: "NoSubstitutionTemplateLiteral", folded: true },
+    { shape: "identifier", syntaxKind: "Identifier", folded: true },
+    { shape: "concatenation", syntaxKind: "BinaryExpression", folded: true },`,
+        `    { shape: "no-substitution-template", syntaxKind: "NoSubstitutionTemplateLiteral", folded: false },
+    { shape: "identifier", syntaxKind: "Identifier", folded: false },
+    { shape: "concatenation", syntaxKind: "BinaryExpression", folded: false },`,
+      ],
+      "MUT-AC14-SPECIFIER-CONCAT-UNFOLDED": [
+        "  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {",
+        "  if (false && ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {",
+      ],
+      "MUT-AC14-ACQUISITION-CLASSIFIED-IN-FIRST-WALK": [
+        "  acquisitions.push({ node, specifier, acquired, arm, disposition, constantBindingState, accesses, unknowns });",
+        "  classifyCanonicalModuleAcquisition(relativeFile, sourceFile, { node, specifier, acquired, arm, disposition, constantBindingState, accesses, unknowns });",
+      ],
+      "MUT-AC14-RUNTIME-UNKNOWN-DROPPED": [
+        '    unknowns.push(admittedUnknown(relativeFile, sourceFile, specifier, "specifier", arm, acquired));\n    return;',
+        "    return;",
       ],
       "MUT-PROV-ACCEPT-UNRESOLVED": ["  if (!outcome.ok) {", "  if (false && !outcome.ok) {"],
       "MUT-BASE-FROZEN-CONSTANT": [
@@ -2232,6 +2385,24 @@ process.exitCode = acceptancePassed ? 0 : 1;
   function discriminate(descriptor, candidateModule, mutantModule) {
     const id = descriptor.caseId;
 
+    if (id === "MUT-AC13-COVERAGE-FLIP-WITHOUT-RESOLVER") {
+      const observation = (module) => {
+        const row = module.default.rows.find(({ rowId }) => rowId === "key-shadowed-lexical-constant-element-access");
+        return {
+          row,
+          observed: observeConsentAuthorizationCoverageRow(row, repoFile(row.fixture), ownerContexts),
+        };
+      };
+      const candidate = observation(candidateModule);
+      const mutant = observation(mutantModule);
+      return {
+        candidateGreen: candidate.observed.census === candidate.row.census,
+        mutantRed: mutant.observed.census !== mutant.row.census,
+        candidateObservation: "the resolved-key coverage row agrees with the real analyzer observation",
+        mutantObservation: "flipping only the committed row leaves it disagreeing with the unchanged analyzer",
+      };
+    }
+
     if (id === "MUT-AC2-SCHEMA-OPEN-NESTED") {
       const invalid = readJsonFixture(descriptor.fixture);
       return {
@@ -2394,6 +2565,152 @@ process.exitCode = acceptancePassed ? 0 : 1;
         mutantRed: forms(mutantModule).length === 0,
         candidateObservation: "a canonical namespace binding and the dynamic key taken through it both fail closed",
         mutantObservation: "untracked canonical bindings let a dynamically keyed namespace call disappear",
+      };
+    }
+
+    if (id === "MUT-AC13-CONST-KEY-FILE-GLOBAL-SCOPE") {
+      const source = repoFile(descriptor.fixture);
+      const constructors = (module) =>
+        module
+          .scanConsentAuthorizationSource("zz-unrelated/plain-directory/sibling-scope-keys.ts", source, ownerContexts)
+          .filter(({ referenceClass }) => referenceClass === "unexpected")
+          .map(({ constructor }) => constructor)
+          .toSorted();
+      return {
+        candidateGreen:
+          JSON.stringify(constructors(candidateModule)) ===
+          JSON.stringify(["authorizeConsentForActor", "authorizeConsentForProvisioning"]),
+        mutantRed: constructors(mutantModule).length === 0,
+        candidateObservation: "same-named constants in sibling scopes each resolve in their own declaration scope",
+        mutantObservation: "a file-global binding table poisons both sibling constants as one ambiguous name",
+      };
+    }
+
+    if (id === "MUT-AC13-NEAREST-BINDING-OUTERMOST") {
+      const source = repoFile(descriptor.fixture);
+      const constructors = (module) =>
+        module
+          .scanConsentAuthorizationSource("zz-unrelated/plain-directory/nested-shadowing-key.ts", source, ownerContexts)
+          .filter(({ referenceClass }) => referenceClass === "unexpected")
+          .map(({ constructor }) => constructor);
+      const candidate = constructors(candidateModule);
+      const mutant = constructors(mutantModule);
+      return {
+        candidateGreen:
+          JSON.stringify(candidate) ===
+          JSON.stringify([
+            "authorizeConsentForActor",
+            "authorizeConsentForProvisioning",
+            "authorizeConsentForProvisioning",
+          ]),
+        mutantRed:
+          JSON.stringify(mutant) ===
+          JSON.stringify([
+            "authorizeConsentForProvisioning",
+            "authorizeConsentForProvisioning",
+            "authorizeConsentForProvisioning",
+          ]),
+        candidateObservation: "the innermost binding wins while aliases retain their declaration environments",
+        mutantObservation: "letting outer bindings overwrite inner ones changes the direct shadowed constructor",
+      };
+    }
+
+    if (id === "MUT-AC13-COMPUTED-BINDING-ELEMENT-SKIPPED") {
+      const source = repoFile(descriptor.fixture);
+      const unexpected = (module) =>
+        module
+          .scanConsentAuthorizationSource(
+            "zz-unrelated/plain-directory/key-computed-binding-element-over-lexical-constant.ts",
+            source,
+            ownerContexts,
+          )
+          .filter(({ referenceClass }) => referenceClass === "unexpected");
+      return {
+        candidateGreen:
+          unexpected(candidateModule).length === 1 &&
+          unexpected(candidateModule)[0].constructor === "authorizeConsentForActor",
+        mutantRed: unexpected(mutantModule).length === 0,
+        candidateObservation: "a computed binding-element key over a constant is classified",
+        mutantObservation: "skipping the computed binding-element fold leaves the constructor admitted as unknown",
+      };
+    }
+
+    if (id === "MUT-AC13-TEMPLATE-KEY-SHADOW-UNRESOLVED") {
+      const source = repoFile(descriptor.fixture);
+      const unexpected = (module) =>
+        module
+          .scanConsentAuthorizationSource(
+            "zz-unrelated/plain-directory/key-shadowed-lexical-constant-template-element-access.ts",
+            source,
+            ownerContexts,
+          )
+          .filter(({ referenceClass }) => referenceClass === "unexpected");
+      return {
+        candidateGreen:
+          unexpected(candidateModule).length === 1 &&
+          unexpected(candidateModule)[0].constructor === "authorizeConsentForActor",
+        mutantRed: unexpected(mutantModule).length === 0,
+        candidateObservation: "the shadowed template key resolves through its nearest constant binding",
+        mutantObservation: "dropping template folding leaves the shadowed constructor unclassified",
+      };
+    }
+
+    if (id === "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY" || id === "MUT-AC14-SPECIFIER-CONCAT-UNFOLDED") {
+      const source = repoFile(descriptor.fixture);
+      const plantedAt = censusCoverage.rows.find(({ fixture }) => fixture === descriptor.fixture).plantedAt;
+      const accesses = (module) =>
+        module
+          .scanConsentAuthorizationSource(plantedAt, source, ownerContexts)
+          .filter(({ referenceClass }) => referenceClass === "noncanonical-module-access");
+      return {
+        candidateGreen: accesses(candidateModule).length === 1,
+        mutantRed: accesses(mutantModule).length === 0,
+        candidateObservation:
+          id === "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY"
+            ? "the lexical-constant specifier folds onto the canonical module"
+            : "the concatenated specifier folds onto the canonical module",
+        mutantObservation:
+          id === "MUT-AC14-SPECIFIER-STRING-LITERAL-ONLY"
+            ? "restoring literal-only folding admits the lexical-constant acquisition as unknown"
+            : "dropping concatenation folding admits the concatenated acquisition as unknown",
+      };
+    }
+
+    if (id === "MUT-AC14-ACQUISITION-CLASSIFIED-IN-FIRST-WALK") {
+      const source = repoFile(descriptor.fixture);
+      const references = (module) =>
+        module.scanConsentAuthorizationSource(
+          "zz-unrelated/plain-directory/unrelated-module-dynamic-import.ts",
+          source,
+          ownerContexts,
+        );
+      return {
+        candidateGreen: references(candidateModule).length === 0,
+        mutantRed:
+          references(mutantModule).filter(
+            ({ referenceClass, axis }) => referenceClass === "admitted-unknown" && axis === "specifier",
+          ).length === 2,
+        candidateObservation: "post-walk folding proves every unrelated acquisition is statically unrelated",
+        mutantObservation: "first-walk classification reaches two forward constant specifiers before their bindings",
+      };
+    }
+
+    if (id === "MUT-AC14-RUNTIME-UNKNOWN-DROPPED") {
+      const source = repoFile(descriptor.fixture);
+      const admitted = (module) =>
+        module
+          .scanConsentAuthorizationSource(descriptor.fixture, source, ownerContexts)
+          .filter(
+            ({ referenceClass, axis, arm }) =>
+              referenceClass === "admitted-unknown" &&
+              axis === "specifier" &&
+              arm === consentAuthorizationSpecifierRuntimeUnknownArm,
+          );
+      return {
+        candidateGreen: admitted(candidateModule).length === 1,
+        mutantRed: admitted(mutantModule).length === 0,
+        candidateObservation: "the runtime-unknown acquisition is counted under the published residual arm",
+        mutantObservation: "dropping the admitted-unknown write removes the acquisition from the published census",
       };
     }
 

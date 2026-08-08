@@ -121,7 +121,7 @@ const batteryWorkUnitCeilings = Object.freeze({
   totalChildProcessSpawns: 408,
   reconciliationGitLsFilesSpawns: 3,
   compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 105,
+  trackedFilesDigested: 111,
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
@@ -701,7 +701,7 @@ const censusDeletionInventoryDigest = sha256(JSON.stringify(censusDeletionInvent
  * coverage identities back to the exact three arm names the parked head
  * published, and changes nothing else. It is test-only and has no production
  * entrypoint, performs no Git, GitHub, or network access, copies no parked
- * source, and is outside the thirty-case mutation ledger: its only job is to
+ * source, and is outside the committed mutation ledger: its only job is to
  * reproduce the parked arm sharing so the repair can be shown to be what
  * removes the survivors.
  */
@@ -1911,28 +1911,10 @@ describe("Consent authorization sites", () => {
         ]),
     ).toEqual([
       ["key-string-literal-element-access", "StringLiteral", "classified", "classified", null],
-      ["key-shadowed-lexical-constant-element-access", "Identifier", "declared-open", "admitted-unknown", "#6493"],
-      [
-        "key-shadowed-lexical-constant-template-element-access",
-        "TemplateExpression",
-        "declared-open",
-        "admitted-unknown",
-        "#6493",
-      ],
-      [
-        "key-computed-binding-element-over-lexical-constant",
-        "Identifier",
-        "declared-open",
-        "admitted-unknown",
-        "#6493",
-      ],
-      [
-        "key-computed-binding-element-over-constant-template",
-        "TemplateExpression",
-        "declared-open",
-        "admitted-unknown",
-        "#6493",
-      ],
+      ["key-shadowed-lexical-constant-element-access", "Identifier", "classified", "classified", null],
+      ["key-shadowed-lexical-constant-template-element-access", "TemplateExpression", "classified", "classified", null],
+      ["key-computed-binding-element-over-lexical-constant", "Identifier", "classified", "classified", null],
+      ["key-computed-binding-element-over-constant-template", "TemplateExpression", "classified", "classified", null],
     ]);
   });
 
@@ -2147,33 +2129,38 @@ describe("Consent authorization sites", () => {
     expect(repairedOmissionGuardOutcomes.candidate.result).toBe(null);
   });
 
-  it("keeps all ten successor-owned rows declared open and both silent rows silent", () => {
-    const owned = censusCoverage.rows.filter(({ disposition }) => disposition === "declared-open");
+  it("classifies every formerly declared-open row and leaves both silent rows silent", () => {
+    const formerlyOpenRowIds = [
+      "key-shadowed-lexical-constant-element-access",
+      "key-shadowed-lexical-constant-template-element-access",
+      "key-computed-binding-element-over-lexical-constant",
+      "key-computed-binding-element-over-constant-template",
+      "specifier-no-substitution-template-dynamic-import",
+      "specifier-lexical-constant-dynamic-import",
+      "specifier-constant-concatenation-dynamic-import",
+      "specifier-no-substitution-template-require",
+      "specifier-lexical-constant-require",
+      "specifier-constant-concatenation-require",
+    ];
+    const classified = censusCoverage.rows.filter(({ rowId }) => formerlyOpenRowIds.includes(rowId));
     const silent = censusCoverage.rows.filter(({ disposition }) => disposition === "silent-by-design");
     process.stdout.write(
-      `successor-owned-rows=${JSON.stringify({
-        owned: owned.map(({ rowId, arm, census, owner }) => ({ rowId, arm, census, owner })),
+      `formerly-open-rows=${JSON.stringify({
+        classified: classified.map(({ rowId, arm, census, owner }) => ({ rowId, arm, census, owner })),
         silent: silent.map(({ rowId, arm, census }) => ({ rowId, arm: arm ?? null, census })),
       })}\n`,
     );
 
-    expect(owned).toHaveLength(10);
-    expect(owned.map(({ rowId }) => rowId).toSorted()).toEqual(
-      [
-        "key-shadowed-lexical-constant-element-access",
-        "key-shadowed-lexical-constant-template-element-access",
-        "key-computed-binding-element-over-lexical-constant",
-        "key-computed-binding-element-over-constant-template",
-        "specifier-no-substitution-template-dynamic-import",
-        "specifier-lexical-constant-dynamic-import",
-        "specifier-constant-concatenation-dynamic-import",
-        "specifier-no-substitution-template-require",
-        "specifier-lexical-constant-require",
-        "specifier-constant-concatenation-require",
-      ].toSorted(),
-    );
-    expect(owned.every(({ owner }) => owner === consentAuthorizationDeclaredOpenOwner)).toBe(true);
-    expect(owned.every(({ census }) => census === "admitted-unknown")).toBe(true);
+    expect(classified).toHaveLength(10);
+    expect(classified.map(({ rowId }) => rowId).toSorted()).toEqual(formerlyOpenRowIds.toSorted());
+    expect(
+      classified.every(
+        ({ disposition, census, owner }) =>
+          disposition === "classified" && census === "classified" && owner === undefined,
+      ),
+    ).toBe(true);
+    expect(censusCoverage.rows.filter(({ disposition }) => disposition === "declared-open")).toEqual([]);
+    expect(consentAuthorizationDeclaredOpenOwner).toBe("#6493");
 
     expect(silent.map(({ rowId, census }) => [rowId, census]).toSorted()).toEqual([
       ["key-unrelated-constructor-like-string", "silent"],
@@ -2183,11 +2170,11 @@ describe("Consent authorization sites", () => {
     // Observed live, not asserted about: every successor-owned shape is still
     // admitted as an unknown, and the silent-by-design key shape still emits
     // nothing at all.
-    const observed = [...owned, ...silent].map((row) => ({
+    const observed = [...classified, ...silent].map((row) => ({
       rowId: row.rowId,
       census: observeConsentAuthorizationCoverageRow(row, repoFile(row.fixture), ownerContexts).census,
     }));
-    expect(observed).toEqual([...owned, ...silent].map(({ rowId, census }) => ({ rowId, census })));
+    expect(observed).toEqual([...classified, ...silent].map(({ rowId, census }) => ({ rowId, census })));
   });
 
   it("fails deletion of a registered site", () => {
@@ -2369,6 +2356,109 @@ describe("Consent authorization sites", () => {
     ]);
   });
 
+  it("resolves a constant key against its nearest lexical binding", () => {
+    const references = scanConsentAuthorizationSource(
+      "zz-unrelated/plain-directory/sibling-scope-keys.ts",
+      repoFile(`${fixtureRoot}/references/sibling-scope-keys.ts`),
+      ownerContexts,
+    ).filter(({ referenceClass }) => referenceClass === "unexpected");
+    expect(references.map(({ constructor }) => constructor).toSorted()).toEqual([
+      "authorizeConsentForActor",
+      "authorizeConsentForProvisioning",
+    ]);
+  });
+
+  it("lets an inner binding shadow an outer binding of the same name", () => {
+    const references = scanConsentAuthorizationSource(
+      "zz-unrelated/plain-directory/nested-shadowing-key.ts",
+      repoFile(`${fixtureRoot}/references/nested-shadowing-key.ts`),
+      ownerContexts,
+    );
+    expect(
+      references.filter(
+        ({ line, referenceClass, constructor }) =>
+          line === 5 && referenceClass === "unexpected" && constructor === "authorizeConsentForActor",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("resolves a transitive alias in its declaration environment", () => {
+    const references = scanConsentAuthorizationSource(
+      "zz-unrelated/plain-directory/nested-shadowing-key.ts",
+      repoFile(`${fixtureRoot}/references/nested-shadowing-key.ts`),
+      ownerContexts,
+    );
+    const classified = references.filter(({ referenceClass }) => referenceClass === "unexpected");
+    expect(classified.map(({ constructor }) => constructor)).toEqual([
+      "authorizeConsentForActor",
+      "authorizeConsentForProvisioning",
+      "authorizeConsentForProvisioning",
+    ]);
+    expect(
+      references.filter(
+        ({ referenceClass, axis, arm }) =>
+          referenceClass === "admitted-unknown" && axis === "key" && arm === consentAuthorizationKeyRuntimeUnknownArm,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("stays silent when the nearest binding is not a single constant string", () => {
+    for (const fixture of ["non-const-binding-key.ts", "duplicate-same-scope-binding-key.ts"]) {
+      const references = scanConsentAuthorizationSource(
+        `zz-unrelated/plain-directory/${fixture}`,
+        repoFile(`${fixtureRoot}/references/${fixture}`),
+        ownerContexts,
+      );
+      expect(references.filter(({ referenceClass }) => referenceClass !== "admitted-unknown")).toEqual([]);
+      expect(
+        references.filter(({ referenceClass, axis }) => referenceClass === "admitted-unknown" && axis === "key"),
+      ).toHaveLength(1);
+    }
+  });
+
+  for (const [name, rowId, constructor] of [
+    [
+      "classifies a shadowed constant key as an unclassified reference",
+      "key-shadowed-lexical-constant-element-access",
+      "authorizeConsentForActor",
+    ],
+    [
+      "classifies a shadowed template key as an unclassified reference",
+      "key-shadowed-lexical-constant-template-element-access",
+      "authorizeConsentForActor",
+    ],
+    [
+      "classifies a computed binding-element key over a lexical constant",
+      "key-computed-binding-element-over-lexical-constant",
+      "authorizeConsentForActor",
+    ],
+    [
+      "classifies a computed binding-element template key",
+      "key-computed-binding-element-over-constant-template",
+      "authorizeConsentForActor",
+    ],
+  ]) {
+    it(name, () => {
+      const row = censusCoverage.rows.find((entry) => entry.rowId === rowId);
+      const references = scanConsentAuthorizationSource(row.plantedAt, repoFile(row.fixture), ownerContexts);
+      expect(
+        references.filter(
+          ({ referenceClass, constructor: observed, arm }) =>
+            referenceClass === "unexpected" && observed === constructor && arm === row.arm,
+        ),
+      ).toHaveLength(1);
+    });
+  }
+
+  it("stays silent for an unrelated resolved key", () => {
+    const references = scanConsentAuthorizationSource(
+      "zz-unrelated/plain-directory/unrelated-resolved-key.ts",
+      'const key = "authorizeConsentForNobody";\nauthorization[key](context);\n',
+      ownerContexts,
+    );
+    expect(references).toEqual([]);
+  });
+
   it("fails closed on a canonical namespace binding and the dynamic key taken through it", () => {
     const accesses = arbitraryControlResult.violations.filter(
       ({ code }) => code === "consent-authorization-noncanonical-module-access",
@@ -2435,6 +2525,100 @@ describe("Consent authorization sites", () => {
     ]);
   });
 
+  for (const [name, rowIds] of [
+    [
+      "classifies a template-literal canonical module acquisition",
+      ["specifier-no-substitution-template-dynamic-import", "specifier-no-substitution-template-require"],
+    ],
+    [
+      "classifies a lexical-constant canonical module acquisition",
+      ["specifier-lexical-constant-dynamic-import", "specifier-lexical-constant-require"],
+    ],
+    [
+      "classifies a concatenated canonical module acquisition",
+      ["specifier-constant-concatenation-dynamic-import", "specifier-constant-concatenation-require"],
+    ],
+  ]) {
+    it(name, () => {
+      for (const rowId of rowIds) {
+        const row = censusCoverage.rows.find((entry) => entry.rowId === rowId);
+        const references = scanConsentAuthorizationSource(row.plantedAt, repoFile(row.fixture), ownerContexts);
+        expect(
+          references.filter(
+            ({ referenceClass, form, arm }) =>
+              referenceClass === "noncanonical-module-access" && form === row.signature.form && arm === row.arm,
+          ),
+        ).toHaveLength(1);
+      }
+    });
+  }
+
+  it("stays silent for an equivalent unrelated module acquisition", () => {
+    for (const fixture of ["unrelated-module-dynamic-import.ts", "unrelated-module-require.ts"]) {
+      expect(
+        scanConsentAuthorizationSource(
+          `zz-unrelated/plain-directory/${fixture}`,
+          repoFile(`${fixtureRoot}/references/${fixture}`),
+          ownerContexts,
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  it("admits a substituted template specifier as a runtime unknown", () => {
+    const references = scanConsentAuthorizationSource(
+      "zz-unrelated/plain-directory/substituted-template-specifier.ts",
+      [
+        'const target = "consent-recording-authorization";',
+        "export const probe = import(`../../bounded-contexts/identity/features/consents/domain/${target}`);",
+      ].join("\n"),
+      ownerContexts,
+    );
+    expect(
+      references.map(({ referenceClass, axis, arm, syntaxKind }) => ({ referenceClass, axis, arm, syntaxKind })),
+    ).toEqual([
+      {
+        referenceClass: "admitted-unknown",
+        axis: "specifier",
+        arm: consentAuthorizationSpecifierRuntimeUnknownArm,
+        syntaxKind: "TemplateExpression",
+      },
+    ]);
+  });
+
+  it("counts and publishes admitted-unknown module acquisitions without failing", () => {
+    const row = censusCoverage.rows.find(({ rowId }) => rowId === "specifier-runtime-unknown");
+    const references = scanConsentAuthorizationSource(row.plantedAt, repoFile(row.fixture), ownerContexts);
+    const admitted = references.filter(
+      ({ referenceClass, axis }) => referenceClass === "admitted-unknown" && axis === "specifier",
+    );
+    process.stdout.write(`admitted-unknown-specifier-control=${JSON.stringify(admitted)}\n`);
+    expect(admitted).toHaveLength(1);
+    expect(admitted[0].arm).toBe(consentAuthorizationSpecifierRuntimeUnknownArm);
+    expect(references.filter(({ referenceClass }) => referenceClass !== "admitted-unknown")).toEqual([]);
+  });
+
+  it("records the admitted-unknown census as provenance and never as an expectation", () => {
+    const suite = ts.createSourceFile(suitePath, repoFile(suitePath), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const frozenComparisons = [];
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ["toBe", "toEqual", "toStrictEqual"].includes(node.expression.name.text) &&
+        ts.isCallExpression(node.expression.expression) &&
+        ts.isIdentifier(node.expression.expression.expression) &&
+        node.expression.expression.expression.text === "expect" &&
+        node.expression.expression.arguments[0]?.getText(suite).includes("realTreeResult.census.admittedUnknown")
+      ) {
+        frozenComparisons.push(node.getText(suite));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(suite);
+    expect(frozenComparisons).toEqual([]);
+  });
+
   it("matches every census coverage row against the real analyzer", () => {
     const matrix = censusCoverage.rows.map((row) => {
       const observed = observeConsentAuthorizationCoverageRow(row, repoFile(row.fixture), ownerContexts);
@@ -2473,24 +2657,18 @@ describe("Consent authorization sites", () => {
     expect(validateAgainstSchema(censusCoverage, censusCoverageSchema)).toEqual([]);
     expect(censusFixtureFiles).toEqual(censusCoverage.rows.map(({ fixture }) => fixture).toSorted());
     expect(consentAuthorizationCoverageCounts(censusCoverage)).toEqual({
-      classified: 22,
-      "declared-open": 10,
+      classified: 32,
+      "declared-open": 0,
       "silent-by-design": 2,
     });
-    expect(
-      censusCoverage.rows.filter(({ disposition }) => disposition === "declared-open").map(({ owner }) => owner),
-    ).toEqual(Array.from({ length: 10 }, () => consentAuthorizationDeclaredOpenOwner));
+    expect(censusCoverage.rows.filter(({ disposition }) => disposition === "declared-open")).toEqual([]);
     expect(
       censusCoverage.rows
         .filter(({ disposition }) => disposition !== "declared-open")
         .every(({ owner }) => owner === undefined),
     ).toBe(true);
 
-    // A declared-open shape is a published residual, never a silent drop: the
-    // named default arm admits it and the whole-corpus census counts it.
-    expect(
-      matrix.filter(({ disposition }) => disposition === "declared-open").map(({ observedCensus }) => observedCensus),
-    ).toEqual(Array.from({ length: 10 }, () => "admitted-unknown"));
+    expect(matrix.filter(({ disposition }) => disposition === "classified")).toHaveLength(32);
     expect(realTreeResult.census.defaultArm).toBe("admitted-unknown");
     expect(realTreeResult.census.admittedUnknownTotal).toBeGreaterThan(0);
     expect(realTreeResult.coverage.rows).toBe(censusCoverage.rows.length);
@@ -2842,7 +3020,7 @@ describe("Consent authorization sites", () => {
 
   it("matches the offline evidence module against the committed case enumeration", () => {
     const caseIds = mutationEvidenceCaseIds(repoFile(mutationEvidencePath));
-    expect(caseIds).toHaveLength(30);
+    expect(caseIds).toHaveLength(39);
     expect(collectOfflineEnumerationViolations(caseIds, enumeration)).toEqual([]);
 
     const missing = collectOfflineEnumerationViolations(caseIds.slice(1), enumeration);
