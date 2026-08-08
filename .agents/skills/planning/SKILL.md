@@ -87,6 +87,13 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      and any `status:standalone` label require a new fixed-scope change;
      [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
      this is not current behavior;
+   - the delivery board's **Status** is derived, never hand-written: a native
+     **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
+     projects to `Tracking`. Create the authoritative type or label and let
+     `scripts/project-status-sync.mjs` own the board value — a hand-set Status
+     is overwritten by the next sync. Never embed the board's option IDs
+     anywhere; they live only in the `DELIVERY_STATUS_OPTION_IDS` repository
+     variable. Full precedence: `docs/contributing/backlog-model.md`;
    - **no new label** unless it fits the four families in the backlog model.
      Sequencing inside a workstream is the epic's chain DAG — `phase:*`,
      `stage:*`, `series:*`, and `tier:*` families are banned, having produced
