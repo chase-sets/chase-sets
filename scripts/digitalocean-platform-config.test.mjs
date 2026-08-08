@@ -65,6 +65,7 @@ const platformStagingAdvisoryEvidenceWorkflow = readFileSync(
   "utf8",
 );
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+const playwrightConfig = readFileSync(resolve("playwright.config.ts"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
 const platformObservabilityStateMigrationWorkflow = readFileSync(
@@ -2243,6 +2244,18 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("secrets.CATALOG_ADMIN_E2E_PASSWORD || ''");
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
+
+    // The deployed advisory run covers three hosts. /privacy is a Public
+    // Presence route contributed to the public-web deployable only, so the
+    // landing domain has to be resolved from the same exact-release Terraform
+    // state and threaded as PUBLIC_WEB_URL; without it the public-web project
+    // is absent and the coverage disappears silently.
+    expect(stagingCriticalFlowStep).toContain('landing_domain="$(terraform output -raw landing_domain)"');
+    expect(stagingCriticalFlowStep).toContain('PUBLIC_WEB_URL="https://${landing_domain}"');
+    expect(stagingCriticalFlowStep).toContain('[ -z "$landing_domain" ]');
+    expect(stagingCriticalFlowStep).toContain(
+      "Required staging admin, marketplace, or landing domain was not present in Terraform outputs.",
+    );
     expect(stagingMoneySmokeStep).not.toContain("continue-on-error");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("staging-advisory-evidence");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
@@ -2399,6 +2412,47 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow.indexOf("- name: Staging Stripe money smoke")).toBeLessThan(
       markStagingDeployedIndex,
+    );
+  });
+
+  it("binds each deployed Playwright project to its own host and never crosses deployables", () => {
+    // Each project's testMatch is anchored to exactly one deployable's e2e tree,
+    // and each baseURL comes from that deployable's own URL input. The failure
+    // this pins is a spec answered by a host that does not serve its route: the
+    // deployed run then asserts against another deployable's not-found shell.
+    expect(playwrightConfig).toContain('name: "marketplace-chromium"');
+    expect(playwrightConfig).toContain('testMatch: "deployables/marketplace/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain("baseURL: marketplaceBaseUrl");
+    expect(playwrightConfig).toContain('name: "admin-web-chromium"');
+    expect(playwrightConfig).toContain('testMatch: "deployables/admin-web/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain("baseURL: adminWebBaseUrl");
+    expect(playwrightConfig).toContain('name: "public-web-chromium"');
+    expect(playwrightConfig).toContain('testMatch: "deployables/public-web/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain("baseURL: publicWebBaseUrl");
+    expect(playwrightConfig).toContain(
+      "const publicWebBaseUrl = process.env.PUBLIC_WEB_URL ?? sandbox.urls.publicWeb;",
+    );
+    expect(playwrightConfig).toContain("const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);");
+
+    // Negative control: no project may widen its testMatch across deployables,
+    // which is how the public-web privacy spec previously answered on the
+    // marketplace host.
+    const projectTestMatches = [...playwrightConfig.matchAll(/testMatch: "([^"]+)"/g)].map(([, pattern]) => pattern);
+    expect(projectTestMatches).toEqual([
+      "deployables/marketplace/e2e/**/*.spec.ts",
+      "deployables/admin-web/e2e/**/*.spec.ts",
+      "deployables/public-web/e2e/**/*.spec.ts",
+    ]);
+    expect(playwrightConfig).not.toContain("deployables/*/e2e");
+    expect(playwrightConfig).not.toContain("deployables/**/e2e");
+
+    // The deployed advisory lane is the only caller that names all three hosts.
+    const stagingCriticalFlowStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Staging marketplace critical flows",
+    );
+    expect(stagingCriticalFlowStep).toContain(
+      'ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed',
     );
   });
 

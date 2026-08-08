@@ -229,12 +229,13 @@ jobs:
           fi
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required staging admin or marketplace domain was not present in Terraform outputs." >&2
+          landing_domain="$(terraform output -raw landing_domain)"
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$landing_domain" ]; then
+            echo "Required staging admin, marketplace, or landing domain was not present in Terraform outputs." >&2
             exit 1
           fi
           cd ../../..
-          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
+          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed
 
       - name: Summarize staging advisory evidence
         if: always()
