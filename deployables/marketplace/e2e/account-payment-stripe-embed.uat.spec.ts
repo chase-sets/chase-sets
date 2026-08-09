@@ -770,7 +770,10 @@ async function driveColorMode(page: Page, mode: ColorMode) {
 
   const choice = page.locator(`input[data-theme-choice="${mode}"]`);
   if ((await choice.count()) === 0) {
-    await page.locator("button[aria-haspopup]").first().click();
+    // The shipped shell renders other popup triggers before the account menu
+    // (the Sell dialog trigger precedes it in DOM order), so the trigger is
+    // addressed by its accessible name, not by popup position.
+    await page.getByRole("button", { name: "Account menu", exact: true }).first().click();
     await expect(choice).toHaveCount(1, { timeout: embedReadyTimeoutMs });
   }
 
@@ -1193,6 +1196,7 @@ test.describe("stripe embed confirmation UAT", () => {
     await signInWithPassword(page, new URL(page.url()).origin, { email: buyerEmail, password: buyerPassword });
 
     const paymentId = await createPendingPayment(page.request);
+    await awaitPaymentReadable(page.request, paymentId);
 
     await page.goto(`/account/payments/${paymentId}`, { waitUntil: "domcontentloaded" });
 
@@ -1288,6 +1292,7 @@ test.describe("stripe embed confirmation UAT", () => {
     }
 
     const paymentId = await createProbePayment(page.request);
+    await awaitPaymentReadable(page.request, paymentId);
     registerRuntimeRetentionValue(paymentId, "payment-reference");
     // Hash-only authority: the payment id is a payment marker, so the raw value
     // never reaches an annotation, a log line, the receipt, or the pull request.
@@ -1542,6 +1547,24 @@ async function getJson(request: APIRequestContext, path: string) {
   const response = await request.get(path);
   expect(response.ok(), `${path} failed with ${response.status()}: ${await response.text()}`).toBe(true);
   return response.json();
+}
+
+// The account payment page reads the payment server-side and renders a
+// non-retrying recovery boundary on a 404, so navigating the instant the
+// creation API returns can race the read-model projection and strand the test
+// on the "Payment not found." panel. Wait for the same account read the page
+// performs before navigating.
+async function awaitPaymentReadable(request: APIRequestContext, paymentId: string) {
+  await expect
+    .poll(
+      async () => (await request.get(`/api/marketplace/account/payments/${encodeURIComponent(paymentId)}`)).status(),
+      {
+        message: "created payment never became readable -- the account payment projection did not surface it",
+        intervals: [500, 1_000, 2_000],
+        timeout: embedReadyTimeoutMs,
+      },
+    )
+    .toBe(200);
 }
 
 async function createPendingPayment(request: APIRequestContext): Promise<string> {
