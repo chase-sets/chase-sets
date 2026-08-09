@@ -112,25 +112,39 @@ const supportedKeywords = new Set([
   "pattern",
 ]);
 
-function resolveRef(root: any, ref: string) {
-  expect(ref.startsWith("#/"), `only local refs are supported, got ${ref}`).toBe(true);
-  return ref
-    .slice(2)
-    .split("/")
-    .reduce((node, segment) => node?.[segment], root);
+type SchemaNode = Record<string, unknown>;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-function validate(root: any, schema: any, value: unknown, path = "$", errors: string[] = []): string[] {
-  if (schema.$ref) {
+function asSchema(value: unknown): SchemaNode {
+  return asRecord(value) ?? {};
+}
+
+function resolveRef(root: SchemaNode, ref: string): SchemaNode {
+  expect(ref.startsWith("#/"), `only local refs are supported, got ${ref}`).toBe(true);
+  let node: unknown = root;
+  for (const segment of ref.slice(2).split("/")) {
+    node = asRecord(node)?.[segment];
+  }
+  return asSchema(node);
+}
+
+function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "$", errors: string[] = []): string[] {
+  if (typeof schema.$ref === "string") {
     return validate(root, resolveRef(root, schema.$ref), value, path, errors);
   }
 
   const fail = (message: string) => errors.push(`${path}: ${message}`);
+  const numberKeyword = (name: string) => (typeof schema[name] === "number" ? (schema[name] as number) : undefined);
 
   if (schema.const !== undefined && value !== schema.const) {
     fail(`expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`);
   }
-  if (schema.enum && !schema.enum.includes(value as never)) {
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
     fail(`expected one of ${JSON.stringify(schema.enum)}, got ${JSON.stringify(value)}`);
   }
 
@@ -148,23 +162,28 @@ function validate(root: any, schema: any, value: unknown, path = "$", errors: st
       return errors;
     }
     const entries = Object.entries(value as Record<string, unknown>);
-    for (const name of schema.required ?? []) {
+    const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+    for (const name of required) {
       if (!(name in (value as object))) fail(`missing required property ${name}`);
     }
-    if (schema.minProperties !== undefined && entries.length < schema.minProperties) {
-      fail(`expected at least ${schema.minProperties} properties, got ${entries.length}`);
+    const minProperties = numberKeyword("minProperties");
+    if (minProperties !== undefined && entries.length < minProperties) {
+      fail(`expected at least ${minProperties} properties, got ${entries.length}`);
     }
+    const propertyNames = asRecord(schema.propertyNames);
+    const properties = asRecord(schema.properties);
+    const patternProperties = asRecord(schema.patternProperties);
     for (const [key, child] of entries) {
       const childPath = `${path}.${key}`;
-      if (schema.propertyNames && !new RegExp(schema.propertyNames.pattern).test(key)) {
-        fail(`property name ${key} does not match ${schema.propertyNames.pattern}`);
+      if (propertyNames && !new RegExp(String(propertyNames.pattern)).test(key)) {
+        fail(`property name ${key} does not match ${String(propertyNames.pattern)}`);
       }
-      const direct = schema.properties?.[key];
-      const patternKey = Object.keys(schema.patternProperties ?? {}).find((p) => new RegExp(p).test(key));
+      const direct = properties?.[key];
+      const patternKey = Object.keys(patternProperties ?? {}).find((candidate) => new RegExp(candidate).test(key));
       if (direct) {
-        validate(root, direct, child, childPath, errors);
+        validate(root, asSchema(direct), child, childPath, errors);
       } else if (patternKey) {
-        validate(root, schema.patternProperties[patternKey], child, childPath, errors);
+        validate(root, asSchema(patternProperties![patternKey]), child, childPath, errors);
       } else if (schema.additionalProperties === false) {
         fail(`unexpected additional property ${key}`);
       }
@@ -177,13 +196,14 @@ function validate(root: any, schema: any, value: unknown, path = "$", errors: st
       fail(`expected array, got ${typeof value}`);
       return errors;
     }
-    if (schema.minItems !== undefined && value.length < schema.minItems) {
-      fail(`expected at least ${schema.minItems} items, got ${value.length}`);
+    const minItems = numberKeyword("minItems");
+    if (minItems !== undefined && value.length < minItems) {
+      fail(`expected at least ${minItems} items, got ${value.length}`);
     }
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) {
       fail("expected unique items");
     }
-    value.forEach((item, index) => validate(root, schema.items, item, `${path}[${index}]`, errors));
+    value.forEach((item, index) => validate(root, asSchema(schema.items), item, `${path}[${index}]`, errors));
     return errors;
   }
 
@@ -192,11 +212,12 @@ function validate(root: any, schema: any, value: unknown, path = "$", errors: st
       fail(`expected string, got ${typeof value}`);
       return errors;
     }
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
+    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value)) {
       fail(`${JSON.stringify(value)} does not match ${schema.pattern}`);
     }
-    if (schema.minLength !== undefined && value.length < schema.minLength) {
-      fail(`expected at least ${schema.minLength} characters`);
+    const minLength = numberKeyword("minLength");
+    if (minLength !== undefined && value.length < minLength) {
+      fail(`expected at least ${minLength} characters`);
     }
     return errors;
   }
@@ -206,8 +227,9 @@ function validate(root: any, schema: any, value: unknown, path = "$", errors: st
       fail(`expected integer, got ${JSON.stringify(value)}`);
       return errors;
     }
-    if (schema.minimum !== undefined && value < schema.minimum) {
-      fail(`expected >= ${schema.minimum}, got ${value}`);
+    const minimum = numberKeyword("minimum");
+    if (minimum !== undefined && value < minimum) {
+      fail(`expected >= ${minimum}, got ${value}`);
     }
     return errors;
   }
@@ -224,9 +246,10 @@ function validate(root: any, schema: any, value: unknown, path = "$", errors: st
 // patternProperties plus propertyNames. Without this, `additionalProperties:
 // false` at the root would still let a fabricated field ride inside a nested
 // object.
-function assertRecursivelyClosed(node: any, path: string, seen = new Set<any>()) {
-  if (!node || typeof node !== "object" || seen.has(node)) return;
-  seen.add(node);
+function assertRecursivelyClosed(candidate: unknown, path: string, seen = new Set<unknown>()) {
+  if (!candidate || typeof candidate !== "object" || seen.has(candidate)) return;
+  seen.add(candidate);
+  const node = candidate as SchemaNode;
 
   for (const keyword of Object.keys(node)) {
     if (
@@ -499,7 +522,47 @@ const leakPatterns = [
   /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
 ];
 
-function bindingViolations(receipt: any): string[] {
+type ReceiptObservation = {
+  observable: string;
+  sourceToken: string;
+  cssProperty: string;
+  expected: string;
+  computed: string;
+  matched: boolean;
+  mandatory: boolean;
+};
+type ReceiptMoment = {
+  moment: string;
+  colorMode: "light" | "dark";
+  resolvedTokens: Record<string, string>;
+  observations: ReceiptObservation[];
+  consoleMessages: { type: string; text: string }[];
+  screenshotSha256: string;
+};
+type AcceptanceReceipt = {
+  schemaVersion: string;
+  surface: string;
+  stripeMode: string;
+  implementationHead: string;
+  fixturePath: string;
+  fixtureSha256: string;
+  capturedAt: string;
+  host: string;
+  environmentVariableNames: string[];
+  runSummary: {
+    command: string;
+    workers: number;
+    collected: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    testTitles: string[];
+  };
+  moments: ReceiptMoment[];
+  substitutionsApplied: { property: string; mode: string; from: string; to: string; reason: string }[];
+} & Record<string, unknown>;
+
+function bindingViolations(receipt: AcceptanceReceipt): string[] {
   const problems: string[] = [];
   const schemaErrors = validate(receiptSchema, receiptSchema, receipt);
   problems.push(...schemaErrors);
@@ -519,14 +582,14 @@ function bindingViolations(receipt: any): string[] {
     problems.push(`fixtureSha256 ${receipt.fixtureSha256} does not match the committed fixture ${fixtureSha256}`);
   }
 
-  const seen = receipt.moments.map((moment: any) => moment.moment);
+  const seen = receipt.moments.map((moment) => moment.moment);
   for (const required of requiredMoments[receipt.surface as keyof typeof requiredMoments]) {
     if (!seen.includes(required)) problems.push(`missing lifecycle moment ${required}`);
   }
   if (new Set(seen).size !== seen.length) problems.push(`duplicate lifecycle moments: ${seen.join(", ")}`);
 
-  const mountMoment = receipt.moments.find((moment: any) => moment.moment.endsWith("-mount-complete"));
-  const updateMoment = receipt.moments.find((moment: any) => moment.moment.endsWith("-update-complete"));
+  const mountMoment = receipt.moments.find((moment) => moment.moment.endsWith("-mount-complete"));
+  const updateMoment = receipt.moments.find((moment) => moment.moment.endsWith("-update-complete"));
   if (mountMoment && mountMoment.colorMode !== "light") {
     problems.push(`mount moment must be captured in light mode, got ${mountMoment.colorMode}`);
   }
@@ -587,7 +650,7 @@ function normaliseCssValue(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function validReceiptSample() {
+function validReceiptSample(): AcceptanceReceipt {
   const consumed = deriveConsumedTokenNames(appearanceSource);
   const moment = (name: string, colorMode: "light" | "dark") => ({
     moment: name,
@@ -642,26 +705,35 @@ describe("Stripe appearance acceptance receipts", () => {
   });
 
   it.each([
-    ["a skipped run", (r: any) => (r.runSummary.skipped = 1)],
-    ["a failing run", (r: any) => (r.runSummary.failed = 1)],
-    ["passed below collected", (r: any) => (r.runSummary.passed = 1)],
-    ["fewer than two collected tests", (r: any) => ((r.runSummary.collected = 1), (r.runSummary.passed = 1))],
-    ["a stale fixture digest", (r: any) => (r.fixtureSha256 = "b".repeat(64))],
-    ["a missing lifecycle moment", (r: any) => r.moments.splice(1, 1)],
-    ["a duplicated mount moment", (r: any) => (r.moments[1] = { ...r.moments[0] })],
-    ["an unmatched observation", (r: any) => (r.moments[0].observations[0].matched = false)],
-    ["a short implementation head", (r: any) => (r.implementationHead = "abc123")],
-    ["an undeclared extra field", (r: any) => (r.note = "looks fine to me")],
-    ["a credential value in place of a name", (r: any) => r.environmentVariableNames.push("sk_test_51ABCdefGHI")],
+    ["a skipped run", (r: AcceptanceReceipt) => (r.runSummary.skipped = 1)],
+    ["a failing run", (r: AcceptanceReceipt) => (r.runSummary.failed = 1)],
+    ["passed below collected", (r: AcceptanceReceipt) => (r.runSummary.passed = 1)],
+    [
+      "fewer than two collected tests",
+      (r: AcceptanceReceipt) => ((r.runSummary.collected = 1), (r.runSummary.passed = 1)),
+    ],
+    ["a stale fixture digest", (r: AcceptanceReceipt) => (r.fixtureSha256 = "b".repeat(64))],
+    ["a missing lifecycle moment", (r: AcceptanceReceipt) => r.moments.splice(1, 1)],
+    ["a duplicated mount moment", (r: AcceptanceReceipt) => (r.moments[1] = { ...r.moments[0] })],
+    ["an unmatched observation", (r: AcceptanceReceipt) => (r.moments[0].observations[0].matched = false)],
+    ["a short implementation head", (r: AcceptanceReceipt) => (r.implementationHead = "abc123")],
+    ["an undeclared extra field", (r: AcceptanceReceipt) => (r.note = "looks fine to me")],
+    [
+      "a credential value in place of a name",
+      (r: AcceptanceReceipt) => r.environmentVariableNames.push("sk_test_51ABCdefGHI"),
+    ],
     [
       "a buyer identity value",
-      (r: any) => (r.moments[0].consoleMessages = [{ type: "log", text: "buyer@example.com" }]),
+      (r: AcceptanceReceipt) => (r.moments[0].consoleMessages = [{ type: "log", text: "buyer@example.com" }]),
     ],
     [
       "a token that did not resolve to the candidate",
-      (r: any) => (r.moments[0].resolvedTokens["--foreground"] = "#000000"),
+      (r: AcceptanceReceipt) => (r.moments[0].resolvedTokens["--foreground"] = "#000000"),
     ],
-    ["a dark moment that never moved", (r: any) => (r.moments[1].resolvedTokens = { ...r.moments[0].resolvedTokens })],
+    [
+      "a dark moment that never moved",
+      (r: AcceptanceReceipt) => (r.moments[1].resolvedTokens = { ...r.moments[0].resolvedTokens }),
+    ],
   ])("refuses %s", (_label, mutate) => {
     const receipt = validReceiptSample();
     mutate(receipt);
@@ -671,7 +743,7 @@ describe("Stripe appearance acceptance receipts", () => {
   it("validates every committed receipt, and reports when the probe artifact is still pending", () => {
     const committed = readdirSync(fixturesDir).filter((name) => name.endsWith("-acceptance-receipt.json"));
     for (const name of committed) {
-      const receipt = JSON.parse(readFileSync(join(fixturesDir, name), "utf8"));
+      const receipt = JSON.parse(readFileSync(join(fixturesDir, name), "utf8")) as AcceptanceReceipt;
       expect(bindingViolations(receipt), `${name} violates the receipt contract`).toEqual([]);
     }
 
