@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,20 @@ function gitLsFiles() {
     encoding: "buffer",
     stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+function gitLsFilesWithScopedWalk(relativeRoot) {
+  const tracked = gitLsFiles().toString("utf8").split("\0").filter(Boolean);
+  const walked = [];
+  const walk = (relativeDirectory) => {
+    for (const entry of readdirSync(path.join(repoRoot, relativeDirectory), { withFileTypes: true })) {
+      const relativePath = path.posix.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) walk(relativePath);
+      else if (entry.isFile()) walked.push(relativePath);
+    }
+  };
+  walk(relativeRoot);
+  return Buffer.from(`${[...new Set([...tracked, ...walked])].sort().join("\0")}\0`, "utf8");
 }
 
 function memoryTree(overrides = {}) {
@@ -139,21 +153,37 @@ describe("lockfile-bound artifact regeneration", () => {
     expect(clean.stdout).toContain(`${consentAuthorizationEvidenceReceiptPath}: unchanged`);
     expect(tree.writes).toEqual([]);
 
-    const ignoredRoot = path.join(
-      repoRoot,
-      "scripts/check-structure/node_modules/regenerate-lockfile-bound-artifacts-test",
-    );
-    const ignoredFile = path.join(ignoredRoot, `built-${process.pid}.mjs`);
+    const governedFixtureRoot = "scripts/check-structure/fixtures/consent-authorization-sites";
+    const ignoredRelativePath = `${governedFixtureRoot}/built-${process.pid}.tmp`;
+    const ignoredFile = path.join(repoRoot, ignoredRelativePath);
     try {
-      mkdirSync(ignoredRoot, { recursive: true });
-      writeFileSync(ignoredFile, "export const ignoredBuildOutput = true;\r\n");
+      writeFileSync(ignoredFile, "ignored built output\r\n");
       expect(spawnSync("git", ["check-ignore", "-q", ignoredFile], { cwd: repoRoot }).status).toBe(0);
+      expect(gitLsFiles().toString("utf8").split("\0")).not.toContain(ignoredRelativePath);
 
       const built = await run(tree);
       expect(built.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
       expect(built.stderr).toBe("");
       expect(built.stdout).toBe(clean.stdout);
       expect(tree.writes).toEqual([]);
+
+      const filesystemWalkMutant = memoryTree();
+      const mutant = await run(filesystemWalkMutant, {
+        execGitLsFiles: () => gitLsFilesWithScopedWalk(governedFixtureRoot),
+      });
+      expect(mutant.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
+      expect(mutant.stderr).toBe("");
+      expect(filesystemWalkMutant.writes).toEqual([consentAuthorizationEvidenceReceiptPath]);
+      expect(filesystemWalkMutant.readBytes(typeScriptOwnerContextArtifactPath)).toEqual(
+        tree.readBytes(typeScriptOwnerContextArtifactPath),
+      );
+      expect(filesystemWalkMutant.readBytes(consentAuthorizationEvidenceReceiptPath)).not.toEqual(
+        tree.readBytes(consentAuthorizationEvidenceReceiptPath),
+      );
+      expect(
+        JSON.parse(filesystemWalkMutant.readBytes(consentAuthorizationEvidenceReceiptPath).toString("utf8")).digestBound
+          .governingInputs.inventory,
+      ).toContainEqual({ path: ignoredRelativePath, sha256: sha256(repoBytes(ignoredRelativePath)) });
     } finally {
       rmSync(ignoredFile, { force: true });
     }
@@ -244,7 +274,7 @@ describe("lockfile-bound artifact regeneration", () => {
     }
   });
 
-  it("kills the semantic-refusal branch-removal mutant with a named exit and zero writes", async () => {
+  it("refuses semantic movement with a named exit and zero writes", async () => {
     const tree = memoryTree();
     const before = new Map(
       lockfileBoundArtifactPaths.map((relativePath) => [relativePath, tree.readBytes(relativePath)]),
@@ -265,8 +295,8 @@ describe("lockfile-bound artifact regeneration", () => {
     console.log(
       "SEMANTIC REFUSAL MUTANT",
       JSON.stringify({
-        mutation: "refusal-branch-removed",
-        killedBy: `expected exit ${regenerateLockfileBoundArtifactExitCodes.semanticMovement}, observed ${result.exitCode}`,
+        control: "semantic movement must take the refusal branch",
+        observedExit: result.exitCode,
         transcript: result.stderr.trim(),
         writes: tree.writes,
       }),
@@ -316,13 +346,14 @@ describe("lockfile-bound artifact regeneration", () => {
       "scripts/check-structure/consent-authorization-evidence-receipt.json",
     ]);
     expect(packageJson.scripts["regenerate:lockfile-bound-artifacts"]).toBe(
-      "tsx ./scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
+      "node ./scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
     );
-    const plantedWidening = [...lockfileBoundArtifactPaths, "scripts/check-structure/sql-execution-surface.json"];
-    expect(plantedWidening).not.toEqual(lockfileBoundArtifactPaths);
     console.log(
-      "SCOPE WIDENING TRIPWIRE",
-      JSON.stringify({ permittedWrites: lockfileBoundArtifactPaths, plantedWideningKilled: true }),
+      "WRITE SCOPE BINDING",
+      JSON.stringify({
+        permittedWrites: lockfileBoundArtifactPaths,
+        rootCommand: packageJson.scripts["regenerate:lockfile-bound-artifacts"],
+      }),
     );
   });
 });
