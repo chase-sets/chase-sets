@@ -973,6 +973,40 @@ async function resolveTokensFromProbedDocument(page: Page) {
 // production capture path is driven unmodified.
 const captureFrameSelector = 'iframe[title="Secure payment input frame"]';
 
+// Stripe's current Elements release can render more than one iframe under
+// that title (the setup surface mounts an accessory frame beside the card
+// form), so the title alone is ambiguous under strict mode. The probed and
+// captured surface is the title match that actually hosts the card number
+// input; the resolved index also aims the capture clip. Invocations that
+// never resolve a frame (the provider-free battery's single synthetic frame)
+// keep the first-match default.
+let captureFrameIndex = 0;
+
+async function resolveSecureCardInputFrame(page: Page): Promise<FrameLocator> {
+  let matched = -1;
+  await expect
+    .poll(
+      async () => {
+        const handles = await page.locator(captureFrameSelector).elementHandles();
+        for (let index = 0; index < handles.length; index += 1) {
+          const frame = await handles[index]!.contentFrame();
+          if (frame && (await frame.locator('input[name="number"]').count()) > 0) {
+            matched = index;
+            return true;
+          }
+        }
+        return false;
+      },
+      {
+        message: "no Secure payment input frame hosting the card number input appeared",
+        timeout: embedReadyTimeoutMs,
+      },
+    )
+    .toBe(true);
+  captureFrameIndex = matched;
+  return page.frameLocator(`${captureFrameSelector} >> nth=${matched}`);
+}
+
 // Runs inside a document. When a clip is given, only text whose rendered box
 // intersects it counts; when null, the whole document's text counts -- used
 // inside provider frames, where the frame's own box already intersected the
@@ -1066,7 +1100,7 @@ async function scanVisibleDomTextInClip(
 // the resolved outputDir -- the governed evidence root under the dedicated
 // config -- because reporter attachment is not the persistence mechanism.
 async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment: ProbeMoment["moment"]) {
-  const frameElement = page.locator(captureFrameSelector).first();
+  const frameElement = page.locator(captureFrameSelector).nth(captureFrameIndex);
   const box = await frameElement.boundingBox();
   expect(box, "the provider frame must be laid out before a cropped screenshot can be retained").not.toBeNull();
 
@@ -1204,7 +1238,7 @@ test.describe("stripe embed confirmation UAT", () => {
     await expect(embedContainer).toBeVisible({ timeout: embedReadyTimeoutMs });
     await expect(page.getByTestId("payment-element-skeleton")).toHaveCount(0, { timeout: embedReadyTimeoutMs });
 
-    const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
+    const stripeFrame = await resolveSecureCardInputFrame(page);
     await stripeFrame.locator('input[name="number"]').fill(stripeTestCard.number);
     await stripeFrame.locator('input[name="expiry"]').fill(stripeTestCard.expiry);
     await stripeFrame.locator('input[name="cvc"]').fill(stripeTestCard.cvc);
@@ -1312,7 +1346,7 @@ test.describe("stripe embed confirmation UAT", () => {
     await expect(embedContainer).toBeVisible({ timeout: embedReadyTimeoutMs });
     await expect(page.getByTestId("payment-element-skeleton")).toHaveCount(0, { timeout: embedReadyTimeoutMs });
 
-    const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
+    const stripeFrame = await resolveSecureCardInputFrame(page);
     await expect(stripeFrame.locator('input[name="number"]')).toBeVisible({ timeout: embedReadyTimeoutMs });
 
     await recordMoment(page, testInfo, "elements-mount-complete", "light", stripeFrame, consoleMessages);
@@ -1407,7 +1441,7 @@ test.describe("stripe embed confirmation UAT", () => {
     // synthetic touches the route or the setup-session API.
     await page.locator('button[name="intent"][value="add"]').first().click();
 
-    const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
+    const stripeFrame = await resolveSecureCardInputFrame(page);
     await expect(stripeFrame.locator('input[name="number"]')).toBeVisible({ timeout: embedReadyTimeoutMs });
 
     await recordMoment(page, testInfo, "setup-mount-complete", "light", stripeFrame, consoleMessages);
