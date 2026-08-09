@@ -110,7 +110,7 @@ export function createStripeElementsAppearance({
       colorPrimary: primary,
       colorSuccess: success,
       colorText: text,
-      colorTextPlaceholder: mutedText,
+      colorTextPlaceholder: secondaryText,
       colorTextSecondary: secondaryText,
       colorWarning: warning,
       fontFamily: token("--body-font", '"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif', scope),

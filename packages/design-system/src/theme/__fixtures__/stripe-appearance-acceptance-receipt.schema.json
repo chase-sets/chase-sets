@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chase-sets.com/schemas/stripe-appearance-acceptance-receipt/v1.json",
+  "title": "Stripe appearance acceptance receipt",
+  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance, captured at the lifecycle moments the product consumes it. Written only by a fully configured, zero-skip probe run; a skipped, partial, control-mode, or failing run emits nothing. Records environment variable names only, never values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "surface",
+    "stripeMode",
+    "implementationHead",
+    "fixturePath",
+    "fixtureSha256",
+    "capturedAt",
+    "host",
+    "environmentVariableNames",
+    "runSummary",
+    "moments",
+    "substitutionsApplied"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "stripe-appearance-acceptance-receipt/v1" },
+    "surface": {
+      "description": "Which provider surface was probed. The Elements surface is owned by #6698; the Connect surface by #6699.",
+      "enum": ["elements", "connect"]
+    },
+    "stripeMode": { "const": "test" },
+    "implementationHead": {
+      "description": "The 40-character commit the probe ran against. Any later change to the appearance factory or the fixture stales this receipt.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "fixturePath": { "type": "string", "minLength": 1 },
+    "fixtureSha256": {
+      "description": "sha256 of the committed candidate fixture bytes the expectations were read from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "capturedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "host": {
+      "description": "Origin of the qualifying deployed host, with no credential, path, or query component.",
+      "type": "string",
+      "pattern": "^https://[a-z0-9.-]+$"
+    },
+    "environmentVariableNames": {
+      "description": "Names only. A value here is a leak.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+    },
+    "runSummary": { "$ref": "#/$defs/runSummary" },
+    "moments": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/moment" }
+    },
+    "substitutionsApplied": {
+      "description": "Pre-authorised anchor substitutions the provider forced during this run. Empty when the ratified values were accepted as-is.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/substitution" }
+    }
+  },
+  "$defs": {
+    "runSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "workers", "collected", "passed", "failed", "skipped", "testTitles"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "workers": { "type": "integer", "minimum": 1 },
+        "collected": { "type": "integer", "minimum": 2 },
+        "passed": { "type": "integer", "minimum": 2 },
+        "failed": { "const": 0 },
+        "skipped": { "const": 0 },
+        "testTitles": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "moment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["moment", "colorMode", "resolvedTokens", "observations", "consoleMessages", "screenshotSha256"],
+      "properties": {
+        "moment": {
+          "enum": [
+            "elements-mount-complete",
+            "elements-update-complete",
+            "connect-mount-complete",
+            "connect-update-complete"
+          ]
+        },
+        "colorMode": { "enum": ["light", "dark"] },
+        "resolvedTokens": {
+          "description": "Every custom property the appearance factory consumed, resolved from the probed document at this moment.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "patternProperties": {
+            "^--[a-z0-9]+(?:-[a-z0-9]+)*$": { "type": "string", "minLength": 1 }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "consoleMessages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/consoleMessage" }
+        },
+        "screenshotSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "observation": {
+      "description": "One named frame-internal observable: what the provider actually rendered, against an expectation read from the committed fixture.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observable", "sourceToken", "cssProperty", "expected", "computed", "matched", "mandatory"],
+      "properties": {
+        "observable": { "type": "string", "minLength": 1 },
+        "sourceToken": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "cssProperty": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string", "minLength": 1 },
+        "computed": { "type": "string", "minLength": 1 },
+        "matched": { "type": "boolean" },
+        "mandatory": { "type": "boolean" }
+      }
+    },
+    "consoleMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" }
+      }
+    },
+    "substitution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "mode", "from", "to", "reason"],
+      "properties": {
+        "property": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "mode": { "enum": ["light", "dark"] },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
