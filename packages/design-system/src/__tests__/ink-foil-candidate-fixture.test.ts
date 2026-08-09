@@ -121,8 +121,35 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function asSchema(value: unknown): SchemaNode {
-  return asRecord(value) ?? {};
+// Every schema-bearing position must hold a plain object. JSON Schema boolean
+// subschemas (`true` and `false`) read as constraints while binding nothing
+// this validator implements, so they are refused with a named path rather than
+// coerced to the empty schema -- the settled r2 F2 policy: reject everywhere,
+// never implement. `additionalProperties` alone may be exactly `false`, and
+// that exception lives at its call sites, never here.
+function requireSchemaNode(value: unknown, path: string): SchemaNode {
+  if (typeof value === "boolean") {
+    throw new Error(`${path}: boolean subschema is not a closed object node`);
+  }
+  const node = asRecord(value);
+  if (!node) {
+    throw new Error(
+      `${path}: schema-bearing position holds ${Array.isArray(value) ? "an array" : `a ${typeof value}`}, not a closed object node`,
+    );
+  }
+  return node;
+}
+
+// The values under a keyword map are subschemas; the map itself must still be
+// a plain object for those positions to exist at all.
+function requireKeywordMap(value: unknown, path: string): Record<string, unknown> {
+  const map = asRecord(value);
+  if (!map) {
+    throw new Error(
+      `${path}: must be an object map of subschemas, got ${Array.isArray(value) ? "an array" : typeof value}`,
+    );
+  }
+  return map;
 }
 
 function resolveRef(root: SchemaNode, ref: string): SchemaNode {
@@ -131,10 +158,14 @@ function resolveRef(root: SchemaNode, ref: string): SchemaNode {
   for (const segment of ref.slice(2).split("/")) {
     node = asRecord(node)?.[segment];
   }
-  return asSchema(node);
+  return requireSchemaNode(node, `$ref ${ref}`);
 }
 
-function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "$", errors: string[] = []): string[] {
+function validate(root: SchemaNode, candidate: unknown, value: unknown, path = "$", errors: string[] = []): string[] {
+  // A boolean or otherwise non-object schema node throws here instead of
+  // coercing to the empty schema, so the validator refuses independently of
+  // the closure walk and a direct reopening cannot validate as unconstrained.
+  const schema = requireSchemaNode(candidate, path);
   if (typeof schema.$ref === "string") {
     return validate(root, resolveRef(root, schema.$ref), value, path, errors);
   }
@@ -151,9 +182,9 @@ function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "
 
   const declaredType =
     schema.type ??
-    (schema.properties || schema.patternProperties || schema.propertyNames
+    (schema.properties !== undefined || schema.patternProperties !== undefined || schema.propertyNames !== undefined
       ? "object"
-      : schema.items
+      : schema.items !== undefined
         ? "array"
         : undefined);
 
@@ -171,9 +202,20 @@ function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "
     if (minProperties !== undefined && entries.length < minProperties) {
       fail(`expected at least ${minProperties} properties, got ${entries.length}`);
     }
-    const propertyNames = asRecord(schema.propertyNames);
-    const properties = asRecord(schema.properties);
-    const patternProperties = asRecord(schema.patternProperties);
+    // Every schema-bearing position is refused fail-closed when it holds
+    // anything but a plain object; only `additionalProperties` may be exactly
+    // `false`. Absent optional positions stay absent -- they are never coerced.
+    if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
+      requireSchemaNode(schema.additionalProperties, `${path}.additionalProperties`);
+    }
+    const propertyNames =
+      schema.propertyNames !== undefined ? requireSchemaNode(schema.propertyNames, `${path}.propertyNames`) : null;
+    const properties =
+      schema.properties !== undefined ? requireKeywordMap(schema.properties, `${path}.properties`) : null;
+    const patternProperties =
+      schema.patternProperties !== undefined
+        ? requireKeywordMap(schema.patternProperties, `${path}.patternProperties`)
+        : null;
     for (const [key, child] of entries) {
       const childPath = `${path}.${key}`;
       if (propertyNames && !new RegExp(String(propertyNames.pattern)).test(key)) {
@@ -181,10 +223,10 @@ function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "
       }
       const direct = properties?.[key];
       const patternKey = Object.keys(patternProperties ?? {}).find((candidate) => new RegExp(candidate).test(key));
-      if (direct) {
-        validate(root, asSchema(direct), child, childPath, errors);
+      if (direct !== undefined) {
+        validate(root, direct, child, childPath, errors);
       } else if (patternKey) {
-        validate(root, asSchema(patternProperties![patternKey]), child, childPath, errors);
+        validate(root, patternProperties![patternKey], child, childPath, errors);
       } else if (schema.additionalProperties === false) {
         fail(`unexpected additional property ${key}`);
       }
@@ -204,7 +246,13 @@ function validate(root: SchemaNode, schema: SchemaNode, value: unknown, path = "
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) {
       fail("expected unique items");
     }
-    value.forEach((item, index) => validate(root, asSchema(schema.items), item, `${path}[${index}]`, errors));
+    if (schema.items !== undefined) {
+      // Checked before iterating, so a boolean `items` node is refused even
+      // for an empty array; an absent `items` stays an absent optional
+      // position, never a coerced empty schema.
+      const itemsSchema = requireSchemaNode(schema.items, `${path}.items`);
+      value.forEach((item, index) => validate(root, itemsSchema, item, `${path}[${index}]`, errors));
+    }
     return errors;
   }
 
@@ -259,8 +307,9 @@ const schemaMapKeywords = ["properties", "patternProperties", "$defs"] as const;
 const schemaValueKeywords = ["items", "propertyNames", "additionalProperties"] as const;
 
 function assertRecursivelyClosed(candidate: unknown, path: string) {
-  const node = asRecord(candidate);
-  if (!node) return;
+  // The node itself is a schema-bearing position: a boolean or otherwise
+  // non-object candidate is refused with its named path, never skipped.
+  const node = requireSchemaNode(candidate, path);
 
   for (const keyword of Object.keys(node)) {
     if (!supportedKeywords.has(keyword)) {
@@ -268,23 +317,31 @@ function assertRecursivelyClosed(candidate: unknown, path: string) {
     }
   }
 
-  const isObjectNode =
-    node.type === "object" || node.properties || node.patternProperties || node.propertyNames !== undefined;
-  if (isObjectNode) {
-    const closed = node.additionalProperties === false;
-    const gated = Boolean(node.patternProperties && node.propertyNames);
-    expect(closed || gated, `${path} is an object node that does not close additional properties`).toBe(true);
-  }
-
+  // Schema-bearing positions are refused before the closure expectation, so a
+  // `propertyNames: true` names the boolean subschema instead of counting as
+  // the gate of the patternProperties/propertyNames closure form.
   for (const keyword of schemaMapKeywords) {
-    const map = asRecord(node[keyword]);
-    if (!map) continue;
+    if (node[keyword] === undefined) continue;
+    const map = requireKeywordMap(node[keyword], `${path}.${keyword}`);
     for (const [key, child] of Object.entries(map)) {
       assertRecursivelyClosed(child, `${path}.${keyword}.${key}`);
     }
   }
   for (const keyword of schemaValueKeywords) {
-    if (asRecord(node[keyword])) assertRecursivelyClosed(node[keyword], `${path}.${keyword}`);
+    if (node[keyword] === undefined) continue;
+    if (keyword === "additionalProperties" && node[keyword] === false) continue;
+    assertRecursivelyClosed(node[keyword], `${path}.${keyword}`);
+  }
+
+  const isObjectNode =
+    node.type === "object" ||
+    node.properties !== undefined ||
+    node.patternProperties !== undefined ||
+    node.propertyNames !== undefined;
+  if (isObjectNode) {
+    const closed = node.additionalProperties === false;
+    const gated = Boolean(node.patternProperties && node.propertyNames);
+    expect(closed || gated, `${path} is an object node that does not close additional properties`).toBe(true);
   }
 }
 
@@ -548,7 +605,7 @@ const receiptArtifactPaths = [
 // regardless of configuration -- including the buyer/session/order/payment
 // markers a Stripe-key-and-email pattern set walks straight past.
 const leakPatterns = [
-  /\b(?:sk|pk|rk)_(?:test|live)_[A-Za-z0-9]{4,}/,
+  /\b(?:sk|pk|rk|cs)_(?:test|live)_[A-Za-z0-9]{4,}/,
   /\bwhsec_[A-Za-z0-9]{4,}/,
   /\b(?:password|passwd|secret|api[-_]?key|apikey|bearer)\b\s*[=:]\s*\S+/i,
   /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
@@ -581,7 +638,7 @@ function requireSpecMatch(source: string, pattern: RegExp, what: string): RegExp
 }
 
 export function deriveEvidenceCommand(source: string): string {
-  return requireSpecMatch(source, /const evidenceCommand = "([^"]+)";/, "evidenceCommand")[1]!;
+  return requireSpecMatch(source, /const evidenceCommand =\s*"([^"]+)";/, "evidenceCommand")[1]!;
 }
 
 export function deriveRequiredEnvironmentVariableNames(source: string): string[] {
@@ -1118,6 +1175,98 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(() => assertRecursivelyClosed(mutated, "receiptSchema")).toThrow(/unsupported schema keyword maxLength/);
   });
 
+  // -------------------------------------------------------------------------
+  // AC-08: boolean subschemas fail closed at every schema-bearing position.
+  // A `true` node under properties, $defs, items, or propertyNames reads as a
+  // constraint while binding nothing, and `false` silently forbids; both are
+  // refused with a named path at the closure walk AND at the validator, so
+  // neither layer can be reopened alone.
+  // -------------------------------------------------------------------------
+
+  const mutateReceiptSchema = (path: string[], value: unknown) => {
+    const mutated = JSON.parse(JSON.stringify(receiptSchema)) as Record<string, unknown>;
+    let node = mutated;
+    for (const segment of path.slice(0, -1)) node = node[segment] as Record<string, unknown>;
+    node[path[path.length - 1]!] = value;
+    return mutated;
+  };
+
+  const booleanSubschemaPositions: [string, string[]][] = [
+    // The three bypasses the r2 review executed.
+    ["properties.capturedAt", ["properties", "capturedAt"]],
+    ["$defs.consoleMessage.properties.text", ["$defs", "consoleMessage", "properties", "text"]],
+    ["$defs.moment.properties.screenshotSha256", ["$defs", "moment", "properties", "screenshotSha256"]],
+    // The items position.
+    ["$defs.moment.properties.observations.items", ["$defs", "moment", "properties", "observations", "items"]],
+    // The propertyNames position: the closure walk's gated
+    // patternProperties-plus-propertyNames form must not accept a boolean as
+    // its gate (planning-review N1).
+    ["properties.sourceDigests.propertyNames", ["properties", "sourceDigests", "propertyNames"]],
+    // The resolution target of a $ref.
+    ["$defs.runSummary", ["$defs", "runSummary"]],
+    // additionalProperties may be exactly false or a plain object node, never
+    // true.
+    ["$defs.runSummary.additionalProperties", ["$defs", "runSummary", "additionalProperties"]],
+  ];
+
+  it.each(
+    booleanSubschemaPositions.flatMap(([label, path]): [string, boolean, string[]][] =>
+      label.endsWith(".additionalProperties")
+        ? [[label, true, path]]
+        : [
+            [label, true, path],
+            [label, false, path],
+          ],
+    ),
+  )("closure walk refuses a boolean subschema at %s (%s)", (label, booleanValue, path) => {
+    const mutated = mutateReceiptSchema(path, booleanValue);
+    expect(() => assertRecursivelyClosed(mutated, "receiptSchema")).toThrow(
+      `receiptSchema.${label}: boolean subschema is not a closed object node`,
+    );
+  });
+
+  it.each(booleanSubschemaPositions.filter(([label]) => !label.endsWith(".additionalProperties")))(
+    "validator throws on a boolean subschema reached through %s instead of validating as unconstrained",
+    (_label, path) => {
+      const mutated = mutateReceiptSchema(path, true);
+      const sample = validReceiptSample();
+      // A retained console line makes the $defs.consoleMessage subtree
+      // reachable, so the mutated position is actually exercised rather than
+      // skipped behind an empty array.
+      sample.moments[0].consoleMessages = [{ type: "log", text: "probe log line" }];
+      expect(() => validate(mutated, mutated, sample)).toThrow(/boolean subschema is not a closed object node/);
+    },
+  );
+
+  it("validator throws on additionalProperties: true instead of treating extra properties as unconstrained", () => {
+    const mutated = mutateReceiptSchema(["$defs", "runSummary", "additionalProperties"], true);
+    expect(() => validate(mutated, mutated, validReceiptSample())).toThrow(
+      /additionalProperties: boolean subschema is not a closed object node/,
+    );
+  });
+
+  it("validator throws on a directly reopened boolean schema node", () => {
+    // The direct validate-layer case: with the coercion escape removed, a
+    // boolean root schema throws rather than validating anything -- so the
+    // closure walk and the validator refuse independently.
+    expect(() => validate(receiptSchema, true, validReceiptSample())).toThrow(
+      "$: boolean subschema is not a closed object node",
+    );
+    expect(() => validate(receiptSchema, false, validReceiptSample())).toThrow(
+      "$: boolean subschema is not a closed object node",
+    );
+  });
+
+  it("keeps ordinary boolean keyword values and exact-false additionalProperties working", () => {
+    // uniqueItems: true is a keyword value, not a schema-bearing position, and
+    // every additionalProperties: false in both committed schemas remains the
+    // closure form -- the committed schemas keep validating unedited.
+    assertRecursivelyClosed(receiptSchema, "receiptSchema");
+    assertRecursivelyClosed(tokenSchema, "tokenSchema");
+    expect(validate(receiptSchema, receiptSchema, validReceiptSample())).toEqual([]);
+    expect(validate(tokenSchema, tokenSchema, fixture)).toEqual([]);
+  });
+
   it("derives the probe contract from the spec source rather than transcribing it", () => {
     const mandatory = deriveMandatoryObservables(probeSpecSource);
     const conditional = deriveConditionalObservables(probeSpecSource);
@@ -1179,7 +1328,13 @@ describe("Stripe appearance acceptance receipts", () => {
     ["an unmatched observation", (r) => (r.moments[0].observations[0].matched = false), {}],
     ["a short implementation head", (r) => (r.implementationHead = "abc123"), {}],
     ["an undeclared extra field", (r) => (r.note = "looks fine to me"), {}],
-    ["a credential value in place of a name", (r) => r.environmentVariableNames.push("sk_test_51ABCdefGHI"), {}],
+    [
+      // Assembled at run time: a committed literal in provider-key shape is
+      // itself the hazard this battery exists to catch.
+      "a credential value in place of a name",
+      (r) => r.environmentVariableNames.push(["sk", "test", "51ABCdefGHI"].join("_")),
+      {},
+    ],
     [
       "a buyer identity value",
       (r) => (r.moments[0].consoleMessages = [{ type: "log", text: "buyer@example.com" }]),

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test, type APIRequestContext, type FrameLocator, type Page, type TestInfo } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
@@ -81,13 +81,102 @@ const probeEnvironmentVariableNames = [
   "MARKETPLACE_E2E_EMAIL",
   "MARKETPLACE_E2E_PASSWORD",
 ];
-const evidenceCommand = "pnpm exec playwright test --grep @stripe-embed-uat --workers=1";
+const evidenceCommand =
+  "pnpm exec playwright test --config playwright.stripe-appearance-evidence.config.ts --grep @stripe-embed-uat --workers=1";
 
 // Stripe reports a rejected or unparsable appearance value as console traffic,
 // not as a failed promise, so an unstyled Element otherwise reads as a green
 // run.
 const stripeAppearanceRejectionPattern =
   /IntegrationError|Invalid value for|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i;
+
+// ---------------------------------------------------------------------------
+// Retention-governance surface (settled r2 F4).
+//
+// Every invocation of this spec -- evidence, controls, refusal, and the
+// provider-free battery -- carries --config with the dedicated evidence
+// config, which governs report, screenshot, video, trace, attachment, and
+// .last-run.json output by construction: list reporter only, artifacts off,
+// retries 0, governed outputDir. The guard below turns a configured or
+// control-mode invocation under an ungoverned resolved config into a named
+// refusal before sign-in, navigation, or any content capture. A forgotten
+// --config cannot be made byte-free -- the runner itself writes its report
+// and .last-run.json before any test code runs -- so the guarantee is a
+// content-free early refusal, never "no framework bytes".
+// ---------------------------------------------------------------------------
+
+const governedEvidenceRoot = "artifacts/stripe-appearance-evidence/test-results";
+
+type ResolvedRetentionSettings = {
+  reporterNames: string[];
+  outputDir: string;
+  retries: number;
+  trace: unknown;
+  screenshot: unknown;
+  video: unknown;
+};
+
+// Pure over the resolved settings, so the predicate is provable provider-free
+// against any shape -- including the exact shape a forgotten --config
+// resolves -- without a configured session.
+export function ungovernedSettings(resolved: ResolvedRetentionSettings): string[] {
+  const problems: string[] = [];
+  if (resolved.reporterNames.join(",") !== "list") {
+    problems.push(`reporter: must be exactly the list reporter, resolved [${resolved.reporterNames.join(", ")}]`);
+  }
+  if (!resolved.outputDir.replace(/\\/g, "/").endsWith(governedEvidenceRoot)) {
+    problems.push(
+      `outputDir: must resolve to the governed root ${governedEvidenceRoot}, resolved ${resolved.outputDir}`,
+    );
+  }
+  if (resolved.retries !== 0) {
+    problems.push(`retries: must be 0, resolved ${resolved.retries}`);
+  }
+  const artifactModes: [string, unknown][] = [
+    ["trace", resolved.trace],
+    ["screenshot", resolved.screenshot],
+    ["video", resolved.video],
+  ];
+  for (const [name, mode] of artifactModes) {
+    if (mode !== "off") {
+      problems.push(`use.${name}: must be "off", resolved ${JSON.stringify(mode)}`);
+    }
+  }
+  return problems;
+}
+
+// Playwright resolves top-level use/retries/outputDir into FullProject, so the
+// project view is the only route to the settings that actually govern this
+// worker; FullConfig exposes no `use`.
+function resolvedRetentionSettings(testInfo: TestInfo): ResolvedRetentionSettings {
+  const use = testInfo.project.use as { trace?: unknown; screenshot?: unknown; video?: unknown };
+  const reporter: unknown = testInfo.config.reporter;
+  return {
+    reporterNames: Array.isArray(reporter)
+      ? reporter.map((entry: unknown) => String(Array.isArray(entry) ? entry[0] : entry))
+      : [String(reporter)],
+    outputDir: testInfo.project.outputDir,
+    retries: testInfo.project.retries,
+    trace: use.trace,
+    screenshot: use.screenshot,
+    video: use.video,
+  };
+}
+
+// Tag-filtered and fail-closed: whenever this spec's tagged tests run
+// configured (STRIPE_EMBED_UAT=true) or in a control mode, an ungoverned
+// resolved config is a hard failure naming each ungoverned setting -- never a
+// skip. Unconfigured runs return here untouched and skip exactly as before.
+test.beforeEach(async ({}, testInfo) => {
+  if (!testInfo.tags.includes("@stripe-embed-uat")) return;
+  if (!runStripeEmbedUat && !probeControlMode) return;
+  const problems = ungovernedSettings(resolvedRetentionSettings(testInfo));
+  expect(
+    problems,
+    `configured or control-mode invocation under an ungoverned resolved config; every invocation of this spec must carry ` +
+      `--config ${evidenceConfigRelativePath}. Ungoverned settings: ${problems.join("; ")}`,
+  ).toEqual([]);
+});
 
 // ---------------------------------------------------------------------------
 // Retained-artifact retention guard.
@@ -114,7 +203,9 @@ type RetentionGuard = {
 // alternatives are the issuer prefixes Stripe's own test PANs use, so a bare
 // digit run inside a digest can never false-positive.
 const retentionShapePatterns: { category: RetentionCategory; pattern: RegExp }[] = [
-  { category: "credential", pattern: /\b(?:sk|pk|rk)_(?:test|live)_[A-Za-z0-9]{4,}/g },
+  // `cs` covers Checkout Session client secrets (cs_test_/cs_live_ runs), the
+  // shape the browser-delivered processor_client_secret takes on that surface.
+  { category: "credential", pattern: /\b(?:sk|pk|rk|cs)_(?:test|live)_[A-Za-z0-9]{4,}/g },
   { category: "credential", pattern: /\bwhsec_[A-Za-z0-9]{4,}/g },
   { category: "credential", pattern: /\b(?:password|passwd|secret|api[-_]?key|apikey|bearer)\b\s*[=:]\s*\S+/gi },
   { category: "buyer-identity", pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
@@ -203,7 +294,7 @@ function configuredRetentionValues(): RetentionValue[] {
     // it appears.
     if (/(?:SECRET|PASSWORD|PASSPHRASE|TOKEN|CREDENTIAL|PRIVATE_KEY|_KEY|APIKEY)$/.test(name)) {
       push(value, "credential");
-    } else if (/^(?:sk|pk|rk)_(?:test|live)_|^whsec_/.test(value)) {
+    } else if (/^(?:sk|pk|rk|cs)_(?:test|live)_|^whsec_/.test(value)) {
       push(value, "credential");
     }
     // A connection string's userinfo is a credential even when its variable is
@@ -232,6 +323,33 @@ async function registerSessionRetentionValues(page: Page) {
   for (const cookie of await page.context().cookies()) {
     registerRuntimeRetentionValue(cookie.value, "session-marker");
   }
+}
+
+// The provider client secret is a credential the moment it exists. Every
+// client-secret field in a payment payload joins the retention comparison set
+// at run time and is never logged, echoed, or asserted on.
+function registerClientSecretFields(payload: unknown) {
+  if (typeof payload !== "object" || payload === null) return;
+  for (const [field, value] of Object.entries(payload as Record<string, unknown>)) {
+    if (typeof value === "string" && field.includes("client_secret")) {
+      registerRuntimeRetentionValue(value, "credential");
+    }
+  }
+}
+
+// The browser fetches the payment resource itself while the page mounts, so
+// the browser-delivered processor_client_secret is registered from the
+// response stream as it arrives -- before any capture moment can retain a
+// byte -- rather than guessed from configuration.
+function watchPaymentClientSecrets(page: Page) {
+  page.on("response", async (response) => {
+    if (!response.url().includes("/api/marketplace/account/payments")) return;
+    try {
+      registerClientSecretFields(await response.json());
+    } catch {
+      // A non-JSON payment response carries no client secret.
+    }
+  });
 }
 
 function redactedDigest(value: string) {
@@ -264,18 +382,21 @@ const acceptanceReceiptPath = join(
 // hand-maintained, over both consumption seams.
 const appearanceFactoryRelativePath = "packages/design-system/src/theme/stripe-appearance.ts";
 const probeSpecRelativePath = "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts";
+const evidenceConfigRelativePath = "playwright.stripe-appearance-evidence.config.ts";
 const appearanceFactorySource = readFileSync(join(repositoryRoot(), appearanceFactoryRelativePath), "utf8");
 
 // The receipt cannot bind to the commit that contains it -- committing the
 // receipt moves the head it would have to name. It binds instead to the exact
-// bytes of everything that could change what the provider was sent: the
-// appearance factory, the candidate fixture, and this probe spec. A later edit
+// bytes of everything that could change what the provider was sent or how the
+// run's artifacts were governed: the appearance factory, the candidate
+// fixture, this probe spec, and the dedicated evidence config. A later edit
 // to any of them stales every receipt that pinned the old bytes, with no
 // self-reference and nothing for a hand edit to satisfy.
 const receiptSourceDigestPaths = [
   appearanceFactoryRelativePath,
   candidateFixtureRelativePath,
   probeSpecRelativePath,
+  evidenceConfigRelativePath,
 ] as const;
 
 function receiptSourceDigests() {
@@ -759,15 +880,117 @@ async function resolveTokensFromProbedDocument(page: Page) {
   }, consumedTokenNames);
 }
 
+// The selector the capture path crops to and enumerates around. The synthetic
+// provider-free negative control serves a frame under this exact title so the
+// production capture path is driven unmodified.
+const captureFrameSelector = 'iframe[title="Secure payment input frame"]';
+
+// Runs inside a document. When a clip is given, only text whose rendered box
+// intersects it counts; when null, the whole document's text counts -- used
+// inside provider frames, where the frame's own box already intersected the
+// capture clip and a conservative whole-frame enumeration fails closed.
+// Enumerated text: text nodes, input/textarea values, and the
+// placeholder/aria-label/title/alt attributes that render as visible text.
+function collectDomText(payload: { frameSelector: string | null }): string[] {
+  const texts: string[] = [];
+  const clip = payload.frameSelector
+    ? (document.querySelector(payload.frameSelector)?.getBoundingClientRect() ?? null)
+    : null;
+  const intersects = (rect: DOMRect) =>
+    clip === null ||
+    (rect.right > clip.left && rect.left < clip.right && rect.bottom > clip.top && rect.top < clip.bottom);
+  const push = (value: string | null | undefined) => {
+    if (value && value.trim()) texts.push(value);
+  };
+
+  for (const element of Array.from(document.querySelectorAll("*"))) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+    if (!intersects(rect)) continue;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) push(element.value);
+    push(element.getAttribute("placeholder"));
+    push(element.getAttribute("aria-label"));
+    push(element.getAttribute("title"));
+    push(element.getAttribute("alt"));
+  }
+
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.nodeValue || !node.nodeValue.trim()) continue;
+    range.selectNodeContents(node);
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+    if (intersects(rect)) push(node.nodeValue);
+  }
+  return texts;
+}
+
+// The pre-persistence authority for rendered text (settled r2 F4): rasterised
+// text is compressed pixel data, so no byte scan can prove anything about it.
+// Every visible string in the capture region -- in the top document, clipped
+// to the frame's own client rect so both sides share one coordinate space, and
+// inside every frame whose owner box intersects the capture clip (Playwright
+// evaluates inside the cross-origin provider frame) -- is run through the
+// retention guard before any image byte exists.
+async function scanVisibleDomTextInClip(
+  page: Page,
+  captureBox: { x: number; y: number; width: number; height: number },
+) {
+  const hits: RetentionCategory[] = [];
+  const scanAll = (texts: string[]) => {
+    for (const text of texts) hits.push(...retentionGuard.scanText(text));
+  };
+
+  scanAll(await page.evaluate(collectDomText, { frameSelector: captureFrameSelector }));
+
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    let intersecting = true;
+    try {
+      const owner = await frame.frameElement();
+      const ownerBox = await owner.boundingBox();
+      intersecting =
+        ownerBox !== null &&
+        ownerBox.x < captureBox.x + captureBox.width &&
+        ownerBox.x + ownerBox.width > captureBox.x &&
+        ownerBox.y < captureBox.y + captureBox.height &&
+        ownerBox.y + ownerBox.height > captureBox.y;
+    } catch {
+      // A frame whose owner element cannot be resolved is treated as
+      // intersecting: the enumeration fails closed rather than assuming the
+      // frame was outside the clip.
+    }
+    if (!intersecting) continue;
+    // An evaluation error here propagates and fails the capture: a frame that
+    // cannot be enumerated cannot be proven text-free.
+    scanAll(await frame.evaluate(collectDomText, { frameSelector: null }));
+  }
+  return hits;
+}
+
 // Nothing outside the provider's own frame is retained: the crop is the
 // redaction, because the buyer's identity, the account menu, and every page
-// chrome affordance live outside it. The cropped bytes are then scanned
-// against the configured values before the attachment exists at all -- a hit
-// refuses the artifact rather than shipping an unreadable one.
+// chrome affordance live outside it. Refusal is pre-persistence by
+// construction and DOM-text-based: visible text in the clip is enumerated and
+// scanned before the screenshot is even taken, a hit names categories only,
+// and nothing is attached or written. Persistence is an explicit write under
+// the resolved outputDir -- the governed evidence root under the dedicated
+// config -- because reporter attachment is not the persistence mechanism.
 async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment: ProbeMoment["moment"]) {
-  const frameElement = page.locator('iframe[title="Secure payment input frame"]').first();
+  const frameElement = page.locator(captureFrameSelector).first();
   const box = await frameElement.boundingBox();
   expect(box, "the provider frame must be laid out before a cropped screenshot can be retained").not.toBeNull();
+
+  const domTextHits = await scanVisibleDomTextInClip(page, box!);
+  if (domTextHits.length > 0) {
+    retentionScan.forbiddenMarkerHits += domTextHits.length;
+    throw new Error(
+      `visible DOM text inside the ${moment} capture clip matched retention categories ` +
+        `${[...new Set(domTextHits)].sort().join(", ")}; nothing was captured, attached, or persisted for this ` +
+        "moment and no receipt may be minted from this run",
+    );
+  }
 
   const maskedRegions = 0;
   const buffer = await page.screenshot({
@@ -775,6 +998,10 @@ async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment:
   });
 
   retentionScan.imageArtifacts += 1;
+  // Secondary layer only: this byte scan sees PNG text chunks and incidental
+  // byte runs in the compressed stream. It can say nothing about rasterised
+  // (pixel-encoded) text -- the DOM-text enumeration above is the authority
+  // for that.
   const hits = retentionGuard.scanBuffer(buffer);
   if (hits.length > 0) {
     retentionScan.forbiddenMarkerHits += hits.length;
@@ -784,7 +1011,9 @@ async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment:
     );
   }
 
-  await testInfo.attach(`${moment}.png`, { body: buffer, contentType: "image/png" });
+  const capturePath = testInfo.outputPath(`${moment}.png`);
+  mkdirSync(dirname(capturePath), { recursive: true });
+  writeFileSync(capturePath, buffer);
   return { sha256: createHash("sha256").update(buffer).digest("hex"), maskedRegions };
 }
 
@@ -852,6 +1081,7 @@ async function createProbePayment(request: APIRequestContext): Promise<string> {
   });
   expect(created.ok(), `probe payment creation failed with ${created.status()}: ${await created.text()}`).toBe(true);
   const payment = await created.json();
+  registerClientSecretFields(payment);
   const paymentId = payment.payment_id as string | undefined;
   expect(paymentId, "probe payment creation did not return a payment_id").toBeTruthy();
 
@@ -946,6 +1176,7 @@ test.describe("stripe embed confirmation UAT", () => {
     ).toEqual([]);
 
     const consoleMessages = watchConsole(page);
+    watchPaymentClientSecrets(page);
     if (probeControlMode !== "injection-off") {
       // The invalid-value control attacks `--border` specifically: it is the
       // one Stripe-reaching value that is not a plain hex, it is the observable
@@ -1387,6 +1618,78 @@ test.describe("stripe appearance probe mechanism, provider-free", () => {
     }
   });
 
+  test("refuses an ungoverned resolved config shape, naming each ungoverned setting", async () => {
+    // The exact shape a forgotten --config resolves: the shared config's HTML
+    // reporter and retry telemetry, retained failure artifacts, CI retries,
+    // and the global Playwright outputDir.
+    const problems = ungovernedSettings({
+      reporterNames: ["list", "retry-telemetry-reporter", "html"],
+      outputDir: "D:\\repo\\artifacts\\playwright\\test-results",
+      retries: 2,
+      trace: "on-first-retry",
+      screenshot: "only-on-failure",
+      video: "retain-on-failure",
+    });
+    for (const setting of ["reporter:", "outputDir:", "retries:", "use.trace:", "use.screenshot:", "use.video:"]) {
+      expect(
+        problems.some((problem) => problem.startsWith(setting)),
+        `the predicate did not name ${setting} among: ${problems.join("; ")}`,
+      ).toBe(true);
+    }
+    expect(problems).toHaveLength(6);
+
+    // The governed shape -- the dedicated evidence config's resolved settings,
+    // wherever on disk the repository sits -- refuses nothing.
+    expect(
+      ungovernedSettings({
+        reporterNames: ["list"],
+        outputDir: "D:\\repo\\artifacts\\stripe-appearance-evidence\\test-results",
+        retries: 0,
+        trace: "off",
+        screenshot: "off",
+        video: "off",
+      }),
+    ).toEqual([]);
+  });
+
+  test("refuses a production capture whose clip contains visible planted DOM text, persisting nothing", async ({
+    page,
+  }, testInfo) => {
+    // Assembled at run time: a committed literal in provider-key shape is
+    // itself the hazard this control exists to catch. The Checkout Session
+    // client-secret shape must bite with no configured values at all.
+    const plantedCheckoutSecret = ["cs", "test", "SYNTHETICPLANTEDDOMTEXTNOTAREALSECRET"].join("_");
+    await page.route(`${syntheticProbeOrigin}/**`, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        body:
+          pathname === "/capture-frame"
+            ? `<!doctype html><html><body><p>${plantedCheckoutSecret}</p></body></html>`
+            : `<!doctype html><html><body><iframe title="Secure payment input frame" src="${syntheticProbeOrigin}/capture-frame" style="width:320px;height:120px"></iframe></body></html>`,
+      });
+    });
+    await page.goto(`${syntheticProbeOrigin}/capture-host`);
+
+    const imageArtifactsBefore = retentionScan.imageArtifacts;
+    const capturePath = testInfo.outputPath("elements-mount-complete.png");
+
+    // The production capture path, driven unmodified: the refusal names
+    // categories only and fires before any image byte exists.
+    await expect(captureRedactedScreenshot(page, testInfo, "elements-mount-complete")).rejects.toThrow(
+      /visible DOM text inside the elements-mount-complete capture clip matched retention categories credential/,
+    );
+
+    // Pre-persistence by construction: the screenshot was never taken, nothing
+    // was attached, and the explicit-write target does not exist.
+    expect(retentionScan.imageArtifacts, "the screenshot must be refused before it is taken").toBe(
+      imageArtifactsBefore,
+    );
+    expect(testInfo.attachments.filter((attachment) => attachment.contentType === "image/png")).toEqual([]);
+    expect(existsSync(capturePath)).toBe(false);
+  });
+
   test("refuses a textual artifact carrying a planted synthetic marker", async () => {
     const guard = plantedMarkerGuard();
 
@@ -1405,9 +1708,11 @@ test.describe("stripe appearance probe mechanism, provider-free", () => {
     // provider-key shape is itself the hazard this control exists to catch, and
     // GitHub push protection refuses it -- correctly -- before it can land.
     const providerKeyShape = ["sk", "test", "SYNTHETICPLANTEDNOTAREALKEY"].join("_");
+    const checkoutSessionSecretShape = ["cs", "test", "SYNTHETICPLANTEDNOTAREALSECRET"].join("_");
     const shapedMarkers = [
       "buyer-account-id=acct_SYNTHETICPLACEHOLDER password=synthetic-planted-passphrase",
       providerKeyShape,
+      checkoutSessionSecretShape,
       "contact synthetic.planted@example.invalid",
       "pan 4242424242424242",
     ];
