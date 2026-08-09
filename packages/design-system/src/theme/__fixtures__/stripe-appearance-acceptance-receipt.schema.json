@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chase-sets.com/schemas/stripe-appearance-acceptance-receipt/v1.json",
   "title": "Stripe appearance acceptance receipt",
-  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance, captured at the lifecycle moments the product consumes it. Written only by a fully configured, zero-skip probe run; a skipped, partial, control-mode, or failing run emits nothing. Records environment variable names only, never values.",
+  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance, captured at the lifecycle moments the product consumes it. Written only by a fully configured, zero-skip probe run against a qualifying deployed staging host; a skipped, partial, control-mode, or failing run emits nothing, and any run whose retained artifacts matched a configured secret or buyer/session/order/payment marker emits nothing either. Records environment variable names only, never values. The schema constrains shape; ink-foil-candidate-fixture.test.ts binds the receipt to the exact bytes, commit, command, and observation contract it claims.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,10 +12,12 @@
     "implementationHead",
     "fixturePath",
     "fixtureSha256",
+    "sourceDigests",
     "capturedAt",
     "host",
     "environmentVariableNames",
     "runSummary",
+    "retentionScan",
     "moments",
     "substitutionsApplied"
   ],
@@ -27,24 +29,35 @@
     },
     "stripeMode": { "const": "test" },
     "implementationHead": {
-      "description": "The 40-character commit the probe ran against. Any later change to the appearance factory or the fixture stales this receipt.",
+      "description": "The 40-character commit the probe ran against. The validator requires it to resolve to a reachable commit and permits only the receipt artifact itself to differ between it and the validating head.",
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
-    "fixturePath": { "type": "string", "minLength": 1 },
+    "fixturePath": {
+      "const": "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json"
+    },
     "fixtureSha256": {
       "description": "sha256 of the committed candidate fixture bytes the expectations were read from.",
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourceDigests": {
+      "description": "sha256 of every committed file that can change what the provider was sent: the appearance factory, the candidate fixture, and the probe spec. Binding these rather than the containing commit avoids the impossible self-reference of a receipt naming the commit that adds it.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 3,
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$" },
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
     },
     "capturedAt": {
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
     },
     "host": {
-      "description": "Origin of the qualifying deployed host, with no credential, path, or query component.",
-      "type": "string",
-      "pattern": "^https://[a-z0-9.-]+$"
+      "description": "Origin of the qualifying deployed staging host, with no credential, path, or query component. A lane sandbox carries no Stripe configuration and can never be an acceptance host.",
+      "enum": ["https://marketplace.staging.chasesets.com", "https://admin.staging.chasesets.com"]
     },
     "environmentVariableNames": {
       "description": "Names only. A value here is a leak.",
@@ -54,13 +67,14 @@
       "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
     },
     "runSummary": { "$ref": "#/$defs/runSummary" },
+    "retentionScan": { "$ref": "#/$defs/retentionScan" },
     "moments": {
       "type": "array",
       "minItems": 2,
       "items": { "$ref": "#/$defs/moment" }
     },
     "substitutionsApplied": {
-      "description": "Pre-authorised anchor substitutions the provider forced during this run. Empty when the ratified values were accepted as-is.",
+      "description": "Pre-authorised anchor substitutions the provider forced during this run. Empty when the ratified values were accepted as-is; anything present must match a pre-authorised substitution recorded in the candidate fixture.",
       "type": "array",
       "items": { "$ref": "#/$defs/substitution" }
     }
@@ -72,9 +86,9 @@
       "required": ["command", "workers", "collected", "passed", "failed", "skipped", "testTitles"],
       "properties": {
         "command": { "type": "string", "minLength": 1 },
-        "workers": { "type": "integer", "minimum": 1 },
-        "collected": { "type": "integer", "minimum": 2 },
-        "passed": { "type": "integer", "minimum": 2 },
+        "workers": { "const": 1 },
+        "collected": { "const": 2 },
+        "passed": { "const": 2 },
         "failed": { "const": 0 },
         "skipped": { "const": 0 },
         "testTitles": {
@@ -85,10 +99,31 @@
         }
       }
     },
+    "retentionScan": {
+      "description": "Proof that every retained artifact was compared against the run's actual configured secrets and buyer/session/order/payment markers before it existed. A non-zero hit count means the run refused to write anything, so a receipt can only ever carry zero.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textualArtifacts", "imageArtifacts", "redactionsApplied", "forbiddenMarkerHits"],
+      "properties": {
+        "textualArtifacts": { "type": "integer", "minimum": 1 },
+        "imageArtifacts": { "type": "integer", "minimum": 2 },
+        "redactionsApplied": { "type": "integer", "minimum": 0 },
+        "forbiddenMarkerHits": { "const": 0 }
+      }
+    },
     "moment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["moment", "colorMode", "resolvedTokens", "observations", "consoleMessages", "screenshotSha256"],
+      "required": [
+        "moment",
+        "colorMode",
+        "resolvedTokens",
+        "observations",
+        "consoleMessages",
+        "screenshotSha256",
+        "screenshotClip",
+        "screenshotMaskedRegions"
+      ],
       "properties": {
         "moment": {
           "enum": [
@@ -118,7 +153,12 @@
           "type": "array",
           "items": { "$ref": "#/$defs/consoleMessage" }
         },
-        "screenshotSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "screenshotSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "screenshotClip": {
+          "description": "Retained screenshots are cropped to the provider frame; the crop is the redaction, because buyer identity and page chrome live outside it.",
+          "const": "stripe-frame"
+        },
+        "screenshotMaskedRegions": { "type": "integer", "minimum": 0 }
       }
     },
     "observation": {
@@ -133,7 +173,19 @@
         "expected": { "type": "string", "minLength": 1 },
         "computed": { "type": "string", "minLength": 1 },
         "matched": { "type": "boolean" },
-        "mandatory": { "type": "boolean" }
+        "mandatory": { "type": "boolean" },
+        "paintedOver": { "$ref": "#/$defs/paintedOver" }
+      }
+    },
+    "paintedOver": {
+      "description": "Required on every border observation and forbidden elsewhere: the ratified dark border is a translucent rgba value, so the surface it is painted over and the resulting opaque composite are both recorded and both re-derived from the fixture by the validator.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceToken", "expected", "compositedExpected"],
+      "properties": {
+        "sourceToken": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "expected": { "type": "string", "minLength": 1 },
+        "compositedExpected": { "type": "string", "minLength": 1 }
       }
     },
     "consoleMessage": {
