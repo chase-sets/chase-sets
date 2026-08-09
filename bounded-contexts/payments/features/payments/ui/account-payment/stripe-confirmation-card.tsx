@@ -47,6 +47,16 @@ const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX_INTERVAL_MS = 30_000;
 const POLL_MAX_DURATION_MS = 5 * 60_000;
 
+// Once a buyer's first captured payment attaches an email-bearing processor
+// customer to their account, every later Checkout Session already owns that
+// email and Stripe refuses a defaultValues email at load time with exactly:
+// "You cannot update the email because a `customer_email` or `customer` with
+// an email is already set on the Checkout Session." The load-actions error
+// carries no code (`code` is always null in @stripe/stripe-js), so this
+// observed sentence is the only contract available to match; any message that
+// does not carry both distinctive phrases still fails closed.
+const SESSION_OWNED_EMAIL_REFUSAL = /cannot update the email because .*already set on the Checkout Session/i;
+
 type ConfirmPhase = "idle" | "confirming" | "processing";
 
 export function StripeConfirmationCard({
@@ -63,6 +73,9 @@ export function StripeConfirmationCard({
   const checkoutActionsRef = useRef<StripeCheckoutLoadActionsSuccess | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
+  // True when the mount fell back to the session-owned email because Stripe
+  // refused the defaultValues email; the confirm must then not resend it.
+  const sessionOwnsEmailRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
@@ -121,7 +134,7 @@ export function StripeConfirmationCard({
         const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
         // Custom Checkout (Checkout Session client secrets, prefixed `cs_`) carries buyer
         // defaultValues on the SDK itself; the Payment Element path carries them per-element.
-        const checkout = clientSecret.startsWith("cs_")
+        let checkout = clientSecret.startsWith("cs_")
           ? stripe.initCheckoutElementsSdk({
               clientSecret,
               elementsOptions: {
@@ -144,7 +157,7 @@ export function StripeConfirmationCard({
           applePay: "auto",
           googlePay: "auto",
         };
-        const paymentElement = checkout
+        let paymentElement = checkout
           ? checkout.createPaymentElement({ wallets })
           : elements!.create("payment", {
               wallets,
@@ -152,10 +165,38 @@ export function StripeConfirmationCard({
             });
         paymentElement.mount(container);
 
-        const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
+        let checkoutActionsResult = checkout ? await checkout.loadActions() : null;
         if (cancelled) {
           paymentElement.destroy();
           return;
+        }
+
+        // The session already owns the buyer email (repeat buyer): retry the
+        // same mount exactly once without the defaultValues email and let the
+        // session-owned email stay authoritative. Every other load error —
+        // including this refusal persisting on the retry — still surfaces
+        // unchanged through the fail-closed branch below.
+        if (
+          checkout &&
+          buyerEmail &&
+          checkoutActionsResult?.type === "error" &&
+          SESSION_OWNED_EMAIL_REFUSAL.test(checkoutActionsResult.error.message)
+        ) {
+          paymentElement.destroy();
+          checkout = stripe.initCheckoutElementsSdk({
+            clientSecret,
+            elementsOptions: {
+              appearance: checkoutElementsAppearance,
+            },
+          });
+          paymentElement = checkout.createPaymentElement({ wallets });
+          paymentElement.mount(container);
+          checkoutActionsResult = await checkout.loadActions();
+          if (cancelled) {
+            paymentElement.destroy();
+            return;
+          }
+          sessionOwnsEmailRef.current = true;
         }
 
         if (checkoutActionsResult?.type === "error") {
@@ -197,6 +238,7 @@ export function StripeConfirmationCard({
       checkoutActionsRef.current = null;
       elementsRef.current = null;
       stripeRef.current = null;
+      sessionOwnsEmailRef.current = false;
       setIsReady(false);
     };
   }, [
@@ -302,7 +344,9 @@ export function StripeConfirmationCard({
       if (checkoutRef.current) {
         const confirmResult = await checkoutActionsRef.current!.confirm({
           redirect: "if_required",
-          email: buyerEmail ?? undefined,
+          // After the session-owned-email fallback the session is the email
+          // authority; resending the buyer email would hit the same refusal.
+          email: sessionOwnsEmailRef.current ? undefined : (buyerEmail ?? undefined),
         });
         if (confirmResult.type === "error") {
           setErrorMessage(confirmResult.error.message);
