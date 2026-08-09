@@ -2250,6 +2250,7 @@
     "packages/design-system/src/utils/system.ts",
     "packages/design-system/vitest.config.ts",
     "playwright.config.ts",
+    "playwright.stripe-appearance-evidence.config.ts",
     "scripts/catalog-observation-pack-capture.ts",
     "scripts/catalog-production-completion-report.ts",
     "scripts/catalog-real-provider-proof.ts",
