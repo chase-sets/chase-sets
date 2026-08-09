@@ -31,6 +31,7 @@
     "generate:readme-manifest-sections": "node ./scripts/generate-readme-manifest-sections.mjs",
     "generate:agent-connector-packaging": "node --experimental-strip-types ./scripts/generate-agent-connector-packaging.mjs",
     "generate:design-system-component-index": "node ./scripts/generate-design-system-component-index.mjs",
+    "regenerate:lockfile-bound-artifacts": "tsx ./scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
     "ds:regen": "node ./scripts/ds-regen.mjs",
     "campaign:market-data": "node ./scripts/campaign-market-data-snippets.mjs",
     "dev": "node ./scripts/dev-system.mjs dev",
