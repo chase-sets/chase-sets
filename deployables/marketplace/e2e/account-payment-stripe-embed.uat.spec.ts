@@ -210,6 +210,13 @@ const retentionShapePatterns: { category: RetentionCategory; pattern: RegExp }[]
   { category: "credential", pattern: /\b(?:password|passwd|secret|api[-_]?key|apikey|bearer)\b\s*[=:]\s*\S+/gi },
   { category: "buyer-identity", pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   { category: "payment-reference", pattern: /\b(?:pi|seti|pm|cus|acct|ch|py|src|sub|in)_[A-Za-z0-9]{6,}/g },
+  // (r4 F4) Provider events, provider requests, and payment-method tokens are
+  // governed at their real granularity: no test/live mode infix exists for
+  // these classes, and Stripe's own test tokens (`tok_visa`, `tok_visa_debit`)
+  // carry four-character-plus suffixes, so the bounds here are theirs -- not
+  // the longer payment-reference granularity above.
+  { category: "payment-reference", pattern: /\b(?:evt|req)_[A-Za-z0-9]{4,}/g },
+  { category: "payment-reference", pattern: /\btok_[A-Za-z0-9][A-Za-z0-9_]{3,}/g },
   { category: "order-reference", pattern: /\b(?:order|buyer)[-_](?:account[-_])?id\b\s*[=:]\s*\S+/gi },
   { category: "session-marker", pattern: /\b(?:session|sid|sess|csrf|xsrf)[-_]?(?:id|token)?\b\s*[=:]\s*\S+/gi },
   {
@@ -315,6 +322,7 @@ const retentionScan = { textualArtifacts: 0, imageArtifacts: 0, redactionsApplie
 function registerRuntimeRetentionValue(value: string | undefined | null, category: RetentionCategory) {
   const trimmed = value?.trim();
   if (!trimmed) return;
+  if (runtimeRetentionValues.some((entry) => entry.value === trimmed && entry.category === category)) return;
   runtimeRetentionValues.push({ value: trimmed, category });
   retentionGuard = createRetentionGuard([...configuredRetentionValues(), ...runtimeRetentionValues]);
 }
@@ -325,30 +333,80 @@ async function registerSessionRetentionValues(page: Page) {
   }
 }
 
-// The provider client secret is a credential the moment it exists. Every
-// client-secret field in a payment payload joins the retention comparison set
-// at run time and is never logged, echoed, or asserted on.
-function registerClientSecretFields(payload: unknown) {
+// (r4 F4) Runtime registration is bound at the granularity production actually
+// reads: the payment page renders processor_payment_reference and each
+// provider_events[].provider_event_id in its support-details section, and the
+// saved-payment setup session hands the browser its internal setup_reference_id
+// plus the provider's processor_setup_reference, processor_client_secret, and
+// processor_publishable_key. Every one of those fields joins the retention
+// comparison set the moment the browser is handed it, recursively over the
+// whole payload, and none is ever logged, echoed, or asserted on. The internal
+// setup_reference_id is registered fail-closed for run artifacts even though it
+// is the one reference AC-11 permits the pull-request body to record in the
+// clear; provider `seti_` references are forbidden everywhere.
+const governedIdentifierFieldCategories: { matches: (field: string) => boolean; category: RetentionCategory }[] = [
+  { matches: (field) => field.includes("client_secret"), category: "credential" },
+  { matches: (field) => field === "processor_publishable_key", category: "credential" },
+  { matches: (field) => field === "processor_payment_reference", category: "payment-reference" },
+  { matches: (field) => field === "processor_setup_reference", category: "payment-reference" },
+  { matches: (field) => field === "provider_event_id", category: "payment-reference" },
+  { matches: (field) => field === "setup_reference_id", category: "session-marker" },
+];
+
+function registerGovernedIdentifierFields(payload: unknown) {
   if (typeof payload !== "object" || payload === null) return;
-  for (const [field, value] of Object.entries(payload as Record<string, unknown>)) {
-    if (typeof value === "string" && field.includes("client_secret")) {
-      registerRuntimeRetentionValue(value, "credential");
+  const entries = Array.isArray(payload)
+    ? payload.map((value, index) => [String(index), value] as const)
+    : Object.entries(payload as Record<string, unknown>);
+  for (const [field, value] of entries) {
+    if (typeof value === "string") {
+      const governed = governedIdentifierFieldCategories.find((entry) => entry.matches(field));
+      if (governed) registerRuntimeRetentionValue(value, governed.category);
+    } else {
+      registerGovernedIdentifierFields(value);
     }
   }
 }
 
-// The browser fetches the payment resource itself while the page mounts, so
-// the browser-delivered processor_client_secret is registered from the
-// response stream as it arrives -- before any capture moment can retain a
-// byte -- rather than guessed from configuration.
-function watchPaymentClientSecrets(page: Page) {
-  page.on("response", async (response) => {
-    if (!response.url().includes("/api/marketplace/account/payments")) return;
-    try {
-      registerClientSecretFields(await response.json());
-    } catch {
-      // A non-JSON payment response carries no client secret.
+// React Router delivers the payment-methods route's action data as an encoded
+// stream rather than plain JSON, so name-keyed registration cannot see inside
+// it. Every provider-identifier-shaped string in a watched body is therefore
+// also registered by exact value -- the shape rules decide the category --
+// which keeps the comparison set ahead of any serialisation format the
+// delivery takes.
+function registerShapedIdentifiersFromText(body: string) {
+  for (const { category, pattern } of retentionShapePatterns) {
+    const matcher = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+    for (const match of body.matchAll(matcher)) {
+      registerRuntimeRetentionValue(match[0], category);
     }
+  }
+}
+
+// The browser fetches the payment resource itself while the page mounts, and
+// the payment-methods route action hands it the setup session, so both
+// governed endpoint families -- the payments family and the payment-methods /
+// setup-session family -- are watched and registered from the response stream
+// as delivered, before any capture moment can retain a byte, rather than
+// guessed from configuration.
+function watchProviderIdentifierDeliveries(page: Page) {
+  page.on("response", async (response) => {
+    const url = response.url();
+    if (!url.includes("/api/marketplace/account/payments") && !url.includes("/account/payment-methods")) return;
+    let body: string;
+    try {
+      body = await response.text();
+    } catch {
+      // A body that can no longer be read delivered nothing the page retains.
+      return;
+    }
+    try {
+      registerGovernedIdentifierFields(JSON.parse(body));
+    } catch {
+      // Not plain JSON (the route action's encoded stream): the shape-based
+      // registration below still binds every provider-shaped value it carried.
+    }
+    registerShapedIdentifiersFromText(body);
   });
 }
 
@@ -423,14 +481,30 @@ const consumedTokenNames = (() => {
 // border is only meaningful composited over it, so the expectation names it.
 const paintedSurfaceSourceToken = "--surface-2";
 
-// The observables the probe treats as mandatory: each must discriminate
-// candidate from shipped, or the injection-off control has proven nothing.
-// `--border` is here because the ratified dark anchor is the alpha value
-// `rgba(242, 239, 250, 0.08)` -- the single highest-risk value in the set and
-// the provider fact this whole probe exists to settle. The outer document's
-// resolved tokens prove injection state; only a frame-internal border read
-// proves Stripe accepted and rendered it.
-const mandatoryObservables = [
+// (r4 F5) Each real surface is probed with the payload production actually
+// sends there, and every mandatory observable must discriminate candidate from
+// shipped or the injection-off control has proven nothing. The Checkout
+// (`cs_`) caller builds its appearance with includeRules: false at mount and
+// update -- settled product mechanism -- so only variables reach that surface:
+// its mandatory observables are the variables-backed `.Input` text colour
+// (colorText <- --foreground) and `.Input` background (colorBackground <-
+// --card). No border, --surface-2, or other rules-only expectation may appear
+// on the Checkout surface, because production sends none of them there.
+const checkoutMandatoryObservables = [
+  { observable: "checkout-input-text-colour", sourceToken: "--foreground", cssProperty: "color" },
+  { observable: "checkout-input-background", sourceToken: "--card", cssProperty: "background-color" },
+] as const;
+
+// The full-rules payload ships on the stripe.elements() surfaces; the
+// SetupIntent-backed setup card is the shipped consumer this probe drives, and
+// the saved-instrument PaymentIntent branch consumes the identical object by
+// construction. The settled border observation contract (r1 F3, preserved)
+// lives here: `--border` is mandatory because the ratified dark anchor is the
+// alpha value `rgba(242, 239, 250, 0.08)` -- the single highest-risk value in
+// the set and the provider fact this whole probe exists to settle. The outer
+// document's resolved tokens prove injection state; only a frame-internal
+// border read proves Stripe accepted and rendered it.
+const setupMandatoryObservables = [
   { observable: "payment-input-background", sourceToken: "--surface-2", cssProperty: "background-color" },
   { observable: "payment-input-text-colour", sourceToken: "--foreground", cssProperty: "color" },
   { observable: "payment-input-border-colour", sourceToken: "--border", cssProperty: "border-color" },
@@ -438,12 +512,14 @@ const mandatoryObservables = [
 
 // Stripe renders `.Block` only in the multi-method layouts. When it is present
 // the same `--border` value must govern it, and the receipt binds it under
-// exactly the mandatory rules; when it is absent nothing is fabricated.
+// exactly the mandatory rules; when it is absent nothing is fabricated. Rules
+// reach only the setup surface, so the conditional observable belongs to it.
 const conditionalObservables = [
   { observable: "payment-block-border-colour", sourceToken: "--border", cssProperty: "border-color" },
 ] as const;
 
 type ColorMode = "light" | "dark";
+type ProbeSurface = "checkout" | "setup";
 type ProbeObservation = {
   observable: string;
   sourceToken: string;
@@ -455,7 +531,7 @@ type ProbeObservation = {
   paintedOver?: { sourceToken: string; expected: string; compositedExpected: string };
 };
 type ProbeMoment = {
-  moment: "elements-mount-complete" | "elements-update-complete";
+  moment: "elements-mount-complete" | "elements-update-complete" | "setup-mount-complete" | "setup-update-complete";
   colorMode: ColorMode;
   resolvedTokens: Record<string, string>;
   observations: ProbeObservation[];
@@ -720,8 +796,11 @@ type FrameExpectation = {
 
 // Expectations are derived from the committed fixture, never from the probed
 // document, and a translucent border carries its composite over the surface
-// the same factory paints beneath it -- computed here, not transcribed.
-function frameExpectations(mode: ColorMode): FrameExpectation[] {
+// the same factory paints beneath it -- computed here, not transcribed. The
+// expectation set is per surface (r4 F5): the Checkout surface binds only the
+// variables-backed observables, the setup surface binds the full-rules
+// contract including the conditional `.Block` border.
+function frameExpectations(mode: ColorMode, surface: ProbeSurface): FrameExpectation[] {
   const paintedDeclared = candidateFixture[mode][paintedSurfaceSourceToken]!.candidate;
 
   const build = (
@@ -744,122 +823,128 @@ function frameExpectations(mode: ColorMode): FrameExpectation[] {
     };
   };
 
+  if (surface === "checkout") {
+    return checkoutMandatoryObservables.map((entry) => build(entry, true, "input"));
+  }
   return [
-    ...mandatoryObservables.map((entry) => build(entry, true, "input")),
+    ...setupMandatoryObservables.map((entry) => build(entry, true, "input")),
     ...conditionalObservables.map((entry) => build(entry, true, "block")),
   ];
 }
 
 // Observations come from inside the provider's own iframe; expectations come
 // from the committed fixture. The two are never read from the same document.
-async function readFrameObservables(frame: FrameLocator, mode: ColorMode) {
-  return frame.locator('input[name="number"]').evaluate((input: Element, payload: FrameExpectation[]) => {
-    const probe = document.createElement("span");
-    probe.style.display = "none";
-    document.body.append(probe);
+async function readFrameObservables(frame: FrameLocator, mode: ColorMode, surface: ProbeSurface) {
+  return frame.locator('input[name="number"]').evaluate(
+    (input: Element, payload: FrameExpectation[]) => {
+      const probe = document.createElement("span");
+      probe.style.display = "none";
+      document.body.append(probe);
 
-    const normalise = (value: string) => {
-      probe.style.color = "";
-      probe.style.color = value;
-      return probe.style.color === "" ? value : getComputedStyle(probe).color;
-    };
-    const describeNode = (node: Element) => {
-      const classes = typeof node.className === "string" ? node.className.trim() : "";
-      return `${node.tagName.toLowerCase()}${classes ? `.${classes.split(/\s+/).join(".")}` : ""}`;
-    };
-    const transparent = (value: string) => !value || value === "transparent" || /,\s*0\s*\)$/.test(value);
+      const normalise = (value: string) => {
+        probe.style.color = "";
+        probe.style.color = value;
+        return probe.style.color === "" ? value : getComputedStyle(probe).color;
+      };
+      const describeNode = (node: Element) => {
+        const classes = typeof node.className === "string" ? node.className.trim() : "";
+        return `${node.tagName.toLowerCase()}${classes ? `.${classes.split(/\s+/).join(".")}` : ""}`;
+      };
+      const transparent = (value: string) => !value || value === "transparent" || /,\s*0\s*\)$/.test(value);
 
-    // The .Input appearance rule paints the field box and draws its border on
-    // the same element, not on the bare <input>, so both are read from the
-    // nearest ancestor that actually carries them.
-    const nearest = (from: Element | null, matches: (style: CSSStyleDeclaration) => boolean) => {
-      let node: Element | null = from;
-      while (node) {
-        if (matches(getComputedStyle(node))) return node;
-        node = node.parentElement;
-      }
-      return null;
-    };
+      // The .Input appearance rule paints the field box and draws its border on
+      // the same element, not on the bare <input>, so both are read from the
+      // nearest ancestor that actually carries them.
+      const nearest = (from: Element | null, matches: (style: CSSStyleDeclaration) => boolean) => {
+        let node: Element | null = from;
+        while (node) {
+          if (matches(getComputedStyle(node))) return node;
+          node = node.parentElement;
+        }
+        return null;
+      };
 
-    // A single `border: 1px solid X` shorthand paints all four edges, so the
-    // four must agree; if they do not, the joined value is reported and the
-    // observation mismatches rather than silently reading one edge.
-    const borderColorOf = (node: Element) => {
-      const style = getComputedStyle(node);
-      const edges = [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor];
-      return edges.every((edge) => edge === edges[0]) ? (edges[0] ?? "") : edges.join(" | ");
-    };
+      // A single `border: 1px solid X` shorthand paints all four edges, so the
+      // four must agree; if they do not, the joined value is reported and the
+      // observation mismatches rather than silently reading one edge.
+      const borderColorOf = (node: Element) => {
+        const style = getComputedStyle(node);
+        const edges = [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor];
+        return edges.every((edge) => edge === edges[0]) ? (edges[0] ?? "") : edges.join(" | ");
+      };
 
-    const paintedInput = nearest(input, (style) => !transparent(style.backgroundColor));
-    const borderedInput = nearest(
-      input,
-      (style) => style.borderTopStyle !== "none" && Number.parseFloat(style.borderTopWidth) > 0,
-    );
-    const block = document.querySelector(".Block");
-    const borderedBlock = block
-      ? nearest(block, (style) => style.borderTopStyle !== "none" && Number.parseFloat(style.borderTopWidth) > 0)
-      : null;
+      const paintedInput = nearest(input, (style) => !transparent(style.backgroundColor));
+      const borderedInput = nearest(
+        input,
+        (style) => style.borderTopStyle !== "none" && Number.parseFloat(style.borderTopWidth) > 0,
+      );
+      const block = document.querySelector(".Block");
+      const borderedBlock = block
+        ? nearest(block, (style) => style.borderTopStyle !== "none" && Number.parseFloat(style.borderTopWidth) > 0)
+        : null;
 
-    const measuredFrom = [
-      `background=${paintedInput ? describeNode(paintedInput) : "none"}`,
-      `border=${borderedInput ? describeNode(borderedInput) : "none"}`,
-      `block=${borderedBlock ? describeNode(borderedBlock) : "not-rendered"}`,
-    ].join(" ");
+      const measuredFrom = [
+        `background=${paintedInput ? describeNode(paintedInput) : "none"}`,
+        `border=${borderedInput ? describeNode(borderedInput) : "none"}`,
+        `block=${borderedBlock ? describeNode(borderedBlock) : "not-rendered"}`,
+      ].join(" ");
 
-    const computedFor = (expectation: FrameExpectation) => {
-      if (expectation.target === "block") {
-        return borderedBlock ? borderColorOf(borderedBlock) : null;
-      }
-      if (expectation.cssProperty === "background-color") {
-        return paintedInput
-          ? getComputedStyle(paintedInput).backgroundColor
-          : getComputedStyle(document.body).backgroundColor;
-      }
-      if (expectation.cssProperty === "border-color") {
-        return borderedInput ? borderColorOf(borderedInput) : "";
-      }
-      return getComputedStyle(input).color;
-    };
+      const computedFor = (expectation: FrameExpectation) => {
+        if (expectation.target === "block") {
+          return borderedBlock ? borderColorOf(borderedBlock) : null;
+        }
+        if (expectation.cssProperty === "background-color") {
+          return paintedInput
+            ? getComputedStyle(paintedInput).backgroundColor
+            : getComputedStyle(document.body).backgroundColor;
+        }
+        if (expectation.cssProperty === "border-color") {
+          return borderedInput ? borderColorOf(borderedInput) : "";
+        }
+        return getComputedStyle(input).color;
+      };
 
-    // Normalise while the probe span is still attached: getComputedStyle on a
-    // detached element does not resolve a colour.
-    const observations = payload
-      .map((expectation) => {
-        const computed = computedFor(expectation);
-        // A `.Block` the provider did not render produces no observation at
-        // all; fabricating one would be evidence of something that never
-        // happened.
-        if (computed === null) return null;
-        return {
-          observable: expectation.observable,
-          sourceToken: expectation.sourceToken,
-          cssProperty: expectation.cssProperty,
-          expected: normalise(expectation.declared),
-          computed,
-          mandatory: expectation.mandatory,
-          paintedOver: expectation.paintedOver
-            ? {
-                sourceToken: expectation.paintedOver.sourceToken,
-                expected: normalise(expectation.paintedOver.declared),
-                compositedExpected: normalise(expectation.paintedOver.compositedDeclared),
-              }
-            : undefined,
-        };
-      })
-      .filter((observation): observation is NonNullable<typeof observation> => observation !== null);
-    probe.remove();
+      // Normalise while the probe span is still attached: getComputedStyle on a
+      // detached element does not resolve a colour.
+      const observations = payload
+        .map((expectation) => {
+          const computed = computedFor(expectation);
+          // A `.Block` the provider did not render produces no observation at
+          // all; fabricating one would be evidence of something that never
+          // happened.
+          if (computed === null) return null;
+          return {
+            observable: expectation.observable,
+            sourceToken: expectation.sourceToken,
+            cssProperty: expectation.cssProperty,
+            expected: normalise(expectation.declared),
+            computed,
+            mandatory: expectation.mandatory,
+            paintedOver: expectation.paintedOver
+              ? {
+                  sourceToken: expectation.paintedOver.sourceToken,
+                  expected: normalise(expectation.paintedOver.declared),
+                  compositedExpected: normalise(expectation.paintedOver.compositedDeclared),
+                }
+              : undefined,
+          };
+        })
+        .filter((observation): observation is NonNullable<typeof observation> => observation !== null);
+      probe.remove();
 
-    return { measuredFrom, observations };
-  }, frameExpectations(mode));
+      return { measuredFrom, observations };
+    },
+    frameExpectations(mode, surface),
+  );
 }
 
 // Bounded synchronisation on the provider's own rendering within the existing
 // budget: no new constant, no widened budget. The acceptance path matches
 // almost immediately; a control that can never match spends the same budget
 // and then records its mismatch rather than aborting.
-async function awaitFrameObservables(frame: FrameLocator, mode: ColorMode) {
+async function awaitFrameObservables(frame: FrameLocator, mode: ColorMode, surface: ProbeSurface) {
   const deadline = Date.now() + embedReadyTimeoutMs;
-  let latest = await readFrameObservables(frame, mode);
+  let latest = await readFrameObservables(frame, mode, surface);
   while (
     Date.now() < deadline &&
     latest.observations.some((observation) => observation.expected !== observation.computed)
@@ -867,7 +952,7 @@ async function awaitFrameObservables(frame: FrameLocator, mode: ColorMode) {
     // The sampling cadence is a fraction of the existing budget rather than a
     // new constant, and the loop is capped by that same budget.
     await new Promise((resolve) => setTimeout(resolve, embedReadyTimeoutMs / 120));
-    latest = await readFrameObservables(frame, mode);
+    latest = await readFrameObservables(frame, mode, surface);
   }
   return latest;
 }
@@ -1025,7 +1110,8 @@ async function recordMoment(
   frame: FrameLocator,
   consoleMessages: { type: string; text: string }[],
 ) {
-  const { measuredFrom, observations } = await awaitFrameObservables(frame, mode);
+  const surface: ProbeSurface = moment.startsWith("elements-") ? "checkout" : "setup";
+  const { measuredFrom, observations } = await awaitFrameObservables(frame, mode, surface);
   const screenshot = await captureRedactedScreenshot(page, testInfo, moment);
 
   const recorded: ProbeObservation[] = observations.map((observation) => ({
@@ -1081,7 +1167,7 @@ async function createProbePayment(request: APIRequestContext): Promise<string> {
   });
   expect(created.ok(), `probe payment creation failed with ${created.status()}: ${await created.text()}`).toBe(true);
   const payment = await created.json();
-  registerClientSecretFields(payment);
+  registerGovernedIdentifierFields(payment);
   const paymentId = payment.payment_id as string | undefined;
   expect(paymentId, "probe payment creation did not return a payment_id").toBeTruthy();
 
@@ -1176,13 +1262,13 @@ test.describe("stripe embed confirmation UAT", () => {
     ).toEqual([]);
 
     const consoleMessages = watchConsole(page);
-    watchPaymentClientSecrets(page);
+    watchProviderIdentifierDeliveries(page);
     if (probeControlMode !== "injection-off") {
-      // The invalid-value control attacks `--border` specifically: it is the
-      // one Stripe-reaching value that is not a plain hex, it is the observable
-      // this probe exists to settle, and it is covered by a mandatory
-      // frame-internal observation -- so the control bites either through a
-      // captured Stripe rejection or through a named border mismatch.
+      // The invalid-value control attacks `--border`, which production never
+      // sends to this variables-only surface (r4 F5) -- the demonstration that
+      // the control bites lives in the setup probe, the only surface where the
+      // border rules ship. The stylesheet is still registered identically so a
+      // combined control invocation stays deterministic.
       await registerCandidateStylesheet(page, {
         invalidProperty: probeControlMode === "invalid-value" ? "--border" : null,
       });
@@ -1230,8 +1316,12 @@ test.describe("stripe embed confirmation UAT", () => {
     await recordMoment(page, testInfo, "elements-update-complete", "dark", stripeFrame, consoleMessages);
 
     if (probeControlMode === "injection-off") {
-      for (const mandatory of mandatoryObservables) {
-        const results = probeState.moments.flatMap((moment) =>
+      // Discrimination is per observable and per surface (r4 F5): this test
+      // proves it for the Checkout variables-only contract over its own two
+      // lifecycle moments; the setup probe proves its full-rules contract.
+      const checkoutMoments = probeState.moments.filter((moment) => moment.moment.startsWith("elements-"));
+      for (const mandatory of checkoutMandatoryObservables) {
+        const results = checkoutMoments.flatMap((moment) =>
           moment.observations.filter((observation) => observation.observable === mandatory.observable),
         );
         expect
@@ -1246,15 +1336,111 @@ test.describe("stripe embed confirmation UAT", () => {
     }
 
     const rejections = consoleMessages.filter((message) => stripeAppearanceRejectionPattern.test(message.text));
+    expect(
+      rejections.map((message) => message.text),
+      "Stripe rejected or could not parse an appearance value",
+    ).toEqual([]);
+  });
+
+  test("mounts the shipped saved-payment setup card with the candidate Ink & Foil appearance injected at document start and proves Stripe accepts the full-rules payload at the completed mount and the completed update @stripe-embed-uat @stripe-appearance-probe @stripe-appearance-probe-setup", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(captureTimeoutMs + embedReadyTimeoutMs);
+    test.skip(!runStripeEmbedUat, "Set STRIPE_EMBED_UAT=true to run the Stripe embed confirmation UAT.");
+    test.skip(
+      !buyerEmail || !buyerPassword,
+      "MARKETPLACE_E2E_EMAIL and MARKETPLACE_E2E_PASSWORD are required for the Stripe embed confirmation UAT.",
+    );
+
+    // (r4 F5) The setup surface needs no orders and adds no environment gate:
+    // the shipped `add` form intent mints a SetupIntent-backed setup session
+    // server-side, and StripeSetupCard mounts the Payment Element through
+    // stripe.elements() with the full-rules appearance at mount and
+    // elements.update on mode change. This probe never enters card details,
+    // never confirms, and never saves an instrument; the leftover setup
+    // session is recorded operator-side in the pull-request body as its
+    // internal reference id only, never a provider `seti_` reference.
+    const consoleMessages = watchConsole(page);
+    watchProviderIdentifierDeliveries(page);
+    if (probeControlMode !== "injection-off") {
+      // The invalid-value control attacks `--border` on exactly this surface:
+      // it is the one Stripe-reaching value that is not a plain hex, it is the
+      // observable this probe exists to settle, and the setup surface is the
+      // only surface production sends the border rules to (r4 F5) -- so the
+      // control bites either through a captured Stripe rejection or through a
+      // named border mismatch.
+      await registerCandidateStylesheet(page, {
+        invalidProperty: probeControlMode === "invalid-value" ? "--border" : null,
+      });
+    }
+
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fpurchases");
+    await signInWithPassword(page, new URL(page.url()).origin, { email: buyerEmail, password: buyerPassword });
+    probeState.host = new URL(page.url()).origin;
+    await registerSessionRetentionValues(page);
+
+    const installDiagnostics = await readInstallDiagnostics(page);
+    if (probeControlMode !== "injection-off") {
+      expect(
+        installDiagnostics.initErrors,
+        "the document-start init script must install without error; a throwing init script silently reverts the whole probe to shipped values",
+      ).toEqual([]);
+    }
+
+    // The mount mode is deterministic whatever the buyer's stored preference,
+    // driven before navigating exactly as the Checkout probe drives it.
+    await driveColorMode(page, "light");
+
+    await page.goto("/account/payment-methods", { waitUntil: "domcontentloaded" });
+    // The shipped `add` form intent is the exact production mechanism; nothing
+    // synthetic touches the route or the setup-session API.
+    await page.locator('button[name="intent"][value="add"]').first().click();
+
+    const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
+    await expect(stripeFrame.locator('input[name="number"]')).toBeVisible({ timeout: embedReadyTimeoutMs });
+
+    await recordMoment(page, testInfo, "setup-mount-complete", "light", stripeFrame, consoleMessages);
+
+    // The dark values reach Stripe only on the mode transition: the shipped
+    // control mutates data-color-mode, observeStripeAppearance fires, and the
+    // setup card runs elements.update with the full-rules payload.
+    await driveColorMode(page, "dark");
+    await recordMoment(page, testInfo, "setup-update-complete", "dark", stripeFrame, consoleMessages);
+
+    if (probeControlMode === "injection-off") {
+      // Discrimination for the full-rules contract, per observable, over this
+      // surface's own two lifecycle moments (r4 F5): `--border` and
+      // `--surface-2` discriminate only here, because only here are they sent.
+      const setupMoments = probeState.moments.filter((moment) => moment.moment.startsWith("setup-"));
+      for (const mandatory of setupMandatoryObservables) {
+        const results = setupMoments.flatMap((moment) =>
+          moment.observations.filter((observation) => observation.observable === mandatory.observable),
+        );
+        expect
+          .soft(
+            results.some((observation) => !observation.matched),
+            `injection-off control: ${mandatory.observable} produced no named failure at either setup lifecycle moment. ` +
+              `The candidate value for ${mandatory.sourceToken} is byte-identical to the shipped value in both modes, so this ` +
+              "observable is non-discriminating and an aggregate failure elsewhere cannot stand in for it.",
+          )
+          .toBe(true);
+      }
+    }
+
+    const rejections = consoleMessages.filter((message) => stripeAppearanceRejectionPattern.test(message.text));
     if (probeControlMode === "invalid-value") {
+      // The named invalid-border/provider-rejection control on the only
+      // surface where the border is sent. Capture-and-fail-on-warning is one
+      // shared code path, so this single demonstration covers both probes'
+      // warning assertions.
       const borderFailures = probeState.moments.flatMap((moment) =>
         moment.observations.filter((observation) => observation.sourceToken === "--border" && !observation.matched),
       );
       expect(
         rejections.length > 0 || borderFailures.length > 0,
         "invalid-value control: the deliberately invalid --border value produced neither a captured Stripe rejection " +
-          "naming it nor a named border observation failure at either lifecycle moment, so neither console capture nor " +
-          `the border observable bites. Captured console traffic: ${JSON.stringify(consoleMessages)}`,
+          "naming it nor a named border observation failure at either setup lifecycle moment, so neither console capture " +
+          `nor the border observable bites. Captured console traffic: ${JSON.stringify(consoleMessages)}`,
       ).toBe(true);
     }
     expect(
@@ -1265,9 +1451,9 @@ test.describe("stripe embed confirmation UAT", () => {
 
   // The receipt is emitted from the run itself, never asserted from the issue.
   // At @playwright/test 1.60 the worker-side `tags` merges title-embedded
-  // @-tokens with declared tags, so the unmodified confirmation test and the
-  // probe both enter the accumulation, while a --grep @stripe-appearance-probe
-  // control invocation collects only the probe and therefore refuses.
+  // @-tokens with declared tags, so the unmodified confirmation test and both
+  // probes enter the accumulation, while a --grep @stripe-appearance-probe
+  // control invocation collects only the probes and therefore refuses.
   test.afterEach(async ({}, testInfo) => {
     if (!testInfo.tags.includes("@stripe-embed-uat")) return;
     probeState.workers = testInfo.config.workers;
@@ -1282,15 +1468,20 @@ test.describe("stripe embed confirmation UAT", () => {
   test.afterAll(async () => {
     const refusals: string[] = [];
     if (probeControlMode) refusals.push(`control mode ${probeControlMode} never mints evidence`);
-    if (probeState.collected.length < 2) {
-      refusals.push(`collected ${probeState.collected.length} tagged tests, need at least 2`);
+    if (probeState.collected.length < 3) {
+      refusals.push(`collected ${probeState.collected.length} tagged tests, need at least 3`);
     }
     if (probeState.collected.some((entry) => entry.status === "skipped")) refusals.push("a collected test skipped");
     if (probeState.collected.some((entry) => entry.status !== "passed" || entry.errors > 0)) {
       refusals.push("a collected test did not pass cleanly");
     }
     const recorded = probeState.moments.map((moment) => moment.moment);
-    for (const required of ["elements-mount-complete", "elements-update-complete"] as const) {
+    for (const required of [
+      "elements-mount-complete",
+      "elements-update-complete",
+      "setup-mount-complete",
+      "setup-update-complete",
+    ] as const) {
       if (!recorded.includes(required)) refusals.push(`lifecycle moment ${required} was not recorded`);
     }
 
@@ -1652,42 +1843,211 @@ test.describe("stripe appearance probe mechanism, provider-free", () => {
     ).toEqual([]);
   });
 
-  test("refuses a production capture whose clip contains visible planted DOM text, persisting nothing", async ({
-    page,
-  }, testInfo) => {
-    // Assembled at run time: a committed literal in provider-key shape is
-    // itself the hazard this control exists to catch. The Checkout Session
-    // client-secret shape must bite with no configured values at all.
-    const plantedCheckoutSecret = ["cs", "test", "SYNTHETICPLANTEDDOMTEXTNOTAREALSECRET"].join("_");
+  // (r4 F4) The five governed provider-identifier classes, each value
+  // assembled at run time so no provider-key-shaped literal lands in the diff.
+  // `tok_visa` is planted at Stripe's own test-token granularity precisely
+  // because an over-tight suffix bound would miss it.
+  const plantedProviderIdentifierClasses = [
+    {
+      label: "checkout session client secret",
+      category: "credential",
+      value: () => ["cs", "test", "SYNTHETICPLANTEDDOMTEXTNOTAREALSECRET"].join("_"),
+    },
+    {
+      label: "provider event identifier",
+      category: "payment-reference",
+      value: () => ["evt", "SYNTHETICPLANTEDEVENT0001"].join("_"),
+    },
+    {
+      label: "provider request identifier",
+      category: "payment-reference",
+      value: () => ["req", "SYNTHETICPLANTEDREQUEST0001"].join("_"),
+    },
+    {
+      label: "payment-method token at tok_visa granularity",
+      category: "payment-reference",
+      value: () => ["tok", "visa"].join("_"),
+    },
+    {
+      label: "processor payment reference",
+      category: "payment-reference",
+      value: () => ["pi", "SYNTHETICPLANTEDREFERENCE0001"].join("_"),
+    },
+  ] as const;
+
+  for (const planted of plantedProviderIdentifierClasses) {
+    test(`refuses a production capture whose clip contains a visible planted ${planted.label}, persisting nothing`, async ({
+      page,
+    }, testInfo) => {
+      const plantedValue = planted.value();
+      await page.route(`${syntheticProbeOrigin}/**`, async (route) => {
+        const pathname = new URL(route.request().url()).pathname;
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body:
+            pathname === "/capture-frame"
+              ? `<!doctype html><html><body><p>${plantedValue}</p></body></html>`
+              : `<!doctype html><html><body><iframe title="Secure payment input frame" src="${syntheticProbeOrigin}/capture-frame" style="width:320px;height:120px"></iframe></body></html>`,
+        });
+      });
+      await page.goto(`${syntheticProbeOrigin}/capture-host`);
+
+      const imageArtifactsBefore = retentionScan.imageArtifacts;
+      const capturePath = testInfo.outputPath("elements-mount-complete.png");
+
+      // The production capture path, driven unmodified: the refusal names
+      // categories only and fires before any image byte exists.
+      await expect(captureRedactedScreenshot(page, testInfo, "elements-mount-complete")).rejects.toThrow(
+        new RegExp(
+          `visible DOM text inside the elements-mount-complete capture clip matched retention categories .*${planted.category}`,
+        ),
+      );
+
+      // Pre-persistence by construction: the screenshot was never taken,
+      // nothing was attached, and the explicit-write target does not exist.
+      expect(retentionScan.imageArtifacts, "the screenshot must be refused before it is taken").toBe(
+        imageArtifactsBefore,
+      );
+      expect(testInfo.attachments.filter((attachment) => attachment.contentType === "image/png")).toEqual([]);
+      expect(existsSync(capturePath)).toBe(false);
+    });
+  }
+
+  test("refuses every governed provider identifier class in each durable artifact form, keeping redacted warnings retainable", async () => {
+    // Shape-only detection must bite with zero configured values, per class
+    // and per artifact form: text artifact, PNG byte stream, annotation
+    // candidate, and scratch receipt candidate are refused; console text is
+    // redacted by category and the sanitized warning stays retainable.
+    const shapeOnlyGuard = createRetentionGuard([]);
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (const planted of plantedProviderIdentifierClasses) {
+      const value = planted.value();
+
+      expect(shapeOnlyGuard.scanText(`probe log ${value}`), `text artifact scan missed ${planted.label}`).toContain(
+        planted.category,
+      );
+      expect(
+        shapeOnlyGuard.scanBuffer(Buffer.concat([pngSignature, Buffer.from(`tEXtComment ${value}`, "latin1")])),
+        `image byte-stream scan missed ${planted.label}`,
+      ).toContain(planted.category);
+      expect(shapeOnlyGuard.scanText(`probe annotation ${value}`), `annotation scan missed ${planted.label}`).toContain(
+        planted.category,
+      );
+      const scratchReceipt = JSON.stringify({
+        moments: [{ consoleMessages: [{ type: "log", text: `probe log ${value}` }] }],
+      });
+      expect(shapeOnlyGuard.scanText(scratchReceipt), `scratch receipt scan missed ${planted.label}`).toContain(
+        planted.category,
+      );
+
+      // A sanitized Stripe warning may legitimately carry a provider request
+      // id; category redaction keeps the warning evidence retainable while the
+      // identifier itself never survives.
+      const { text, categories } = shapeOnlyGuard.redactText(
+        `IntegrationError: Invalid value for appearance.rules['.Input'].border (${value})`,
+      );
+      expect(categories, `redaction categories missed ${planted.label}`).toContain(planted.category);
+      expect(shapeOnlyGuard.scanText(text), `redaction left bytes the scan still matches for ${planted.label}`).toEqual(
+        [],
+      );
+      expect(
+        stripeAppearanceRejectionPattern.test(text),
+        `redaction must preserve the Stripe warning evidence (${planted.label})`,
+      ).toBe(true);
+    }
+  });
+
+  test("registers browser-delivered provider identifiers from both governed endpoint families", async ({ page }) => {
+    // (r4 F4) Endpoint-coverage control: a payments payload the browser
+    // fetches, a setup-session payload from the payment-methods API family,
+    // and an encoded-stream delivery the name-keyed walk cannot parse -- which
+    // the shape-based registration must still bind. Unshaped values (a
+    // fake-provider client secret, the internal setup reference) discriminate
+    // name-keyed registration from shape matching; the streamed `seti_` value
+    // discriminates the raw-text path.
+    const syntheticPaymentSecret = ["synthetic", "fake", "provider", "client", "secret", "0001"].join("-");
+    const syntheticEventId = ["evt", "SYNTHETICDELIVERED0001"].join("_");
+    const syntheticSetupReference = ["seti", "SYNTHETICDELIVERED0001"].join("_");
+    const syntheticSetupSecret = ["synthetic", "fake", "setup", "client", "secret", "0001"].join("-");
+    const syntheticInternalSetupReference = ["synthetic", "internal", "setup", "reference", "0001"].join("-");
+    const syntheticStreamedSetupReference = ["seti", "SYNTHETICSTREAMED0001"].join("_");
+
     await page.route(`${syntheticProbeOrigin}/**`, async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      if (pathname === "/api/marketplace/account/payments/synthetic-probe") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            payment_id: "synthetic-payment-0001",
+            processor_client_secret: syntheticPaymentSecret,
+            processor_payment_reference: ["pi", "SYNTHETICDELIVERED0001"].join("_"),
+            provider_events: [{ provider_event_id: syntheticEventId }],
+          }),
+        });
+        return;
+      }
+      if (pathname === "/api/marketplace/account/payment-methods/setup-sessions") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            setup_reference_id: syntheticInternalSetupReference,
+            processor_setup_reference: syntheticSetupReference,
+            processor_client_secret: syntheticSetupSecret,
+          }),
+        });
+        return;
+      }
+      if (pathname === "/account/payment-methods.data") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/x-script",
+          body: `P${JSON.stringify(["setup", 1])}\n${JSON.stringify([syntheticStreamedSetupReference])}\n`,
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "text/html; charset=utf-8",
-        body:
-          pathname === "/capture-frame"
-            ? `<!doctype html><html><body><p>${plantedCheckoutSecret}</p></body></html>`
-            : `<!doctype html><html><body><iframe title="Secure payment input frame" src="${syntheticProbeOrigin}/capture-frame" style="width:320px;height:120px"></iframe></body></html>`,
+        body: "<!doctype html><html><body>synthetic delivery host</body></html>",
       });
     });
-    await page.goto(`${syntheticProbeOrigin}/capture-host`);
 
-    const imageArtifactsBefore = retentionScan.imageArtifacts;
-    const capturePath = testInfo.outputPath("elements-mount-complete.png");
+    watchProviderIdentifierDeliveries(page);
+    await page.goto(`${syntheticProbeOrigin}/delivery-host`);
+    await page.evaluate(async () => {
+      await fetch("/api/marketplace/account/payments/synthetic-probe");
+      await fetch("/api/marketplace/account/payment-methods/setup-sessions", { method: "POST" });
+      await fetch("/account/payment-methods.data", { method: "POST" });
+    });
 
-    // The production capture path, driven unmodified: the refusal names
-    // categories only and fires before any image byte exists.
-    await expect(captureRedactedScreenshot(page, testInfo, "elements-mount-complete")).rejects.toThrow(
-      /visible DOM text inside the elements-mount-complete capture clip matched retention categories credential/,
-    );
+    // The response listeners read bodies asynchronously after the fetches
+    // resolve, so the registration set is polled rather than read once.
+    const expectedRegistrations: [string, RetentionCategory][] = [
+      [syntheticPaymentSecret, "credential"],
+      [syntheticEventId, "payment-reference"],
+      [syntheticSetupReference, "payment-reference"],
+      [syntheticSetupSecret, "credential"],
+      [syntheticInternalSetupReference, "session-marker"],
+      [syntheticStreamedSetupReference, "payment-reference"],
+    ];
+    await expect
+      .poll(() =>
+        expectedRegistrations
+          .filter(
+            ([value, category]) =>
+              !runtimeRetentionValues.some((entry) => entry.value === value && entry.category === category),
+          )
+          .map(([value]) => value),
+      )
+      .toEqual([]);
 
-    // Pre-persistence by construction: the screenshot was never taken, nothing
-    // was attached, and the explicit-write target does not exist.
-    expect(retentionScan.imageArtifacts, "the screenshot must be refused before it is taken").toBe(
-      imageArtifactsBefore,
-    );
-    expect(testInfo.attachments.filter((attachment) => attachment.contentType === "image/png")).toEqual([]);
-    expect(existsSync(capturePath)).toBe(false);
+    // The registered unshaped values now refuse a scratch artifact exactly as
+    // a configured value would.
+    expect(retentionGuard.scanText(`probe log ${syntheticPaymentSecret}`)).toContain("credential");
+    expect(retentionGuard.scanText(`probe log ${syntheticInternalSetupReference}`)).toContain("session-marker");
   });
 
   test("refuses a textual artifact carrying a planted synthetic marker", async () => {

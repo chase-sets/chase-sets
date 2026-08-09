@@ -87,8 +87,8 @@
       "properties": {
         "command": { "type": "string", "minLength": 1 },
         "workers": { "const": 1 },
-        "collected": { "const": 2 },
-        "passed": { "const": 2 },
+        "collected": { "type": "integer", "minimum": 2 },
+        "passed": { "type": "integer", "minimum": 2 },
         "failed": { "const": 0 },
         "skipped": { "const": 0 },
         "testTitles": {
@@ -129,6 +129,8 @@
           "enum": [
             "elements-mount-complete",
             "elements-update-complete",
+            "setup-mount-complete",
+            "setup-update-complete",
             "connect-mount-complete",
             "connect-update-complete"
           ]

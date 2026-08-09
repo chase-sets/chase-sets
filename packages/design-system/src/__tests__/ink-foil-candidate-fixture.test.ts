@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -161,7 +162,106 @@ function resolveRef(root: SchemaNode, ref: string): SchemaNode {
   return requireSchemaNode(node, `$ref ${ref}`);
 }
 
+// ---------------------------------------------------------------------------
+// (r4 F2) The validator's own independent recursive schema preflight. Before
+// any data traversal, validate() walks the schema itself over every supported
+// schema-bearing position -- the values under `properties`,
+// `patternProperties`, and `$defs`; `items`; `propertyNames`; object-form
+// `additionalProperties`; every locally resolvable `$ref` target -- and
+// throws, naming the path, on any non-object schema node and any keyword
+// outside the supported set. That rejects every unsupported applicator and
+// unknown keyword regardless of whether candidate data ever reaches the node.
+// It is deliberately a separate code path from assertRecursivelyClosed,
+// sharing neither its helpers nor its keyword set, so closure and validation
+// refuse independently and weakening either layer alone is caught by the
+// other layer's half of the mutation battery. Data-reachable refusals during
+// traversal (the r2 policy) remain in place beneath it.
+// ---------------------------------------------------------------------------
+
+const validatorSupportedKeywords = new Set([
+  "$schema",
+  "$id",
+  "$ref",
+  "$defs",
+  "title",
+  "description",
+  "type",
+  "const",
+  "enum",
+  "properties",
+  "required",
+  "additionalProperties",
+  "patternProperties",
+  "propertyNames",
+  "minProperties",
+  "items",
+  "minItems",
+  "uniqueItems",
+  "minLength",
+  "minimum",
+  "pattern",
+]);
+
+function preflightSupportedSchema(root: unknown, candidate: unknown, path: string, visited: Set<object>): void {
+  if (typeof candidate === "boolean") {
+    throw new Error(`${path}: boolean subschema is not a closed object node`);
+  }
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+    throw new Error(
+      `${path}: schema-bearing position holds ${Array.isArray(candidate) ? "an array" : `a ${typeof candidate}`}, not a closed object node`,
+    );
+  }
+  const node = candidate as Record<string, unknown>;
+  if (visited.has(node)) return;
+  visited.add(node);
+
+  for (const keyword of Object.keys(node)) {
+    if (!validatorSupportedKeywords.has(keyword)) {
+      throw new Error(`${path}: unsupported schema keyword ${keyword}`);
+    }
+  }
+
+  if (typeof node.$ref === "string") {
+    if (!node.$ref.startsWith("#/")) {
+      throw new Error(`${path}.$ref: only local refs are supported, got ${node.$ref}`);
+    }
+    let target: unknown = root;
+    for (const segment of node.$ref.slice(2).split("/")) {
+      target =
+        typeof target === "object" && target !== null && !Array.isArray(target)
+          ? (target as Record<string, unknown>)[segment]
+          : undefined;
+    }
+    preflightSupportedSchema(root, target, `${path}.$ref(${node.$ref})`, visited);
+  }
+
+  for (const keyword of ["properties", "patternProperties", "$defs"] as const) {
+    if (node[keyword] === undefined) continue;
+    const map = node[keyword];
+    if (typeof map !== "object" || map === null || Array.isArray(map)) {
+      throw new Error(
+        `${path}.${keyword}: must be an object map of subschemas, got ${Array.isArray(map) ? "an array" : typeof map}`,
+      );
+    }
+    for (const [key, child] of Object.entries(map as Record<string, unknown>)) {
+      preflightSupportedSchema(root, child, `${path}.${keyword}.${key}`, visited);
+    }
+  }
+  for (const keyword of ["items", "propertyNames"] as const) {
+    if (node[keyword] !== undefined) preflightSupportedSchema(root, node[keyword], `${path}.${keyword}`, visited);
+  }
+  if (node.additionalProperties !== undefined && node.additionalProperties !== false) {
+    preflightSupportedSchema(root, node.additionalProperties, `${path}.additionalProperties`, visited);
+  }
+}
+
 function validate(root: SchemaNode, candidate: unknown, value: unknown, path = "$", errors: string[] = []): string[] {
+  // (r4 F2) The independent preflight runs once, at entry, before any data
+  // traversal -- so an unreachable or unsupported subschema is refused even
+  // when no candidate data ever travels to it.
+  if (path === "$") {
+    preflightSupportedSchema(root, candidate, "$", new Set());
+  }
   // A boolean or otherwise non-object schema node throws here instead of
   // coercing to the empty schema, so the validator refuses independently of
   // the closure walk and a direct reopening cannot validate as unconstrained.
@@ -578,8 +678,10 @@ describe("Ink & Foil candidate token fixture", () => {
 // ---------------------------------------------------------------------------
 
 const fixtureSha256 = createHash("sha256").update(fixtureBytes).digest("hex");
+// (r4 F5) The elements receipt carries both real Elements-consuming surfaces:
+// the variables-only Checkout moments and the full-rules setup moments.
 const requiredMoments = {
-  elements: ["elements-mount-complete", "elements-update-complete"],
+  elements: ["elements-mount-complete", "elements-update-complete", "setup-mount-complete", "setup-update-complete"],
   connect: ["connect-mount-complete", "connect-update-complete"],
 } as const;
 
@@ -609,7 +711,12 @@ const leakPatterns = [
   /\bwhsec_[A-Za-z0-9]{4,}/,
   /\b(?:password|passwd|secret|api[-_]?key|apikey|bearer)\b\s*[=:]\s*\S+/i,
   /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
-  /\b(?:pi|seti|pm|cus|acct|ch|py|src|sub)_[A-Za-z0-9]{6,}/,
+  /\b(?:pi|seti|pm|cus|acct|ch|py|src|sub|in)_[A-Za-z0-9]{6,}/,
+  // (r4 F4) Provider events, provider requests, and payment-method tokens at
+  // their real granularity: no test/live mode infix, tok_visa-length suffixes
+  // included -- mirroring the probe spec's own retention guard.
+  /\b(?:evt|req)_[A-Za-z0-9]{4,}/,
+  /\btok_[A-Za-z0-9][A-Za-z0-9_]{3,}/,
   /\b(?:order|buyer)[-_](?:account[-_])?id\b\s*[=:]\s*\S+/i,
   /\b(?:session|sid|sess|csrf|xsrf)[-_]?(?:id|token)?\b\s*[=:]\s*\S+/i,
   /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b/,
@@ -671,12 +778,30 @@ function deriveObservableBlock(source: string, declaration: string): DeclaredObs
   ].map((match) => ({ observable: match[1]!, sourceToken: match[2]!, cssProperty: match[3]! }));
 }
 
-export function deriveMandatoryObservables(source: string): DeclaredObservable[] {
-  return deriveObservableBlock(source, "mandatoryObservables");
+export function deriveCheckoutMandatoryObservables(source: string): DeclaredObservable[] {
+  return deriveObservableBlock(source, "checkoutMandatoryObservables");
+}
+
+export function deriveSetupMandatoryObservables(source: string): DeclaredObservable[] {
+  return deriveObservableBlock(source, "setupMandatoryObservables");
 }
 
 export function deriveConditionalObservables(source: string): DeclaredObservable[] {
   return deriveObservableBlock(source, "conditionalObservables");
+}
+
+// (r4 F5) Which observation contract governs a lifecycle moment: the Checkout
+// (`cs_`) moments bind only the variables-backed observables production sends
+// there; the setup and Connect moments bind the full-rules contract with the
+// conditional `.Block` border.
+function momentObservationContract(momentName: string) {
+  const checkout = momentName.startsWith("elements-");
+  return {
+    mandatory: checkout
+      ? deriveCheckoutMandatoryObservables(probeSpecSource)
+      : deriveSetupMandatoryObservables(probeSpecSource),
+    conditional: checkout ? [] : deriveConditionalObservables(probeSpecSource),
+  };
 }
 
 export function derivePaintedSurfaceSourceToken(source: string): string {
@@ -905,6 +1030,12 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
   if (summary.testTitles.length !== summary.collected) {
     problems.push(`runSummary.testTitles lists ${summary.testTitles.length} of ${summary.collected} collected tests`);
   }
+  if (summary.passed !== summary.collected) {
+    problems.push(`runSummary.passed (${summary.passed}) must equal runSummary.collected (${summary.collected})`);
+  }
+  if (receipt.surface === "elements" && summary.collected < 3) {
+    problems.push(`runSummary.collected must be at least 3 for the elements surface, got ${summary.collected}`);
+  }
 
   const qualifyingForSurface: readonly string[] = qualifyingHosts[receipt.surface as keyof typeof qualifyingHosts];
   if (!qualifyingForSurface.includes(receipt.host)) {
@@ -928,23 +1059,45 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
   }
   if (new Set(seen).size !== seen.length) problems.push(`duplicate lifecycle moments: ${seen.join(", ")}`);
 
-  const mountMoment = receipt.moments.find((moment) => moment.moment.endsWith("-mount-complete"));
-  const updateMoment = receipt.moments.find((moment) => moment.moment.endsWith("-update-complete"));
-  if (mountMoment && mountMoment.colorMode !== "light") {
-    problems.push(`mount moment must be captured in light mode, got ${mountMoment.colorMode}`);
-  }
-  if (updateMoment && updateMoment.colorMode !== "dark") {
-    problems.push(`update moment must be captured in dark mode, got ${updateMoment.colorMode}`);
+  // Each surface's mount/update pair binds light then dark, and the update
+  // moment must actually differ from its mount wherever the fixture's dark
+  // candidate differs from its light candidate; a mount-only capture replayed
+  // twice cannot satisfy this on either surface.
+  const momentByName = new Map(receipt.moments.map((moment) => [moment.moment, moment]));
+  const momentPairs = [
+    ["elements-mount-complete", "elements-update-complete"],
+    ["setup-mount-complete", "setup-update-complete"],
+    ["connect-mount-complete", "connect-update-complete"],
+  ] as const;
+  for (const [mountName, updateName] of momentPairs) {
+    const mount = momentByName.get(mountName);
+    const update = momentByName.get(updateName);
+    if (mount && mount.colorMode !== "light") {
+      problems.push(`${mountName} must be captured in light mode, got ${mount.colorMode}`);
+    }
+    if (update && update.colorMode !== "dark") {
+      problems.push(`${updateName} must be captured in dark mode, got ${update.colorMode}`);
+    }
+    if (mount && update) {
+      const shouldDiffer = Object.keys(fixture.light).filter(
+        (name) => name in mount.resolvedTokens && fixture.light[name].candidate !== fixture.dark[name].candidate,
+      );
+      const unchanged = shouldDiffer.filter((name) => mount.resolvedTokens[name] === update.resolvedTokens[name]);
+      if (unchanged.length > 0) {
+        problems.push(`${updateName} did not move dark-differing tokens: ${unchanged.join(", ")}`);
+      }
+    }
   }
 
   // --- observation contract ----------------------------------------------
   const consumed = deriveConsumedTokenNames(appearanceSource);
-  const mandatory = deriveMandatoryObservables(probeSpecSource);
-  const conditional = deriveConditionalObservables(probeSpecSource);
-  const declaredByName = new Map([...mandatory, ...conditional].map((entry) => [entry.observable, entry]));
   const paintedSurfaceToken = derivePaintedSurfaceSourceToken(probeSpecSource);
 
   for (const moment of receipt.moments) {
+    const contract = momentObservationContract(moment.moment);
+    const declaredByName = new Map(
+      [...contract.mandatory, ...contract.conditional].map((entry) => [entry.observable, entry]),
+    );
     const resolvedNames = Object.keys(moment.resolvedTokens).sort();
     if (resolvedNames.join("|") !== consumed.join("|")) {
       const missing = consumed.filter((name) => !(name in moment.resolvedTokens));
@@ -968,7 +1121,7 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     if (new Set(observableNames).size !== observableNames.length) {
       problems.push(`${moment.moment} repeats an observable: ${observableNames.join(", ")}`);
     }
-    for (const entry of mandatory) {
+    for (const entry of contract.mandatory) {
       if (!observableNames.includes(entry.observable)) {
         problems.push(`${moment.moment} is missing the mandatory observation ${entry.observable}`);
       }
@@ -1039,21 +1192,6 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     );
   }
 
-  // The update moment must actually differ from the mount moment wherever the
-  // fixture's dark candidate differs from its light candidate; a mount-only
-  // capture replayed twice cannot satisfy this.
-  if (mountMoment && updateMoment) {
-    const shouldDiffer = Object.keys(fixture.light).filter(
-      (name) => name in mountMoment.resolvedTokens && fixture.light[name].candidate !== fixture.dark[name].candidate,
-    );
-    const unchanged = shouldDiffer.filter(
-      (name) => mountMoment.resolvedTokens[name] === updateMoment.resolvedTokens[name],
-    );
-    if (unchanged.length > 0) {
-      problems.push(`update moment did not move dark-differing tokens: ${unchanged.join(", ")}`);
-    }
-  }
-
   // --- authorised substitutions only --------------------------------------
   const preAuthorised = (fixture.preAuthorisedSubstitutions ?? []) as {
     property: string;
@@ -1120,12 +1258,11 @@ function sampleObservation(entry: DeclaredObservable, colorMode: "light" | "dark
 
 function validReceiptSample(): AcceptanceReceipt {
   const consumed = deriveConsumedTokenNames(appearanceSource);
-  const mandatory = deriveMandatoryObservables(probeSpecSource);
   const moment = (name: string, colorMode: "light" | "dark"): ReceiptMoment => ({
     moment: name,
     colorMode,
     resolvedTokens: Object.fromEntries(consumed.map((token) => [token, fixture[colorMode][token].candidate])),
-    observations: mandatory.map((entry) => sampleObservation(entry, colorMode)),
+    observations: momentObservationContract(name).mandatory.map((entry) => sampleObservation(entry, colorMode)),
     consoleMessages: [],
     screenshotSha256: "a".repeat(64),
     screenshotClip: "stripe-frame",
@@ -1146,14 +1283,19 @@ function validReceiptSample(): AcceptanceReceipt {
     runSummary: {
       command: deriveEvidenceCommand(probeSpecSource),
       workers: 1,
-      collected: 2,
-      passed: 2,
+      collected: 3,
+      passed: 3,
       failed: 0,
       skipped: 0,
       testTitles: deriveTaggedTestTitles(probeSpecSource),
     },
-    retentionScan: { textualArtifacts: 4, imageArtifacts: 2, redactionsApplied: 0, forbiddenMarkerHits: 0 },
-    moments: [moment("elements-mount-complete", "light"), moment("elements-update-complete", "dark")],
+    retentionScan: { textualArtifacts: 4, imageArtifacts: 4, redactionsApplied: 0, forbiddenMarkerHits: 0 },
+    moments: [
+      moment("elements-mount-complete", "light"),
+      moment("elements-update-complete", "dark"),
+      moment("setup-mount-complete", "light"),
+      moment("setup-update-complete", "dark"),
+    ],
     substitutionsApplied: [],
   };
 }
@@ -1267,8 +1409,306 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(validate(tokenSchema, tokenSchema, fixture)).toEqual([]);
   });
 
+  // -------------------------------------------------------------------------
+  // AC-08 (r4 F2): unreachable schema positions. Each mutation lives where
+  // conforming candidate data never travels -- an absent optional property, an
+  // unmatched patternProperties entry, an unused $defs entry, and a nested
+  // additionalProperties inside an unreached subtree -- and is refused by the
+  // closure walk AND by validate()'s independent preflight, called directly
+  // with a conforming receipt that never reaches the mutated node.
+  // -------------------------------------------------------------------------
+
+  const unreachableBooleanPositions: [string, string[]][] = [
+    ["properties.parityAbsentOptional", ["properties", "parityAbsentOptional"]],
+    [
+      "properties.sourceDigests.patternProperties.^parity-never-matches-[0-9]+$",
+      ["properties", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
+    ],
+    ["$defs.parityUnusedProbe", ["$defs", "parityUnusedProbe"]],
+  ];
+
+  it.each(
+    unreachableBooleanPositions.flatMap(([label, path]): [string, boolean, string[]][] => [
+      [label, true, path],
+      [label, false, path],
+    ]),
+  )("closure walk refuses a boolean subschema at unreachable %s (%s)", (label, booleanValue, path) => {
+    const mutated = mutateReceiptSchema(path, booleanValue);
+    expect(() => assertRecursivelyClosed(mutated, "receiptSchema")).toThrow(
+      `receiptSchema.${label}: boolean subschema is not a closed object node`,
+    );
+  });
+
+  it.each(
+    unreachableBooleanPositions.flatMap(([label, path]): [string, boolean, string[]][] => [
+      [label, true, path],
+      [label, false, path],
+    ]),
+  )(
+    "validator preflight refuses a boolean subschema at unreachable %s (%s) before any data traversal",
+    (_label, booleanValue, path) => {
+      const mutated = mutateReceiptSchema(path, booleanValue);
+      expect(() => validate(mutated, mutated, validReceiptSample())).toThrow(
+        /boolean subschema is not a closed object node/,
+      );
+    },
+  );
+
+  it("refuses a boolean at a nested additionalProperties position inside an unreached subtree, at both layers", () => {
+    const mutated = mutateReceiptSchema(["$defs", "parityNestedProbe"], { additionalProperties: true });
+    expect(() => assertRecursivelyClosed(mutated, "receiptSchema")).toThrow(
+      "receiptSchema.$defs.parityNestedProbe.additionalProperties: boolean subschema is not a closed object node",
+    );
+    expect(() => validate(mutated, mutated, validReceiptSample())).toThrow(
+      /additionalProperties: boolean subschema is not a closed object node/,
+    );
+  });
+
+  // The complete governing applicator list from the r3 review's executed
+  // probe, each planted where no candidate data travels: the validator's
+  // preflight refuses the keyword regardless of reachability, and the closure
+  // walk refuses it independently.
+  const unsupportedApplicators: [string, unknown][] = [
+    ["allOf", [{}]],
+    ["anyOf", [{}]],
+    ["oneOf", [{}]],
+    ["not", {}],
+    ["if", {}],
+    ["then", {}],
+    ["else", {}],
+    ["prefixItems", [{}]],
+    ["contains", {}],
+    ["dependentSchemas", {}],
+    ["everyOf", [{}]],
+  ];
+
+  it.each(unsupportedApplicators)(
+    "refuses the unsupported applicator %s at both layers, unreachable by data",
+    (keyword, value) => {
+      const mutated = mutateReceiptSchema(["$defs", "parityApplicatorProbe"], { [keyword]: value });
+      expect(() => assertRecursivelyClosed(mutated, "receiptSchema")).toThrow(
+        `receiptSchema.$defs.parityApplicatorProbe: unsupported schema keyword ${keyword}`,
+      );
+      expect(() => validate(mutated, mutated, validReceiptSample())).toThrow(
+        new RegExp(`unsupported schema keyword ${keyword}`),
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // AC-08 (r4 F2): executable predecessor/candidate parity. The predecessor
+  // closure and validator implementations are extracted from the bytes git
+  // records at the pre-repair head -- executed, never transcribed -- and run
+  // in a child Node process over the identical mutation set and the identical
+  // conforming sample. The recorded gap is the r3 finding: predecessor
+  // validate() accepted every one of these schemas while the candidate
+  // refuses each at both layers.
+  // -------------------------------------------------------------------------
+
+  // The rebased, remote-reachable equivalent of the r2-reviewed head
+  // 3535cc612d59a53240bd20b1606d2546f30fc0a1: the fixture-test bytes are
+  // identical at both (planning-review r4 N1), and only this head is
+  // reachable from the pushed branch.
+  const parityPredecessorHead = "4947eeab3a514fa39003e43577847bbaee0687e4";
+  const parityPredecessorSha256 = "dc3dcbb565ff4a0d0305b0b0e37d21b165bb216247c4be9161b93cce05029c08";
+  const parityPredecessorPath = "packages/design-system/src/__tests__/ink-foil-candidate-fixture.test.ts";
+
+  function predecessorFixtureTestSource(): string {
+    const root = repositoryRoot();
+    const show = () =>
+      execFileSync("git", ["show", `${parityPredecessorHead}:${parityPredecessorPath}`], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    let source: string;
+    try {
+      source = show();
+    } catch {
+      // A depth-limited checkout (hosted CI fetches depth 1) does not carry
+      // the predecessor commit. It is reachable from the pushed branch, so an
+      // exact-sha fetch restores it; if that also fails, this parity case
+      // fails -- the predecessor implementation is required evidence, never
+      // skippable.
+      execFileSync("git", ["fetch", "--quiet", "--depth=1", "origin", parityPredecessorHead], {
+        cwd: root,
+        stdio: "ignore",
+      });
+      source = show();
+    }
+    const digest = createHash("sha256").update(source, "utf8").digest("hex");
+    expect(
+      digest,
+      "the predecessor fixture-test bytes moved; the parity pin no longer names the r2-reviewed implementation",
+    ).toBe(parityPredecessorSha256);
+    return source;
+  }
+
+  function extractPredecessorValidatorSection(source: string): string {
+    const start = source.indexOf("const supportedKeywords");
+    const end = source.indexOf("export function deriveHelperCallTokenNames");
+    expect(start, "predecessor validator section start marker missing").toBeGreaterThan(-1);
+    expect(end, "predecessor validator section end marker missing").toBeGreaterThan(start);
+    return source.slice(start, end);
+  }
+
+  type ParityRow = { label: string; closure: string | null; validate: string | null };
+
+  function runPredecessorParityProbe(
+    mutations: { label: string; schema: unknown }[],
+    sample: AcceptanceReceipt,
+  ): ParityRow[] {
+    const section = extractPredecessorValidatorSection(predecessorFixtureTestSource());
+    const workspace = mkdtempSync(join(tmpdir(), "ink-foil-parity-"));
+    try {
+      const modulePath = join(workspace, "predecessor-parity-probe.mts");
+      const inputPath = join(workspace, "parity-input.json");
+      writeFileSync(inputPath, JSON.stringify({ mutations, sample }));
+      writeFileSync(
+        modulePath,
+        [
+          'import { readFileSync } from "node:fs";',
+          // The predecessor section calls vitest's expect(value, message).toBe;
+          // this minimal shim preserves its throw-on-mismatch semantics so the
+          // extracted functions run exactly as written.
+          "const expect = (value: unknown, message?: string) => ({",
+          "  toBe(expected: unknown) {",
+          '    if (value !== expected) throw new Error(String(message ?? "expectation failed"));',
+          "  },",
+          "});",
+          section,
+          'const input = JSON.parse(readFileSync(process.argv[2] as string, "utf8"));',
+          "const rows = input.mutations.map((mutation: { label: string; schema: unknown }) => {",
+          "  const closure = (() => {",
+          '    try { assertRecursivelyClosed(mutation.schema, "receiptSchema"); return null; }',
+          "    catch (error) { return `threw: ${(error as Error).message}`; }",
+          "  })();",
+          "  const validated = (() => {",
+          "    try {",
+          "      const errors = validate(mutation.schema as never, mutation.schema as never, input.sample);",
+          "      return errors.length === 0 ? null : `errors: ${errors[0]}`;",
+          "    } catch (error) { return `threw: ${(error as Error).message}`; }",
+          "  })();",
+          "  return { label: mutation.label, closure, validate: validated };",
+          "});",
+          "process.stdout.write(JSON.stringify(rows));",
+        ].join("\n"),
+      );
+      const stdout = execFileSync(process.execPath, [modulePath, inputPath], {
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return JSON.parse(stdout) as ParityRow[];
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+
+  it("proves executable predecessor/candidate parity: predecessor validate() acceptances become candidate refusals", () => {
+    const parityMutations: { label: string; schema: unknown; baseline?: boolean }[] = [
+      { label: "unmutated committed schema (baseline)", schema: receiptSchema, baseline: true },
+      { label: "root boolean schema", schema: true },
+      {
+        label: "boolean in an absent optional property (properties.parityAbsentOptional)",
+        schema: mutateReceiptSchema(["properties", "parityAbsentOptional"], true),
+      },
+      {
+        label: "boolean in an unmatched patternProperties entry",
+        schema: mutateReceiptSchema(
+          ["properties", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
+          true,
+        ),
+      },
+      {
+        label: "boolean in an unused $defs entry",
+        schema: mutateReceiptSchema(["$defs", "parityUnusedProbe"], true),
+      },
+      {
+        label: "boolean at a nested additionalProperties in an unreached subtree",
+        schema: mutateReceiptSchema(["$defs", "parityNestedProbe"], { additionalProperties: true }),
+      },
+      {
+        label: "boolean under properties.capturedAt",
+        schema: mutateReceiptSchema(["properties", "capturedAt"], true),
+      },
+      {
+        label: "boolean at $defs.moment.properties.observations.items",
+        schema: mutateReceiptSchema(["$defs", "moment", "properties", "observations", "items"], true),
+      },
+      ...unsupportedApplicators.map(([keyword, value]) => ({
+        label: `unsupported applicator ${keyword} in an unreached $defs entry`,
+        schema: mutateReceiptSchema(["$defs", "parityApplicatorProbe"], { [keyword]: value }) as unknown,
+      })),
+    ];
+    const sample = validReceiptSample();
+
+    const outcomeOf = (run: () => string | null): string => {
+      try {
+        return run() ?? "accepted";
+      } catch (error) {
+        return `threw: ${(error as Error).message}`;
+      }
+    };
+
+    const candidateResults = parityMutations.map((mutation) => ({
+      closure: outcomeOf(() => {
+        assertRecursivelyClosed(mutation.schema, "receiptSchema");
+        return null;
+      }),
+      validate: outcomeOf(() => {
+        const errors = validate(mutation.schema as SchemaNode, mutation.schema, sample);
+        return errors.length === 0 ? null : `errors: ${errors[0]}`;
+      }),
+    }));
+
+    const predecessorResults = runPredecessorParityProbe(
+      parityMutations.map(({ label, schema }) => ({ label, schema })),
+      sample,
+    );
+    expect(predecessorResults).toHaveLength(parityMutations.length);
+
+    for (const [index, mutation] of parityMutations.entries()) {
+      const row = {
+        label: mutation.label,
+        predecessorClosure: predecessorResults[index]!.closure ?? "accepted",
+        predecessorValidate: predecessorResults[index]!.validate ?? "accepted",
+        candidateClosure: candidateResults[index]!.closure,
+        candidateValidate: candidateResults[index]!.validate,
+      };
+      console.log(
+        `parity | ${row.label} | predecessor closure=${row.predecessorClosure} validate=${row.predecessorValidate} | ` +
+          `candidate closure=${row.candidateClosure} validate=${row.candidateValidate}`,
+      );
+      if (mutation.baseline) {
+        // The identical extracted implementations accept the unmutated schema
+        // and sample, so the recorded acceptances below are the r3 gap, not a
+        // broken extraction.
+        expect(row.predecessorClosure, "predecessor baseline closure").toBe("accepted");
+        expect(row.predecessorValidate, "predecessor baseline validate").toBe("accepted");
+        expect(row.candidateClosure, "candidate baseline closure").toBe("accepted");
+        expect(row.candidateValidate, "candidate baseline validate").toBe("accepted");
+        continue;
+      }
+      expect(
+        row.predecessorValidate,
+        `predecessor validate() no longer accepts "${mutation.label}" -- the parity gap this battery records has moved`,
+      ).toBe("accepted");
+      expect(
+        row.candidateValidate.startsWith("threw:"),
+        `candidate validate() must refuse "${mutation.label}" through its preflight, got ${row.candidateValidate}`,
+      ).toBe(true);
+      expect(
+        row.candidateClosure.startsWith("threw:"),
+        `candidate closure must refuse "${mutation.label}", got ${row.candidateClosure}`,
+      ).toBe(true);
+    }
+  });
+
   it("derives the probe contract from the spec source rather than transcribing it", () => {
-    const mandatory = deriveMandatoryObservables(probeSpecSource);
+    const checkoutMandatory = deriveCheckoutMandatoryObservables(probeSpecSource);
+    const setupMandatory = deriveSetupMandatoryObservables(probeSpecSource);
     const conditional = deriveConditionalObservables(probeSpecSource);
     const titles = deriveTaggedTestTitles(probeSpecSource);
 
@@ -1277,17 +1717,24 @@ describe("Stripe appearance acceptance receipts", () => {
         `evidence command: ${deriveEvidenceCommand(probeSpecSource)}`,
         `environment names (${deriveRequiredEnvironmentVariableNames(probeSpecSource).length}): ${deriveRequiredEnvironmentVariableNames(probeSpecSource).join(" ")}`,
         `tagged test titles (${titles.length})`,
-        `mandatory observables (${mandatory.length}): ${mandatory.map((entry) => `${entry.observable}<-${entry.sourceToken}`).join(" ")}`,
+        `checkout mandatory observables (${checkoutMandatory.length}): ${checkoutMandatory.map((entry) => `${entry.observable}<-${entry.sourceToken}`).join(" ")}`,
+        `setup mandatory observables (${setupMandatory.length}): ${setupMandatory.map((entry) => `${entry.observable}<-${entry.sourceToken}`).join(" ")}`,
         `conditional observables (${conditional.length}): ${conditional.map((entry) => `${entry.observable}<-${entry.sourceToken}`).join(" ")}`,
         `painted surface: ${derivePaintedSurfaceSourceToken(probeSpecSource)}`,
         `digest-bound sources: ${deriveReceiptSourceDigestPaths(probeSpecSource).join(" ")}`,
       ].join("\n"),
     );
 
-    expect(titles).toHaveLength(2);
-    // The border observable is the reason this probe exists; losing it from the
-    // mandatory set must fail here rather than quietly weakening every receipt.
-    expect(mandatory.map((entry) => entry.sourceToken)).toContain("--border");
+    expect(titles).toHaveLength(3);
+    // The border observable is the reason this probe exists; it lives on the
+    // rules-bearing setup surface (r4 F5), and losing it there must fail here
+    // rather than quietly weakening every receipt.
+    expect(setupMandatory.map((entry) => entry.sourceToken)).toContain("--border");
+    // Production sends no rules to the Checkout surface (r4 F5), so no
+    // rules-only token may enter its observation contract.
+    const rulesOnlyTokens = ["--surface-2", "--border", "--ring", "--shadow-sm", "--control-md-py", "--control-md-px"];
+    expect(checkoutMandatory.length).toBeGreaterThan(0);
+    expect(checkoutMandatory.filter((entry) => rulesOnlyTokens.includes(entry.sourceToken))).toEqual([]);
     expect(deriveReceiptSourceDigestPaths(probeSpecSource)).toContain(probeSpecRelativePath);
   });
 
@@ -1298,11 +1745,27 @@ describe("Stripe appearance acceptance receipts", () => {
   it("accepts the conditional .Block border observation when the provider rendered one", () => {
     const receipt = validReceiptSample();
     for (const moment of receipt.moments) {
-      for (const entry of deriveConditionalObservables(probeSpecSource)) {
+      for (const entry of momentObservationContract(moment.moment).conditional) {
         moment.observations.push(sampleObservation(entry, moment.colorMode));
       }
     }
     expect(bindingViolations(receipt, fixedProvenanceContext())).toEqual([]);
+  });
+
+  it("refuses a rules-only observation smuggled onto a Checkout moment", () => {
+    // (r4 F5) Border or rules evidence claimed from the variables-only
+    // Checkout surface is the exact wrong-payload-on-wrong-surface failure the
+    // r3 review blocked on; the per-moment contract refuses it as undeclared.
+    const receipt = validReceiptSample();
+    const setupBorder = deriveSetupMandatoryObservables(probeSpecSource).find(
+      (entry) => entry.sourceToken === "--border",
+    )!;
+    receipt.moments[0].observations.push(sampleObservation(setupBorder, receipt.moments[0].colorMode));
+    const violations = bindingViolations(receipt, fixedProvenanceContext());
+    expect(
+      violations.some((problem) => problem.includes("undeclared observation")),
+      `no undeclared-observation violation named for the smuggled border: ${violations.join("; ")}`,
+    ).toBe(true);
   });
 
   it("resolves its own head through the repository provenance context", () => {
@@ -1313,9 +1776,14 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(context.pathsChangedSince(head)).toEqual([]);
   });
 
-  const borderObservable = () => deriveMandatoryObservables(probeSpecSource).find((e) => e.sourceToken === "--border")!;
+  const borderObservable = () =>
+    deriveSetupMandatoryObservables(probeSpecSource).find((e) => e.sourceToken === "--border")!;
+  // The border contract lives on the rules-bearing setup surface (r4 F5), so
+  // every border mutation targets the setup mount moment.
+  const borderMoment = (receipt: AcceptanceReceipt) =>
+    receipt.moments.find((moment) => moment.moment === "setup-mount-complete")!;
   const borderIndex = (receipt: AcceptanceReceipt) =>
-    receipt.moments[0].observations.findIndex((o) => o.observable === borderObservable().observable);
+    borderMoment(receipt).observations.findIndex((o) => o.observable === borderObservable().observable);
 
   it.each<[string, (receipt: AcceptanceReceipt) => void, Partial<ProvenanceContext>]>([
     // Preserved from the original battery.
@@ -1368,7 +1836,12 @@ describe("Stripe appearance acceptance receipts", () => {
     ["a worker count above one", (r) => (r.runSummary.workers = 7), {}],
     [
       "an extra collected test",
-      (r) => ((r.runSummary.collected = 3), (r.runSummary.passed = 3), r.runSummary.testTitles.push("a third test")),
+      (r) => ((r.runSummary.collected = 4), (r.runSummary.passed = 4), r.runSummary.testTitles.push("a fourth test")),
+      {},
+    ],
+    [
+      "a collected count below the three-test evidence run",
+      (r) => ((r.runSummary.collected = 2), (r.runSummary.passed = 2), r.runSummary.testTitles.pop()),
       {},
     ],
     ["a fabricated test title", (r) => (r.runSummary.testTitles[0] = "some other test @stripe-embed-uat"), {}],
@@ -1392,28 +1865,38 @@ describe("Stripe appearance acceptance receipts", () => {
       {},
     ],
 
-    // F3: the translucent border observable.
-    ["a missing border observation", (r) => r.moments[0].observations.splice(borderIndex(r), 1), {}],
+    // F3: the translucent border observable, on the rules-bearing setup
+    // surface (r4 F5).
+    ["a missing border observation", (r) => borderMoment(r).observations.splice(borderIndex(r), 1), {}],
     [
       "a duplicated border observation",
-      (r) => r.moments[0].observations.push({ ...r.moments[0].observations[borderIndex(r)] }),
+      (r) => borderMoment(r).observations.push({ ...borderMoment(r).observations[borderIndex(r)] }),
       {},
     ],
-    ["a mismatched border observation", (r) => (r.moments[0].observations[borderIndex(r)].computed = "#000000"), {}],
-    ["an optional border observation", (r) => (r.moments[0].observations[borderIndex(r)].mandatory = false), {}],
+    ["a mismatched border observation", (r) => (borderMoment(r).observations[borderIndex(r)].computed = "#000000"), {}],
+    ["an optional border observation", (r) => (borderMoment(r).observations[borderIndex(r)].mandatory = false), {}],
     [
       "a border observation with no painted surface",
-      (r) => delete r.moments[0].observations[borderIndex(r)].paintedOver,
+      (r) => delete borderMoment(r).observations[borderIndex(r)].paintedOver,
       {},
     ],
     [
       "a border composite not derived from the fixture",
-      (r) => (r.moments[0].observations[borderIndex(r)].paintedOver!.compositedExpected = "#abcdef"),
+      (r) => (borderMoment(r).observations[borderIndex(r)].paintedOver!.compositedExpected = "#abcdef"),
       {},
     ],
     [
       "a border composited over the wrong surface",
-      (r) => (r.moments[0].observations[borderIndex(r)].paintedOver!.sourceToken = "--card"),
+      (r) => (borderMoment(r).observations[borderIndex(r)].paintedOver!.sourceToken = "--card"),
+      {},
+    ],
+    [
+      "a setup update moment whose dark tokens never moved",
+      (r) => {
+        const mount = r.moments.find((m) => m.moment === "setup-mount-complete")!;
+        const update = r.moments.find((m) => m.moment === "setup-update-complete")!;
+        update.resolvedTokens = { ...mount.resolvedTokens };
+      },
       {},
     ],
     [
@@ -1453,6 +1936,29 @@ describe("Stripe appearance acceptance receipts", () => {
     [
       "a payment identifier in retained console traffic",
       (r) => (r.moments[0].consoleMessages = [{ type: "log", text: "pi_SYNTHETICPLANTED123" }]),
+      {},
+    ],
+    // (r4 F4) The provider identifier classes at their real granularity.
+    [
+      "a provider event identifier in retained console traffic",
+      (r) => (r.moments[0].consoleMessages = [{ type: "log", text: "evt_SYNTHETICPLANTED123" }]),
+      {},
+    ],
+    [
+      "a provider request identifier in retained console traffic",
+      (r) => (r.moments[0].consoleMessages = [{ type: "log", text: "req_SYNTHETICPLANTED123" }]),
+      {},
+    ],
+    [
+      "a payment-method token at tok_visa granularity in retained console traffic",
+      (r) => (r.moments[0].consoleMessages = [{ type: "log", text: "card token tok_visa" }]),
+      {},
+    ],
+    [
+      // Assembled at run time: a committed literal in provider-key shape is
+      // itself the hazard this battery exists to catch.
+      "a checkout session client secret in retained console traffic",
+      (r) => (r.moments[0].consoleMessages = [{ type: "log", text: ["cs", "test", "SYNTHETICPLANTED123"].join("_") }]),
       {},
     ],
     [
