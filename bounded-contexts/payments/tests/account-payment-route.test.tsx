@@ -844,6 +844,147 @@ describe("marketplace account payment route", () => {
     expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(2);
   });
 
+  it("retries the Checkout mount once without the defaultValues email when the session-owned-email refusal arrives as a loadActions rejection", async () => {
+    // On the live provider this refusal REJECTS the loadActions promise
+    // instead of resolving the typed { type: "error" } result; the retry must
+    // fire on that channel too.
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
+    const confirm = vi.fn().mockResolvedValue({});
+    const emailAlreadySetSdk = {
+      createPaymentElement: vi.fn(() => firstElement),
+      loadActions: vi.fn().mockRejectedValue(new Error(sessionOwnedEmailRefusal.error.message)),
+    };
+    const sessionOwnedEmailSdk = {
+      createPaymentElement: vi.fn(() => secondElement),
+      loadActions: vi.fn().mockResolvedValue({ type: "success", actions: { confirm } }),
+    };
+    const initCheckoutElementsSdk = vi
+      .fn((_options: StripeCheckoutOptionsMock) => sessionOwnedEmailSdk)
+      .mockImplementationOnce(() => emailAlreadySetSdk);
+    const revalidate = vi.fn();
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+      paymentElementDefaultValues,
+    });
+
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(2);
+    expect(initCheckoutElementsSdk.mock.calls[0]?.[0]?.defaultValues).toEqual({ email: "buyer@example.com" });
+    expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.defaultValues).toBeUndefined();
+    expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.clientSecret).toBe("cs_live_123_secret_456");
+    expect(firstElement.destroy).toHaveBeenCalled();
+    expect(secondElement.mount).toHaveBeenCalled();
+
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith({
+        redirect: "if_required",
+        email: undefined,
+      }),
+    );
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed without retrying when a loadActions rejection carries an unrelated message", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn().mockRejectedValue(new Error("The Checkout Session has expired.")),
+    }));
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+      paymentElementDefaultValues,
+    });
+
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Payment issue");
+    expect(alert.textContent).toContain("The Checkout Session has expired.");
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+    expect(paymentElement.destroy).toHaveBeenCalled();
+    const buttons = screen.getAllByRole("button", { name: "Confirm payment" });
+    expect(buttons.every((candidate) => candidate.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("fails closed on a reworded session-owned-email near-match rejection without a second initialization", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const nearMatchRefusal =
+      "You cannot update the email because billing details are already set on the Checkout Session.";
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn().mockRejectedValue(new Error(nearMatchRefusal)),
+    }));
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+      paymentElementDefaultValues,
+    });
+
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Payment issue");
+    expect(alert.textContent).toContain(nearMatchRefusal);
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+    const buttons = screen.getAllByRole("button", { name: "Confirm payment" });
+    expect(buttons.every((candidate) => candidate.hasAttribute("disabled"))).toBe(true);
+  });
+
   it("surfaces an unrelated Checkout load failure without retrying the mount", async () => {
     const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({

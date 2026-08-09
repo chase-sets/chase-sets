@@ -3,6 +3,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import type {
   Stripe,
   StripeCheckoutElementsSdk,
+  StripeCheckoutLoadActionsResult,
   StripeCheckoutLoadActionsSuccess,
   StripeElements,
   StripePaymentElement,
@@ -176,7 +177,24 @@ export function StripeConfirmationCard({
         paymentElement.mount(container);
         mountedElement = paymentElement;
 
-        let checkoutActionsResult = checkout ? await checkout.loadActions() : null;
+        // The live provider delivers the session-owned-email refusal by
+        // REJECTING this promise (an IntegrationError alongside an unhandled
+        // `loaderror` event), not by resolving the typed { type: "error" }
+        // result. Normalize exactly that rejection — byte-exact sentence, and
+        // only when this mount actually sent a defaultValues email — into the
+        // result shape the single retry below pins against. Every other
+        // rejection propagates unchanged into the fail-closed catch.
+        let checkoutActionsResult: StripeCheckoutLoadActionsResult | null = null;
+        if (checkout) {
+          try {
+            checkoutActionsResult = await checkout.loadActions();
+          } catch (error) {
+            if (!(buyerEmail && error instanceof Error && error.message === SESSION_OWNED_EMAIL_REFUSAL)) {
+              throw error;
+            }
+            checkoutActionsResult = { type: "error", error: { message: error.message, code: null } };
+          }
+        }
         if (cancelled) {
           destroyMountedElement();
           return;
