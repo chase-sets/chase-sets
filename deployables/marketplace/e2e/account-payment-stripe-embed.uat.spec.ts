@@ -995,6 +995,21 @@ async function resolveSecureCardInputFrame(page: Page): Promise<FrameLocator> {
             return true;
           }
         }
+        // Stripe's accordion renderer lists the payment methods with no card
+        // fields mounted until the buyer selects Card; drive that selection
+        // exactly the way a buyer does, inside the provider's own frame.
+        for (const handle of handles) {
+          const frame = await handle.contentFrame();
+          if (!frame) continue;
+          const cardOption = frame
+            .locator('button, [role="button"], [role="radio"], [role="tab"]')
+            .filter({ hasText: /^Card$/ })
+            .first();
+          if ((await cardOption.count()) > 0 && (await cardOption.isVisible().catch(() => false))) {
+            await cardOption.click().catch(() => {});
+            break;
+          }
+        }
         return false;
       },
       {
@@ -1013,14 +1028,31 @@ async function resolveSecureCardInputFrame(page: Page): Promise<FrameLocator> {
 // capture clip and a conservative whole-frame enumeration fails closed.
 // Enumerated text: text nodes, input/textarea values, and the
 // placeholder/aria-label/title/alt attributes that render as visible text.
-function collectDomText(payload: { frameSelector: string | null }): string[] {
+// `maskRects` (document-local) excludes only text whose rendered box lies
+// entirely inside a region the capture path covers with an opaque overlay
+// before any pixel exists; partial overlap still counts, failing closed.
+function collectDomText(payload: {
+  frameSelector: string | null;
+  frameIndex?: number;
+  maskRects?: { x: number; y: number; width: number; height: number }[];
+}): string[] {
   const texts: string[] = [];
   const clip = payload.frameSelector
-    ? (document.querySelector(payload.frameSelector)?.getBoundingClientRect() ?? null)
+    ? (document.querySelectorAll(payload.frameSelector)[payload.frameIndex ?? 0]?.getBoundingClientRect() ?? null)
     : null;
   const intersects = (rect: DOMRect) =>
     clip === null ||
     (rect.right > clip.left && rect.left < clip.right && rect.bottom > clip.top && rect.top < clip.bottom);
+  const masks = payload.maskRects ?? [];
+  const maskEpsilonPx = 1;
+  const masked = (rect: DOMRect) =>
+    masks.some(
+      (mask) =>
+        rect.left >= mask.x - maskEpsilonPx &&
+        rect.top >= mask.y - maskEpsilonPx &&
+        rect.right <= mask.x + mask.width + maskEpsilonPx &&
+        rect.bottom <= mask.y + mask.height + maskEpsilonPx,
+    );
   const push = (value: string | null | undefined) => {
     if (value && value.trim()) texts.push(value);
   };
@@ -1029,6 +1061,7 @@ function collectDomText(payload: { frameSelector: string | null }): string[] {
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
     if (!intersects(rect)) continue;
+    if (masked(rect)) continue;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) push(element.value);
     push(element.getAttribute("placeholder"));
     push(element.getAttribute("aria-label"));
@@ -1043,7 +1076,7 @@ function collectDomText(payload: { frameSelector: string | null }): string[] {
     range.selectNodeContents(node);
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
-    if (intersects(rect)) push(node.nodeValue);
+    if (intersects(rect) && !masked(rect)) push(node.nodeValue);
   }
   return texts;
 }
@@ -1058,13 +1091,24 @@ function collectDomText(payload: { frameSelector: string | null }): string[] {
 async function scanVisibleDomTextInClip(
   page: Page,
   captureBox: { x: number; y: number; width: number; height: number },
+  captureFrameMaskRects: { x: number; y: number; width: number; height: number }[] = [],
 ) {
   const hits: RetentionCategory[] = [];
   const scanAll = (texts: string[]) => {
     for (const text of texts) hits.push(...retentionGuard.scanText(text));
   };
 
-  scanAll(await page.evaluate(collectDomText, { frameSelector: captureFrameSelector }));
+  scanAll(await page.evaluate(collectDomText, { frameSelector: captureFrameSelector, frameIndex: captureFrameIndex }));
+
+  // The masks are frame-local coordinates inside the capture frame, so only
+  // that frame's enumeration may consume them; every other frame stays on the
+  // unmasked whole-document path.
+  const captureFrameHandle = await page
+    .locator(captureFrameSelector)
+    .nth(captureFrameIndex)
+    .elementHandle()
+    .catch(() => null);
+  const captureFrame = captureFrameHandle ? await captureFrameHandle.contentFrame() : null;
 
   for (const frame of page.frames()) {
     if (frame === page.mainFrame()) continue;
@@ -1086,7 +1130,12 @@ async function scanVisibleDomTextInClip(
     if (!intersecting) continue;
     // An evaluation error here propagates and fails the capture: a frame that
     // cannot be enumerated cannot be proven text-free.
-    scanAll(await frame.evaluate(collectDomText, { frameSelector: null }));
+    scanAll(
+      await frame.evaluate(collectDomText, {
+        frameSelector: null,
+        maskRects: frame === captureFrame ? captureFrameMaskRects : [],
+      }),
+    );
   }
   return hits;
 }
@@ -1099,12 +1148,79 @@ async function scanVisibleDomTextInClip(
 // and nothing is attached or written. Persistence is an explicit write under
 // the resolved outputDir -- the governed evidence root under the dedicated
 // config -- because reporter attachment is not the persistence mechanism.
+// Stripe's current checkout surface renders the buyer's contact email as a
+// visible form field inside the provider frame itself, so the crop alone no
+// longer excludes buyer identity. Every email-bearing form field in the
+// capture frame is masked: an opaque overlay covers exactly that region
+// before any pixel exists, the enumeration excludes only text lying entirely
+// under an overlay, and the mask count is recorded in the receipt moment.
+// Anything outside a mask still refuses on any hit.
+async function resolveEmailFieldMaskRegions(page: Page) {
+  const frameElement = page.locator(captureFrameSelector).nth(captureFrameIndex);
+  const frameBox = await frameElement.boundingBox();
+  const handle = await frameElement.elementHandle().catch(() => null);
+  const frame = handle ? await handle.contentFrame() : null;
+  if (!frame || !frameBox) return { frameLocal: [], viewport: [] };
+  const frameLocal = await frame.evaluate(() => {
+    const emailShape = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+    const regions: { x: number; y: number; width: number; height: number }[] = [];
+    for (const element of Array.from(document.querySelectorAll("input, textarea"))) {
+      const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : "";
+      const placeholder = element.getAttribute("placeholder") ?? "";
+      if (!emailShape.test(value) && !emailShape.test(placeholder)) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        regions.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      }
+    }
+    return regions;
+  });
+  const viewport = frameLocal.map((region) => ({
+    x: frameBox.x + region.x,
+    y: frameBox.y + region.y,
+    width: region.width,
+    height: region.height,
+  }));
+  return { frameLocal, viewport };
+}
+
+const maskOverlayMarkerAttribute = "data-stripe-appearance-probe-mask-overlay";
+
+async function withMaskOverlays<T>(
+  page: Page,
+  regions: { x: number; y: number; width: number; height: number }[],
+  action: () => Promise<T>,
+): Promise<T> {
+  await page.evaluate(
+    ({ overlayRegions, marker }) => {
+      for (const region of overlayRegions) {
+        const overlay = document.createElement("div");
+        overlay.setAttribute(marker, "");
+        overlay.style.cssText =
+          `position:fixed;left:${region.x}px;top:${region.y}px;width:${region.width}px;` +
+          `height:${region.height}px;background:#000;z-index:2147483647;pointer-events:none;`;
+        document.body.append(overlay);
+      }
+    },
+    { overlayRegions: regions, marker: maskOverlayMarkerAttribute },
+  );
+  try {
+    return await action();
+  } finally {
+    await page.evaluate((marker) => {
+      for (const element of Array.from(document.querySelectorAll(`[${marker}]`))) element.remove();
+    }, maskOverlayMarkerAttribute);
+  }
+}
+
 async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment: ProbeMoment["moment"]) {
   const frameElement = page.locator(captureFrameSelector).nth(captureFrameIndex);
   const box = await frameElement.boundingBox();
   expect(box, "the provider frame must be laid out before a cropped screenshot can be retained").not.toBeNull();
 
-  const domTextHits = await scanVisibleDomTextInClip(page, box!);
+  const maskRegions = await resolveEmailFieldMaskRegions(page);
+
+  const domTextHits = await scanVisibleDomTextInClip(page, box!, maskRegions.frameLocal);
   if (domTextHits.length > 0) {
     retentionScan.forbiddenMarkerHits += domTextHits.length;
     throw new Error(
@@ -1114,10 +1230,12 @@ async function captureRedactedScreenshot(page: Page, testInfo: TestInfo, moment:
     );
   }
 
-  const maskedRegions = 0;
-  const buffer = await page.screenshot({
-    clip: { x: box!.x, y: box!.y, width: box!.width, height: box!.height },
-  });
+  const maskedRegions = maskRegions.viewport.length;
+  const buffer = await withMaskOverlays(page, maskRegions.viewport, () =>
+    page.screenshot({
+      clip: { x: box!.x, y: box!.y, width: box!.width, height: box!.height },
+    }),
+  );
 
   retentionScan.imageArtifacts += 1;
   // Secondary layer only: this byte scan sees PNG text chunks and incidental
@@ -1245,6 +1363,15 @@ test.describe("stripe embed confirmation UAT", () => {
     const postalCode = stripeFrame.locator('input[name="postalCode"]');
     if (await postalCode.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await postalCode.fill(stripeTestCard.postalCode);
+    }
+
+    // With a known buyer email, Stripe pre-selects the Link save-my-info
+    // opt-in, which makes a mobile phone number a required field and blocks
+    // the confirm with "Please provide a mobile phone number." Decline it the
+    // way a buyer does; card confirmation itself needs no Link enrollment.
+    const linkOptIn = stripeFrame.locator('input[name="linkOptIn"]');
+    if ((await linkOptIn.count()) > 0 && (await linkOptIn.isChecked().catch(() => false))) {
+      await linkOptIn.setChecked(false, { force: true });
     }
 
     await page
