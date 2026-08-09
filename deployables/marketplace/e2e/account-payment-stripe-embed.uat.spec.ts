@@ -1301,6 +1301,10 @@ test.describe("stripe embed confirmation UAT", () => {
     // The mount mode is deterministic whatever the buyer's stored preference
     // (the shipped default is `system`), and driving it before navigating is
     // what makes the control re-runs deterministic rather than order-dependent.
+    // signInWithPassword mints the session cookie without navigating, so the
+    // current document is still the signed-out sign-in page, which never
+    // renders the account menu; load an authenticated document first.
+    await page.goto("/account/purchases", { waitUntil: "domcontentloaded" });
     await driveColorMode(page, "light");
 
     await page.goto(`/account/payments/${paymentId}`, { waitUntil: "domcontentloaded" });
@@ -1393,7 +1397,9 @@ test.describe("stripe embed confirmation UAT", () => {
     }
 
     // The mount mode is deterministic whatever the buyer's stored preference,
-    // driven before navigating exactly as the Checkout probe drives it.
+    // driven before navigating exactly as the Checkout probe drives it —
+    // including the authenticated document load the account menu needs.
+    await page.goto("/account/purchases", { waitUntil: "domcontentloaded" });
     await driveColorMode(page, "light");
 
     await page.goto("/account/payment-methods", { waitUntil: "domcontentloaded" });
