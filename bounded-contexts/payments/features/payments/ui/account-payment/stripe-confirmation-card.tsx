@@ -49,13 +49,13 @@ const POLL_MAX_DURATION_MS = 5 * 60_000;
 
 // Once a buyer's first captured payment attaches an email-bearing processor
 // customer to their account, every later Checkout Session already owns that
-// email and Stripe refuses a defaultValues email at load time with exactly:
-// "You cannot update the email because a `customer_email` or `customer` with
-// an email is already set on the Checkout Session." The load-actions error
-// carries no code (`code` is always null in @stripe/stripe-js), so this
-// observed sentence is the only contract available to match; any message that
-// does not carry both distinctive phrases still fails closed.
-const SESSION_OWNED_EMAIL_REFUSAL = /cannot update the email because .*already set on the Checkout Session/i;
+// email and Stripe refuses a defaultValues email at load time with this exact
+// sentence. The load-actions error carries no code (`code` is always null in
+// @stripe/stripe-js), so the byte-exact observed sentence is the only contract
+// available to match; any reworded, partial, or near-match message fails
+// closed and surfaces unchanged instead of retrying.
+const SESSION_OWNED_EMAIL_REFUSAL =
+  "You cannot update the email because a `customer_email` or `customer` with an email is already set on the Checkout Session.";
 
 type ConfirmPhase = "idle" | "confirming" | "processing";
 
@@ -72,7 +72,6 @@ export function StripeConfirmationCard({
   const checkoutRef = useRef<StripeCheckoutElementsSdk | null>(null);
   const checkoutActionsRef = useRef<StripeCheckoutLoadActionsSuccess | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
-  const elementRef = useRef<StripePaymentElement | null>(null);
   // True when the mount fell back to the session-owned email because Stripe
   // refused the defaultValues email; the confirm must then not resend it.
   const sessionOwnsEmailRef = useRef(false);
@@ -116,6 +115,17 @@ export function StripeConfirmationCard({
     }
 
     let cancelled = false;
+    // Effect-owned record of whichever element this run currently has mounted,
+    // assigned immediately at mount so every exit path — load-result errors,
+    // load rejections, cancellation, and effect cleanup — destroys it through
+    // this one idempotent routine. Ownership clears before destroy so a stale
+    // async continuation can never destroy a newer run's mount.
+    let mountedElement: StripePaymentElement | null = null;
+    const destroyMountedElement = () => {
+      const element = mountedElement;
+      mountedElement = null;
+      element?.destroy();
+    };
     setErrorMessage(null);
     setIsReady(false);
 
@@ -164,10 +174,11 @@ export function StripeConfirmationCard({
               defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
             });
         paymentElement.mount(container);
+        mountedElement = paymentElement;
 
         let checkoutActionsResult = checkout ? await checkout.loadActions() : null;
         if (cancelled) {
-          paymentElement.destroy();
+          destroyMountedElement();
           return;
         }
 
@@ -180,9 +191,9 @@ export function StripeConfirmationCard({
           checkout &&
           buyerEmail &&
           checkoutActionsResult?.type === "error" &&
-          SESSION_OWNED_EMAIL_REFUSAL.test(checkoutActionsResult.error.message)
+          checkoutActionsResult.error.message === SESSION_OWNED_EMAIL_REFUSAL
         ) {
-          paymentElement.destroy();
+          destroyMountedElement();
           checkout = stripe.initCheckoutElementsSdk({
             clientSecret,
             elementsOptions: {
@@ -191,16 +202,17 @@ export function StripeConfirmationCard({
           });
           paymentElement = checkout.createPaymentElement({ wallets });
           paymentElement.mount(container);
+          mountedElement = paymentElement;
           checkoutActionsResult = await checkout.loadActions();
           if (cancelled) {
-            paymentElement.destroy();
+            destroyMountedElement();
             return;
           }
           sessionOwnsEmailRef.current = true;
         }
 
         if (checkoutActionsResult?.type === "error") {
-          paymentElement.destroy();
+          destroyMountedElement();
           throw new Error(
             checkoutActionsResult.error.message ||
               t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
@@ -209,7 +221,7 @@ export function StripeConfirmationCard({
 
         const checkoutActions = checkoutActionsResult?.type === "success" ? checkoutActionsResult.actions : null;
         if (checkout && !checkoutActions) {
-          paymentElement.destroy();
+          destroyMountedElement();
           throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
         }
 
@@ -217,10 +229,12 @@ export function StripeConfirmationCard({
         checkoutRef.current = checkout;
         checkoutActionsRef.current = checkoutActions;
         elementsRef.current = elements;
-        elementRef.current = paymentElement;
         setIsReady(true);
       })
       .catch((error) => {
+        // A loadActions rejection lands here with the element still mounted;
+        // destroy whatever this run still owns before surfacing the error.
+        destroyMountedElement();
         if (!cancelled) {
           setErrorMessage(
             error instanceof Error
@@ -232,8 +246,7 @@ export function StripeConfirmationCard({
 
     return () => {
       cancelled = true;
-      elementRef.current?.destroy();
-      elementRef.current = null;
+      destroyMountedElement();
       checkoutRef.current = null;
       checkoutActionsRef.current = null;
       elementsRef.current = null;
