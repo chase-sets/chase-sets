@@ -1388,9 +1388,29 @@ test.describe("stripe embed confirmation UAT", () => {
     // opt-in, which makes a mobile phone number a required field and blocks
     // the confirm with "Please provide a mobile phone number." Decline it the
     // way a buyer does; card confirmation itself needs no Link enrollment.
+    // The opt-in input is visually hidden behind the provider's styled label,
+    // so a single forced click on the input can land outside the interactive
+    // surface and silently not toggle -- drive the label (the provider's own
+    // pointer target) and poll the input state until the decline sticks.
     const linkOptIn = stripeFrame.locator('input[name="linkOptIn"]');
     if ((await linkOptIn.count()) > 0 && (await linkOptIn.isChecked().catch(() => false))) {
-      await linkOptIn.setChecked(false, { force: true });
+      const linkOptInLabel = stripeFrame.locator('label[for="payment-linkOptInInput"]');
+      await expect
+        .poll(
+          async () => {
+            if (await linkOptIn.isChecked().catch(() => false)) {
+              const target = (await linkOptInLabel.count()) > 0 ? linkOptInLabel : linkOptIn;
+              await target.click({ force: true }).catch(() => {});
+            }
+            return linkOptIn.isChecked().catch(() => true);
+          },
+          {
+            message: "the Link opt-in checkbox never unchecked, so the confirm would demand a mobile phone number",
+            intervals: [250, 500, 1_000],
+            timeout: 15_000,
+          },
+        )
+        .toBe(false);
     }
 
     await page
