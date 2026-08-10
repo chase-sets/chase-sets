@@ -1,0 +1,765 @@
+{
+  "schemaVersion": "ink-foil-candidate-tokens/v1",
+  "shippedHead": "2b1181eb71cc8c1dbc37591854ef6c1d606b6795",
+  "proposalSource": {
+    "branch": "codex/issue-6015-ink-foil",
+    "head": "762b5684da900ddcfe4f42a94387d3c062382ea2"
+  },
+  "light": {
+    "--accent": {
+      "shipped": "#1d5fd6",
+      "candidate": "#4845c6"
+    },
+    "--accent-foreground": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--background": {
+      "shipped": "#f8fafc",
+      "candidate": "#f7f5f1"
+    },
+    "--body-font": {
+      "shipped": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+      "candidate": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    "--border": {
+      "shipped": "#e2e8f0",
+      "candidate": "#e6e2d9"
+    },
+    "--border-strong": {
+      "shipped": "#cbd5e1",
+      "candidate": "#d4cfc2"
+    },
+    "--card": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--card-foreground": {
+      "shipped": "#0f172a",
+      "candidate": "#211d33"
+    },
+    "--chase-logo-end": {
+      "shipped": "#174db0",
+      "candidate": "#a87e2f"
+    },
+    "--chase-logo-mid": {
+      "shipped": "#1d5fd6",
+      "candidate": "#c9a44e"
+    },
+    "--chase-logo-start": {
+      "shipped": "#0f766e",
+      "candidate": "#8a682a"
+    },
+    "--color-accent": {
+      "shipped": "#1d5fd6",
+      "candidate": "#4845c6"
+    },
+    "--color-accent-active": {
+      "shipped": "#123f91",
+      "candidate": "#312e94"
+    },
+    "--color-accent-contrast": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--color-accent-hover": {
+      "shipped": "#174db0",
+      "candidate": "#3b38ad"
+    },
+    "--color-accent-soft": {
+      "shipped": "#dbeafe",
+      "candidate": "#e6e5fb"
+    },
+    "--color-background": {
+      "shipped": "#f8fafc",
+      "candidate": "#f7f5f1"
+    },
+    "--color-border": {
+      "shipped": "#e2e8f0",
+      "candidate": "#e6e2d9"
+    },
+    "--color-brand-primary": {
+      "shipped": "#1d5fd6",
+      "candidate": "#4845c6"
+    },
+    "--color-deal": {
+      "shipped": "#b45309",
+      "candidate": "#9c4611"
+    },
+    "--color-elevated-surface": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--color-focus-ring": {
+      "shipped": "#2563eb",
+      "candidate": "#5b58d6"
+    },
+    "--color-muted-border": {
+      "shipped": "#e2e8f0",
+      "candidate": "#e6e2d9"
+    },
+    "--color-overlay": {
+      "shipped": "rgba(29, 27, 24, 0.35)",
+      "candidate": "rgba(33, 29, 51, 0.35)"
+    },
+    "--color-primary": {
+      "shipped": "#1d5fd6",
+      "candidate": "#4845c6"
+    },
+    "--color-primary-soft": {
+      "shipped": "#dbeafe",
+      "candidate": "#e6e5fb"
+    },
+    "--color-rating": {
+      "shipped": "#d97706",
+      "candidate": "#8a5a06"
+    },
+    "--color-surface": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--color-surface-2": {
+      "shipped": "#f8fafc",
+      "candidate": "#f7f5f1"
+    },
+    "--color-surface-3": {
+      "shipped": "#f1f5f9",
+      "candidate": "#efece5"
+    },
+    "--color-text-disabled": {
+      "shipped": "#94a3b8",
+      "candidate": "#9a94ab"
+    },
+    "--color-text-inverse": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--color-text-primary": {
+      "shipped": "#0f172a",
+      "candidate": "#211d33"
+    },
+    "--color-text-secondary": {
+      "shipped": "#334155",
+      "candidate": "#4d4763"
+    },
+    "--color-text-tertiary": {
+      "shipped": "#64748b",
+      "candidate": "#7d7791"
+    },
+    "--control-md-px": {
+      "shipped": "1rem",
+      "candidate": "1rem"
+    },
+    "--control-md-py": {
+      "shipped": "0.625rem",
+      "candidate": "0.625rem"
+    },
+    "--danger-soft": {
+      "shipped": "#fee2e2",
+      "candidate": "#fee2e2"
+    },
+    "--deal": {
+      "shipped": "#b45309",
+      "candidate": "#9c4611"
+    },
+    "--destructive": {
+      "shipped": "#b91c1c",
+      "candidate": "#b91c1c"
+    },
+    "--disabled-bg": {
+      "shipped": "#e2e8f0",
+      "candidate": "#e6e2d9"
+    },
+    "--disabled-text": {
+      "shipped": "#94a3b8",
+      "candidate": "#9a94ab"
+    },
+    "--display-font": {
+      "shipped": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+      "candidate": "\"Space Grotesk\", \"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    "--elevated": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--font-display": {
+      "shipped": "\"IBM Plex Sans\"",
+      "candidate": "\"Space Grotesk\""
+    },
+    "--font-heading": {
+      "shipped": "\"IBM Plex Sans\"",
+      "candidate": "\"Space Grotesk\""
+    },
+    "--font-size-base": {
+      "shipped": "1rem",
+      "candidate": "1rem"
+    },
+    "--font-size-lg": {
+      "shipped": "1.125rem",
+      "candidate": "1.125rem"
+    },
+    "--font-size-sm": {
+      "shipped": "0.875rem",
+      "candidate": "0.875rem"
+    },
+    "--font-size-xl": {
+      "shipped": "1.25rem",
+      "candidate": "1.25rem"
+    },
+    "--font-size-xs": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--foreground": {
+      "shipped": "#0f172a",
+      "candidate": "#211d33"
+    },
+    "--input": {
+      "shipped": "#cbd5e1",
+      "candidate": "#d4cfc2"
+    },
+    "--line-height-base": {
+      "shipped": "1.5rem",
+      "candidate": "1.5rem"
+    },
+    "--muted": {
+      "shipped": "#e2e8f0",
+      "candidate": "#e6e2d9"
+    },
+    "--muted-foreground": {
+      "shipped": "#64748b",
+      "candidate": "#7d7791"
+    },
+    "--overlay": {
+      "shipped": "rgba(29, 27, 24, 0.35)",
+      "candidate": "rgba(33, 29, 51, 0.35)"
+    },
+    "--page-spotlight-a": {
+      "shipped": "rgba(29, 95, 214, 0.05)",
+      "candidate": "rgba(72, 69, 198, 0.05)"
+    },
+    "--page-spotlight-b": {
+      "shipped": "rgba(15, 118, 110, 0.04)",
+      "candidate": "rgba(201, 164, 78, 0.04)"
+    },
+    "--popover": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--popover-foreground": {
+      "shipped": "#0f172a",
+      "candidate": "#211d33"
+    },
+    "--primary": {
+      "shipped": "#1d5fd6",
+      "candidate": "#4845c6"
+    },
+    "--primary-active": {
+      "shipped": "#123f91",
+      "candidate": "#312e94"
+    },
+    "--primary-foreground": {
+      "shipped": "#ffffff",
+      "candidate": "#ffffff"
+    },
+    "--primary-hover": {
+      "shipped": "#174db0",
+      "candidate": "#3b38ad"
+    },
+    "--primary-soft": {
+      "shipped": "#dbeafe",
+      "candidate": "#e6e5fb"
+    },
+    "--radius": {
+      "shipped": "0.5rem",
+      "candidate": "0.5rem"
+    },
+    "--radius-lg": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--radius-sm": {
+      "shipped": "0.375rem",
+      "candidate": "0.375rem"
+    },
+    "--rating": {
+      "shipped": "#d97706",
+      "candidate": "#8a5a06"
+    },
+    "--ring": {
+      "shipped": "#2563eb",
+      "candidate": "#5b58d6"
+    },
+    "--secondary": {
+      "shipped": "#f1f5f9",
+      "candidate": "#efece5"
+    },
+    "--secondary-foreground": {
+      "shipped": "#334155",
+      "candidate": "#4d4763"
+    },
+    "--shadow-lg": {
+      "shipped": "0 18px 38px -28px rgba(15, 23, 42, 0.34)",
+      "candidate": "0 18px 38px -28px rgba(33, 29, 51, 0.36)"
+    },
+    "--shadow-md": {
+      "shipped": "0 8px 20px -16px rgba(15, 23, 42, 0.28)",
+      "candidate": "0 8px 20px -16px rgba(33, 29, 51, 0.3)"
+    },
+    "--shadow-overlay": {
+      "shipped": "0 24px 64px -32px rgba(15, 23, 42, 0.42)",
+      "candidate": "0 24px 64px -32px rgba(33, 29, 51, 0.44)"
+    },
+    "--shadow-sm": {
+      "shipped": "0 1px 2px rgba(15, 23, 42, 0.06)",
+      "candidate": "0 1px 2px rgba(33, 29, 51, 0.07)"
+    },
+    "--space-2": {
+      "shipped": "0.5rem",
+      "candidate": "0.5rem"
+    },
+    "--space-3": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--space-unit": {
+      "shipped": "0.25rem",
+      "candidate": "0.25rem"
+    },
+    "--success": {
+      "shipped": "#15803d",
+      "candidate": "#15803d"
+    },
+    "--success-soft": {
+      "shipped": "#dcfce7",
+      "candidate": "#dcfce7"
+    },
+    "--surface-2": {
+      "shipped": "#f8fafc",
+      "candidate": "#f7f5f1"
+    },
+    "--surface-3": {
+      "shipped": "#f1f5f9",
+      "candidate": "#efece5"
+    },
+    "--surface-depth": {
+      "shipped": "rgba(15, 23, 42, 0.04)",
+      "candidate": "rgba(33, 29, 51, 0.05)"
+    },
+    "--surface-line": {
+      "shipped": "rgba(255, 255, 255, 0.86)",
+      "candidate": "rgba(255, 255, 255, 0.86)"
+    },
+    "--text-disabled": {
+      "shipped": "#94a3b8",
+      "candidate": "#9a94ab"
+    },
+    "--text-muted": {
+      "shipped": "#64748b",
+      "candidate": "#7d7791"
+    },
+    "--text-primary": {
+      "shipped": "#0f172a",
+      "candidate": "#211d33"
+    },
+    "--text-secondary": {
+      "shipped": "#334155",
+      "candidate": "#4d4763"
+    },
+    "--warning": {
+      "shipped": "#b45309",
+      "candidate": "#b45309"
+    },
+    "--warning-soft": {
+      "shipped": "#fef3c7",
+      "candidate": "#fef3c7"
+    },
+    "--z-modal": {
+      "shipped": "60",
+      "candidate": "60"
+    }
+  },
+  "dark": {
+    "--accent": {
+      "shipped": "#5b8ef4",
+      "candidate": "#8a97ff"
+    },
+    "--accent-foreground": {
+      "shipped": "#061329",
+      "candidate": "#14102a"
+    },
+    "--background": {
+      "shipped": "#020617",
+      "candidate": "#0e0c15"
+    },
+    "--body-font": {
+      "shipped": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+      "candidate": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    "--border": {
+      "shipped": "#334155",
+      "candidate": "rgba(242, 239, 250, 0.08)"
+    },
+    "--border-strong": {
+      "shipped": "#475569",
+      "candidate": "#4a4363"
+    },
+    "--card": {
+      "shipped": "#0f172a",
+      "candidate": "#1a1626"
+    },
+    "--card-foreground": {
+      "shipped": "#f8fafc",
+      "candidate": "#f2effa"
+    },
+    "--chase-logo-end": {
+      "shipped": "#93c5fd",
+      "candidate": "#d4a94e"
+    },
+    "--chase-logo-mid": {
+      "shipped": "#5b8ef4",
+      "candidate": "#edd28d"
+    },
+    "--chase-logo-start": {
+      "shipped": "#2dd4bf",
+      "candidate": "#b9863b"
+    },
+    "--color-accent": {
+      "shipped": "#5b8ef4",
+      "candidate": "#8a97ff"
+    },
+    "--color-accent-active": {
+      "shipped": "#a8c2fb",
+      "candidate": "#b8c1ff"
+    },
+    "--color-accent-contrast": {
+      "shipped": "#061329",
+      "candidate": "#14102a"
+    },
+    "--color-accent-hover": {
+      "shipped": "#7ca4f8",
+      "candidate": "#a1acff"
+    },
+    "--color-accent-soft": {
+      "shipped": "#172554",
+      "candidate": "#232048"
+    },
+    "--color-background": {
+      "shipped": "#020617",
+      "candidate": "#0e0c15"
+    },
+    "--color-border": {
+      "shipped": "#334155",
+      "candidate": "rgba(242, 239, 250, 0.08)"
+    },
+    "--color-brand-primary": {
+      "shipped": "#5b8ef4",
+      "candidate": "#8a97ff"
+    },
+    "--color-deal": {
+      "shipped": "#fbbf24",
+      "candidate": "#fbbf24"
+    },
+    "--color-elevated-surface": {
+      "shipped": "#111827",
+      "candidate": "#211c30"
+    },
+    "--color-focus-ring": {
+      "shipped": "#93c5fd",
+      "candidate": "#b8c1ff"
+    },
+    "--color-muted-border": {
+      "shipped": "#334155",
+      "candidate": "#322c4a"
+    },
+    "--color-overlay": {
+      "shipped": "rgba(29, 27, 24, 0.35)",
+      "candidate": "rgba(10, 8, 17, 0.55)"
+    },
+    "--color-primary": {
+      "shipped": "#5b8ef4",
+      "candidate": "#8a97ff"
+    },
+    "--color-primary-soft": {
+      "shipped": "#172554",
+      "candidate": "#232048"
+    },
+    "--color-rating": {
+      "shipped": "#fbbf24",
+      "candidate": "#fbbf24"
+    },
+    "--color-surface": {
+      "shipped": "#0f172a",
+      "candidate": "#1a1626"
+    },
+    "--color-surface-2": {
+      "shipped": "#0b1220",
+      "candidate": "#14111c"
+    },
+    "--color-surface-3": {
+      "shipped": "#1e293b",
+      "candidate": "#2a2540"
+    },
+    "--color-text-disabled": {
+      "shipped": "#64748b",
+      "candidate": "#5c5675"
+    },
+    "--color-text-inverse": {
+      "shipped": "#061329",
+      "candidate": "#14102a"
+    },
+    "--color-text-primary": {
+      "shipped": "#f8fafc",
+      "candidate": "#f2effa"
+    },
+    "--color-text-secondary": {
+      "shipped": "#cbd5e1",
+      "candidate": "#b6b0c9"
+    },
+    "--color-text-tertiary": {
+      "shipped": "#94a3b8",
+      "candidate": "#857e9c"
+    },
+    "--control-md-px": {
+      "shipped": "1rem",
+      "candidate": "1rem"
+    },
+    "--control-md-py": {
+      "shipped": "0.625rem",
+      "candidate": "0.625rem"
+    },
+    "--danger-soft": {
+      "shipped": "#450a0a",
+      "candidate": "#450a0a"
+    },
+    "--deal": {
+      "shipped": "#fbbf24",
+      "candidate": "#fbbf24"
+    },
+    "--destructive": {
+      "shipped": "#f87171",
+      "candidate": "#f87171"
+    },
+    "--disabled-bg": {
+      "shipped": "#1e293b",
+      "candidate": "#211c30"
+    },
+    "--disabled-text": {
+      "shipped": "#64748b",
+      "candidate": "#5c5675"
+    },
+    "--display-font": {
+      "shipped": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+      "candidate": "\"Space Grotesk\", \"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    "--elevated": {
+      "shipped": "#111827",
+      "candidate": "#211c30"
+    },
+    "--font-display": {
+      "shipped": "\"IBM Plex Sans\"",
+      "candidate": "\"Space Grotesk\""
+    },
+    "--font-heading": {
+      "shipped": "\"IBM Plex Sans\"",
+      "candidate": "\"Space Grotesk\""
+    },
+    "--font-size-base": {
+      "shipped": "1rem",
+      "candidate": "1rem"
+    },
+    "--font-size-lg": {
+      "shipped": "1.125rem",
+      "candidate": "1.125rem"
+    },
+    "--font-size-sm": {
+      "shipped": "0.875rem",
+      "candidate": "0.875rem"
+    },
+    "--font-size-xl": {
+      "shipped": "1.25rem",
+      "candidate": "1.25rem"
+    },
+    "--font-size-xs": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--foreground": {
+      "shipped": "#f8fafc",
+      "candidate": "#f2effa"
+    },
+    "--input": {
+      "shipped": "#475569",
+      "candidate": "#3a3450"
+    },
+    "--line-height-base": {
+      "shipped": "1.5rem",
+      "candidate": "1.5rem"
+    },
+    "--muted": {
+      "shipped": "#334155",
+      "candidate": "#322c4a"
+    },
+    "--muted-foreground": {
+      "shipped": "#94a3b8",
+      "candidate": "#857e9c"
+    },
+    "--overlay": {
+      "shipped": "rgba(29, 27, 24, 0.35)",
+      "candidate": "rgba(10, 8, 17, 0.55)"
+    },
+    "--page-spotlight-a": {
+      "shipped": "rgba(91, 142, 244, 0.06)",
+      "candidate": "rgba(138, 151, 255, 0.06)"
+    },
+    "--page-spotlight-b": {
+      "shipped": "rgba(45, 212, 191, 0.045)",
+      "candidate": "rgba(212, 169, 78, 0.045)"
+    },
+    "--popover": {
+      "shipped": "#111827",
+      "candidate": "#211c30"
+    },
+    "--popover-foreground": {
+      "shipped": "#f8fafc",
+      "candidate": "#f2effa"
+    },
+    "--primary": {
+      "shipped": "#5b8ef4",
+      "candidate": "#8a97ff"
+    },
+    "--primary-active": {
+      "shipped": "#a8c2fb",
+      "candidate": "#b8c1ff"
+    },
+    "--primary-foreground": {
+      "shipped": "#061329",
+      "candidate": "#14102a"
+    },
+    "--primary-hover": {
+      "shipped": "#7ca4f8",
+      "candidate": "#a1acff"
+    },
+    "--primary-soft": {
+      "shipped": "#172554",
+      "candidate": "#232048"
+    },
+    "--radius": {
+      "shipped": "0.5rem",
+      "candidate": "0.5rem"
+    },
+    "--radius-lg": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--radius-sm": {
+      "shipped": "0.375rem",
+      "candidate": "0.375rem"
+    },
+    "--rating": {
+      "shipped": "#fbbf24",
+      "candidate": "#fbbf24"
+    },
+    "--ring": {
+      "shipped": "#93c5fd",
+      "candidate": "#b8c1ff"
+    },
+    "--secondary": {
+      "shipped": "#1e293b",
+      "candidate": "#211c30"
+    },
+    "--secondary-foreground": {
+      "shipped": "#cbd5e1",
+      "candidate": "#b6b0c9"
+    },
+    "--shadow-lg": {
+      "shipped": "0 22px 60px -34px rgba(0, 0, 0, 0.9)",
+      "candidate": "0 22px 60px -34px rgba(6, 5, 11, 0.9)"
+    },
+    "--shadow-md": {
+      "shipped": "0 12px 30px -22px rgba(0, 0, 0, 0.8)",
+      "candidate": "0 12px 30px -22px rgba(6, 5, 11, 0.82)"
+    },
+    "--shadow-overlay": {
+      "shipped": "0 32px 80px -34px rgba(0, 0, 0, 0.92)",
+      "candidate": "0 32px 80px -34px rgba(6, 5, 11, 0.92)"
+    },
+    "--shadow-sm": {
+      "shipped": "0 1px 2px rgba(0, 0, 0, 0.28)",
+      "candidate": "0 1px 2px rgba(6, 5, 11, 0.32)"
+    },
+    "--space-2": {
+      "shipped": "0.5rem",
+      "candidate": "0.5rem"
+    },
+    "--space-3": {
+      "shipped": "0.75rem",
+      "candidate": "0.75rem"
+    },
+    "--space-unit": {
+      "shipped": "0.25rem",
+      "candidate": "0.25rem"
+    },
+    "--success": {
+      "shipped": "#4ade80",
+      "candidate": "#4ade80"
+    },
+    "--success-soft": {
+      "shipped": "#052e16",
+      "candidate": "#052e16"
+    },
+    "--surface-2": {
+      "shipped": "#0b1220",
+      "candidate": "#14111c"
+    },
+    "--surface-3": {
+      "shipped": "#1e293b",
+      "candidate": "#2a2540"
+    },
+    "--surface-depth": {
+      "shipped": "rgba(0, 0, 0, 0.24)",
+      "candidate": "rgba(6, 5, 11, 0.28)"
+    },
+    "--surface-line": {
+      "shipped": "rgba(255, 255, 255, 0.06)",
+      "candidate": "rgba(242, 239, 250, 0.06)"
+    },
+    "--text-disabled": {
+      "shipped": "#64748b",
+      "candidate": "#5c5675"
+    },
+    "--text-muted": {
+      "shipped": "#94a3b8",
+      "candidate": "#857e9c"
+    },
+    "--text-primary": {
+      "shipped": "#f8fafc",
+      "candidate": "#f2effa"
+    },
+    "--text-secondary": {
+      "shipped": "#cbd5e1",
+      "candidate": "#b6b0c9"
+    },
+    "--warning": {
+      "shipped": "#facc15",
+      "candidate": "#facc15"
+    },
+    "--warning-soft": {
+      "shipped": "#422006",
+      "candidate": "#422006"
+    },
+    "--z-modal": {
+      "shipped": "60",
+      "candidate": "60"
+    }
+  },
+  "preAuthorisedSubstitutions": [
+    {
+      "property": "--border",
+      "mode": "dark",
+      "ratified": "rgba(242, 239, 250, 0.08)",
+      "opaqueEquivalent": "#3a3450",
+      "applied": false
+    }
+  ]
+}

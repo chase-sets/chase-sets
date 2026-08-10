@@ -1,0 +1,401 @@
+{
+  "schemaVersion": "stripe-appearance-acceptance-receipt/v1",
+  "surface": "elements",
+  "stripeMode": "test",
+  "implementationHead": "db50eeec703a442acc09b64d4490a432ecb6e99a",
+  "fixturePath": "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json",
+  "fixtureSha256": "d6d476c94a434233e1ebb3ab2d905f28277281bc04c1341e42060f15c2b85376",
+  "sourceDigests": {
+    "packages/design-system/src/theme/stripe-appearance.ts": "0be0e3e67d25313ef0f058167d27969d5c0eaaeeac3e6ec692b85c260c9f3035",
+    "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json": "d6d476c94a434233e1ebb3ab2d905f28277281bc04c1341e42060f15c2b85376",
+    "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts": "e1c997369556c3044eff7e726945e4d46584878df21f0b80019e058cc8f799ff",
+    "playwright.stripe-appearance-evidence.config.ts": "32844c5446254663618263a51bc1e986489fc43dc5b1831041df48dcbdfa9ee6"
+  },
+  "capturedAt": "2026-08-10T02:35:34.176Z",
+  "host": "https://marketplace.staging.chasesets.com",
+  "environmentVariableNames": [
+    "STRIPE_EMBED_UAT",
+    "STRIPE_EMBED_UAT_ORDER_IDS",
+    "STRIPE_EMBED_UAT_PROBE_ORDER_IDS",
+    "MARKETPLACE_E2E_EMAIL",
+    "MARKETPLACE_E2E_PASSWORD"
+  ],
+  "runSummary": {
+    "command": "pnpm exec playwright test --config playwright.stripe-appearance-evidence.config.ts --grep @stripe-embed-uat --workers=1",
+    "workers": 1,
+    "collected": 3,
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "testTitles": [
+      "mounts the real Payment Element, confirms with a Stripe test card, and captures via webhook @stripe-embed-uat",
+      "mounts the real Payment Element with the candidate Ink & Foil appearance injected at document start and proves Stripe accepts it at the completed mount and the completed update @stripe-embed-uat @stripe-appearance-probe",
+      "mounts the shipped saved-payment setup card with the candidate Ink & Foil appearance injected at document start and proves Stripe accepts the full-rules payload at the completed mount and the completed update @stripe-embed-uat @stripe-appearance-probe @stripe-appearance-probe-setup"
+    ]
+  },
+  "retentionScan": {
+    "textualArtifacts": 6,
+    "imageArtifacts": 4,
+    "redactionsApplied": 0,
+    "forbiddenMarkerHits": 0
+  },
+  "moments": [
+    {
+      "moment": "elements-mount-complete",
+      "colorMode": "light",
+      "resolvedTokens": {
+        "--background": "#f7f5f1",
+        "--body-font": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+        "--border": "#e6e2d9",
+        "--card": "#ffffff",
+        "--control-md-px": "1rem",
+        "--control-md-py": "0.625rem",
+        "--danger-soft": "#fee2e2",
+        "--destructive": "#b91c1c",
+        "--font-size-base": "1rem",
+        "--font-size-lg": "1.125rem",
+        "--font-size-sm": "0.875rem",
+        "--font-size-xl": "1.25rem",
+        "--font-size-xs": "0.75rem",
+        "--foreground": "#211d33",
+        "--line-height-base": "1.5rem",
+        "--overlay": "rgba(33, 29, 51, 0.35)",
+        "--primary": "#4845c6",
+        "--primary-foreground": "#ffffff",
+        "--radius": "0.5rem",
+        "--radius-lg": "0.75rem",
+        "--radius-sm": "0.375rem",
+        "--ring": "#5b58d6",
+        "--shadow-sm": "0 1px 2px rgba(33, 29, 51, 0.07)",
+        "--space-2": "0.5rem",
+        "--space-3": "0.75rem",
+        "--space-unit": "0.25rem",
+        "--success": "#15803d",
+        "--success-soft": "#dcfce7",
+        "--surface-2": "#f7f5f1",
+        "--text-muted": "#7d7791",
+        "--text-secondary": "#4d4763",
+        "--warning": "#b45309",
+        "--warning-soft": "#fef3c7",
+        "--z-modal": "60"
+      },
+      "observations": [
+        {
+          "observable": "checkout-input-text-colour",
+          "sourceToken": "--foreground",
+          "cssProperty": "color",
+          "expected": "rgb(33, 29, 51)",
+          "computed": "rgb(33, 29, 51)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "checkout-input-background",
+          "sourceToken": "--card",
+          "cssProperty": "background-color",
+          "expected": "rgb(255, 255, 255)",
+          "computed": "rgb(255, 255, 255)",
+          "mandatory": true,
+          "matched": true
+        }
+      ],
+      "consoleMessages": [
+        {
+          "type": "error",
+          "text": "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}"
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] You have not registered or verified the domain, so the following payment methods are not enabled in the Payment Element: \n\n- apple_pay\n\nPlease follow https://stripe.com/docs/payments/payment-methods/pmd-registration to register and verify the domain."
+        }
+      ],
+      "screenshotSha256": "99e52d181a440ad6d630cd06bbb47da857d2b5923e7f038d6890406fcd647835",
+      "screenshotClip": "stripe-frame",
+      "screenshotMaskedRegions": 1
+    },
+    {
+      "moment": "elements-update-complete",
+      "colorMode": "dark",
+      "resolvedTokens": {
+        "--background": "#0e0c15",
+        "--body-font": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+        "--border": "rgba(242, 239, 250, 0.08)",
+        "--card": "#1a1626",
+        "--control-md-px": "1rem",
+        "--control-md-py": "0.625rem",
+        "--danger-soft": "#450a0a",
+        "--destructive": "#f87171",
+        "--font-size-base": "1rem",
+        "--font-size-lg": "1.125rem",
+        "--font-size-sm": "0.875rem",
+        "--font-size-xl": "1.25rem",
+        "--font-size-xs": "0.75rem",
+        "--foreground": "#f2effa",
+        "--line-height-base": "1.5rem",
+        "--overlay": "rgba(10, 8, 17, 0.55)",
+        "--primary": "#8a97ff",
+        "--primary-foreground": "#14102a",
+        "--radius": "0.5rem",
+        "--radius-lg": "0.75rem",
+        "--radius-sm": "0.375rem",
+        "--ring": "#b8c1ff",
+        "--shadow-sm": "0 1px 2px rgba(6, 5, 11, 0.32)",
+        "--space-2": "0.5rem",
+        "--space-3": "0.75rem",
+        "--space-unit": "0.25rem",
+        "--success": "#4ade80",
+        "--success-soft": "#052e16",
+        "--surface-2": "#14111c",
+        "--text-muted": "#857e9c",
+        "--text-secondary": "#b6b0c9",
+        "--warning": "#facc15",
+        "--warning-soft": "#422006",
+        "--z-modal": "60"
+      },
+      "observations": [
+        {
+          "observable": "checkout-input-text-colour",
+          "sourceToken": "--foreground",
+          "cssProperty": "color",
+          "expected": "rgb(242, 239, 250)",
+          "computed": "rgb(242, 239, 250)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "checkout-input-background",
+          "sourceToken": "--card",
+          "cssProperty": "background-color",
+          "expected": "rgb(26, 22, 38)",
+          "computed": "rgb(26, 22, 38)",
+          "mandatory": true,
+          "matched": true
+        }
+      ],
+      "consoleMessages": [
+        {
+          "type": "error",
+          "text": "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}"
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] You have not registered or verified the domain, so the following payment methods are not enabled in the Payment Element: \n\n- apple_pay\n\nPlease follow https://stripe.com/docs/payments/payment-methods/pmd-registration to register and verify the domain."
+        }
+      ],
+      "screenshotSha256": "53106656598add31ae2b2148ad917aa97f9d204caa30b689e00cccca6a114e4a",
+      "screenshotClip": "stripe-frame",
+      "screenshotMaskedRegions": 1
+    },
+    {
+      "moment": "setup-mount-complete",
+      "colorMode": "light",
+      "resolvedTokens": {
+        "--background": "#f7f5f1",
+        "--body-font": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+        "--border": "#e6e2d9",
+        "--card": "#ffffff",
+        "--control-md-px": "1rem",
+        "--control-md-py": "0.625rem",
+        "--danger-soft": "#fee2e2",
+        "--destructive": "#b91c1c",
+        "--font-size-base": "1rem",
+        "--font-size-lg": "1.125rem",
+        "--font-size-sm": "0.875rem",
+        "--font-size-xl": "1.25rem",
+        "--font-size-xs": "0.75rem",
+        "--foreground": "#211d33",
+        "--line-height-base": "1.5rem",
+        "--overlay": "rgba(33, 29, 51, 0.35)",
+        "--primary": "#4845c6",
+        "--primary-foreground": "#ffffff",
+        "--radius": "0.5rem",
+        "--radius-lg": "0.75rem",
+        "--radius-sm": "0.375rem",
+        "--ring": "#5b58d6",
+        "--shadow-sm": "0 1px 2px rgba(33, 29, 51, 0.07)",
+        "--space-2": "0.5rem",
+        "--space-3": "0.75rem",
+        "--space-unit": "0.25rem",
+        "--success": "#15803d",
+        "--success-soft": "#dcfce7",
+        "--surface-2": "#f7f5f1",
+        "--text-muted": "#7d7791",
+        "--text-secondary": "#4d4763",
+        "--warning": "#b45309",
+        "--warning-soft": "#fef3c7",
+        "--z-modal": "60"
+      },
+      "observations": [
+        {
+          "observable": "payment-input-background",
+          "sourceToken": "--surface-2",
+          "cssProperty": "background-color",
+          "expected": "rgb(247, 245, 241)",
+          "computed": "rgb(247, 245, 241)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "payment-input-text-colour",
+          "sourceToken": "--foreground",
+          "cssProperty": "color",
+          "expected": "rgb(33, 29, 51)",
+          "computed": "rgb(33, 29, 51)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "payment-input-border-colour",
+          "sourceToken": "--border",
+          "cssProperty": "border-color",
+          "expected": "rgb(230, 226, 217)",
+          "computed": "rgb(230, 226, 217)",
+          "mandatory": true,
+          "paintedOver": {
+            "sourceToken": "--surface-2",
+            "expected": "rgb(247, 245, 241)",
+            "compositedExpected": "rgb(230, 226, 217)"
+          },
+          "matched": true
+        },
+        {
+          "observable": "payment-block-border-colour",
+          "sourceToken": "--border",
+          "cssProperty": "border-color",
+          "expected": "rgb(230, 226, 217)",
+          "computed": "rgb(230, 226, 217)",
+          "mandatory": true,
+          "paintedOver": {
+            "sourceToken": "--surface-2",
+            "expected": "rgb(247, 245, 241)",
+            "compositedExpected": "rgb(230, 226, 217)"
+          },
+          "matched": true
+        }
+      ],
+      "consoleMessages": [
+        {
+          "type": "warning",
+          "text": "[Stripe.js] Your Elements integration is using an older API. We recommend migrating to the Checkout Sessions API to reduce code, maintenance, and tokens (for AI agents). Additionally, you can easily turn on advanced features like Adaptive Pricing.\nView migration guide: https://docs.stripe.com/payments/payment-element/migration-ewcs"
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] The following payment method types are not activated:\n\n- klarna\n- bancontact\n\nThey will be displayed in test mode, but hidden in live mode. Please activate the payment method types in your dashboard (https://dashboard.stripe.com/settings/payment_methods) and ensure your account is enabled for any preview features that you are trying to use."
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] You have not registered or verified the domain, so the following payment methods are not enabled in the Payment Element: \n\n- apple_pay\n\nPlease follow https://stripe.com/docs/payments/payment-methods/pmd-registration to register and verify the domain."
+        }
+      ],
+      "screenshotSha256": "ac33a38d0288b961e9e2760c0d50c90294e8b1e1b58fcb313be8e17e5649fb85",
+      "screenshotClip": "stripe-frame",
+      "screenshotMaskedRegions": 1
+    },
+    {
+      "moment": "setup-update-complete",
+      "colorMode": "dark",
+      "resolvedTokens": {
+        "--background": "#0e0c15",
+        "--body-font": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+        "--border": "rgba(242, 239, 250, 0.08)",
+        "--card": "#1a1626",
+        "--control-md-px": "1rem",
+        "--control-md-py": "0.625rem",
+        "--danger-soft": "#450a0a",
+        "--destructive": "#f87171",
+        "--font-size-base": "1rem",
+        "--font-size-lg": "1.125rem",
+        "--font-size-sm": "0.875rem",
+        "--font-size-xl": "1.25rem",
+        "--font-size-xs": "0.75rem",
+        "--foreground": "#f2effa",
+        "--line-height-base": "1.5rem",
+        "--overlay": "rgba(10, 8, 17, 0.55)",
+        "--primary": "#8a97ff",
+        "--primary-foreground": "#14102a",
+        "--radius": "0.5rem",
+        "--radius-lg": "0.75rem",
+        "--radius-sm": "0.375rem",
+        "--ring": "#b8c1ff",
+        "--shadow-sm": "0 1px 2px rgba(6, 5, 11, 0.32)",
+        "--space-2": "0.5rem",
+        "--space-3": "0.75rem",
+        "--space-unit": "0.25rem",
+        "--success": "#4ade80",
+        "--success-soft": "#052e16",
+        "--surface-2": "#14111c",
+        "--text-muted": "#857e9c",
+        "--text-secondary": "#b6b0c9",
+        "--warning": "#facc15",
+        "--warning-soft": "#422006",
+        "--z-modal": "60"
+      },
+      "observations": [
+        {
+          "observable": "payment-input-background",
+          "sourceToken": "--surface-2",
+          "cssProperty": "background-color",
+          "expected": "rgb(20, 17, 28)",
+          "computed": "rgb(20, 17, 28)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "payment-input-text-colour",
+          "sourceToken": "--foreground",
+          "cssProperty": "color",
+          "expected": "rgb(242, 239, 250)",
+          "computed": "rgb(242, 239, 250)",
+          "mandatory": true,
+          "matched": true
+        },
+        {
+          "observable": "payment-input-border-colour",
+          "sourceToken": "--border",
+          "cssProperty": "border-color",
+          "expected": "rgba(242, 239, 250, 0.08)",
+          "computed": "rgba(242, 239, 250, 0.08)",
+          "mandatory": true,
+          "paintedOver": {
+            "sourceToken": "--surface-2",
+            "expected": "rgb(20, 17, 28)",
+            "compositedExpected": "rgb(38, 35, 46)"
+          },
+          "matched": true
+        },
+        {
+          "observable": "payment-block-border-colour",
+          "sourceToken": "--border",
+          "cssProperty": "border-color",
+          "expected": "rgba(242, 239, 250, 0.08)",
+          "computed": "rgba(242, 239, 250, 0.08)",
+          "mandatory": true,
+          "paintedOver": {
+            "sourceToken": "--surface-2",
+            "expected": "rgb(20, 17, 28)",
+            "compositedExpected": "rgb(38, 35, 46)"
+          },
+          "matched": true
+        }
+      ],
+      "consoleMessages": [
+        {
+          "type": "warning",
+          "text": "[Stripe.js] Your Elements integration is using an older API. We recommend migrating to the Checkout Sessions API to reduce code, maintenance, and tokens (for AI agents). Additionally, you can easily turn on advanced features like Adaptive Pricing.\nView migration guide: https://docs.stripe.com/payments/payment-element/migration-ewcs"
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] The following payment method types are not activated:\n\n- klarna\n- bancontact\n\nThey will be displayed in test mode, but hidden in live mode. Please activate the payment method types in your dashboard (https://dashboard.stripe.com/settings/payment_methods) and ensure your account is enabled for any preview features that you are trying to use."
+        },
+        {
+          "type": "warning",
+          "text": "[Stripe.js] You have not registered or verified the domain, so the following payment methods are not enabled in the Payment Element: \n\n- apple_pay\n\nPlease follow https://stripe.com/docs/payments/payment-methods/pmd-registration to register and verify the domain."
+        }
+      ],
+      "screenshotSha256": "bd2e6570e05d86251886000f6c8b537e799c08169adac04d11f19d32ad4d9eb9",
+      "screenshotClip": "stripe-frame",
+      "screenshotMaskedRegions": 1
+    }
+  ],
+  "substitutionsApplied": []
+}
