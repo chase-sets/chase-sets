@@ -623,19 +623,31 @@ function candidateStylesheet({
     '[data-chase-theme][data-color-mode="dark"]',
     '[data-chase-theme-scope][data-color-mode="dark"]',
   ].join(",\n");
-  const darkAliases = darkDiffering.map((name) => `  ${name}: var(--dark-${name.slice(2)});`).join("\n");
+  // The dark groups must re-declare every consumed name, not only the
+  // mode-differing ones: the shipped mode-independent token block declares the
+  // invariant names on the deeper theme-scope element, where it outranks the
+  // injected `:root` declaration by inheritance proximity in dark mode and
+  // resolves the served stylesheet's byte form (minification strips leading
+  // zeros) instead of the fixture candidate's.
+  const darkDeclarations = names
+    .map((name) =>
+      darkDiffering.includes(name)
+        ? `  ${name}: var(--dark-${name.slice(2)});`
+        : `  ${name}: ${valueFor(name, "dark")};`,
+    )
+    .join("\n");
 
   return [
     `${lightSelectors} {\n${names.map((name) => `  ${name}: ${valueFor(name, "light")};`).join("\n")}\n}`,
     `:root {\n${darkDiffering.map((name) => `  --dark-${name.slice(2)}: ${valueFor(name, "dark")};`).join("\n")}\n}`,
-    // Without the dark alias groups the unlayered light `:root` rule outranks
-    // the shipped dark aliases too and the update moment never moves. Omitting
+    // Without the dark groups the unlayered light `:root` rule outranks the
+    // shipped dark aliases too and the update moment never moves. Omitting
     // them is a control, never a configuration.
     ...(omitDarkAliases
       ? []
       : [
-          `${darkSelectors} {\n${darkAliases}\n}`,
-          `@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {\n${darkAliases}\n  }\n}`,
+          `${darkSelectors} {\n${darkDeclarations}\n}`,
+          `@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {\n${darkDeclarations}\n  }\n}`,
         ]),
   ].join("\n\n");
 }
