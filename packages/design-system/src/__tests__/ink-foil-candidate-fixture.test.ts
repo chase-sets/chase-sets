@@ -35,6 +35,7 @@ const tokenSchema = JSON.parse(readFileSync(join(fixturesDir, "ink-foil-candidat
 const receiptSchema = JSON.parse(
   readFileSync(join(fixturesDir, "stripe-appearance-acceptance-receipt.schema.json"), "utf8"),
 );
+const discoverySchema = JSON.parse(readFileSync(join(fixturesDir, "stripe-connect-discovery.schema.json"), "utf8"));
 const appearanceSource = readFileSync(join(designSystemSrc, "theme", "stripe-appearance.ts"), "utf8");
 
 // Ratified by Todd on 2026-07-23 and transcribed from the tracking body's
@@ -108,10 +109,13 @@ const supportedKeywords = new Set([
   "minProperties",
   "items",
   "minItems",
+  "maxItems",
   "uniqueItems",
   "minLength",
   "minimum",
+  "maximum",
   "pattern",
+  "oneOf",
 ]);
 
 type SchemaNode = Record<string, unknown>;
@@ -196,10 +200,13 @@ const validatorSupportedKeywords = new Set([
   "minProperties",
   "items",
   "minItems",
+  "maxItems",
   "uniqueItems",
   "minLength",
   "minimum",
+  "maximum",
   "pattern",
+  "oneOf",
 ]);
 
 function preflightSupportedSchema(root: unknown, candidate: unknown, path: string, visited: Set<object>): void {
@@ -250,6 +257,12 @@ function preflightSupportedSchema(root: unknown, candidate: unknown, path: strin
   for (const keyword of ["items", "propertyNames"] as const) {
     if (node[keyword] !== undefined) preflightSupportedSchema(root, node[keyword], `${path}.${keyword}`, visited);
   }
+  if (node.oneOf !== undefined) {
+    if (!Array.isArray(node.oneOf) || node.oneOf.length === 0) {
+      throw new Error(`${path}.oneOf: must be a non-empty array of subschemas`);
+    }
+    node.oneOf.forEach((child, index) => preflightSupportedSchema(root, child, `${path}.oneOf[${index}]`, visited));
+  }
   if (node.additionalProperties !== undefined && node.additionalProperties !== false) {
     preflightSupportedSchema(root, node.additionalProperties, `${path}.additionalProperties`, visited);
   }
@@ -272,6 +285,24 @@ function validate(root: SchemaNode, candidate: unknown, value: unknown, path = "
 
   const fail = (message: string) => errors.push(`${path}: ${message}`);
   const numberKeyword = (name: string) => (typeof schema[name] === "number" ? (schema[name] as number) : undefined);
+
+  if (schema.oneOf !== undefined) {
+    if (!Array.isArray(schema.oneOf) || schema.oneOf.length === 0) {
+      throw new Error(`${path}.oneOf: must be a non-empty array of subschemas`);
+    }
+    const branchErrors = schema.oneOf.map((branch, index) => {
+      const candidateErrors: string[] = [];
+      validate(root, branch, value, `${path}.oneOf[${index}]`, candidateErrors);
+      return candidateErrors;
+    });
+    const matching = branchErrors.filter((branch) => branch.length === 0).length;
+    if (matching !== 1) {
+      fail(
+        `expected exactly one oneOf branch to match, got ${matching}; ` +
+          branchErrors.map((branch, index) => `branch ${index}: ${branch.join("; ") || "matched"}`).join(" | "),
+      );
+    }
+  }
 
   if (schema.const !== undefined && value !== schema.const) {
     fail(`expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`);
@@ -343,6 +374,10 @@ function validate(root: SchemaNode, candidate: unknown, value: unknown, path = "
     if (minItems !== undefined && value.length < minItems) {
       fail(`expected at least ${minItems} items, got ${value.length}`);
     }
+    const maxItems = numberKeyword("maxItems");
+    if (maxItems !== undefined && value.length > maxItems) {
+      fail(`expected at most ${maxItems} items, got ${value.length}`);
+    }
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) {
       fail("expected unique items");
     }
@@ -379,6 +414,10 @@ function validate(root: SchemaNode, candidate: unknown, value: unknown, path = "
     const minimum = numberKeyword("minimum");
     if (minimum !== undefined && value < minimum) {
       fail(`expected >= ${minimum}, got ${value}`);
+    }
+    const maximum = numberKeyword("maximum");
+    if (maximum !== undefined && value > maximum) {
+      fail(`expected <= ${maximum}, got ${value}`);
     }
     return errors;
   }
@@ -431,6 +470,12 @@ function assertRecursivelyClosed(candidate: unknown, path: string) {
     if (node[keyword] === undefined) continue;
     if (keyword === "additionalProperties" && node[keyword] === false) continue;
     assertRecursivelyClosed(node[keyword], `${path}.${keyword}`);
+  }
+  if (node.oneOf !== undefined) {
+    if (!Array.isArray(node.oneOf) || node.oneOf.length === 0) {
+      throw new Error(`${path}.oneOf: must be a non-empty array of subschemas`);
+    }
+    node.oneOf.forEach((child, index) => assertRecursivelyClosed(child, `${path}.oneOf[${index}]`));
   }
 
   const isObjectNode =
@@ -680,7 +725,9 @@ describe("Ink & Foil candidate token fixture", () => {
 const fixtureSha256 = createHash("sha256").update(fixtureBytes).digest("hex");
 // (r4 F5) The elements receipt carries both real Elements-consuming surfaces:
 // the variables-only Checkout moments and the full-rules setup moments.
-const requiredMoments = {
+type ReceiptSurface = "elements" | "connect";
+
+const requiredMoments: Record<ReceiptSurface, readonly string[]> = {
   elements: ["elements-mount-complete", "elements-update-complete", "setup-mount-complete", "setup-update-complete"],
   connect: ["connect-mount-complete", "connect-update-complete"],
 } as const;
@@ -690,7 +737,7 @@ const requiredMoments = {
 // an unqualified host is a disqualified run, not a weaker one.
 const qualifyingHosts = {
   elements: ["https://marketplace.staging.chasesets.com"],
-  connect: ["https://marketplace.staging.chasesets.com", "https://admin.staging.chasesets.com"],
+  connect: ["https://marketplace.staging.chasesets.com"],
 } as const;
 
 // Committing the receipt moves the head the receipt would have to name, and
@@ -738,6 +785,26 @@ const leakPatterns = [
 
 const probeSpecRelativePath = "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts";
 const probeSpecSource = readFileSync(join(repositoryRoot(), probeSpecRelativePath), "utf8");
+const connectProbeSpecRelativePath = "deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts";
+const connectProbeSpecSource = readFileSync(join(repositoryRoot(), connectProbeSpecRelativePath), "utf8");
+const discoveryArtifactRelativePath = "packages/design-system/src/theme/__fixtures__/stripe-connect-discovery.json";
+
+const surfaceRegistry = {
+  elements: {
+    probeSpecRelativePath,
+    probeSpecSource,
+    tag: "@stripe-embed-uat",
+    requiredMoments: requiredMoments.elements,
+    qualifyingHosts: qualifyingHosts.elements,
+  },
+  connect: {
+    probeSpecRelativePath: connectProbeSpecRelativePath,
+    probeSpecSource: connectProbeSpecSource,
+    tag: "@connect-appearance-uat",
+    requiredMoments: requiredMoments.connect,
+    qualifyingHosts: qualifyingHosts.connect,
+  },
+} as const;
 
 function requireSpecMatch(source: string, pattern: RegExp, what: string): RegExpMatchArray {
   const matched = source.match(pattern);
@@ -760,10 +827,10 @@ export function deriveRequiredEnvironmentVariableNames(source: string): string[]
   return [...block[1]!.matchAll(/"([A-Z][A-Z0-9_]*)"/g)].map((match) => match[1]!);
 }
 
-export function deriveTaggedTestTitles(source: string): string[] {
+export function deriveTaggedTestTitles(source: string, tag = "@stripe-embed-uat"): string[] {
   return [...source.matchAll(/^\s*test\(\s*"((?:[^"\\]|\\.)*)"/gm)]
     .map((match) => match[1]!)
-    .filter((title) => title.includes("@stripe-embed-uat"));
+    .filter((title) => title.includes(tag));
 }
 
 export type DeclaredObservable = { observable: string; sourceToken: string; cssProperty: string };
@@ -807,6 +874,24 @@ function momentObservationContract(momentName: string) {
   };
 }
 
+function connectMomentObservationContract(discovery: ConnectDiscoveryArtifact | null): {
+  mandatory: DeclaredObservable[];
+  conditional: DeclaredObservable[];
+} {
+  if (!discovery) return { mandatory: [], conditional: [] };
+  const separator = deriveConnectObservableNameSeparator(connectProbeSpecSource);
+  const mandatory = Object.entries(discovery.groups).flatMap(([sourceToken, group]) =>
+    group.elements.flatMap((element) =>
+      group.variables.map((variable) => ({
+        observable: [variable, element.selectorPath, element.cssProperty].join(separator),
+        sourceToken,
+        cssProperty: element.cssProperty,
+      })),
+    ),
+  );
+  return { mandatory, conditional: [] };
+}
+
 export function derivePaintedSurfaceSourceToken(source: string): string {
   return requireSpecMatch(source, /const paintedSurfaceSourceToken = "(--[\w-]+)";/, "paintedSurfaceSourceToken")[1]!;
 }
@@ -821,6 +906,41 @@ export function deriveReceiptSourceDigestPaths(source: string): string[] {
     const identifier = match[1]!;
     return requireSpecMatch(source, new RegExp(`const ${identifier} = "([^"]+)";`), `${identifier} declaration`)[1]!;
   });
+}
+
+type ConnectSourcePropertyGroup = {
+  sourceToken: string;
+  cssProperty: string;
+  minimum: boolean;
+  sentinelColor: string;
+  variables: string[];
+};
+
+export function deriveConnectSourcePropertyGroups(source: string): ConnectSourcePropertyGroup[] {
+  const block = requireSpecMatch(
+    source,
+    /const connectSourcePropertyGroups = \[([\s\S]*?)\] as const;/,
+    "connectSourcePropertyGroups",
+  );
+  return [
+    ...block[1]!.matchAll(
+      /\{\s*sourceToken:\s*"(--[\w-]+)",\s*cssProperty:\s*"([^"]+)",\s*minimum:\s*(true|false),\s*sentinelColor:\s*"(#[0-9a-f]{6})",\s*variables:\s*\[([\s\S]*?)\],\s*\}/g,
+    ),
+  ].map((match) => ({
+    sourceToken: match[1]!,
+    cssProperty: match[2]!,
+    minimum: match[3] === "true",
+    sentinelColor: match[4]!,
+    variables: [...match[5]!.matchAll(/"([A-Za-z][A-Za-z0-9]+)"/g)].map((variable) => variable[1]!),
+  }));
+}
+
+export function deriveConnectObservableNameSeparator(source: string): string {
+  return requireSpecMatch(
+    source,
+    /const connectObservableNameSeparator = "([^"]+)";/,
+    "connectObservableNameSeparator",
+  )[1]!;
 }
 
 // ---------------------------------------------------------------------------
@@ -876,12 +996,13 @@ function sameCssColor(left: string, right: string) {
 type ProvenanceContext = {
   resolveCommit: (sha: string) => boolean;
   pathsChangedSince: (sha: string) => string[] | null;
-  sourceDigests: Record<string, string>;
+  sourceDigests: (surface: ReceiptSurface) => Record<string, string>;
+  readDiscoveryArtifact: () => { bytes: Buffer; artifact: unknown } | null;
 };
 
-function committedSourceDigests(): Record<string, string> {
+function committedSourceDigests(source = probeSpecSource): Record<string, string> {
   return Object.fromEntries(
-    deriveReceiptSourceDigestPaths(probeSpecSource).map((relativePath) => [
+    deriveReceiptSourceDigestPaths(source).map((relativePath) => [
       relativePath,
       createHash("sha256")
         .update(readFileSync(join(repositoryRoot(), relativePath)))
@@ -931,7 +1052,16 @@ function gitProvenanceAt(root: string): Pick<ProvenanceContext, "resolveCommit" 
 }
 
 function repositoryProvenanceContext(): ProvenanceContext {
-  return { ...gitProvenanceAt(repositoryRoot()), sourceDigests: committedSourceDigests() };
+  return {
+    ...gitProvenanceAt(repositoryRoot()),
+    sourceDigests: (surface) => committedSourceDigests(surfaceRegistry[surface].probeSpecSource),
+    readDiscoveryArtifact: () => {
+      const path = join(repositoryRoot(), discoveryArtifactRelativePath);
+      if (!existsSync(path)) return null;
+      const bytes = readFileSync(path);
+      return { bytes, artifact: JSON.parse(bytes.toString("utf8")) };
+    },
+  };
 }
 
 // The sample head is deterministic so the mutation battery exercises every
@@ -944,7 +1074,8 @@ function fixedProvenanceContext(overrides: Partial<ProvenanceContext> = {}): Pro
   return {
     resolveCommit: (sha) => sha === sampleImplementationHead,
     pathsChangedSince: () => [],
-    sourceDigests: committedSourceDigests(),
+    sourceDigests: (surface) => committedSourceDigests(surfaceRegistry[surface].probeSpecSource),
+    readDiscoveryArtifact: () => null,
     ...overrides,
   };
 }
@@ -998,13 +1129,39 @@ type AcceptanceReceipt = {
   };
   moments: ReceiptMoment[];
   substitutionsApplied: { property: string; mode: string; from: string; to: string; reason: string }[];
+  componentMode?: "account-onboarding" | "account-management";
+  discoveryArtifact?: { path: string; sha256: string; sessionNonce: string };
 } & Record<string, unknown>;
+
+type DiscoveryElement = {
+  selectorPath: string;
+  cssProperty: string;
+  before: string;
+  after: string;
+};
+type ConnectDiscoveryArtifact = {
+  schemaVersion: string;
+  sessionNonce: string;
+  implementationHead: string;
+  deployRunId: string;
+  host: string;
+  capturedAt: string;
+  componentMode: string;
+  frameSelector: string;
+  environmentVariableNames: string[];
+  fixtureSha256: string;
+  sourceDigests: Record<string, string>;
+  retentionScan: AcceptanceReceipt["retentionScan"];
+  groups: Record<string, { variables: string[]; sentinelColor: string; elements: DiscoveryElement[] }>;
+};
 
 function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContext): string[] {
   const problems: string[] = [];
   const schemaErrors = validate(receiptSchema, receiptSchema, receipt);
   problems.push(...schemaErrors);
   if (schemaErrors.length > 0) return problems;
+  const surface = receipt.surface as ReceiptSurface;
+  const surfaceContract = surfaceRegistry[surface];
 
   // --- provenance ---------------------------------------------------------
   if (!context.resolveCommit(receipt.implementationHead)) {
@@ -1014,7 +1171,7 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     if (changed === null) {
       problems.push(`the delta between implementationHead ${receipt.implementationHead} and HEAD is unknowable`);
     } else {
-      const governedPaths = deriveReceiptSourceDigestPaths(probeSpecSource);
+      const governedPaths = deriveReceiptSourceDigestPaths(surfaceContract.probeSpecSource);
       const staleGoverned = changed.filter((path) => governedPaths.includes(path));
       if (staleGoverned.length > 0) {
         problems.push(
@@ -1025,7 +1182,7 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     }
   }
 
-  const expectedDigests = context.sourceDigests;
+  const expectedDigests = context.sourceDigests(surface);
   const declaredDigestPaths = Object.keys(receipt.sourceDigests).sort();
   if (declaredDigestPaths.join("|") !== Object.keys(expectedDigests).sort().join("|")) {
     problems.push(
@@ -1040,11 +1197,11 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
 
   // --- run identity -------------------------------------------------------
   const summary = receipt.runSummary;
-  const evidenceCommand = deriveEvidenceCommand(probeSpecSource);
+  const evidenceCommand = deriveEvidenceCommand(surfaceContract.probeSpecSource);
   if (summary.command !== evidenceCommand) {
     problems.push(`runSummary.command must be exactly ${evidenceCommand}, got ${summary.command}`);
   }
-  const expectedTitles = deriveTaggedTestTitles(probeSpecSource);
+  const expectedTitles = deriveTaggedTestTitles(surfaceContract.probeSpecSource, surfaceContract.tag);
   if ([...summary.testTitles].sort().join("|") !== [...expectedTitles].sort().join("|")) {
     problems.push(
       `runSummary.testTitles must be exactly the ${expectedTitles.length} tagged tests declared by the probe spec`,
@@ -1060,12 +1217,12 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     problems.push(`runSummary.collected must be at least 3 for the elements surface, got ${summary.collected}`);
   }
 
-  const qualifyingForSurface: readonly string[] = qualifyingHosts[receipt.surface as keyof typeof qualifyingHosts];
+  const qualifyingForSurface: readonly string[] = surfaceContract.qualifyingHosts;
   if (!qualifyingForSurface.includes(receipt.host)) {
     problems.push(`host ${receipt.host} is not a qualifying deployed host for the ${receipt.surface} surface`);
   }
 
-  const expectedEnvironmentNames = deriveRequiredEnvironmentVariableNames(probeSpecSource);
+  const expectedEnvironmentNames = deriveRequiredEnvironmentVariableNames(surfaceContract.probeSpecSource);
   if ([...receipt.environmentVariableNames].sort().join("|") !== [...expectedEnvironmentNames].sort().join("|")) {
     problems.push(`environmentVariableNames must be exactly ${expectedEnvironmentNames.sort().join(", ")}`);
   }
@@ -1076,7 +1233,7 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
 
   // --- lifecycle set ------------------------------------------------------
   const seen = receipt.moments.map((moment) => moment.moment);
-  const required = requiredMoments[receipt.surface as keyof typeof requiredMoments];
+  const required = surfaceContract.requiredMoments;
   if ([...seen].sort().join("|") !== [...required].sort().join("|")) {
     problems.push(`moments must be exactly ${[...required].join(", ")}, got ${seen.join(", ")}`);
   }
@@ -1112,12 +1269,92 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     }
   }
 
+  let connectDiscovery: ConnectDiscoveryArtifact | null = null;
+  if (surface === "connect") {
+    const committed = context.readDiscoveryArtifact();
+    if (!committed) {
+      problems.push(`connect discovery artifact is missing at ${discoveryArtifactRelativePath}`);
+    } else {
+      const artifact = committed.artifact as ConnectDiscoveryArtifact;
+      const discoverySchemaErrors = validate(discoverySchema, discoverySchema, artifact);
+      problems.push(...discoverySchemaErrors.map((error) => `connect discovery schema: ${error}`));
+      if (discoverySchemaErrors.length === 0) {
+        connectDiscovery = artifact;
+        const digest = createHash("sha256").update(committed.bytes).digest("hex");
+        if (receipt.discoveryArtifact?.sha256 !== digest) {
+          problems.push(`discoveryArtifact.sha256 does not match the committed discovery bytes`);
+        }
+        if (receipt.discoveryArtifact?.sessionNonce !== artifact.sessionNonce) {
+          problems.push(`discoveryArtifact.sessionNonce does not match the committed discovery artifact`);
+        }
+        if (artifact.implementationHead !== receipt.implementationHead) {
+          problems.push(`discovery implementationHead does not match the receipt`);
+        }
+        if (artifact.host !== receipt.host) problems.push(`discovery host does not match the receipt`);
+        if (artifact.fixtureSha256 !== receipt.fixtureSha256) {
+          problems.push(`discovery fixtureSha256 does not match the receipt`);
+        }
+        if (artifact.componentMode !== receipt.componentMode) {
+          problems.push(`discovery componentMode does not match the receipt`);
+        }
+        if (Date.parse(artifact.capturedAt) > Date.parse(receipt.capturedAt)) {
+          problems.push(`discovery capturedAt is newer than the receipt`);
+        }
+        const expectedEnvironmentNames = deriveRequiredEnvironmentVariableNames(connectProbeSpecSource);
+        if (
+          [...artifact.environmentVariableNames].sort().join("|") !== [...expectedEnvironmentNames].sort().join("|")
+        ) {
+          problems.push(`discovery environmentVariableNames do not match the Connect probe spec`);
+        }
+        const expectedDigests = context.sourceDigests("connect");
+        if (
+          Object.entries(artifact.sourceDigests)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([path, digestValue]) => `${path}:${digestValue}`)
+            .join("|") !==
+          Object.entries(expectedDigests)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([path, digestValue]) => `${path}:${digestValue}`)
+            .join("|")
+        ) {
+          problems.push(`discovery sourceDigests do not match the Connect governed bytes`);
+        }
+        const declaredGroups = deriveConnectSourcePropertyGroups(connectProbeSpecSource);
+        const declaredBySource = new Map(declaredGroups.map((group) => [group.sourceToken, group]));
+        for (const [sourceToken, group] of Object.entries(artifact.groups)) {
+          const declared = declaredBySource.get(sourceToken);
+          if (!declared) {
+            problems.push(`discovery records undeclared source group ${sourceToken}`);
+            continue;
+          }
+          if ([...group.variables].sort().join("|") !== [...declared.variables].sort().join("|")) {
+            problems.push(`discovery group ${sourceToken} variables do not match the Connect spec`);
+          }
+          if (group.sentinelColor !== declared.sentinelColor) {
+            problems.push(`discovery group ${sourceToken} sentinel does not match the Connect spec`);
+          }
+          if (group.elements.some((element) => element.cssProperty !== declared.cssProperty)) {
+            problems.push(`discovery group ${sourceToken} records the wrong CSS property`);
+          }
+        }
+        for (const declared of declaredGroups.filter((group) => group.minimum)) {
+          if (!artifact.groups[declared.sourceToken]) {
+            problems.push(`discovery is missing minimum source group ${declared.sourceToken}`);
+          }
+        }
+      }
+    }
+  }
+
   // --- observation contract ----------------------------------------------
   const consumed = deriveConsumedTokenNames(appearanceSource);
-  const paintedSurfaceToken = derivePaintedSurfaceSourceToken(probeSpecSource);
+  const paintedSurfaceToken = surface === "elements" ? derivePaintedSurfaceSourceToken(probeSpecSource) : null;
 
   for (const moment of receipt.moments) {
-    const contract = momentObservationContract(moment.moment);
+    const contract =
+      surface === "connect"
+        ? connectMomentObservationContract(connectDiscovery)
+        : momentObservationContract(moment.moment);
     const declaredByName = new Map(
       [...contract.mandatory, ...contract.conditional].map((entry) => [entry.observable, entry]),
     );
@@ -1185,7 +1422,9 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
       // composite the validator re-derives from the fixture; any other
       // observable carrying one is fabricating a derivation it never made.
       if (declared.cssProperty === "border-color") {
-        const surfaceValue = fixture[moment.colorMode][paintedSurfaceToken]?.candidate;
+        const surfaceValue = paintedSurfaceToken
+          ? fixture[moment.colorMode][paintedSurfaceToken]?.candidate
+          : undefined;
         const composited = declaredValue && surfaceValue ? compositeOverOpaque(declaredValue, surfaceValue) : null;
         if (!observation.paintedOver) {
           problems.push(`${moment.moment} border observation ${observation.observable} records no painted surface`);
@@ -1323,13 +1562,134 @@ function validReceiptSample(): AcceptanceReceipt {
   };
 }
 
+function validConnectSampleBundle() {
+  const sourceGroups = deriveConnectSourcePropertyGroups(connectProbeSpecSource);
+  const groups: ConnectDiscoveryArtifact["groups"] = Object.fromEntries(
+    sourceGroups
+      .filter((group) => group.minimum)
+      .map((group, index) => [
+        group.sourceToken,
+        {
+          variables: [...group.variables],
+          sentinelColor: group.sentinelColor,
+          elements: [
+            {
+              selectorPath: `body > synthetic-${index + 1}`,
+              cssProperty: group.cssProperty,
+              before: index === 0 ? "rgb(255, 255, 255)" : "rgb(15, 23, 42)",
+              after: normaliseCssValue(group.sentinelColor),
+            },
+          ],
+        },
+      ]),
+  );
+  const discovery: ConnectDiscoveryArtifact = {
+    schemaVersion: "stripe-connect-discovery/v1",
+    sessionNonce: "a".repeat(32),
+    implementationHead: sampleImplementationHead,
+    deployRunId: "31383423018",
+    host: "https://marketplace.staging.chasesets.com",
+    capturedAt: "2026-08-10T11:00:00Z",
+    componentMode: "account-management",
+    frameSelector: '[data-testid="stripe-connect-embedded-component"] stripe-connect-account-management iframe',
+    environmentVariableNames: deriveRequiredEnvironmentVariableNames(connectProbeSpecSource),
+    fixtureSha256,
+    sourceDigests: committedSourceDigests(connectProbeSpecSource),
+    retentionScan: { textualArtifacts: 1, imageArtifacts: 0, redactionsApplied: 0, forbiddenMarkerHits: 0 },
+    groups,
+  };
+  const discoveryBytes = Buffer.from(`${JSON.stringify(discovery, null, 2)}\n`);
+  const contract = connectMomentObservationContract(discovery).mandatory;
+  const consumed = deriveConsumedTokenNames(appearanceSource);
+  const moment = (name: string, colorMode: "light" | "dark"): ReceiptMoment => ({
+    moment: name,
+    colorMode,
+    resolvedTokens: Object.fromEntries(consumed.map((token) => [token, fixture[colorMode][token].candidate])),
+    observations: contract.map((entry) => sampleObservation(entry, colorMode)),
+    consoleMessages: [],
+    screenshotSha256: "b".repeat(64),
+    screenshotClip: "stripe-frame",
+    screenshotMaskedRegions: 1,
+  });
+  const receipt: AcceptanceReceipt = {
+    schemaVersion: "stripe-appearance-acceptance-receipt/v1",
+    surface: "connect",
+    stripeMode: "test",
+    implementationHead: sampleImplementationHead,
+    fixturePath: "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json",
+    fixtureSha256,
+    sourceDigests: committedSourceDigests(connectProbeSpecSource),
+    capturedAt: "2026-08-10T12:00:00Z",
+    host: "https://marketplace.staging.chasesets.com",
+    environmentVariableNames: deriveRequiredEnvironmentVariableNames(connectProbeSpecSource),
+    runSummary: {
+      command: deriveEvidenceCommand(connectProbeSpecSource),
+      workers: 1,
+      collected: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      testTitles: deriveTaggedTestTitles(connectProbeSpecSource, "@connect-appearance-uat"),
+    },
+    retentionScan: { textualArtifacts: 2, imageArtifacts: 2, redactionsApplied: 2, forbiddenMarkerHits: 0 },
+    moments: [moment("connect-mount-complete", "light"), moment("connect-update-complete", "dark")],
+    substitutionsApplied: [],
+    componentMode: "account-management",
+    discoveryArtifact: {
+      path: discoveryArtifactRelativePath,
+      sha256: createHash("sha256").update(discoveryBytes).digest("hex"),
+      sessionNonce: discovery.sessionNonce,
+    },
+  };
+  return { receipt, discovery, discoveryBytes };
+}
+
+function fixedConnectProvenanceContext(bundle = validConnectSampleBundle()): ProvenanceContext {
+  return fixedProvenanceContext({
+    readDiscoveryArtifact: () => ({ bytes: bundle.discoveryBytes, artifact: bundle.discovery }),
+  });
+}
+
 describe("Stripe appearance acceptance receipts", () => {
-  it("uses a recursively closed schema", () => {
+  it("uses recursively closed receipt and discovery schemas", () => {
     assertRecursivelyClosed(receiptSchema, "receiptSchema");
+    assertRecursivelyClosed(discoverySchema, "discoverySchema");
+    const connect = validConnectSampleBundle();
+    expect(validate(discoverySchema, discoverySchema, connect.discovery)).toEqual([]);
+  });
+
+  it("uses the schema's surface branches to accept each honest shape and reject cross-surface fields", () => {
+    const elements = validReceiptSample();
+    const connect = validConnectSampleBundle().receipt;
+    expect(validate(receiptSchema, receiptSchema, elements)).toEqual([]);
+    expect(validate(receiptSchema, receiptSchema, connect)).toEqual([]);
+
+    const elementsWithConnectFields = JSON.parse(JSON.stringify(elements)) as AcceptanceReceipt;
+    elementsWithConnectFields.componentMode = "account-management";
+    elementsWithConnectFields.discoveryArtifact = {
+      path: discoveryArtifactRelativePath,
+      sha256: "a".repeat(64),
+      sessionNonce: "a".repeat(32),
+    };
+    expect(validate(receiptSchema, receiptSchema, elementsWithConnectFields)).not.toEqual([]);
+
+    const connectWithoutDiscovery = JSON.parse(JSON.stringify(connect)) as AcceptanceReceipt;
+    delete connectWithoutDiscovery.discoveryArtifact;
+    expect(validate(receiptSchema, receiptSchema, connectWithoutDiscovery)).not.toEqual([]);
+  });
+
+  it("keeps the surface branch mutation red: dropping oneOf accepts the cross-surface forgery", () => {
+    const forged = validConnectSampleBundle().receipt;
+    forged.surface = "elements";
+    const branchless = JSON.parse(JSON.stringify(receiptSchema)) as Record<string, unknown>;
+    delete branchless.oneOf;
+
+    expect(validate(branchless, branchless, forged)).toEqual([]);
+    expect(validate(receiptSchema, receiptSchema, forged)).not.toEqual([]);
   });
 
   it.each([
-    ["directly under properties", ["properties", "host"]],
+    ["directly under properties", ["$defs", "elementsReceipt", "properties", "host"]],
     ["under a $defs property", ["$defs", "observation", "properties", "expected"]],
     ["under a nested $defs object node", ["$defs", "moment", "properties", "resolvedTokens"]],
   ])("refuses an unsupported schema keyword nested %s", (_label, path) => {
@@ -1358,7 +1718,7 @@ describe("Stripe appearance acceptance receipts", () => {
 
   const booleanSubschemaPositions: [string, string[]][] = [
     // The three bypasses the r2 review executed.
-    ["properties.capturedAt", ["properties", "capturedAt"]],
+    ["$defs.elementsReceipt.properties.capturedAt", ["$defs", "elementsReceipt", "properties", "capturedAt"]],
     ["$defs.consoleMessage.properties.text", ["$defs", "consoleMessage", "properties", "text"]],
     ["$defs.moment.properties.screenshotSha256", ["$defs", "moment", "properties", "screenshotSha256"]],
     // The items position.
@@ -1366,12 +1726,12 @@ describe("Stripe appearance acceptance receipts", () => {
     // The propertyNames position: the closure walk's gated
     // patternProperties-plus-propertyNames form must not accept a boolean as
     // its gate (planning-review N1).
-    ["properties.sourceDigests.propertyNames", ["properties", "sourceDigests", "propertyNames"]],
+    ["$defs.sourceDigests.propertyNames", ["$defs", "sourceDigests", "propertyNames"]],
     // The resolution target of a $ref.
-    ["$defs.runSummary", ["$defs", "runSummary"]],
+    ["$defs.elementsRunSummary", ["$defs", "elementsRunSummary"]],
     // additionalProperties may be exactly false or a plain object node, never
     // true.
-    ["$defs.runSummary.additionalProperties", ["$defs", "runSummary", "additionalProperties"]],
+    ["$defs.elementsRunSummary.additionalProperties", ["$defs", "elementsRunSummary", "additionalProperties"]],
   ];
 
   it.each(
@@ -1404,7 +1764,7 @@ describe("Stripe appearance acceptance receipts", () => {
   );
 
   it("validator throws on additionalProperties: true instead of treating extra properties as unconstrained", () => {
-    const mutated = mutateReceiptSchema(["$defs", "runSummary", "additionalProperties"], true);
+    const mutated = mutateReceiptSchema(["$defs", "elementsRunSummary", "additionalProperties"], true);
     expect(() => validate(mutated, mutated, validReceiptSample())).toThrow(
       /additionalProperties: boolean subschema is not a closed object node/,
     );
@@ -1442,10 +1802,13 @@ describe("Stripe appearance acceptance receipts", () => {
   // -------------------------------------------------------------------------
 
   const unreachableBooleanPositions: [string, string[]][] = [
-    ["properties.parityAbsentOptional", ["properties", "parityAbsentOptional"]],
     [
-      "properties.sourceDigests.patternProperties.^parity-never-matches-[0-9]+$",
-      ["properties", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
+      "$defs.elementsReceipt.properties.parityAbsentOptional",
+      ["$defs", "elementsReceipt", "properties", "parityAbsentOptional"],
+    ],
+    [
+      "$defs.sourceDigests.patternProperties.^parity-never-matches-[0-9]+$",
+      ["$defs", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
     ],
     ["$defs.parityUnusedProbe", ["$defs", "parityUnusedProbe"]],
   ];
@@ -1494,7 +1857,6 @@ describe("Stripe appearance acceptance receipts", () => {
   const unsupportedApplicators: [string, unknown][] = [
     ["allOf", [{}]],
     ["anyOf", [{}]],
-    ["oneOf", [{}]],
     ["not", {}],
     ["if", {}],
     ["then", {}],
@@ -1635,12 +1997,12 @@ describe("Stripe appearance acceptance receipts", () => {
       { label: "root boolean schema", schema: true },
       {
         label: "boolean in an absent optional property (properties.parityAbsentOptional)",
-        schema: mutateReceiptSchema(["properties", "parityAbsentOptional"], true),
+        schema: mutateReceiptSchema(["$defs", "elementsReceipt", "properties", "parityAbsentOptional"], true),
       },
       {
         label: "boolean in an unmatched patternProperties entry",
         schema: mutateReceiptSchema(
-          ["properties", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
+          ["$defs", "sourceDigests", "patternProperties", "^parity-never-matches-[0-9]+$"],
           true,
         ),
       },
@@ -1654,7 +2016,7 @@ describe("Stripe appearance acceptance receipts", () => {
       },
       {
         label: "boolean under properties.capturedAt",
-        schema: mutateReceiptSchema(["properties", "capturedAt"], true),
+        schema: mutateReceiptSchema(["$defs", "elementsReceipt", "properties", "capturedAt"], true),
       },
       {
         label: "boolean at $defs.moment.properties.observations.items",
@@ -1705,10 +2067,10 @@ describe("Stripe appearance acceptance receipts", () => {
           `candidate closure=${row.candidateClosure} validate=${row.candidateValidate}`,
       );
       if (mutation.baseline) {
-        // The identical extracted implementations accept the unmutated schema
-        // and sample, so the recorded acceptances below are the r3 gap, not a
-        // broken extraction.
-        expect(row.predecessorClosure, "predecessor baseline closure").toBe("accepted");
+        // The predecessor closure predates the now-supported oneOf surface
+        // contract, while its shallow validator ignores that applicator. The
+        // candidate accepts and enforces it at both layers.
+        expect(row.predecessorClosure, "predecessor baseline closure").toContain("unsupported schema keyword oneOf");
         expect(row.predecessorValidate, "predecessor baseline validate").toBe("accepted");
         expect(row.candidateClosure, "candidate baseline closure").toBe("accepted");
         expect(row.candidateValidate, "candidate baseline validate").toBe("accepted");
@@ -1759,10 +2121,47 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(checkoutMandatory.length).toBeGreaterThan(0);
     expect(checkoutMandatory.filter((entry) => rulesOnlyTokens.includes(entry.sourceToken))).toEqual([]);
     expect(deriveReceiptSourceDigestPaths(probeSpecSource)).toContain(probeSpecRelativePath);
+
+    const connectTitles = deriveTaggedTestTitles(connectProbeSpecSource, "@connect-appearance-uat");
+    const connectGroups = deriveConnectSourcePropertyGroups(connectProbeSpecSource);
+    console.log(
+      [
+        `Connect evidence command: ${deriveEvidenceCommand(connectProbeSpecSource)}`,
+        `Connect environment names: ${deriveRequiredEnvironmentVariableNames(connectProbeSpecSource).join(" ")}`,
+        `Connect tagged test titles (${connectTitles.length}): ${connectTitles.join(" | ")}`,
+        `Connect groups: ${connectGroups.map((group) => `${group.sourceToken}<-${group.variables.join(",")}`).join(" ")}`,
+        `Connect digest-bound sources: ${deriveReceiptSourceDigestPaths(connectProbeSpecSource).join(" ")}`,
+      ].join("\n"),
+    );
+    expect(connectTitles).toEqual([
+      "proves the deployed Connect embedded surface accepts the candidate appearance at the completed initialisation and after the mode-change re-initialisation @connect-appearance-uat",
+    ]);
+    expect(connectGroups.map((group) => group.sourceToken)).toEqual([
+      "--card",
+      "--foreground",
+      "--text-secondary",
+      "--surface-2",
+    ]);
+    expect(connectGroups.filter((group) => group.minimum).map((group) => group.sourceToken)).toEqual([
+      "--card",
+      "--foreground",
+    ]);
+    expect(deriveReceiptSourceDigestPaths(connectProbeSpecSource)).toContain(connectProbeSpecRelativePath);
+  });
+
+  it.each([
+    ["elements", probeSpecSource],
+    ["connect", connectProbeSpecSource],
+  ] as const)("binds committed %s source digests to exactly that surface's derived paths", (_surface, source) => {
+    expect(Object.keys(committedSourceDigests(source)).sort()).toEqual(
+      [...deriveReceiptSourceDigestPaths(source)].sort(),
+    );
   });
 
   it("accepts a well-formed receipt bound to the committed fixture", () => {
     expect(bindingViolations(validReceiptSample(), fixedProvenanceContext())).toEqual([]);
+    const connect = validConnectSampleBundle();
+    expect(bindingViolations(connect.receipt, fixedConnectProvenanceContext(connect))).toEqual([]);
   });
 
   it("accepts a head that predates commits leaving the digest-bound sources untouched", () => {
@@ -1885,7 +2284,11 @@ describe("Stripe appearance acceptance receipts", () => {
       const fabricatedHead = "f".repeat(40);
       expect(provenance.resolveCommit(fabricatedHead)).toBe(false);
 
-      const context: ProvenanceContext = { ...provenance, sourceDigests: committedSourceDigests() };
+      const context: ProvenanceContext = {
+        ...provenance,
+        sourceDigests: (surface) => committedSourceDigests(surfaceRegistry[surface].probeSpecSource),
+        readDiscoveryArtifact: () => null,
+      };
 
       const accepted = validReceiptSample();
       accepted.implementationHead = probedHead;
@@ -2142,6 +2545,133 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(violations.length, `no violation named for: ${_label}`).toBeGreaterThan(0);
   });
 
+  function connectMutationViolations(
+    mutateReceipt: (receipt: AcceptanceReceipt) => void = () => {},
+    mutateDiscovery: (artifact: ConnectDiscoveryArtifact) => void = () => {},
+    options: { missing?: boolean; preserveReceiptDigest?: boolean } = {},
+  ) {
+    const bundle = validConnectSampleBundle();
+    mutateReceipt(bundle.receipt);
+    mutateDiscovery(bundle.discovery);
+    const bytes = Buffer.from(`${JSON.stringify(bundle.discovery, null, 2)}\n`);
+    if (!options.preserveReceiptDigest && bundle.receipt.discoveryArtifact) {
+      bundle.receipt.discoveryArtifact.sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
+    const context = fixedProvenanceContext({
+      readDiscoveryArtifact: () => (options.missing ? null : { bytes, artifact: bundle.discovery }),
+    });
+    return bindingViolations(bundle.receipt, context);
+  }
+
+  it.each<
+    [
+      string,
+      (receipt: AcceptanceReceipt) => void,
+      (artifact: ConnectDiscoveryArtifact) => void,
+      { missing?: boolean; preserveReceiptDigest?: boolean },
+      RegExp,
+    ]
+  >([
+    ["missing discovery artifact", () => {}, () => {}, { missing: true }, /discovery artifact is missing/],
+    [
+      "stale discovery bytes",
+      (receipt) => {
+        receipt.discoveryArtifact!.sha256 = "c".repeat(64);
+      },
+      () => {},
+      { preserveReceiptDigest: true },
+      /sha256 does not match/,
+    ],
+    [
+      "nonce mismatch",
+      (receipt) => {
+        receipt.discoveryArtifact!.sessionNonce = "b".repeat(32);
+      },
+      () => {},
+      {},
+      /sessionNonce does not match/,
+    ],
+    [
+      "head mismatch",
+      () => {},
+      (artifact) => {
+        artifact.implementationHead = "2".repeat(40);
+      },
+      {},
+      /implementationHead does not match/,
+    ],
+    [
+      "component-mode mismatch",
+      () => {},
+      (artifact) => {
+        artifact.componentMode = "account-onboarding";
+      },
+      {},
+      /componentMode does not match/,
+    ],
+    [
+      "nested unknown discovery field",
+      () => {},
+      (artifact) => {
+        (artifact.groups["--card"]!.elements[0] as unknown as Record<string, unknown>).unknown = true;
+      },
+      {},
+      /unexpected additional property unknown/,
+    ],
+    [
+      "date-only discovery timestamp",
+      () => {},
+      (artifact) => {
+        artifact.capturedAt = "2026-08-10";
+      },
+      {},
+      /does not match/,
+    ],
+    [
+      "out-of-range discovery count",
+      () => {},
+      (artifact) => {
+        artifact.retentionScan.imageArtifacts = -1;
+      },
+      {},
+      /expected >= 0/,
+    ],
+    [
+      "observation source outside its discovery group",
+      (receipt) => {
+        receipt.moments[0].observations[0].sourceToken = "--ring";
+      },
+      () => {},
+      {},
+      /must read .* from --card/,
+    ],
+    [
+      "missing discovery-expanded observation",
+      (receipt) => {
+        receipt.moments[0].observations.splice(0, 1);
+      },
+      () => {},
+      {},
+      /missing the mandatory observation/,
+    ],
+  ])("refuses Connect mutation: %s", (label, mutateReceipt, mutateDiscovery, options, expected) => {
+    const violations = connectMutationViolations(mutateReceipt, mutateDiscovery, options);
+    console.log(`refused ${label}: ${violations.join("; ")}`);
+    expect(violations.join("; ")).toMatch(expected);
+  });
+
+  it("refuses both swapped-surface receipt forgeries by schema branch", () => {
+    const elements = validReceiptSample();
+    elements.surface = "connect";
+    const elementsViolations = bindingViolations(elements, fixedProvenanceContext());
+    expect(elementsViolations.join("; ")).toMatch(/oneOf branch/);
+
+    const connect = validConnectSampleBundle();
+    connect.receipt.surface = "elements";
+    const connectViolations = bindingViolations(connect.receipt, fixedConnectProvenanceContext(connect));
+    expect(connectViolations.join("; ")).toMatch(/oneOf branch/);
+  });
+
   it("validates every committed receipt, and reports when the probe artifact is still pending", () => {
     const context = repositoryProvenanceContext();
     const committed = readdirSync(fixturesDir).filter((name) => name.endsWith("-acceptance-receipt.json"));
@@ -2155,6 +2685,12 @@ describe("Stripe appearance acceptance receipts", () => {
       console.log(
         `${elementsReceipt} is not committed yet: it can only be produced by the configured Stripe test-mode probe session. ` +
           "The schema half of the receipt contract is green; the run half is an operator action.",
+      );
+    }
+    const connectReceipt = "stripe-connect-acceptance-receipt.json";
+    if (!committed.includes(connectReceipt)) {
+      console.log(
+        `${connectReceipt} is not committed yet: Phase B can only produce it after the Phase A merge commit is deployed and same-session discovery is captured.`,
       );
     }
     expect(committed.every((name) => name.endsWith("-acceptance-receipt.json"))).toBe(true);

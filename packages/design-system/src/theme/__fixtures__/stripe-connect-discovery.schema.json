@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chase-sets.com/schemas/stripe-connect-discovery/v1.json",
+  "title": "Stripe Connect appearance discovery artifact",
+  "description": "A same-session, provider-derived map from Chase Sets source custom properties to the Stripe Connect frame elements moved by isolated document-start sentinels. It contains no credential, session, provider-identity, or seller-identity value.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionNonce",
+    "implementationHead",
+    "deployRunId",
+    "host",
+    "capturedAt",
+    "componentMode",
+    "frameSelector",
+    "environmentVariableNames",
+    "fixtureSha256",
+    "sourceDigests",
+    "retentionScan",
+    "groups"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "stripe-connect-discovery/v1" },
+    "sessionNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "implementationHead": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "deployRunId": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+    "host": { "const": "https://marketplace.staging.chasesets.com" },
+    "capturedAt": { "$ref": "#/$defs/timestamp" },
+    "componentMode": { "$ref": "#/$defs/componentMode" },
+    "frameSelector": { "type": "string", "minLength": 1 },
+    "environmentVariableNames": { "$ref": "#/$defs/environmentVariableNames" },
+    "fixtureSha256": { "$ref": "#/$defs/sha256" },
+    "sourceDigests": { "$ref": "#/$defs/sourceDigests" },
+    "retentionScan": { "$ref": "#/$defs/retentionScan" },
+    "groups": { "$ref": "#/$defs/groups" }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "componentMode": {
+      "enum": ["account-onboarding", "account-management"]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "environmentVariableNames": {
+      "description": "Names only. Values are forbidden.",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+    },
+    "sourceDigests": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 3,
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$" },
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "retentionScan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textualArtifacts", "imageArtifacts", "redactionsApplied", "forbiddenMarkerHits"],
+      "properties": {
+        "textualArtifacts": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "imageArtifacts": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "redactionsApplied": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "forbiddenMarkerHits": { "const": 0 }
+      }
+    },
+    "groups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["--card", "--foreground"],
+      "properties": {
+        "--card": { "$ref": "#/$defs/cardGroup" },
+        "--foreground": { "$ref": "#/$defs/foregroundGroup" },
+        "--text-secondary": { "$ref": "#/$defs/textSecondaryGroup" },
+        "--surface-2": { "$ref": "#/$defs/surfaceGroup" }
+      }
+    },
+    "cardGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variables", "sentinelColor", "elements"],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["colorBackground"] }
+        },
+        "sentinelColor": { "$ref": "#/$defs/sentinelColor" },
+        "elements": { "$ref": "#/$defs/backgroundElements" }
+      }
+    },
+    "foregroundGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variables", "sentinelColor", "elements"],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["buttonSecondaryColorText", "colorText"] }
+        },
+        "sentinelColor": { "$ref": "#/$defs/sentinelColor" },
+        "elements": { "$ref": "#/$defs/colorElements" }
+      }
+    },
+    "textSecondaryGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variables", "sentinelColor", "elements"],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "actionSecondaryColorText",
+              "badgeNeutralColorText",
+              "colorSecondaryText",
+              "formPlaceholderTextColor",
+              "actionSecondaryTextDecorationColor"
+            ]
+          }
+        },
+        "sentinelColor": { "$ref": "#/$defs/sentinelColor" },
+        "elements": { "$ref": "#/$defs/colorElements" }
+      }
+    },
+    "surfaceGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variables", "sentinelColor", "elements"],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "badgeNeutralColorBackground",
+              "buttonSecondaryColorBackground",
+              "formBackgroundColor",
+              "offsetBackgroundColor"
+            ]
+          }
+        },
+        "sentinelColor": { "$ref": "#/$defs/sentinelColor" },
+        "elements": { "$ref": "#/$defs/backgroundElements" }
+      }
+    },
+    "sentinelColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$"
+    },
+    "backgroundElements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/backgroundElement" }
+    },
+    "colorElements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/colorElement" }
+    },
+    "backgroundElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectorPath", "cssProperty", "before", "after"],
+      "properties": {
+        "selectorPath": { "type": "string", "minLength": 1 },
+        "cssProperty": { "const": "background-color" },
+        "before": { "type": "string", "minLength": 1 },
+        "after": { "type": "string", "minLength": 1 }
+      }
+    },
+    "colorElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectorPath", "cssProperty", "before", "after"],
+      "properties": {
+        "selectorPath": { "type": "string", "minLength": 1 },
+        "cssProperty": { "const": "color" },
+        "before": { "type": "string", "minLength": 1 },
+        "after": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
