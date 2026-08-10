@@ -1002,7 +1002,7 @@ type ProvenanceContext = {
 
 function committedSourceDigests(source = probeSpecSource): Record<string, string> {
   return Object.fromEntries(
-    deriveReceiptSourceDigestPaths(probeSpecSource).map((relativePath) => [
+    deriveReceiptSourceDigestPaths(source).map((relativePath) => [
       relativePath,
       createHash("sha256")
         .update(readFileSync(join(repositoryRoot(), relativePath)))
@@ -2147,6 +2147,15 @@ describe("Stripe appearance acceptance receipts", () => {
       "--foreground",
     ]);
     expect(deriveReceiptSourceDigestPaths(connectProbeSpecSource)).toContain(connectProbeSpecRelativePath);
+  });
+
+  it.each([
+    ["elements", probeSpecSource],
+    ["connect", connectProbeSpecSource],
+  ] as const)("binds committed %s source digests to exactly that surface's derived paths", (_surface, source) => {
+    expect(Object.keys(committedSourceDigests(source)).sort()).toEqual(
+      [...deriveReceiptSourceDigestPaths(source)].sort(),
+    );
   });
 
   it("accepts a well-formed receipt bound to the committed fixture", () => {
