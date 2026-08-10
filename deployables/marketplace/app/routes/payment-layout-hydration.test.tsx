@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type StripePaymentElementMock = Readonly<{
   mount: (target: HTMLElement | string) => void;
   destroy: () => void;
+  on: (eventType: string, handler: (event: unknown) => void) => void;
 }>;
 
 // Deliberately not `Window & {Stripe?: ...}`: @stripe/stripe-js's ambient
@@ -141,6 +142,7 @@ describe("marketplace payment layout hydration", () => {
         element?.appendChild(document.createElement("iframe")).setAttribute("title", "Secure payment input frame");
       }),
       destroy: vi.fn(),
+      on: vi.fn(),
     };
     mockUseActionData.mockReturnValue(null);
     mockUseLoaderData.mockReturnValue({
