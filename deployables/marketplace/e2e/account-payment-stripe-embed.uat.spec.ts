@@ -91,22 +91,21 @@ const stripeAppearanceRejectionPattern =
   /IntegrationError|Invalid value for|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i;
 
 // The one provider console line the zero-rejection guard must not count: the
-// shipped email-bearing Checkout mount draws the session-owned-email refusal
-// as a `loaderror` event whenever the buyer's session already owns an email
-// (every repeat staging buyer), and the shipped confirmation card absorbs the
-// paired loadActions rejection and recovers the mount with a retry. That line
-// is provider account-state traffic, not an appearance verdict. The predicate
-// fails closed: it requires the loaderror channel prefix and the refusal
-// sentence, and any appearance vocabulary on the same line keeps the line a
-// rejection.
+// shipped email-bearing Checkout mount draws this normalized, truncated
+// session-owned-email refusal as a `loaderror` event whenever the buyer's
+// session already owns an email (every repeat staging buyer), and the shipped
+// confirmation card absorbs the paired loadActions rejection and recovers the
+// mount with a retry. Exact equality keeps every near-match and future wording
+// visible to the rejection guard.
+const knownSessionOwnedEmailLoadError =
+  "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}";
+
 function isSessionOwnedEmailLoadError(text: string): boolean {
-  return (
-    /payment Element loaderror/.test(text) &&
-    /You cannot update the email because a/.test(text) &&
-    !/Invalid value for|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i.test(
-      text,
-    )
-  );
+  return text.replace(/\s+/g, " ").trim() === knownSessionOwnedEmailLoadError;
+}
+
+function isVisibleStripeAppearanceRejection(text: string): boolean {
+  return stripeAppearanceRejectionPattern.test(text) && !isSessionOwnedEmailLoadError(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -1419,7 +1418,7 @@ test.describe("stripe embed confirmation UAT", () => {
           {
             message: "the Link opt-in checkbox never unchecked, so the confirm would demand a mobile phone number",
             intervals: [250, 500, 1_000],
-            timeout: 15_000,
+            timeout: embedReadyTimeoutMs,
           },
         )
         .toBe(false);
@@ -1556,9 +1555,7 @@ test.describe("stripe embed confirmation UAT", () => {
       }
     }
 
-    const rejections = consoleMessages.filter(
-      (message) => stripeAppearanceRejectionPattern.test(message.text) && !isSessionOwnedEmailLoadError(message.text),
-    );
+    const rejections = consoleMessages.filter((message) => isVisibleStripeAppearanceRejection(message.text));
     expect(
       rejections.map((message) => message.text),
       "Stripe rejected or could not parse an appearance value",
@@ -2202,32 +2199,29 @@ test.describe("stripe appearance probe mechanism, provider-free", () => {
   });
 
   test("excludes only the session-owned-email loaderror line from the zero-rejection guard", () => {
-    // The truncated console serialisation of the refusal event keeps the
-    // discriminating prefix, so the exclusion must bite on exactly that shape.
+    // The known truncated console serialisation is the only excluded line.
     const refusalLine =
-      "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}";
+      "  Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}  ";
     expect(stripeAppearanceRejectionPattern.test(refusalLine)).toBe(true);
     expect(isSessionOwnedEmailLoadError(refusalLine)).toBe(true);
+    expect(isVisibleStripeAppearanceRejection(refusalLine)).toBe(false);
 
-    // A genuine appearance rejection never matches the exclusion.
-    expect(isSessionOwnedEmailLoadError("IntegrationError: Invalid value for appearance.rules['.Input'].border")).toBe(
-      false,
-    );
+    // An unrelated IntegrationError containing the refusal phrase remains
+    // visible; phrase and channel proximity do not grant an exclusion.
+    const unrelatedNearMatch =
+      "Unhandled payment Element loaderror {error: IntegrationError: another integration repeated 'You cannot update the email because a `customer_email` or `customer` with an email is already set on the Checkout Session.'}";
+    expect(stripeAppearanceRejectionPattern.test(unrelatedNearMatch)).toBe(true);
+    expect(isSessionOwnedEmailLoadError(unrelatedNearMatch)).toBe(false);
+    expect(isVisibleStripeAppearanceRejection(unrelatedNearMatch)).toBe(true);
 
-    // Fail closed: a loaderror line that also carries appearance vocabulary
-    // stays a rejection, so the exclusion can never mask an appearance
-    // verdict that shares a console line with the refusal.
-    expect(
-      isSessionOwnedEmailLoadError(
-        "payment Element loaderror IntegrationError: You cannot update the email because a `customer_email` is set; Invalid value for appearance.variables.colorText",
-      ),
-    ).toBe(false);
-
-    // Either discriminating half alone is insufficient.
-    expect(isSessionOwnedEmailLoadError("payment Element loaderror {error: IntegrationError: something else}")).toBe(
-      false,
-    );
-    expect(isSessionOwnedEmailLoadError("You cannot update the email because a `customer_email` is set")).toBe(false);
+    // A future appearance-error wording containing the same phrase also stays
+    // visible even though the current vocabulary-specific patterns do not
+    // anticipate its suffix.
+    const futureAppearanceNearMatch =
+      "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an email is already set on the Checkout Session.; AppearanceError: candidate border rejected}";
+    expect(stripeAppearanceRejectionPattern.test(futureAppearanceNearMatch)).toBe(true);
+    expect(isSessionOwnedEmailLoadError(futureAppearanceNearMatch)).toBe(false);
+    expect(isVisibleStripeAppearanceRejection(futureAppearanceNearMatch)).toBe(true);
   });
 
   test("registers browser-delivered provider identifiers from both governed endpoint families", async ({ page }) => {
