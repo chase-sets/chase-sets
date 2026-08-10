@@ -693,13 +693,16 @@ const qualifyingHosts = {
   connect: ["https://marketplace.staging.chasesets.com", "https://admin.staging.chasesets.com"],
 } as const;
 
-// Committing the receipt moves the head the receipt would have to name, so the
-// only commit delta the validator tolerates between the probed head and the
-// validating head is the receipt artifact itself.
-const receiptArtifactPaths = [
-  "packages/design-system/src/theme/__fixtures__/stripe-elements-acceptance-receipt.json",
-  "packages/design-system/src/theme/__fixtures__/stripe-connect-acceptance-receipt.json",
-];
+// Committing the receipt moves the head the receipt would have to name, and
+// everything that lands after it -- this validator's own repair, the merge
+// commit, unrelated work on main -- moves HEAD further. The staleness rule is
+// therefore scoped to what the probe actually authorised: the digest-bound
+// source paths may not differ between the probed head and the validating
+// head. Together with the digest comparison against the committed bytes below,
+// that anchors the receipt's digests to the immutable probed commit -- a
+// receipt whose digests were re-minted alongside an edited source is refused
+// by the tree delta even though its digests match the current bytes -- while
+// commits that leave the governed bytes untouched keep the receipt valid.
 
 // Shape-level leak detection, mirroring the probe spec's own retention guard.
 // The spec compares retained bytes against the run's actual configured values;
@@ -865,9 +868,9 @@ function sameCssColor(left: string, right: string) {
 
 // ---------------------------------------------------------------------------
 // Provenance. The receipt cannot name the commit that contains it, so the head
-// it names must be a reachable commit whose only delta to the validating head
-// is the receipt artifact, and the bytes that determine what the provider was
-// sent are bound by digest independently of any commit at all.
+// it names must be a reachable commit after which no digest-bound source path
+// changed, and the bytes that determine what the provider was sent are bound
+// by digest independently of any commit at all.
 // ---------------------------------------------------------------------------
 
 type ProvenanceContext = {
@@ -1011,11 +1014,12 @@ function bindingViolations(receipt: AcceptanceReceipt, context: ProvenanceContex
     if (changed === null) {
       problems.push(`the delta between implementationHead ${receipt.implementationHead} and HEAD is unknowable`);
     } else {
-      const unauthorised = changed.filter((path) => !receiptArtifactPaths.includes(path));
-      if (unauthorised.length > 0) {
+      const governedPaths = deriveReceiptSourceDigestPaths(probeSpecSource);
+      const staleGoverned = changed.filter((path) => governedPaths.includes(path));
+      if (staleGoverned.length > 0) {
         problems.push(
-          `implementationHead ${receipt.implementationHead} is stale: ${unauthorised.join(", ")} changed since it, ` +
-            "and only the receipt artifact itself may differ",
+          `implementationHead ${receipt.implementationHead} is stale: ${staleGoverned.join(", ")} changed since it, ` +
+            "so the probe's acceptance no longer covers the committed bytes",
         );
       }
     }
@@ -1761,6 +1765,21 @@ describe("Stripe appearance acceptance receipts", () => {
     expect(bindingViolations(validReceiptSample(), fixedProvenanceContext())).toEqual([]);
   });
 
+  it("accepts a head that predates commits leaving the digest-bound sources untouched", () => {
+    // The live topology after any repair or landing: the receipt artifact and
+    // work that never touches the governed bytes sit between the probed head
+    // and HEAD. The digest comparison still binds the governed bytes, so this
+    // delta is not staleness.
+    const context = fixedProvenanceContext({
+      pathsChangedSince: () => [
+        "packages/design-system/src/theme/__fixtures__/stripe-elements-acceptance-receipt.json",
+        "packages/design-system/src/__tests__/ink-foil-candidate-fixture.test.ts",
+        "README.md",
+      ],
+    });
+    expect(bindingViolations(validReceiptSample(), context)).toEqual([]);
+  });
+
   it("accepts the conditional .Block border observation when the provider rendered one", () => {
     const receipt = validReceiptSample();
     for (const moment of receipt.moments) {
@@ -1797,14 +1816,15 @@ describe("Stripe appearance acceptance receipts", () => {
   });
 
   // The hosted checkout is depth 1, and the committed elements receipt names
-  // the commit immediately before the commit that added it -- the legitimate
-  // one-commit-later topology the provenance rule was designed around. This
-  // control rebuilds exactly that shape in a scratch origin and a genuinely
-  // shallow file:// clone (a plain-path clone silently ignores --depth), with
-  // the exact-sha upload-pack capability the hosted remote serves, so it
-  // discriminates in both directions regardless of the enclosing checkout's
-  // own history depth.
+  // the commit immediately before the commit that added it, with later
+  // non-governed work on top -- the legitimate topology the provenance rule
+  // governs. This control rebuilds exactly that shape in a scratch origin and
+  // a genuinely shallow file:// clone (a plain-path clone silently ignores
+  // --depth), with the exact-sha upload-pack capability the hosted remote
+  // serves, so it discriminates in both directions regardless of the
+  // enclosing checkout's own history depth.
   it("resolves a one-commit-later receipt head in a depth-1 checkout, and still refuses a fabricated head and a stale digest", () => {
+    const receiptArtifactPath = "packages/design-system/src/theme/__fixtures__/stripe-elements-acceptance-receipt.json";
     const workspace = mkdtempSync(join(tmpdir(), "ink-foil-shallow-"));
     try {
       const sourceRoot = join(workspace, "origin");
@@ -1825,12 +1845,18 @@ describe("Stripe appearance acceptance receipts", () => {
       writeFileSync(join(sourceRoot, "implementation.txt"), "implementation bytes\n");
       gitIn(sourceRoot, ["add", "."]);
       gitIn(sourceRoot, ["commit", "--quiet", "-m", "implementation head"]);
-      const oneCommitEarlierHead = gitIn(sourceRoot, ["rev-parse", "HEAD"]);
+      const probedHead = gitIn(sourceRoot, ["rev-parse", "HEAD"]);
 
-      mkdirSync(join(sourceRoot, dirname(receiptArtifactPaths[0]!)), { recursive: true });
-      writeFileSync(join(sourceRoot, receiptArtifactPaths[0]!), "{}\n");
+      mkdirSync(join(sourceRoot, dirname(receiptArtifactPath)), { recursive: true });
+      writeFileSync(join(sourceRoot, receiptArtifactPath), "{}\n");
       gitIn(sourceRoot, ["add", "."]);
       gitIn(sourceRoot, ["commit", "--quiet", "-m", "commit the receipt artifact"]);
+
+      // The live topology: work that never touches the governed bytes lands
+      // after the receipt too.
+      writeFileSync(join(sourceRoot, "validator-repair.txt"), "a later non-governed commit\n");
+      gitIn(sourceRoot, ["add", "."]);
+      gitIn(sourceRoot, ["commit", "--quiet", "-m", "later non-governed work"]);
 
       const sourceUrl = `file:///${sourceRoot.replace(/\\/g, "/").replace(/^\/+/, "")}`;
       gitIn(workspace, ["clone", "--quiet", "--depth=1", sourceUrl, cloneRoot]);
@@ -1838,7 +1864,7 @@ describe("Stripe appearance acceptance receipts", () => {
       // The discriminating precondition: without the bounded fetch, this clone
       // reproduces the hosted failure -- the head is locally unresolvable.
       expect(() =>
-        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${oneCommitEarlierHead}^{commit}`], {
+        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${probedHead}^{commit}`], {
           cwd: cloneRoot,
           stdio: "ignore",
         }),
@@ -1846,10 +1872,12 @@ describe("Stripe appearance acceptance receipts", () => {
 
       const provenance = gitProvenanceAt(cloneRoot);
       expect(
-        provenance.resolveCommit(oneCommitEarlierHead),
-        "the bounded exact-sha fetch must resolve the one-commit-earlier head in a depth-1 checkout",
+        provenance.resolveCommit(probedHead),
+        "the bounded exact-sha fetch must resolve the probed head in a depth-1 checkout",
       ).toBe(true);
-      expect(provenance.pathsChangedSince(oneCommitEarlierHead)).toEqual([receiptArtifactPaths[0]]);
+      expect(provenance.pathsChangedSince(probedHead)?.sort()).toEqual(
+        [receiptArtifactPath, "validator-repair.txt"].sort(),
+      );
 
       // A fabricated head neither resolves locally nor is served by the
       // remote: resolution fails closed and the receipt is refused, not
@@ -1860,7 +1888,7 @@ describe("Stripe appearance acceptance receipts", () => {
       const context: ProvenanceContext = { ...provenance, sourceDigests: committedSourceDigests() };
 
       const accepted = validReceiptSample();
-      accepted.implementationHead = oneCommitEarlierHead;
+      accepted.implementationHead = probedHead;
       expect(bindingViolations(accepted, context)).toEqual([]);
 
       const fabricated = validReceiptSample();
@@ -1873,7 +1901,7 @@ describe("Stripe appearance acceptance receipts", () => {
       // still refuse a receipt whose source digests disagree with the
       // committed bytes even when its head resolves.
       const stale = validReceiptSample();
-      stale.implementationHead = oneCommitEarlierHead;
+      stale.implementationHead = probedHead;
       stale.sourceDigests[probeSpecRelativePath] = "c".repeat(64);
       expect(bindingViolations(stale, context)).toEqual([
         `sourceDigests[${probeSpecRelativePath}] does not match the committed bytes -- the receipt is stale`,
@@ -1925,7 +1953,7 @@ describe("Stripe appearance acceptance receipts", () => {
     // F2: the twelve executed bypasses, plus the provenance rules that close them.
     ["a stale but valid-length implementation head", (r) => (r.implementationHead = "0".repeat(39) + "1"), {}],
     [
-      "a reachable head whose delta exceeds the receipt artifact",
+      "a reachable head after which a digest-bound source changed",
       () => {},
       { pathsChangedSince: () => ["packages/design-system/src/theme/stripe-appearance.ts"] },
     ],
