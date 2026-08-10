@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -887,8 +887,18 @@ function committedSourceDigests(): Record<string, string> {
   );
 }
 
-function repositoryProvenanceContext(): ProvenanceContext {
-  const root = repositoryRoot();
+// A committed receipt legitimately names the commit immediately before the
+// commit that added it, and a depth-limited checkout (hosted CI fetches depth
+// 1) does not carry that head. Resolution therefore gets one bounded network
+// assist -- the same exact-sha idiom the parity probe below uses: a fetch
+// pinned to the exact 40-character sha at depth 1, never a branch, a range,
+// or unbounded history. A full-history checkout resolves locally and never
+// touches the network; a shallow checkout fetches exactly one commit; offline,
+// without an origin remote, or against a fabricated head the fetch fails and
+// resolution stays false -- the receipt is refused, never skipped. The stale
+// check downstream needs only the two trees, which the exact-sha fetch
+// carries, so `git diff <sha> HEAD` works across the shallow boundary.
+function gitProvenanceAt(root: string): Pick<ProvenanceContext, "resolveCommit" | "pathsChangedSince"> {
   const git = (args: string[]): string | null => {
     try {
       return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -896,9 +906,15 @@ function repositoryProvenanceContext(): ProvenanceContext {
       return null;
     }
   };
+  const resolvesLocally = (sha: string) => git(["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]) !== null;
 
   return {
-    resolveCommit: (sha) => git(["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]) !== null,
+    resolveCommit: (sha) => {
+      if (!/^[0-9a-f]{40}$/.test(sha)) return false;
+      if (resolvesLocally(sha)) return true;
+      git(["fetch", "--quiet", "--depth=1", "origin", sha]);
+      return resolvesLocally(sha);
+    },
     pathsChangedSince: (sha) => {
       const output = git(["diff", "--name-only", sha, "HEAD"]);
       return output === null
@@ -908,8 +924,11 @@ function repositoryProvenanceContext(): ProvenanceContext {
             .map((line) => line.trim())
             .filter(Boolean);
     },
-    sourceDigests: committedSourceDigests(),
   };
+}
+
+function repositoryProvenanceContext(): ProvenanceContext {
+  return { ...gitProvenanceAt(repositoryRoot()), sourceDigests: committedSourceDigests() };
 }
 
 // The sample head is deterministic so the mutation battery exercises every
@@ -1773,7 +1792,95 @@ describe("Stripe appearance acceptance receipts", () => {
     const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot(), encoding: "utf8" }).trim();
     expect(context.resolveCommit(head), "HEAD must resolve; without git the receipt has no provenance").toBe(true);
     expect(context.resolveCommit("0".repeat(39) + "1")).toBe(false);
+    expect(context.resolveCommit("not-a-sha")).toBe(false);
     expect(context.pathsChangedSince(head)).toEqual([]);
+  });
+
+  // The hosted checkout is depth 1, and the committed elements receipt names
+  // the commit immediately before the commit that added it -- the legitimate
+  // one-commit-later topology the provenance rule was designed around. This
+  // control rebuilds exactly that shape in a scratch origin and a genuinely
+  // shallow file:// clone (a plain-path clone silently ignores --depth), with
+  // the exact-sha upload-pack capability the hosted remote serves, so it
+  // discriminates in both directions regardless of the enclosing checkout's
+  // own history depth.
+  it("resolves a one-commit-later receipt head in a depth-1 checkout, and still refuses a fabricated head and a stale digest", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "ink-foil-shallow-"));
+    try {
+      const sourceRoot = join(workspace, "origin");
+      const cloneRoot = join(workspace, "shallow");
+      const gitIn = (cwd: string, args: string[]) =>
+        execFileSync("git", ["-c", "user.name=shallow-control", "-c", "user.email=shallow-control@invalid", ...args], {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+
+      mkdirSync(sourceRoot);
+      gitIn(sourceRoot, ["init", "--quiet", "--initial-branch=main"]);
+      // The hosted remote serves exact-sha wants (verified against the real
+      // origin); the scratch origin mirrors that capability explicitly.
+      gitIn(sourceRoot, ["config", "uploadpack.allowReachableSHA1InWant", "true"]);
+      gitIn(sourceRoot, ["config", "commit.gpgsign", "false"]);
+      writeFileSync(join(sourceRoot, "implementation.txt"), "implementation bytes\n");
+      gitIn(sourceRoot, ["add", "."]);
+      gitIn(sourceRoot, ["commit", "--quiet", "-m", "implementation head"]);
+      const oneCommitEarlierHead = gitIn(sourceRoot, ["rev-parse", "HEAD"]);
+
+      mkdirSync(join(sourceRoot, dirname(receiptArtifactPaths[0]!)), { recursive: true });
+      writeFileSync(join(sourceRoot, receiptArtifactPaths[0]!), "{}\n");
+      gitIn(sourceRoot, ["add", "."]);
+      gitIn(sourceRoot, ["commit", "--quiet", "-m", "commit the receipt artifact"]);
+
+      const sourceUrl = `file:///${sourceRoot.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+      gitIn(workspace, ["clone", "--quiet", "--depth=1", sourceUrl, cloneRoot]);
+
+      // The discriminating precondition: without the bounded fetch, this clone
+      // reproduces the hosted failure -- the head is locally unresolvable.
+      expect(() =>
+        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${oneCommitEarlierHead}^{commit}`], {
+          cwd: cloneRoot,
+          stdio: "ignore",
+        }),
+      ).toThrow();
+
+      const provenance = gitProvenanceAt(cloneRoot);
+      expect(
+        provenance.resolveCommit(oneCommitEarlierHead),
+        "the bounded exact-sha fetch must resolve the one-commit-earlier head in a depth-1 checkout",
+      ).toBe(true);
+      expect(provenance.pathsChangedSince(oneCommitEarlierHead)).toEqual([receiptArtifactPaths[0]]);
+
+      // A fabricated head neither resolves locally nor is served by the
+      // remote: resolution fails closed and the receipt is refused, not
+      // skipped or deferred.
+      const fabricatedHead = "f".repeat(40);
+      expect(provenance.resolveCommit(fabricatedHead)).toBe(false);
+
+      const context: ProvenanceContext = { ...provenance, sourceDigests: committedSourceDigests() };
+
+      const accepted = validReceiptSample();
+      accepted.implementationHead = oneCommitEarlierHead;
+      expect(bindingViolations(accepted, context)).toEqual([]);
+
+      const fabricated = validReceiptSample();
+      fabricated.implementationHead = fabricatedHead;
+      expect(bindingViolations(fabricated, context)).toEqual([
+        `implementationHead ${fabricatedHead} does not resolve to a reachable commit`,
+      ]);
+
+      // The digest binding is commit-independent, so a shallow checkout must
+      // still refuse a receipt whose source digests disagree with the
+      // committed bytes even when its head resolves.
+      const stale = validReceiptSample();
+      stale.implementationHead = oneCommitEarlierHead;
+      stale.sourceDigests[probeSpecRelativePath] = "c".repeat(64);
+      expect(bindingViolations(stale, context)).toEqual([
+        `sourceDigests[${probeSpecRelativePath}] does not match the committed bytes -- the receipt is stale`,
+      ]);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   const borderObservable = () =>
