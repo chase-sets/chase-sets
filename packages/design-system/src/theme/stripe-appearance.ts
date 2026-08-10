@@ -230,7 +230,7 @@ export function createStripeConnectAppearance({ scope = null }: StripeAppearance
       formBackgroundColor: surface,
       formBorderRadius: pxToken("--radius", "0.5rem", scope),
       formHighlightColorBorder: token("--ring", "#2563eb", scope),
-      formPlaceholderTextColor: token("--text-muted", "#64748b", scope),
+      formPlaceholderTextColor: secondaryText,
       headingLgFontSize: pxToken("--font-size-xl", "1.25rem", scope),
       headingLgFontWeight: "700",
       headingLgTextTransform: "none",

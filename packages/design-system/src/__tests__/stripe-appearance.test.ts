@@ -104,7 +104,24 @@ describe("Stripe appearance helpers", () => {
     expect(appearance.variables.colorText).toBe("#f8fafc");
     expect(appearance.variables.colorBackground).toBe("#0f172a");
     expect(appearance.variables.formBackgroundColor).toBe("#0b1220");
+    expect(appearance.variables.formPlaceholderTextColor).toBe(appearance.variables.colorSecondaryText);
+    expect(appearance.variables.formPlaceholderTextColor).toBe("#cbd5e1");
+    expect(appearance.variables.formPlaceholderTextColor).not.toBe("#94a3b8");
     expect(appearance.variables.buttonLabelTextTransform).toBe("none");
+
+    root.remove();
+  });
+
+  it("binds the light Connect placeholder to secondary ink rather than the muted role", () => {
+    const root = themedScope("light");
+    const child = document.createElement("div");
+    root.appendChild(child);
+
+    const appearance = createStripeConnectAppearance({ scope: child });
+
+    expect(appearance.variables.formPlaceholderTextColor).toBe(appearance.variables.colorSecondaryText);
+    expect(appearance.variables.formPlaceholderTextColor).toBe("#334155");
+    expect(appearance.variables.formPlaceholderTextColor).not.toBe("#64748b");
 
     root.remove();
   });
