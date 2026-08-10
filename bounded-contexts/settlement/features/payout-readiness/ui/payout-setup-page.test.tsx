@@ -494,10 +494,7 @@ describe("payout setup page", () => {
     let refuse = true;
     const fetch = vi.fn(async () =>
       refuse
-        ? Response.json(
-            { error: { code: "step_up_required", message: "Confirm it is you." } },
-            { status: 400 },
-          )
+        ? Response.json({ error: { code: "step_up_required", message: "Confirm it is you." } }, { status: 400 })
         : Response.json({ clientSecret: "acs_manage_secret" }),
     );
     vi.stubGlobal("fetch", fetch);
@@ -513,9 +510,7 @@ describe("payout setup page", () => {
     // The session is now fresh (the seller re-authenticated); the surface's own
     // retry must re-run session creation rather than requiring a full reload.
     refuse = false;
-    const retry = [...container!.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Retry"),
-    );
+    const retry = [...container!.querySelectorAll("button")].find((button) => button.textContent?.includes("Retry"));
     expect(retry).toBeDefined();
     await act(async () => {
       retry!.click();

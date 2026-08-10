@@ -362,9 +362,7 @@ describe("payout readiness runtime", () => {
   });
 
   describe("embedded account management step-up", () => {
-    function createManagementServices(
-      options: Readonly<{ providerReference?: string | null }> = {},
-    ) {
+    function createManagementServices(options: Readonly<{ providerReference?: string | null }> = {}) {
       const operationEvents: Record<string, unknown>[] = [];
       const moneyMovementGateway = {
         providerName: "stripe",
@@ -435,10 +433,7 @@ describe("payout readiness runtime", () => {
       return captured as PayoutAccountManagementError;
     }
 
-    async function expectStepUpRefusal(
-      harness: ReturnType<typeof createManagementServices>,
-      call: Promise<unknown>,
-    ) {
+    async function expectStepUpRefusal(harness: ReturnType<typeof createManagementServices>, call: Promise<unknown>) {
       const error = await captureRefusal(call);
       expect(error.code).toBe("step_up_required");
       expect(harness.moneyMovementGateway.createPayoutAccountManagementSession).not.toHaveBeenCalled();
@@ -623,9 +618,7 @@ describe("payout readiness runtime", () => {
           safeCategory: "missing_provider_account",
         }),
       );
-      expect(operationEvents).not.toContainEqual(
-        expect.objectContaining({ safeCategory: "step_up_required" }),
-      );
+      expect(operationEvents).not.toContainEqual(expect.objectContaining({ safeCategory: "step_up_required" }));
     });
   });
 
