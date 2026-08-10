@@ -48,6 +48,15 @@ const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX_INTERVAL_MS = 30_000;
 const POLL_MAX_DURATION_MS = 5 * 60_000;
 
+// Stripe attaches no deadline of its own to `loadStripe()` or
+// `loadActions()`, so a provider-side stall leaves this surface busy forever.
+// The account-payment UAT holds the embed to a fixed 60-second readiness
+// ceiling (`deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts`);
+// terminate initialization at half of it — far longer than any healthy
+// Stripe.js load, and early enough that the safe error is on screen well
+// inside the ceiling instead of an indefinite skeleton.
+export const STRIPE_INITIALIZATION_DEADLINE_MS = 30_000;
+
 // Once a buyer's first captured payment attaches an email-bearing processor
 // customer to their account, every later Checkout Session already owns that
 // email and Stripe refuses a defaultValues email at load time with this exact
@@ -116,11 +125,18 @@ export function StripeConfirmationCard({
     }
 
     let cancelled = false;
+    let timedOut = false;
+    // This run is abandoned once cleanup tears it down or the bounded deadline
+    // below expires. Every continuation re-checks it after each await, so a
+    // provider promise that settles late can never mount, publish refs, flip
+    // ready, or replace the terminal message the deadline already rendered.
+    const isAbandoned = () => cancelled || timedOut;
     // Effect-owned record of whichever element this run currently has mounted,
     // assigned immediately at mount so every exit path — load-result errors,
-    // load rejections, cancellation, and effect cleanup — destroys it through
-    // this one idempotent routine. Ownership clears before destroy so a stale
-    // async continuation can never destroy a newer run's mount.
+    // load rejections, the bounded deadline, cancellation, and effect cleanup
+    // — destroys it through this one idempotent routine. Ownership clears
+    // before destroy so a stale async continuation can never destroy a newer
+    // run's mount, and no element is ever destroyed twice.
     let mountedElement: StripePaymentElement | null = null;
     const destroyMountedElement = () => {
       const element = mountedElement;
@@ -130,9 +146,32 @@ export function StripeConfirmationCard({
     setErrorMessage(null);
     setIsReady(false);
 
+    // One deadline over the whole chain rather than one per call: `loadStripe`
+    // below, the first `loadActions`, and the post-fallback `loadActions` can
+    // each stay pending forever, and every other exit path needs one of them
+    // to settle. Bounding the chain is what makes initialization total — it
+    // ends at ready or at this safe error no matter which leg hangs — and it
+    // keeps the worst case at one deadline instead of one per leg.
+    let deadlineTimeoutId: number | null = window.setTimeout(() => {
+      deadlineTimeoutId = null;
+      timedOut = true;
+      destroyMountedElement();
+      // Only the shipped recovery copy: whatever the provider eventually says
+      // about the stall never reaches the buyer.
+      setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
+    }, STRIPE_INITIALIZATION_DEADLINE_MS);
+    const clearInitializationDeadline = () => {
+      if (deadlineTimeoutId === null) {
+        return;
+      }
+
+      window.clearTimeout(deadlineTimeoutId);
+      deadlineTimeoutId = null;
+    };
+
     void loadStripe(payment.processor_publishable_key!)
       .then(async (stripe) => {
-        if (cancelled) {
+        if (isAbandoned()) {
           return;
         }
 
@@ -154,7 +193,7 @@ export function StripeConfirmationCard({
               defaultValues: buyerEmail ? { email: buyerEmail } : undefined,
             })
           : null;
-        if (cancelled) {
+        if (isAbandoned()) {
           return;
         }
 
@@ -195,7 +234,7 @@ export function StripeConfirmationCard({
             checkoutActionsResult = { type: "error", error: { message: error.message, code: null } };
           }
         }
-        if (cancelled) {
+        if (isAbandoned()) {
           destroyMountedElement();
           return;
         }
@@ -222,7 +261,7 @@ export function StripeConfirmationCard({
           paymentElement.mount(container);
           mountedElement = paymentElement;
           checkoutActionsResult = await checkout.loadActions();
-          if (cancelled) {
+          if (isAbandoned()) {
             destroyMountedElement();
             return;
           }
@@ -253,17 +292,21 @@ export function StripeConfirmationCard({
         // A loadActions rejection lands here with the element still mounted;
         // destroy whatever this run still owns before surfacing the error.
         destroyMountedElement();
-        if (!cancelled) {
+        if (!isAbandoned()) {
           setErrorMessage(
             error instanceof Error
               ? error.message
               : t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
           );
         }
-      });
+      })
+      // However the chain terminates, the deadline has already done its job;
+      // leaving it armed would tear down a surface that just became ready.
+      .finally(clearInitializationDeadline);
 
     return () => {
       cancelled = true;
+      clearInitializationDeadline();
       destroyMountedElement();
       checkoutRef.current = null;
       checkoutActionsRef.current = null;
@@ -415,6 +458,11 @@ export function StripeConfirmationCard({
     }
   }
 
+  // Initialization is over the moment the surface is ready or a terminal error
+  // renders. Tying the skeleton and `aria-busy` to "not ready" alone left a
+  // stalled provider advertising work still in progress with no way out.
+  const isInitializingProvider = !isReady && !errorMessage;
+
   const confirmButtonLabel =
     confirmPhase === "processing"
       ? t("payments.routes.marketplace.accountPayment.processing.payment")
@@ -458,10 +506,10 @@ export function StripeConfirmationCard({
           <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
           <EmbeddedProviderSurface
             minHeight="md"
-            aria-busy={!isReady || undefined}
+            aria-busy={isInitializingProvider || undefined}
             data-testid="payment-element-container"
           >
-            {!isReady ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
+            {isInitializingProvider ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
             <MountPoint ref={containerRef} purpose="provider" />
           </EmbeddedProviderSurface>
           {missingBuyerEmail || errorMessage ? (
