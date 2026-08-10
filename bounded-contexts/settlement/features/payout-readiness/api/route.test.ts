@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createPayoutReadinessRoutes } from "./route";
-import type { PayoutReadinessServices } from "./runtime";
+import { PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
 
 const originalFetch = globalThis.fetch;
 
@@ -14,7 +14,11 @@ const context = {
   },
 };
 
-function createApp(services: unknown, permissions: readonly string[] | null) {
+function createApp(
+  services: unknown,
+  permissions: readonly string[] | null,
+  actorOverrides: Readonly<{ authenticatedAt?: string | null }> = {},
+) {
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(
@@ -28,6 +32,7 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
             membershipId: "mem_test",
             roleKey: "seller",
             permissions,
+            ...actorOverrides,
           }
         : null,
     );
@@ -253,6 +258,73 @@ describe("settlement payout setup routes", () => {
       }),
       context,
     );
+  });
+
+  it("forwards the acting session's authentication moment and never a request-body token", async () => {
+    const createPayoutAccountManagementSession = vi.fn(async (_params: Record<string, unknown>) => ({
+      providerReference: "acct_test",
+      clientSecret: "provider_management_secret",
+      expiresAt: null,
+      components: ["payout-account-management"],
+    }));
+    const authenticatedAt = "2026-06-01T15:55:00.000Z";
+    const app = createApp({ createPayoutAccountManagementSession }, ["payouts.setup"], { authenticatedAt });
+
+    // Predecessor-shaped request: the retired contract's token is the only
+    // security input this body carries, and it must reach nothing.
+    const response = await app.request("/payout-setup/account-management-embedded-session", {
+      method: "POST",
+      body: JSON.stringify({ sensitiveActionToken: "fresh-step-up" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    const params = createPayoutAccountManagementSession.mock.calls[0]?.[0];
+    expect(params).toMatchObject({ accountId: "acc_seller", actorUserId: "usr_test", authenticatedAt });
+    expect(params).not.toHaveProperty("sensitiveActionToken");
+  });
+
+  it("returns machine-coded step_up_required when the runtime refuses on authentication freshness", async () => {
+    const createPayoutAccountManagementSession = vi.fn(async () => {
+      throw new PayoutAccountManagementError(
+        "step_up_required",
+        "Confirm it is you before managing payout account details.",
+      );
+    });
+    const app = createApp({ createPayoutAccountManagementSession }, ["payouts.setup"]);
+
+    const response = await app.request("/payout-setup/account-management-embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "step_up_required" } });
+  });
+
+  it("keeps a provider-authority failure distinct from step_up_required", async () => {
+    const createPayoutAccountManagementSession = vi.fn(async () => {
+      throw new PayoutAccountManagementError(
+        "missing_provider_account",
+        "Payout setup must be started before managing payout account details.",
+      );
+    });
+    const app = createApp({ createPayoutAccountManagementSession }, ["payouts.setup"]);
+
+    const response = await app.request("/payout-setup/account-management-embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Payout setup must be started before managing payout account details.",
+      },
+    });
   });
 
   it("allows payout viewers to create the read-only notification banner session", async () => {

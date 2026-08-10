@@ -126,14 +126,34 @@ export type PayoutDestinationFrictionPolicy = Readonly<{
   enabled: boolean;
   coolingPeriodMs: number;
   requireStepUpForAccountManagement: boolean;
+  /**
+   * The recent-authentication ("step-up") window, in minutes, the embedded
+   * payout account-management session requires of the acting session.
+   * Settlement owns the window because Settlement owns the action it gates;
+   * the fact measured against it is Auth's own session-authentication moment
+   * (`ResolvedActor.authenticatedAt`, read through
+   * `resolveRecentAuthenticationStatus`), never a Settlement-minted token.
+   * The default matches ADR 0020's ratified money-surface step-up window.
+   */
+  accountManagementRecentAuthMaxAgeMinutes: number;
 }>;
 
+/**
+ * Verifies an out-of-band sensitive-action token for a payout **request** made
+ * inside the payout-destination cooling window. This is the only surviving
+ * consumer: the embedded account-management session no longer accepts a token
+ * at all and instead evaluates Auth's recent-authentication fact (see
+ * `createPayoutAccountManagementSession` in `../../payout-readiness/api/runtime`),
+ * so no action carries two competing step-up contracts. With no verifier wired,
+ * the cooling window is an unconditional block -- the shipped behavior this
+ * friction was designed to produce.
+ */
 export type SensitiveActionVerifier = (
   input: Readonly<{
     accountId: AccountId;
     userId?: string | null;
     token: string;
-    purpose: "payout-request" | "payout-account-management";
+    purpose: "payout-request";
   }>,
 ) => Promise<boolean>;
 
@@ -443,6 +463,7 @@ const DEFAULT_PAYOUT_DESTINATION_FRICTION_POLICY: PayoutDestinationFrictionPolic
   enabled: true,
   coolingPeriodMs: 24 * 60 * 60 * 1000,
   requireStepUpForAccountManagement: true,
+  accountManagementRecentAuthMaxAgeMinutes: 15,
 };
 
 function payoutDestinationFrictionPolicy(

@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { resolveCurrentActorPrimaryEmail } from "./request-support/identity-current-actor";
 import type { SettlementApiEnv } from "../../../api";
-import type { PayoutReadinessServices } from "./runtime";
+import { PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function requirePayoutReadinessAccess(
@@ -55,16 +55,26 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payoutReadiness.api.route.request.failed");
 }
 
-function validationErrorCode(error: unknown) {
-  return errorMessage(error).includes("Confirm it is you before managing payout account details")
-    ? "step_up_required"
-    : "validation_failed";
-}
+/**
+ * Account-management refusals carry their own machine code, so the wire
+ * contract is read from the thrown error rather than re-derived by matching on
+ * a human-readable message (which drifts the moment the copy is localized).
+ * `step_up_required` keeps its documented 400 status: this endpoint is called
+ * by the embedded provider surface, and the openapi contract already declares
+ * 401 for "no session at all", which is a different remedy.
+ */
+function accountManagementErrorBody(error: unknown) {
+  if (error instanceof PayoutAccountManagementError && error.code === "step_up_required") {
+    return {
+      code: "step_up_required",
+      message: t("settlement.features.payoutReadiness.api.route.step.up.required"),
+    };
+  }
 
-function validationErrorMessage(error: unknown) {
-  return validationErrorCode(error) === "step_up_required"
-    ? t("settlement.features.payoutReadiness.api.route.step.up.required")
-    : errorMessage(error);
+  // Provider-authority failures (`missing_provider_account`) and every other
+  // failure keep the documented `validation_failed` code: re-authenticating
+  // cannot resolve them, so a client must not offer step-up for them.
+  return { code: "validation_failed", message: errorMessage(error) };
 }
 
 async function resolveActorContactEmail(request: Request) {
@@ -156,24 +166,22 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       );
     }
 
-    const body = await c.req.json().catch(() => ({}));
-
     try {
       const result = await services.createPayoutAccountManagementSession(
         {
           accountId: access.actor.accountId as AccountId,
           actorUserId: access.actor.userId,
-          sensitiveActionToken:
-            typeof (body as { sensitiveActionToken?: unknown }).sensitiveActionToken === "string"
-              ? (body as { sensitiveActionToken: string }).sensitiveActionToken
-              : null,
+          // Auth's own session-authentication moment. The request body carries
+          // no security input for this action -- a client-supplied token is
+          // exactly the dead contract this surface replaced.
+          authenticatedAt: access.actor.authenticatedAt ?? null,
         },
         context,
       );
 
       return c.json(result, 201);
     } catch (error) {
-      return c.json({ error: { code: validationErrorCode(error), message: validationErrorMessage(error) } }, 400);
+      return c.json({ error: accountManagementErrorBody(error) }, 400);
     }
   });
 

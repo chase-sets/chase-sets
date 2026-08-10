@@ -1,3 +1,4 @@
+import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -41,7 +42,7 @@ import {
   type SettlementPayoutReadinessRow,
 } from "../read-model/queries";
 import { buildPayoutSetupProgress, type PayoutSetupProgress } from "../domain/setup-progress";
-import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../payouts/api/runtime";
+import type { PayoutDestinationFrictionPolicy } from "../../payouts/api/runtime";
 
 type PayoutReadinessRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -51,8 +52,36 @@ type PayoutReadinessRuntimeDeps = Readonly<{
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
-  sensitiveActionVerifier?: SensitiveActionVerifier;
 }>;
+
+/**
+ * The machine-coded refusals `createPayoutAccountManagementSession` can return
+ * before it reaches the money-movement provider. They are deliberately
+ * separate outcomes:
+ *
+ * - `step_up_required` -- the acting session is authenticated but did not
+ *   authenticate recently enough for this money surface. The client's remedy
+ *   is re-authentication and a retry; the account is otherwise in good order.
+ * - `missing_provider_account` -- a provider-authority failure: Settlement has
+ *   no provider account to manage yet. Re-authenticating changes nothing, so a
+ *   client must never offer step-up for it.
+ *
+ * Callers read `PayoutAccountManagementError.code`; no caller may re-derive an
+ * outcome by matching on the human-readable message.
+ */
+export const PAYOUT_ACCOUNT_MANAGEMENT_ERROR_CODES = ["step_up_required", "missing_provider_account"] as const;
+
+export type PayoutAccountManagementErrorCode = (typeof PAYOUT_ACCOUNT_MANAGEMENT_ERROR_CODES)[number];
+
+export class PayoutAccountManagementError extends SettlementDomainError {
+  public readonly code: PayoutAccountManagementErrorCode;
+
+  public constructor(code: PayoutAccountManagementErrorCode, message: string) {
+    super(message);
+    this.name = "PayoutAccountManagementError";
+    this.code = code;
+  }
+}
 
 export type PayoutReadinessServices = Readonly<{
   commandHandler: CommandHandler<PayoutReadinessCommand, PayoutReadinessState, PayoutReadinessEvent>;
@@ -91,7 +120,12 @@ export type PayoutReadinessServices = Readonly<{
     params: Readonly<{
       accountId: AccountId;
       actorUserId?: string | null;
-      sensitiveActionToken?: string | null;
+      /**
+       * Auth's moment-of-authentication fact for the acting session
+       * (`ResolvedActor.authenticatedAt`). Absent or unparsable fails closed as
+       * `step_up_required` -- an unknown moment is never treated as recent.
+       */
+      authenticatedAt?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{
@@ -238,9 +272,9 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     enabled: true,
     coolingPeriodMs: 24 * 60 * 60 * 1000,
     requireStepUpForAccountManagement: true,
+    accountManagementRecentAuthMaxAgeMinutes: 15,
     ...deps.payoutDestinationFrictionPolicy,
   };
-  const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PayoutReadinessEvent>(),
@@ -319,19 +353,21 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     };
   }
 
-  async function verifySensitiveAction(
-    params: Readonly<{ accountId: AccountId; userId?: string | null; token?: string | null }>,
-  ) {
-    const token = params.token?.trim();
-    if (!token) {
-      return false;
-    }
-    return sensitiveActionVerifier({
-      accountId: params.accountId,
-      userId: params.userId ?? null,
-      token,
-      purpose: "payout-account-management",
-    });
+  /**
+   * The recent-authentication ("step-up") gate for the embedded payout
+   * account-management surface. It reads Auth's own session-authentication
+   * moment through the shared `resolveRecentAuthenticationStatus` contract --
+   * the same fact and helper the Wallet Adjustment surface uses -- against the
+   * Settlement-owned window in `frictionPolicy`. There is no Settlement-minted
+   * token and no verifier port: an actor kind Auth tracks no session-start
+   * moment for (agent bearer grant, guest) simply has no `authenticatedAt` and
+   * fails closed, which is the intended answer for a seller money surface.
+   */
+  function recentlyAuthenticated(authenticatedAt: string | null | undefined) {
+    return resolveRecentAuthenticationStatus(
+      { authenticatedAt: authenticatedAt ?? null },
+      { maxAgeMinutes: frictionPolicy.accountManagementRecentAuthMaxAgeMinutes },
+    ).recentlyAuthenticated;
   }
 
   function payoutDestinationChange(
@@ -700,21 +736,23 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     },
     async createPayoutAccountManagementSession(params, _context) {
       try {
-        if (frictionPolicy.enabled && frictionPolicy.requireStepUpForAccountManagement) {
-          const verified = await verifySensitiveAction({
+        // Evaluated before any read of provider state and before the gateway
+        // call: a stale session must never reach the provider.
+        if (
+          frictionPolicy.enabled &&
+          frictionPolicy.requireStepUpForAccountManagement &&
+          !recentlyAuthenticated(params.authenticatedAt)
+        ) {
+          await recordOperation({
+            kind: "payout-account-management-session-failed",
             accountId: params.accountId,
-            userId: params.actorUserId ?? null,
-            token: params.sensitiveActionToken ?? null,
+            setupSurface: "embedded-account-management",
+            safeCategory: "step_up_required",
           });
-          if (!verified) {
-            await recordOperation({
-              kind: "payout-account-management-session-failed",
-              accountId: params.accountId,
-              setupSurface: "embedded-account-management",
-              safeCategory: "step_up_required",
-            });
-            throw new SettlementDomainError("Confirm it is you before managing payout account details.");
-          }
+          throw new PayoutAccountManagementError(
+            "step_up_required",
+            "Confirm it is you before managing payout account details.",
+          );
         }
         const existing = await getPayoutReadiness(deps.db, params.accountId);
         if (!existing.provider_reference) {
@@ -724,7 +762,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
             setupSurface: "embedded-account-management",
             safeCategory: "missing_provider_account",
           });
-          throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
+          throw new PayoutAccountManagementError(
+            "missing_provider_account",
+            "Payout setup must be started before managing payout account details.",
+          );
         }
 
         const session = await deps.moneyMovementGateway.createPayoutAccountManagementSession({

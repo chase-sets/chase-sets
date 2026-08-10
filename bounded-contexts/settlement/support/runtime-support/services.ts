@@ -29,6 +29,13 @@ export type SettlementHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
   negativeBalancePolicy?: NegativeBalancePolicy;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
+  /**
+   * Payout **requests** only. Unwired, the payout-destination cooling window is
+   * an unconditional block -- the friction it exists to apply. The embedded
+   * account-management surface deliberately takes no verifier: it evaluates
+   * Auth's recent-authentication fact instead, so no action carries two
+   * competing step-up contracts.
+   */
   sensitiveActionVerifier?: SensitiveActionVerifier;
   webhookTelemetry?: ProviderWebhookTelemetry;
 }>;
@@ -105,7 +112,6 @@ export function createSettlementServices(
     operationsRecorder,
     notificationOutbox,
     payoutDestinationFrictionPolicy: ports.payoutDestinationFrictionPolicy,
-    sensitiveActionVerifier: ports.sensitiveActionVerifier,
   });
   const payouts = createPayoutRuntime({
     eventStore,

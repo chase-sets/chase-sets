@@ -457,6 +457,99 @@ describe("payout setup page", () => {
     expect(container!.innerHTML).not.toContain("client_secret");
   });
 
+  it("offers re-authentication with a safe same-origin return target when the API refuses on step-up", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json(
+        {
+          error: {
+            code: "step_up_required",
+            message: "Confirm it is you before managing payout account details.",
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="management" publishableKey="pk_test_123" />);
+    });
+
+    expect(container!.textContent).toContain("Confirm it is you");
+    expect(container!.textContent).toContain("Sign in again");
+    expect(container!.textContent).not.toContain("Contact support");
+
+    const reauthenticate = container!.querySelector<HTMLAnchorElement>('a[href^="/sign-in"]');
+    expect(reauthenticate).not.toBeNull();
+    // Same-origin by construction: the return target is this page's own route
+    // literal, never a value read from the location or query string.
+    expect(reauthenticate!.getAttribute("href")).toBe(
+      `/sign-in?returnTo=${encodeURIComponent("/account/desk/settings?mode=manage")}`,
+    );
+    expect(mockLoadConnectAndInitialize).not.toHaveBeenCalled();
+  });
+
+  it("retries session creation after fresh authentication and mounts the embedded component", async () => {
+    let refuse = true;
+    const fetch = vi.fn(async () =>
+      refuse
+        ? Response.json(
+            { error: { code: "step_up_required", message: "Confirm it is you." } },
+            { status: 400 },
+          )
+        : Response.json({ clientSecret: "acs_manage_secret" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const connectElement = document.createElement("stripe-connect-account-management");
+    mockLoadConnectAndInitialize.mockReturnValue({ create: vi.fn(() => connectElement) });
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="management" publishableKey="pk_test_123" />);
+    });
+    expect(container!.textContent).toContain("Sign in again");
+
+    // The session is now fresh (the seller re-authenticated); the surface's own
+    // retry must re-run session creation rather than requiring a full reload.
+    refuse = false;
+    const retry = [...container!.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Retry"),
+    );
+    expect(retry).toBeDefined();
+    await act(async () => {
+      retry!.click();
+    });
+
+    expect(container!.textContent).not.toContain("Sign in again");
+    expect(container!.querySelector("stripe-connect-account-management")).toBe(connectElement);
+  });
+
+  it("does not offer re-authentication for a provider-authority failure", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: "Payout setup must be started before managing payout account details.",
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="management" publishableKey="pk_test_123" />);
+    });
+
+    expect(container!.textContent).toContain("Setup could not load");
+    expect(container!.textContent).toContain("Payout setup must be started before managing payout account details.");
+    expect(container!.textContent).not.toContain("Sign in again");
+    expect(container!.querySelector('a[href^="/sign-in"]')).toBeNull();
+  });
+
   it("keeps embedded client secrets transient when fetching setup sessions", async () => {
     const fetch = vi.fn(async () =>
       Response.json({
