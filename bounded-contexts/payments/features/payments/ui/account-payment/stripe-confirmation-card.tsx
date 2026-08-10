@@ -168,37 +168,19 @@ export function StripeConfirmationCard({
           applePay: "auto",
           googlePay: "auto",
         };
-        // The session-owned-email refusal arrives on two provider channels at
-        // once: the loadActions rejection normalized below and a `loaderror`
-        // event on the mounted element. Without a listener the provider logs
-        // that event as an unhandled console error even though the retry
-        // below recovers the mount, so email-bearing Checkout mounts absorb
-        // exactly the byte-exact refusal event; every other load error keeps
-        // its console surface unchanged.
-        const observeCheckoutLoadErrors = (element: StripePaymentElement, sentDefaultEmail: boolean) => {
-          element.on("loaderror", ({ error }) => {
-            if (sentDefaultEmail && error.message === SESSION_OWNED_EMAIL_REFUSAL) {
-              return;
-            }
-            console.error("payment Element loaderror", error);
-          });
-        };
         let paymentElement = checkout
           ? checkout.createPaymentElement({ wallets })
           : elements!.create("payment", {
               wallets,
               defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
             });
-        if (checkout) {
-          observeCheckoutLoadErrors(paymentElement, Boolean(buyerEmail));
-        }
         paymentElement.mount(container);
         mountedElement = paymentElement;
 
         // The live provider delivers the session-owned-email refusal by
-        // REJECTING this promise (an IntegrationError alongside the
-        // `loaderror` event handled above), not by resolving the typed
-        // { type: "error" } result. Normalize exactly that rejection — byte-exact sentence, and
+        // REJECTING this promise (an IntegrationError alongside an unhandled
+        // `loaderror` event), not by resolving the typed { type: "error" }
+        // result. Normalize exactly that rejection — byte-exact sentence, and
         // only when this mount actually sent a defaultValues email — into the
         // result shape the single retry below pins against. Every other
         // rejection propagates unchanged into the fail-closed catch.
@@ -237,7 +219,6 @@ export function StripeConfirmationCard({
             },
           });
           paymentElement = checkout.createPaymentElement({ wallets });
-          observeCheckoutLoadErrors(paymentElement, false);
           paymentElement.mount(container);
           mountedElement = paymentElement;
           checkoutActionsResult = await checkout.loadActions();

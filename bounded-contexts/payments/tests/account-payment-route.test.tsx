@@ -672,7 +672,7 @@ describe("marketplace account payment route", () => {
 
   it("routes a Checkout Session client secret to the typed Checkout Elements SDK", async () => {
     const initCheckoutElementsSdk = vi.fn(() => ({
-      createPaymentElement: vi.fn(() => ({ mount: vi.fn(), destroy: vi.fn(), on: vi.fn() })),
+      createPaymentElement: vi.fn(() => ({ mount: vi.fn(), destroy: vi.fn() })),
       loadActions: vi.fn().mockResolvedValue({ type: "success", actions: { confirm: vi.fn() } }),
     }));
 
@@ -711,7 +711,6 @@ describe("marketplace account payment route", () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
-      on: vi.fn(),
     };
     const confirm = vi.fn().mockResolvedValue({});
     const createPaymentElement = vi.fn(() => paymentElement);
@@ -786,8 +785,8 @@ describe("marketplace account payment route", () => {
   });
 
   it("retries the Checkout mount once without the defaultValues email when the session already owns one and confirms without resending it", async () => {
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
     const confirm = vi.fn().mockResolvedValue({});
     const emailAlreadySetSdk = {
       createPaymentElement: vi.fn(() => firstElement),
@@ -849,8 +848,8 @@ describe("marketplace account payment route", () => {
     // On the live provider this refusal REJECTS the loadActions promise
     // instead of resolving the typed { type: "error" } result; the retry must
     // fire on that channel too.
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
     const confirm = vi.fn().mockResolvedValue({});
     const emailAlreadySetSdk = {
       createPaymentElement: vi.fn(() => firstElement),
@@ -908,77 +907,8 @@ describe("marketplace account payment route", () => {
     expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(2);
   });
 
-  it("absorbs the refusal loaderror event on the email-bearing mount and keeps every other loaderror on the console", async () => {
-    // The provider fires a `loaderror` event alongside the loadActions
-    // refusal rejection; without a listener it logs an unhandled-event
-    // console error even though the retry recovers the mount. Only the
-    // byte-exact refusal on the email-bearing mount may be absorbed — the
-    // retry mount sent no defaultValues email, so everything logs there.
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const confirm = vi.fn().mockResolvedValue({});
-    const emailAlreadySetSdk = {
-      createPaymentElement: vi.fn(() => firstElement),
-      loadActions: vi.fn().mockRejectedValue(new Error(sessionOwnedEmailRefusal.error.message)),
-    };
-    const sessionOwnedEmailSdk = {
-      createPaymentElement: vi.fn(() => secondElement),
-      loadActions: vi.fn().mockResolvedValue({ type: "success", actions: { confirm } }),
-    };
-    const initCheckoutElementsSdk = vi
-      .fn((_options: StripeCheckoutOptionsMock) => sessionOwnedEmailSdk)
-      .mockImplementationOnce(() => emailAlreadySetSdk);
-
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        processor_client_secret: "cs_live_123_secret_456",
-        processor_publishable_key: "pk_live_123",
-        processor_payment_kind: "checkout-session",
-      }),
-      orders: [buildPurchase()],
-      paymentElementDefaultValues,
-    });
-
-    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
-      initCheckoutElementsSdk,
-      elements: vi.fn(),
-      confirmPayment: vi.fn(),
-    }));
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    await findEnabledButton("Confirm payment");
-
-    type LoadErrorHandler = (event: { elementType: "payment"; error: { message?: string } }) => void;
-    const loadErrorHandlerOf = (element: { on: ReturnType<typeof vi.fn> }) =>
-      element.on.mock.calls.find((call) => call[0] === "loaderror")?.[1] as LoadErrorHandler | undefined;
-
-    const firstHandler = loadErrorHandlerOf(firstElement);
-    const secondHandler = loadErrorHandlerOf(secondElement);
-    expect(typeof firstHandler).toBe("function");
-    expect(typeof secondHandler).toBe("function");
-
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      firstHandler!({ elementType: "payment", error: { message: sessionOwnedEmailRefusal.error.message } });
-      expect(consoleError).not.toHaveBeenCalled();
-
-      firstHandler!({ elementType: "payment", error: { message: "The Checkout Session has expired." } });
-      expect(consoleError).toHaveBeenCalledTimes(1);
-
-      secondHandler!({ elementType: "payment", error: { message: sessionOwnedEmailRefusal.error.message } });
-      expect(consoleError).toHaveBeenCalledTimes(2);
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
   it("fails closed without retrying when a loadActions rejection carries an unrelated message", async () => {
-    const paymentElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
       createPaymentElement: vi.fn(() => paymentElement),
       loadActions: vi.fn().mockRejectedValue(new Error("The Checkout Session has expired.")),
@@ -1016,7 +946,7 @@ describe("marketplace account payment route", () => {
   });
 
   it("fails closed on a reworded session-owned-email near-match rejection without a second initialization", async () => {
-    const paymentElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
     const nearMatchRefusal =
       "You cannot update the email because billing details are already set on the Checkout Session.";
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
@@ -1056,7 +986,7 @@ describe("marketplace account payment route", () => {
   });
 
   it("surfaces an unrelated Checkout load failure without retrying the mount", async () => {
-    const paymentElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
       createPaymentElement: vi.fn(() => paymentElement),
       loadActions: vi.fn().mockResolvedValue({
@@ -1097,7 +1027,7 @@ describe("marketplace account payment route", () => {
   });
 
   it("fails closed on a reworded session-owned-email near-match without a second initialization", async () => {
-    const paymentElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
     // Same generic framing and tail as the observed refusal, different reason
     // clause: a provider reword must surface unchanged, never retry.
     const nearMatchRefusal =
@@ -1142,8 +1072,8 @@ describe("marketplace account payment route", () => {
   });
 
   it("stops after one retry and surfaces the error when the session-owned-email refusal persists", async () => {
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
     const initCheckoutElementsSdk = vi
       .fn((_options: StripeCheckoutOptionsMock) => ({
         createPaymentElement: vi.fn(() => secondElement),
@@ -1187,8 +1117,8 @@ describe("marketplace account payment route", () => {
   });
 
   it("destroys the fallback element when its loadActions rejects", async () => {
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
     const initCheckoutElementsSdk = vi
       .fn((_options: StripeCheckoutOptionsMock) => ({
         createPaymentElement: vi.fn(() => secondElement),
@@ -1233,8 +1163,8 @@ describe("marketplace account payment route", () => {
   });
 
   it("destroys a pending fallback element immediately on unmount-style cleanup", async () => {
-    const firstElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
-    const secondElement = { mount: vi.fn(), destroy: vi.fn(), on: vi.fn() };
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
     let resolveFallbackLoad: (result: unknown) => void = () => {};
     const pendingFallbackLoad = new Promise((resolve) => {
       resolveFallbackLoad = resolve;
@@ -1347,7 +1277,6 @@ describe("marketplace account payment route", () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
-      on: vi.fn(),
     };
     const changeAppearance = vi.fn();
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
