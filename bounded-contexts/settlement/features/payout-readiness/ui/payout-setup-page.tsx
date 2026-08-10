@@ -80,6 +80,39 @@ function setupSessionRequestBody(contactEmail?: string | null) {
   return normalizedContactEmail ? JSON.stringify({ contactEmail: normalizedContactEmail }) : "{}";
 }
 
+/** The API's machine code for "this session did not authenticate recently enough". */
+export const STEP_UP_REQUIRED_ERROR_CODE = "step_up_required";
+
+/**
+ * Carries the API's machine error code alongside its message so the surface can
+ * offer re-authentication for `step_up_required` and only for that -- never for
+ * a provider-authority failure, which re-authenticating cannot resolve.
+ */
+export class EmbeddedSessionError extends Error {
+  public readonly code: string | null;
+
+  public constructor(code: string | null, message: string) {
+    super(message);
+    this.name = "EmbeddedSessionError";
+    this.code = code;
+  }
+}
+
+export function isStepUpRequiredError(error: unknown): error is EmbeddedSessionError {
+  return error instanceof EmbeddedSessionError && error.code === STEP_UP_REQUIRED_ERROR_CODE;
+}
+
+/**
+ * The re-authentication target for this surface. The return path is one of the
+ * two literal routes this page already owns (`modeHref`), never a value read
+ * from the current location or the query string, so there is no attacker-
+ * controlled input to sanitize and the destination is same-origin by
+ * construction.
+ */
+export function reauthenticateHref(mode: PayoutSetupMode) {
+  return `/sign-in?returnTo=${encodeURIComponent(modeHref(mode))}`;
+}
+
 export async function fetchEmbeddedClientSecret(mode: PayoutSetupMode, contactEmail?: string | null) {
   const response = await fetch(embeddedEndpoint(mode), {
     method: "POST",
@@ -90,11 +123,12 @@ export async function fetchEmbeddedClientSecret(mode: PayoutSetupMode, contactEm
 
   const body = (await response.json().catch(() => ({}))) as {
     clientSecret?: unknown;
-    error?: { message?: string };
+    error?: { code?: unknown; message?: string };
   };
 
   if (!response.ok) {
-    throw new Error(
+    throw new EmbeddedSessionError(
+      typeof body.error?.code === "string" ? body.error.code : null,
       body.error?.message ?? t("settlement.features.payoutReadiness.ui.payoutSetupPage.session.could.not.be.created"),
     );
   }
@@ -207,7 +241,7 @@ export function StripeConnectEmbeddedComponent({
   const componentRef = useRef<StripeConnectElement | null>(null);
   const [appearanceScope, setAppearanceScope] = useState<HTMLDivElement | null>(null);
   const [appearanceVersion, setAppearanceVersion] = useState<string | null>(null);
-  const [status, setStatus] = useState<"loading" | "visible" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "visible" | "error" | "step-up">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -290,10 +324,22 @@ export function StripeConnectEmbeddedComponent({
     };
 
     mount().catch((error) => {
-      if (!cancelled) {
-        setStatus("error");
-        setErrorMessage(error instanceof Error ? error.message : String(error));
+      if (cancelled) {
+        return;
       }
+
+      // A stale session is a distinct outcome from a failed load: the remedy is
+      // re-authentication and a retry of session creation, not support. Every
+      // other failure -- including a provider-authority failure -- keeps the
+      // existing retry/support affordance.
+      if (isStepUpRequiredError(error)) {
+        setStatus("step-up");
+        setErrorMessage(error.message);
+        return;
+      }
+
+      setStatus("error");
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     });
 
     return () => {
@@ -310,6 +356,25 @@ export function StripeConnectEmbeddedComponent({
     <Stack gap={3}>
       {status === "loading" ? (
         <LoadingSpinner label={t("settlement.features.payoutReadiness.ui.payoutSetupPage.loading.secure.setup")} />
+      ) : null}
+      {status === "step-up" ? (
+        <Banner
+          tone="warning"
+          title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.confirm.it.is.you")}
+          description={
+            errorMessage ?? t("settlement.features.payoutReadiness.ui.payoutSetupPage.sign.in.again.to.manage.payouts")
+          }
+          actions={
+            <Inline>
+              <LinkButton href={reauthenticateHref(mode)}>
+                {t("settlement.features.payoutReadiness.ui.payoutSetupPage.sign.in.again")}
+              </LinkButton>
+              <Button type="button" tone="secondary" onClick={() => setRetryCount((value) => value + 1)}>
+                {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
+              </Button>
+            </Inline>
+          }
+        />
       ) : null}
       {status === "error" ? (
         <Banner

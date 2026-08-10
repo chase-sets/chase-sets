@@ -310,7 +310,25 @@ export type InteractiveAuthResult =
       memberships: readonly AuthSessionMembership[];
     }>;
 
-function toSessionRowFromState(state: SessionState, updatedAt: string): SessionRow | null {
+/**
+ * Rehydrates a `SessionRow` from the in-memory aggregate.
+ *
+ * `startedAt` is supplied by the caller rather than derived here because
+ * `SessionState` carries no timestamp: the only authority for a session's
+ * moment of authentication is the stored `auth.session.started` event. `null`
+ * means that authority was not established, and it is carried through as an
+ * ABSENT `started_at` so recent-authentication gates fail closed on it.
+ *
+ * Read time must never stand in for it. Doing so made every projection-miss
+ * read -- including one for a session started days earlier, whenever the
+ * projection lagged, was reset, or was rebuilt -- report a brand-new
+ * authentication moment, which silently satisfied money-surface step-up gates.
+ * `updated_at` may still be approximated: nothing gates on it.
+ */
+function toSessionRowFromState(
+  state: SessionState,
+  timestamps: Readonly<{ startedAt: string | null; updatedAt: string }>,
+): SessionRow | null {
   if (!state.id || !state.userId || !state.accountId || !state.authenticationMethod || !state.expiresAt) {
     return null;
   }
@@ -327,13 +345,8 @@ function toSessionRowFromState(state: SessionState, updatedAt: string): SessionR
     authentication_method: state.authenticationMethod,
     status: state.status,
     expires_at: state.expiresAt,
-    // The rehydrated in-memory aggregate does not itself carry a started-at
-    // fact (SessionState has no timestamp field). This fallback path only
-    // fires before the session projection has caught up, i.e. immediately
-    // after the session started, so "now" is an accurate approximation --
-    // consistent with `updated_at` already being synthesized the same way.
-    started_at: updatedAt,
-    updated_at: updatedAt,
+    ...(timestamps.startedAt === null ? {} : { started_at: timestamps.startedAt }),
+    updated_at: timestamps.updatedAt,
   };
 }
 
@@ -343,8 +356,20 @@ async function getSessionForAuth(services: AuthServices, sessionId: string): Pro
     return projectedSession;
   }
 
-  const sessionState = await services.sessions.getSessionState(sessionId);
-  return sessionState ? toSessionRowFromState(sessionState, new Date().toISOString()) : null;
+  // Projection miss. The aggregate is authoritative for session state, and
+  // Auth's own `readAuthenticatedSession` is authoritative for when the session
+  // was authenticated -- the exact `recordedAt` of its stored
+  // `auth.session.started` event, or `null` when that cannot be pinned. The
+  // projection's lag is never itself evidence that the session is new.
+  const authenticatedSession = await services.sessions.readAuthenticatedSession(sessionId);
+  if (!authenticatedSession) {
+    return null;
+  }
+
+  return toSessionRowFromState(authenticatedSession.state, {
+    startedAt: authenticatedSession.authenticatedAt,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 async function startSessionForUser(
@@ -396,10 +421,11 @@ async function startSessionForUser(
   });
 
   const storedEvents = result.storedEvents ?? [];
-  const session = toSessionRowFromState(
-    result.state,
-    storedEvents[storedEvents.length - 1]?.recordedAt ?? new Date().toISOString(),
-  );
+  // The append just wrote this session's `auth.session.started` event, so the
+  // last stored event's `recordedAt` IS the authoritative authentication
+  // moment on this path -- unchanged by the projection-miss repair above.
+  const recordedAt = storedEvents[storedEvents.length - 1]?.recordedAt ?? new Date().toISOString();
+  const session = toSessionRowFromState(result.state, { startedAt: recordedAt, updatedAt: recordedAt });
   if (!session) {
     throw new Error("Session state was not available after session start.");
   }

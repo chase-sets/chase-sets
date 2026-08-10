@@ -130,6 +130,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.account.agreement": "Account agreement",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.back.to.payouts": "Back to payouts",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.complete.payout.setup": "Complete payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.confirm.it.is.you": "Confirm it is you",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser":
     "Secure payout setup can only load in the browser.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.failed.to.load":
@@ -191,6 +192,9 @@ export const settlementEnglishTranslations = {
     "The setup session may have expired or the provider may be temporarily unavailable. Retry from Chase Sets; contact support if it still cannot load.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.status.checked": "Setup status checked",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.view": "Setup view",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.sign.in.again": "Sign in again",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.sign.in.again.to.manage.payouts":
+    "Sign in again to manage payout account details. This extra check protects where your money is sent.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.start.payout.setup": "Start payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.support.details": "Support details",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.verification.review": "Verification review",

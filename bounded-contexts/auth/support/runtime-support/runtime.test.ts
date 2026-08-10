@@ -28,6 +28,7 @@ function createServices(options: {
     sessions: {
       getSession: vi.fn(async () => options.session ?? null),
       getSessionState: vi.fn(async () => null),
+      readAuthenticatedSession: vi.fn(async () => null),
     },
   } as unknown as AuthServices;
 }
