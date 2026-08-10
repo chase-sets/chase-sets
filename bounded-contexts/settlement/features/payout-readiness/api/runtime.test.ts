@@ -321,7 +321,7 @@ describe("payout readiness runtime", () => {
 
     await expect(
       services.createPayoutAccountManagementSession(
-        { accountId: "acc_seller" as never, actorUserId: "usr_seller", authenticatedAt: freshAuthenticatedAt() },
+        { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
         context,
       ),
     ).resolves.toMatchObject({
@@ -331,7 +331,7 @@ describe("payout readiness runtime", () => {
     });
     await expect(
       services.createPayoutAccountManagementSession(
-        { accountId: "acc_seller" as never, actorUserId: "usr_seller", authenticatedAt: freshAuthenticatedAt() },
+        { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
         context,
       ),
     ).resolves.toMatchObject({
@@ -462,11 +462,7 @@ describe("payout readiness runtime", () => {
       await expectStepUpRefusal(
         harness,
         harness.services.createPayoutAccountManagementSession(
-          {
-            accountId: "acc_seller" as never,
-            actorUserId: "usr_seller",
-            authenticatedAt: freshAuthenticatedAt(16),
-          },
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt(16) },
           context,
         ),
       );
@@ -518,11 +514,7 @@ describe("payout readiness runtime", () => {
 
       await expect(
         services.createPayoutAccountManagementSession(
-          {
-            accountId: "acc_seller" as never,
-            actorUserId: "usr_seller",
-            authenticatedAt: freshAuthenticatedAt(),
-          },
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
           context,
         ),
       ).resolves.toMatchObject({

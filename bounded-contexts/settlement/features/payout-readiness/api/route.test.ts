@@ -280,8 +280,10 @@ describe("settlement payout setup routes", () => {
 
     expect(response.status).toBe(201);
     const params = createPayoutAccountManagementSession.mock.calls[0]?.[0];
-    expect(params).toMatchObject({ accountId: "acc_seller", actorUserId: "usr_test", authenticatedAt });
-    expect(params).not.toHaveProperty("sensitiveActionToken");
+    // Exact equality: the only inputs that reach the runtime are the account
+    // scope and Auth's own authentication moment -- no caller-supplied
+    // credential, and no acting-user field the gate does not read.
+    expect(params).toEqual({ accountId: "acc_seller", authenticatedAt });
   });
 
   it("returns machine-coded step_up_required when the runtime refuses on authentication freshness", async () => {

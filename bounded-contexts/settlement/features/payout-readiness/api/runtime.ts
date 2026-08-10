@@ -119,11 +119,12 @@ export type PayoutReadinessServices = Readonly<{
   createPayoutAccountManagementSession: (
     params: Readonly<{
       accountId: AccountId;
-      actorUserId?: string | null;
       /**
        * Auth's moment-of-authentication fact for the acting session
        * (`ResolvedActor.authenticatedAt`). Absent or unparsable fails closed as
        * `step_up_required` -- an unknown moment is never treated as recent.
+       * This is the whole security input: the acting user is already attributed
+       * through the audit context, and no caller-supplied credential is read.
        */
       authenticatedAt?: string | null;
     }>,

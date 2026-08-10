@@ -170,7 +170,6 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       const result = await services.createPayoutAccountManagementSession(
         {
           accountId: access.actor.accountId as AccountId,
-          actorUserId: access.actor.userId,
           // Auth's own session-authentication moment. The request body carries
           // no security input for this action -- a client-supplied token is
           // exactly the dead contract this surface replaced.
