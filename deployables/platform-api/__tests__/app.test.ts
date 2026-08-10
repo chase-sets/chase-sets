@@ -586,6 +586,7 @@ describe("platform api app wiring", () => {
           updated_at: new Date().toISOString(),
         })),
         getSessionState: vi.fn(async () => null),
+        readAuthenticatedSession: vi.fn(async () => null),
       },
     };
     const refreshAuthSession = vi.fn(async () => ({
