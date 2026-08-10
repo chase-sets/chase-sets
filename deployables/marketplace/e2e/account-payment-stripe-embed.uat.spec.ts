@@ -90,6 +90,25 @@ const evidenceCommand =
 const stripeAppearanceRejectionPattern =
   /IntegrationError|Invalid value for|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i;
 
+// The one provider console line the zero-rejection guard must not count: the
+// shipped email-bearing Checkout mount draws the session-owned-email refusal
+// as a `loaderror` event whenever the buyer's session already owns an email
+// (every repeat staging buyer), and the shipped confirmation card absorbs the
+// paired loadActions rejection and recovers the mount with a retry. That line
+// is provider account-state traffic, not an appearance verdict. The predicate
+// fails closed: it requires the loaderror channel prefix and the refusal
+// sentence, and any appearance vocabulary on the same line keeps the line a
+// rejection.
+function isSessionOwnedEmailLoadError(text: string): boolean {
+  return (
+    /payment Element loaderror/.test(text) &&
+    /You cannot update the email because a/.test(text) &&
+    !/Invalid value for|Unrecognized (?:appearance )?(?:variable|rule|property)|appearance\.(?:variables|rules)|Unsupported (?:CSS )?(?:value|property)/i.test(
+      text,
+    )
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Retention-governance surface (settled r2 F4).
 //
@@ -1505,7 +1524,9 @@ test.describe("stripe embed confirmation UAT", () => {
       }
     }
 
-    const rejections = consoleMessages.filter((message) => stripeAppearanceRejectionPattern.test(message.text));
+    const rejections = consoleMessages.filter(
+      (message) => stripeAppearanceRejectionPattern.test(message.text) && !isSessionOwnedEmailLoadError(message.text),
+    );
     expect(
       rejections.map((message) => message.text),
       "Stripe rejected or could not parse an appearance value",
@@ -2146,6 +2167,35 @@ test.describe("stripe appearance probe mechanism, provider-free", () => {
         `redaction must preserve the Stripe warning evidence (${planted.label})`,
       ).toBe(true);
     }
+  });
+
+  test("excludes only the session-owned-email loaderror line from the zero-rejection guard", () => {
+    // The truncated console serialisation of the refusal event keeps the
+    // discriminating prefix, so the exclusion must bite on exactly that shape.
+    const refusalLine =
+      "Unhandled payment Element loaderror {error: IntegrationError: You cannot update the email because a `customer_email` or `customer` with an emai…}";
+    expect(stripeAppearanceRejectionPattern.test(refusalLine)).toBe(true);
+    expect(isSessionOwnedEmailLoadError(refusalLine)).toBe(true);
+
+    // A genuine appearance rejection never matches the exclusion.
+    expect(isSessionOwnedEmailLoadError("IntegrationError: Invalid value for appearance.rules['.Input'].border")).toBe(
+      false,
+    );
+
+    // Fail closed: a loaderror line that also carries appearance vocabulary
+    // stays a rejection, so the exclusion can never mask an appearance
+    // verdict that shares a console line with the refusal.
+    expect(
+      isSessionOwnedEmailLoadError(
+        "payment Element loaderror IntegrationError: You cannot update the email because a `customer_email` is set; Invalid value for appearance.variables.colorText",
+      ),
+    ).toBe(false);
+
+    // Either discriminating half alone is insufficient.
+    expect(isSessionOwnedEmailLoadError("payment Element loaderror {error: IntegrationError: something else}")).toBe(
+      false,
+    );
+    expect(isSessionOwnedEmailLoadError("You cannot update the email because a `customer_email` is set")).toBe(false);
   });
 
   test("registers browser-delivered provider identifiers from both governed endpoint families", async ({ page }) => {
