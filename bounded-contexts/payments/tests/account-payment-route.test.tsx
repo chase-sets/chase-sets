@@ -175,6 +175,12 @@ vi.mock("@stripe/stripe-js", () => ({
 }));
 
 import MarketplaceAccountPaymentRoute from "../routes/marketplace/account-payment";
+import { STRIPE_INITIALIZATION_DEADLINE_MS } from "../features/payments/ui/account-payment/stripe-confirmation-card";
+
+// The unchanged readiness ceiling the account-payment UAT holds this surface
+// to (`deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts`).
+// Nothing here may raise it; the bounded deadline must land strictly inside.
+const embedReadyCeilingMs = 60_000;
 
 function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail {
   return {
@@ -249,6 +255,42 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     seller_payout_amount: "9.50",
     ...overrides,
   };
+}
+
+// A provider call that stays pending forever — the r34 staging lifecycle this
+// surface must bound. Never awaited without advancing the fake clock.
+function neverSettles(): Promise<never> {
+  return new Promise<never>(() => {});
+}
+
+function mockPendingCheckoutSessionPayment() {
+  mockUseLoaderData.mockReturnValue({
+    payment: buildPayment({
+      processor_client_secret: "cs_live_123_secret_456",
+      processor_publishable_key: "pk_live_123",
+      processor_payment_kind: "checkout-session",
+    }),
+    orders: [buildPurchase()],
+    paymentElementDefaultValues,
+  });
+}
+
+// Keeps the confirmation poller hermetic while the fake clock runs out the
+// initialization deadline; poll failures are already covered elsewhere.
+function stubOfflinePaymentPolling() {
+  return vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("payments api unavailable in this control"));
+}
+
+// The one observable end state every bounded-deadline leg must reach: no
+// skeleton, no busy state, the shipped safe copy, and no confirmable surface.
+function expectBoundedTerminalState() {
+  const alert = screen.getByRole("alert");
+  expect(alert.textContent).toContain("Payment issue");
+  expect(alert.textContent).toContain("Stripe could not load.");
+  expect(screen.queryByTestId("payment-element-skeleton")).toBeNull();
+  expect(screen.getByTestId("payment-element-container").getAttribute("aria-busy")).toBeNull();
+  const buttons = screen.getAllByRole("button", { name: "Confirm payment" });
+  expect(buttons.every((candidate) => candidate.hasAttribute("disabled"))).toBe(true);
 }
 
 async function findEnabledButton(name: string) {
@@ -1217,6 +1259,334 @@ describe("marketplace account payment route", () => {
       resolveFallbackLoad({ type: "success", actions: { confirm: vi.fn() } });
     });
     expect(secondElement.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("terminates safely when the provider initialization never settles", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn(() => neverSettles()),
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    // Up to the last millisecond before the deadline the surface is still
+    // legitimately loading: skeleton up, busy set, nothing torn down.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS - 1);
+    });
+    expect(paymentElement.mount).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("payment-element-skeleton")).toBeTruthy();
+    expect(screen.getByTestId("payment-element-container").getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expectBoundedTerminalState();
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+    // Terminating is not retrying: the provider is asked exactly once.
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+    // The bound only helps if the buyer sees it inside the fixed UAT ceiling.
+    expect(STRIPE_INITIALIZATION_DEADLINE_MS).toBeLessThan(embedReadyCeilingMs);
+  });
+
+  it("terminates safely when loadStripe never settles", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    // The module mock routes loadStripe through window.Stripe and adopts
+    // whatever it returns, so a pending thenable here is a Stripe.js load that
+    // never completes — the earliest awaited leg of the chain.
+    const stripeFactory = vi.fn(() => neverSettles());
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = stripeFactory;
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+
+    expectBoundedTerminalState();
+    expect(stripeFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it("terminates safely when the first loadActions call never settles", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const loadActions = vi.fn(() => neverSettles());
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions,
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+
+    // The hang is on the first load, after the element is already mounted.
+    expect(loadActions).toHaveBeenCalledTimes(1);
+    expect(paymentElement.mount).toHaveBeenCalledTimes(1);
+    expectBoundedTerminalState();
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+  });
+
+  it("terminates safely when the post-fallback loadActions call never settles", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const firstElement = { mount: vi.fn(), destroy: vi.fn() };
+    const secondElement = { mount: vi.fn(), destroy: vi.fn() };
+    const initCheckoutElementsSdk = vi
+      .fn((_options: StripeCheckoutOptionsMock) => ({
+        createPaymentElement: vi.fn(() => secondElement),
+        loadActions: vi.fn(() => neverSettles()),
+      }))
+      .mockImplementationOnce(() => ({
+        createPaymentElement: vi.fn(() => firstElement),
+        loadActions: vi.fn().mockResolvedValue(sessionOwnedEmailRefusal),
+      }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+
+    // The session-owned-email fallback still fires exactly once; the deadline
+    // then bounds the reload it left pending.
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(2);
+    expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.defaultValues).toBeUndefined();
+    expect(secondElement.mount).toHaveBeenCalledTimes(1);
+    expectBoundedTerminalState();
+    expect(firstElement.destroy).toHaveBeenCalledTimes(1);
+    expect(secondElement.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a late provider resolution after the bounded deadline", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const confirm = vi.fn().mockResolvedValue({});
+    let resolveLoadActions: (result: unknown) => void = () => {};
+    const pendingLoadActions = new Promise((resolve) => {
+      resolveLoadActions = resolve;
+    });
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn(() => pendingLoadActions),
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+    expectBoundedTerminalState();
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+
+    // The provider finally answers — successfully — long after the run was
+    // abandoned. A terminated mount stays dead.
+    await act(async () => {
+      resolveLoadActions({ type: "success", actions: { confirm } });
+    });
+
+    expectBoundedTerminalState();
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+    expect(paymentElement.mount).toHaveBeenCalledTimes(1);
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+
+    for (const button of screen.getAllByRole("button", { name: "Confirm payment" })) {
+      fireEvent.click(button);
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("leaves a ready Checkout surface untouched once the deadline would have fired", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const confirm = vi.fn().mockResolvedValue({});
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn().mockResolvedValue({ type: "success", actions: { confirm } }),
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByTestId("payment-element-skeleton")).toBeNull();
+
+    // A deadline left armed past a successful load would tear down a surface
+    // the buyer is already typing into.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS * 2);
+    });
+
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByTestId("payment-element-container").getAttribute("aria-busy")).toBeNull();
+    const buttons = screen.getAllByRole("button", { name: "Confirm payment" });
+    expect(buttons.some((candidate) => !candidate.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("clears the initialization deadline when the card unmounts while the provider is pending", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn(() => neverSettles()),
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    const { unmount } = render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(paymentElement.mount).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    unmount();
+
+    // No timer outlives the card: the deadline is cleared alongside the poller.
+    expect(vi.getTimerCount()).toBe(0);
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+    expect(paymentElement.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("never renders provider exception text or secrets when the bounded deadline fires", async () => {
+    vi.useFakeTimers();
+    stubOfflinePaymentPolling();
+    // A stalled provider that eventually fails with a message carrying exactly
+    // what must never reach a buyer's screen.
+    const secretBearingMarker = "leak-marker-7f3a";
+    const secretBearingFailure = new Error(
+      `Stripe could not initialize cs_live_123_secret_456 with sk_test_${secretBearingMarker} (${secretBearingMarker})`,
+    );
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    let rejectLoadActions: (reason: unknown) => void = () => {};
+    const pendingLoadActions = new Promise((_resolve, reject) => {
+      rejectLoadActions = reject;
+    });
+    pendingLoadActions.catch(() => {});
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn(() => pendingLoadActions),
+    }));
+
+    mockPendingCheckoutSessionPayment();
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STRIPE_INITIALIZATION_DEADLINE_MS);
+    });
+
+    await act(async () => {
+      rejectLoadActions(secretBearingFailure);
+    });
+
+    expectBoundedTerminalState();
+    // The terminal banner carries the shipped copy and nothing else; the late
+    // provider message never replaces it.
+    expect(screen.getByRole("alert").textContent).not.toContain(secretBearingMarker);
+    expect(document.body.innerHTML).not.toContain(secretBearingMarker);
+    expect(document.body.innerHTML).not.toContain("sk_test_");
+    expect(document.body.innerHTML).not.toContain("_secret_");
   });
 
   it("updates the Payment Element appearance in place when the scoped theme changes", async () => {
