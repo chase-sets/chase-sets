@@ -574,53 +574,97 @@ function normalizeField(value) {
   return !trimmed || trimmed.toLowerCase() === NO_RESPONSE ? "" : trimmed;
 }
 
-export function parseIssueFormBody(body) {
-  if (typeof body !== "string") {
-    return { status: "malformed", fields: {}, reasonCodes: ["FORM_BODY_INVALID"] };
-  }
+export function scanIssueFormStructure(text) {
   const known = new Set(REQUIRED_FIELDS);
-  const fields = {};
+  const acceptedLabels = new Set();
+  const lines = [];
+  const headings = [];
   const reasonCodes = [];
-  let current = null;
   let fence = null;
-  for (const line of body.split(/\r?\n/)) {
+  let codeUnitOffset = 0;
+  let byteOffset = 0;
+  const sourceLines = text.split(/\r?\n/);
+
+  for (const [index, line] of sourceLines.entries()) {
+    const startOffset = byteOffset;
+    const endOffset = startOffset + Buffer.byteLength(line, "utf8");
+    const separatorOffset = codeUnitOffset + line.length;
+    const separatorLength = text.startsWith("\r\n", separatorOffset) ? 2 : text[separatorOffset] === "\n" ? 1 : 0;
+    codeUnitOffset = separatorOffset + separatorLength;
+    byteOffset = endOffset + separatorLength;
+
+    let enteringFence = null;
+    let leavingFence = null;
     const fenceMatch = line.match(/^\s*(```+|~~~+)/);
     if (fenceMatch) {
       const token = fenceMatch[1];
       if (fence === null) {
         fence = { marker: token[0], length: token.length };
+        enteringFence = { ...fence };
       } else if (fence.marker === token[0] && token.length >= fence.length) {
+        leavingFence = { ...fence };
         fence = null;
       }
-      if (current) fields[current].push(line);
-      continue;
-    }
-    if (!fence) {
+    } else if (fence === null) {
       const heading = line.match(/^#{2,3}\s+(.+?)\s*$/);
       if (heading) {
         const label = heading[1];
-        current = null;
-        if (known.has(label)) {
-          if (Object.hasOwn(fields, label)) {
+        const accepted = known.has(label);
+        headings.push({ label, lineIndex: index, startOffset, endOffset, accepted });
+        if (accepted) {
+          if (acceptedLabels.has(label)) {
             reasonCodes.push(`FORM_FIELD_DUPLICATE:${label}`);
           } else {
-            fields[label] = [];
-            current = label;
+            acceptedLabels.add(label);
           }
         }
-        continue;
       }
     }
-    if (current) fields[current].push(line);
+
+    lines.push({ index, startOffset, endOffset, enteringFence, leavingFence });
   }
+
   if (fence !== null) reasonCodes.push("FORM_FENCE_UNCLOSED");
+  return {
+    lines,
+    headings,
+    terminalFence: fence === null ? null : { ...fence },
+    reasonCodes,
+  };
+}
+
+export function parseIssueFormBody(body) {
+  if (typeof body !== "string") {
+    return { status: "malformed", fields: {}, reasonCodes: ["FORM_BODY_INVALID"] };
+  }
+  const structure = scanIssueFormStructure(body);
+  const sourceLines = body.split(/\r?\n/);
+  const headingByLine = new Map(structure.headings.map((heading) => [heading.lineIndex, heading]));
+  const acceptedLabels = new Set();
+  const fields = {};
+  let current = null;
+
+  for (const line of structure.lines) {
+    const heading = headingByLine.get(line.index);
+    if (heading) {
+      current = null;
+      if (heading.accepted && !acceptedLabels.has(heading.label)) {
+        acceptedLabels.add(heading.label);
+        fields[heading.label] = [];
+        current = heading.label;
+      }
+    } else if (current) {
+      fields[current].push(sourceLines[line.index]);
+    }
+  }
+
   const normalized = Object.fromEntries(
     REQUIRED_FIELDS.map((field) => [field, normalizeField(fields[field]?.join("\n") ?? "")]),
   );
   return {
-    status: reasonCodes.length > 0 ? "malformed" : "ok",
+    status: structure.reasonCodes.length > 0 ? "malformed" : "ok",
     fields: normalized,
-    reasonCodes,
+    reasonCodes: structure.reasonCodes,
   };
 }
 
