@@ -556,9 +556,9 @@ describe("ordering order domain", () => {
 
   it("reservation rejection cannot reach a post-reservation status", () => {
     // The emitter's only event-reachable pre-cancellation status.
-    expect(cancelledEventFrom(rejectReservation(pendingReservationState(), "rsv_1")).data.statusBeforeCancellation).toBe(
-      "pending-reservation",
-    );
+    expect(
+      cancelledEventFrom(rejectReservation(pendingReservationState(), "rsv_1")).data.statusBeforeCancellation,
+    ).toBe("pending-reservation");
 
     // Past `pending-reservation` no request is still pending, so the command cannot emit a
     // cancellation there: a matched request throws, an unmatched id is inert.
