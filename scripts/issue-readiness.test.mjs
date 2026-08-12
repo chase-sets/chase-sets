@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
@@ -15,6 +16,7 @@ import {
   evaluateProspectiveIssueReadiness,
   main,
   parseIssueFormBody,
+  scanIssueFormStructure,
   validateIssueReadinessReceipt,
 } from "./issue-readiness.mjs";
 
@@ -232,6 +234,79 @@ function withInjectedBytes(entries, targetPath, injectedText) {
       ? { ...entry, bytes: Buffer.concat([entry.bytes, Buffer.from(`\n${injectedText}\n`)]) }
       : entry,
   );
+}
+
+function fencePayloads(record) {
+  return [...record.lines.flatMap((line) => [line.enteringFence, line.leavingFence]), record.terminalFence].filter(
+    Boolean,
+  );
+}
+
+function scannerInvariantResult(scanner) {
+  const payloadsDistinct = GOLDEN_CORPUS.every(({ body }) => {
+    const payloads = fencePayloads(scanner(body));
+    return new Set(payloads).size === payloads.length;
+  });
+
+  const terminalBody = REQUIRED_STRUCTURAL_WITNESSES.find(({ name }) => name === "unclosed fence").body;
+  const terminalRecord = scanner(terminalBody);
+  const terminalOpener = terminalRecord.lines.find((line) => line.enteringFence !== null).enteringFence;
+  terminalOpener.length = 99;
+  terminalOpener.mutated = true;
+  const terminalIsolated =
+    JSON.stringify(terminalRecord.terminalFence) === JSON.stringify({ marker: "`", length: 3 }) &&
+    Object.keys(terminalRecord.terminalFence).join(",") === "marker,length";
+
+  const freshBody = "```text\ninside\n```";
+  const first = scanner(freshBody);
+  const expectedFresh = scanner(freshBody);
+  first.lines.push({ mutated: true });
+  first.lines[0].enteringFence.length = 99;
+  const freshCallIsolated = JSON.stringify(scanner(freshBody)) === JSON.stringify(expectedFresh);
+
+  return { payloadsDistinct, terminalIsolated, freshCallIsolated };
+}
+
+function collapsedPayloadScanner(text) {
+  const record = scanIssueFormStructure(text);
+  const payloads = fencePayloads(record);
+  if (payloads.length < 2) return record;
+  const shared = payloads[0];
+  for (const line of record.lines) {
+    if (line.enteringFence !== null) line.enteringFence = shared;
+    if (line.leavingFence !== null) line.leavingFence = shared;
+  }
+  if (record.terminalFence !== null) record.terminalFence = shared;
+  return record;
+}
+
+function prefixReencodingParserMutant(body) {
+  const lines = body.split(/\r?\n/);
+  let codeUnitOffset = 0;
+  const priorHeadings = [];
+  for (const line of lines) {
+    codeUnitOffset += line.length;
+    Buffer.byteLength(body.slice(0, codeUnitOffset), "utf8");
+    if (/^#{2,3}\s+/.test(line)) priorHeadings.push(line);
+    priorHeadings.includes(line);
+    codeUnitOffset += 1;
+  }
+  return parseIssueFormBody(body);
+}
+
+function scalingBody(lineCount) {
+  return ["## Context", ...Array.from({ length: lineCount - 1 }, () => "payload-alpha")].join("\n");
+}
+
+function bestElapsed(operation, input, samples, iterations = 1) {
+  for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
+  let best = Number.POSITIVE_INFINITY;
+  for (let sample = 0; sample < samples; sample += 1) {
+    const startedAt = performance.now();
+    for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
+    best = Math.min(best, performance.now() - startedAt);
+  }
+  return best;
 }
 
 function replaceField(body, label, value) {
@@ -635,6 +710,164 @@ describe("predecessor-recorded structural scanner oracle", () => {
     );
     expect(vocabularyViolations(trackedEntries, acceptedOwned)).toEqual([]);
   }, 120_000);
+
+  it("fence transitions report literal opener records", () => {
+    const structure = scanIssueFormStructure(
+      ["  ```js", "inside", "````", "~~~", "inside", "~~~~", " ````", "```", "~~~", "````", "~~~terminal"].join("\n"),
+    );
+
+    expect(structure.lines).toEqual([
+      {
+        index: 0,
+        startOffset: 0,
+        endOffset: 7,
+        enteringFence: { marker: "`", length: 3 },
+        leavingFence: null,
+      },
+      { index: 1, startOffset: 8, endOffset: 14, enteringFence: null, leavingFence: null },
+      {
+        index: 2,
+        startOffset: 15,
+        endOffset: 19,
+        enteringFence: null,
+        leavingFence: { marker: "`", length: 3 },
+      },
+      {
+        index: 3,
+        startOffset: 20,
+        endOffset: 23,
+        enteringFence: { marker: "~", length: 3 },
+        leavingFence: null,
+      },
+      { index: 4, startOffset: 24, endOffset: 30, enteringFence: null, leavingFence: null },
+      {
+        index: 5,
+        startOffset: 31,
+        endOffset: 35,
+        enteringFence: null,
+        leavingFence: { marker: "~", length: 3 },
+      },
+      {
+        index: 6,
+        startOffset: 36,
+        endOffset: 41,
+        enteringFence: { marker: "`", length: 4 },
+        leavingFence: null,
+      },
+      { index: 7, startOffset: 42, endOffset: 45, enteringFence: null, leavingFence: null },
+      { index: 8, startOffset: 46, endOffset: 49, enteringFence: null, leavingFence: null },
+      {
+        index: 9,
+        startOffset: 50,
+        endOffset: 54,
+        enteringFence: null,
+        leavingFence: { marker: "`", length: 4 },
+      },
+      {
+        index: 10,
+        startOffset: 55,
+        endOffset: 66,
+        enteringFence: { marker: "~", length: 3 },
+        leavingFence: null,
+      },
+    ]);
+    expect(structure.headings).toEqual([]);
+    expect(structure.terminalFence).toEqual({ marker: "~", length: 3 });
+    expect(structure.reasonCodes).toEqual(["FORM_FENCE_UNCLOSED"]);
+  });
+
+  it("headings reports every recognized heading with its acceptance flag", () => {
+    const body = [
+      "## Other",
+      "ignored",
+      "## Context",
+      "kept",
+      "## Bogus",
+      "ignored-again",
+      "## Scope fence",
+      "scope",
+    ].join("\n");
+    const structure = scanIssueFormStructure(body);
+
+    expect(structure.lines).toEqual([
+      { index: 0, startOffset: 0, endOffset: 8, enteringFence: null, leavingFence: null },
+      { index: 1, startOffset: 9, endOffset: 16, enteringFence: null, leavingFence: null },
+      { index: 2, startOffset: 17, endOffset: 27, enteringFence: null, leavingFence: null },
+      { index: 3, startOffset: 28, endOffset: 32, enteringFence: null, leavingFence: null },
+      { index: 4, startOffset: 33, endOffset: 41, enteringFence: null, leavingFence: null },
+      { index: 5, startOffset: 42, endOffset: 55, enteringFence: null, leavingFence: null },
+      { index: 6, startOffset: 56, endOffset: 70, enteringFence: null, leavingFence: null },
+      { index: 7, startOffset: 71, endOffset: 76, enteringFence: null, leavingFence: null },
+    ]);
+    expect(structure.headings).toEqual([
+      { label: "Other", lineIndex: 0, startOffset: 0, endOffset: 8, accepted: false },
+      { label: "Context", lineIndex: 2, startOffset: 17, endOffset: 27, accepted: true },
+      { label: "Bogus", lineIndex: 4, startOffset: 33, endOffset: 41, accepted: false },
+      { label: "Scope fence", lineIndex: 6, startOffset: 56, endOffset: 70, accepted: true },
+    ]);
+    expect(parseIssueFormBody(body).fields).toMatchObject({ Context: "kept", "Scope fence": "scope" });
+  });
+
+  it("the returned structure record uses exact UTF-8 offsets and key order", () => {
+    const structure = scanIssueFormStructure("é\r\n## Context\n💩\n漢");
+
+    expect(Object.keys(structure)).toEqual(["lines", "headings", "terminalFence", "reasonCodes"]);
+    expect(structure.lines).toEqual([
+      { index: 0, startOffset: 0, endOffset: 2, enteringFence: null, leavingFence: null },
+      { index: 1, startOffset: 4, endOffset: 14, enteringFence: null, leavingFence: null },
+      { index: 2, startOffset: 15, endOffset: 19, enteringFence: null, leavingFence: null },
+      { index: 3, startOffset: 20, endOffset: 23, enteringFence: null, leavingFence: null },
+    ]);
+    expect(structure.headings).toEqual([
+      { label: "Context", lineIndex: 1, startOffset: 4, endOffset: 14, accepted: true },
+    ]);
+    expect(Object.keys(structure.lines[0])).toEqual([
+      "index",
+      "startOffset",
+      "endOffset",
+      "enteringFence",
+      "leavingFence",
+    ]);
+    expect(Object.keys(structure.headings[0])).toEqual(["label", "lineIndex", "startOffset", "endOffset", "accepted"]);
+  });
+
+  it("the returned structure record is not aliased", () => {
+    expect(scannerInvariantResult(scanIssueFormStructure)).toEqual({
+      payloadsDistinct: true,
+      terminalIsolated: true,
+      freshCallIsolated: true,
+    });
+  });
+
+  it("the collapsed payload mutant fails both record invariants", () => {
+    expect(scannerInvariantResult(scanIssueFormStructure)).toEqual({
+      payloadsDistinct: true,
+      terminalIsolated: true,
+      freshCallIsolated: true,
+    });
+    expect(scannerInvariantResult(collapsedPayloadScanner)).toEqual({
+      payloadsDistinct: false,
+      terminalIsolated: false,
+      freshCallIsolated: true,
+    });
+  });
+
+  it("the scanner stays linear against a prefix-re-encoding mutant", () => {
+    const fourThousandLines = scalingBody(4_000);
+    const sixteenThousandLines = scalingBody(16_000);
+    const candidateRatio =
+      bestElapsed(parseIssueFormBody, sixteenThousandLines, 3, 3) /
+      bestElapsed(parseIssueFormBody, fourThousandLines, 3, 3);
+    const mutantRatio =
+      bestElapsed(prefixReencodingParserMutant, sixteenThousandLines, 2) /
+      bestElapsed(prefixReencodingParserMutant, fourThousandLines, 2);
+
+    console.info(
+      `structural scanner scaling candidate=${candidateRatio.toFixed(3)} prefix-re-encoding-mutant=${mutantRatio.toFixed(3)}`,
+    );
+    expect(candidateRatio).toBeLessThan(8);
+    expect(mutantRatio).toBeGreaterThan(8);
+  }, 60_000);
 });
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
