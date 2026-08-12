@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
@@ -247,11 +247,18 @@ function probeCapability(group, options = {}) {
       commonJsDirectEntry: runNode(candidate),
       commonJsDependency: runNode(cjsEntry),
     };
-    const values = Object.values(positions);
-    if (values.some(({ verdict }) => verdict === "REACHED")) return { verdict: "CANDIDATE", positions };
-    if (values.every(({ verdict }) => verdict === "NOT_LOADABLE")) return { verdict: "EXCLUDED", positions };
-    importerRefuse("IMPORTER_CAPABILITY_INDETERMINATE", JSON.stringify(positions));
+    return { verdict: capabilityVerdict(positions), positions };
   });
+}
+
+function capabilityVerdict(positions, governedPositions = Object.keys(positions)) {
+  const values = governedPositions.map((position) => positions[position]);
+  if (values.length === 0 || values.some((value) => value === undefined)) {
+    importerRefuse("IMPORTER_CAPABILITY_INDETERMINATE", JSON.stringify({ governedPositions, positions }));
+  }
+  if (values.some(({ verdict }) => verdict === "REACHED")) return "CANDIDATE";
+  if (values.every(({ verdict }) => verdict === "NOT_LOADABLE")) return "EXCLUDED";
+  importerRefuse("IMPORTER_CAPABILITY_INDETERMINATE", JSON.stringify({ governedPositions, positions }));
 }
 
 function scriptKindFor(path) {
@@ -324,7 +331,7 @@ function classifyCompilerSpan(sourceFile, span, options = {}) {
   }
   const literalType = ancestors.find(ts.isLiteralTypeNode);
   if (literalType) return { verdict: "ERASED_NON_LOADING", owner: "LiteralType" };
-  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[literal.parent.kind] ?? "Unknown" };
+  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[ancestors[0]?.kind] ?? "Unknown" };
 }
 
 function compilerRows(path, source, options = {}) {
@@ -423,8 +430,14 @@ function isNativeDrivePath(specifier) {
   return /^[a-z]:[\\/]/iu.test(specifier);
 }
 
+function isCwdDependentRequire(specifier, platform = process.platform) {
+  return (
+    platform === "win32" && (specifier.startsWith("/") || specifier.startsWith("\\")) && !isNativeDrivePath(specifier)
+  );
+}
+
 function resolveCjs(row, options = {}) {
-  if ((row.specifier.startsWith("/") || row.specifier.startsWith("\\")) && !isNativeDrivePath(row.specifier)) {
+  if (isCwdDependentRequire(row.specifier, options.cwdPlatform)) {
     if (!options.bypassCwdGuard) importerRefuse("IMPORTER_CWD_DEPENDENT_REQUIRE", `${row.path}:${row.specifier}`);
   }
   if (options.forceIndeterminate) importerRefuse("IMPORTER_RESOLUTION_INDETERMINATE", "injected resolver failure");
@@ -548,7 +561,7 @@ function actualLoad(directory, channel, specifier) {
 
 function classifiedLoad(importer, channel, specifier, options = {}) {
   try {
-    const rows = compilerRows(importer, sourceForChannel(channel, specifier), options);
+    const rows = compilerRows(importer, options.source ?? sourceForChannel(channel, specifier), options);
     const runtimeRows = rows.filter(
       ({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict) || verdict === "RUNTIME_CJS_REQUIRE",
     );
@@ -666,7 +679,7 @@ function executePathFormRow({ form, channel }) {
     const actual = actualLoad(directory, channel, specifier);
     const classified = classifiedLoad(importer, channel, specifier);
     const expectedRefusal =
-      form === "rooted" && channel === "require"
+      channel === "require" && isCwdDependentRequire(specifier)
         ? "IMPORTER_CWD_DEPENDENT_REQUIRE"
         : form === "data-module" && channel !== "require"
           ? "IMPORTER_DATA_MODULE"
@@ -951,11 +964,49 @@ describe.sequential("canonical importer authority", () => {
       expect(result.positions.esmDirectEntry.verdict).toBe("NOT_LOADABLE");
       expect(result.positions.commonJsDependency.verdict).toBe("REACHED");
       expect(result.verdict).toBe("CANDIDATE");
-      const directEntryOnlyMutant = result.positions.esmDirectEntry.verdict === "REACHED";
-      expect(directEntryOnlyMutant).toBe(false);
+      expect(capabilityVerdict(result.positions, ["esmDirectEntry"])).toBe("EXCLUDED");
     }
     const jsonGroup = capabilityGroups.find(({ extension }) => extension === ".json");
     expect(capabilityResults.get(`${jsonGroup.extension}\0${jsonGroup.scopeType}`).verdict).toBe("EXCLUDED");
+  });
+
+  it("arbitrary-extension plants discriminate four-position capability from a direct-entry-only mutant", () => {
+    withTempDirectory("chase-canonical-capability-plants-", (directory) => {
+      writeFileSync(join(directory, "package.json"), JSON.stringify({ type: "module" }));
+      const plants = [".tsx", ".css", ".md", ".png"].map((extension, index) => {
+        const group = capabilityGroups.find((entry) => entry.extension === extension);
+        const capability = capabilityResults.get(`${group.extension}\0${group.scopeType}`);
+        const plantDirectory = join(directory, `arbitrary-${index}`, "nested");
+        mkdirSync(plantDirectory, { recursive: true });
+        const path = join(plantDirectory, `runtime-importer${extension}`);
+        const specifier = EMITTER_PATH;
+        const source = sourceForChannel("require", specifier);
+        writeFileSync(path, source);
+        return { capability, extension, path, source, specifier };
+      });
+
+      const discover = (governedPositions) => {
+        const discovered = [];
+        for (const plant of plants) {
+          if (capabilityVerdict(plant.capability.positions, governedPositions) === "EXCLUDED") continue;
+          const classification = classifiedLoad(plant.path, "require", plant.specifier, { source: plant.source });
+          expect(classification.verdict, plant.extension).toBe("TARGET");
+          discovered.push(plant.path);
+        }
+        return discovered;
+      };
+
+      const fourPositionDiscoveries = discover([
+        "esmDirectEntry",
+        "esmDependency",
+        "commonJsDirectEntry",
+        "commonJsDependency",
+      ]);
+      const directEntryOnlyDiscoveries = discover(["esmDirectEntry"]);
+      expect(fourPositionDiscoveries).toEqual(plants.map(({ path }) => path));
+      expect([...AUTHORIZED_IMPORTERS, ...fourPositionDiscoveries]).not.toEqual(AUTHORIZED_IMPORTERS);
+      expect([...AUTHORIZED_IMPORTERS, ...directEntryOnlyDiscoveries]).toEqual(AUTHORIZED_IMPORTERS);
+    });
   });
 
   const candidateEntries = () =>
@@ -1148,7 +1199,12 @@ describe.sequential("canonical importer authority", () => {
         }
       }
       expectRefusal("IMPORTER_SYNTAX_INDETERMINATE", () =>
-        compilerRows(join(directory, "unknown.mjs"), 'import "./target.mjs";', { forceIndeterminate: true }),
+        compilerRows(join(directory, "unknown.mjs"), 'await import("./target.mjs", { with: { type: "json" } });'),
+      );
+      expectRefusal("IMPORTER_SYNTAX_INDETERMINATE", () =>
+        compilerRows(join(directory, "injected-unknown.mjs"), 'import "./target.mjs";', {
+          forceIndeterminate: true,
+        }),
       );
     });
   });
@@ -1185,7 +1241,16 @@ describe.sequential("actual loader discriminators", () => {
   for (let shard = 0; shard < pathFormShards; shard += 1) {
     it(`executes the channel/path-form matrix [shard ${shard + 1}/${pathFormShards}]`, () => {
       const rows = loaderMatrixRows.filter((_row, index) => index % pathFormShards === shard);
-      loaderMatrixEvidence.push(...rows.map(executePathFormRow));
+      const failures = [];
+      for (const row of rows) {
+        try {
+          loaderMatrixEvidence.push(executePathFormRow(row));
+        } catch (error) {
+          loaderMatrixEvidence.push({ ...row, actual: "ERROR", classified: "ERROR", code: null });
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0) throw new AggregateError(failures, "channel/path-form matrix failures");
     });
   }
 
@@ -1253,14 +1318,19 @@ describe.sequential("fail-closed importer controls", () => {
       expect(dataCandidate).toMatchObject({ verdict: "REFUSAL", code: "IMPORTER_DATA_MODULE" });
       expect(dataBypass.verdict).toBe("NON_TARGET");
 
-      const rooted = EMITTER_PATH.slice(2).replaceAll("\\", "/");
-      const cwdCandidate = classifiedLoad(importer.replace(/\.mjs$/u, ".cjs"), "require", rooted);
+      const emitterRoot = parse(EMITTER_PATH).root;
+      const rooted = `/${EMITTER_PATH.slice(emitterRoot.length).replaceAll("\\", "/")}`;
+      const cwdOptions = { cwdPlatform: "win32" };
+      const cwdCandidate = classifiedLoad(importer.replace(/\.mjs$/u, ".cjs"), "require", rooted, cwdOptions);
       const cwdBypass = classifiedLoad(importer.replace(/\.mjs$/u, ".cjs"), "require", rooted, {
+        ...cwdOptions,
         bypassCwdGuard: true,
       });
       expect(cwdCandidate).toMatchObject({ verdict: "REFUSAL", code: "IMPORTER_CWD_DEPENDENT_REQUIRE" });
       expect(cwdBypass.verdict).toBe("TARGET");
 
+      const unknownRuntimeSource = `await import(${JSON.stringify(emitterUrl)}, { with: { type: "json" } });`;
+      expectRefusal("IMPORTER_SYNTAX_INDETERMINATE", () => compilerRows(importer, unknownRuntimeSource));
       expectRefusal("IMPORTER_SYNTAX_INDETERMINATE", () =>
         compilerRows(importer, `import ${JSON.stringify(emitterUrl)};`, { forceIndeterminate: true }),
       );
