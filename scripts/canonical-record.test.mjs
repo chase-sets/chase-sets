@@ -1293,7 +1293,7 @@ describe.sequential("actual loader discriminators", () => {
     ).toBe("NOT_LOADABLE");
     expect(
       loaderMatrixEvidence.find(({ form, channel }) => form === "raw-backslash" && channel === "require").actual,
-    ).toBe("TARGET");
+    ).toBe(process.platform === "win32" ? "TARGET" : "NOT_LOADABLE");
     expect(
       loaderMatrixEvidence.find(({ form, channel }) => form === "native-drive" && channel === "require").actual,
     ).toBe("TARGET");
