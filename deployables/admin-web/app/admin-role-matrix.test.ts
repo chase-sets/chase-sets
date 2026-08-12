@@ -36,6 +36,7 @@ const ROLE_PERMISSIONS = {
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.view",
@@ -194,6 +195,29 @@ describe("admin RBAC matrix (role fixtures)", () => {
     expect(resolveAdminWebNavItems(actorForRole("viewer"), { section: "support" })).not.toContainEqual(
       expect.objectContaining({ href: "/support/requests" }),
     );
+  });
+
+  it("exposes reported-content operator surfaces only to platform-admin", () => {
+    // Both shell entries are read from the PRODUCTION manifest
+    // (bounded-contexts/platform-operations/context.json shellContributions,
+    // via the generated web-context-registry), so the nav entries and their
+    // requiredPermissions are real. Only the role -> permission fixture at the
+    // top of this file is hand-maintained; see the file header. The production
+    // grant itself is proven by the Auth/Identity constants suites and the
+    // request-time resolver test, not here.
+    const operatorHrefs = ["/support/reported-content", "/support/risk-alerts"] as const;
+
+    const platformAdminSupportItems = resolveAdminWebNavItems(actorForRole("platform-admin"), { section: "support" });
+    for (const href of operatorHrefs) {
+      expect(platformAdminSupportItems).toContainEqual(expect.objectContaining({ href }));
+    }
+
+    for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
+      const supportItems = resolveAdminWebNavItems(actorForRole(roleKey), { section: "support" });
+      for (const href of operatorHrefs) {
+        expect(supportItems, `${roleKey} must not reach ${href}`).not.toContainEqual(expect.objectContaining({ href }));
+      }
+    }
   });
 
   it("gates Commerce's payout surfaces separately from the Commerce section itself", () => {

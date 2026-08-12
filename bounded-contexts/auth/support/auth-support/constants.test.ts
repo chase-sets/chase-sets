@@ -108,6 +108,42 @@ describe("auth role permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.viewer).toContain("support.view");
   });
 
+  it("grants reported-content operator authority to platform-admin only", () => {
+    // AUTH_ROLE_PERMISSIONS is the current request-time grantability authority:
+    // resolveRolePermissions() in
+    // bounded-contexts/auth/support/runtime-support/services.ts unions a
+    // membership's stored projection permissions with the current preset for
+    // its role, so this table decides what an active actor can actually reach.
+    //
+    // The granting role set asserted here is pinned as an exact set, and the
+    // mirrored assertion in
+    // bounded-contexts/identity/features/memberships/read-model/constants.test.ts
+    // pins the identical exact set against Identity's ROLE_PERMISSIONS. Two
+    // exact-set assertions over the same literal are what makes the two new
+    // role sets provably identical without either context importing the other.
+    //
+    // Despite the `.view` name this key also gates reported-content moderation
+    // writes and risk-alert action recording (acknowledge,
+    // request-manual-payout-review), so granting it to an ordinary account role
+    // would hand out settlement-adjacent operator write authority.
+    const grantingRoles = Object.entries(AUTH_ROLE_PERMISSIONS)
+      .filter(([, permissions]) => (permissions as readonly string[]).includes("reported-content.view"))
+      .map(([roleKey]) => roleKey)
+      .sort();
+
+    expect(grantingRoles).toEqual(["platform-admin"]);
+
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).toContain("reported-content.view");
+    for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
+      expect(AUTH_ROLE_PERMISSIONS[roleKey]).not.toContain("reported-content.view");
+    }
+
+    // Ordinary roles keep their unrelated grants intact -- this slice adds one
+    // key and takes none away.
+    expect(AUTH_ROLE_PERMISSIONS.owner).toContain("support.manage");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).toContain("support.view");
+  });
+
   it("mirrors commercial terms authority for live actor permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.owner).toEqual(
       expect.arrayContaining([

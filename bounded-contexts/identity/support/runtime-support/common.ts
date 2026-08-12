@@ -87,6 +87,13 @@ export type PermissionKey =
   | "recovered-inventory.evidence"
   | "recovered-inventory.manage"
   | "recovered-inventory.view"
+  // Reported-content operator authority: platform-admin only. Despite the
+  // `.view` name this key is the sole gate on the reported-content moderation
+  // writes and on risk-alert action recording (`acknowledge`,
+  // `request-manual-payout-review`), so it confers operator write authority,
+  // not read-only access. Ordinary account roles hold none of it -- enumerating
+  // other accounts' reports is an operator capability.
+  | "reported-content.view"
   | "reputation.manage"
   | "reputation.view"
   | "support.manage"

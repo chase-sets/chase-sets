@@ -44,6 +44,14 @@ export const ROLE_PERMISSIONS = {
     "recovered-inventory.evidence",
     "recovered-inventory.manage",
     "recovered-inventory.view",
+    // Reported-content operator authority: platform-admin only. Gates the
+    // admin-web Reported Content and Risk Alerts surfaces, the reported-content
+    // moderation writes, and risk-alert action recording, so it confers
+    // operator write authority despite the `.view` name. Must stay granted to
+    // exactly the same role set as Auth's AUTH_ROLE_PERMISSIONS entry
+    // (contract-tested in constants.test.ts) and never to an ordinary account
+    // role.
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.remedies.approve",

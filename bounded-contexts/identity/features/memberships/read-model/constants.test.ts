@@ -151,6 +151,38 @@ describe("identity role permissions", () => {
     expect(new Set(operatorCapabilities).size).toBe(operatorCapabilities.length);
   });
 
+  it("grants reported-content operator authority to platform-admin only", () => {
+    // Mirror of the assertion in
+    // bounded-contexts/auth/support/auth-support/constants.test.ts. That file
+    // pins the same exact granting-role set against AUTH_ROLE_PERMISSIONS,
+    // which is the current request-time grantability authority; this table is
+    // the membership read-model mirror. Pinning the identical exact set in both
+    // places is what makes the two new role sets provably identical without
+    // either context importing the other.
+    //
+    // Scope note: only the reported-content.view role set is asserted equal
+    // here. The two tables carry pre-existing unrelated drift that this slice
+    // deliberately does not absorb.
+    const grantingRoles = ROLE_KEYS.filter((roleKey) =>
+      (ROLE_PERMISSIONS[roleKey] as readonly string[]).includes("reported-content.view"),
+    ).sort();
+
+    expect(grantingRoles).toEqual(["platform-admin"]);
+
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("reported-content.view");
+    for (const roleKey of ROLE_KEYS) {
+      if (roleKey === "platform-admin") {
+        continue;
+      }
+      expect(ROLE_PERMISSIONS[roleKey]).not.toContain("reported-content.view");
+    }
+
+    // Ordinary roles keep their unrelated grants intact -- this slice adds one
+    // key and takes none away.
+    expect(ROLE_PERMISSIONS.owner).toContain("support.manage");
+    expect(ROLE_PERMISSIONS.viewer).toContain("support.view");
+  });
+
   it("separates Listing Evidence Policy review from drafting, validation, and activation", () => {
     const elevated = [
       "listing-evidence-policy.draft",

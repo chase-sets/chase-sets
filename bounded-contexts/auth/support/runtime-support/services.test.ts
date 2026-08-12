@@ -160,6 +160,102 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
 });
 
 /**
+ * Request-time proof that the reported-content operator grant reaches a live
+ * platform-admin actor with no data backfill.
+ *
+ * `resolveRolePermissions()` unions a membership's STORED projection permission
+ * array with the CURRENT `AUTH_ROLE_PERMISSIONS` preset for its role. Freezing
+ * the stored array to `[]` in both arms removes the stored table as a possible
+ * source of the key, so the only thing that can supply it is the current
+ * preset -- which is exactly the claim that "an active platform-admin receives
+ * the current preset on its next actor resolution".
+ *
+ * All identities are SYNTHETIC (`_synthetic_` infix) and exist only in this
+ * file.
+ */
+const SYNTHETIC_PRESET_SESSION_ID = "ses_synthetic_reported_content_preset";
+const SYNTHETIC_PRESET_USER_ID = "usr_synthetic_reported_content_preset";
+const SYNTHETIC_PRESET_ACCOUNT_ID = "acc_synthetic_reported_content_preset";
+const SYNTHETIC_PRESET_MEMBERSHIP_ID = "mbr_synthetic_reported_content_preset";
+
+/**
+ * Frozen non-governing inputs: same session, same user, same account, same
+ * membership id, same authentication method, same expiry, same EMPTY stored
+ * permission array. The ONLY variable is the membership's role key.
+ */
+function createServicesForRole(roleKey: string) {
+  return {
+    identity: {
+      bootstrapTenantId: "tnt_synthetic_auth",
+      getUser: vi.fn(async () => ({
+        user_id: SYNTHETIC_PRESET_USER_ID,
+        primary_email: null,
+        contact_methods: [],
+        social_login_links: [],
+      })),
+      getActiveMembershipForUserAccount: vi.fn(async () => ({
+        membership_id: SYNTHETIC_PRESET_MEMBERSHIP_ID,
+        user_id: SYNTHETIC_PRESET_USER_ID,
+        account_id: SYNTHETIC_PRESET_ACCOUNT_ID,
+        role_key: roleKey,
+        role_permissions: [] as readonly string[],
+        status: "active",
+      })),
+    },
+    sessions: {
+      getSession: vi.fn(async () => null),
+      readAuthenticatedSession: vi.fn(async (): Promise<AuthenticatedSessionRead> => {
+        const state = syntheticSessionState();
+        return {
+          state: {
+            ...state,
+            id: SYNTHETIC_PRESET_SESSION_ID,
+            userId: SYNTHETIC_PRESET_USER_ID,
+            accountId: SYNTHETIC_PRESET_ACCOUNT_ID,
+            availableAccountIds: [SYNTHETIC_PRESET_ACCOUNT_ID],
+          } as AuthenticatedSessionRead["state"],
+          authenticatedAt: SYNTHETIC_FRESH_RECORDED_AT,
+        };
+      }),
+    },
+  } as unknown as AuthServices;
+}
+
+describe("reported-content operator grant at request time", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_READ_MOMENT);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolveActorFromSessionId uses the current reported-content platform-admin preset", async () => {
+    const platformAdminActor = await resolveActorFromSessionId(
+      createServicesForRole("platform-admin"),
+      SYNTHETIC_PRESET_SESSION_ID,
+    );
+
+    // The stored projection array was empty, so the production resolver can
+    // only have obtained this from the current AUTH_ROLE_PERMISSIONS preset --
+    // no backfill of stored membership permissions is required.
+    expect(platformAdminActor?.roleKey).toBe("platform-admin");
+    expect(platformAdminActor?.permissions).toContain("reported-content.view");
+
+    // Same frozen inputs, only the role key varies: an ordinary account role
+    // resolves without the operator key.
+    const ownerActor = await resolveActorFromSessionId(createServicesForRole("owner"), SYNTHETIC_PRESET_SESSION_ID);
+
+    expect(ownerActor?.roleKey).toBe("owner");
+    expect(ownerActor?.permissions).not.toContain("reported-content.view");
+    // The owner arm did resolve to a real actor carrying its own preset, so the
+    // negative above is the permission check failing -- not a null actor.
+    expect(ownerActor?.permissions).toContain("support.manage");
+  });
+});
+
+/**
  * DISCRIMINATING DEFECT CONTROL for the fabricated-read-time bypass this repair
  * removes.
  *
