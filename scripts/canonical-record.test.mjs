@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, extname, resolve } from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import {
   CANONICAL_RECORD_REFUSAL_CODES,
@@ -20,6 +21,19 @@ const CANONICAL_PATHS = [
   "scripts/canonical-record.test.mjs",
   "scripts/fixtures/canonical-record-v1.json",
 ];
+const PUBLISHED_VECTOR_IDENTITIES = [
+  ["V1-empty-object", 2, "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"],
+  ["V2-conserved-identity-body-only", 365, "43938cad90af75d9246b21e737b5ad610bbec04bf14f214eff4ddee107d14b66"],
+  ["V3-conserved-identity-multipart", 387, "be0ef056ceccb7fbe9e267a8ba116dd8e4c4de81cc94eb8f74e2e09723982eef"],
+  ["V4-escape-hostile-strings", 137, "fe7e56697bd1ba5f6c828b7daa6c9054b754eaac95fb7754ee750ea199984256"],
+  ["V5-manifest-zero-parts", 226, "94ad35b3c4c358c079e490946f4c3c4f5553117ade0a8e7fd915ffae2a821c4e"],
+  ["V6-manifest-one-parts", 566, "d78c2543b04182eca7154e3db3f55907487b68f20b989e04273d7f2d976927ed"],
+  ["V7-manifest-two-parts", 907, "3ad5852a51241159b9aac840705e2e9f225aefa393fb6206d167c526a16c9280"],
+  ["V8-parts-array-zero", 2, "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"],
+  ["V9-parts-array-one", 342, "134702b9d7952e00611bab087bfe301c0cf8558bebbe8039d4663266fd6b6de0"],
+  ["V10-parts-array-two", 683, "37f181b8414fab6763a44cfc9d3b28122cb952bad907ddddd1ff6180015d59fe"],
+].map(([id, utf8Bytes, sha256]) => ({ id, utf8Bytes, sha256 }));
+const JAVASCRIPT_EXTENSIONS = new Set([".cjs", ".js", ".jsx", ".mjs"]);
 
 function expectRefusal(code, action) {
   expect(action).toThrow(expect.objectContaining({ code }));
@@ -40,6 +54,50 @@ function reverseRecords(value) {
 function assertUniqueThenEqual(actual, expected) {
   expect(new Set(expected).size, "declared inventory must be duplicate-free").toBe(expected.length);
   expect(new Set(actual)).toEqual(new Set(expected));
+}
+
+function importSpecifiers(source) {
+  return ts.preProcessFile(source, true, true).importedFiles.map(({ fileName }) => fileName);
+}
+
+function canonicalImporters(tracked = undefined) {
+  const target = resolve(root, "scripts/canonical-record.mjs");
+  const corpus =
+    tracked ??
+    execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter((path) => JAVASCRIPT_EXTENSIONS.has(extname(path)));
+  return corpus.filter((path) =>
+    importSpecifiers(readFileSync(resolve(root, path), "utf8")).some(
+      (specifier) => specifier.startsWith(".") && resolve(root, dirname(path), specifier) === target,
+    ),
+  );
+}
+
+function assertFixtureIdentities(candidate) {
+  expect(candidate.vectors.map(({ id, utf8Bytes, sha256 }) => ({ id, utf8Bytes, sha256 }))).toEqual(
+    PUBLISHED_VECTOR_IDENTITIES,
+  );
+}
+
+function assertCanonicalTextFraming(canonicalText) {
+  const bytes = Buffer.from(canonicalText, "utf8");
+  expect(bytes.subarray(0, 3)).not.toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+  expect(canonicalText).not.toMatch(/[\r\n]$/u);
+  expect(JSON.stringify(JSON.parse(canonicalText))).toBe(canonicalText);
+}
+
+function assertManifestPartsDigestClosures(candidate) {
+  for (const [manifestId, partsId] of [
+    ["V5-manifest-zero-parts", "V8-parts-array-zero"],
+    ["V6-manifest-one-parts", "V9-parts-array-one"],
+    ["V7-manifest-two-parts", "V10-parts-array-two"],
+  ]) {
+    const manifest = candidate.vectors.find(({ id }) => id === manifestId);
+    const parts = candidate.vectors.find(({ id }) => id === partsId);
+    expect(manifest.value.partsDigest).toBe(sha256(Buffer.from(parts.canonicalText, "utf8")));
+  }
 }
 
 function reverseFields(fields) {
@@ -79,11 +137,29 @@ describe("chase-sets-canonical/v1", () => {
   });
 
   it("recomputes fixture byte lengths and digests independently of the emitter", () => {
+    assertFixtureIdentities(fixture);
     for (const vector of fixture.vectors) {
       const bytes = Buffer.from(vector.canonicalText, "utf8");
       expect(bytes.length).toBe(vector.utf8Bytes);
       expect(createHash("sha256").update(bytes).digest("hex")).toBe(vector.sha256);
+      assertCanonicalTextFraming(vector.canonicalText);
     }
+    assertManifestPartsDigestClosures(fixture);
+  });
+
+  it("pins fixture identities, manifest closures, parse re-emission, and framing residue", () => {
+    const v4Mutation = structuredClone(fixture);
+    const v4 = v4Mutation.vectors.find(({ id }) => id === "V4-escape-hostile-strings");
+    v4.value.plain = "z b/c-d_e.f";
+    v4.canonicalText = v4.canonicalText.replace("a b/c-d_e.f", "z b/c-d_e.f");
+    v4.sha256 = "2d48b36221a380b95084b4c136fffef6e003e7324c4a567e7cba1a6cda2dd23d";
+    expect(() => assertFixtureIdentities(v4Mutation)).toThrow();
+    const digestMutation = structuredClone(fixture);
+    digestMutation.vectors.find(({ id }) => id === "V5-manifest-zero-parts").value.partsDigest = "0".repeat(64);
+    expect(() => assertManifestPartsDigestClosures(digestMutation)).toThrow();
+    for (const mutation of [" {}", "{}\n", "\ufeff{}"]) expect(() => assertCanonicalTextFraming(mutation)).toThrow();
+    expect(fixture.vectors.find(({ id }) => id === "V8-parts-array-zero").canonicalText).toBe("[]");
+    expect(fixture.vectors.find(({ id }) => id === "V8-parts-array-zero").utf8Bytes).toBe(2);
   });
 
   it("reverses declared insertion at every schema nesting level without consulting map order", () => {
@@ -168,6 +244,30 @@ describe("chase-sets-canonical/v1", () => {
     expectRefusal("CANONICAL_STRING_OUT_OF_DOMAIN", () =>
       emitRecord({ x: "line\nbreak" }, [{ key: "x", shape: "string" }]),
     );
+  });
+
+  it("accepts only plain enumerable string-keyed data records, including null-prototype maps", () => {
+    const fields = [{ key: "x", shape: "integer" }];
+    expect(emitRecord(Object.assign(Object.create(null), { x: 1 }), fields).toString()).toBe('{"x":1}');
+    for (const value of [
+      new Date(0),
+      new Map(),
+      new Set(),
+      new Number(1),
+      Object.defineProperty({ x: 1 }, "hidden", { value: 2 }),
+    ])
+      expectRefusal("CANONICAL_TYPE_OUT_OF_DOMAIN", () => emitRecord(value, []));
+    for (const value of [
+      Object.defineProperty({ x: 1 }, "x", { get: () => 1 }),
+      Object.assign({ x: 1 }, { [Symbol("x")]: 2 }),
+    ])
+      expectRefusal("CANONICAL_TYPE_OUT_OF_DOMAIN", () => emitRecord(value, fields));
+    for (const declaration of [
+      new Date(0),
+      Object.assign({ key: "x", shape: "integer" }, { [Symbol("x")]: true }),
+      Object.defineProperty({ key: "x", shape: "integer" }, "key", { get: () => "x" }),
+    ])
+      expectRefusal("CANONICAL_SCHEMA_INVALID", () => emitRecord({ x: 1 }, [declaration]));
   });
 
   it("refuses nested unknown keys and out-of-domain values at every depth", () => {
@@ -261,13 +361,25 @@ describe("chase-sets-canonical/v1", () => {
     const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).trim().split("\n");
     const canonicalPaths = tracked.filter((path) => path.includes("canonical-record"));
     assertUniqueThenEqual(canonicalPaths, CANONICAL_PATHS);
-    const importers = execFileSync("git", ["grep", "-l", "-F", 'from "./canonical-record.mjs"'], {
-      cwd: root,
-      encoding: "utf8",
-    })
-      .trim()
-      .split("\n");
+    const importers = canonicalImporters();
     assertUniqueThenEqual(importers, AUTHORIZED_IMPORTERS);
+    const mutations = [
+      ["scripts/review-probe/relocated-consumer.mjs", 'import "../canonical-record.mjs";'],
+      ["scripts/review-probe/dynamic-consumer.mjs", 'import("../canonical-record.mjs");'],
+    ];
+    for (const [path, source] of mutations) {
+      const absolutePath = resolve(root, path);
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      writeFileSync(absolutePath, source);
+      try {
+        expect(() =>
+          assertUniqueThenEqual(canonicalImporters([...canonicalImporters(), path]), AUTHORIZED_IMPORTERS),
+        ).toThrow();
+      } finally {
+        rmSync(absolutePath);
+        rmSync(dirname(absolutePath), { recursive: true, force: true });
+      }
+    }
     expect(() => assertUniqueThenEqual(importers, [...AUTHORIZED_IMPORTERS, AUTHORIZED_IMPORTERS[0]])).toThrow();
     expect(() => assertUniqueThenEqual(canonicalPaths, [...CANONICAL_PATHS, CANONICAL_PATHS[0]])).toThrow();
     expect(new Set([...AUTHORIZED_IMPORTERS, AUTHORIZED_IMPORTERS[0]])).toEqual(new Set(AUTHORIZED_IMPORTERS));

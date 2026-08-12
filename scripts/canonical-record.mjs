@@ -27,8 +27,14 @@ function refuse(code, position) {
   throw new CanonicalRecordError(code, position);
 }
 
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function isPlainRecord(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  if (Object.getOwnPropertySymbols(value).length > 0) return false;
+  return Object.values(Object.getOwnPropertyDescriptors(value)).every(
+    (descriptor) => descriptor.enumerable && Object.hasOwn(descriptor, "value"),
+  );
 }
 
 function isPrintableAscii(value) {
@@ -45,7 +51,7 @@ function validateFields(fields, position = "schema", ancestors = new Set()) {
 
   return fields.map((declaration, index) => {
     const declarationPosition = `${position}[${index}]`;
-    if (!isObject(declaration) || typeof declaration.key !== "string" || !SHAPES.has(declaration.shape)) {
+    if (!isPlainRecord(declaration) || typeof declaration.key !== "string" || !SHAPES.has(declaration.shape)) {
       refuse("CANONICAL_SCHEMA_INVALID", declarationPosition);
     }
     const nested = NESTING_SHAPES.has(declaration.shape);
@@ -83,7 +89,7 @@ function emitInteger(value, position) {
 }
 
 function emitObject(value, fields, position) {
-  if (!isObject(value)) refuse("CANONICAL_TYPE_OUT_OF_DOMAIN", position);
+  if (!isPlainRecord(value)) refuse("CANONICAL_TYPE_OUT_OF_DOMAIN", position);
   const actualKeys = Object.keys(value);
   const declaredKeys = fields.map((field) => field.key);
   if (actualKeys.length !== declaredKeys.length || actualKeys.some((key) => !declaredKeys.includes(key))) {
