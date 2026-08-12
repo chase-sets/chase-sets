@@ -73,6 +73,10 @@ Examples:
 - Pending Payment
 - Cancelled
 
+Notes:
+
+- `ordering.order.cancelled` publishes the Order Status held immediately before the cancelled transition.
+
 ## Self-Service Purchase Cancellation
 
 **Self-Service Purchase Cancellation** is the buyer-initiated cancellation of a paid purchase while the Fulfillment-owned shipment is still awaiting package preparation.

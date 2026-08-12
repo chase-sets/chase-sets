@@ -16,6 +16,7 @@ import type {
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
+  OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
   PaymentCapturedPayload,
   PlatformFeedbackSubmittedPayload,
@@ -143,6 +144,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["ordering.order.created"],
     OrderingOrderCreatedPayload
   >,
+  "ordering.order.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["ordering.order.cancelled"],
+    OrderingOrderCancelledPayload
+  >,
   "marketplace.listing.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.created"],
     MarketplaceListingCreatedPayload
@@ -214,6 +219,34 @@ const preservedCrossRegistration = {
 } as const;
 
 /**
+ * `ordering.order.cancelled` carries `buyerAccountId` and `statusBeforeCancellation`
+ * required on produce and optional on decode. The enriched literal is what both Ordering
+ * emitters write from now on; the historical literal is an event written before either
+ * field existed, which is immutable and must keep decoding. `satisfies` on a fresh object
+ * literal also rejects an excess property, so the enriched entry fails to compile at any
+ * head whose payload does not declare both — this is a `pnpm run test:typecheck` oracle,
+ * not a runtime one.
+ */
+const orderingCancelledDecodeCompatibility = {
+  enriched: {
+    orderId: "ord_1",
+    cancelledAt: "2026-03-31T00:00:00.000Z",
+    reason: "buyer-cancelled",
+    buyerEmail: "jane@example.com",
+    buyerAccountId: "acc_buyer",
+    statusBeforeCancellation: "pending-payment",
+    reservationRequests: [],
+  } satisfies OrderingOrderCancelledPayload,
+  historical: {
+    orderId: "ord_1",
+    cancelledAt: "2026-03-31T00:00:00.000Z",
+    reason: "buyer-cancelled",
+    buyerEmail: "jane@example.com",
+    reservationRequests: [],
+  } satisfies OrderingOrderCancelledPayload,
+} as const;
+
+/**
  * The marketplace-owned fee-line snapshot is embedded by Ordering. One declaration must
  * back both shards, or a future edit could fork the fee line silently.
  */
@@ -229,7 +262,16 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(13);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(14);
+  });
+
+  it("keeps the enriched and historical ordering cancellation payload shapes declarable", () => {
+    expect(orderingCancelledDecodeCompatibility.enriched).toMatchObject({
+      buyerAccountId: "acc_buyer",
+      statusBeforeCancellation: "pending-payment",
+    });
+    expect(orderingCancelledDecodeCompatibility.historical).not.toHaveProperty("buyerAccountId");
+    expect(orderingCancelledDecodeCompatibility.historical).not.toHaveProperty("statusBeforeCancellation");
   });
 
   it("keeps the Public Presence referral authority payloads in the aggregate", () => {
