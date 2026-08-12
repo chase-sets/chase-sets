@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createElement } from "react";
@@ -62,6 +63,112 @@ function sliceSentinelJson(source: string, name: string): string[] {
 }
 
 const combinedCandidatePaths = sliceSentinelJson(representationGuardSource, "combined-candidate-paths");
+
+type GitCommand = (repository: string, args: string[]) => string;
+type GitHubEnvironment = Readonly<Record<string, string | undefined>>;
+type CandidateBaseAuthority = {
+  authority: "pull_request.base.sha" | "merge_group.base_sha" | "refs/remotes/origin/main";
+  base: string;
+};
+
+const lowercaseCommitSha = /^[0-9a-f]{40}$/;
+
+const executeGit: GitCommand = (repository, args) =>
+  execFileSync("git", ["-C", repository, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+
+function commitExists(repository: string, sha: string, git: GitCommand): boolean {
+  try {
+    return git(repository, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]) === sha;
+  } catch {
+    return false;
+  }
+}
+
+function resolveCandidateBaseAuthority(
+  repository: string,
+  environment: GitHubEnvironment = process.env,
+  git: GitCommand = executeGit,
+): CandidateBaseAuthority {
+  let worktree: string;
+  try {
+    worktree = git(repository, ["rev-parse", "--is-inside-work-tree"]);
+  } catch {
+    throw new Error(`Refusing candidate base authority: ${repository} is not a readable Git worktree`);
+  }
+  if (worktree !== "true") {
+    throw new Error(`Refusing candidate base authority: ${repository} is not a Git worktree`);
+  }
+
+  const eventName = environment.GITHUB_EVENT_NAME;
+  let resolved: CandidateBaseAuthority;
+  if (eventName === undefined) {
+    let base: string;
+    try {
+      base = git(repository, ["merge-base", "HEAD", "refs/remotes/origin/main"]);
+    } catch {
+      throw new Error("Refusing local candidate base authority: refs/remotes/origin/main has no merge base with HEAD");
+    }
+    resolved = { authority: "refs/remotes/origin/main", base };
+  } else if (eventName === "pull_request" || eventName === "merge_group") {
+    const eventPath = environment.GITHUB_EVENT_PATH;
+    if (!eventPath) {
+      throw new Error(`Refusing ${eventName} candidate base authority: GITHUB_EVENT_PATH is not set`);
+    }
+
+    let event: unknown;
+    try {
+      event = JSON.parse(readFileSync(eventPath, "utf8"));
+    } catch {
+      throw new Error(`Refusing ${eventName} candidate base authority: GITHUB_EVENT_PATH is unreadable or malformed`);
+    }
+    const payload = event as {
+      merge_group?: { base_sha?: unknown };
+      pull_request?: { base?: { sha?: unknown } };
+    };
+    const base = eventName === "pull_request" ? payload.pull_request?.base?.sha : payload.merge_group?.base_sha;
+    resolved = {
+      authority: eventName === "pull_request" ? "pull_request.base.sha" : "merge_group.base_sha",
+      base: typeof base === "string" ? base : "",
+    };
+  } else {
+    throw new Error(`Refusing unhandled GITHUB_EVENT_NAME ${JSON.stringify(eventName)}`);
+  }
+
+  if (!lowercaseCommitSha.test(resolved.base)) {
+    throw new Error(`Refusing malformed ${resolved.authority} candidate base ${JSON.stringify(resolved.base)}`);
+  }
+
+  if (!commitExists(repository, resolved.base, git)) {
+    try {
+      git(repository, ["fetch", "--quiet", "--depth=1", "origin", resolved.base]);
+    } catch {
+      // Re-verification below owns the fail-closed result, including offline
+      // and exact-sha upload-pack refusal cases.
+    }
+    if (!commitExists(repository, resolved.base, git)) {
+      throw new Error(`Refusing unavailable ${resolved.authority} candidate base ${resolved.base}`);
+    }
+  }
+
+  return resolved;
+}
+
+function candidateChangedPaths(
+  repository: string,
+  environment: GitHubEnvironment = process.env,
+  git: GitCommand = executeGit,
+): CandidateBaseAuthority & { paths: string[] } {
+  const resolved = resolveCandidateBaseAuthority(repository, environment, git);
+  const tracked = git(repository, ["diff", "--name-only", resolved.base]).split("\n").filter(Boolean);
+  const untracked = git(repository, ["status", "--porcelain"])
+    .split("\n")
+    .filter((line) => line.startsWith("??"))
+    .map((line) => line.slice(3).trim());
+  return { ...resolved, paths: [...new Set([...tracked, ...untracked])] };
+}
 
 // ---------------------------------------------------------------------------
 // Stylesheet block model: ordered declaration names per declaration-carrying
@@ -914,6 +1021,159 @@ describe("closed-set closure from the vector side", () => {
     expect(combinedCandidatePaths).toContain("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
   });
 
+  it("resolves hosted event bases fail closed in a genuine depth-1 merge-ref checkout", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "ink-foil-base-authority-"));
+    try {
+      const sourceRoot = join(workspace, "origin");
+      const cloneRoot = join(workspace, "shallow");
+      mkdirSync(sourceRoot);
+      executeGit(sourceRoot, ["init", "--quiet", "--initial-branch=main"]);
+      executeGit(sourceRoot, ["config", "user.name", "base-authority-control"]);
+      executeGit(sourceRoot, ["config", "user.email", "base-authority-control@invalid"]);
+      executeGit(sourceRoot, ["config", "commit.gpgsign", "false"]);
+      executeGit(sourceRoot, ["config", "uploadpack.allowReachableSHA1InWant", "true"]);
+      writeFileSync(join(sourceRoot, "shared.txt"), "shared\n");
+      executeGit(sourceRoot, ["add", "."]);
+      executeGit(sourceRoot, ["commit", "--quiet", "-m", "shared ancestor"]);
+
+      executeGit(sourceRoot, ["switch", "--quiet", "-c", "candidate"]);
+      writeFileSync(join(sourceRoot, "candidate.txt"), "candidate\n");
+      executeGit(sourceRoot, ["add", "."]);
+      executeGit(sourceRoot, ["commit", "--quiet", "-m", "candidate change"]);
+
+      executeGit(sourceRoot, ["switch", "--quiet", "main"]);
+      writeFileSync(join(sourceRoot, "main-only.txt"), "base advance\n");
+      executeGit(sourceRoot, ["add", "."]);
+      executeGit(sourceRoot, ["commit", "--quiet", "-m", "base advance"]);
+      const base = executeGit(sourceRoot, ["rev-parse", "HEAD"]);
+
+      executeGit(sourceRoot, ["switch", "--quiet", "-c", "pull-merge", "candidate"]);
+      executeGit(sourceRoot, ["merge", "--quiet", "--no-ff", "main", "-m", "synthetic merge ref"]);
+      executeGit(sourceRoot, ["update-ref", "refs/remotes/origin/main", base]);
+
+      // Only an absent event name authorises the full-history local fallback.
+      const local = candidateChangedPaths(sourceRoot, {});
+      expect(local.authority).toBe("refs/remotes/origin/main");
+      expect(local.base).toBe(base);
+      expect(local.paths).toEqual(["candidate.txt"]);
+
+      const sourceUrl = `file:///${sourceRoot.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+      executeGit(workspace, [
+        "clone",
+        "--quiet",
+        "--depth=1",
+        "--single-branch",
+        "--branch",
+        "pull-merge",
+        sourceUrl,
+        cloneRoot,
+      ]);
+      expect(executeGit(cloneRoot, ["rev-parse", "--is-shallow-repository"])).toBe("true");
+      expect(() => executeGit(cloneRoot, ["rev-parse", "--verify", "refs/remotes/origin/main"])).toThrow();
+      expect(commitExists(cloneRoot, base, executeGit)).toBe(false);
+      const shallowHead = executeGit(cloneRoot, ["rev-parse", "HEAD"]);
+      expect(executeGit(cloneRoot, ["rev-list", "--parents", "-n", "1", "HEAD"])).toBe(shallowHead);
+
+      writeFileSync(join(cloneRoot, "working-tree-addition.txt"), "uncommitted candidate addition\n");
+      const pullRequestEventPath = join(workspace, "pull-request-event.json");
+      writeFileSync(pullRequestEventPath, JSON.stringify({ pull_request: { base: { sha: base } } }));
+      const pullRequest = candidateChangedPaths(cloneRoot, {
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_EVENT_PATH: pullRequestEventPath,
+      });
+      expect(pullRequest.authority).toBe("pull_request.base.sha");
+      expect(pullRequest.base).toBe(base);
+      expect(pullRequest.paths.sort()).toEqual(["candidate.txt", "working-tree-addition.txt"]);
+      expect(pullRequest.paths).not.toContain("main-only.txt");
+      expect(commitExists(cloneRoot, base, executeGit)).toBe(true);
+
+      const mergeBase = spawnSync("git", ["-C", cloneRoot, "merge-base", "HEAD", base], { encoding: "utf8" });
+      expect(mergeBase.status).toBe(1);
+      expect(mergeBase.stdout.trim()).toBe("");
+
+      const mergeGroupEventPath = join(workspace, "merge-group-event.json");
+      writeFileSync(mergeGroupEventPath, JSON.stringify({ merge_group: { base_sha: base } }));
+      const mergeGroup = candidateChangedPaths(cloneRoot, {
+        GITHUB_EVENT_NAME: "merge_group",
+        GITHUB_EVENT_PATH: mergeGroupEventPath,
+      });
+      expect(mergeGroup.authority).toBe("merge_group.base_sha");
+      expect(mergeGroup.base).toBe(base);
+      expect(mergeGroup.paths.sort()).toEqual(["candidate.txt", "working-tree-addition.txt"]);
+      console.log(
+        `C1 hosted shallow control: shallow=true remote-main=absent base-before=absent base-after=present parents=hidden merge-base=none changed=${pullRequest.paths.join(",")}`,
+      );
+
+      const malformedEventPath = join(workspace, "malformed-event.json");
+      writeFileSync(malformedEventPath, "not json");
+      const missingAuthorityPath = join(workspace, "missing-authority-event.json");
+      writeFileSync(missingAuthorityPath, JSON.stringify({ pull_request: { base: {} } }));
+      const hostedRefusals: GitHubEnvironment[] = [
+        { GITHUB_EVENT_NAME: "pull_request" },
+        { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: join(workspace, "missing-event.json") },
+        { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: malformedEventPath },
+        { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: missingAuthorityPath },
+      ];
+      for (const environment of hostedRefusals) {
+        const calls: string[][] = [];
+        const recordingGit: GitCommand = (repository, args) => {
+          calls.push(args);
+          return executeGit(repository, args);
+        };
+        expect(() => resolveCandidateBaseAuthority(cloneRoot, environment, recordingGit)).toThrow(/Refusing/);
+        expect(calls.some((args) => args.includes("refs/remotes/origin/main"))).toBe(false);
+      }
+      console.log(`C2 hosted authority refusals: ${hostedRefusals.length}; local fallback calls=0`);
+
+      const malformedBases = ["", "a".repeat(39), "a".repeat(41), "A".repeat(40), "g".repeat(40)];
+      for (const malformedBase of malformedBases) {
+        writeFileSync(pullRequestEventPath, JSON.stringify({ pull_request: { base: { sha: malformedBase } } }));
+        expect(() =>
+          resolveCandidateBaseAuthority(cloneRoot, {
+            GITHUB_EVENT_NAME: "pull_request",
+            GITHUB_EVENT_PATH: pullRequestEventPath,
+          }),
+        ).toThrow(/Refusing malformed pull_request\.base\.sha/);
+      }
+      console.log(`C3 malformed lowercase-40-hex refusals: ${malformedBases.length}`);
+
+      expect(() => resolveCandidateBaseAuthority(cloneRoot, { GITHUB_EVENT_NAME: "push" })).toThrow(
+        'Refusing unhandled GITHUB_EVENT_NAME "push"',
+      );
+      expect(() => resolveCandidateBaseAuthority(cloneRoot, { GITHUB_EVENT_NAME: "" })).toThrow(
+        'Refusing unhandled GITHUB_EVENT_NAME ""',
+      );
+      console.log("C4 unhandled hosted event refusals: push, empty");
+
+      const unavailableBase = "f".repeat(40);
+      writeFileSync(pullRequestEventPath, JSON.stringify({ pull_request: { base: { sha: unavailableBase } } }));
+      const unavailableCalls: string[][] = [];
+      const recordingGit: GitCommand = (repository, args) => {
+        unavailableCalls.push(args);
+        return executeGit(repository, args);
+      };
+      expect(() =>
+        resolveCandidateBaseAuthority(
+          cloneRoot,
+          { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: pullRequestEventPath },
+          recordingGit,
+        ),
+      ).toThrow(`Refusing unavailable pull_request.base.sha candidate base ${unavailableBase}`);
+      expect(unavailableCalls.filter((args) => args[0] === "fetch")).toEqual([
+        ["fetch", "--quiet", "--depth=1", "origin", unavailableBase],
+      ]);
+      console.log("C5 unavailable valid authority: refused after one exact-sha depth-1 fetch");
+
+      expect(executeGit(cloneRoot, ["rev-parse", "--is-inside-work-tree"])).toBe("true");
+      expect(() => resolveCandidateBaseAuthority(join(workspace, "not-a-worktree"), {})).toThrow(
+        /not a readable Git worktree/,
+      );
+      console.log("C6 repository root: real worktree required");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it("takes a changed-path set as an explicit argument and reports missing and extra paths by name", () => {
     const evaluate = (changedPaths: string[]) => {
       const changed = new Set(changedPaths);
@@ -931,18 +1191,11 @@ describe("closed-set closure from the vector side", () => {
     const added = evaluate([...combinedCandidatePaths, "packages/design-system/src/scratch.ts"]);
     expect(added.extra).toEqual(["packages/design-system/src/scratch.ts"]);
 
-    // The real candidate set, when one is in flight.
-    const mergeBase = execFileSync("git", ["-C", root, "merge-base", "HEAD", "refs/remotes/origin/main"], {
-      encoding: "utf8",
-    }).trim();
-    const tracked = execFileSync("git", ["-C", root, "diff", "--name-only", mergeBase], { encoding: "utf8" })
-      .split("\n")
-      .filter(Boolean);
-    const untracked = execFileSync("git", ["-C", root, "status", "--porcelain"], { encoding: "utf8" })
-      .split("\n")
-      .filter((line) => line.startsWith("??"))
-      .map((line) => line.slice(3).trim());
-    const changed = [...new Set([...tracked, ...untracked])];
+    // The real candidate set, when one is in flight. Hosted authority comes
+    // only from the event payload; the remote-tracking fallback is local-only.
+    const resolved = candidateChangedPaths(root);
+    const changed = resolved.paths;
+    console.log(`candidate base authority: ${resolved.authority}=${resolved.base}`);
     console.log(`real changed-path set on the vector side (${changed.length}):\n${JSON.stringify(changed, null, 2)}`);
     if (changed.some((p) => combinedCandidatePaths.includes(p))) {
       const report = evaluate(changed);
