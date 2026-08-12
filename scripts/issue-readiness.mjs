@@ -574,53 +574,94 @@ function normalizeField(value) {
   return !trimmed || trimmed.toLowerCase() === NO_RESPONSE ? "" : trimmed;
 }
 
-export function parseIssueFormBody(body) {
-  if (typeof body !== "string") {
-    return { status: "malformed", fields: {}, reasonCodes: ["FORM_BODY_INVALID"] };
-  }
+export function scanIssueFormStructure(text) {
   const known = new Set(REQUIRED_FIELDS);
-  const fields = {};
   const reasonCodes = [];
-  let current = null;
+  const lines = [];
+  const headings = [];
+  const acceptedLabels = new Set();
   let fence = null;
-  for (const line of body.split(/\r?\n/)) {
+  let stringOffset = 0;
+  let byteOffset = 0;
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    const startOffset = byteOffset;
+    const endOffset = startOffset + Buffer.byteLength(line);
+    const record = { index, startOffset, endOffset, enteringFence: null, leavingFence: null };
     const fenceMatch = line.match(/^\s*(```+|~~~+)/);
     if (fenceMatch) {
       const token = fenceMatch[1];
       if (fence === null) {
         fence = { marker: token[0], length: token.length };
+        record.enteringFence = { ...fence };
       } else if (fence.marker === token[0] && token.length >= fence.length) {
+        record.leavingFence = { ...fence };
         fence = null;
       }
-      if (current) fields[current].push(line);
+      lines.push(record);
+      const delimiterLength = text.startsWith("\r\n", stringOffset + line.length)
+        ? 2
+        : text.length > stringOffset + line.length
+          ? 1
+          : 0;
+      stringOffset += line.length + delimiterLength;
+      byteOffset = endOffset + delimiterLength;
       continue;
     }
     if (!fence) {
       const heading = line.match(/^#{2,3}\s+(.+?)\s*$/);
       if (heading) {
         const label = heading[1];
-        current = null;
-        if (known.has(label)) {
-          if (Object.hasOwn(fields, label)) {
+        const accepted = known.has(label);
+        headings.push({ label, lineIndex: index, startOffset, endOffset, accepted });
+        if (accepted) {
+          if (acceptedLabels.has(label)) {
             reasonCodes.push(`FORM_FIELD_DUPLICATE:${label}`);
-          } else {
-            fields[label] = [];
-            current = label;
           }
+          acceptedLabels.add(label);
         }
-        continue;
       }
     }
-    if (current) fields[current].push(line);
+    lines.push(record);
+    const delimiterLength = text.startsWith("\r\n", stringOffset + line.length)
+      ? 2
+      : text.length > stringOffset + line.length
+        ? 1
+        : 0;
+    stringOffset += line.length + delimiterLength;
+    byteOffset = endOffset + delimiterLength;
   }
   if (fence !== null) reasonCodes.push("FORM_FENCE_UNCLOSED");
+  return { lines, headings, terminalFence: fence === null ? null : { ...fence }, reasonCodes };
+}
+
+export function parseIssueFormBody(body) {
+  if (typeof body !== "string") {
+    return { status: "malformed", fields: {}, reasonCodes: ["FORM_BODY_INVALID"] };
+  }
+  const structure = scanIssueFormStructure(body);
+  const headingByLine = new Map(structure.headings.map((heading) => [heading.lineIndex, heading]));
+  const bytes = Buffer.from(body, "utf8");
+  const fields = {};
+  let current = null;
+  for (const line of structure.lines) {
+    const heading = headingByLine.get(line.index);
+    if (heading) {
+      current = null;
+      if (heading.accepted && !Object.hasOwn(fields, heading.label)) {
+        fields[heading.label] = [];
+        current = heading.label;
+      }
+      continue;
+    }
+    if (current) fields[current].push(bytes.subarray(line.startOffset, line.endOffset).toString("utf8"));
+  }
   const normalized = Object.fromEntries(
     REQUIRED_FIELDS.map((field) => [field, normalizeField(fields[field]?.join("\n") ?? "")]),
   );
   return {
-    status: reasonCodes.length > 0 ? "malformed" : "ok",
+    status: structure.reasonCodes.length > 0 ? "malformed" : "ok",
     fields: normalized,
-    reasonCodes,
+    reasonCodes: structure.reasonCodes,
   };
 }
 

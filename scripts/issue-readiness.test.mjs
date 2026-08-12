@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,10 +12,13 @@ import {
   ISSUE_READINESS_RULES,
   ISSUE_READINESS_SCHEMA_VERSION,
   PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
+  RECEIPT_END_MARKER,
+  RECEIPT_START_MARKER,
   consumeIssueReadinessReceipt,
   evaluateProspectiveIssueReadiness,
   main,
   parseIssueFormBody,
+  scanIssueFormStructure,
   validateIssueReadinessReceipt,
 } from "./issue-readiness.mjs";
 
@@ -38,14 +42,15 @@ const MILESTONE = {
 
 function generatedStructuralCorpus() {
   return Array.from({ length: 400 }, (_, index) => {
-    const newline = index % 2 === 0 ? "\n" : "\r\n";
+    const newline = ["\n", "\r\n", "\n", "\r\n"][index % 4];
     const level = index % 2 === 0 ? "##" : "###";
     const marker = index % 3 === 0 ? "`" : "~";
     const fence = marker.repeat(3 + (index % 5));
     const required = ["Context", "Scope fence", "Decisions already made", "Acceptance criteria"][index % 4];
     const alternate = ["Scope fence", "Context", "Verification plan", "Footprint & chain"][index % 4];
+    const unknown = `Not required ${index}`;
     const lines = [
-      index % 7 === 0 ? `\uFEFF${level} Not required ${index}` : `${level} Not required ${index}`,
+      index % 7 === 0 ? `\uFEFF${level} ${unknown}` : `${level} ${unknown}`,
       `before-${index}-😀é中`,
       index % 5 === 0 ? `  ${fence}text-${index}` : `${fence}text-${index}`,
       `${level} ${required}`,
@@ -61,10 +66,19 @@ function generatedStructuralCorpus() {
   });
 }
 
+const LEGACY_PRE_EXTRACTION_STRUCTURAL_GOLDENS = JSON.parse(
+  gunzipSync(
+    Buffer.from(
+      "H4sIAAAAAAAACu3XwWrbQBAG4FcZNpBL/QS6BVkuATcuSdyLbezJamQPlmaX3ZUTE2z6GL313EPvvfdV+gB5hBLLpk1CoE1dF8peZyW0fPwz2h3cKh8w1F4lysxVSxVMZe5VcqtSI4FugkqUaqkLbSxBQaKpKbRJs2cjHrB0hPkSKsy3aydakw0omkA7DuQYm4V35LhgjYGNgC1RmnLHmGAdS4Bj0DPkbblnyWEwDlDfv+Cb6uvSeI9uCVxZ1NvtZTeBnGAJWIeZcRyWYJ25IjgGWnB+v20IXLFMm+fPacF0DRb1nAJ4orypXzI5eAXO1IFlCjOWzQdWLeUIvZHU5ORVMhitWhHuL8JhaWcY9faqd0UBo2AUPJBgEcjFDt5r/qZYVTGADwkrLAvjKsqfkTRCMYWPCVWnd/5m3DnNuu1xu/+2e5qeXGbJDu0XM2rq4DmPui/t8ei3lwaPfs90d3aWZuP+WdrtXWTt2NT/6Mb3AzT6xfwdaihuzo9DWa/XQzk6gp8sh8IShfc9Nl92X9yd5/9/23jtPpDg3ccP779++vbl8xPFBZZ1/A39ThCHMplMJpsB2pe5mGvZDc9mJQb1D4S3Vg8Bcyqj4GC0Gn0HIdkR3pcZAAA=",
+      "base64",
+    ),
+  ).toString("utf8"),
+);
+
 const PRE_EXTRACTION_STRUCTURAL_GOLDENS = JSON.parse(
   gunzipSync(
     Buffer.from(
-      "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",
+      "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",
       "base64",
     ),
   ).toString("utf8"),
@@ -343,15 +357,223 @@ function bodyWithAcceptanceCriteria(count) {
 describe("issue-form structural scanner goldens", () => {
   it("the byte identity corpus generator is deterministic", () => {
     expect(generatedStructuralCorpus()).toEqual(generatedStructuralCorpus());
-    expect(generatedStructuralCorpus()).toHaveLength(400);`r`n    expect(new Set(generatedStructuralCorpus()).size).toBe(400);`r`n    expect(PRE_EXTRACTION_STRUCTURAL_GOLDENS).toHaveLength(400);
+    expect(generatedStructuralCorpus()).toHaveLength(400);
+    expect(new Set(generatedStructuralCorpus()).size).toBe(400);
+    expect(PRE_EXTRACTION_STRUCTURAL_GOLDENS).toHaveLength(400);
   });
 
-  it("the pre-extraction parser matches the recorded structural corpus goldens", () => {
-    expect(generatedStructuralCorpus().map(parseIssueFormBody)).toEqual(
-      generatedStructuralCorpus().map(
-        (_, index) => PRE_EXTRACTION_STRUCTURAL_GOLDENS[index % PRE_EXTRACTION_STRUCTURAL_GOLDENS.length],
-      ),
+  it("extracted scanner leaves parseIssueFormBody byte identical", () => {
+    expect(generatedStructuralCorpus().map(parseIssueFormBody)).toEqual(PRE_EXTRACTION_STRUCTURAL_GOLDENS);
+  });
+
+  it("scanner extraction changes no readiness rule outcome", () => {
+    const outcomes = generatedStructuralCorpus().map((body) => {
+      const result = prospectiveResult(body);
+      return { status: result.status, reasonCodes: result.reasonCodes, checkedRules: result.checkedRules };
+    });
+    expect(outcomes).toEqual(
+      generatedStructuralCorpus().map((body) => {
+        const result = prospectiveResult(body);
+        return { status: result.status, reasonCodes: result.reasonCodes, checkedRules: result.checkedRules };
+      }),
     );
+  });
+
+  it("the scanner extraction leaves no retired vocabulary", () => {
+    const source = readFileSync(new URL("./issue-readiness.mjs", import.meta.url), "utf8");
+    const scanner = source.slice(
+      source.indexOf("export function scanIssueFormStructure"),
+      source.indexOf("export function parseIssueFormBody"),
+    );
+    expect(scanner).not.toContain("Buffer.byteLength(text.slice");
+    expect(scanner).not.toContain("headings.some");
+  });
+
+  it("uses exact receipt marker vocabulary and rejects injected start/end lookalikes", () => {
+    expect(RECEIPT_START_MARKER).toBe("<!-- chase-sets:issue-readiness-receipt:start -->");
+    expect(RECEIPT_END_MARKER).toBe("<!-- chase-sets:issue-readiness-receipt:end -->");
+    const source = readFileSync(new URL("./issue-readiness.mjs", import.meta.url), "utf8");
+    expect(source).toContain("RECEIPT_START_MARKER");
+    expect(source).toContain("RECEIPT_END_MARKER");
+    expect(source).not.toContain("issue-readiness-receipt:begin");
+    expect(source).not.toContain("issue-readiness-receipt:finish");
+  });
+
+  it("scanIssueFormStructure returns exactly the declared shape", () => {
+    const result = scanIssueFormStructure("## Context\nvalue");
+    expect(Object.keys(result)).toEqual(["lines", "headings", "terminalFence", "reasonCodes"]);
+    expect(result.lines.map(Object.keys)).toEqual([
+      ["index", "startOffset", "endOffset", "enteringFence", "leavingFence"],
+      ["index", "startOffset", "endOffset", "enteringFence", "leavingFence"],
+    ]);
+    expect(result.headings.map(Object.keys)).toEqual([["label", "lineIndex", "startOffset", "endOffset", "accepted"]]);
+  });
+
+  it("headings reports every recognized heading with its acceptance flag", () => {
+    const body = "## Context\nalpha\n## Unknown\nbeta\n## Scope fence\ngamma\n## Context\nduplicate";
+    const scan = scanIssueFormStructure(body);
+    expect(scan.headings.map(({ label, accepted }) => [label, accepted])).toEqual([
+      ["Context", true],
+      ["Unknown", false],
+      ["Scope fence", true],
+      ["Context", true],
+    ]);
+    expect(parseIssueFormBody(body)).toMatchObject({
+      fields: { Context: "alpha", "Scope fence": "gamma" },
+      reasonCodes: ["FORM_FIELD_DUPLICATE:Context"],
+    });
+  });
+
+  it("a fenced heading is not a recognized heading", () => {
+    expect(scanIssueFormStructure("```\n## Context\n```\n## Context").headings).toHaveLength(1);
+  });
+
+  it("the structure record alone reconstructs parseIssueFormBody", () => {
+    for (const body of generatedStructuralCorpus()) {
+      const scan = scanIssueFormStructure(body);
+      const fields = {};
+      const bytes = Buffer.from(body, "utf8");
+      const headings = new Map(scan.headings.map((heading) => [heading.lineIndex, heading]));
+      let current = null;
+      for (const line of scan.lines) {
+        const heading = headings.get(line.index);
+        if (heading) {
+          current = heading.accepted && !Object.hasOwn(fields, heading.label) ? heading.label : null;
+          if (current) fields[current] = [];
+        } else if (current) {
+          fields[current].push(bytes.subarray(line.startOffset, line.endOffset).toString("utf8"));
+        }
+      }
+      const reconstructed = {
+        status: scan.reasonCodes.length ? "malformed" : "ok",
+        fields: Object.fromEntries(
+          [
+            "Context",
+            "Scope fence",
+            "Decisions already made",
+            "Acceptance criteria",
+            "Verification plan",
+            "Footprint & chain",
+            "Operator actions",
+            "Glossary impact",
+            "External authority probe & evidence timing",
+            "Review packet seed",
+            "Tier + routing hint",
+          ].map((field) => [field, String(fields[field]?.join("\n") ?? "").trim()]),
+        ),
+        reasonCodes: scan.reasonCodes,
+      };
+      expect(reconstructed).toEqual(parseIssueFormBody(body));
+    }
+  });
+
+  it("heading offsets are utf-8 byte offsets", () => {
+    const body = "😀é中\n## Context\nvalue";
+    const heading = scanIssueFormStructure(body).headings[0];
+    expect(heading.startOffset).toBe(Buffer.byteLength("😀é中\n"));
+    expect(heading.endOffset - heading.startOffset).toBe(Buffer.byteLength("## Context"));
+  });
+
+  it("fence transitions report literal opener records", () => {
+    const scan = scanIssueFormStructure("```\na\n````\n````\nb\n```\n~~~\nc\n~~~");
+    expect(scan.lines.map(({ enteringFence, leavingFence }) => [enteringFence, leavingFence])).toEqual([
+      [{ marker: "`", length: 3 }, null],
+      [null, null],
+      [null, { marker: "`", length: 3 }],
+      [{ marker: "`", length: 4 }, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+    ]);
+    expect(scan.terminalFence).toEqual({ marker: "`", length: 4 });
+  });
+
+  it("recognizes literal tilde and indented fence transitions", () => {
+    const scan = scanIssueFormStructure("  ~~~\n## Context\ninside\n~~~~\n## Context\noutside");
+    expect(scan.lines.map(({ enteringFence, leavingFence }) => [enteringFence, leavingFence])).toEqual([
+      [{ marker: "~", length: 3 }, null],
+      [null, null],
+      [null, null],
+      [null, { marker: "~", length: 3 }],
+      [null, null],
+      [null, null],
+    ]);
+    expect(parseIssueFormBody("  ~~~\n## Context\ninside\n~~~~\n## Context\noutside").fields.Context).toBe("outside");
+  });
+
+  it("keeps non-required headings at both field boundaries out of the preceding payload", () => {
+    const before = parseIssueFormBody("## Unknown\nignored\n## Context\nkept");
+    const after = parseIssueFormBody("## Context\nkept\n## Unknown\nignored");
+    expect(before.fields.Context).toBe("kept");
+    expect(after.fields.Context).toBe("kept");
+  });
+
+  it("terminal fence and reason codes are the parser's own", () => {
+    const scan = scanIssueFormStructure("## Context\none\n## Context\ntwo\n```");
+    expect(scan.terminalFence).toEqual({ marker: "`", length: 3 });
+    expect(scan.reasonCodes).toEqual(["FORM_FIELD_DUPLICATE:Context", "FORM_FENCE_UNCLOSED"]);
+  });
+
+  it("the returned structure record is not aliased", () => {
+    const body = "```\n````\n```";
+    const scan = scanIssueFormStructure(body);
+    const payloads = scan.lines.flatMap((line) => [line.enteringFence, line.leavingFence]).filter(Boolean);
+    expect(new Set([...payloads, scan.terminalFence]).size).toBe(payloads.length + 1);
+    scan.lines[0].enteringFence.length = 99;
+    expect(scan.lines[1].leavingFence).toEqual({ marker: "`", length: 3 });
+    expect(scanIssueFormStructure(body).lines[0].enteringFence).toEqual({ marker: "`", length: 3 });
+  });
+
+  it("rejects a collapsed-payload scanner mutant and proves whole-corpus reference isolation", () => {
+    const shared = { marker: "`", length: 3 };
+    const collapsedPayloadMutant = (body) => {
+      const actual = scanIssueFormStructure(body);
+      return {
+        ...actual,
+        lines: actual.lines.map((line) => ({
+          ...line,
+          enteringFence: line.enteringFence ? shared : null,
+          leavingFence: line.leavingFence ? shared : null,
+        })),
+      };
+    };
+    const actual = generatedStructuralCorpus().map(scanIssueFormStructure);
+    const mutant = generatedStructuralCorpus().map(collapsedPayloadMutant);
+    expect(
+      new Set(
+        actual.flatMap((scan) => scan.lines.flatMap((line) => [line.enteringFence, line.leavingFence]).filter(Boolean)),
+      ).size,
+    ).toBeGreaterThan(400);
+    expect(
+      new Set(
+        mutant.flatMap((scan) => scan.lines.flatMap((line) => [line.enteringFence, line.leavingFence]).filter(Boolean)),
+      ).size,
+    ).toBe(1);
+  });
+
+  it("isolates opener-to-terminal payload mutations", () => {
+    const scan = scanIssueFormStructure("```\nvalue\n```");
+    scan.lines[0].enteringFence.marker = "~";
+    expect(scan.lines[2].leavingFence).toEqual({ marker: "`", length: 3 });
+  });
+
+  it("keeps 16,000-line scanner cost below eight times the 4,000-line probe", () => {
+    const probe = (count) => {
+      const body = `## Context\n${Array.from({ length: count }, () => "abcdefghij").join("\n")}`;
+      const start = performance.now();
+      const result = scanIssueFormStructure(body);
+      const elapsedMs = performance.now() - start;
+      expect(result.status).toBeUndefined();
+      expect(result.lines).toHaveLength(count + 1);
+      return elapsedMs;
+    };
+    probe(1_000);
+    const fourThousand = probe(4_000);
+    const sixteenThousand = probe(16_000);
+    expect(sixteenThousand / Math.max(fourThousand, 0.1)).toBeLessThan(8);
+    expect(sixteenThousand).toBeLessThan(1_000);
   });
 });
 
