@@ -568,17 +568,48 @@ describe("Ink & Foil display type and brand foil values", () => {
     const darkLiteralBlock = declarationBlocks[1]!;
     const aliasBlock = declarationBlocks[4]!;
 
-    expect(lightBlock.values.get("--chase-logo-start")).toBe(fixture.light["--chase-logo-start"]!.candidate);
-    expect(lightBlock.values.get("--chase-logo-mid")).toBe(fixture.light["--chase-logo-mid"]!.candidate);
-    expect(lightBlock.values.get("--chase-logo-end")).toBe(fixture.light["--chase-logo-end"]!.candidate);
-    expect(lightBlock.values.get("--display-font")).toBe(fixture.light["--display-font"]!.candidate);
-
-    expect(darkLiteralBlock.values.get("--dark-chase-logo-start")).toBe(fixture.dark["--chase-logo-start"]!.candidate);
-    expect(darkLiteralBlock.values.get("--dark-chase-logo-mid")).toBe(fixture.dark["--chase-logo-mid"]!.candidate);
-    expect(darkLiteralBlock.values.get("--dark-chase-logo-end")).toBe(fixture.dark["--chase-logo-end"]!.candidate);
-
-    expect(aliasBlock.values.get("--font-display")).toBe(fixture.light["--font-display"]!.candidate);
-    expect(aliasBlock.values.get("--font-heading")).toBe(fixture.light["--font-heading"]!.candidate);
+    const anchors: Array<[string, string | undefined, string]> = [
+      [
+        "light --chase-logo-start",
+        lightBlock.values.get("--chase-logo-start"),
+        fixture.light["--chase-logo-start"]!.candidate,
+      ],
+      [
+        "light --chase-logo-mid",
+        lightBlock.values.get("--chase-logo-mid"),
+        fixture.light["--chase-logo-mid"]!.candidate,
+      ],
+      [
+        "light --chase-logo-end",
+        lightBlock.values.get("--chase-logo-end"),
+        fixture.light["--chase-logo-end"]!.candidate,
+      ],
+      ["light --display-font", lightBlock.values.get("--display-font"), fixture.light["--display-font"]!.candidate],
+      [
+        "dark --dark-chase-logo-start",
+        darkLiteralBlock.values.get("--dark-chase-logo-start"),
+        fixture.dark["--chase-logo-start"]!.candidate,
+      ],
+      [
+        "dark --dark-chase-logo-mid",
+        darkLiteralBlock.values.get("--dark-chase-logo-mid"),
+        fixture.dark["--chase-logo-mid"]!.candidate,
+      ],
+      [
+        "dark --dark-chase-logo-end",
+        darkLiteralBlock.values.get("--dark-chase-logo-end"),
+        fixture.dark["--chase-logo-end"]!.candidate,
+      ],
+      ["alias --font-display", aliasBlock.values.get("--font-display"), fixture.light["--font-display"]!.candidate],
+      ["alias --font-heading", aliasBlock.values.get("--font-heading"), fixture.light["--font-heading"]!.candidate],
+    ];
+    const mismatches = anchors
+      .filter(([, actual, expected]) => actual !== expected)
+      .map(
+        ([label, actual, expected]) =>
+          `${label}: styles.css resolves ${String(actual)}, fixture candidate is ${expected}`,
+      );
+    expect(mismatches, "advanced anchors out of transcription").toEqual([]);
 
     // No dark alias exists for the three font names, so their dark resolution
     // is the light literal and the fixture keys light and dark identically.
