@@ -82,6 +82,7 @@ export const combinedCandidatePaths = [
   "deployables/admin-web/public/icons/chase-sets-admin-maskable-512.png",
   "package.json",
   "scripts/check-structure/brand-mark-representations.test.mjs",
+  "scripts/check-heavy-slot-coverage.test.mjs",
 ];
 // combined-candidate-paths:end
 
@@ -387,12 +388,12 @@ function sha256(buffer) {
 // ---------------------------------------------------------------------------
 
 describe("closed combined candidate path set", () => {
-  it("deep-equals its own sentinel block, is duplicate-free, and has length 32", () => {
+  it("deep-equals its own sentinel block, is duplicate-free, and has length 33", () => {
     const parsed = sliceSentinelJson(selfSource, "combined-candidate-paths");
     console.log(`combinedCandidatePaths as parsed from the sentinel block:\n${JSON.stringify(parsed, null, 2)}`);
     expect(combinedCandidatePaths).toEqual(parsed);
-    expect(combinedCandidatePaths.length).toBe(32);
-    expect(new Set(combinedCandidatePaths).size).toBe(32);
+    expect(combinedCandidatePaths.length).toBe(33);
+    expect(new Set(combinedCandidatePaths).size).toBe(33);
   });
 
   it("evaluates the real changed-path set when the candidate is in flight", () => {
@@ -413,11 +414,11 @@ describe("closed combined candidate path set", () => {
     }
     const report = evaluateChangedPathSet(changed);
     expect(report.missing, "paths the candidate is missing").toEqual([]);
-    expect(report.extra, "paths outside the published thirty-two").toEqual([]);
+    expect(report.extra, "paths outside the published thirty-three").toEqual([]);
     expect(report.ok).toBe(true);
   });
 
-  it("refuses each of the 32 one-omitted synthetic sets by naming exactly the omitted path", () => {
+  it("refuses each of the 33 one-omitted synthetic sets by naming exactly the omitted path", () => {
     for (const omitted of combinedCandidatePaths) {
       const synthetic = combinedCandidatePaths.filter((p) => p !== omitted);
       const report = evaluateChangedPathSet(synthetic);
@@ -435,7 +436,7 @@ describe("closed combined candidate path set", () => {
     expect(report.missing).toEqual([manifestPath]);
   });
 
-  it("refuses the pure vector-only thirteen-path candidate by naming all nineteen omitted raster paths", () => {
+  it("refuses the pure vector-only thirteen-path candidate by naming all twenty omitted raster paths", () => {
     const vectorExclusive = combinedCandidatePaths.slice(0, 10);
     const shared = [
       "pnpm-lock.yaml",
@@ -446,13 +447,13 @@ describe("closed combined candidate path set", () => {
     expect(vectorOnly.length).toBe(13);
     const report = evaluateChangedPathSet(vectorOnly);
     expect(report.ok).toBe(false);
-    expect(report.missing.length).toBe(19);
+    expect(report.missing.length).toBe(20);
     console.log(`vector-only candidate refused; omitted raster paths:\n${JSON.stringify(report.missing, null, 2)}`);
   });
 
-  it("refuses the pure raster-only twenty-two-path candidate by naming all ten omitted vector paths", () => {
+  it("refuses the pure raster-only twenty-three-path candidate by naming all ten omitted vector paths", () => {
     const rasterOnly = combinedCandidatePaths.slice(10);
-    expect(rasterOnly.length).toBe(22);
+    expect(rasterOnly.length).toBe(23);
     const report = evaluateChangedPathSet(rasterOnly);
     expect(report.ok).toBe(false);
     expect(report.missing.length).toBe(10);
@@ -460,9 +461,9 @@ describe("closed combined candidate path set", () => {
   });
 
   it("refuses a synthetic set carrying an added scratch path by that name", () => {
-    const report = evaluateChangedPathSet([...combinedCandidatePaths, "scripts/scratch-thirty-third-path.mjs"]);
+    const report = evaluateChangedPathSet([...combinedCandidatePaths, "scripts/scratch-thirty-fourth-path.mjs"]);
     expect(report.ok).toBe(false);
-    expect(report.extra).toEqual(["scripts/scratch-thirty-third-path.mjs"]);
+    expect(report.extra).toEqual(["scripts/scratch-thirty-fourth-path.mjs"]);
     expect(report.missing).toEqual([]);
   });
 });
@@ -512,13 +513,13 @@ describe("runtime representation inventory", () => {
 });
 
 describe("repository source-output inventory", () => {
-  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the thirty-two", () => {
+  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the thirty-three", () => {
     const parsed = sliceSentinelJson(selfSource, "repository-source-outputs");
     console.log(`repositorySourceOutputs as parsed:\n${JSON.stringify(parsed, null, 2)}`);
     expect(repositorySourceOutputs).toEqual(parsed);
     const errors = validateRepositoryInventory(repositorySourceOutputs);
     expect(errors).toEqual([]);
-    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 32)");
+    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 33)");
   });
 
   it("derives the fifteen raster outputs from the two generators' declared output sets", () => {

@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -154,7 +155,11 @@ async function generate() {
   }
 }
 
-generate().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  acquireHeavySlot("script-battery");
+  generate().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

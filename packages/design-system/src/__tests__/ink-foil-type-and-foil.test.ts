@@ -904,12 +904,12 @@ describe("logo semantics and caller accessibility", () => {
 });
 
 describe("closed-set closure from the vector side", () => {
-  it("parses the same thirty-two paths out of the raster-side sentinel block", () => {
+  it("parses the same thirty-three paths out of the raster-side sentinel block", () => {
     console.log(
       `combinedCandidatePaths as parsed on the vector side:\n${JSON.stringify(combinedCandidatePaths, null, 2)}`,
     );
-    expect(combinedCandidatePaths.length).toBe(32);
-    expect(new Set(combinedCandidatePaths).size).toBe(32);
+    expect(combinedCandidatePaths.length).toBe(33);
+    expect(new Set(combinedCandidatePaths).size).toBe(33);
     expect(combinedCandidatePaths).toContain("packages/design-system/src/styles/styles.css");
     expect(combinedCandidatePaths).toContain("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
   });
@@ -947,7 +947,7 @@ describe("closed-set closure from the vector side", () => {
     if (changed.some((p) => combinedCandidatePaths.includes(p))) {
       const report = evaluate(changed);
       expect(report.missing, "paths the candidate is missing").toEqual([]);
-      expect(report.extra, "paths outside the published thirty-two").toEqual([]);
+      expect(report.extra, "paths outside the published thirty-three").toEqual([]);
     } else {
       const identity = evaluate(combinedCandidatePaths);
       expect(identity.missing).toEqual([]);
