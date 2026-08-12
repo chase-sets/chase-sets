@@ -65,9 +65,9 @@ function withOneSectionOmitted(policyKey: string): readonly PublicPolicyRegistry
 }
 
 function fingerprintOf(modules: readonly { relativePath: string; content: string }[], relativePath: string) {
-  return modules.find((module) => module.relativePath === relativePath)?.content.match(
-    /contentFingerprint: "(sha256:[a-f0-9]{64})"/,
-  )?.[1];
+  return modules
+    .find((module) => module.relativePath === relativePath)
+    ?.content.match(/contentFingerprint: "(sha256:[a-f0-9]{64})"/)?.[1];
 }
 
 describe("authenticity-service-terms production compiler", () => {
@@ -89,7 +89,9 @@ describe("authenticity-service-terms production compiler", () => {
   it("isolates an authenticity-service-terms content-only edit to its own module and fingerprint (candidate/baseline isolation)", async () => {
     const baseline = await renderPublicPolicyPublicationContracts();
     const editedRegistry = withEditedArtifact("authenticity-service-terms");
-    const editedEntry = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "authenticity-service-terms");
+    const editedEntry = editedRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === "authenticity-service-terms",
+    );
     const baselineEntry = publicPolicyRegistry.find(
       (entry) => entry.artifact.metadata.policyKey === "authenticity-service-terms",
     );
@@ -111,7 +113,14 @@ describe("authenticity-service-terms production compiler", () => {
     }
   });
 
-  it.each(["terms-of-service", "seller-agreement", "payments-terms", "agent-connector-terms", "founders-offer-terms", "privacy-policy"])(
+  it.each([
+    "terms-of-service",
+    "seller-agreement",
+    "payments-terms",
+    "agent-connector-terms",
+    "founders-offer-terms",
+    "privacy-policy",
+  ])(
     "leaves the authenticity-service-terms module byte-identical when a sibling ('%s') is edited (sibling-mutation control)",
     async (siblingPolicyKey) => {
       const baseline = await renderPublicPolicyPublicationContracts();
