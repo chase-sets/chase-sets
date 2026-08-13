@@ -68,6 +68,12 @@ const PRIVACY_V3: RegistrationConsentRequirement = {
   version: "v3",
   href: "/privacy",
 };
+/**
+ * The bundle every case uses unless it is specifically about bundle drift. It
+ * is named rather than repeated so a case that has to activate before its own
+ * baseline snapshot cannot drift from what `register` submits by default.
+ */
+const REJECTION_REQUIREMENTS: readonly RegistrationConsentRequirement[] = [TERMS_V1];
 
 type Fixture = Readonly<{
   operation: RegistrationOperation;
@@ -154,12 +160,21 @@ describeDb("registration operation semantic validation", () => {
 
   async function register(
     body: Record<string, unknown> = {},
-    requirements: readonly RegistrationConsentRequirement[] = [TERMS_V1],
+    requirements: readonly RegistrationConsentRequirement[] = REJECTION_REQUIREMENTS,
+    options: Readonly<{ activate?: boolean }> = {},
   ) {
     // The submitted list and the current list agree unless a case moved one of
     // them first; activating here keeps every pre-existing scenario about
     // claims, participants and reservations rather than about bundle drift.
-    await activateBundle(requirements);
+    //
+    // Activation is setup, not part of what registering mutates: it drives the
+    // owning context's real register/activate commands and therefore appends to
+    // the Consent Activation Authority stream. A case that measures "this
+    // rejected registration mutated nothing" has to activate first and snapshot
+    // afterwards, so it passes `activate: false` and does its own activation.
+    if (options.activate !== false) {
+      await activateBundle(requirements);
+    }
     const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -388,8 +403,14 @@ describeDb("registration operation semantic validation", () => {
   }
 
   async function expectRejectedWithoutMutation(code: string) {
+    // Activate before the baseline so the authority appends land in `before`.
+    // The window then covers the rejected registration alone, which makes the
+    // assertion stricter than it looks: the authority streams are now inside
+    // the compared snapshot, so a rejected registration that wrote a guard or
+    // re-read-and-appended an activation would be caught here too.
+    await activateBundle(REJECTION_REQUIREMENTS);
     const before = await stateSnapshot();
-    const response = await register();
+    const response = await register({}, REJECTION_REQUIREMENTS, { activate: false });
     expect(response.status).toBe(409);
     expect((response.body.error as { code?: string } | undefined)?.code).toBe(code);
     expect(await stateSnapshot()).toEqual(before);
@@ -916,13 +937,16 @@ describeDb("registration operation semantic validation", () => {
          ) VALUES ($1, $2, $3, NULL, now())`,
       [DISPLAY_NAME_KEY, fixture.accountId, DISPLAY_NAME],
     );
+    // Activate before the baseline, then register without re-activating, so
+    // the compared window is the rejected registration alone.
+    await activateBundle([TERMS_V1, PRIVACY_V3]);
     const before = await stateSnapshot();
     expect(before.events.some((event) => event.streamId === fixture.operation.streamId)).toBe(false);
     const membershipCountBefore = before.events.filter((event) =>
       event.streamId.startsWith("identity.membership-"),
     ).length;
 
-    const rejected = await register({}, [TERMS_V1, PRIVACY_V3]);
+    const rejected = await register({}, [TERMS_V1, PRIVACY_V3], { activate: false });
 
     expect(rejected.status).toBe(409);
     expect((rejected.body.error as { code?: string } | undefined)?.code).toBe("display_name_already_taken");

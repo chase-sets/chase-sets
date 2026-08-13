@@ -333,8 +333,13 @@ describeDb("registration atomicity and convergence", () => {
           throw new Error("The late Consent participant must carry its recording event.");
         }
         lateStreamId = lateConsent.streamId;
+        // Only the participants that carry events roll back to empty. The
+        // batch also carries zero-event version guards -- including one per
+        // Consent Activation Authority the bundle resolution read -- and those
+        // streams hold the activation history the guard is checked against, so
+        // asserting they end up empty would assert the authority was erased.
         earlierStreamIds = inputs
-          .filter((input) => input.streamId !== lateConsent.streamId)
+          .filter((input) => input.streamId !== lateConsent.streamId && input.events.length > 0)
           .map((input) => input.streamId);
 
         await inner.appendToStream({

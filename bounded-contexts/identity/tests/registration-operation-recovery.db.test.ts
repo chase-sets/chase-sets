@@ -43,6 +43,14 @@ import {
   type RecordingAuthorityReader,
 } from "./consent-activation-authority-fixtures";
 
+/**
+ * The event store's hard `readAll` page cap. Asking for more is rejected
+ * outright, and a saturated page would silently truncate both sides of a
+ * before/after length comparison, so the reads below assert they saw the whole
+ * fixture history rather than one full page.
+ */
+const EVENT_HISTORY_PAGE_LIMIT = 500;
+
 // Exercised against a real Postgres sandbox, never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -493,7 +501,10 @@ describeDb("registration operation recovery", () => {
     const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
     const readsBefore = authorityReader.reads.length;
     const resolvesBefore = registrationConsentBundles.resolveCount();
-    const eventsBefore = await eventStore.readAll({ limit: 1000 });
+    const eventsBefore = await eventStore.readAll({ limit: EVENT_HISTORY_PAGE_LIMIT });
+    expect(eventsBefore.length, "the fixture history must fit in one event-store page").toBeLessThan(
+      EVENT_HISTORY_PAGE_LIMIT,
+    );
 
     const recovered = await register(bundle);
 
@@ -534,7 +545,7 @@ describeDb("registration operation recovery", () => {
     }
 
     // ...and nothing was appended.
-    const eventsAfter = await eventStore.readAll({ limit: 1000 });
+    const eventsAfter = await eventStore.readAll({ limit: EVENT_HISTORY_PAGE_LIMIT });
     expect(eventsAfter.length - eventsBefore.length, "a complete recovery appends no event").toBe(0);
 
     appendToStreams.mockRestore();
