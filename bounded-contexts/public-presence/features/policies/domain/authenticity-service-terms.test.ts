@@ -294,6 +294,30 @@ describe("authenticity service terms artifact: product-truth provenance matrix",
     expect(openQuestion).toContain("no wired integration event");
     expect(readCitedText("bounded-contexts/authenticity/README.md:39-42")).toContain("None wired yet");
   });
+
+  it("F1 regression: never denies the shipped buyer opt-in while opt-in-and-fee affirms one, and cites README.md:39-42 only for the unwired-integration claim", () => {
+    const optInSection = sectionsById.get("opt-in-and-fee")!;
+    const terminationSection = sectionsById.get("service-termination")!;
+    const artifactDescription = authenticityServiceTermsPolicyArtifact.description;
+
+    const affirmsShippedOptIn = /chase sets offers the authenticity check as a buyer opt-in/i.test(
+      optInSection.draftText,
+    );
+    expect(affirmsShippedOptIn).toBe(true);
+
+    const deniesShippedOptIn = /has not (yet )?shipped a buyer opt-in surface/i.test(terminationSection.draftText);
+    const deniesOfferedInDesc = /is not currently offered as a live,? opt-in service/i.test(artifactDescription);
+
+    expect(affirmsShippedOptIn && deniesShippedOptIn).toBe(false);
+    expect(affirmsShippedOptIn && deniesOfferedInDesc).toBe(false);
+
+    // README.md:39-42 documents that no order-placed-with-authenticity-plan
+    // integration event is wired yet; it must never be cited as evidence
+    // that the buyer opt-in surface itself has not shipped.
+    const readmeCitationText = readCitedText("bounded-contexts/authenticity/README.md:39-42");
+    expect(readmeCitationText.toLowerCase()).toContain("none wired yet");
+    expect(readmeCitationText.toLowerCase()).not.toContain("opt-in surface");
+  });
 });
 
 describe("authenticity service terms artifact: legal-claim consistency mutation table (against terms-of-service.ts)", () => {

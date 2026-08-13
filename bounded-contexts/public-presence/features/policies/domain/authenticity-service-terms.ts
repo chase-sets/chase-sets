@@ -38,7 +38,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
   },
   title: "Authenticity service terms",
   description:
-    "This versioned artifact drafts the Chase Sets authenticity service terms subject taxonomy for the counsel review packet. It is not effective until qualified counsel approves the final language, launch scope, and external approval reference; nothing in it takes effect, and the Authenticity Check is not currently offered as a live, opt-in service.",
+    "This versioned artifact drafts the Chase Sets authenticity service terms subject taxonomy for the counsel review packet. It is not effective until qualified counsel approves the final language, launch scope, and external approval reference; nothing in it takes effect. The checkout opt-in and fee described below are live, but the inspection service these terms govern is not yet operative end-to-end.",
   sections: [
     {
       id: "service-nature",
@@ -77,6 +77,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:41-52",
           "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
+          "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
         ],
         openQuestions: [
           "Checkout's buyer opt-in and fee quoting (Ordering, #4275) and the Authenticity Case judgment lifecycle described elsewhere in this document (Authenticity) are two separately shipped surfaces; Authenticity's README records no wired integration event connecting them yet (bounded-contexts/authenticity/README.md:39-42), so this document must not describe them as one connected end-to-end service.",
@@ -86,6 +87,11 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
             assertion:
               "The buyer-facing fee is resolved from the commercial-terms.authenticity-fee policy at checkout preview and frozen at order-creation time, not hand-entered.",
             evidenceRef: "bounded-contexts/ordering/features/orders/api/authenticity-fee-policy-resolver.ts:12-23",
+          },
+          {
+            assertion:
+              "The buyer opt-in offer is order-value-gated (checkout.session offers it once order value reaches the policy's optInThresholdAmount) and is unavailable for purchase-intent checkout; it cannot change once orders are created or purchase intent is submitted.",
+            evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
           },
         ],
       },
@@ -249,24 +255,31 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
       id: "service-termination",
       title: "Service availability and termination",
       draftText:
-        "The Authenticity Check is not currently offered as a live service: this document's own publication metadata records it as counsel-review-required, with no effective date and launchRequired left false, because the underlying service has not yet shipped a buyer opt-in surface. Once the service does launch, Chase Sets expects to describe its ordinary availability, Chase Sets' ability to suspend, modify, or discontinue the service, and what survives such a change, such as an already-opened Authenticity Case, in a future counsel-approved revision of this document. This document does not itself activate, enforce, or make available any Authenticity Check service.",
+        "The Authenticity Check inspection service these terms govern is not yet fully operative: this document's own publication metadata records it as counsel-review-required, with no effective date and launchRequired left false, because the inspection lifecycle these terms govern -- facility intake, verdict, and facility-to-buyer delivery -- is not yet wired to the checkout opt-in, and no Authenticity Case is opened from an order today. Once the service does launch, Chase Sets expects to describe its ordinary availability, Chase Sets' ability to suspend, modify, or discontinue the service, and what survives such a change, such as an already-opened Authenticity Case, in a future counsel-approved revision of this document. This document does not itself activate, enforce, or make available any Authenticity Check service.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State that the service is not yet live, consistent with this document's own counsel-pending metadata, and reserve future availability/termination/survival language without inventing activation machinery.",
+          "State that the inspection service is not yet wired end-to-end, consistent with this document's own counsel-pending metadata, and reserve future availability/termination/survival language without inventing activation machinery or denying the shipped checkout opt-in.",
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
           "bounded-contexts/authenticity/README.md:39-42",
+          "bounded-contexts/checkout/features/sessions/ui/checkout-shipping-section.tsx:87-98",
+          "bounded-contexts/ordering/features/orders/api/runtime.ts:1290-1307",
         ],
         openQuestions: [
-          "Availability, suspension/discontinuation, and survival terms for a live Authenticity Check service are future drafting for when the service ships a buyer opt-in surface, and are not addressed by this counsel-pending, non-effective packet document today.",
+          "Availability, suspension/discontinuation, and survival terms for a fully operative Authenticity Check service are future drafting for when the inspection lifecycle is wired end-to-end from the shipped checkout opt-in, and are not addressed by this counsel-pending, non-effective packet document today.",
         ],
         assumptions: [
           {
             assertion:
-              "This artifact's own metadata (publicationStatus: counsel-review-required, effectiveAt: null, launchRequired: false) already proves the service is not live or consent-activatable.",
+              "This artifact's own metadata (publicationStatus: counsel-review-required, effectiveAt: null, launchRequired: false) already proves the document itself is not live or consent-activatable, independent of the shipped checkout opt-in described in opt-in-and-fee.",
             evidenceRef: "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+          },
+          {
+            assertion:
+              "Authenticity's README states no order-placed-with-authenticity-plan integration event is wired yet, so no Authenticity Case is opened from an order today, even though the buyer opt-in and fee are shipped in Checkout/Ordering.",
+            evidenceRef: "bounded-contexts/authenticity/README.md:39-42",
           },
         ],
       },
