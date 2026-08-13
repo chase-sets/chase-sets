@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs features/consents/api/consent-recording-authorization.db.test.ts features/consents/read-model/consent-bundle-acceptance.db.test.ts tests/registration-atomicity.db.test.ts tests/registration-operation-recovery.db.test.ts tests/registration-operation-validation.db.test.ts",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/consents/api/consent-recording-authorization.db.test.ts --exclude features/consents/read-model/consent-bundle-acceptance.db.test.ts --exclude tests/registration-atomicity.db.test.ts --exclude tests/registration-operation-recovery.db.test.ts --exclude tests/registration-operation-validation.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/consents/api/consent-recording-authorization.db.test.ts features/consents/read-model/consent-bundle-acceptance.db.test.ts tests/registration-active-bundle-constructor-dormant.db.test.ts tests/registration-active-bundle-constructor.db.test.ts tests/registration-atomicity.db.test.ts tests/registration-operation-recovery.db.test.ts tests/registration-operation-validation.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/consents/api/consent-recording-authorization.db.test.ts --exclude features/consents/read-model/consent-bundle-acceptance.db.test.ts --exclude tests/registration-active-bundle-constructor-dormant.db.test.ts --exclude tests/registration-active-bundle-constructor.db.test.ts --exclude tests/registration-atomicity.db.test.ts --exclude tests/registration-operation-recovery.db.test.ts --exclude tests/registration-operation-validation.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {

@@ -8,8 +8,10 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { IdentityApiEnv } from "../../../api";
-import { recordingAuthorityReader } from "../../../tests/consent-activation-authority-fixtures";
-import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
+import {
+  recordingAuthorityReader,
+  type RecordingAuthorityReader,
+} from "../../../tests/consent-activation-authority-fixtures";
 import { termsOfServiceConsentRoutes, type TermsRouteDeps } from "./terms-route";
 import { createConsentRuntime } from "./runtime";
 
@@ -57,7 +59,7 @@ function buildApp(deps: TermsRouteDeps, currentActor: ResolvedActor | null = act
  */
 function buildDeps(
   consentRows: readonly Record<string, unknown>[],
-  authority: ConsentActivationAuthorityReader = recordingAuthorityReader({}),
+  authority: RecordingAuthorityReader = recordingAuthorityReader({}),
 ) {
   const commandHandler = vi.fn(async () => ({
     version: 1,
@@ -65,13 +67,24 @@ function buildDeps(
     newEvents: [],
     storedEvents: [],
   }));
+  const recordGuardedConsent = vi.fn(async () => ({ version: 1, state: { id: "cns_new" }, events: [] }));
   const db = { query: vi.fn(async () => ({ rows: consentRows, rowCount: consentRows.length })) };
   const resolvePolicy = vi.fn(async () => {
     throw new Error("resolvePolicy must never be reached by the terms acceptance route.");
   });
   const policies = { consentActivation: authority, resolvePolicy };
-  return { consents: { commandHandler }, db, policies, commandHandler, resolvePolicy } as unknown as TermsRouteDeps & {
+  return {
+    consents: { commandHandler, recordGuardedConsent },
+    db,
+    policies,
+    commandHandler,
+    recordGuardedConsent,
+    authority,
+    resolvePolicy,
+  } as unknown as TermsRouteDeps & {
     commandHandler: typeof commandHandler;
+    recordGuardedConsent: typeof recordGuardedConsent;
+    authority: RecordingAuthorityReader;
     db: typeof db;
     resolvePolicy: typeof resolvePolicy;
   };
@@ -152,6 +165,11 @@ describe("terms of service consent route", () => {
     // No Consent is recorded against an empty version, and the client-supplied
     // version is still never consulted.
     expect(deps.commandHandler).not.toHaveBeenCalled();
+    expect(deps.recordGuardedConsent).not.toHaveBeenCalled();
+    // Publication eligibility is decided before any authority read, so the
+    // shipped dormant corpus refuses this request without asking any authority
+    // whether the key is activated.
+    expect(deps.authority.reads).toEqual([]);
   });
 
   it("is idempotent: accepting again when already current does not record a duplicate consent", async () => {
@@ -181,6 +199,8 @@ describe("terms of service consent route", () => {
     expect(first.status).toBe(409);
     expect(second.status).toBe(409);
     expect(deps.commandHandler).not.toHaveBeenCalled();
+    expect(deps.recordGuardedConsent).not.toHaveBeenCalled();
+    expect(deps.authority.reads).toEqual([]);
   });
 
   it("rejects guest-checkout terms acceptance with its named authorization code and writes nothing", async () => {

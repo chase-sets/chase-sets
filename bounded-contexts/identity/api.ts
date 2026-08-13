@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
+import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -80,10 +81,17 @@ import {
   authorizeConsentForSelfRegistration,
 } from "./features/consents/domain/consent-recording-authorization";
 import {
+  requireResolvedRegistrationConsentBundle,
+  type ConsentActivationGuardBinding,
+} from "./features/consents/domain/consent-bundle";
+import {
   mintRegistrationConsentResolution,
-  resolveRegistrationConsentRequirements,
+  registrationConsentRequirementsAgree,
   verifyRegistrationConsentSubmission,
+  REGISTRATION_CONSENT_EXPIRED_CODE,
+  REGISTRATION_CONSENT_SUPERSEDED_MESSAGE,
   type RegistrationConsentRejection,
+  type RegistrationConsentRequirement,
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
@@ -624,6 +632,23 @@ async function createPersonalIdentityForAuth(
       phone,
     });
 
+    // Only an attempt that would append something resolves the bundle.
+    //
+    // A complete committed recovery has already been agreed to by the winner:
+    // every participant is committed, this attempt appends no event, and there
+    // is nothing whose version a fresh activation fact could change. Reading
+    // the authority there would make a settled registration fail because
+    // somebody activated a new policy afterwards -- and it would turn the
+    // recovery's one all-or-nothing guard batch into a guarded write against
+    // authorities it is not writing anything to.
+    const activationGuards = registrationAttemptAppendsEvents(plan)
+      ? await resolveRegistrationConsentActivationGuards({
+          services,
+          submittedRequirements: requirements,
+          claimed: claimed !== null,
+        })
+      : [];
+
     await reservePersonalAccountDisplayName(services, eventStore, {
       accountId: identity.accountId,
       displayName: identity.displayName,
@@ -638,6 +663,7 @@ async function createPersonalIdentityForAuth(
         operation,
         identity,
         plan,
+        activationGuards,
       });
     } catch (error) {
       // Whichever way this attempt ends, it committed nothing, so the
@@ -670,6 +696,63 @@ type RegistrationConsentPlan = Readonly<{
   consentEvents: readonly ConsentEvent[];
   consentState: ConsentState;
 }>;
+
+/**
+ * Whether this attempt would put any event into its batch.
+ *
+ * Written over the planned events rather than over the claim alone, because a
+ * claimed-but-incomplete operation still appends the participants that never
+ * committed. A plan with no events is the complete committed recovery: it still
+ * performs its one `appendToStreams`, carrying only the existing participants'
+ * zero-event version guards.
+ */
+function registrationAttemptAppendsEvents(plan: PersonalIdentityRegistrationPlan): boolean {
+  return (
+    plan.claimedVersion === null ||
+    plan.accountEvents.length > 0 ||
+    plan.userEvents.length > 0 ||
+    plan.membershipEvents.length > 0 ||
+    plan.consentPlans.some((consentPlan) => consentPlan.consentEvents.length > 0)
+  );
+}
+
+/**
+ * Resolve the whole registration bundle afresh and prove the submission still
+ * describes it, returning the guards the append must commit against.
+ *
+ * The submitted requirements are the ones a person was actually shown and
+ * affirmed. If the current bundle no longer derives exactly that ordered list,
+ * this attempt would record agreement to something nobody agreed to, so it
+ * appends nothing. Which failure it is depends on whether the operation is
+ * already claimed: an unclaimed attempt can simply be re-minted and retried by
+ * its caller, while a claimed one is a genuine disagreement with a bundle the
+ * winning attempt already committed.
+ */
+async function resolveRegistrationConsentActivationGuards(
+  args: Readonly<{
+    services: IdentityServices;
+    submittedRequirements: readonly RegistrationConsentRequirement[];
+    claimed: boolean;
+  }>,
+): Promise<readonly ConsentActivationGuardBinding[]> {
+  const resolution = await requireResolvedRegistrationConsentBundle(args.services.registrationConsentBundles);
+
+  if (!registrationConsentRequirementsAgree(args.submittedRequirements, resolution.requirements)) {
+    if (args.claimed) {
+      throw new RegistrationOperationConsentDisagreementError();
+    }
+    throw new RegistrationConsentRejectedError({
+      code: REGISTRATION_CONSENT_EXPIRED_CODE,
+      reason: "superseded",
+      message: REGISTRATION_CONSENT_SUPERSEDED_MESSAGE,
+    });
+  }
+
+  // Every authority the resolution actually read, including members it observed
+  // publication-ready but inactive: "inactive when read" is exactly the fact a
+  // later activation would invalidate, so it has to be guarded too.
+  return resolution.guards;
+}
 
 type PersonalIdentityRegistrationPlan = Readonly<{
   claimedVersion: number | null;
@@ -997,9 +1080,11 @@ function registrationUserContactAgrees(state: UserState, operation: Registration
 
 /**
  * One all-or-nothing append covering the registration-operation claim, the
- * account, the user, the membership, and every Consent in the ordered bundle.
- * Existing participants contribute zero-event version guards, so a late writer
- * rolls back every earlier participant in this transaction.
+ * account, the user, the membership, every Consent in the ordered bundle, and
+ * the zero-event guard for every Consent Activation Authority the bundle
+ * resolution read. Existing participants contribute zero-event version guards,
+ * so a late writer -- or an activation that moved after the bundle was
+ * resolved -- rolls back every earlier participant in this transaction.
  */
 async function appendPersonalIdentityRegistration(
   args: Readonly<{
@@ -1009,6 +1094,7 @@ async function appendPersonalIdentityRegistration(
     operation: RegistrationOperation;
     identity: RegistrationIdentity;
     plan: PersonalIdentityRegistrationPlan;
+    activationGuards: readonly ConsentActivationGuardBinding[];
   }>,
 ) {
   const { eventStore, identity, operation, params, plan } = args;
@@ -1038,6 +1124,10 @@ async function appendPersonalIdentityRegistration(
         params.context,
       ),
     ),
+    // Rendered through the owning context's helper, which admits only a guard
+    // minted by its canonical snapshot decoder. A structurally identical
+    // hand-built token is rejected here rather than silently guarding nothing.
+    ...args.activationGuards.map((binding) => consentActivationGuardAppendInput(binding.guard, params.context)),
   ]);
 
   const snapshots: IdentityMutationSnapshot[] = [
@@ -1573,15 +1663,28 @@ export function buildIdentityApi(services: IdentityServices) {
   // The mint. Anonymous by design: knowing what must be agreed to in order to
   // register is public information, and the value's authority comes from the
   // signature, not from who asked for it.
-  app.get("/internal/auth/registration-consent", (c) =>
-    c.json(
+  //
+  // The requirements are resolved through the bundle seam, so what gets signed
+  // is derived from published metadata paired with a validated Consent
+  // Activation Authority read -- never from a literal, and never from the
+  // cached policy-document value. An unresolvable bundle raises rather than
+  // minting a shorter list, and the mounted error handler redacts it: a client
+  // that cannot be told what to agree to must not be handed a signed claim that
+  // there is nothing to agree to.
+  app.get("/internal/auth/registration-consent", async (c) => {
+    const resolution = await requireResolvedRegistrationConsentBundle(services.registrationConsentBundles);
+    return c.json(
       mintRegistrationConsentResolution({
-        requirements: resolveRegistrationConsentRequirements(),
+        requirements: resolution.requirements.map((requirement) => ({
+          policyKey: requirement.policyKey,
+          version: requirement.version,
+          href: requirement.href,
+        })),
         resolvedAt: new Date().toISOString(),
         signingKeys: resolveRegistrationConsentSigningKeys(),
       }),
-    ),
-  );
+    );
+  });
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();

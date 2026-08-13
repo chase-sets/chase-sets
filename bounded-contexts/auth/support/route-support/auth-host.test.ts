@@ -316,6 +316,36 @@ describe("auth host", () => {
     });
   });
 
+  it("posts the exact fetched resolution as the register request's registration consent", async () => {
+    // Resolving before registering is not enough on its own: the value the
+    // marketplace register action POSTs has to be the value it fetched, byte
+    // for byte. A route that resolved and then assembled its own submission
+    // would still make the call sequence above look right.
+    const registrationBodies: unknown[] = [];
+    const mintedResolution = {
+      bundleKey: "registration",
+      requirements: [],
+      resolvedAt: "2026-07-25T00:00:00.000Z",
+      signature: "server-minted-test-signature",
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/registration-consent")) {
+        return Response.json(mintedResolution);
+      }
+      registrationBodies.push(JSON.parse(String(init?.body ?? "{}")));
+      return authJsonResponse(createSessionStartedResult(), [identitySource]);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
+
+    expect(registrationBodies).toHaveLength(1);
+    expect(registrationBodies[0]).toMatchObject({
+      registrationConsent: { resolution: mintedResolution, affirmed: false },
+    });
+  });
+
   it("adds the identity fresh-write receipt to passkey registration account redirects without prompting for another passkey", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       authJsonResponse(

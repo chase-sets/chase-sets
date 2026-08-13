@@ -47,9 +47,11 @@ import { IdentityDomainError } from "../../../support/runtime-support/common";
  * declared member list or a derived requirement list to decide whether
  * resolution runs, whether a guard is retained, or whether a bundle applies.
  *
- * This slice delivers the domain and read side only. No write or admission path
- * consumes a resolved bundle yet; binding Consent recording and registration to
- * a resolved bundle is owned by the terminal replacement slice.
+ * Both write paths now admit against a resolution produced here: Terms
+ * acceptance resolves one member with its guard, and registration resolves the
+ * whole `registration` bundle through the `RegistrationConsentBundleResolver`
+ * seam below. Neither re-derives activation, and neither records a version that
+ * did not come from the same read as the guard it commits against.
  */
 
 export type ConsentSubjectScope = "user" | "account";
@@ -252,10 +254,21 @@ export function deriveActivatedConsentMemberOutcome(
   };
 }
 
-type ResolvedMember = Readonly<{
+/**
+ * One member's outcome together with the guard binding retained for it, when an
+ * authority was actually read. A write path needs both halves from the SAME
+ * read: recording the version from one read and guarding against a revision
+ * observed by another is exactly the time-of-check race this pairing removes.
+ *
+ * `guard` is null only for a publication-ineligible member, which is short of
+ * an authority read by construction and therefore has nothing to guard.
+ */
+export type ConsentBundleMemberResolution = Readonly<{
   outcome: ConsentBundleMemberOutcome;
   guard: ConsentActivationGuardBinding | null;
 }>;
+
+type ResolvedMember = ConsentBundleMemberResolution;
 
 async function resolveMember(
   authority: ConsentActivationAuthorityReader,
@@ -369,6 +382,87 @@ export async function resolveConsentPolicyMemberAgainstPublication(
   publication: PublicPolicyPublicationRecord,
 ): Promise<ConsentBundleMemberOutcome> {
   return (await resolveMember(authority, policyKey, publication)).outcome;
+}
+
+/**
+ * Resolves one consent policy's outcome AND its retained guard against an
+ * explicit publication record. Same derivation and same single authority read
+ * as the outcome-only entry point above; it merely stops discarding the guard.
+ */
+export async function resolveConsentPolicyMemberWithGuardAgainstPublication(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+  publication: PublicPolicyPublicationRecord,
+): Promise<ConsentBundleMemberResolution> {
+  return resolveMember(authority, policyKey, publication);
+}
+
+/**
+ * The production per-policy write-side entry point. No corpus argument, no
+ * override, no options -- so there is nothing a recording caller can pass to
+ * make a declared-but-inactive member look like a requirement, and the guard it
+ * commits against is minted by the same read that produced the version.
+ */
+export async function resolveConsentPolicyMemberWithGuard(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+): Promise<ConsentBundleMemberResolution> {
+  if (!isIdentityConsentPolicyKey(policyKey)) {
+    throw new IdentityDomainError(`Consent policy key '${policyKey}' is not a recognized Identity consent policy.`);
+  }
+  return resolveConsentPolicyMemberWithGuardAgainstPublication(
+    authority,
+    policyKey,
+    identityConsentPolicyPublications[policyKey],
+  );
+}
+
+/**
+ * The registration write path's bundle seam.
+ *
+ * It is a member of `IdentityServices`, constructed unconditionally by the
+ * production composition root with no override port, so a host cannot compose
+ * an Identity that registers people without resolving the bundle first. A
+ * resolver returns the whole resolution -- requirements, retained guards and
+ * per-member outcomes together -- because the append has to carry guards for
+ * members observed inactive as well as for members it records.
+ */
+export type RegistrationConsentBundleResolver = Readonly<{
+  resolve: () => Promise<ConsentBundleResolution>;
+}>;
+
+/**
+ * Raised when the registration bundle could not be resolved: an activation fact
+ * contradicts its publication, or an authority could not be validated.
+ *
+ * Deliberately a bare `Error` with no `code` and a name that does not end in
+ * `DomainError`, so the mounted platform error handler cannot classify it and
+ * returns the generic redacted 500. A registration that cannot establish what a
+ * person must agree to has no honest answer to give the caller, and an
+ * unresolvable authority is an operational fault rather than a client mistake --
+ * naming it in a public body would leak which policy is misconfigured.
+ */
+export class RegistrationConsentBundleUnresolvedError extends Error {
+  public constructor() {
+    super("The registration consent bundle could not be resolved.");
+    this.name = "RegistrationConsentBundleUnresolvedError";
+  }
+}
+
+/**
+ * Resolves the registration bundle through the seam and fails closed on an
+ * unresolved answer. Every registration caller goes through here, so "resolved"
+ * is a narrowed type at every use site rather than a check each caller
+ * remembers to perform.
+ */
+export async function requireResolvedRegistrationConsentBundle(
+  resolver: RegistrationConsentBundleResolver,
+): Promise<Extract<ConsentBundleResolution, Readonly<{ resolved: true }>>> {
+  const resolution = await resolver.resolve();
+  if (!resolution.resolved) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+  return resolution;
 }
 
 /**

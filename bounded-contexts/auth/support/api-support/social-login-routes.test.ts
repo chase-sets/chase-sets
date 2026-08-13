@@ -6,6 +6,7 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { t } from "@chase-sets/localization";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -26,9 +27,13 @@ const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoiste
   },
 }));
 
-vi.mock("@chase-sets/identity/server", () => ({
-  isRegistrationConsentRejectionCode: (value: unknown) =>
-    typeof value === "string" && value.startsWith("registration_consent_"),
+// The REAL identity server module, with only the request client substituted.
+// `isRegistrationConsentRejectionCode` is production's own predicate: a
+// `startsWith("registration_consent_")` stand-in would recognize an invented
+// code that production refuses, so every redaction case below would pass
+// against a relay that actually leaks it.
+vi.mock("@chase-sets/identity/server", async () => ({
+  ...(await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server")),
   createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
     withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
@@ -900,5 +905,168 @@ describe("social login routes", () => {
     expect(replay.status).toBe(302);
     expect(replay.headers.get("Location")).toContain("/sign-in?socialLoginError=");
     expect(services.sessions.commandHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Family B: social login answers the SAME Identity failures with a browser
+ * redirect, not a JSON relay.
+ *
+ * The two families are different shipped semantics, not two spellings of one.
+ * A provider callback is a top-level browser navigation, so a JSON body would
+ * render as text in the address bar; the five JSON relays answer XHR callers
+ * that parse a body. Everything below pins the redirect form exactly, so the
+ * one-variable mutant -- replacing `redirectToFallback` with the five-family
+ * `c.json(...)` relay -- fails the status, the `Location`, the reload header
+ * and the null-body assertions together.
+ *
+ * The bodies and copy are declared locally rather than hoisted into
+ * `registration-consent-test-support.ts`, which stays byte-unchanged as a
+ * preserve control for the Auth changed-path fence.
+ */
+const SOCIAL_CONSENT_UNAVAILABLE_COPY = "Account creation is unavailable right now. Try again in a moment.";
+const SOCIAL_DISPLAY_NAME_TAKEN_COPY = "Display name is already taken.";
+
+const SOCIAL_REGISTRATION_CONSENT_LOCATION =
+  "/register?socialLoginError=Account+creation+is+unavailable+right+now.+Try+again+in+a+moment.";
+const SOCIAL_SIGN_IN_CONSENT_LOCATION =
+  "/sign-in?socialLoginError=Account+creation+is+unavailable+right+now.+Try+again+in+a+moment.";
+const SOCIAL_REGISTRATION_CONFLICT_LOCATION = "/register?socialLoginError=Display+name+is+already+taken.";
+const SOCIAL_SIGN_IN_CONFLICT_LOCATION = "/sign-in?socialLoginError=Display+name+is+already+taken.";
+
+const SOCIAL_CONSENT_REJECTION_BODIES = [
+  {
+    code: "registration_consent_not_server_minted",
+    reason: "absent",
+    message: "A server-minted registration consent resolution is required.",
+  },
+  {
+    code: "registration_consent_expired",
+    reason: "superseded",
+    message: "The registration consent resolution no longer matches the current required bundle.",
+  },
+  {
+    code: "registration_consent_affirmation_required",
+    reason: "unaffirmed",
+    message: "The registration consent resolution carries requirements that were not affirmed.",
+  },
+] as const;
+
+const SOCIAL_CONFLICT_BODIES = [
+  {
+    code: "registration_operation_consent_disagreement",
+    message: "This registration operation already recorded a different consent bundle.",
+  },
+  {
+    code: "registration_operation_participant_disagreement",
+    message: "This registration operation contains a participant that disagrees with its claim.",
+  },
+  { code: "conflict", message: "Expected stream version does not match current version." },
+  { code: "display_name_already_taken", message: "Display name is already taken." },
+] as const;
+
+function socialIdentityFailure(status: number, body: unknown) {
+  return Object.assign(new Error(`identity mutation failed with ${status}`), { status, body });
+}
+
+/**
+ * Drive a first-use social callback for one journey to the point where
+ * Identity's personal-identity constructor fails.
+ */
+async function attemptSocialFirstUse(journey: "registration" | "sign-in", failure: unknown) {
+  const services = createServices({ existingUser: null });
+  mockIdentityMutations.createPersonalIdentity.mockRejectedValue(failure);
+  mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+  const app = buildApp(services);
+
+  const start = journey === "registration" ? "/social/google/start?journey=registration" : "/social/google/start";
+  await app.request(start);
+  return app.request("/social/google/callback?state=social_token&code=provider-code");
+}
+
+async function expectSocialRedirect(response: Response, location: string) {
+  expect(response.status).toBe(302);
+  expect(response.headers.get("Location")).toBe(location);
+  expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+  // A browser navigation carries no body. The JSON relay mutant returns one.
+  expect(await response.text()).toBe("");
+  expect(response.headers.get("Content-Type") ?? "").not.toContain("application/json");
+  // These catches never propagate a return destination.
+  expect(location).not.toContain("returnTo");
+}
+
+describe("AC11 the social redirect family answers Identity's failures with a browser redirect", () => {
+  it.each(SOCIAL_CONSENT_REJECTION_BODIES)(
+    "redirects the registration journey to the registration fallback for $code/$reason",
+    async (rejection) => {
+      const response = await attemptSocialFirstUse("registration", socialIdentityFailure(400, { error: rejection }));
+
+      await expectSocialRedirect(response, SOCIAL_REGISTRATION_CONSENT_LOCATION);
+    },
+  );
+
+  it.each(SOCIAL_CONSENT_REJECTION_BODIES)(
+    "redirects the sign-in first-use journey to the sign-in fallback for $code/$reason",
+    async (rejection) => {
+      const response = await attemptSocialFirstUse("sign-in", socialIdentityFailure(400, { error: rejection }));
+
+      await expectSocialRedirect(response, SOCIAL_SIGN_IN_CONSENT_LOCATION);
+    },
+  );
+
+  it.each(SOCIAL_CONFLICT_BODIES)("redirects the registration journey for the $code conflict", async (conflict) => {
+    const response = await attemptSocialFirstUse("registration", socialIdentityFailure(409, { error: conflict }));
+
+    await expectSocialRedirect(response, SOCIAL_REGISTRATION_CONFLICT_LOCATION);
+  });
+
+  it.each(SOCIAL_CONFLICT_BODIES)(
+    "redirects the sign-in first-use journey for the $code conflict",
+    async (conflict) => {
+      const response = await attemptSocialFirstUse("sign-in", socialIdentityFailure(409, { error: conflict }));
+
+      await expectSocialRedirect(response, SOCIAL_SIGN_IN_CONFLICT_LOCATION);
+    },
+  );
+
+  it("carries exactly the shipped localized copy in the fallback query", () => {
+    // The redirect copy comes from the shipped catalogue, not from a literal in
+    // the route, so a localization edit is a failing test here rather than a
+    // silently changed redirect.
+    expect(t("auth.support.apiSupport.socialLoginRoutes.registration.consent.unavailable")).toBe(
+      SOCIAL_CONSENT_UNAVAILABLE_COPY,
+    );
+    expect(t("identity.api.display.name.already.taken")).toBe(SOCIAL_DISPLAY_NAME_TAKEN_COPY);
+    expect(
+      new URL(SOCIAL_REGISTRATION_CONSENT_LOCATION, "https://chase-sets.local").searchParams.get("socialLoginError"),
+    ).toBe(SOCIAL_CONSENT_UNAVAILABLE_COPY);
+    expect(
+      new URL(SOCIAL_SIGN_IN_CONSENT_LOCATION, "https://chase-sets.local").searchParams.get("socialLoginError"),
+    ).toBe(SOCIAL_CONSENT_UNAVAILABLE_COPY);
+    expect(
+      new URL(SOCIAL_REGISTRATION_CONFLICT_LOCATION, "https://chase-sets.local").searchParams.get("socialLoginError"),
+    ).toBe(SOCIAL_DISPLAY_NAME_TAKEN_COPY);
+    expect(
+      new URL(SOCIAL_SIGN_IN_CONFLICT_LOCATION, "https://chase-sets.local").searchParams.get("socialLoginError"),
+    ).toBe(SOCIAL_DISPLAY_NAME_TAKEN_COPY);
+  });
+
+  it("never JSON-normalizes a social login failure", async () => {
+    const response = await attemptSocialFirstUse(
+      "registration",
+      socialIdentityFailure(400, {
+        error: {
+          code: "registration_consent_not_server_minted",
+          reason: "absent",
+          message: "A server-minted registration consent resolution is required.",
+        },
+      }),
+    );
+
+    // The five JSON relays would answer 400 with this exact body. This family
+    // must not, or a provider callback renders an error document as text.
+    expect(response.status).not.toBe(400);
+    expect(response.status).not.toBe(409);
+    expect(await response.text()).not.toContain("registration_consent_not_server_minted");
   });
 });

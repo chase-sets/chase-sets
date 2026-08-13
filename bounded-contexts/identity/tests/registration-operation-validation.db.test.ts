@@ -31,6 +31,14 @@ import {
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import {
+  activateRealConsentAuthority,
+  activatedMembersFor,
+  fixtureRegistrationConsentBundleResolver,
+  recordingAuthorityReaderOver,
+  type FixtureRegistrationConsentBundleResolver,
+} from "./consent-activation-authority-fixtures";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -77,6 +85,8 @@ describeDb("registration operation semantic validation", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let policies: PolicyRuntime;
+  let registrationConsentBundles: FixtureRegistrationConsentBundleResolver;
   const context: EventStoreContext = createBootstrapContext();
 
   function createServices(store: EventStore): IdentityServices {
@@ -85,6 +95,12 @@ describeDb("registration operation semantic validation", () => {
       checkpointStore: createPostgresProjectionStore({ db: pool }),
       db: pool,
     } as const;
+    // Real authority, fixture publications: what the current bundle derives is
+    // whatever `activateBundle` has actually activated in this database.
+    policies = createPolicyRuntime({ eventStore: store, db: pool });
+    registrationConsentBundles = fixtureRegistrationConsentBundleResolver([], {
+      authority: recordingAuthorityReaderOver(policies.consentActivation),
+    });
     return {
       eventStore: store,
       db: pool,
@@ -92,6 +108,8 @@ describeDb("registration operation semantic validation", () => {
       users: createUserRuntime(dependencies),
       memberships: createMembershipRuntime(dependencies),
       consents: createConsentRuntime(dependencies),
+      registrationConsentBundles,
+      policies,
       projectors: [],
     } as unknown as IdentityServices;
   }
@@ -122,10 +140,26 @@ describeDb("registration operation semantic validation", () => {
     }
   });
 
+  /**
+   * Activate the given members on the real authority and make them
+   * publication-eligible, so the current bundle derives exactly them.
+   */
+  async function activateBundle(requirements: readonly RegistrationConsentRequirement[]) {
+    const members = activatedMembersFor(requirements);
+    for (const member of members) {
+      await activateRealConsentAuthority(policies.consentActivation, context, member);
+    }
+    registrationConsentBundles.activate(members);
+  }
+
   async function register(
     body: Record<string, unknown> = {},
     requirements: readonly RegistrationConsentRequirement[] = [TERMS_V1],
   ) {
+    // The submitted list and the current list agree unless a case moved one of
+    // them first; activating here keeps every pre-existing scenario about
+    // claims, participants and reservations rather than about bundle drift.
+    await activateBundle(requirements);
     const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

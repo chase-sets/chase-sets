@@ -11,7 +11,8 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { buildIdentityApi } from "../api";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { buildIdentityApi, createBootstrapContext } from "../api";
 import { createAccountRuntime } from "../features/accounts/api/runtime";
 import { createConsentRuntime } from "../features/consents/api/runtime";
 import { createMembershipRuntime } from "../features/memberships/api/runtime";
@@ -23,6 +24,12 @@ import {
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
+import {
+  activateRealConsentAuthority,
+  activatedMembersFor,
+  fixtureRegistrationConsentBundleResolver,
+  recordingAuthorityReaderOver,
+} from "./consent-activation-authority-fixtures";
 
 // Exercised against a real Postgres sandbox, never mocked: transaction
 // rollback, expected-version enforcement and uniqueness are exactly the
@@ -42,17 +49,19 @@ function requireDatabaseBaseUrl(): string {
 }
 
 /**
- * The activatable policy corpus is empty at present, so an ordinary request
- * resolves zero requirements and the bundle loop never runs. Verification never
- * re-resolves a submission against the corpus -- it checks the signature, the
- * freshness window and the affirmation -- so a resolution minted here with the
- * real signing keys drives the identical production path with a real
- * multi-member bundle.
+ * The multi-member bundle these cases register against.
+ *
+ * It is exactly the `registration` bundle's declared members, in declared
+ * order, because an append-producing attempt now has to agree with what the
+ * current bundle derives -- a submission naming a policy the bundle does not
+ * declare is superseded rather than recorded, which is a different case from
+ * the ones here. The corresponding fixture publications and real authority
+ * activations are set up per test, so this drives the identical production path
+ * with a genuinely multi-member ordered bundle.
  */
 const BUNDLE: readonly RegistrationConsentRequirement[] = [
   { policyKey: "terms-of-service", version: "v1", href: "/terms" },
   { policyKey: "privacy-policy", version: "v3", href: "/privacy" },
-  { policyKey: "cookie-policy", version: "v2", href: "/cookies" },
 ];
 
 /**
@@ -60,7 +69,7 @@ const BUNDLE: readonly RegistrationConsentRequirement[] = [
  * write throws; every participant ordered before it has already been attempted,
  * so "consent-2" is a failure injected after the first Consent was written.
  */
-type InjectionPosition = "account" | "user" | "membership" | "consent-1" | "consent-2" | "consent-3" | "outcome-fact";
+type InjectionPosition = "account" | "user" | "membership" | "consent-1" | "consent-2" | "outcome-fact";
 
 type FaultControl = { position: InjectionPosition | null };
 
@@ -72,7 +81,7 @@ function participantOf(streamId: string, consentOrdinal: (streamId: string) => n
   if (!streamId.startsWith("identity.consent-")) return null;
 
   const ordinal = consentOrdinal(streamId);
-  return ordinal >= 1 && ordinal <= 3 ? (`consent-${ordinal}` as InjectionPosition) : null;
+  return ordinal >= 1 && ordinal <= BUNDLE.length ? (`consent-${ordinal}` as InjectionPosition) : null;
 }
 
 /**
@@ -153,6 +162,7 @@ describeDb("registration atomicity and convergence", () => {
 
   beforeEach(async () => {
     await resetIdentitySchema();
+    await activateBundleAuthorities();
   });
 
   afterAll(async () => {
@@ -174,6 +184,14 @@ describeDb("registration atomicity and convergence", () => {
       db: pool,
     } as const;
 
+    // Real Consent Activation Authority, fixture publications. The guards this
+    // seam retains are revisions PostgreSQL actually holds, so a rolled-back
+    // batch rolls back a genuinely guarded transaction.
+    const policies = createPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const registrationConsentBundles = fixtureRegistrationConsentBundleResolver(activatedMembersFor(BUNDLE), {
+      authority: recordingAuthorityReaderOver(policies.consentActivation),
+    });
+
     const services = {
       eventStore,
       db: pool,
@@ -181,6 +199,8 @@ describeDb("registration atomicity and convergence", () => {
       users: createUserRuntime(deps),
       memberships: createMembershipRuntime(deps),
       consents: createConsentRuntime(deps),
+      registrationConsentBundles,
+      policies,
       projectors: [],
     } as unknown as IdentityServices;
 
@@ -191,6 +211,18 @@ describeDb("registration atomicity and convergence", () => {
     const fault: FaultControl = { position: null };
     const eventStore = faultInjectingEventStore(createPostgresEventStore({ pool }), fault);
     return { services: createServices(eventStore), fault, eventStore };
+  }
+
+  /**
+   * Activate the whole bundle on the real authority. Written through an
+   * uninjected store so the fault harness never sees the activation appends --
+   * the injection names registration participants, not policy activation.
+   */
+  async function activateBundleAuthorities() {
+    const policies = createPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    for (const member of activatedMembersFor(BUNDLE)) {
+      await activateRealConsentAuthority(policies.consentActivation, createBootstrapContext(), member);
+    }
   }
 
   function safeJson(text: string): Record<string, unknown> {
@@ -245,14 +277,7 @@ describeDb("registration atomicity and convergence", () => {
     };
   }
 
-  const positions: readonly InjectionPosition[] = [
-    "account",
-    "user",
-    "membership",
-    "consent-1",
-    "consent-2",
-    "consent-3",
-  ];
+  const positions: readonly InjectionPosition[] = ["account", "user", "membership", "consent-1", "consent-2"];
 
   it.each(positions)("leaves nothing partial when the registration fails at %s", async (position) => {
     const harness = createHarness();
@@ -372,6 +397,7 @@ describeDb("registration atomicity and convergence", () => {
   it(`settles concurrent same-operation registrations on one account across ${CONCURRENT_ITERATIONS} iterations`, async () => {
     for (let iteration = 1; iteration <= CONCURRENT_ITERATIONS; iteration += 1) {
       await resetIdentitySchema();
+      await activateBundleAuthorities();
       const harness = createHarness();
 
       const [left, right] = await Promise.all([register(harness, {}), register(harness, {})]);

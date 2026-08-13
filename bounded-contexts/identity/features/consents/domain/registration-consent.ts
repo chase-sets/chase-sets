@@ -93,7 +93,42 @@ export type RegistrationConsentRejectionReason =
   | "signature-invalid"
   | "stale"
   | "not-yet-valid"
-  | "unaffirmed";
+  | "unaffirmed"
+  /**
+   * A genuinely minted, fresh, affirmed resolution whose ordered requirement
+   * list is no longer the one the current bundle derives. It is an expiry, not
+   * a forgery: the value was authentic when it was minted and the authority
+   * moved underneath it, so it lands under the expiry code with its own reason
+   * rather than inventing a public code for "the bundle changed".
+   */
+  | "superseded";
+
+/** The message a superseded resolution reports. Part of the exact public 400 body. */
+export const REGISTRATION_CONSENT_SUPERSEDED_MESSAGE =
+  "The registration consent resolution no longer matches the current required bundle.";
+
+/**
+ * Whether a submitted ordered requirement list still names exactly the current
+ * bundle, pairwise and in order.
+ *
+ * Order is contract, so this is deliberately not a set comparison: the same two
+ * policies in the other order describe a different thing to agree to. `href` is
+ * not compared -- it says where a version is readable, not what was agreed --
+ * and a signed resolution's own signature already covers it.
+ */
+export function registrationConsentRequirementsAgree(
+  submitted: readonly Readonly<{ policyKey: string; version: string }>[],
+  current: readonly Readonly<{ policyKey: string; version: string }>[],
+): boolean {
+  if (submitted.length !== current.length) {
+    return false;
+  }
+
+  return submitted.every(
+    (requirement, index) =>
+      requirement.policyKey === current[index].policyKey && requirement.version === current[index].version,
+  );
+}
 
 export type RegistrationConsentRejection = Readonly<{
   code: RegistrationConsentRejectionCode;
@@ -110,22 +145,25 @@ export function isRegistrationConsentRejectionCode(value: unknown): value is Reg
 }
 
 /**
- * The ordered policy corpus the registration consent bundle activates.
+ * The legacy static requirement corpus, retained empty.
  *
- * Empty today because nothing in the shipped policy corpus is
- * consent-activatable. That emptiness is a value, not a disabled mode: a
- * resolution minted over an empty corpus is still signed, still version-bearing,
- * still carries `resolvedAt`, and is still mandatory on every first-use path. No
- * branch anywhere reads the length of this list to decide whether the
+ * The mint no longer reads it: registration resolves the whole `registration`
+ * Consent Bundle through `IdentityServices.registrationConsentBundles`, so
+ * requirements come from published metadata paired with a validated Consent
+ * Activation Authority read rather than from a literal anybody can edit. It
+ * stays because it is the permanent, machine-checkable statement that no
+ * requirement is smuggled in this way -- a non-empty value here would be a
+ * second, unguarded source of required versions.
+ *
+ * Its emptiness was never a disabled mode and still is not: a resolution minted
+ * over an empty requirement set is still signed, still version-bearing, still
+ * carries `resolvedAt`, and is still mandatory on every first-use path. No
+ * branch anywhere reads the length of a requirement list to decide whether the
  * resolution itself is required.
- *
- * When the Consent Bundle work lands, it populates this list and the invariant
- * text does not change -- only the resolver's output grows, and the paths that
- * cannot yet carry a human affirmation begin failing closed.
  */
 export const REGISTRATION_CONSENT_ACTIVATABLE_POLICIES: readonly RegistrationConsentRequirement[] = [];
 
-/** Map the activatable policy corpus into the ordered requirement set a resolution carries. */
+/** Map a requirement corpus into the ordered requirement set a resolution carries. */
 export function resolveRegistrationConsentRequirements(
   corpus: readonly RegistrationConsentRequirement[] = REGISTRATION_CONSENT_ACTIVATABLE_POLICIES,
 ): readonly RegistrationConsentRequirement[] {

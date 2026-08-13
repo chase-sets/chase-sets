@@ -10,6 +10,11 @@ import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
+import {
+  resolveConsentBundle,
+  type RegistrationConsentBundleResolver,
+} from "../../features/consents/domain/consent-bundle";
+import { REGISTRATION_CONSENT_BUNDLE_KEY } from "../../features/consents/domain/registration-consent";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
 import { createFoundersCohortRuntime } from "../../features/founders-cohort/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
@@ -28,6 +33,13 @@ export type IdentityServices = Readonly<{
   foundersCohort: ReturnType<typeof createFoundersCohortRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
+  /**
+   * The registration Consent Bundle seam. Required and non-optional: a services
+   * object that cannot resolve the bundle cannot register anybody, which is
+   * what stops a host from composing an Identity that mints or admits
+   * registration consent without consulting a validated activation authority.
+   */
+  registrationConsentBundles: RegistrationConsentBundleResolver;
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
@@ -70,6 +82,14 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const preferences = createUserPreferencesRuntime(deps);
   const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
   const shippingAddresses = createShippingAddressRuntime(deps);
+  // Bound unconditionally, with no port, no override and no options argument
+  // reaching it: there is no shape in which a caller composes this runtime and
+  // supplies a different registration bundle resolver. It is handed only the
+  // Consent Activation Authority surface, so the cached `resolvePolicy` value
+  // is structurally unreachable from bundle resolution.
+  const registrationConsentBundles: RegistrationConsentBundleResolver = {
+    resolve: () => resolveConsentBundle(policies.consentActivation, REGISTRATION_CONSENT_BUNDLE_KEY),
+  };
 
   return {
     eventStore,
@@ -81,6 +101,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     foundersCohort,
     apiKeys,
     consents,
+    registrationConsentBundles,
     preferences,
     linkedPlatformAuthorizations,
     shippingAddresses,

@@ -354,7 +354,7 @@ Notes:
 - **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
 - **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
 - Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
-- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today; the elimination sweep for consent-activation races and the write call sites that commit against a guard are owned elsewhere and do not exist yet.
+- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface; the write call sites commit against a guard today — Terms acceptance and atomic registration both carry the guard from the read that produced the version into their append — while the repository-wide elimination sweep for consent-activation races is owned elsewhere and does not exist yet.
 
 ### Consent Bundle
 
@@ -362,7 +362,7 @@ A **Consent Bundle** is the ordered set of consent policies one surface asks a s
 
 A bundle has a **declared member** list and a **derived requirement** list, and they are different things. A declared member is a consent policy the surface is *allowed* to require. A derived requirement is a member bound to the exact version a [[Consent Activation Authority]] says is active right now, plus where that version is readable.
 
-Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Binding Consent recording and atomic registration to a resolved bundle — including the ordered requirements a [[Registration Consent Resolution]] carries — is owned by a separate slice and is not part of this capability.
+The Consent Bundle is both a read-side and a write-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, backs the Terms of Service acceptance gate, and binds Consent recording and atomic registration to a resolved bundle — including the ordered requirements a [[Registration Consent Resolution]] carries, which are derived from a resolved bundle rather than declared.
 
 Notes:
 

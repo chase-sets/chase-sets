@@ -1,17 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { IdentityServices } from "../support/runtime-support/services";
-import { buildIdentityApi } from "../api";
+import { buildIdentityApi, createBootstrapContext } from "../api";
 import {
   mintRegistrationConsentResolution,
+  REGISTRATION_CONSENT_ACTIVATABLE_POLICIES,
   REGISTRATION_CONSENT_AFFIRMATION_REQUIRED_CODE,
   REGISTRATION_CONSENT_BUNDLE_KEY,
   REGISTRATION_CONSENT_EXPIRED_CODE,
   REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS,
   REGISTRATION_CONSENT_NOT_SERVER_MINTED_CODE,
+  REGISTRATION_CONSENT_SUPERSEDED_MESSAGE,
   type RegistrationConsentRequirement,
   type SignedRegistrationConsentResolution,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
+import {
+  fixtureBundleAuthorityReader,
+  fixtureRegistrationConsentBundleResolver,
+  seedFixtureAuthorityRevision,
+  type ActivatedConsentMember,
+  type FixtureRegistrationConsentBundleResolver,
+} from "./consent-activation-authority-fixtures";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 const TERMS_V1: RegistrationConsentRequirement = {
@@ -25,7 +35,20 @@ const PRIVACY_V3: RegistrationConsentRequirement = {
   href: "/privacy",
 };
 
-function createServices() {
+const TERMS_V1_MEMBER: ActivatedConsentMember = { policyKey: "terms-of-service", version: "v1" };
+const PRIVACY_V3_MEMBER: ActivatedConsentMember = { policyKey: "privacy-policy", version: "v3" };
+
+/**
+ * The corpus these suites register against.
+ *
+ * The shipped corpus activates nothing, so a suite that submits a non-empty
+ * bundle has to activate the same members through the seam -- otherwise the
+ * submission is superseded rather than recorded, which is the correct outcome
+ * and not what these cases are about. Passing the members explicitly keeps the
+ * submitted list and the current list two separate inputs, so an agreement bug
+ * cannot hide behind one shared value.
+ */
+function createServices(activated: readonly ActivatedConsentMember[] = []) {
   return {
     // Registration composes its participants into one all-or-nothing append, so
     // the store itself is what these assertions observe.
@@ -42,6 +65,7 @@ function createServices() {
     users: {
       getUserBySocialLogin: vi.fn(async () => null),
     },
+    registrationConsentBundles: fixtureRegistrationConsentBundleResolver(activated),
     policies: {
       // A newer version is active in the resolver than the one any resolution
       // below was minted with. Nothing in the registration path may consult it.
@@ -49,6 +73,24 @@ function createServices() {
     },
     projectors: [],
   } as unknown as IdentityServices;
+}
+
+function bundles(services: IdentityServices) {
+  return services.registrationConsentBundles as FixtureRegistrationConsentBundleResolver;
+}
+
+/**
+ * Bring each activated member's authority stream to the revision its scripted
+ * snapshot describes, so the guard the append carries is checked against a
+ * stream that actually holds that revision.
+ */
+async function seedActivatedAuthorities(
+  services: IdentityServices,
+  activated: readonly ActivatedConsentMember[],
+): Promise<void> {
+  for (const member of activated) {
+    await seedFixtureAuthorityRevision(store(services), member.policyKey, createBootstrapContext());
+  }
 }
 
 function store(services: IdentityServices) {
@@ -69,7 +111,7 @@ function mint(
 async function register(
   services: IdentityServices,
   body: Readonly<Record<string, unknown>>,
-): Promise<Readonly<{ status: number; body: { error?: { code?: string; reason?: string } } }>> {
+): Promise<Readonly<{ status: number; body: { error?: { code?: string; reason?: string; message?: string } } }>> {
   const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,6 +128,10 @@ async function register(
 function expectNoIdentityWritten(services: IdentityServices) {
   expect(store(services).streamIdsWithPrefix("identity."), "no identity stream may be written").toEqual([]);
   expect(services.db.query, "no display-name reservation may be written").not.toHaveBeenCalled();
+  // Signature, freshness and affirmation are decided before the bundle is
+  // resolved, so a submission that fails any of them reaches no authority read
+  // at all. A resolve here would mean verification order had drifted.
+  expect(bundles(services).resolveCount(), "a rejected submission must resolve no bundle").toBe(0);
 }
 
 function recordedConsents(services: IdentityServices) {
@@ -251,7 +297,8 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("records the minted requirement versions, not the currently active ones", async () => {
-    const services = createServices();
+    const services = createServices([TERMS_V1_MEMBER]);
+    await seedActivatedAuthorities(services, [TERMS_V1_MEMBER]);
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
@@ -263,7 +310,8 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("does not overwrite the submitted policy version with the currently active one", async () => {
-    const services = createServices();
+    const services = createServices([TERMS_V1_MEMBER]);
+    await seedActivatedAuthorities(services, [TERMS_V1_MEMBER]);
 
     // Under the deleted override this registration recorded the resolver's
     // active version (v99) for the canonical Terms of Service key, discarding
@@ -278,17 +326,83 @@ describe("registration consent resolution boundary", () => {
   });
 
   it("records every requirement in its signed order", async () => {
-    const services = createServices();
+    const services = createServices([TERMS_V1_MEMBER, PRIVACY_V3_MEMBER]);
+    await seedActivatedAuthorities(services, [TERMS_V1_MEMBER, PRIVACY_V3_MEMBER]);
 
     const { status } = await register(services, {
-      registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
+      registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true },
     });
 
     expect(status).toBe(201);
     expect(recordedConsents(services)).toEqual([
-      { policyKey: "privacy-policy", policyVersion: "v3" },
       { policyKey: "terms-of-service", policyVersion: "v1" },
+      { policyKey: "privacy-policy", policyVersion: "v3" },
     ]);
+  });
+
+  it("refuses a submission that reverses the current bundle's order and appends nothing", async () => {
+    // Same two policies, same two versions, other order. Order is contract: the
+    // subject was asked in one sequence and a reversed list describes a
+    // different thing to agree to, so this is superseded rather than recorded.
+    const services = createServices([TERMS_V1_MEMBER, PRIVACY_V3_MEMBER]);
+
+    const { status, body } = await register(services, {
+      registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
+    });
+
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe(REGISTRATION_CONSENT_EXPIRED_CODE);
+    expect(body.error?.reason).toBe("superseded");
+    expect(store(services).streamIdsWithPrefix("identity."), "no identity stream may be written").toEqual([]);
+  });
+
+  it("refuses a submission whose version the bundle has since replaced and appends nothing", async () => {
+    const services = createServices([{ policyKey: "terms-of-service", version: "v2" }]);
+
+    const { status, body } = await register(services, {
+      registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
+    });
+
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe(REGISTRATION_CONSENT_EXPIRED_CODE);
+    expect(body.error?.reason).toBe("superseded");
+    expect(body.error?.message).toBe(REGISTRATION_CONSENT_SUPERSEDED_MESSAGE);
+    expect(store(services).streamIdsWithPrefix("identity."), "no identity stream may be written").toEqual([]);
+  });
+
+  it("mints the resolved bundle rather than the legacy activatable-policy constant", async () => {
+    const services = createServices([TERMS_V1_MEMBER, PRIVACY_V3_MEMBER]);
+
+    const response = await buildIdentityApi(services).request("/internal/auth/registration-consent");
+    const resolution = (await response.json()) as SignedRegistrationConsentResolution;
+
+    expect(REGISTRATION_CONSENT_ACTIVATABLE_POLICIES, "the legacy constant stays empty").toEqual([]);
+    expect(resolution.requirements).toEqual([
+      { policyKey: "terms-of-service", version: "v1", href: "/terms" },
+      { policyKey: "privacy-policy", version: "v3", href: "/privacy" },
+    ]);
+    expect(bundles(services).resolveCount()).toBe(1);
+  });
+
+  it("redacts an unresolvable registration bundle into the generic 500 and writes nothing", async () => {
+    // A publication compiled activatable at v1 while its authority is active at
+    // v2 is a contradiction, not a shorter bundle: resolution fails, and the
+    // mint has no honest signed answer to give.
+    const services = createServices();
+    const unresolvable = fixtureRegistrationConsentBundleResolver([TERMS_V1_MEMBER], {
+      authority: fixtureBundleAuthorityReader([{ policyKey: "terms-of-service", version: "v2" }]),
+    });
+    const withUnresolvable = { ...services, registrationConsentBundles: unresolvable } as IdentityServices;
+    const app = buildIdentityApi(withUnresolvable);
+    app.onError(errorHandler);
+
+    const response = await app.request("/internal/auth/registration-consent");
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "internal_error", message: "Internal server error." },
+    });
+    expect(store(services).streamIdsWithPrefix("identity.")).toEqual([]);
   });
 
   it("rejects an affirmation whose resolution was minted for different requirements", async () => {

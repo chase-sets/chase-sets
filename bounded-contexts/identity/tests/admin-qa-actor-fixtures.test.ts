@@ -4,6 +4,7 @@ import {
   ADMIN_QA_ACTOR_FIXTURES,
   provisionAdminQaActorFixtures,
 } from "../support/runtime-support/admin-qa-actor-fixtures";
+import { fixtureRegistrationConsentBundleResolver } from "./consent-activation-authority-fixtures";
 
 type CommandEnvelope = Readonly<{
   streamId?: unknown;
@@ -25,6 +26,10 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
   const users = createCommandRecorder();
   const memberships = createCommandRecorder();
   const consents = createCommandRecorder();
+  // Provisioning stays exempt under #6120: it selects its own subject and
+  // records Consent through the generic handler, so it must never resolve a
+  // registration bundle or read a Consent Activation Authority.
+  const registrationConsentBundles = fixtureRegistrationConsentBundleResolver([]);
 
   return {
     services: {
@@ -32,6 +37,7 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
       users: { commandHandler: users.handler },
       memberships: { commandHandler: memberships.handler },
       consents: { commandHandler: consents.handler },
+      registrationConsentBundles,
       db: {
         query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
           const value = String(params?.[0] ?? "");
@@ -39,6 +45,7 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
         }),
       },
     } as unknown as IdentityServices,
+    registrationConsentBundles,
     records: {
       accounts: accounts.records,
       users: users.records,
@@ -146,6 +153,16 @@ describe("admin-qa actor fixtures", () => {
     });
     expect(records.accounts).toHaveLength(5);
     expect(records.memberships).toHaveLength(5);
+  });
+
+  it("provisions every fixture Consent without resolving a bundle or reading an activation authority", async () => {
+    const { services, registrationConsentBundles, records } = createServices();
+
+    await provisionAdminQaActorFixtures(services);
+
+    expect(records.consents.length, "provisioning still records its Consents").toBeGreaterThan(0);
+    expect(registrationConsentBundles.resolveCount(), "provisioning is exempt under #6120").toBe(0);
+    expect(registrationConsentBundles.authority().reads).toEqual([]);
   });
 
   it("keeps evidence support-safe by returning only alias, role, host, and boolean flags", async () => {

@@ -7,6 +7,7 @@ import { buildIdentityApi, type IdentityApiEnv } from "../api";
 import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { fixtureRegistrationConsentBundleResolver } from "./consent-activation-authority-fixtures";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 const actor: ResolvedActor = {
@@ -210,6 +211,10 @@ function createServices(
         resolvedAt: "2026-06-15T00:00:00.000Z",
       })),
     },
+    // Required, non-optional. This harness mints and submits the shipped empty
+    // bundle, so the mint signs an empty requirement list and the submission
+    // agrees with it.
+    registrationConsentBundles: fixtureRegistrationConsentBundleResolver([]),
     shippingAddresses: {
       commandHandler: vi.fn(async () => commandResult(71, "committed")),
       verifyShippingAddress: vi.fn(

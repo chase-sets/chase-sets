@@ -5,6 +5,7 @@ import { mintRegistrationConsentResolution } from "../features/consents/domain/r
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { fixtureRegistrationConsentBundleResolver } from "./consent-activation-authority-fixtures";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 // Registration reaches the aggregate writes only with a server-minted
@@ -38,7 +39,13 @@ function createServices() {
     },
     consents: {
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "recorded" } })),
+      recordGuardedConsent: vi.fn(async () => ({ version: 1, state: { status: "recorded" }, events: [] })),
     },
+    // Required, non-optional: an Identity that cannot resolve the registration
+    // bundle registers nobody. This harness activates nothing, matching the
+    // shipped corpus, so the empty submissions above agree with the current
+    // bundle and the recorded consent set stays empty.
+    registrationConsentBundles: fixtureRegistrationConsentBundleResolver([]),
     projectors: [],
   } as unknown as IdentityServices;
 }

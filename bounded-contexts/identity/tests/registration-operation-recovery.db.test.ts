@@ -33,6 +33,15 @@ import {
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import {
+  activateRealConsentAuthority,
+  activatedMembersFor,
+  fixtureRegistrationConsentBundleResolver,
+  recordingAuthorityReaderOver,
+  type FixtureRegistrationConsentBundleResolver,
+  type RecordingAuthorityReader,
+} from "./consent-activation-authority-fixtures";
 
 // Exercised against a real Postgres sandbox, never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -63,6 +72,9 @@ describeDb("registration operation recovery", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let registrationConsentBundles: FixtureRegistrationConsentBundleResolver;
+  let policies: PolicyRuntime;
+  let authorityReader: RecordingAuthorityReader;
   const context: EventStoreContext = createBootstrapContext();
 
   beforeAll(async () => {
@@ -87,6 +99,13 @@ describeDb("registration operation recovery", () => {
       checkpointStore: createPostgresProjectionStore({ db: pool }),
       db: pool,
     } as const;
+    // The bundle resolves against the REAL Consent Activation Authority in this
+    // database, so every guard it retains is a revision PostgreSQL actually
+    // holds. Only the publication half is a fixture, because the shipped corpus
+    // compiles nothing as consent-activatable.
+    policies = createPolicyRuntime({ eventStore, db: pool });
+    authorityReader = recordingAuthorityReaderOver(policies.consentActivation);
+    registrationConsentBundles = fixtureRegistrationConsentBundleResolver([], { authority: authorityReader });
     services = {
       eventStore,
       db: pool,
@@ -94,9 +113,20 @@ describeDb("registration operation recovery", () => {
       users: createUserRuntime(deps),
       memberships: createMembershipRuntime(deps),
       consents: createConsentRuntime(deps),
+      registrationConsentBundles,
+      policies,
       projectors: [],
     } as unknown as IdentityServices;
   });
+
+  /** Activate the given members on the real authority and make them publication-eligible. */
+  async function activateBundle(bundle: readonly RegistrationConsentRequirement[]) {
+    const members = activatedMembersFor(bundle);
+    for (const member of members) {
+      await activateRealConsentAuthority(policies.consentActivation, context, member);
+    }
+    registrationConsentBundles.activate(members);
+  }
 
   afterAll(async () => {
     if (pools) {
@@ -104,6 +134,11 @@ describeDb("registration operation recovery", () => {
     }
   });
 
+  /**
+   * Submits `bundle` as the signed resolution. What the CURRENT bundle derives
+   * is a separate input, set by `activateBundle`, so a case can move one
+   * without moving the other.
+   */
   async function register(bundle: readonly RegistrationConsentRequirement[], body: Record<string, unknown> = {}) {
     const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
       method: "POST",
@@ -274,6 +309,7 @@ describeDb("registration operation recovery", () => {
 
   it.each(partialShapes)("completes a pre-existing partial that had committed %s", async (_label, committed) => {
     const bundle = [TERMS_V1, PRIVACY_V3];
+    await activateBundle(bundle);
     const partial = await writePartialRegistration(bundle, committed);
 
     const completed = await register(bundle);
@@ -297,6 +333,7 @@ describeDb("registration operation recovery", () => {
   ] as const)(
     "issue-6299-acceptance-control completes registration recovery across the real PostgreSQL %s",
     async (_label, eventCount) => {
+      await activateBundle([TERMS_V1]);
       const partial = await writePartialRegistration([TERMS_V1], { account: true });
       const accountStreamId = `identity.account-${partial.accountId}`;
       await eventStore.appendToStream({
@@ -331,6 +368,7 @@ describeDb("registration operation recovery", () => {
   );
 
   it("appends nothing and fails closed when the claimed bundle disagrees on a policy version", async () => {
+    await activateBundle([TERMS_V1, PRIVACY_V3]);
     const partial = await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
     const before = await eventStore.readAll({ limit: 500 });
 
@@ -349,6 +387,7 @@ describeDb("registration operation recovery", () => {
   });
 
   it("appends nothing when the claimed bundle disagrees on requirement count", async () => {
+    await activateBundle([TERMS_V1, PRIVACY_V3]);
     await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
     const before = await eventStore.readAll({ limit: 500 });
 
@@ -359,6 +398,7 @@ describeDb("registration operation recovery", () => {
   });
 
   it("reclaims a reservation left behind before operations were recorded, when its account never committed", async () => {
+    await activateBundle([TERMS_V1]);
     await pool.query(
       `INSERT INTO identity_account_display_name_reservations (
          display_name_key, account_id, display_name, operation_key, created_at
@@ -378,6 +418,7 @@ describeDb("registration operation recovery", () => {
   });
 
   it(`${strandedAccountStreamReadContractSiteId} refuses to adopt a pre-operation reservation whose account really exists`, async () => {
+    await activateBundle([TERMS_V1]);
     const liveAccountId = createId("acc");
     await eventStore.appendToStream({
       streamId: `identity.account-${liveAccountId}`,
@@ -419,6 +460,7 @@ describeDb("registration operation recovery", () => {
   });
 
   it("rejects a registration that carries no verified contact at all", async () => {
+    await activateBundle([TERMS_V1]);
     const contactless = await register([TERMS_V1], { email: null, phone: null });
 
     expect(contactless.status).toBe(400);
@@ -429,7 +471,77 @@ describeDb("registration operation recovery", () => {
     expect(await streamIds("identity.registration-operation-")).toEqual([]);
   });
 
+  /**
+   * The complete-committed-recovery contract, asserted at the exact lifecycle
+   * moment it holds: after complete claim and participant histories establish
+   * that every participant already committed.
+   *
+   * All five facts are pinned together because each one alone is satisfiable by
+   * a wrong implementation. Returning early satisfies "zero appended events"
+   * and "zero authority reads" while dropping every participant guard, and
+   * dropping one participant guard satisfies "exactly one invocation" while
+   * leaving that aggregate unguarded. The two mutants below are exactly those
+   * two implementations.
+   */
+  it("retains every participant version guard on complete committed recovery", async () => {
+    const bundle = [TERMS_V1, PRIVACY_V3];
+    await activateBundle(bundle);
+
+    const first = await register(bundle);
+    expect(first.status, "the first registration must commit every participant").toBe(201);
+
+    const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
+    const readsBefore = authorityReader.reads.length;
+    const resolvesBefore = registrationConsentBundles.resolveCount();
+    const eventsBefore = await eventStore.readAll({ limit: 1000 });
+
+    const recovered = await register(bundle);
+
+    // 201 with the winner's ids.
+    expect(recovered.status).toBe(201);
+    expect(recovered.body.accountId).toBe(first.body.accountId);
+    expect(recovered.body.userId).toBe(first.body.userId);
+    expect(recovered.body.membershipId).toBe(first.body.membershipId);
+
+    // Zero authority reads: everything is committed, so there is no version
+    // whose activation could still change.
+    expect(authorityReader.reads.length - readsBefore, "a complete recovery reads no activation authority").toBe(0);
+    expect(registrationConsentBundles.resolveCount() - resolvesBefore, "and resolves no bundle").toBe(0);
+
+    // Exactly one `appendToStreams` invocation, and it must have happened --
+    // returning before it is the first bypass this pins.
+    expect(appendToStreams).toHaveBeenCalledTimes(1);
+    const inputs = appendToStreams.mock.calls[0]?.[0] ?? [];
+
+    // Its batch is exactly the existing participants, one guard each.
+    const operation = operationFor(EMAIL);
+    const consentStreamIds = (await streamIds("identity.consent-")).sort();
+    expect([...inputs].map((input) => input.streamId).sort()).toEqual(
+      [
+        operation.streamId,
+        `identity.account-${first.body.accountId}`,
+        `identity.user-${first.body.userId}`,
+        `identity.membership-${first.body.membershipId}`,
+        ...consentStreamIds,
+      ].sort(),
+    );
+    expect(inputs).toHaveLength(4 + bundle.length);
+
+    // Every input is a pure version guard...
+    for (const input of inputs) {
+      expect(input.events, `${input.streamId} must carry no events`).toEqual([]);
+      expect(input.expectedVersion, `${input.streamId} must guard a committed version`).not.toBe("any");
+    }
+
+    // ...and nothing was appended.
+    const eventsAfter = await eventStore.readAll({ limit: 1000 });
+    expect(eventsAfter.length - eventsBefore.length, "a complete recovery appends no event").toBe(0);
+
+    appendToStreams.mockRestore();
+  });
+
   it("converges an email that differs only by casing and surrounding whitespace", async () => {
+    await activateBundle([TERMS_V1]);
     const first = await register([TERMS_V1], { email: EMAIL });
     const second = await register([TERMS_V1], { email: `  ${EMAIL.toUpperCase()}  ` });
 
