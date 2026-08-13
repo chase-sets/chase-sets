@@ -1,4 +1,5 @@
 import fsPromises from "node:fs/promises";
+import { Buffer } from "node:buffer";
 import path from "node:path";
 import { validateCallInputs } from "./admission-path-syntax.mjs";
 import {
@@ -8,14 +9,25 @@ import {
 } from "./admission-object-class.mjs";
 
 /**
- * admission-contained-path/v1 is the Contained Path Outcome authority for
- * Canonical Containment, Reparse Traversal, and Both-Sided Canonicalization.
+ * admission-contained-path/v1 is the Contained Path Outcome and Bound Read
+ * Authority for Canonical Containment, Reparse Traversal, Both-Sided
+ * Canonicalization, Admitted Object Identity, and Identity-Verified Open.
  *
  * The base is assumed to be a lane-owned, single-writer tree. This decision
  * answers stable filesystem indirection for the object classes covered by the
- * delegated classifier. It does not answer a privileged concurrent adversary,
- * grant read authority, return a handle, or make any coverage claim for a
- * class that the classifier publishes outside its guarantee.
+ * delegated classifier. A replacement occurring anyway is never read as if it
+ * were contained: a bound read either yields bytes from the object the
+ * decision admitted, or refuses. It does not answer a privileged concurrent
+ * adversary or make any coverage claim for a class that the classifier
+ * publishes outside its guarantee.
+ *
+ * A residual window remains between the decision's final stat and the open.
+ * Node exposes no cross-platform component-relative open with which to remove
+ * that window. Identity verification converts a replacement in that window
+ * into a refusal; it does not prevent concurrent modification. On success,
+ * openContainedFile transfers its open handle to the caller, which owns and
+ * closes it. readContainedFile reads only through that verified handle and
+ * closes it before returning, including after every post-open refusal.
  *
  * escapes-base is defense in depth. No supported real construct at this base
  * independently reaches it after the component classifier accepts every
@@ -37,6 +49,7 @@ export const ADMISSION_CONTAINED_PATH_OUTCOMES = Object.freeze([
   "target-absent",
   "escapes-base",
   "filesystem-unavailable",
+  "target-identity-changed",
 ]);
 
 export { COVERED_OBJECT_CLASS_MATRIX, OBJECT_CLASSES_OUTSIDE_GUARANTEE };
@@ -100,6 +113,9 @@ function readBigintIdentity(stats) {
   }
 }
 
+const containedDecisionMetadata = new WeakMap();
+const boundHandleMetadata = new WeakMap();
+
 export async function resolveContainedPath(baseDirectory, relativePath, options) {
   const validation = validateCallInputs(baseDirectory, relativePath, options);
   if (validation.outcome !== "accepted") return syntaxRefusal(validation);
@@ -152,5 +168,100 @@ export async function resolveContainedPath(baseDirectory, relativePath, options)
     return frozenRecord("filesystem-unavailable");
   }
 
-  return frozenRecord("contained", { canonicalPath, objectIdentity });
+  const decision = frozenRecord("contained", { canonicalPath, objectIdentity });
+  containedDecisionMetadata.set(
+    decision,
+    Object.freeze({ filesystem, finalComponentIndex: validation.segments.length - 1 }),
+  );
+  return decision;
+}
+
+async function closeIgnoringFailure(handle) {
+  try {
+    await callFilesystem(handle, "close", []);
+  } catch {
+    // Closing is best-effort after the call's outcome is already determined.
+  }
+}
+
+function verifyOpenedIdentity(stats, admittedIdentity) {
+  const classification = classifyStatedObject(stats, "final");
+  if (classification.classification === "filesystem-unavailable") return null;
+
+  const openedIdentity = readBigintIdentity(stats);
+  if (openedIdentity === null) return null;
+  return (
+    classification.classification === "admissible" &&
+    openedIdentity.device === admittedIdentity.device &&
+    openedIdentity.index === admittedIdentity.index
+  );
+}
+
+export async function openContainedFile(baseDirectory, relativePath, options) {
+  const decision = await resolveContainedPath(baseDirectory, relativePath, options);
+  if (decision.outcome !== "contained") return decision;
+
+  const metadata = containedDecisionMetadata.get(decision);
+  if (metadata === undefined) return frozenRecord("filesystem-unavailable");
+
+  let handle;
+  try {
+    handle = await callFilesystem(metadata.filesystem, "open", [decision.canonicalPath, "r"]);
+  } catch {
+    return componentRefusal("filesystem-unavailable", metadata.finalComponentIndex);
+  }
+
+  let verification;
+  try {
+    const stats = await callFilesystem(handle, "stat", [{ bigint: true }]);
+    verification = verifyOpenedIdentity(stats, decision.objectIdentity);
+  } catch {
+    await closeIgnoringFailure(handle);
+    return componentRefusal("filesystem-unavailable", metadata.finalComponentIndex);
+  }
+
+  if (verification === null) {
+    await closeIgnoringFailure(handle);
+    return componentRefusal("filesystem-unavailable", metadata.finalComponentIndex);
+  }
+  if (!verification) {
+    await closeIgnoringFailure(handle);
+    return componentRefusal("target-identity-changed", metadata.finalComponentIndex);
+  }
+
+  const result = frozenRecord("contained", {
+    canonicalPath: decision.canonicalPath,
+    objectIdentity: decision.objectIdentity,
+    handle,
+  });
+  boundHandleMetadata.set(result, metadata);
+  return result;
+}
+
+export async function readContainedFile(baseDirectory, relativePath, options) {
+  const opened = await openContainedFile(baseDirectory, relativePath, options);
+  if (opened.outcome !== "contained") return opened;
+
+  const metadata = boundHandleMetadata.get(opened);
+  let bytes;
+  try {
+    bytes = await callFilesystem(opened.handle, "readFile", []);
+  } catch {
+    await closeIgnoringFailure(opened.handle);
+    return metadata === undefined
+      ? frozenRecord("filesystem-unavailable")
+      : componentRefusal("filesystem-unavailable", metadata.finalComponentIndex);
+  }
+
+  await closeIgnoringFailure(opened.handle);
+  if (!Buffer.isBuffer(bytes)) {
+    return metadata === undefined
+      ? frozenRecord("filesystem-unavailable")
+      : componentRefusal("filesystem-unavailable", metadata.finalComponentIndex);
+  }
+  return frozenRecord("contained", {
+    canonicalPath: opened.canonicalPath,
+    objectIdentity: opened.objectIdentity,
+    bytes,
+  });
 }
