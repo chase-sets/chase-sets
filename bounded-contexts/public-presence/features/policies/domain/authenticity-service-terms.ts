@@ -78,6 +78,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:41-52",
           "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
           "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+          "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
         ],
         openQuestions: [
           "Checkout's buyer opt-in and fee quoting (Ordering, #4275) and the Authenticity Case judgment lifecycle described elsewhere in this document (Authenticity) are two separately shipped surfaces; Authenticity's README records no wired integration event connecting them yet (bounded-contexts/authenticity/README.md:39-42), so this document must not describe them as one connected end-to-end service.",
@@ -90,8 +91,13 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           },
           {
             assertion:
-              "The buyer opt-in offer is order-value-gated (checkout.session offers it once order value reaches the policy's optInThresholdAmount) and is unavailable for purchase-intent checkout; it cannot change once orders are created or purchase intent is submitted.",
+              "The buyer opt-in offer is unavailable for purchase-intent checkout, cannot change once orders are created or purchase intent is submitted, and requires a current fee quote fingerprint when selected.",
             evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+          },
+          {
+            assertion:
+              "The order-value eligibility gate is Ordering's own policy gate, not a checkout.session behavior: Ordering's authenticity-check fee quoting treats an order as eligible only once its order value is at or above the resolved policy's optInThresholdAmount.",
+            evidenceRef: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
           },
         ],
       },

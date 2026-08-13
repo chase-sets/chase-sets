@@ -194,6 +194,16 @@ const shippedEvidenceChecks: readonly {
     keyword: "commercial-terms.authenticity-fee",
   },
   {
+    subjectId: "opt-in-and-fee",
+    ref: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+    keyword: "SelectAuthenticityCheckOptIn",
+  },
+  {
+    subjectId: "opt-in-and-fee",
+    ref: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
+    keyword: "optInThresholdAmount",
+  },
+  {
     subjectId: "custody-and-care",
     ref: "bounded-contexts/authenticity/features/cases/domain/domain.ts:253-264",
     keyword: "authenticity.case.received",
@@ -272,11 +282,17 @@ describe("authenticity service terms artifact: product-truth provenance matrix",
   );
 
   it("is red for a future-as-shipped mutant that strips the leg-two open question from funds-and-reviews", () => {
-    const section = sectionsById.get("funds-and-reviews")!;
-    expect(section.reviewManifest.openQuestions.some((question) => question.includes("#4276"))).toBe(true);
+    const citesLegTwoIssue = (candidate: { reviewManifest: { openQuestions: readonly string[] } }): boolean =>
+      candidate.reviewManifest.openQuestions.some((question) => question.includes("#4276"));
 
-    const mutant = { ...section, reviewManifest: { ...section.reviewManifest, openQuestions: [] } };
-    expect(mutant.reviewManifest.openQuestions.some((question) => question.includes("#4276"))).toBe(false);
+    const section = sectionsById.get("funds-and-reviews")!;
+    expect(citesLegTwoIssue(section)).toBe(true);
+
+    const mutant = {
+      ...section,
+      reviewManifest: { ...section.reviewManifest, openQuestions: [] as readonly string[] },
+    };
+    expect(citesLegTwoIssue(mutant)).toBe(false);
   });
 
   it("never claims an end-to-end authenticity service exists in operative draftText (N1)", () => {
