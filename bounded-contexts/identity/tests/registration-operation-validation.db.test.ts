@@ -782,11 +782,14 @@ describeDb("registration operation semantic validation", () => {
         ...Array.from({ length: profileUpdateCount }, accountProfileUpdated),
         { eventType: "identity.account.closed", payload: {} },
       ]);
+      // Activate before the baseline, then register without re-activating, so
+      // the compared window is the rejected registration alone.
+      await activateBundle(REJECTION_REQUIREMENTS);
       const before = await stateSnapshot();
 
       expect(before.events.filter((event) => event.streamId === accountStreamId)).toHaveLength(eventCount);
 
-      const response = await register();
+      const response = await register({}, REJECTION_REQUIREMENTS, { activate: false });
 
       expect(response.status).toBe(409);
       expect((response.body.error as { code?: string } | undefined)?.code).toBe(
