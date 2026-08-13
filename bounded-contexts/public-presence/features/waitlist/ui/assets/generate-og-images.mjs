@@ -25,9 +25,9 @@ const palette = {
   surface: "#0b1428",
   foreground: "#f8fafc",
   muted: "#94a3b8",
-  gradientStart: "#2dd4bf",
-  gradientMid: "#5b8ef4",
-  gradientEnd: "#93c5fd",
+  gradientStart: "#b9863b",
+  gradientMid: "#edd28d",
+  gradientEnd: "#d4a94e",
 };
 
 // The two brand-mark paths from chaseSetsLogoSvg (viewBox 0 0 1254 1254).

@@ -2,6 +2,14 @@
 @import "@fontsource/ibm-plex-sans/latin-500.css";
 @import "@fontsource/ibm-plex-sans/latin-600.css";
 @import "@fontsource/ibm-plex-sans/latin-700.css";
+@import "@fontsource/space-grotesk/latin-400.css";
+@import "@fontsource/space-grotesk/latin-500.css";
+@import "@fontsource/space-grotesk/latin-600.css";
+@import "@fontsource/space-grotesk/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-700.css";
 @import "tailwindcss";
 @config "../../../../tailwind.config.ts";
 @source "../**/*.{ts,tsx}";
@@ -74,9 +82,9 @@
     --text-secondary: #334155;
     --text-muted: #64748b;
     --text-disabled: #94a3b8;
-    --chase-logo-start: #0f766e;
-    --chase-logo-mid: #1d5fd6;
-    --chase-logo-end: #174db0;
+    --chase-logo-start: #8a682a;
+    --chase-logo-mid: #c9a44e;
+    --chase-logo-end: #a87e2f;
     --page-spotlight-a: rgba(29, 95, 214, 0.05);
     --page-spotlight-b: rgba(15, 118, 110, 0.04);
     --surface-line: rgba(255, 255, 255, 0.86);
@@ -85,7 +93,7 @@
     --shadow-md: 0 8px 20px -16px rgba(15, 23, 42, 0.28);
     --shadow-lg: 0 18px 38px -28px rgba(15, 23, 42, 0.34);
     --shadow-overlay: 0 24px 64px -32px rgba(15, 23, 42, 0.42);
-    --display-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --display-font: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
     --body-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
     --mono-font: "IBM Plex Mono", ui-monospace, monospace;
     --radius: 0.5rem;
@@ -212,9 +220,9 @@
     --dark-text-secondary: #cbd5e1;
     --dark-text-muted: #94a3b8;
     --dark-text-disabled: #64748b;
-    --dark-chase-logo-start: #2dd4bf;
-    --dark-chase-logo-mid: #5b8ef4;
-    --dark-chase-logo-end: #93c5fd;
+    --dark-chase-logo-start: #b9863b;
+    --dark-chase-logo-mid: #edd28d;
+    --dark-chase-logo-end: #d4a94e;
     --dark-page-spotlight-a: rgba(91, 142, 244, 0.06);
     --dark-page-spotlight-b: rgba(45, 212, 191, 0.045);
     --dark-surface-line: rgba(255, 255, 255, 0.06);
@@ -433,8 +441,8 @@
     --color-focus-ring: var(--ring);
     --color-accent-hover: var(--primary-hover);
     --color-accent-active: var(--primary-active);
-    --font-display: "IBM Plex Sans";
-    --font-heading: "IBM Plex Sans";
+    --font-display: "Space Grotesk";
+    --font-heading: "Space Grotesk";
     --font-body: "IBM Plex Sans";
     --font-mono: "IBM Plex Mono";
     /* Type scale */

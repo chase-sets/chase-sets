@@ -257,8 +257,8 @@ export const chaseTheme: ThemeTokens = {
     surfaceDepth: "var(--surface-depth)",
   },
   typography: {
-    display: 'var(--display-font, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif)',
-    heading: 'var(--font-heading, "IBM Plex Sans")',
+    display: 'var(--display-font, "Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif)',
+    heading: 'var(--font-heading, "Space Grotesk")',
     body: 'var(--body-font, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif)',
     mono: 'var(--mono-font, "IBM Plex Mono", ui-monospace, monospace)',
     fontSize: {

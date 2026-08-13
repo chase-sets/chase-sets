@@ -60,6 +60,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
     "scripts/dev-system.mjs",
     "scripts/format-check.mjs",
+    "scripts/generate-brand-icons.mjs",
     "scripts/identity-creation-position-guard.mjs",
     "scripts/managed-postgres-authority-guard.mjs",
     "scripts/react-router-build.mjs",
@@ -67,7 +68,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 73);
+  assert.equal(result.entrypoints.length, 74);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
