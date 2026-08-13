@@ -12,6 +12,7 @@ import {
   ISSUE_READINESS_RULES,
   ISSUE_READINESS_SCHEMA_VERSION,
   PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
+  collectIssueAuthority,
   consumeIssueReadinessReceipt,
   evaluateProspectiveIssueReadiness,
   main,
@@ -377,6 +378,7 @@ function botComment(id, body, updatedAt = UPDATED_AT) {
   return {
     id,
     node_id: `comment-${id}`,
+    issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`,
     body,
     created_at: updatedAt,
     updated_at: updatedAt,
@@ -449,7 +451,7 @@ function createHarness(scenario, { comments = [] } = {}) {
               pageInfo: { hasNextPage: dependencies.length > 1, endCursor: "cursor" },
             },
             comments: {
-              totalCount: commentState.length,
+              totalCount: scenario.commentsTotalOverride ?? commentState.length,
               pageInfo: { hasNextPage: commentState.length > 1, endCursor: "cursor" },
             },
           },
@@ -487,7 +489,16 @@ function createHarness(scenario, { comments = [] } = {}) {
           : null;
       return response(payload, { link: next });
     }
-    if (url.includes(`/issues/${ISSUE_NUMBER}/comments?`)) return response(commentState);
+    if (url.includes(`/issues/${ISSUE_NUMBER}/comments?`)) {
+      const page = Number(new URL(url).searchParams.get("page") ?? "1");
+      const payload = commentState.slice((page - 1) * 100, page * 100);
+      const next =
+        scenario.commentNextLinkOverride ??
+        (page * 100 < commentState.length
+          ? `<https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}/comments?per_page=100&page=${page + 1}>; rel="next"`
+          : null);
+      return response(payload, { link: next });
+    }
     if (method === "POST" && url.endsWith(`/issues/${ISSUE_NUMBER}/comments`)) {
       const raw = JSON.parse(init.body);
       const created = botComment(9001, raw.body, CHECKED_AT.toISOString());
@@ -1032,6 +1043,107 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
 });
 
 describe("bounded complete GitHub authority collection", () => {
+  it("collects decisive comments at positions 99, 100, and 101 through safe pagination", async () => {
+    for (const count of [99, 100, 101]) {
+      const comments = Array.from({ length: count }, (_, index) => botComment(index + 1, `comment-${index + 1}`));
+      const harness = createHarness({ body: fixture.readyBody }, { comments });
+      const authority = await collectIssueAuthority({
+        repository: REPOSITORY,
+        number: ISSUE_NUMBER,
+        token: "test-token",
+        client: harness.client,
+      });
+
+      expect(authority.complete).toBe(true);
+      expect(authority.comments).toHaveLength(count);
+      expect(authority.comments.at(-1)).toMatchObject({
+        id: count,
+        issueUrl: `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`,
+      });
+      expect(authority.coverage.comments).toMatchObject({
+        pages: count === 101 ? 2 : 1,
+        collected: count,
+        total: count,
+        complete: true,
+      });
+    }
+  });
+
+  it("projectComment gaining issue_url changes no readiness rule outcome", async () => {
+    const scenario = fixtureScenario("ready");
+    const withoutComment = await runScenario(scenario);
+    const withComment = await runScenario(scenario, { comments: [botComment(1, "ordinary comment")] });
+
+    expect(withComment.result.receipt.checkedRules).toEqual(withoutComment.result.receipt.checkedRules);
+    expect(withComment.result.receipt.status).toBe(withoutComment.result.receipt.status);
+    expect(withComment.result.receipt.reasonCodes).toEqual(withoutComment.result.receipt.reasonCodes);
+    expect(withComment.result.receipt.coverage.comments).toMatchObject({
+      collected: 1,
+      total: 1,
+      complete: true,
+    });
+  });
+
+  it("returns bounded unknown for comment caps and unsafe continuation links", async () => {
+    const cappedComments = Array.from({ length: 10_001 }, (_, index) => botComment(index + 1, `comment-${index + 1}`));
+    const cappedHarness = createHarness({ body: fixture.readyBody }, { comments: cappedComments });
+    const capped = await collectIssueAuthority({
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      token: "test-token",
+      client: cappedHarness.client,
+    });
+    expect(capped.complete).toBe(false);
+    expect(capped.reasonCodes).toContain("COLLECTION_BOUNDED");
+    expect(capped.coverage.comments).toMatchObject({ pages: 100, collected: 10_000, complete: false });
+
+    const comments = Array.from({ length: 101 }, (_, index) => botComment(index + 1, `comment-${index + 1}`));
+    const unsafeHarness = createHarness(
+      {
+        body: fixture.readyBody,
+        commentNextLinkOverride:
+          '<https://attacker.invalid/repos/chase-sets/chase-sets/issues/6680/comments?per_page=100&page=2>; rel="next"',
+      },
+      { comments },
+    );
+    const unsafe = await collectIssueAuthority({
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      token: "test-token",
+      client: unsafeHarness.client,
+    });
+    expect(unsafe.complete).toBe(false);
+    expect(unsafe.reasonCodes).toContain("PAGINATION_NEXT_UNSAFE");
+    expect(unsafeHarness.requests.some(({ url }) => url.startsWith("https://attacker.invalid"))).toBe(false);
+  });
+
+  it("returns unknown for duplicate comments and REST-versus-GraphQL total mismatch", async () => {
+    const duplicate = botComment(42, "duplicate");
+    const duplicateHarness = createHarness({ body: fixture.readyBody }, { comments: [duplicate, { ...duplicate }] });
+    const duplicateAuthority = await collectIssueAuthority({
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      token: "test-token",
+      client: duplicateHarness.client,
+    });
+    expect(duplicateAuthority.complete).toBe(false);
+    expect(duplicateAuthority.reasonCodes).toContain("COMMENT_DUPLICATE");
+
+    const mismatchHarness = createHarness(
+      { body: fixture.readyBody, commentsTotalOverride: 2 },
+      { comments: [botComment(1, "only comment")] },
+    );
+    const mismatch = await collectIssueAuthority({
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      token: "test-token",
+      client: mismatchHarness.client,
+    });
+    expect(mismatch.complete).toBe(false);
+    expect(mismatch.reasonCodes).toContain("INDEPENDENT_TOTAL_MISMATCH");
+    expect(mismatch.comments).toEqual([]);
+  });
+
   it("collects an open blocker that appears only on page two and returns not-ready", async () => {
     const { result, harness } = await runScenario(fixtureScenario("open-blocker-on-page-two"));
     const dependencyRequests = harness.requests.filter(({ url }) => url.includes("/dependencies/blocked_by?"));

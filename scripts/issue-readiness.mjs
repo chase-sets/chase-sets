@@ -369,6 +369,7 @@ function projectComment(raw) {
     !raw ||
     !nonNegativeInteger(raw.id) ||
     typeof raw.node_id !== "string" ||
+    typeof raw.issue_url !== "string" ||
     typeof raw.body !== "string" ||
     !validTimestamp(raw.created_at) ||
     !validTimestamp(raw.updated_at) ||
@@ -381,6 +382,7 @@ function projectComment(raw) {
   return {
     id: raw.id,
     nodeId: raw.node_id,
+    issueUrl: raw.issue_url,
     body: raw.body,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,

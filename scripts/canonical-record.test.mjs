@@ -31,7 +31,7 @@ const ROOT = resolve(import.meta.dirname, "..");
 const EMITTER_PATH = resolve(import.meta.dirname, "canonical-record.mjs");
 const FIXTURE_PATH = resolve(import.meta.dirname, "fixtures/canonical-record-v1.json");
 const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
-const AUTHORIZED_IMPORTERS = Object.freeze(["scripts/canonical-record.test.mjs"]);
+const AUTHORIZED_IMPORTERS = Object.freeze(["scripts/canonical-record.test.mjs", "scripts/issue-dispatch-brief.mjs"]);
 const CANONICAL_PATHS = Object.freeze([
   "scripts/canonical-record.mjs",
   "scripts/canonical-record.test.mjs",
