@@ -1648,6 +1648,244 @@
     },
     {
       "kind": "claim",
+      "id": "ink-foil-item-mobile-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records browse Ink & Foil evidence at 390x844 light @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-desktop-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records browse Ink & Foil evidence at 1280x900 dark @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-search-mobile-dark",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records search Ink & Foil evidence at 390x844 dark @marketplace-browse",
+      "route": {
+        "name": "marketplace search",
+        "path": "/search"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-search-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-search-desktop-light",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records search Ink & Foil evidence at 1280x900 light @marketplace-browse",
+      "route": {
+        "name": "marketplace search",
+        "path": "/search"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-search-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-mobile-360",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records browse Ink & Foil evidence at 360x800 light @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-mobile-360"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-tablet-820",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records browse Ink & Foil evidence at 820x1180 light @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-tablet-820"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-item-forced-colors",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "keeps the mark visible and named under forced colors @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-shell-brand-link-forced-colors",
+        "selector": "a[aria-label='Chase Sets']",
+        "populatedSelector": ":scope svg[data-color-mode='auto']"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "ink-foil-item-forced-colors"
+    },
+    {
+      "kind": "claim",
       "id": "item-detail-product-options-desktop-768",
       "file": "deployables/marketplace/e2e/item-detail.spec.ts",
       "testTitle": "preserves expanded Product options and Market book at the 768px breakpoint @marketplace-browse",
