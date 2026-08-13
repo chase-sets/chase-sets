@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
-import { link, lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,10 +16,12 @@ import {
   ADMISSION_CONTAINED_PATH_VERSION,
   COVERED_OBJECT_CLASS_MATRIX,
   OBJECT_CLASSES_OUTSIDE_GUARANTEE,
+  openContainedFile,
+  readContainedFile,
   resolveContainedPath,
 } from "./admission-contained-path.mjs";
 
-const EXPECTED_OUTCOMES = Object.freeze([
+const DECISION_OUTCOMES = Object.freeze([
   "contained",
   "input-not-a-string",
   "path-syntax-invalid",
@@ -32,12 +35,14 @@ const EXPECTED_OUTCOMES = Object.freeze([
   "escapes-base",
   "filesystem-unavailable",
 ]);
+const EXPECTED_OUTCOMES = Object.freeze([...DECISION_OUTCOMES, "target-identity-changed"]);
 const COMPONENT_OUTCOMES = new Set([
   "reparse-point-in-path",
   "component-not-a-directory",
   "target-not-a-regular-file",
   "target-multiply-linked",
   "target-absent",
+  "target-identity-changed",
 ]);
 const modulePath = fileURLToPath(new URL("./admission-contained-path.mjs", import.meta.url));
 const moduleSource = readFileSync(modulePath, "utf8");
@@ -114,7 +119,81 @@ function twoStageSyntheticFilesystem({ base, candidate, stats, canonicalCandidat
   };
 }
 
+function syntheticBoundFilesystem({
+  base,
+  candidate = path.join(base, "file.txt"),
+  decisionStats = syntheticStats("file"),
+  handleStats = decisionStats,
+  bytes = Buffer.from("admitted"),
+  openError,
+  statError,
+  readError,
+  closeError,
+} = {}) {
+  const observations = {
+    lstatOptions: [],
+    openCalls: [],
+    statOptions: [],
+    readCalls: 0,
+    closeCalls: 0,
+  };
+  let realpathCalls = 0;
+  const handle = {
+    async stat(options) {
+      observations.statOptions.push(options);
+      if (statError !== undefined) throw statError;
+      return handleStats;
+    },
+    async readFile() {
+      observations.readCalls += 1;
+      if (readError !== undefined) throw readError;
+      return bytes;
+    },
+    async close() {
+      observations.closeCalls += 1;
+      if (closeError !== undefined) throw closeError;
+    },
+  };
+  const filesystem = {
+    async realpath() {
+      realpathCalls += 1;
+      return realpathCalls % 2 === 1 ? base : candidate;
+    },
+    async lstat(_value, options) {
+      observations.lstatOptions.push(options);
+      return decisionStats;
+    },
+    async open(value, flags) {
+      observations.openCalls.push({ value, flags });
+      if (openError !== undefined) throw openError;
+      return handle;
+    },
+  };
+  return { filesystem, handle, observations };
+}
+
+function instrumentedRealFilesystem(beforeOpen) {
+  return {
+    async realpath(value) {
+      return realpath(value);
+    },
+    async lstat(value, options) {
+      return lstat(value, options);
+    },
+    async open(value, flags) {
+      await beforeOpen();
+      return open(value, flags);
+    },
+  };
+}
+
 function expectedKeys(record) {
+  if (record.outcome === "contained" && Object.hasOwn(record, "handle")) {
+    return ["canonicalPath", "handle", "objectIdentity", "outcome", "version"];
+  }
+  if (record.outcome === "contained" && Object.hasOwn(record, "bytes")) {
+    return ["bytes", "canonicalPath", "objectIdentity", "outcome", "version"];
+  }
   if (record.outcome === "contained") return ["canonicalPath", "objectIdentity", "outcome", "version"];
   if (record.outcome === "path-syntax-invalid") return ["outcome", "rule", "version"];
   if (COMPONENT_OUTCOMES.has(record.outcome)) return ["componentIndex", "outcome", "version"];
@@ -162,6 +241,16 @@ function closedRecordErrors(record, componentCount = 300) {
       if (typeof identity.index !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(identity.index)) {
         errors.push("object-identity-index");
       }
+    }
+    if (Object.hasOwn(record, "handle")) {
+      if (record.handle === null || (typeof record.handle !== "object" && typeof record.handle !== "function")) {
+        errors.push("handle");
+      }
+      if (Object.hasOwn(record, "bytes")) errors.push("mutually-exclusive-payload");
+    }
+    if (Object.hasOwn(record, "bytes")) {
+      if (!Buffer.isBuffer(record.bytes)) errors.push("bytes");
+      if (Object.hasOwn(record, "handle")) errors.push("mutually-exclusive-payload");
     }
   }
   return errors;
@@ -495,6 +584,325 @@ describe("total stage mapping, exact component indexes, and precedence", () => {
   });
 });
 
+describe("identity-verified bound reads", () => {
+  it("real filesystem control refuses an ancestor replacement at the open boundary without replacement bytes", async () => {
+    const root = await caseRoot("ancestor-replacement");
+    const base = path.join(root, "base");
+    const outside = path.join(root, "outside");
+    const parent = path.join(base, "clean");
+    const candidate = path.join(parent, "file.txt");
+    await mkdir(parent, { recursive: true });
+    await mkdir(outside);
+    await writeFile(candidate, "inside");
+    await writeFile(path.join(outside, "file.txt"), "outside");
+
+    const before = await readContainedFile(base, "clean/file.txt");
+    expect(before.outcome).toBe("contained");
+    expect(before.bytes.toString("utf8")).toBe("inside");
+
+    let replacements = 0;
+    const filesystem = instrumentedRealFilesystem(async () => {
+      replacements += 1;
+      await rm(parent, { recursive: true, force: true });
+      await createDirectoryLink(outside, parent);
+    });
+    const result = await readContainedFile(base, "clean/file.txt", { filesystem });
+
+    expect(replacements).toBe(1);
+    expect(await readFile(candidate, "utf8")).toBe("outside");
+    expect(result).toEqual({
+      version: ADMISSION_CONTAINED_PATH_VERSION,
+      outcome: "target-identity-changed",
+      componentIndex: 1,
+    });
+    expect(result).not.toHaveProperty("bytes");
+  });
+
+  it("keeps an already-open real handle bound to the admitted object after ancestor replacement", async () => {
+    const root = await caseRoot("held-handle");
+    const base = path.join(root, "base");
+    const outside = path.join(root, "outside");
+    const parent = path.join(base, "clean");
+    const candidate = path.join(parent, "file.bin");
+    await mkdir(parent, { recursive: true });
+    await mkdir(outside);
+    await writeFile(candidate, Buffer.from("inside"));
+    await writeFile(path.join(outside, "file.bin"), Buffer.from("outside"));
+
+    const opened = await openContainedFile(base, "clean/file.bin");
+    expect(opened.outcome).toBe("contained");
+    try {
+      const filesystem = instrumentedRealFilesystem(async () => {
+        await rm(parent, { recursive: true, force: true });
+        await createDirectoryLink(outside, parent);
+      });
+      const fresh = await readContainedFile(base, "clean/file.bin", { filesystem });
+      expect(fresh).toEqual({
+        version: ADMISSION_CONTAINED_PATH_VERSION,
+        outcome: "target-identity-changed",
+        componentIndex: 1,
+      });
+      expect(fresh).not.toHaveProperty("bytes");
+      await expect(opened.handle.readFile()).resolves.toEqual(Buffer.from("inside"));
+      expect(await readFile(candidate, "utf8")).toBe("outside");
+    } finally {
+      await opened.handle.close();
+    }
+  });
+
+  it("opens the admitted canonical path exactly once and preserves invalid UTF-8 bytes", async () => {
+    const base = path.resolve(tempRoot, "synthetic-canonical-base");
+    const canonicalPath = path.join(base, "canonical.bin");
+    const exactBytes = Buffer.from([0xff, 0xfe, 0x00, 0x61, 0x80]);
+    const bound = syntheticBoundFilesystem({ base, candidate: canonicalPath, bytes: exactBytes });
+
+    const result = await readContainedFile(base, "caller-name.bin", { filesystem: bound.filesystem });
+    expect(result.outcome).toBe("contained");
+    expect(result.bytes).toEqual(exactBytes);
+    expect(Buffer.isBuffer(result.bytes)).toBe(true);
+    expect(bound.observations.openCalls).toEqual([{ value: canonicalPath, flags: "r" }]);
+    expect(bound.observations.statOptions).toEqual([{ bigint: true }]);
+    expect(bound.observations.lstatOptions).toEqual([{ bigint: true }]);
+    expect(bound.observations.readCalls).toBe(1);
+    expect(bound.observations.closeCalls).toBe(1);
+  });
+
+  it("keeps adjacent above-safe-integer handle identities distinct and admits an exact bigint match", async () => {
+    const base = path.resolve(tempRoot, "synthetic-bound-bigint");
+    const admittedIndex = 18_577_348_464_917_840n;
+    const changedIndex = 18_577_348_464_917_841n;
+    expect(String(Number(admittedIndex))).toBe(String(Number(changedIndex)));
+
+    const mismatch = syntheticBoundFilesystem({
+      base,
+      decisionStats: syntheticStats("file", { device: 4_101_606_087n, index: admittedIndex }),
+      handleStats: syntheticStats("file", { device: 4_101_606_087n, index: changedIndex }),
+    });
+    await expect(readContainedFile(base, "file.txt", { filesystem: mismatch.filesystem })).resolves.toEqual({
+      version: ADMISSION_CONTAINED_PATH_VERSION,
+      outcome: "target-identity-changed",
+      componentIndex: 0,
+    });
+    expect(mismatch.observations.closeCalls).toBe(1);
+
+    const exact = syntheticBoundFilesystem({
+      base,
+      decisionStats: syntheticStats("file", { device: 4_101_606_087n, index: admittedIndex }),
+      handleStats: syntheticStats("file", { device: 4_101_606_087n, index: admittedIndex }),
+    });
+    const result = await readContainedFile(base, "file.txt", { filesystem: exact.filesystem });
+    expect(result.outcome).toBe("contained");
+    expect(result.bytes).toEqual(Buffer.from("admitted"));
+  });
+
+  it.each([
+    {
+      difference: "device",
+      handleStats: syntheticStats("file", { device: 8n, index: 11n }),
+    },
+    {
+      difference: "object class",
+      handleStats: syntheticStats("directory", { device: 7n, index: 11n }),
+    },
+    {
+      difference: "link count",
+      handleStats: syntheticStats("file", { device: 7n, index: 11n, linkCount: 2n }),
+    },
+  ])("refuses a synthetic $difference change after the decision", async ({ handleStats }) => {
+    const base = path.resolve(tempRoot, `synthetic-changed-${(caseNumber += 1)}`);
+    const bound = syntheticBoundFilesystem({ base, handleStats });
+    const result = await openContainedFile(base, "file.txt", { filesystem: bound.filesystem });
+    expect(result).toEqual({
+      version: ADMISSION_CONTAINED_PATH_VERSION,
+      outcome: "target-identity-changed",
+      componentIndex: 0,
+    });
+    expect(bound.observations.closeCalls).toBe(1);
+  });
+
+  it("round-trips a real admitted identity through the bound handle bigint stat", async () => {
+    const { base } = await createContainedFile("bound-real-identity");
+    const opened = await openContainedFile(base, "candidate.txt");
+    expect(opened.outcome).toBe("contained");
+    try {
+      const stats = await opened.handle.stat({ bigint: true });
+      expect(opened.objectIdentity).toEqual({
+        device: stats.dev.toString(10),
+        index: stats.ino.toString(10),
+      });
+    } finally {
+      await opened.handle.close();
+    }
+  });
+});
+
+describe("bound handle ownership and total post-open mapping", () => {
+  it("transfers a successful open handle without closing it and read closes its successful handle once", async () => {
+    const base = path.resolve(tempRoot, "synthetic-ownership");
+    const openedBound = syntheticBoundFilesystem({ base });
+    const opened = await openContainedFile(base, "file.txt", { filesystem: openedBound.filesystem });
+    expect(opened.outcome).toBe("contained");
+    expect(opened.handle).toBe(openedBound.handle);
+    expect(openedBound.observations.closeCalls).toBe(0);
+    await expect(opened.handle.readFile()).resolves.toEqual(Buffer.from("admitted"));
+    await opened.handle.close();
+    expect(openedBound.observations.closeCalls).toBe(1);
+
+    const readBound = syntheticBoundFilesystem({ base });
+    const read = await readContainedFile(base, "file.txt", { filesystem: readBound.filesystem });
+    expect(read.outcome).toBe("contained");
+    expect(readBound.observations.closeCalls).toBe(1);
+  });
+
+  it.each([
+    {
+      name: "identity mismatch",
+      configure: { handleStats: syntheticStats("file", { index: 12n }) },
+      expected: "target-identity-changed",
+    },
+    { name: "handle stat throw", configure: { statError: Symbol("no-code") }, expected: "filesystem-unavailable" },
+    { name: "handle read throw", configure: { readError: 17n }, expected: "filesystem-unavailable" },
+  ])("closes exactly once after a synthetic $name refusal", async ({ configure, expected }) => {
+    const base = path.resolve(tempRoot, `synthetic-close-${(caseNumber += 1)}`);
+    const bound = syntheticBoundFilesystem({ base, ...configure });
+    const result = await readContainedFile(base, "file.txt", { filesystem: bound.filesystem });
+    expect(result.outcome).toBe(expected);
+    expect(bound.observations.closeCalls).toBe(1);
+  });
+
+  it("does not close before open and maps synthetic open throws without host text", async () => {
+    const base = path.resolve(tempRoot, "synthetic-open-throw");
+    const privatePath = path.join(base, "private.txt");
+    const bound = syntheticBoundFilesystem({
+      base,
+      openError: Object.assign(new Error(`private ${privatePath}`), { code: "UNLISTED", errno: -777 }),
+    });
+    const result = await readContainedFile(base, "file.txt", { filesystem: bound.filesystem });
+    expect(result).toEqual({
+      version: ADMISSION_CONTAINED_PATH_VERSION,
+      outcome: "filesystem-unavailable",
+      componentIndex: 0,
+    });
+    expect(bound.observations.openCalls).toHaveLength(1);
+    expect(bound.observations.closeCalls).toBe(0);
+    expect(JSON.stringify(result)).not.toMatch(/private|UNLISTED|777/);
+  });
+
+  it.each(["contained", "target-identity-changed"])(
+    "preserves the otherwise reached %s outcome when synthetic close throws",
+    async (expected) => {
+      const base = path.resolve(tempRoot, `synthetic-close-throw-${expected}`);
+      const bound = syntheticBoundFilesystem({
+        base,
+        closeError: new Error("private close failure"),
+        ...(expected === "target-identity-changed" ? { handleStats: syntheticStats("file", { index: 12n }) } : {}),
+      });
+      const result = await readContainedFile(base, "file.txt", { filesystem: bound.filesystem });
+      expect(result.outcome).toBe(expected);
+      expect(bound.observations.closeCalls).toBe(1);
+    },
+  );
+
+  it("returns every pre-open decision refusal verbatim from both bound-read functions", async () => {
+    const root = await caseRoot("bound-decision-refusals");
+    const base = path.join(root, "base");
+    const outside = path.join(root, "outside");
+    await mkdir(base);
+    await mkdir(outside);
+    await mkdir(path.join(base, "directory"));
+    await writeFile(path.join(base, "intermediate.txt"), "intermediate");
+    await writeFile(path.join(base, "hard.txt"), "hard");
+    await link(path.join(base, "hard.txt"), path.join(base, "hard-copy.txt"));
+    await createDirectoryLink(outside, path.join(base, "entry"));
+    const syntheticBase = path.resolve(tempRoot, "synthetic-bound-refusals");
+    const syntheticCandidate = path.join(syntheticBase, "file.txt");
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const cases = [
+      {
+        args: [null, "file.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "input-not-a-string" },
+      },
+      {
+        args: [base, "../file.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "path-syntax-invalid", rule: "dot-segment" },
+      },
+      {
+        args: [base, "file.txt", revoked.proxy],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "options-invalid" },
+      },
+      {
+        args: [base, "entry/file.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "reparse-point-in-path", componentIndex: 0 },
+      },
+      {
+        args: [base, "intermediate.txt/file.txt"],
+        expected: {
+          version: ADMISSION_CONTAINED_PATH_VERSION,
+          outcome: "component-not-a-directory",
+          componentIndex: 0,
+        },
+      },
+      {
+        args: [base, "directory"],
+        expected: {
+          version: ADMISSION_CONTAINED_PATH_VERSION,
+          outcome: "target-not-a-regular-file",
+          componentIndex: 0,
+        },
+      },
+      {
+        args: [base, "hard.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "target-multiply-linked", componentIndex: 0 },
+      },
+      {
+        args: [path.join(root, "absent"), "file.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "base-unresolvable" },
+      },
+      {
+        args: [base, "absent.txt"],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "target-absent", componentIndex: 0 },
+      },
+      {
+        args: [syntheticBase, "file.txt"],
+        optionsFactory: () => ({
+          filesystem: twoStageSyntheticFilesystem({
+            base: syntheticBase,
+            candidate: syntheticCandidate,
+            canonicalCandidate: path.resolve(tempRoot, "synthetic-bound-outside", "file.txt"),
+            stats: syntheticStats("file"),
+          }),
+        }),
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "escapes-base" },
+      },
+      {
+        args: [
+          syntheticBase,
+          "file.txt",
+          {
+            filesystem: {
+              async realpath() {
+                return syntheticBase;
+              },
+              async lstat() {
+                throw Symbol("no-code");
+              },
+            },
+          },
+        ],
+        expected: { version: ADMISSION_CONTAINED_PATH_VERSION, outcome: "filesystem-unavailable", componentIndex: 0 },
+      },
+    ];
+
+    for (const { args, optionsFactory, expected } of cases) {
+      const openArgs = optionsFactory === undefined ? args : [...args, optionsFactory()];
+      const readArgs = optionsFactory === undefined ? args : [...args, optionsFactory()];
+      await expect(openContainedFile(...openArgs)).resolves.toEqual(expected);
+      await expect(readContainedFile(...readArgs)).resolves.toEqual(expected);
+    }
+  });
+});
+
 describe("closed versioned records and fail-closed authority", () => {
   async function outcomeRecords() {
     const containedTree = await createContainedFile("outcome-contained");
@@ -553,17 +961,17 @@ describe("closed versioned records and fail-closed authority", () => {
     ];
   }
 
-  it("publishes the exact frozen twelve-member outcome vocabulary and delegated matrices", () => {
+  it("publishes the exact frozen thirteen-member outcome vocabulary and delegated matrices", () => {
     expect(ADMISSION_CONTAINED_PATH_OUTCOMES).toEqual(EXPECTED_OUTCOMES);
     expect(Object.isFrozen(ADMISSION_CONTAINED_PATH_OUTCOMES)).toBe(true);
-    expect(new Set(ADMISSION_CONTAINED_PATH_OUTCOMES).size).toBe(12);
+    expect(new Set(ADMISSION_CONTAINED_PATH_OUTCOMES).size).toBe(13);
     expect(COVERED_OBJECT_CLASS_MATRIX).toBe(CLASSIFIER_COVERED_MATRIX);
     expect(OBJECT_CLASSES_OUTSIDE_GUARANTEE).toBe(CLASSIFIER_OUTSIDE_GUARANTEE);
   });
 
   it("returns recursively closed records with the exact component-index presence rule", async () => {
     const records = await outcomeRecords();
-    expect(new Set(records.map(({ outcome }) => outcome))).toEqual(new Set(EXPECTED_OUTCOMES));
+    expect(new Set(records.map(({ outcome }) => outcome))).toEqual(new Set(DECISION_OUTCOMES));
     for (const record of records) expect(closedRecordErrors(record)).toEqual([]);
 
     const unavailable = records.filter(({ outcome }) => outcome === "filesystem-unavailable");
@@ -621,6 +1029,40 @@ describe("closed versioned records and fail-closed authority", () => {
     for (const { mutant, error } of controls) expect(closedRecordErrors(mutant)).toContain(error);
   });
 
+  it("closes both successful bound-read shapes and rejects payload-member mutants at exact depth", async () => {
+    const { base } = await createContainedFile("bound-closed-records");
+    const opened = await openContainedFile(base, "candidate.txt");
+    expect(opened.outcome).toBe("contained");
+    expect(closedRecordErrors(opened)).toEqual([]);
+    expect(opened).toHaveProperty("handle");
+    expect(opened).not.toHaveProperty("bytes");
+    await opened.handle.close();
+
+    const read = await readContainedFile(base, "candidate.txt");
+    expect(read.outcome).toBe("contained");
+    expect(closedRecordErrors(read)).toEqual([]);
+    expect(read).toHaveProperty("bytes");
+    expect(read).not.toHaveProperty("handle");
+
+    const controls = [
+      { mutant: Object.freeze({ ...opened, unknown: true }), error: "record-keys" },
+      { mutant: Object.freeze({ ...opened, handle: null }), error: "handle" },
+      { mutant: Object.freeze({ ...read, bytes: "decoded" }), error: "bytes" },
+      {
+        mutant: Object.freeze({ ...read, handle: opened.handle }),
+        error: "record-keys",
+      },
+      {
+        mutant: Object.freeze({
+          ...read,
+          objectIdentity: Object.freeze({ ...read.objectIdentity, device: 7 }),
+        }),
+        error: "object-identity-device",
+      },
+    ];
+    for (const { mutant, error } of controls) expect(closedRecordErrors(mutant)).toContain(error);
+  });
+
   it("never throws for hostile inputs or non-Error filesystem throws", async () => {
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
@@ -668,17 +1110,49 @@ describe("closed versioned records and fail-closed authority", () => {
     expect(result.canonicalPath).toBe(await realpath(candidate));
   });
 
-  it("documents the narrowed threat and honest synthetic branch without claiming outside-class coverage", () => {
+  it("documents the narrowed threat, bound property, ownership, and residual without overclaiming", () => {
     expect(moduleSource).toMatch(/lane-owned, single-writer tree/);
-    expect(moduleSource).toMatch(/does not answer a privileged concurrent adversary/);
+    expect(moduleSource).toMatch(/does not answer a privileged concurrent[\s\S]*adversary/);
     expect(moduleSource).toMatch(/No supported real construct at this base/);
     expect(moduleSource).toMatch(/does not[\s\S]*make any coverage claim[\s\S]*outside its guarantee/);
-    expect(moduleSource).toMatch(/does not[\s\S]*grant read authority/);
+    expect(moduleSource).toMatch(/either yields bytes from the object the[\s\S]*decision admitted, or refuses/);
+    expect(moduleSource).toMatch(/residual window remains between the decision's final stat and the open/);
+    expect(moduleSource).toMatch(/does not prevent concurrent modification/);
+    expect(moduleSource).toMatch(/openContainedFile transfers its open handle to the caller/);
+    expect(moduleSource).toMatch(/readContainedFile reads only through that verified handle/);
   });
 
-  it("exports one decision function and grants no file-content read authority", () => {
-    expect(moduleSource.match(/export\s+async\s+function\s+/g)).toHaveLength(1);
-    expect(moduleSource).not.toMatch(/readFile|createReadStream|openAsBlob|fsPromises\.open|fs\.open/);
+  it("exports the decision and two bound-read functions without a path-based read", () => {
+    expect(moduleSource.match(/export\s+async\s+function\s+/g)).toHaveLength(3);
+    expect(moduleSource).not.toMatch(/createReadStream|openAsBlob|fsPromises\.readFile|fs\.readFile/);
+  });
+
+  it("keeps canonicalization and delegated object-class rules out of both bound-read functions", () => {
+    const boundReadSource = moduleSource.slice(moduleSource.indexOf("export async function openContainedFile"));
+    expect(boundReadSource).not.toMatch(/realpath|isSymbolicLink|nlink/);
+    expect(boundReadSource).not.toMatch(/path\.relative|path\.resolve/);
+  });
+
+  it("keeps target-identity-changed closed and free of observed identity or host text", async () => {
+    const base = path.resolve(tempRoot, "synthetic-closed-mismatch");
+    const bound = syntheticBoundFilesystem({
+      base,
+      handleStats: syntheticStats("file", {
+        device: 9_999_999_999n,
+        index: 18_577_348_464_917_841n,
+      }),
+    });
+    const result = await openContainedFile(base, "private-file.txt", { filesystem: bound.filesystem });
+    expect(result).toEqual({
+      version: ADMISSION_CONTAINED_PATH_VERSION,
+      outcome: "target-identity-changed",
+      componentIndex: 0,
+    });
+    expect(closedRecordErrors(result, 1)).toEqual([]);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toMatch(/9999999999|18577348464917841|private-file/);
+    expect(result).not.toHaveProperty("device");
+    expect(result).not.toHaveProperty("index");
   });
 
   it("returns no host error text, errno token, number, or path fragment in refusals", async () => {
