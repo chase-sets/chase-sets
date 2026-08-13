@@ -245,6 +245,59 @@ describe("public policy corpus compiler", () => {
     }
   });
 
+  it("isolates a Terms of Service content-only edit to the Terms module, leaving the other six and the index byte-identical", async () => {
+    const baseline = await renderPublicPolicyPublicationContracts();
+    const editedRegistry = withEditedArtifact("terms-of-service");
+    const editedTerms = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "terms-of-service");
+    const baselineTerms = publicPolicyRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === "terms-of-service",
+    );
+    // A true content-only control: no metadata, version, or publication
+    // posture moves with a section edit.
+    expect(editedTerms?.artifact.metadata).toEqual(baselineTerms?.artifact.metadata);
+
+    const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+    const changed = regenerated.filter(
+      (module) => baseline.find((entry) => entry.relativePath === module.relativePath)?.content !== module.content,
+    );
+    expect(changed.map((module) => module.relativePath)).toEqual(["terms-of-service-publication.ts"]);
+
+    const termsSiblings = [
+      "privacy-policy-publication.ts",
+      "seller-agreement-publication.ts",
+      "payments-terms-publication.ts",
+      "agent-connector-terms-publication.ts",
+      "authenticity-service-terms-publication.ts",
+      "founders-offer-terms-publication.ts",
+      "index.ts",
+    ] as const;
+    for (const sibling of termsSiblings) {
+      expect(regenerated.find((module) => module.relativePath === sibling)?.content, sibling).toBe(
+        baseline.find((module) => module.relativePath === sibling)?.content,
+      );
+    }
+
+    // A content edit moves the fingerprint and nothing else: the artifact
+    // stays counsel-pending, non-effective, and non-activatable.
+    const terms = regenerated.find((module) => module.relativePath === "terms-of-service-publication.ts");
+    expect(terms?.content).toContain('publicationStatus: "counsel-review-required"');
+    expect(terms?.content).toContain("effectiveAt: null");
+    expect(terms?.content).toContain("counselApprovalReference: null");
+    expect(terms?.content).toContain("consentActivatable: false");
+  });
+
+  it("keeps the Agent Connector Terms stub's generated record untouched by the Terms agent-boundary enrollment", async () => {
+    const modules = await renderPublicPolicyPublicationContracts();
+    const agentStub = modules.find((module) => module.relativePath === "agent-connector-terms-publication.ts");
+    const onDisk = readFileSync(
+      resolve(repoRoot, "contracts/public-docs/generated/agent-connector-terms-publication.ts"),
+      "utf8",
+    );
+
+    expect(agentStub?.content).toBe(onDisk);
+    expect(agentStub?.content).toContain("consentActivatable: false");
+  });
+
   it("stales only Privacy for a cited-source-only change, leaving every sibling and the index byte-identical", () => {
     // The cited byte range of one first-party cookie name binding. The edit is
     // whitespace-only inside the cited line: the AST, the derived subject, the

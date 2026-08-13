@@ -1,8 +1,11 @@
 export type CanonicalClaimStatus = "settled" | "unresolved";
 
 /**
- * The closed set of shared sensitive money/custody/processor claims that more
- * than one Public Policy Artifact may need to reference. Adding an id here is
+ * The closed set of shared sensitive money/custody/processor and
+ * authorized-agent-boundary claims that more than one Public Policy Artifact,
+ * or more than one section of the same artifact, may need to reference. A
+ * claim earns an id here when the same governed proposition surfaces in more
+ * than one place and must carry one status everywhere. Adding an id here is
  * the one place a claim's settled/unresolved status is decided; no artifact
  * section may assert a different status for the same id.
  */
@@ -12,6 +15,8 @@ export const canonicalClaimIds = [
   "payout-release-hold-mechanism",
   "wallet-no-interest",
   "wallet-deposit-and-fdic-posture",
+  "authorized-agent-principal-responsibility-and-liability-boundary",
+  "agent-access-suspension-and-revocation-boundary",
 ] as const;
 
 export type CanonicalClaimId = (typeof canonicalClaimIds)[number];
@@ -110,6 +115,50 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "Whether Wallet balances are treated as a bank deposit or are covered by FDIC or other deposit " +
       "insurance is not yet resolved and is not addressed by this document pending qualified counsel review.",
     forbiddenAssertionPhrases: ["insured by the fdic", "fdic insur", "not a deposit", "non-deposit", "deposit insurer"],
+  },
+  "authorized-agent-principal-responsibility-and-liability-boundary": {
+    status: "unresolved",
+    description:
+      "How far an account holder's responsibility or liability reaches for actions taken by a software agent " +
+      "the holder authorized to act on the Account is not supported by any ratified product-truth source. The " +
+      "extent is an explicit open question pending qualified counsel review before publication, not a " +
+      "productTruthRef-backed fact. 'Agent' here means that authorized software agent: Chase Sets' own limited " +
+      "payments-collection-agent role and a human authorized member of a selling account are different " +
+      "referents and are outside this claim.",
+    productTruthRefs: [],
+    requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "The extent to which an account holder is responsible or liable for actions taken by an authorized agent " +
+      "remains unresolved pending qualified counsel review.",
+    forbiddenAssertionPhrases: [
+      "you are fully responsible for",
+      "you are solely responsible for",
+      "is liable for all",
+      "assumes all liability",
+      "accepts full liability",
+    ],
+  },
+  "agent-access-suspension-and-revocation-boundary": {
+    status: "unresolved",
+    description:
+      "The grounds, process, and consequences for disabling, suspending, or revoking an authorized software " +
+      "agent's credentials or access — and for sanctioning the underlying Account because of that agent's " +
+      "conduct — are not supported by any ratified product-truth source. They are an explicit open question " +
+      "pending qualified counsel review before publication, not a productTruthRef-backed fact. Actor-neutral " +
+      "Account, selling-privilege, payout, and service-status clauses are a different subject and are outside " +
+      "this claim.",
+    productTruthRefs: [],
+    requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "The grounds, process, and consequences for suspending or revoking agent access remain unresolved pending " +
+      "qualified counsel review.",
+    forbiddenAssertionPhrases: [
+      "may suspend or revoke at any time",
+      "at chase sets' sole discretion",
+      "without notice or liability",
+      "immediately terminate agent access",
+      "reserves the right to revoke",
+    ],
   },
 } as const;
 

@@ -1,8 +1,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
-import { evaluateCanonicalClaimConsistency } from "./canonical-claim-guard";
+import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
 
@@ -47,6 +47,131 @@ function withPaymentsTermsCanonicalClaims(
         } as unknown as PublicPolicyRegistryEntry)
       : entry,
   );
+}
+
+const agentResponsibilityClaimId = "authorized-agent-principal-responsibility-and-liability-boundary";
+const agentSuspensionClaimId = "agent-access-suspension-and-revocation-boundary";
+
+/**
+ * Appends test-only sections to one registered artifact. The sections exist
+ * for the duration of one assertion and are never registered, compiled, or
+ * rendered.
+ */
+function withSyntheticSections(
+  policyKey: string,
+  sections: readonly Readonly<{ id: string; draftText: string }>[],
+): readonly PublicPolicyRegistryEntry[] {
+  return publicPolicyRegistry.map((entry) =>
+    entry.artifact.metadata.policyKey === policyKey
+      ? ({
+          ...entry,
+          artifact: {
+            ...entry.artifact,
+            sections: [
+              ...entry.artifact.sections,
+              ...sections.map((section) => ({
+                id: section.id,
+                title: "Synthetic control",
+                draftText: section.draftText,
+                reviewStatus: "counsel-required",
+                reviewManifest: {
+                  scopeNote: "Synthetic test-only section.",
+                  decisionRefs: [],
+                  productTruthRefs: [],
+                  openQuestions: ["synthetic open question"],
+                  assumptions: [],
+                },
+              })),
+            ],
+          },
+        } as unknown as PublicPolicyRegistryEntry)
+      : entry,
+  );
+}
+
+/**
+ * A one-section corpus under an unmistakably synthetic policy key, so a probe
+ * is scored strictly on its own text with nothing else in scope. Never
+ * registered, compiled, rendered, or offered as public draft text.
+ */
+function isolatedSyntheticCorpus(sectionId: string, draftText: string): readonly PublicPolicyRegistryEntry[] {
+  return [
+    {
+      artifact: {
+        metadata: { policyKey: "synthetic-semantic-probe-corpus" },
+        title: "Synthetic semantic probe corpus",
+        description: "Test-only synthetic corpus. Never registered, compiled, rendered, or published.",
+        sections: [
+          {
+            id: sectionId,
+            title: "Synthetic semantic probe",
+            draftText,
+            reviewStatus: "counsel-required",
+            reviewManifest: {
+              scopeNote: "Synthetic test-only probe.",
+              decisionRefs: [],
+              productTruthRefs: [],
+              openQuestions: ["synthetic open question"],
+              assumptions: [],
+            },
+          },
+        ],
+      },
+      requiredSubjectIds: [],
+    },
+  ] as unknown as readonly PublicPolicyRegistryEntry[];
+}
+
+/** The ten declared literals, in their declared per-claim order. */
+const declaredForbiddenLiterals = [
+  { claimId: agentResponsibilityClaimId, phrase: "you are fully responsible for" },
+  { claimId: agentResponsibilityClaimId, phrase: "you are solely responsible for" },
+  { claimId: agentResponsibilityClaimId, phrase: "is liable for all" },
+  { claimId: agentResponsibilityClaimId, phrase: "assumes all liability" },
+  { claimId: agentResponsibilityClaimId, phrase: "accepts full liability" },
+  { claimId: agentSuspensionClaimId, phrase: "may suspend or revoke at any time" },
+  { claimId: agentSuspensionClaimId, phrase: "at chase sets' sole discretion" },
+  { claimId: agentSuspensionClaimId, phrase: "without notice or liability" },
+  { claimId: agentSuspensionClaimId, phrase: "immediately terminate agent access" },
+  { claimId: agentSuspensionClaimId, phrase: "reserves the right to revoke" },
+] as const;
+
+/**
+ * Reviewer-authored, anchor-free paraphrases of the two governed propositions.
+ * None contains any declared literal. They exist to demonstrate the opposite
+ * of coverage: the lexical layer stays silent on all of them, which is why the
+ * semantic adjudication is a human judgment recorded in the review matrix and
+ * the lexical layer is only defense in depth.
+ */
+const anchorFreeSemanticProbes = [
+  {
+    sectionId: "synthetic-pa-paraphrase",
+    draftText: "The person who owns the account bears the consequences of everything a delegated program does.",
+  },
+  {
+    sectionId: "synthetic-pb-paraphrase",
+    draftText: "Chase Sets may disable a delegated program's credentials whenever its conduct violates these rules.",
+  },
+  {
+    sectionId: "synthetic-pa-bounded-agent-order",
+    draftText: "When a delegated program places an order through the profile, its owner must pay for that order.",
+  },
+  {
+    sectionId: "synthetic-pb-agent-caused-account-lock",
+    draftText: "If an automated delegate breaks an incorporated rule, Chase Sets can lock the profile it uses.",
+  },
+] as const;
+
+/** The three enrollments, and what dropping each half must report. */
+const agentBoundaryEnrollments = [
+  { sectionId: "eligibility-and-accounts", claimId: agentResponsibilityClaimId },
+  { sectionId: "electronic-agents-and-automated-access", claimId: agentResponsibilityClaimId },
+  { sectionId: "electronic-agents-and-automated-access", claimId: agentSuspensionClaimId },
+] as const;
+
+function termsSectionOf(sectionId: string) {
+  const terms = publicPolicyRegistry.find((entry) => entry.artifact.metadata.policyKey === "terms-of-service")!;
+  return terms.artifact.sections.find((candidate) => candidate.id === sectionId)!;
 }
 
 describe("canonical claim consistency guard", () => {
@@ -306,5 +431,266 @@ describe("canonical claim consistency guard", () => {
       claimId: "payment-charge-timing-and-capture",
     });
     expect(violations[0].reason).toContain("exact product-truth provenance identity");
+  });
+});
+
+describe("review-corpus projection", () => {
+  it("projects every registered section exactly once, with draft text and resolved disclosures as distinct columns", () => {
+    const rows = projectCanonicalClaimReviewCorpus(publicPolicyRegistry);
+
+    const expectedKeys = publicPolicyRegistry.flatMap((entry) =>
+      entry.artifact.sections.map((section) => `${entry.artifact.metadata.policyKey}#${section.id}`),
+    );
+    const actualKeys = rows.map((row) => `${row.policyKey}#${row.sectionId}`);
+
+    expect(actualKeys).toEqual(expectedKeys);
+    expect(new Set(actualKeys).size).toBe(actualKeys.length);
+    expect(rows.length).toBeGreaterThan(0);
+
+    for (const row of rows) {
+      const section = publicPolicyRegistry
+        .find((entry) => entry.artifact.metadata.policyKey === row.policyKey)!
+        .artifact.sections.find((candidate) => candidate.id === row.sectionId)!;
+
+      // Column one is the operative prose exactly as registered.
+      expect(row.draftText).toBe(section.draftText);
+
+      for (const disclosure of row.claimDisclosures) {
+        // Column two is resolved from the registry, never from the section...
+        expect(disclosure.disclosureText).toBe(resolveUnresolvedPublicDisclosureText(disclosure.claimId));
+        expect(disclosure.disclosureText.length).toBeGreaterThan(0);
+        // ...and the two columns never bleed into one another, so a reviewer
+        // can read draft text alone and see a declined proposition as absent
+        // rather than as asserted.
+        expect(row.draftText).not.toContain(disclosure.disclosureText);
+      }
+    }
+  });
+
+  it("surfaces exactly the three agent-boundary enrollments across exactly two sections", () => {
+    const rows = projectCanonicalClaimReviewCorpus(publicPolicyRegistry);
+    const enrolled = rows.flatMap((row) =>
+      row.claimDisclosures
+        .filter(
+          (disclosure) =>
+            disclosure.claimId === agentResponsibilityClaimId || disclosure.claimId === agentSuspensionClaimId,
+        )
+        .map((disclosure) => ({ row: `${row.policyKey}#${row.sectionId}`, claimId: disclosure.claimId })),
+    );
+
+    expect(enrolled).toEqual([
+      { row: "terms-of-service#eligibility-and-accounts", claimId: agentResponsibilityClaimId },
+      { row: "terms-of-service#electronic-agents-and-automated-access", claimId: agentResponsibilityClaimId },
+      { row: "terms-of-service#electronic-agents-and-automated-access", claimId: agentSuspensionClaimId },
+    ]);
+    expect(new Set(enrolled.map((entry) => entry.row)).size).toBe(2);
+  });
+});
+
+describe("authorized-agent boundary claims", () => {
+  it("holds both identities unresolved with one status, one provenance, and no product truth", () => {
+    for (const claimId of [agentResponsibilityClaimId, agentSuspensionClaimId] as const) {
+      const definition = canonicalClaimRegistry[claimId];
+
+      expect(definition.status).toBe("unresolved");
+      expect(definition.productTruthRefs).toEqual([]);
+      expect(definition.requiredEvidenceKeywords).toEqual([]);
+      expect(definition.unresolvedPublicDisclosure).toBeTruthy();
+    }
+  });
+
+  it("declares the ten literals exactly as ordered", () => {
+    expect(canonicalClaimRegistry[agentResponsibilityClaimId].forbiddenAssertionPhrases).toEqual(
+      declaredForbiddenLiterals.filter((entry) => entry.claimId === agentResponsibilityClaimId).map((e) => e.phrase),
+    );
+    expect(canonicalClaimRegistry[agentSuspensionClaimId].forbiddenAssertionPhrases).toEqual(
+      declaredForbiddenLiterals.filter((entry) => entry.claimId === agentSuspensionClaimId).map((e) => e.phrase),
+    );
+    expect(declaredForbiddenLiterals).toHaveLength(10);
+  });
+
+  it("table: each declared literal fails with its own claimId and no other", () => {
+    for (const { claimId, phrase } of declaredForbiddenLiterals) {
+      const registry = withSyntheticSections("payments-terms", [
+        {
+          id: "synthetic-declared-literal-probe",
+          draftText: `Synthetic probe sentence: ${phrase} the stated subject.`,
+        },
+      ]);
+
+      const hits = evaluateCanonicalClaimConsistency(registry, repoRoot).filter(
+        (violation) => violation.sectionId === "synthetic-declared-literal-probe",
+      );
+
+      expect(
+        hits.map((violation) => violation.claimId),
+        `literal '${phrase}'`,
+      ).toEqual([claimId]);
+      expect(hits[0].reason).toContain(phrase);
+      expect(hits[0].reason).toContain("forbidden settled-style assertion");
+    }
+  });
+
+  it("reports zero declared-literal matches over every registered section at the candidate head", () => {
+    expect(evaluateCanonicalClaimConsistency(publicPolicyRegistry, repoRoot)).toEqual([]);
+
+    const matches = projectCanonicalClaimReviewCorpus(publicPolicyRegistry).flatMap((row) =>
+      declaredForbiddenLiterals
+        .filter((literal) => row.draftText.toLowerCase().includes(literal.phrase))
+        .map((literal) => `${row.policyKey}#${row.sectionId}: ${literal.phrase}`),
+    );
+
+    expect(matches).toEqual([]);
+  });
+
+  it("leaves both must-stay-green controls green: the Account suspension subject and the limited collection-agent role", () => {
+    const controls = [
+      { policyKey: "terms-of-service", sectionId: "suspension-closure-and-holds" },
+      { policyKey: "terms-of-service", sectionId: "marketplace-role-and-limited-payments-agent" },
+      { policyKey: "payments-terms", sectionId: "processor-pass-through-and-collection-agent-role" },
+    ] as const;
+
+    for (const control of controls) {
+      const entry = publicPolicyRegistry.find(
+        (candidate) => candidate.artifact.metadata.policyKey === control.policyKey,
+      )!;
+      const section = entry.artifact.sections.find((candidate) => candidate.id === control.sectionId);
+
+      expect(section, `${control.policyKey}#${control.sectionId} must exist`).toBeDefined();
+      expect(
+        evaluateCanonicalClaimConsistency(
+          [{ artifact: { ...entry.artifact, sections: [section!] }, requiredSubjectIds: [] }],
+          repoRoot,
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  it("negative control: every anchor-free paraphrase stays lexically silent, so the literals are not the semantic oracle", () => {
+    for (const probe of anchorFreeSemanticProbes) {
+      // Scored in isolation, on its own synthetic section id.
+      const isolated = evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus(probe.sectionId, probe.draftText),
+        repoRoot,
+      );
+      expect(isolated, `${probe.sectionId} isolated lexical report`).toEqual([]);
+
+      for (const literal of declaredForbiddenLiterals) {
+        expect(probe.draftText.toLowerCase()).not.toContain(literal.phrase);
+      }
+    }
+  });
+
+  it("negative control: the two paraphrases stay lexically silent inside an otherwise-valid registered section", () => {
+    for (const probe of anchorFreeSemanticProbes.slice(0, 2)) {
+      const section = termsSectionOf("conduct-and-policy-incorporation");
+      const registry = withTermsOfServiceSectionOverride("conduct-and-policy-incorporation", {
+        draftText: `${section.draftText} ${probe.draftText}`,
+      });
+
+      // The override must actually have landed, or the empty violation list
+      // below would prove nothing at all.
+      const mutated = projectCanonicalClaimReviewCorpus(registry).find(
+        (row) => row.policyKey === "terms-of-service" && row.sectionId === "conduct-and-policy-incorporation",
+      );
+      expect(mutated?.draftText, `${probe.sectionId} must be injected`).toContain(probe.draftText);
+
+      expect(evaluateCanonicalClaimConsistency(registry, repoRoot), `${probe.sectionId} injected`).toEqual([]);
+    }
+  });
+
+  it("negative control: dropping a claimDisclosures segment fails naming the exact claimId and section", () => {
+    for (const enrollment of agentBoundaryEnrollments) {
+      const section = termsSectionOf(enrollment.sectionId);
+      const registry = withTermsOfServiceSectionOverride(enrollment.sectionId, {
+        claimDisclosures: (section.claimDisclosures ?? []).filter(
+          (disclosure) => disclosure.claimId !== enrollment.claimId,
+        ),
+      });
+
+      const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+      expect(
+        violations.some(
+          (violation) =>
+            violation.policyKey === "terms-of-service" &&
+            violation.sectionId === enrollment.sectionId &&
+            violation.claimId === enrollment.claimId &&
+            violation.reason.includes("no structural claimDisclosures segment"),
+        ),
+        `${enrollment.sectionId}/${enrollment.claimId}`,
+      ).toBe(true);
+    }
+  });
+
+  it("negative control: dropping the mirroring manifest entry fails naming the exact claimId and section", () => {
+    for (const enrollment of agentBoundaryEnrollments) {
+      const section = termsSectionOf(enrollment.sectionId);
+      const registry = withTermsOfServiceSectionOverride(enrollment.sectionId, {
+        reviewManifest: {
+          ...section.reviewManifest,
+          canonicalClaims: (section.reviewManifest.canonicalClaims ?? []).filter(
+            (claimRef) => claimRef.claimId !== enrollment.claimId,
+          ),
+        },
+      });
+
+      const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);
+      expect(
+        violations.some(
+          (violation) =>
+            violation.policyKey === "terms-of-service" &&
+            violation.sectionId === enrollment.sectionId &&
+            violation.claimId === enrollment.claimId &&
+            violation.reason.includes("not tracked in this section's reviewManifest"),
+        ),
+        `${enrollment.sectionId}/${enrollment.claimId}`,
+      ).toBe(true);
+    }
+  });
+
+  it("negative control: marking either new claim settled fails naming the exact claimId and section", async () => {
+    for (const claimId of [agentResponsibilityClaimId, agentSuspensionClaimId] as const) {
+      vi.resetModules();
+      vi.doMock("./canonical-claims", async () => {
+        const actual = await vi.importActual<typeof import("./canonical-claims")>("./canonical-claims");
+        return {
+          ...actual,
+          canonicalClaimRegistry: {
+            ...actual.canonicalClaimRegistry,
+            [claimId]: { ...actual.canonicalClaimRegistry[claimId], status: "settled" },
+          },
+        };
+      });
+
+      const { evaluateCanonicalClaimConsistency: evaluateWithSettledClaim } = await import("./canonical-claim-guard");
+      const violations = evaluateWithSettledClaim(publicPolicyRegistry, repoRoot);
+      const enrolledSections = agentBoundaryEnrollments
+        .filter((enrollment) => enrollment.claimId === claimId)
+        .map((enrollment) => enrollment.sectionId);
+
+      for (const sectionId of enrolledSections) {
+        expect(
+          violations.some(
+            (violation) =>
+              violation.sectionId === sectionId &&
+              violation.claimId === claimId &&
+              violation.reason.includes("cites no product-truth evidence"),
+          ),
+          `${sectionId}/${claimId} settled-without-evidence`,
+        ).toBe(true);
+        expect(
+          violations.some(
+            (violation) =>
+              violation.sectionId === sectionId &&
+              violation.claimId === claimId &&
+              violation.reason.includes("the canonical registry marks settled"),
+          ),
+          `${sectionId}/${claimId} disclosure-on-settled-claim`,
+        ).toBe(true);
+      }
+
+      vi.doUnmock("./canonical-claims");
+      vi.resetModules();
+    }
   });
 });
