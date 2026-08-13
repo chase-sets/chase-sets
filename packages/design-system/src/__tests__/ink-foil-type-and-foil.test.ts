@@ -129,7 +129,9 @@ function parseUntrackedStatus(output: string): string[] {
 }
 
 function pathSetDigest(paths: string[]): string {
-  return createHash("sha256").update(`${[...paths].sort().join("\n")}\n`).digest("hex");
+  return createHash("sha256")
+    .update(`${[...paths].sort().join("\n")}\n`)
+    .digest("hex");
 }
 
 function evaluateCandidatePathSet(changedPaths: string[]) {
@@ -262,7 +264,9 @@ function resolveCandidateBaseAuthority(
     const headWitness = requireCommitSha(payload.pull_request?.head?.sha, "pull_request.head.sha");
     const baseWitness = requireCommitSha(payload.pull_request?.base?.sha, "pull_request.base.sha");
     if (topology.parents.length !== 2) {
-      throw new Error(`Refusing pull_request ref topology: expected 2 HEAD parents, received ${topology.parents.length}`);
+      throw new Error(
+        `Refusing pull_request ref topology: expected 2 HEAD parents, received ${topology.parents.length}`,
+      );
     }
     if (topology.parents[1] !== headWitness) {
       throw new Error(
@@ -318,9 +322,7 @@ function candidateChangedPaths(
       ? ["diff", "--name-only", "-z", resolved.base]
       : ["diff", "--name-only", "-z", resolved.base, "HEAD"];
   const tracked = parseNulPaths(git(repository, diffArgs), "git diff");
-  const untracked = parseUntrackedStatus(
-    git(repository, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-  );
+  const untracked = parseUntrackedStatus(git(repository, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]));
   const paths = [...tracked, ...untracked];
   const duplicate = paths.find((path, index) => paths.indexOf(path) !== index);
   if (duplicate) throw new Error(`Refusing duplicate changed path ${JSON.stringify(duplicate)}`);
@@ -1336,7 +1338,10 @@ describe("closed-set closure from the vector side", () => {
       expect(synchronized.paths.length).toBe(33);
       expect(pathSetDigest(synchronized.paths)).toBe(combinedCandidatePathDigest);
       expect(synchronized.paths).not.toContain("main-after-sync.txt");
-      console.log("C2 synchronized candidate plus later disjoint main advance: changed=33 digest=" + pathSetDigest(synchronized.paths));
+      console.log(
+        "C2 synchronized candidate plus later disjoint main advance: changed=33 digest=" +
+          pathSetDigest(synchronized.paths),
+      );
 
       executeGit(sourceRoot, ["switch", "--quiet", "-c", "group-candidate", "main"]);
       executeGit(sourceRoot, ["checkout", candidateHead, "--", ...combinedCandidatePaths]);
@@ -1418,10 +1423,7 @@ describe("closed-set closure from the vector side", () => {
       const oneParentEventPath = join(workspace, "pull-request-one-parent-event.json");
       writePullRequestEvent(oneParentEventPath, 6783, staleEventBase, candidateHead);
       expect(() =>
-        resolveCandidateBaseAuthority(
-          sourceRoot,
-          pullRequestEnvironment(oneParentEventPath, candidateHead, 6783),
-        ),
+        resolveCandidateBaseAuthority(sourceRoot, pullRequestEnvironment(oneParentEventPath, candidateHead, 6783)),
       ).toThrow(/expected 2 HEAD parents, received 1/);
       expect(() =>
         resolveCandidateBaseAuthority(sourceRoot, {
