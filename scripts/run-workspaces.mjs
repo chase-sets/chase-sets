@@ -1,3 +1,4 @@
+// Evidence-only hosted DB scope probe. This branch must never merge.
 import process from "node:process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
