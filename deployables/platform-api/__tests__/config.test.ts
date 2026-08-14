@@ -1845,9 +1845,89 @@ function refusalBranchRule(source: ts.SourceFile): readonly string[] {
   return violations;
 }
 
-/** Reads of a Stripe key environment name, by code shape rather than by literal occurrence. */
+function isAmbientEnvironmentObject(node: ts.Node): boolean {
+  return (
+    (ts.isPropertyAccessExpression(node) && node.name.text === "env") ||
+    (ts.isElementAccessExpression(node) &&
+      node.argumentExpression !== undefined &&
+      ts.isStringLiteral(node.argumentExpression) &&
+      node.argumentExpression.text === "env")
+  );
+}
+
+function containsEnvironmentObjectReference(node: ts.Node, environmentObjects: ReadonlySet<string>): boolean {
+  let found = false;
+  const visit = (current: ts.Node) => {
+    if (found) {
+      return;
+    }
+    if (isAmbientEnvironmentObject(current)) {
+      found = true;
+      return;
+    }
+    if (ts.isIdentifier(current) && isValueReference(current) && environmentObjects.has(current.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Ambient environment-container aliases, including aliases introduced through binding patterns. */
+function collectEnvironmentObjectBindings(root: ts.Node): ReadonlySet<string> {
+  const environmentObjects = new Set<string>();
+  const declarations = collectNodes(root, ts.isVariableDeclaration);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      if (!declaration.initializer) {
+        continue;
+      }
+
+      let derivesFromEnvironmentObject = containsEnvironmentObjectReference(
+        declaration.initializer,
+        environmentObjects,
+      );
+      if (
+        !derivesFromEnvironmentObject &&
+        ts.isIdentifier(declaration.initializer) &&
+        declaration.initializer.text === "process" &&
+        ts.isObjectBindingPattern(declaration.name)
+      ) {
+        derivesFromEnvironmentObject = declaration.name.elements.some((element) => {
+          const selected = element.propertyName ?? element.name;
+          return ts.isIdentifier(selected) && selected.text === "env";
+        });
+      }
+      if (!derivesFromEnvironmentObject) {
+        continue;
+      }
+
+      const introduced = new Set<string>();
+      collectBoundNames(declaration.name, introduced);
+      for (const name of introduced) {
+        if (!environmentObjects.has(name)) {
+          environmentObjects.add(name);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return environmentObjects;
+}
+
+/** Reads of a Stripe key environment name, by closed code-shape provenance rather than token text. */
 function collectEnvironmentReads(root: ts.Node, environmentName: string): readonly ts.Node[] {
   const reads: ts.Node[] = [];
+  const environmentObjects = collectEnvironmentObjectBindings(root);
+  const isEnvironmentObject = (node: ts.Node) =>
+    isAmbientEnvironmentObject(node) ||
+    (ts.isIdentifier(node) && isValueReference(node) && environmentObjects.has(node.text));
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && node.arguments.length === 1) {
       const argument = node.arguments[0];
@@ -1858,14 +1938,13 @@ function collectEnvironmentReads(root: ts.Node, environmentName: string): readon
     if (
       ts.isPropertyAccessExpression(node) &&
       node.name.text === environmentName &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "env"
+      isEnvironmentObject(node.expression)
     ) {
       reads.push(node);
     }
-    if (ts.isElementAccessExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    if (ts.isElementAccessExpression(node) && isEnvironmentObject(node.expression)) {
       const argument = node.argumentExpression;
-      if (node.expression.name.text === "env" && ts.isStringLiteral(argument) && argument.text === environmentName) {
+      if (ts.isStringLiteral(argument) && argument.text === environmentName) {
         reads.push(node);
       }
     }
@@ -1873,6 +1952,20 @@ function collectEnvironmentReads(root: ts.Node, environmentName: string): readon
     ts.forEachChild(node, visit);
   };
   visit(root);
+
+  for (const binding of collectNodes(root, ts.isBindingElement)) {
+    const selected = binding.propertyName ?? binding.name;
+    if (!ts.isIdentifier(selected) || selected.text !== environmentName) {
+      continue;
+    }
+    let ancestor: ts.Node | undefined = binding.parent;
+    while (ancestor && !ts.isVariableDeclaration(ancestor)) {
+      ancestor = ancestor.parent;
+    }
+    if (ancestor?.initializer && containsEnvironmentObjectReference(ancestor.initializer, environmentObjects)) {
+      reads.push(binding);
+    }
+  }
 
   return reads;
 }
@@ -1920,7 +2013,7 @@ function containsRootedReference(node: ts.Node, rooted: ReadonlySet<string>): bo
  * declared local gateway construction or at the returned config. A reference sitting in a property
  * initializer is never sufficient on its own — that unconditional permission is the gap AC-F2 names.
  */
-function objectLiteralTerminatesSafely(objectLiteral: ts.ObjectLiteralExpression): boolean {
+function objectLiteralTerminatesSafely(objectLiteral: ts.ObjectLiteralExpression, loader: ClassifierLike): boolean {
   let current: ts.Node = objectLiteral;
   let parent: ts.Node | undefined = current.parent;
 
@@ -1943,7 +2036,13 @@ function objectLiteralTerminatesSafely(objectLiteral: ts.ObjectLiteralExpression
       );
     }
     if (ts.isReturnStatement(parent)) {
-      return parent.expression === current;
+      return (
+        parent.expression === current &&
+        loader.body !== undefined &&
+        ts.isBlock(loader.body) &&
+        parent.parent === loader.body &&
+        loader.body.statements.at(-1) === parent
+      );
     }
 
     return false;
@@ -1953,7 +2052,11 @@ function objectLiteralTerminatesSafely(objectLiteral: ts.ObjectLiteralExpression
 }
 
 /** AC-F2 termination: returns null when the rooted reference reaches an admitted sink. */
-function classifyRootedTerminus(reference: ts.Identifier, source: ts.SourceFile): string | null {
+function classifyRootedTerminus(
+  reference: ts.Identifier,
+  source: ts.SourceFile,
+  loader: ClassifierLike,
+): string | null {
   let current: ts.Node = reference;
   let parent: ts.Node | undefined = current.parent;
 
@@ -1964,7 +2067,9 @@ function classifyRootedTerminus(reference: ts.Identifier, source: ts.SourceFile)
       continue;
     }
     if (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken) {
-      return null;
+      current = parent;
+      parent = parent.parent;
+      continue;
     }
     if (
       ts.isBinaryExpression(parent) &&
@@ -1978,7 +2083,9 @@ function classifyRootedTerminus(reference: ts.Identifier, source: ts.SourceFile)
     }
     if (ts.isConditionalExpression(parent)) {
       if (parent.condition === current) {
-        return null;
+        current = parent;
+        parent = parent.parent;
+        continue;
       }
       current = parent;
       parent = parent.parent;
@@ -2015,7 +2122,7 @@ function classifyRootedTerminus(reference: ts.Identifier, source: ts.SourceFile)
       if (!objectLiteral || !ts.isObjectLiteralExpression(objectLiteral)) {
         return `rooted property ${name.text} is not held by an object literal`;
       }
-      return objectLiteralTerminatesSafely(objectLiteral)
+      return objectLiteralTerminatesSafely(objectLiteral, loader)
         ? null
         : `retaining object literal holding ${name.text} does not terminate at a declared gateway construction or the returned config`;
     }
@@ -2101,7 +2208,7 @@ function provenanceRule(source: ts.SourceFile): readonly string[] {
     if (!isValueReference(identifier) || !rooted.has(identifier.text)) {
       continue;
     }
-    const terminus = classifyRootedTerminus(identifier, source);
+    const terminus = classifyRootedTerminus(identifier, source, loader);
     if (terminus !== null) {
       violations.push(terminus);
     }
@@ -2485,6 +2592,32 @@ const CONFIG_SCHEMA_MUTANTS: readonly NamedSourceMutant[] = [
     name: "unknown-terminal-sink",
     rule: "provenance",
     ...afterClassification('  reportGateway({ secretKey, kind: "stripe" });'),
+  },
+
+  // Independent exact-shape regressions for the governing g1 review findings.
+  {
+    name: "ambient-env-object-alias-reread",
+    rule: "provenance",
+    ...afterClassification(
+      "  const ambientStripeEnvironment = process.env;\n  const leakedSecretKey = ambientStripeEnvironment.STRIPE_SECRET_KEY;\n  console.warn(leakedSecretKey);",
+    ),
+  },
+  {
+    name: "nested-return-retaining-object-escape",
+    rule: "provenance",
+    ...afterClassification(
+      "  function leakFromNestedScope() { return { secretKey }; }\n  console.warn(leakFromNestedScope());",
+    ),
+  },
+  {
+    name: "conditional-truthiness-to-unknown-call",
+    rule: "provenance",
+    ...afterClassification('  console.warn(secretKey ? "configured" : "absent");'),
+  },
+  {
+    name: "prefix-not-truthiness-to-unknown-call",
+    rule: "provenance",
+    ...afterClassification("  console.warn(!secretKey);"),
   },
 
   // AC-C3 / AC-08.
