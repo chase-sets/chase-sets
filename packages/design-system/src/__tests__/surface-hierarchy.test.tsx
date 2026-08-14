@@ -361,7 +361,7 @@ const cardGlowChrome: Record<"legacy" | ElevationName, string> = {
  * Frozen Surface `tone` × `elevation` oracle. Each cell is the complete
  * rendered class string at the default system padding (`p-4`), committed as a
  * literal: `flush` keeps only the tone's text part, `tinted` the soft fill plus
- * text, `outlined` a plain border in the tone's border-color family plus
+ * text, `outlined` a plain border in the tone's border tint family plus
  * today's fill and text, and `elevated` the exact legacy `elevated=true`
  * output.
  */

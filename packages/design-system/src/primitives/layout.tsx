@@ -847,11 +847,11 @@ const surfaceToneClasses: Record<SurfaceTone, string> = {
 
 /**
  * Frozen tone treatments for the chrome-free elevations. Each tone's legacy
- * class string decomposes into fill · border-color · text parts: `flush` keeps
+ * class string decomposes into fill, border tint, and text parts: `flush` keeps
  * only the text part (foreground, not chrome — except `accent`, whose contrast
  * text is legible only against its gradient fill), `tinted` renders the tone's
  * soft fill plus text with no chrome, and `outlined` renders a plain `border`
- * in the tone's border-color family plus today's fill and text. `surface-border`,
+ * in the tone's border tint family plus today's fill and text. `surface-border`,
  * `ds-glass`, shadows, and `ds-glow` render only under unspecified legacy and
  * explicit `elevated`.
  */
