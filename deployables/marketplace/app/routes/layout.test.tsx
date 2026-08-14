@@ -1,17 +1,22 @@
 // @vitest-environment jsdom
 
-import { render as renderWithoutRouter, screen, waitFor, within, type RenderOptions } from "@testing-library/react";
+import { act, render as renderWithoutRouter, screen, waitFor, within, type RenderOptions } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement, ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RouteConfigEntry } from "@react-router/dev/routes";
+import type { RouteObject } from "react-router";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
-const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
-  mockUseLocation: vi.fn(),
-  mockUseNavigate: vi.fn(),
-  mockUseRouteLoaderData: vi.fn(),
-}));
+const { mockUseLocation, mockUseMatches, mockUseNavigate, mockUseRouteLoaderData, marketplaceShellRouteIdentities } =
+  vi.hoisted(() => ({
+    mockUseLocation: vi.fn(),
+    mockUseMatches: vi.fn(),
+    mockUseNavigate: vi.fn(),
+    mockUseRouteLoaderData: vi.fn(),
+    marketplaceShellRouteIdentities: [] as Array<string | undefined>,
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -20,13 +25,31 @@ vi.mock("react-router", async () => {
     ...actual,
     Outlet: () => <main>Marketplace content</main>,
     useLocation: mockUseLocation,
+    useMatches: mockUseMatches,
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
   };
 });
 
+// Transparent seam over the real MarketplaceShell: records the routeIdentity the
+// layout actually passes on every render, so route-change emission is counted
+// from an instrumented log at the boundary that emits it, never inferred from
+// the rendered phase.
+vi.mock("@chase-sets/design-system", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
+
+  return {
+    ...actual,
+    MarketplaceShell: (props: ComponentProps<typeof actual.MarketplaceShell>) => {
+      marketplaceShellRouteIdentities.push(props.routeIdentity);
+      return <actual.MarketplaceShell {...props} />;
+    },
+  };
+});
+
 import { MemoryRouter } from "react-router";
-import MarketplaceLayoutRoute from "./layout";
+import routesConfig from "../routes";
+import MarketplaceLayoutRoute, { marketplaceSearchRouteId } from "./layout";
 
 // DiscoveryShellLayout registers the DS RouterLinkAdapter, so rendering it requires
 // router context — exactly as it has in the production app tree.
@@ -58,6 +81,7 @@ const actorDisplay = {
 
 describe("marketplace route layout", () => {
   beforeEach(() => {
+    mockUseMatches.mockReturnValue([]);
     mockUseLocation.mockReturnValue({
       pathname: "/search",
       search: "",
@@ -439,5 +463,159 @@ describe("marketplace route layout", () => {
 
     expect(form?.getAttribute("method")).toBe("post");
     expect(form?.getAttribute("action")).toBe("/guest-checkout/exit");
+  });
+});
+
+describe("marketplace search-row route identity", () => {
+  const itemPath = "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp";
+
+  function setWindowMetric(name: "innerWidth" | "scrollY", value: number) {
+    Object.defineProperty(window, name, { configurable: true, writable: true, value });
+  }
+
+  function driveScroll(to: number) {
+    setWindowMetric("scrollY", to);
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+  }
+
+  function routeEntryId(entry: RouteConfigEntry): string {
+    return entry.id ?? entry.file.replace(/\.[jt]sx?$/, "");
+  }
+
+  // The marketplace route tree assembled from the exact registration routes.ts
+  // exports, with framework-mode id derivation for entries that do not pin one.
+  function toDataRoutes(entries: readonly RouteConfigEntry[]): RouteObject[] {
+    return entries.map((entry): RouteObject => {
+      const id = routeEntryId(entry);
+      const Component = entry.file === "routes/layout.tsx" ? MarketplaceLayoutRoute : () => null;
+      if (entry.index) {
+        return { id, index: true, Component };
+      }
+      return {
+        id,
+        path: entry.path,
+        caseSensitive: entry.caseSensitive,
+        Component,
+        children: entry.children ? toDataRoutes(entry.children) : undefined,
+      };
+    });
+  }
+
+  function collectRoutes(routes: readonly RouteObject[]): RouteObject[] {
+    return routes.flatMap((route) => [route, ...(route.children ? collectRoutes(route.children) : [])]);
+  }
+
+  function identityChangeCount(log: ReadonlyArray<string | undefined>): number {
+    let changes = 0;
+    for (let index = 1; index < log.length; index += 1) {
+      if (log[index] !== log[index - 1]) {
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function shellOuter(container: HTMLElement) {
+    const outer = container.querySelector('div[class*="--shell-header-height"]');
+    expect(outer).not.toBeNull();
+    return outer!;
+  }
+
+  async function useRealRouterHooks() {
+    const actual = await vi.importActual<typeof import("react-router")>("react-router");
+    mockUseLocation.mockImplementation(actual.useLocation);
+    mockUseMatches.mockImplementation(actual.useMatches);
+    mockUseRouteLoaderData.mockReturnValue({ actor: null, cartCount: 0 });
+    return actual;
+  }
+
+  it("derives canonical search identity from the active matched route for every registered alias", async () => {
+    const actual = await useRealRouterHooks();
+    setWindowMetric("innerWidth", 390);
+    const dataRoutes = toDataRoutes(routesConfig);
+
+    // The layout's search-route-id constant is the id the route configuration
+    // actually registers, so a rename fails here rather than silently
+    // reverting every alias to collapsible.
+    const registeredSearchRoutes = collectRoutes(dataRoutes).filter((route) => route.path === "search");
+    expect(registeredSearchRoutes).toHaveLength(1);
+    expect(registeredSearchRoutes[0]!.id).toBe(marketplaceSearchRouteId);
+
+    const table = [
+      { input: "/search", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/SEARCH", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/Search", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/search/", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/search//", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/%73earch", leaf: marketplaceSearchRouteId, identity: "/search", phase: "expanded" },
+      { input: "/search/x", leaf: "routes/not-found", identity: "/search/x", phase: "collapsed" },
+      { input: "/search%2Fx", leaf: "routes/not-found", identity: "/search%2Fx", phase: "collapsed" },
+    ] as const;
+
+    for (const row of table) {
+      // Matcher level: raw spelling is not identity; the active match is.
+      const matched = actual.matchRoutes(dataRoutes, row.input);
+      expect(matched, `match ${row.input}`).not.toBeNull();
+      expect(matched!.at(-1)!.route.id, `leaf for ${row.input}`).toBe(row.leaf);
+
+      // Rendered layout: the emitted identity plus the resolved phase under the
+      // armed high-scroll unfocused environment.
+      marketplaceShellRouteIdentities.length = 0;
+      setWindowMetric("scrollY", 2000);
+      const router = actual.createMemoryRouter(dataRoutes, { initialEntries: [row.input] });
+      const view = renderWithoutRouter(<actual.RouterProvider router={router} />);
+      expect(marketplaceShellRouteIdentities.at(-1), `identity for ${row.input}`).toBe(row.identity);
+      expect(shellOuter(view.container).getAttribute("data-search-row-state"), `phase for ${row.input}`).toBe(
+        row.phase,
+      );
+      view.unmount();
+    }
+  });
+
+  it("emits no route change for a same-pathname query or dimension navigation", async () => {
+    const actual = await useRealRouterHooks();
+    setWindowMetric("innerWidth", 390);
+    const dataRoutes = toDataRoutes(routesConfig);
+
+    // A dimension.* commit on the pinned collapsible item route, first driven
+    // to expanded by 24px of upward travel so a re-initialization would be
+    // observable as a phase change.
+    marketplaceShellRouteIdentities.length = 0;
+    setWindowMetric("scrollY", 2000);
+    const router = actual.createMemoryRouter(dataRoutes, { initialEntries: [itemPath] });
+    const view = renderWithoutRouter(<actual.RouterProvider router={router} />);
+    const outer = shellOuter(view.container);
+    expect(outer.getAttribute("data-search-row-state")).toBe("collapsed");
+    driveScroll(1976);
+    expect(outer.getAttribute("data-search-row-state")).toBe("expanded");
+
+    const changesBefore = identityChangeCount(marketplaceShellRouteIdentities);
+    await act(async () => {
+      await router.navigate(`${itemPath}?dimension.condition=raw`);
+    });
+    expect(router.state.location.pathname).toBe(itemPath);
+    expect(router.state.location.search).toBe("?dimension.condition=raw");
+    expect(identityChangeCount(marketplaceShellRouteIdentities)).toBe(changesBefore);
+    expect(outer.getAttribute("data-search-row-state")).toBe("expanded");
+    view.unmount();
+
+    // Separately: a debounced ?q= commit on /search changes only
+    // location.search and emits nothing.
+    marketplaceShellRouteIdentities.length = 0;
+    setWindowMetric("scrollY", 2000);
+    const searchRouter = actual.createMemoryRouter(dataRoutes, { initialEntries: ["/search?q=charizard"] });
+    const searchView = renderWithoutRouter(<actual.RouterProvider router={searchRouter} />);
+    const searchOuter = shellOuter(searchView.container);
+    expect(searchOuter.getAttribute("data-search-row-state")).toBe("expanded");
+    const searchChangesBefore = identityChangeCount(marketplaceShellRouteIdentities);
+    await act(async () => {
+      await searchRouter.navigate("/search?q=pikachu", { replace: true });
+    });
+    expect(searchRouter.state.location.search).toBe("?q=pikachu");
+    expect(identityChangeCount(marketplaceShellRouteIdentities)).toBe(searchChangesBefore);
+    expect(searchOuter.getAttribute("data-search-row-state")).toBe("expanded");
+    searchView.unmount();
   });
 });

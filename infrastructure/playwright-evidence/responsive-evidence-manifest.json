@@ -560,7 +560,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -568,7 +571,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -576,14 +582,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -591,7 +603,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-360"
@@ -623,7 +637,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -631,7 +648,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -639,14 +659,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -654,7 +680,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-390"
@@ -686,7 +714,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -694,7 +725,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -702,14 +736,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 0, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 0,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -717,7 +757,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet"
@@ -749,7 +791,10 @@
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet-frozen-control"
@@ -781,7 +826,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-360"
@@ -813,7 +860,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-390"
@@ -845,7 +894,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-tablet"
@@ -877,21 +928,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-360"
@@ -923,21 +980,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-390"
@@ -969,21 +1032,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-tablet"
@@ -1935,6 +2004,196 @@
         }
       ],
       "artifact": "item-detail-product-options-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-shell-search-row-expanded-390",
+      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "testTitle": "publishes the expanded search row before scrolling on the pinned item route @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-shell-search-row-slot",
+        "selector": "[data-search-row-slot]",
+        "populatedSelector": ":scope form[role='search']"
+      },
+      "measurements": [
+        {
+          "identity": "search-control-visible",
+          "scope": "page",
+          "selector": "[data-search-row-slot] input[role='combobox']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "shell-header-height-expanded",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-header-height",
+          "assertion": {
+            "equals": 124,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "marketplace-shell-search-row-expanded-390"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-shell-search-row-collapsed-390",
+      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "testTitle": "binds the search-row state observed across the responsive capture @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-shell-header-brand-row",
+        "selector": "[data-shell-header-box='painted']",
+        "populatedSelector": ":scope a[href='/']"
+      },
+      "measurements": [
+        {
+          "identity": "search-row-not-visible",
+          "scope": "page",
+          "selector": "[data-search-row-slot]",
+          "property": "visible",
+          "assertion": {
+            "equals": false
+          }
+        },
+        {
+          "identity": "shell-header-height-collapsed",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-header-height",
+          "assertion": {
+            "equals": 64,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "marketplace-shell-search-row-collapsed-390"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-shell-search-row-search-route-390",
+      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "testTitle": "keeps the search row expanded on the search route under the same downward scroll @marketplace-browse",
+      "route": {
+        "name": "search results (charizard)",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-shell-search-row-slot",
+        "selector": "[data-search-row-slot]",
+        "populatedSelector": ":scope form[role='search']"
+      },
+      "measurements": [
+        {
+          "identity": "search-control-visible",
+          "scope": "page",
+          "selector": "[data-search-row-slot] input[role='combobox']",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "shell-header-height-search-route",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-header-height",
+          "assertion": {
+            "equals": 124,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "marketplace-shell-search-row-search-route-390"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-shell-search-row-desktop-768",
+      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "testTitle": "keeps the search row inline in a single header row at 768 @marketplace-browse",
+      "route": {
+        "name": "item detail (charizard base set)",
+        "path": "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "target": {
+        "identity": "marketplace-shell-desktop-search-control",
+        "selector": "nav[aria-label='Primary navigation'] input[role='combobox']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "desktop-search-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "shell-header-height-desktop",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--shell-header-height",
+          "assertion": {
+            "equals": 64,
+            "tolerance": 0.5
+          }
+        },
+        {
+          "identity": "single-row-nav-height",
+          "scope": "page",
+          "selector": "nav[aria-label='Primary navigation']",
+          "property": "height",
+          "assertion": {
+            "minimum": 44,
+            "maximum": 80
+          }
+        }
+      ],
+      "artifact": "marketplace-shell-search-row-desktop-768"
     }
   ]
 }

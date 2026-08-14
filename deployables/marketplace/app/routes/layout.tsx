@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
+import { Outlet, useLocation, useMatches, useNavigate, useRouteLoaderData } from "react-router";
 import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
@@ -9,6 +9,13 @@ import { NotificationCenterShell } from "@chase-sets/notifications/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
+
+// The React Router id routes.ts registers for the discovery search route on this
+// host. layout.test.tsx pins this constant to the id the route configuration
+// actually registers, so a route rename fails a test instead of silently
+// returning every alias spelling to the collapsible search-row policy.
+export const marketplaceSearchRouteId = "discovery/search";
+const searchRouteIdentity = "/search";
 
 type MarketplaceActor = {
   permissions?: readonly string[];
@@ -96,7 +103,18 @@ function displayRole(value: string) {
 
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
+  const matches = useMatches();
   const navigate = useNavigate();
+  // Route identity is the canonical pathname of the active matched route, never
+  // a raw URL spelling: the matcher is case-insensitive, tolerates trailing and
+  // duplicated slashes, and decodes percent-encoded unreserved characters, so
+  // every alias spelling of the registered search route must yield one identity
+  // while unregistered descendants keep their raw pathname. `location.search`
+  // and `location.hash` are excluded so a same-pathname query commit cannot
+  // re-initialize the shell's search row under the reader.
+  const routeIdentity = matches.some((match) => match.id === marketplaceSearchRouteId)
+    ? searchRouteIdentity
+    : location.pathname;
   const rootData = useRouteLoaderData("root") as
     | {
         actor?: MarketplaceActor;
@@ -177,6 +195,7 @@ export default function MarketplaceLayoutRoute() {
       activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
       colorMode={colorMode}
       reducedMotion={rootData?.viewer?.preferences?.reducedMotion}
+      routeIdentity={routeIdentity}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       onNavSelect={handleNavSelect}

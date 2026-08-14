@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SegmentedControl } from "../components/actions/segmented-control";
 import { SideNav } from "../components/actions/navigation";
 import { Tabs } from "../components/actions/tabs";
+import { MarketplaceShell } from "../patterns/app-shells/shells";
 import { ChaseRoot } from "../theme/provider";
 
 const layoutGroupCalls = vi.hoisted(() => [] as string[]);
@@ -103,5 +104,63 @@ describe("reduced motion contract", () => {
 
     expect(layoutGroupCalls).toHaveLength(1);
     expect(motionElementCalls.some((call) => typeof call.layoutId === "string")).toBe(true);
+  });
+
+  function setWindowMetric(name: "innerWidth" | "scrollY", value: number) {
+    Object.defineProperty(window, name, { configurable: true, writable: true, value });
+  }
+
+  function renderSearchRowShell(reducedMotion: "always" | "user") {
+    return render(
+      <ChaseRoot reducedMotion={reducedMotion}>
+        <MarketplaceShell
+          brand={<a href="/">Chase Sets</a>}
+          topNavItems={[]}
+          bottomNavItems={[]}
+          search={<input aria-label="Marketplace search fixture" />}
+          collapseSearchOnScroll
+          routeIdentity="/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"
+        >
+          <div>Body</div>
+        </MarketplaceShell>
+      </ChaseRoot>,
+    );
+  }
+
+  it("removes the search-row collapse transition when ChaseRoot always reduces motion", () => {
+    setWindowMetric("innerWidth", 390);
+    setWindowMetric("scrollY", 2000);
+    const view = renderSearchRowShell("always");
+    const outer = view.container.querySelector('div[class*="--shell-header-height"]')!;
+    const slot = view.container.querySelector("[data-search-row-slot]")!;
+    const painted = view.container.querySelector('[data-shell-header-box="painted"]')!;
+
+    // The published phase and geometry are identical to the motion-enabled
+    // shell; only the transition treatment changes, in one step.
+    expect(outer.getAttribute("data-search-row-state")).toBe("collapsed");
+    expect(outer.getAttribute("class")).toContain("data-[search-row-state=collapsed]:[--shell-header-height:4rem]");
+    expect(slot.getAttribute("class")).toContain("grid-rows-[0fr]");
+    expect(slot.getAttribute("class")).not.toContain("transition-[grid-template-rows]");
+    expect(slot.getAttribute("class")).not.toContain("duration-200");
+    expect((slot as HTMLElement).style.transition).toBe("");
+    expect(painted.getAttribute("class")).not.toContain("transition-[height]");
+    view.unmount();
+  });
+
+  it("keeps the shipped search-row motion treatment under the default user setting", () => {
+    setWindowMetric("innerWidth", 390);
+    setWindowMetric("scrollY", 2000);
+    const view = renderSearchRowShell("user");
+    const outer = view.container.querySelector('div[class*="--shell-header-height"]')!;
+    const slot = view.container.querySelector("[data-search-row-slot]")!;
+    const painted = view.container.querySelector('[data-shell-header-box="painted"]')!;
+
+    expect(outer.getAttribute("data-search-row-state")).toBe("collapsed");
+    expect(outer.getAttribute("class")).toContain("data-[search-row-state=collapsed]:[--shell-header-height:4rem]");
+    expect(slot.getAttribute("class")).toContain("grid-rows-[0fr]");
+    expect(slot.getAttribute("class")).toContain("transition-[grid-template-rows]");
+    expect(slot.getAttribute("class")).toContain("duration-200");
+    expect(painted.getAttribute("class")).toContain("transition-[height]");
+    view.unmount();
   });
 });

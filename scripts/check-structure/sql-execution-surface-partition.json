@@ -2241,6 +2241,7 @@
     "packages/design-system/src/hooks/use-media-query.ts",
     "packages/design-system/src/index.ts",
     "packages/design-system/src/motion/config.ts",
+    "packages/design-system/src/patterns/app-shells/search-row-phase.ts",
     "packages/design-system/src/primitives/polymorphic.ts",
     "packages/design-system/src/theme/internal-token-values.ts",
     "packages/design-system/src/theme/stripe-appearance.ts",

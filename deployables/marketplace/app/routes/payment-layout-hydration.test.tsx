@@ -46,6 +46,7 @@ vi.mock("react-router", async () => {
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+    useMatches: () => [],
     useNavigate: () => mockUseNavigate,
     useRevalidator: mockUseRevalidator,
     useRouteLoaderData: mockUseRouteLoaderData,

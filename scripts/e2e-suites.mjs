@@ -203,6 +203,10 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/marketplace\/e2e\/responsive-evidence-contract\.spec\.ts$/,
     suites: ["marketplace_browse"],
   },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
+    suites: ["marketplace_browse"],
+  },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
   {
     pattern: /^deployables\/admin-web\/e2e\/admin-tablet-navigation\.spec\.ts$/,
