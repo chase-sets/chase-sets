@@ -560,10 +560,7 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "published-dock-height",
@@ -571,10 +568,7 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -582,20 +576,14 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": {
-            "equals": 84,
-            "tolerance": 0.5
-          }
+          "assertion": { "equals": 84, "tolerance": 0.5 }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": {
-            "minimum": 128,
-            "maximum": 160
-          }
+          "assertion": { "minimum": 128, "maximum": 160 }
         },
         {
           "identity": "gap-above-dock",
@@ -603,9 +591,7 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": {
-            "minimum": 0
-          }
+          "assertion": { "minimum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-360"
@@ -637,10 +623,7 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "published-dock-height",
@@ -648,10 +631,7 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -659,20 +639,14 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": {
-            "equals": 84,
-            "tolerance": 0.5
-          }
+          "assertion": { "equals": 84, "tolerance": 0.5 }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": {
-            "minimum": 128,
-            "maximum": 160
-          }
+          "assertion": { "minimum": 128, "maximum": 160 }
         },
         {
           "identity": "gap-above-dock",
@@ -680,9 +654,7 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": {
-            "minimum": 0
-          }
+          "assertion": { "minimum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-390"
@@ -714,10 +686,7 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "published-dock-height",
@@ -725,10 +694,7 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -736,20 +702,14 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": {
-            "equals": 0,
-            "tolerance": 0.5
-          }
+          "assertion": { "equals": 0, "tolerance": 0.5 }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         },
         {
           "identity": "gap-above-dock",
@@ -757,9 +717,7 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": {
-            "minimum": 0
-          }
+          "assertion": { "minimum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet"
@@ -791,10 +749,7 @@
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": {
-            "minimum": 44,
-            "maximum": 76
-          }
+          "assertion": { "minimum": 44, "maximum": 76 }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet-frozen-control"
@@ -826,9 +781,7 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-360"
@@ -860,9 +813,7 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-390"
@@ -894,9 +845,7 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-tablet"
@@ -928,27 +877,21 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-360"
@@ -980,27 +923,21 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-390"
@@ -1032,27 +969,21 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": {
-            "maximum": 0
-          }
+          "assertion": { "maximum": 0 }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-tablet"
