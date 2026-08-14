@@ -1,3 +1,4 @@
+// Evidence-only in-scope classifier probe for #6810 candidate b806463; never merge.
 import process from "node:process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
