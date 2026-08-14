@@ -662,20 +662,37 @@ describe("Ink & Foil candidate token fixture", () => {
     }
   });
 
-  it("covers every custom property the cutover changes, and states today's shipped values correctly", () => {
+  it("covers every custom property the cutover changes, and states the partitioned shipped state correctly", () => {
     const css = readFileSync(stylesPath, "utf8");
     const shipped = { light: shippedValues(css, "light"), dark: shippedValues(css, "dark") };
 
+    // The direct Ink & Foil candidate advanced exactly these six names to
+    // their fixture candidates; the palette cutover later advances the rest
+    // and rebases this partition to all-candidate. Editing the fixture's
+    // shipped fields instead of this partition is the refused repair.
+    const advancedNames = new Set([
+      "--display-font",
+      "--font-display",
+      "--font-heading",
+      "--chase-logo-start",
+      "--chase-logo-mid",
+      "--chase-logo-end",
+    ]);
+
     const drifted: string[] = [];
     for (const mode of modes) {
-      for (const [name, entry] of Object.entries(fixture[mode] as Record<string, { shipped: string }>)) {
+      for (const [name, entry] of Object.entries(
+        fixture[mode] as Record<string, { shipped: string; candidate: string }>,
+      )) {
         const actual = shipped[mode].get(name);
-        if (actual !== undefined && actual !== entry.shipped) {
-          drifted.push(`${mode} ${name}: styles.css resolves ${actual}, fixture records ${entry.shipped}`);
+        const expected = advancedNames.has(name) ? entry.candidate : entry.shipped;
+        const side = advancedNames.has(name) ? "candidate" : "shipped";
+        if (actual !== undefined && actual !== expected) {
+          drifted.push(`${mode} ${name}: styles.css resolves ${actual}, fixture ${side} records ${expected}`);
         }
       }
     }
-    expect(drifted, "fixture shipped values disagree with styles.css").toEqual([]);
+    expect(drifted, "styles.css disagrees with the fixture partition").toEqual([]);
 
     // Every fixture key must be a custom property styles.css actually authors.
     // A phantom or misspelled name would otherwise carry a candidate value that
@@ -687,6 +704,18 @@ describe("Ink & Foil candidate token fixture", () => {
     // the cutover set is the rest.
     const consumed = deriveConsumedTokenNames(appearanceSource);
     expect(consumed.filter((name) => !(name in fixture.light))).toEqual([]);
+
+    // The disjointness that authorises shipping the six names ahead of the
+    // Stripe cutover, re-proven from the factory source on every run: the
+    // consumed union across both seams is 34, the call seam alone is 33, and
+    // the advanced set intersects the union in nothing.
+    expect(consumed.length).toBe(34);
+    expect(deriveHelperCallTokenNames(appearanceSource).length).toBe(33);
+    const advancedIntersection = consumed.filter((name) => advancedNames.has(name));
+    expect(advancedIntersection, "advanced names consumed by a Stripe factory").toEqual([]);
+
+    const fixtureSha256 = createHash("sha256").update(fixtureBytes).digest("hex");
+    console.log(`fixture sha256: ${fixtureSha256}`);
 
     const changed = Object.keys(fixture.light).filter((name) =>
       modes.some((mode) => fixture[mode][name].shipped !== fixture[mode][name].candidate),

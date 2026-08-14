@@ -1552,14 +1552,14 @@
         },
         {
           "path": "scripts/check-structure/typescript-owner-contexts.json",
-          "sha256": "031432f32d8b28b47d71178cff4a62814baa1cd7fa87bbc2d04f386a41c8fe20"
+          "sha256": "a8cb892c8d5bda622b104c39b2ee1e054bcd0e218dab988bc1c90269ad628ea4"
         },
         {
           "path": "scripts/lib/repo.mjs",
           "sha256": "a026a6d63e14e983e988633fff593c1ec719681bd83c6c42ecdd2488aaff890f"
         }
       ],
-      "inventorySha256": "e05d9b0baaebfba9ef44da86ae2c2555a31a8f83952c32351dd832dface80d03"
+      "inventorySha256": "bb61f6804b1c91ebb372cf4067e4f6d1ca71cd3824c56fb506c59a8e1f2e0c3f"
     },
     "workUnits": {
       "reconciliationGitLsFilesSpawns": 1,
