@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { ButtonGroup } from "../../components/actions";
 import { layoutWidthClasses, type LayoutWidth, type SidebarWidth } from "../../primitives/layout";
+import { Eyebrow } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 
 export interface PageProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -33,7 +34,7 @@ export function PageHeader({ eyebrow, title, description, actions, ...rest }: Pa
   return (
     <div {...rest} className="flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0 space-y-2">
-        {eyebrow ? <div className="text-xs font-semibold uppercase text-accent">{eyebrow}</div> : null}
+        {eyebrow ? <Eyebrow variant="accent">{eyebrow}</Eyebrow> : null}
         <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">{title}</h1>
         {description ? <div className="max-w-full text-base text-secondary md:max-w-3xl">{description}</div> : null}
       </div>
@@ -42,20 +43,39 @@ export function PageHeader({ eyebrow, title, description, actions, ...rest }: Pa
   );
 }
 
-export interface PageSectionProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+interface PageSectionBaseProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   title?: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
 }
 
-export function PageSection({ title, description, children, ...rest }: PageSectionProps) {
+// The actions-present branch requires the `title` prop to be present, so an
+// action-only section header is unrepresentable in ordinary typed use.
+// `ReactNode` still admits every explicitly supplied falsy title; the runtime
+// `title ?` guard below then withholds the header row and its actions.
+export type PageSectionProps =
+  | (PageSectionBaseProps & { actions?: never })
+  | (PageSectionBaseProps & { title: ReactNode; actions: ReactNode });
+
+export function PageSection({ title, description, actions, children, ...rest }: PageSectionProps) {
+  const header = title ? (
+    <div className="max-w-4xl space-y-2">
+      <h2 className="font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">{title}</h2>
+      {description ? <div className="max-w-3xl text-base leading-7 text-secondary">{description}</div> : null}
+    </div>
+  ) : null;
+
   return (
     <section {...rest} className="space-y-4">
       {title ? (
-        <div className="max-w-4xl space-y-2">
-          <h2 className="font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">{title}</h2>
-          {description ? <div className="max-w-3xl text-base leading-7 text-secondary">{description}</div> : null}
-        </div>
+        actions ? (
+          <div className="flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            {header}
+            <ButtonGroup>{actions}</ButtonGroup>
+          </div>
+        ) : (
+          header
+        )
       ) : null}
       {children}
     </section>

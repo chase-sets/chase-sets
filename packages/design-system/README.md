@@ -35,6 +35,7 @@ Design-system props use one vocabulary across the canonical layer:
 
 - `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
 - `variant` describes structural kind, not semantic intent.
+- `Eyebrow` is the uppercase kicker above a heading: `variant` is the closed vocabulary `accent | primary` (default `accent`) naming the frozen per-site treatment, it always renders a `div`, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
 - `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` renders the legacy raised recipe unchanged.
 - `size` describes control scale.
 - `density` describes row scale and uses the canonical `comfortable | compact` vocabulary. Legacy `default` and `regular` inputs resolve to `comfortable`; marketplace components do not define a separate `focused` density.
