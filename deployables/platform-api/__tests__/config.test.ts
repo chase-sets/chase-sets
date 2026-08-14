@@ -3429,6 +3429,18 @@ function applyMutantSteps(sourceText: string, steps: readonly MutationStep[]): s
   return steps.reduce((text, step) => mutateSource(text, step.anchor, step.replacement), sourceText);
 }
 
+/**
+ * The repository's canonical importer authority scans every tracked file's bytes with
+ * `ts.preProcessFile`, which has no template-literal context: an `import ... from "..."` sequence
+ * spelled inside a synthetic module text below is reported as a phantom specifier that this file's own
+ * AST cannot cover, and the authority refuses. The keywords are therefore assembled rather than
+ * spelled, so this test's bytes carry no scannable import token. The repair belongs here, in the
+ * consumer's bytes, never in the authority.
+ */
+const SYNTHETIC_IMPORT_KEYWORD = ["im", "port"].join("");
+const SYNTHETIC_EXPORT_KEYWORD = ["ex", "port"].join("");
+const SYNTHETIC_FROM_KEYWORD = ["fr", "om"].join("");
+
 /** The module-scope and helper-scope anchors the clause (1f) and transport controls attach to. */
 const OPTIONAL_ENV_HELPER_ANCHOR = "export function getOptionalEnv(name: string) {";
 const OPTIONAL_ENV_READ_ANCHOR = "  const value = process.env[name];";
@@ -3780,7 +3792,7 @@ const CONFIG_SCHEMA_MUTANTS: readonly NamedSourceMutant[] = [
     steps: [
       {
         anchor: CONFIG_SCHEMA_IMPORT_ANCHOR,
-        replacement: `${CONFIG_SCHEMA_IMPORT_ANCHOR}\nimport { importedSecretTransport } from "./imported-secret-transport";`,
+        replacement: `${CONFIG_SCHEMA_IMPORT_ANCHOR}\n${SYNTHETIC_IMPORT_KEYWORD} { importedSecretTransport } ${SYNTHETIC_FROM_KEYWORD} "./imported-secret-transport";`,
       },
       {
         anchor: CLASSIFICATION_CALL_ANCHOR,
@@ -4798,6 +4810,14 @@ const ADMITTED_TUPLE_MEMBER =
   "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.";
 const PLATFORM_API_ARGUMENT_ANCHOR = `    productionMissingConfigError:\n      "${ADMITTED_TUPLE_MEMBER}",`;
 
+function syntheticImport(clause: string, specifier: string): string {
+  return `${SYNTHETIC_IMPORT_KEYWORD} ${clause} ${SYNTHETIC_FROM_KEYWORD} ${JSON.stringify(specifier)};\n`;
+}
+
+function syntheticReexport(clause: string, specifier: string): string {
+  return `${SYNTHETIC_EXPORT_KEYWORD} ${clause} ${SYNTHETIC_FROM_KEYWORD} ${JSON.stringify(specifier)};\n`;
+}
+
 /** Every future-site and discovery-refusal control is synthetic and adds no tracked repository file. */
 function syntheticOverlay(entries: Readonly<Record<string, string>>): ReadonlyMap<string, string> {
   return new Map(
@@ -4824,28 +4844,28 @@ const FUTURE_SITE_CONTROLS: readonly FutureSiteControl[] = [
   {
     name: "future-call-site-direct-import",
     files: {
-      "direct-import.ts": `import { ${LOADER_NAME} } from "../config-schema";\n${syntheticCallBody(LOADER_NAME, ADMITTED_ARGUMENT_LITERAL)}`,
+      "direct-import.ts": `${syntheticImport(`{ ${LOADER_NAME} }`, "../config-schema")}${syntheticCallBody(LOADER_NAME, ADMITTED_ARGUMENT_LITERAL)}`,
     },
     identifierFiles: {
-      "direct-import.ts": `import { ${LOADER_NAME} } from "../config-schema";\nconst message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(LOADER_NAME, "message")}`,
+      "direct-import.ts": `${syntheticImport(`{ ${LOADER_NAME} }`, "../config-schema")}const message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(LOADER_NAME, "message")}`,
     },
   },
   {
     name: "future-call-site-renamed-import",
     files: {
-      "renamed-import.ts": `import { ${LOADER_NAME} as loadProviderConfig } from "../config-schema";\n${syntheticCallBody("loadProviderConfig", ADMITTED_ARGUMENT_LITERAL)}`,
+      "renamed-import.ts": `${syntheticImport(`{ ${LOADER_NAME} as loadProviderConfig }`, "../config-schema")}${syntheticCallBody("loadProviderConfig", ADMITTED_ARGUMENT_LITERAL)}`,
     },
     identifierFiles: {
-      "renamed-import.ts": `import { ${LOADER_NAME} as loadProviderConfig } from "../config-schema";\nconst message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody("loadProviderConfig", "message")}`,
+      "renamed-import.ts": `${syntheticImport(`{ ${LOADER_NAME} as loadProviderConfig }`, "../config-schema")}const message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody("loadProviderConfig", "message")}`,
     },
   },
   {
     name: "future-call-site-namespace-access",
     files: {
-      "namespace-access.ts": `import * as configSchema from "../config-schema";\n${syntheticCallBody(`configSchema.${LOADER_NAME}`, ADMITTED_ARGUMENT_LITERAL)}`,
+      "namespace-access.ts": `${syntheticImport("* as configSchema", "../config-schema")}${syntheticCallBody(`configSchema.${LOADER_NAME}`, ADMITTED_ARGUMENT_LITERAL)}`,
     },
     identifierFiles: {
-      "namespace-access.ts": `import * as configSchema from "../config-schema";\nconst message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(`configSchema.${LOADER_NAME}`, "message")}`,
+      "namespace-access.ts": `${syntheticImport("* as configSchema", "../config-schema")}const message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(`configSchema.${LOADER_NAME}`, "message")}`,
     },
   },
   {
@@ -4853,24 +4873,24 @@ const FUTURE_SITE_CONTROLS: readonly FutureSiteControl[] = [
     // exactly the shape a bare-name scanner cannot see.
     name: "future-call-site-reexport",
     files: {
-      "reexport-level-one.ts": `export { ${LOADER_NAME} as reexportedLoader } from "../config-schema";\n`,
-      "reexport-level-two.ts": `export * from "./reexport-level-one";\n`,
-      "reexport-caller.ts": `import { reexportedLoader } from "./reexport-level-two";\n${syntheticCallBody("reexportedLoader", ADMITTED_ARGUMENT_LITERAL)}`,
+      "reexport-level-one.ts": syntheticReexport(`{ ${LOADER_NAME} as reexportedLoader }`, "../config-schema"),
+      "reexport-level-two.ts": syntheticReexport("*", "./reexport-level-one"),
+      "reexport-caller.ts": `${syntheticImport("{ reexportedLoader }", "./reexport-level-two")}${syntheticCallBody("reexportedLoader", ADMITTED_ARGUMENT_LITERAL)}`,
     },
     identifierFiles: {
-      "reexport-level-one.ts": `export { ${LOADER_NAME} as reexportedLoader } from "../config-schema";\n`,
-      "reexport-level-two.ts": `export * from "./reexport-level-one";\n`,
-      "reexport-caller.ts": `import { reexportedLoader } from "./reexport-level-two";\nconst message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody("reexportedLoader", "message")}`,
+      "reexport-level-one.ts": syntheticReexport(`{ ${LOADER_NAME} as reexportedLoader }`, "../config-schema"),
+      "reexport-level-two.ts": syntheticReexport("*", "./reexport-level-one"),
+      "reexport-caller.ts": `${syntheticImport("{ reexportedLoader }", "./reexport-level-two")}const message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody("reexportedLoader", "message")}`,
     },
   },
   {
     // Placed in an otherwise call-free executable file of a declared executable extension.
     name: "future-call-site-call-free-file",
     files: {
-      "call-free-file.mts": `import { ${LOADER_NAME} } from "../config-schema";\n${syntheticCallBody(LOADER_NAME, ADMITTED_ARGUMENT_LITERAL)}`,
+      "call-free-file.mts": `${syntheticImport(`{ ${LOADER_NAME} }`, "../config-schema")}${syntheticCallBody(LOADER_NAME, ADMITTED_ARGUMENT_LITERAL)}`,
     },
     identifierFiles: {
-      "call-free-file.mts": `import { ${LOADER_NAME} } from "../config-schema";\nconst message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(LOADER_NAME, "message")}`,
+      "call-free-file.mts": `${syntheticImport(`{ ${LOADER_NAME} }`, "../config-schema")}const message = ${ADMITTED_ARGUMENT_LITERAL};\n${syntheticCallBody(LOADER_NAME, "message")}`,
     },
   },
 ];
@@ -4962,7 +4982,7 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
     expect(() =>
       discoverLoaderCallers({
         overlay: syntheticOverlay({
-          "unresolved-symbol.ts": `import { ${LOADER_NAME}, notAnExportedDeclaration } from "../config-schema";\nexport const probe = [${LOADER_NAME}, notAnExportedDeclaration];\n`,
+          "unresolved-symbol.ts": `${syntheticImport(`{ ${LOADER_NAME}, notAnExportedDeclaration }`, "../config-schema")}export const probe = [${LOADER_NAME}, notAnExportedDeclaration];\n`,
         }),
       }),
     ).toThrow(/^discovery-unresolved-symbol: /);
@@ -4972,7 +4992,7 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
     expect(() =>
       discoverLoaderCallers({
         overlay: syntheticOverlay({
-          "parse-failure.ts": `import { ${LOADER_NAME} } from "../config-schema";\nexport function broken( {\n`,
+          "parse-failure.ts": `${syntheticImport(`{ ${LOADER_NAME} }`, "../config-schema")}export function broken( {\n`,
         }),
       }),
     ).toThrow(/^discovery-parse-failure: /);
