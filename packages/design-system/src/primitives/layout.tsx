@@ -798,8 +798,10 @@ export function Bleed({ children, space = 4, axis = "horizontal", ...rest }: Ble
 }
 
 /**
- * Structural surface tones describe chrome and elevation (the canonical card
- * shell, recessed wells, the brand-gradient accent, and a flat subtle frame).
+ * Structural surface tones name a background family (the canonical card-shell
+ * fill, recessed wells, the brand-gradient accent, and a flat subtle frame).
+ * Surface chrome — glass, border, shadow — is owned by the orthogonal
+ * `elevation` prop, not by the tone.
  */
 type SurfaceStructuralTone = "default" | "muted" | "accent" | "subtle";
 
@@ -816,9 +818,12 @@ export type SurfaceTone = SurfaceStructuralTone | SurfaceSemanticTone;
 export interface SurfaceOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
   tone?: SurfaceTone;
+  elevation?: "flush" | "tinted" | "outlined" | "elevated";
   elevated?: boolean;
   glow?: boolean;
 }
+
+type SurfaceElevation = NonNullable<SurfaceOwnProps["elevation"]>;
 
 export type SurfaceProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, SurfaceOwnProps>;
 
@@ -840,6 +845,68 @@ const surfaceToneClasses: Record<SurfaceTone, string> = {
   ...surfaceSemanticToneClasses,
 };
 
+/**
+ * Frozen tone treatments for the chrome-free elevations. Each tone's legacy
+ * class string decomposes into fill, border tint, and text parts: `flush` keeps
+ * only the text part (foreground, not chrome — except `accent`, whose contrast
+ * text is legible only against its gradient fill), `tinted` renders the tone's
+ * soft fill plus text with no chrome, and `outlined` renders a plain `border`
+ * in the tone's border tint family plus today's fill and text. `surface-border`,
+ * `ds-glass`, shadows, and `ds-glow` render only under unspecified legacy and
+ * explicit `elevated`.
+ */
+const surfaceElevationToneClasses: Record<Exclude<SurfaceElevation, "elevated">, Record<SurfaceTone, string>> = {
+  flush: {
+    default: "",
+    muted: "",
+    accent: "",
+    subtle: "",
+    neutral: "text-secondary",
+    info: "text-info",
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-danger",
+    trust: "text-trust",
+    primary: "text-primary",
+  },
+  tinted: {
+    default: "bg-surface-2",
+    muted: "bg-surface-2",
+    accent: "ds-brand-gradient text-accent-contrast",
+    subtle: "bg-surface-2",
+    neutral: "bg-surface-2 text-secondary",
+    info: "bg-info-soft text-info",
+    success: "bg-success-soft text-success",
+    warning: "bg-warning-soft text-warning",
+    danger: "bg-danger-soft text-danger",
+    trust: "bg-trust-soft text-trust",
+    primary: "bg-primary-soft text-primary",
+  },
+  outlined: {
+    default: "border border-muted bg-elevated",
+    muted: "border border-muted bg-surface-2",
+    accent: "border border-muted ds-brand-gradient text-accent-contrast",
+    subtle: "border border-muted bg-surface",
+    neutral: "border border-muted bg-surface-2 text-secondary",
+    info: "border border-info-soft bg-info-soft text-info",
+    success: "border border-success-soft bg-success-soft text-success",
+    warning: "border border-warning-soft bg-warning-soft text-warning",
+    danger: "border border-danger-soft bg-danger-soft text-danger",
+    trust: "border border-trust-soft bg-trust-soft text-trust",
+    primary: "border border-primary-soft bg-primary-soft text-primary",
+  },
+};
+
+/**
+ * Canonical furniture surface with tone-driven fills and opt-in
+ * `flush`/`tinted`/`outlined`/`elevated` elevation intents.
+ *
+ * `tone` names the background family wherever a fill exists; `elevation` owns
+ * fill presence and the surface chrome (glass, border, shadow). An explicit
+ * `elevation` value owns the complete treatment and the legacy `elevated`
+ * boolean is ignored; omitting `elevation` renders the legacy recipe unchanged,
+ * with `elevated` keeping its exact current shadow meaning.
+ */
 export const Surface = forwardRef(function Surface(
   {
     children,
@@ -847,6 +914,7 @@ export const Surface = forwardRef(function Surface(
     render,
     element = "div",
     tone = "default",
+    elevation,
     elevated = false,
     glow = false,
     padding = 4,
@@ -859,24 +927,29 @@ export const Surface = forwardRef(function Surface(
   ref: Ref<unknown>,
 ) {
   const Component = (as ?? render ?? element) as ElementType;
+  const systemClasses = resolveSystemProps({
+    padding,
+    paddingX,
+    paddingY,
+    gap,
+    textAlign,
+  });
 
   return (
     <Component
       {...rest}
       ref={ref}
-      className={cx(
-        "surface-border min-w-0 max-w-full rounded-tokenLg",
-        surfaceToneClasses[tone],
-        resolveSystemProps({
-          padding,
-          paddingX,
-          paddingY,
-          gap,
-          textAlign,
-        }),
-        elevated ? "shadow-tokenLg" : "shadow-tokenSm",
-        glow && "ds-glow",
-      )}
+      className={
+        elevation === undefined || elevation === "elevated"
+          ? cx(
+              "surface-border min-w-0 max-w-full rounded-tokenLg",
+              surfaceToneClasses[tone],
+              systemClasses,
+              elevation === "elevated" || elevated ? "shadow-tokenLg" : "shadow-tokenSm",
+              glow && "ds-glow",
+            )
+          : cx("min-w-0 max-w-full rounded-tokenLg", surfaceElevationToneClasses[elevation][tone], systemClasses)
+      }
     >
       {children}
     </Component>
