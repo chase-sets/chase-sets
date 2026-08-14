@@ -239,6 +239,24 @@ export function Subheading({ children, level = 3, align, ...rest }: SubheadingPr
   );
 }
 
+export interface EyebrowProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+  variant?: "accent" | "primary";
+}
+
+const eyebrowVariantClasses: Record<NonNullable<EyebrowProps["variant"]>, string> = {
+  accent: "text-xs font-semibold uppercase text-accent",
+  primary: "text-xs font-semibold uppercase tracking-wide text-primary",
+};
+
+export function Eyebrow({ children, variant = "accent", ...rest }: EyebrowProps) {
+  return (
+    <div {...rest} className={eyebrowVariantClasses[variant]}>
+      {children}
+    </div>
+  );
+}
+
 export interface LabelProps extends Omit<LabelHTMLAttributes<HTMLLabelElement>, "className" | "style"> {
   muted?: boolean;
   size?: "2xs" | "xs" | "sm";

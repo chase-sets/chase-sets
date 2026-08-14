@@ -159,6 +159,11 @@ const canonicalReserveZeroConsumerExports = [
 const defaultAllowedZeroConsumerExports = [
   ...canonicalReserveZeroConsumerExports,
   {
+    symbol: "Eyebrow",
+    reason:
+      "in-package-only initial adoption; #6020, #6021, #6022, #6023, and #6024 are its first external production consumers",
+  },
+  {
     symbol: "MarketStatusBadge",
     reason: "internal MarketplaceProductCard status dependency; kept as a shared commerce atom",
   },

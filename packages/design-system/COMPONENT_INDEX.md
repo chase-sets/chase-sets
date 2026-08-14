@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 363
+- Runtime exports indexed: 364
 - Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -122,6 +122,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `EvidenceList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx` |
 | `EvidencePanel` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence Panel. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-import-scope-details.tsx` |
 | `EvidenceStringList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence String List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
+| `Eyebrow` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Eyebrow. | `No production consumer yet.` |
 | `FeatureCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Feature Card. | `bounded-contexts/discovery/features/home/ui/home-merchandising.tsx` |
 | `Field` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Field. | `No production consumer yet.` |
 | `Fieldset` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Fieldset. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx` |
