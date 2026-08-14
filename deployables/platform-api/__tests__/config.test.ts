@@ -1994,39 +1994,64 @@ const ADMITTED_LOADER_FREE_NAMES = new Set<string>([
   ...DECLARED_VOCABULARY_BINDING_NAMES,
 ]);
 
-/** Ordered weakest to strongest; the join takes the strongest key provenance present. */
-const PROVENANCE_STRENGTH: readonly StripeProvenance[] = [
+/**
+ * An expression carries the *set* of sources it can be, never a single ranked winner. A strength
+ * order that collapsed simultaneous sources let a cross-key join such as `publishableKey ?? secretKey`
+ * present itself as the stronger `acquired-secret` and reach the named `secretKey` sink undetected.
+ * Multiplicity is therefore represented rather than resolved: an aggregate object literal may legitimately
+ * carry several sources at once, while the two named credential sinks each require their own singleton.
+ */
+type StripeProvenanceSources = readonly StripeProvenance[];
+
+/** A canonical order for printing and comparing a source set. Nothing is ranked or collapsed by it. */
+const PROVENANCE_SOURCE_ORDER: readonly StripeProvenance[] = [
   "inert",
   "parameter",
   "admitted-call",
   "acquired-other-env",
   "acquired-publishable",
   "acquired-secret",
+  "refused",
 ];
 
-function joinProvenance(values: readonly StripeProvenance[]): StripeProvenance {
-  if (values.some((value) => value === "refused")) {
-    return "refused";
-  }
-
-  let strongest: StripeProvenance = "inert";
-  for (const value of values) {
-    if (PROVENANCE_STRENGTH.indexOf(value) > PROVENANCE_STRENGTH.indexOf(strongest)) {
-      strongest = value;
-    }
-  }
-
-  return strongest;
+function sourcesOf(provenance: StripeProvenance): StripeProvenanceSources {
+  return [provenance];
 }
 
-type ProvenanceSink = Readonly<{ name: string; provenance: StripeProvenance; node: ts.Node }>;
+/** Union, not a maximum. `refused` absorbs, and an empty join is `inert`. */
+function joinProvenance(values: readonly StripeProvenanceSources[]): StripeProvenanceSources {
+  const union = new Set<StripeProvenance>();
+  for (const value of values) {
+    for (const source of value) {
+      union.add(source);
+    }
+  }
+  if (union.has("refused")) {
+    return sourcesOf("refused");
+  }
+  if (union.size === 0) {
+    return sourcesOf("inert");
+  }
+
+  return PROVENANCE_SOURCE_ORDER.filter((source) => union.has(source));
+}
+
+function carriesExactly(sources: StripeProvenanceSources, source: StripeProvenance): boolean {
+  return sources.length === 1 && sources[0] === source;
+}
+
+function describeSources(sources: StripeProvenanceSources): string {
+  return sources.join("+");
+}
+
+type ProvenanceSink = Readonly<{ name: string; provenance: StripeProvenanceSources; node: ts.Node }>;
 
 type ProvenanceContext = Readonly<{
   loaderBindings: ReadonlyMap<string, ts.VariableDeclaration>;
   refusedLoaderNames: ReadonlySet<string>;
   sinks: ProvenanceSink[];
   visited: Set<ts.Node>;
-  closure: Map<ts.Node, StripeProvenance>;
+  closure: Map<ts.Node, StripeProvenanceSources>;
 }>;
 
 /** Loader-body bindings, partitioned into the admitted `const`-with-one-initializer form and the rest. */
@@ -2067,7 +2092,7 @@ function createProvenanceContext(loader: ClassifierLike): ProvenanceContext {
     refusedLoaderNames: refused,
     sinks: [],
     visited: new Set<ts.Node>(),
-    closure: new Map<ts.Node, StripeProvenance>(),
+    closure: new Map<ts.Node, StripeProvenanceSources>(),
   };
 }
 
@@ -2076,24 +2101,24 @@ function createProvenanceContext(loader: ClassifierLike): ProvenanceContext {
  * structure. Its default arm — not a sentence of prose — is the closure: a form nobody enumerated and
  * a `SyntaxKind` TypeScript adds after this ships both land in it with no code change.
  */
-function provenanceOf(node: ts.Node, context: ProvenanceContext): StripeProvenance {
+function provenanceOf(node: ts.Node, context: ProvenanceContext): StripeProvenanceSources {
   const result = computeProvenance(node, context);
   context.closure.set(node, result);
 
   return result;
 }
 
-function computeProvenance(node: ts.Node, context: ProvenanceContext): StripeProvenance {
+function computeProvenance(node: ts.Node, context: ProvenanceContext): StripeProvenanceSources {
   switch (node.kind) {
     case ts.SyntaxKind.StringLiteral:
     case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
-      return KEY_SHAPED_LITERAL.test((node as ts.LiteralLikeNode).text) ? "refused" : "inert";
+      return sourcesOf(KEY_SHAPED_LITERAL.test((node as ts.LiteralLikeNode).text) ? "refused" : "inert");
     case ts.SyntaxKind.NumericLiteral:
     case ts.SyntaxKind.BigIntLiteral:
     case ts.SyntaxKind.TrueKeyword:
     case ts.SyntaxKind.FalseKeyword:
     case ts.SyntaxKind.NullKeyword:
-      return "inert";
+      return sourcesOf("inert");
     case ts.SyntaxKind.Identifier:
       return provenanceOfIdentifier(node as ts.Identifier, context);
     case ts.SyntaxKind.ParenthesizedExpression:
@@ -2107,14 +2132,14 @@ function computeProvenance(node: ts.Node, context: ProvenanceContext): StripePro
         context,
       );
     case ts.SyntaxKind.CallExpression:
-      return provenanceOfCall(node as ts.CallExpression, context);
+      return sourcesOf(provenanceOfCall(node as ts.CallExpression, context));
     case ts.SyntaxKind.NewExpression:
-      return "refused";
+      return sourcesOf("refused");
     case ts.SyntaxKind.BinaryExpression: {
       const binary = node as ts.BinaryExpression;
       if (binary.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken) {
         // A `+` fold is refused at the operator-token dispatch, never by inspecting its text.
-        return "refused";
+        return sourcesOf("refused");
       }
 
       return joinProvenance([provenanceOf(binary.left, context), provenanceOf(binary.right, context)]);
@@ -2132,38 +2157,40 @@ function computeProvenance(node: ts.Node, context: ProvenanceContext): StripePro
     case ts.SyntaxKind.PropertyAccessExpression: {
       const access = node as ts.PropertyAccessExpression;
 
-      return ts.isIdentifier(access.expression) &&
-        access.expression.text === LOADER_PARAMETER_NAME &&
-        LOADER_PARAMETER_PROPERTY_SET.has(access.name.text)
-        ? "parameter"
-        : "refused";
+      return sourcesOf(
+        ts.isIdentifier(access.expression) &&
+          access.expression.text === LOADER_PARAMETER_NAME &&
+          LOADER_PARAMETER_PROPERTY_SET.has(access.name.text)
+          ? "parameter"
+          : "refused",
+      );
     }
     case ts.SyntaxKind.ObjectLiteralExpression:
       return provenanceOfObjectLiteral(node as ts.ObjectLiteralExpression, context);
     case ts.SyntaxKind.ArrayLiteralExpression: {
       const array = node as ts.ArrayLiteralExpression;
       if (array.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element))) {
-        return "refused";
+        return sourcesOf("refused");
       }
 
       return joinProvenance(array.elements.map((element) => provenanceOf(element, context)));
     }
     default:
-      return "refused";
+      return sourcesOf("refused");
   }
 }
 
-function provenanceOfIdentifier(node: ts.Identifier, context: ProvenanceContext): StripeProvenance {
+function provenanceOfIdentifier(node: ts.Identifier, context: ProvenanceContext): StripeProvenanceSources {
   if (node.text === "undefined") {
-    return "inert";
+    return sourcesOf("inert");
   }
   if (node.text === LOADER_PARAMETER_NAME) {
-    return "parameter";
+    return sourcesOf("parameter");
   }
 
   const declaration = context.loaderBindings.get(node.text);
   if (!declaration?.initializer || context.visited.has(declaration)) {
-    return "refused";
+    return sourcesOf("refused");
   }
 
   context.visited.add(declaration);
@@ -2231,22 +2258,25 @@ function directAcquisitionProvenance(node: ts.Node, context: ProvenanceContext):
   return provenance === "acquired-secret" || provenance === "acquired-publishable" ? provenance : null;
 }
 
-function provenanceOfObjectLiteral(node: ts.ObjectLiteralExpression, context: ProvenanceContext): StripeProvenance {
+function provenanceOfObjectLiteral(
+  node: ts.ObjectLiteralExpression,
+  context: ProvenanceContext,
+): StripeProvenanceSources {
   const seen = new Set<string>();
-  const values: StripeProvenance[] = [];
+  const values: StripeProvenanceSources[] = [];
 
   for (const property of node.properties) {
     if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
       // Spread, getter, setter, and method members are all refused.
-      return "refused";
+      return sourcesOf("refused");
     }
 
     const name = property.name;
     if (!ts.isIdentifier(name) && !ts.isStringLiteral(name)) {
-      return "refused";
+      return sourcesOf("refused");
     }
     if (seen.has(name.text)) {
-      return "refused";
+      return sourcesOf("refused");
     }
     seen.add(name.text);
 
@@ -2537,7 +2567,7 @@ function deriveReturnClosure(source: ts.SourceFile): ReturnClosureInventory | nu
 
   const refusedExpressions: string[] = [];
   for (const [node, provenance] of context.closure) {
-    if (provenance === "refused") {
+    if (provenance.includes("refused")) {
       refusedExpressions.push(`${ts.SyntaxKind[node.kind]}: ${node.getText(source).slice(0, 120)}`);
     }
   }
@@ -2553,10 +2583,11 @@ function deriveReturnClosure(source: ts.SourceFile): ReturnClosureInventory | nu
 
 /**
  * Clause (1S). The sink surface is the transitive value closure of the loader's single `return`, not
- * a named list: every expression in it must carry a provenance other than `refused`, every property
- * named `secretKey` must be exactly `acquired-secret`, and every `publishableKey` exactly
- * `acquired-publishable`, so `inert`, `parameter`, `admitted-call`, and `acquired-other-env` all fail
- * at those two names.
+ * a named list: no expression in it may carry `refused`, every property named `secretKey` must carry
+ * exactly the singleton `acquired-secret`, and every `publishableKey` exactly the singleton
+ * `acquired-publishable`. `inert`, `parameter`, `admitted-call`, and `acquired-other-env` therefore all
+ * fail at those two names, and so does any *set* that merely contains the required source alongside
+ * another — a cross-key join hands one credential to the other's sink and can no longer hide behind it.
  */
 function returnClosureRule(source: ts.SourceFile): readonly string[] {
   const inventory = deriveReturnClosure(source);
@@ -2569,11 +2600,15 @@ function returnClosureRule(source: ts.SourceFile): readonly string[] {
     violations.push(`return-closure expression carries a refused provenance: ${refused}`);
   }
   for (const sink of inventory.sinks) {
-    if (sink.name === "secretKey" && sink.provenance !== "acquired-secret") {
-      violations.push(`return-closure sink secretKey carries ${sink.provenance} rather than acquired-secret`);
+    if (sink.name === "secretKey" && !carriesExactly(sink.provenance, "acquired-secret")) {
+      violations.push(
+        `return-closure sink secretKey carries ${describeSources(sink.provenance)} rather than exactly acquired-secret`,
+      );
     }
-    if (sink.name === "publishableKey" && sink.provenance !== "acquired-publishable") {
-      violations.push(`return-closure sink publishableKey carries ${sink.provenance} rather than acquired-publishable`);
+    if (sink.name === "publishableKey" && !carriesExactly(sink.provenance, "acquired-publishable")) {
+      violations.push(
+        `return-closure sink publishableKey carries ${describeSources(sink.provenance)} rather than exactly acquired-publishable`,
+      );
     }
   }
   if (inventory.secretKeySinks === 0 || inventory.publishableKeySinks === 0) {
@@ -2640,7 +2675,7 @@ function kindTotalityRule(source: ts.SourceFile): readonly string[] {
     }
 
     const bearer = { kind: value } as unknown as ts.Node;
-    if (computeProvenance(bearer, context) !== "refused") {
+    if (!carriesExactly(computeProvenance(bearer, context), "refused")) {
       violations.push(`a node bearing SyntaxKind ${value} (${ts.SyntaxKind[value]}) is not refused by the default arm`);
     }
   }
@@ -3456,6 +3491,14 @@ function plantIntoGateway(expression: string): MutationStep {
   };
 }
 
+/** The mirror position: the `publishableKey` sink of the same gateway construction. */
+function plantIntoPublishableSink(expression: string): MutationStep {
+  return {
+    anchor: GATEWAY_SECRET_KEY_ANCHOR,
+    replacement: `          kind: "stripe",\n          secretKey,\n          publishableKey: ${expression},`,
+  };
+}
+
 const CONFIG_SCHEMA_MUTANTS: readonly NamedSourceMutant[] = [
   // AC-F1: the required new mutant, rejected independently by rule 1b and by rule 1a.
   {
@@ -3727,6 +3770,33 @@ const CONFIG_SCHEMA_MUTANTS: readonly NamedSourceMutant[] = [
     name: "unenumerated-expression-form-to-gateway",
     rule: "return-closure",
     steps: [plantIntoGateway('["sk_live_SYNTHETIC_REVIEW_ONLY"][0]')],
+  },
+
+  // --- Clause (1S) cross-key joins: no planted literal, only the two declared credentials swapped --
+  {
+    // Both credentials are required for this construction to exist, so this hands the *publishable*
+    // credential to Stripe as the server secret while every other rule stays clean. The scalar
+    // strength order ranked `acquired-secret` above `acquired-publishable` and reported the join as
+    // the stronger member, which is exactly what the set-valued join now refuses to do.
+    name: "cross-key-join-to-secret-sink",
+    rule: "return-closure",
+    steps: [plantIntoGateway("publishableKey ?? secretKey")],
+  },
+  {
+    // The mirror at the publishable sink, filed now rather than left for a later review. The old
+    // ordering already reddened it, but only incidentally — because `acquired-secret` outranked
+    // `acquired-publishable` rather than because the join was mixed. It is pinned here so the
+    // symmetry survives any future change to the source set.
+    name: "cross-key-join-to-publishable-sink",
+    rule: "return-closure",
+    steps: [plantIntoPublishableSink("secretKey ?? publishableKey")],
+  },
+  {
+    // The same mechanism with a non-credential source: an unrelated environment read joined to the
+    // secret ranked below it and was hidden by the identical collapse.
+    name: "foreign-source-join-to-secret-sink",
+    rule: "return-closure",
+    steps: [plantIntoGateway("apiBaseUrl ?? secretKey")],
   },
 
   // --- AC-F2 clause (1f): ambient ownership, decided as nearest-enclosing-function attribution ----
@@ -4069,11 +4139,12 @@ describe("Stripe key classification provenance", () => {
     expect(inventory.secretKeySinks).toBe(inventory.sinks.filter((sink) => sink.name === "secretKey").length);
     expect(inventory.publishableKeySinks).toBe(inventory.sinks.filter((sink) => sink.name === "publishableKey").length);
     for (const sink of inventory.sinks) {
+      // Exactly the singleton, not merely containing it: a mixed-source set fails here too.
       if (sink.name === "secretKey") {
-        expect(sink.provenance).toBe("acquired-secret");
+        expect(sink.provenance).toEqual(["acquired-secret"]);
       }
       if (sink.name === "publishableKey") {
-        expect(sink.provenance).toBe("acquired-publishable");
+        expect(sink.provenance).toEqual(["acquired-publishable"]);
       }
     }
     console.log(
@@ -4082,7 +4153,7 @@ describe("Stripe key classification provenance", () => {
         refusedExpressions: inventory.refusedExpressions.length,
         secretKeySinks: inventory.secretKeySinks,
         publishableKeySinks: inventory.publishableKeySinks,
-        sinkNames: inventory.sinks.map((sink) => `${sink.name}:${sink.provenance}`),
+        sinkNames: inventory.sinks.map((sink) => `${sink.name}:${describeSources(sink.provenance)}`),
       })}`,
     );
   });
