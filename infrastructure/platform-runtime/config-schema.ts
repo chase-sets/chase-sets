@@ -126,6 +126,30 @@ export type PlatformDatabaseConfig<TContextName extends string> = Readonly<{
   contextWaiterDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
 }>;
 
+export type PlatformStripeServerKeyMode = "absent" | "test" | "live" | "unknown";
+
+export type PlatformStripeServerKeyClass = "absent" | "standard" | "restricted" | "unknown";
+
+export type PlatformStripePublishableKeyMode = "absent" | "test" | "live" | "unknown";
+
+export type PlatformStripeEffectiveMode = "unconfigured" | "test" | "live";
+
+export type PlatformStripeKeyClassification = Readonly<{
+  serverKeyMode: PlatformStripeServerKeyMode;
+  serverKeyClass: PlatformStripeServerKeyClass;
+  publishableKeyMode: PlatformStripePublishableKeyMode;
+}>;
+
+export type PlatformStripeRefusalReason =
+  | "stripe-secret-key-unrecognized"
+  | "stripe-publishable-key-unrecognized"
+  | "stripe-key-mode-mismatch"
+  | "stripe-live-key-outside-production"
+  | "stripe-non-live-key-in-production"
+  | "stripe-restricted-key-in-production";
+
+export type PlatformStripeRefusalVariable = "STRIPE_SECRET_KEY" | "STRIPE_PUBLISHABLE_KEY";
+
 export type PlatformStripeProviderConfig = Readonly<{
   paymentProcessor: PlatformPaymentProcessorConfig;
   moneyMovement: PlatformMoneyMovementConfig;
@@ -136,6 +160,8 @@ export type PlatformStripeProviderConfig = Readonly<{
   resolvedConnectWebhookSecret: string | undefined;
   connectAccountsApi: PlatformStripeConnectAccountsApi;
   apiBaseUrl: string | undefined;
+  effectiveMode: PlatformStripeEffectiveMode;
+  keyClassification: PlatformStripeKeyClassification;
 }>;
 
 export const PLATFORM_DATA_PROFILES = ENVIRONMENT_DATA_PROFILES;
@@ -522,6 +548,68 @@ export function loadCatalogAssetStorageConfig(input: {
   });
 }
 
+/**
+ * Total classification of the configured Stripe keys. This is the single declassification boundary
+ * for raw Stripe key material: it consumes the two raw values and returns closed enums only, so no
+ * key text, prefix, substring, length, or digest can travel any further.
+ */
+function classifyStripeKeys(secretKey: string | null, publishableKey: string | null): PlatformStripeKeyClassification {
+  let serverKeyMode: PlatformStripeServerKeyMode = "absent";
+  let serverKeyClass: PlatformStripeServerKeyClass = "absent";
+  let publishableKeyMode: PlatformStripePublishableKeyMode = "absent";
+
+  if (secretKey) {
+    if (secretKey.startsWith("sk_test_")) {
+      serverKeyMode = "test";
+      serverKeyClass = "standard";
+    } else if (secretKey.startsWith("sk_live_")) {
+      serverKeyMode = "live";
+      serverKeyClass = "standard";
+    } else if (secretKey.startsWith("rk_test_")) {
+      serverKeyMode = "test";
+      serverKeyClass = "restricted";
+    } else if (secretKey.startsWith("rk_live_")) {
+      serverKeyMode = "live";
+      serverKeyClass = "restricted";
+    } else {
+      serverKeyMode = "unknown";
+      serverKeyClass = "unknown";
+    }
+  }
+
+  if (publishableKey) {
+    if (publishableKey.startsWith("pk_test_")) {
+      publishableKeyMode = "test";
+    } else if (publishableKey.startsWith("pk_live_")) {
+      publishableKeyMode = "live";
+    } else {
+      publishableKeyMode = "unknown";
+    }
+  }
+
+  return { serverKeyMode, serverKeyClass, publishableKeyMode };
+}
+
+/**
+ * The one bounded constructor for every Stripe key refusal. Every parameter is a closed enum, so a
+ * key, a prefix, a substring, a length, and a digest are unrepresentable here rather than merely
+ * absent from the message.
+ */
+export function stripeKeyRefusal(payload: {
+  reason: PlatformStripeRefusalReason;
+  variable: PlatformStripeRefusalVariable;
+  serverKeyMode: PlatformStripeServerKeyMode;
+  serverKeyClass: PlatformStripeServerKeyClass;
+  publishableKeyMode: PlatformStripePublishableKeyMode;
+  deploymentEnvironment: DeploymentEnvironment;
+}): Error {
+  const { reason, variable, serverKeyMode, serverKeyClass, publishableKeyMode, deploymentEnvironment } = payload;
+
+  return new Error(
+    `${variable} was refused by Stripe key classification (reason=${reason}, serverKeyMode=${serverKeyMode}, serverKeyClass=${serverKeyClass}, publishableKeyMode=${publishableKeyMode}, deploymentEnvironment=${deploymentEnvironment}).`,
+  );
+}
+
 export function loadStripeProviderConfig(input: {
   productionLike: boolean;
   deploymentEnvironment?: DeploymentEnvironment;
@@ -541,7 +629,6 @@ export function loadStripeProviderConfig(input: {
     "v2",
   );
   const deploymentEnvironment = input.deploymentEnvironment ?? loadDeploymentEnvironment();
-  const productionDeployment = deploymentEnvironment === "production";
 
   if (deploymentEnvironment === "staging" && !connectWebhookSecret) {
     throw new Error(
@@ -561,15 +648,135 @@ export function loadStripeProviderConfig(input: {
   if (input.productionLike && (!secretKey || !publishableKey || !webhookSecret || !connectWebhookSecret)) {
     throw new Error(input.productionMissingConfigError);
   }
-  if (!productionDeployment && (secretKey?.startsWith("sk_live") || publishableKey?.startsWith("pk_live"))) {
-    throw new Error("Live Stripe keys are only allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  const keyClassification = classifyStripeKeys(secretKey, publishableKey);
+
+  // K1-K7, evaluated in this order, first match reported. Each branch is single-exit: exactly one
+  // throw of the bounded refusal constructor and no other call of any kind.
+  if (keyClassification.serverKeyMode === "unknown") {
+    throw stripeKeyRefusal({
+      reason: "stripe-secret-key-unrecognized",
+      variable: "STRIPE_SECRET_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
+  }
+  if (keyClassification.publishableKeyMode === "unknown") {
+    throw stripeKeyRefusal({
+      reason: "stripe-publishable-key-unrecognized",
+      variable: "STRIPE_PUBLISHABLE_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
   }
   if (
-    productionDeployment &&
-    ((secretKey && !secretKey.startsWith("sk_live")) || (publishableKey && !publishableKey.startsWith("pk_live")))
+    (keyClassification.serverKeyMode === "test" || keyClassification.serverKeyMode === "live") &&
+    (keyClassification.publishableKeyMode === "test" || keyClassification.publishableKeyMode === "live") &&
+    keyClassification.serverKeyMode !== keyClassification.publishableKeyMode
   ) {
-    throw new Error("STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY must use live-mode keys in production.");
+    throw stripeKeyRefusal({
+      reason: "stripe-key-mode-mismatch",
+      variable: "STRIPE_PUBLISHABLE_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
   }
+  if (
+    deploymentEnvironment !== "production" &&
+    (keyClassification.serverKeyMode === "live" || keyClassification.publishableKeyMode === "live")
+  ) {
+    throw stripeKeyRefusal({
+      reason: "stripe-live-key-outside-production",
+      variable: keyClassification.serverKeyMode === "live" ? "STRIPE_SECRET_KEY" : "STRIPE_PUBLISHABLE_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
+  }
+  if (
+    deploymentEnvironment === "production" &&
+    keyClassification.serverKeyMode !== "absent" &&
+    keyClassification.serverKeyMode !== "live"
+  ) {
+    throw stripeKeyRefusal({
+      reason: "stripe-non-live-key-in-production",
+      variable: "STRIPE_SECRET_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
+  }
+  if (
+    deploymentEnvironment === "production" &&
+    keyClassification.publishableKeyMode !== "absent" &&
+    keyClassification.publishableKeyMode !== "live"
+  ) {
+    throw stripeKeyRefusal({
+      reason: "stripe-non-live-key-in-production",
+      variable: "STRIPE_PUBLISHABLE_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
+  }
+  if (deploymentEnvironment === "production" && keyClassification.serverKeyClass === "restricted") {
+    throw stripeKeyRefusal({
+      reason: "stripe-restricted-key-in-production",
+      variable: "STRIPE_SECRET_KEY",
+      serverKeyMode: keyClassification.serverKeyMode,
+      serverKeyClass: keyClassification.serverKeyClass,
+      publishableKeyMode: keyClassification.publishableKeyMode,
+      deploymentEnvironment,
+    });
+  }
+
+  const paymentProcessor: PlatformPaymentProcessorConfig =
+    secretKey && publishableKey && webhookSecret
+      ? {
+          kind: "stripe",
+          secretKey,
+          publishableKey,
+          webhookSecret,
+          previousWebhookSecrets,
+          apiBaseUrl,
+        }
+      : { kind: "fake" };
+  const moneyMovement: PlatformMoneyMovementConfig =
+    secretKey && resolvedConnectWebhookSecret
+      ? {
+          kind: "stripe",
+          secretKey,
+          webhookSecret: resolvedConnectWebhookSecret,
+          previousWebhookSecrets: resolvedPreviousConnectWebhookSecrets,
+          connectAccountsApi,
+          apiBaseUrl,
+        }
+      : { kind: "fake" };
+
+  // Both gateway constructions require a present secret key, and K1 has already refused an
+  // unrecognised one, so a constructed gateway cannot carry an `absent` server key mode. That
+  // unreachability is asserted here rather than defaulted away below.
+  if (
+    (paymentProcessor.kind === "stripe" || moneyMovement.kind === "stripe") &&
+    keyClassification.serverKeyMode === "absent"
+  ) {
+    throw new Error("Stripe gateway construction is unreachable without a classified test or live server key mode.");
+  }
+
+  const effectiveMode: PlatformStripeEffectiveMode =
+    paymentProcessor.kind === "fake" && moneyMovement.kind === "fake"
+      ? "unconfigured"
+      : keyClassification.serverKeyMode === "live"
+        ? "live"
+        : "test";
 
   return {
     secretKey,
@@ -579,28 +786,10 @@ export function loadStripeProviderConfig(input: {
     resolvedConnectWebhookSecret,
     connectAccountsApi,
     apiBaseUrl,
-    paymentProcessor:
-      secretKey && publishableKey && webhookSecret
-        ? {
-            kind: "stripe",
-            secretKey,
-            publishableKey,
-            webhookSecret,
-            previousWebhookSecrets,
-            apiBaseUrl,
-          }
-        : { kind: "fake" },
-    moneyMovement:
-      secretKey && resolvedConnectWebhookSecret
-        ? {
-            kind: "stripe",
-            secretKey,
-            webhookSecret: resolvedConnectWebhookSecret,
-            previousWebhookSecrets: resolvedPreviousConnectWebhookSecrets,
-            connectAccountsApi,
-            apiBaseUrl,
-          }
-        : { kind: "fake" },
+    effectiveMode,
+    keyClassification,
+    paymentProcessor,
+    moneyMovement,
   };
 }
 
