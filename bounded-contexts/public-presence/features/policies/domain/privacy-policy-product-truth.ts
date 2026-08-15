@@ -395,7 +395,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
     evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-68",
+      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-67",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "bounded-contexts/settlement/package.json:44",

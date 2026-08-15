@@ -10,7 +10,6 @@ import {
   Page,
   PageSection,
   Stack,
-  Surface,
   Text,
   TimeSeriesChart,
   type TimeSeriesSeries,
@@ -91,81 +90,77 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                 ) : null}
               </Stack>
 
-              <PageSection title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history")}>
-                <Surface padding={6}>
-                  <TimeSeriesChart
-                    series={[chartSeries]}
-                    label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label", {
-                      item: title,
-                    })}
-                    formatValue={(value) => formatMoney(value.toFixed(2), "USD")}
-                    minimumSamples={2}
-                  />
-                </Surface>
+              <PageSection
+                data-testid="market-price-history-chart-furniture"
+                title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history")}
+              >
+                <TimeSeriesChart
+                  series={[chartSeries]}
+                  label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label", {
+                    item: title,
+                  })}
+                  formatValue={(value) => formatMoney(value.toFixed(2), "USD")}
+                  minimumSamples={2}
+                />
               </PageSection>
 
-              <PageSection title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats")}>
+              <PageSection
+                data-testid="market-price-history-stats-furniture"
+                title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats")}
+              >
                 <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={4}>
-                  <Surface padding={6}>
-                    <Stack gap={1}>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
+                    </Text>
+                    <Heading level={2} visualSize={4}>
+                      {money(aggregate?.lastSoldPriceAmount ?? null)}
+                    </Heading>
+                    {aggregate?.lastSoldAt ? (
                       <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
+                        {formatDate(aggregate.lastSoldAt)}
                       </Text>
-                      <Heading level={2} visualSize={4}>
-                        {money(aggregate?.lastSoldPriceAmount ?? null)}
-                      </Heading>
-                      {aggregate?.lastSoldAt ? (
-                        <Text size="sm" tone="secondary">
-                          {formatDate(aggregate.lastSoldAt)}
-                        </Text>
-                      ) : null}
-                    </Stack>
-                  </Surface>
-                  <Surface padding={6}>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
-                      </Text>
-                      <Heading level={2} visualSize={4}>
-                        {money(aggregate?.medianPrice30d ?? null)}
-                      </Heading>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                          count: aggregate?.tradeCount30d ?? 0,
-                        })}
-                      </Text>
-                    </Stack>
-                  </Surface>
-                  <Surface padding={6}>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
-                      </Text>
-                      <Heading level={2} visualSize={4}>
-                        {money(aggregate?.medianPrice90d ?? null)}
-                      </Heading>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                          count: aggregate?.tradeCount90d ?? 0,
-                        })}
-                      </Text>
-                    </Stack>
-                  </Surface>
-                  <Surface padding={6}>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
-                      </Text>
-                      <Heading level={2} visualSize={4}>
-                        {marketState?.activeListingCount ?? 0}
-                      </Heading>
-                      <Text size="sm" tone="secondary">
-                        {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
-                          amount: money(marketState?.minAskAmount ?? null),
-                        })}
-                      </Text>
-                    </Stack>
-                  </Surface>
+                    ) : null}
+                  </Stack>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
+                    </Text>
+                    <Heading level={2} visualSize={4}>
+                      {money(aggregate?.medianPrice30d ?? null)}
+                    </Heading>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                        count: aggregate?.tradeCount30d ?? 0,
+                      })}
+                    </Text>
+                  </Stack>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
+                    </Text>
+                    <Heading level={2} visualSize={4}>
+                      {money(aggregate?.medianPrice90d ?? null)}
+                    </Heading>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                        count: aggregate?.tradeCount90d ?? 0,
+                      })}
+                    </Text>
+                  </Stack>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
+                    </Text>
+                    <Heading level={2} visualSize={4}>
+                      {marketState?.activeListingCount ?? 0}
+                    </Heading>
+                    <Text size="sm" tone="secondary">
+                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
+                        amount: money(marketState?.minAskAmount ?? null),
+                      })}
+                    </Text>
+                  </Stack>
                 </Grid>
                 {sellThrough30d ? (
                   <Badge tone="info">

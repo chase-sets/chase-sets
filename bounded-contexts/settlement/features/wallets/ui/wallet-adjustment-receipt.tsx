@@ -115,7 +115,7 @@ export function WalletAdjustmentReceiptCard({
   ];
 
   return (
-    <Card>
+    <Card data-testid="wallet-adjustment-receipt-entity" elevation="outlined">
       <Stack gap={3}>
         <Stack direction="row" gap={2} align="center">
           <Badge tone={walletAdjustmentStatusTone(adjustment.status)}>

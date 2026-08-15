@@ -31,7 +31,7 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout readiness panel recovery paths", () => {
-  it("renders support-safe requirement groups without raw provider requirement identifiers", () => {
+  it("renders support-safe groups and tints progress-step furniture", () => {
     const html = renderToStaticMarkup(
       <PayoutReadinessPanel
         payoutReadiness={readiness({
@@ -45,6 +45,9 @@ describe("payout readiness panel recovery paths", () => {
     expect(html).toContain("Payout account");
     expect(html).toContain("Identity and business details");
     expect(html).toContain("Contact support");
+    expect(html).toContain(
+      'data-testid="payout-readiness-step-payout-setup" class="min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4"',
+    );
     expect(html).not.toContain("external_account");
     expect(html).not.toContain("individual.verification.document");
     expect(html).not.toContain("Express Dashboard");

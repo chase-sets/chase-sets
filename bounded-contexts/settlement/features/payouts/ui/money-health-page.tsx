@@ -1,15 +1,5 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
-import {
-  Badge,
-  Card,
-  DataTable,
-  LinkButton,
-  Page,
-  PageHeader,
-  PageSection,
-  Stack,
-  Text,
-} from "@chase-sets/design-system";
+import { Badge, DataTable, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementReconciliationRunRow } from "../read-model/queries";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 
@@ -63,32 +53,30 @@ export function SettlementMoneyHealthPage({
         }
       />
 
-      <PageSection title={t("settlement.features.payouts.ui.moneyHealthPage.platform.balance.forecast")}>
+      <PageSection
+        data-testid="platform-balance-forecast-furniture"
+        title={t("settlement.features.payouts.ui.moneyHealthPage.platform.balance.forecast")}
+      >
         <Stack gap={3}>
-          <Card>
-            <Stack gap={2}>
-              <Badge tone="accent">{t("settlement.features.payouts.ui.moneyHealthPage.provider.balance")}</Badge>
-              <Text weight="semibold">
-                {t("settlement.features.payouts.ui.moneyHealthPage.amount.available", {
-                  amount: formatMoney(platformBalanceForecast.available_amount, platformBalanceForecast.currency_code),
-                })}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.moneyHealthPage.pending.payout.demand")}
-                {formatMoney(
-                  platformBalanceForecast.pending_payout_demand_amount,
-                  platformBalanceForecast.currency_code,
-                )}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.moneyHealthPage.forecast.after.pending.demand")}
-                {formatMoney(
-                  platformBalanceForecast.forecast_after_pending_demand_amount,
-                  platformBalanceForecast.currency_code,
-                )}
-              </Text>
-            </Stack>
-          </Card>
+          <Stack gap={2}>
+            <Badge tone="accent">{t("settlement.features.payouts.ui.moneyHealthPage.provider.balance")}</Badge>
+            <Text weight="semibold">
+              {t("settlement.features.payouts.ui.moneyHealthPage.amount.available", {
+                amount: formatMoney(platformBalanceForecast.available_amount, platformBalanceForecast.currency_code),
+              })}
+            </Text>
+            <Text size="sm" tone="secondary">
+              {t("settlement.features.payouts.ui.moneyHealthPage.pending.payout.demand")}
+              {formatMoney(platformBalanceForecast.pending_payout_demand_amount, platformBalanceForecast.currency_code)}
+            </Text>
+            <Text size="sm" tone="secondary">
+              {t("settlement.features.payouts.ui.moneyHealthPage.forecast.after.pending.demand")}
+              {formatMoney(
+                platformBalanceForecast.forecast_after_pending_demand_amount,
+                platformBalanceForecast.currency_code,
+              )}
+            </Text>
+          </Stack>
         </Stack>
       </PageSection>
 

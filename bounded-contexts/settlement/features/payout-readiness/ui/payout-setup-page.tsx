@@ -12,7 +12,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   createStripeConnectAppearance,
   Inline,
   LinkButton,
@@ -463,104 +462,104 @@ export function PayoutSetupPage({
       ) : null}
 
       {hasProviderAccount ? (
-        <PageSection title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payout.notifications")}>
-          <Card>
-            <StripeConnectNotificationBanner publishableKey={stripePublishableKey} />
-          </Card>
+        <PageSection
+          data-testid="payout-notifications-furniture"
+          title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payout.notifications")}
+        >
+          <StripeConnectNotificationBanner publishableKey={stripePublishableKey} />
         </PageSection>
       ) : null}
 
-      <PageSection title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.current.status")}>
-        <Card>
-          <Stack gap={4}>
-            <Stack gap={2}>
-              <Badge tone={statusTone(payoutReadiness.status)}>{statusLabel(payoutReadiness.status)}</Badge>
-              <Text weight="semibold">{statusHeadline(payoutReadiness.status)}</Text>
-              <Text size="sm" tone="secondary">
-                {providerPanelDescription(mode)}
-              </Text>
-            </Stack>
-            <PayoutReadinessPanel
-              payoutReadiness={payoutReadiness}
-              readyDescription={t(
-                "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available",
-              )}
-              showSupportEscalation={showSupportEscalation}
-            />
-            {missingRequirementCount > 0 ? (
-              <ProgressiveDisclosure
-                title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.support.details")}
-                summary={t("settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.count", {
-                  count: String(missingRequirementCount),
-                })}
-                tone="info"
-              >
-                <Stack gap={1}>
-                  {missingRequirementGroups.map((group) => (
-                    <Text key={group.id} size="sm" tone="secondary">
-                      {requirementGroupLabel(group)}:{" "}
-                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.group.count", {
-                        count: String(group.count),
-                      })}
-                    </Text>
-                  ))}
-                </Stack>
-              </ProgressiveDisclosure>
-            ) : null}
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="refresh-payout-setup" />
-              <HiddenInput type="hidden" name="mode" value={mode} />
-              <Button type="submit" tone="secondary">
-                {t("settlement.features.payoutReadiness.ui.payoutSetupPage.refresh.setup.status")}
-              </Button>
-            </Form>
+      <PageSection
+        data-testid="payout-setup-status-furniture"
+        title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.current.status")}
+      >
+        <Stack gap={4}>
+          <Stack gap={2}>
+            <Badge tone={statusTone(payoutReadiness.status)}>{statusLabel(payoutReadiness.status)}</Badge>
+            <Text weight="semibold">{statusHeadline(payoutReadiness.status)}</Text>
+            <Text size="sm" tone="secondary">
+              {providerPanelDescription(mode)}
+            </Text>
           </Stack>
-        </Card>
+          <PayoutReadinessPanel
+            payoutReadiness={payoutReadiness}
+            readyDescription={t(
+              "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available",
+            )}
+            showSupportEscalation={showSupportEscalation}
+          />
+          {missingRequirementCount > 0 ? (
+            <ProgressiveDisclosure
+              title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.support.details")}
+              summary={t("settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.count", {
+                count: String(missingRequirementCount),
+              })}
+              tone="info"
+            >
+              <Stack gap={1}>
+                {missingRequirementGroups.map((group) => (
+                  <Text key={group.id} size="sm" tone="secondary">
+                    {requirementGroupLabel(group)}:{" "}
+                    {t("settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.group.count", {
+                      count: String(group.count),
+                    })}
+                  </Text>
+                ))}
+              </Stack>
+            </ProgressiveDisclosure>
+          ) : null}
+          <Form spacing="none" method="post">
+            <HiddenInput type="hidden" name="intent" value="refresh-payout-setup" />
+            <HiddenInput type="hidden" name="mode" value={mode} />
+            <Button type="submit" tone="secondary">
+              {t("settlement.features.payoutReadiness.ui.payoutSetupPage.refresh.setup.status")}
+            </Button>
+          </Form>
+        </Stack>
       </PageSection>
 
-      <PageSection title={providerPanelTitle(mode)}>
-        <Card overflow="visible">
-          <Stack gap={3}>
-            {providerErrorMessage ? (
-              <Banner
-                tone="warning"
-                title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load")}
-                description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.load.failed.with.reason", {
-                  reason: providerErrorMessage,
-                })}
-                actions={
-                  <Inline>
-                    <LinkButton href={modeHref(mode)} tone="secondary">
-                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
-                    </LinkButton>
-                    <LinkButton href="/account/support" tone="secondary">
-                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
-                    </LinkButton>
-                  </Inline>
-                }
-              />
-            ) : null}
-            {canRenderProviderComponent ? (
-              <StripeConnectEmbeddedComponent
-                mode={mode}
-                publishableKey={stripePublishableKey}
-                onProviderExit={onProviderExit}
-                contactEmail={contactEmail}
-              />
-            ) : (
-              <Banner
-                tone="success"
-                title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payouts.are.ready")}
-                description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts")}
-                actions={
-                  <LinkButton href="/account/desk/money">
-                    {t("settlement.features.payoutReadiness.ui.payoutSetupPage.request.payout")}
+      <PageSection data-testid="payout-provider-furniture" title={providerPanelTitle(mode)}>
+        <Stack gap={3}>
+          {providerErrorMessage ? (
+            <Banner
+              tone="warning"
+              title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load")}
+              description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.load.failed.with.reason", {
+                reason: providerErrorMessage,
+              })}
+              actions={
+                <Inline>
+                  <LinkButton href={modeHref(mode)} tone="secondary">
+                    {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
                   </LinkButton>
-                }
-              />
-            )}
-          </Stack>
-        </Card>
+                  <LinkButton href="/account/support" tone="secondary">
+                    {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
+                  </LinkButton>
+                </Inline>
+              }
+            />
+          ) : null}
+          {canRenderProviderComponent ? (
+            <StripeConnectEmbeddedComponent
+              mode={mode}
+              publishableKey={stripePublishableKey}
+              onProviderExit={onProviderExit}
+              contactEmail={contactEmail}
+            />
+          ) : (
+            <Banner
+              tone="success"
+              title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payouts.are.ready")}
+              description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts")}
+              actions={
+                <LinkButton href="/account/desk/money">
+                  {t("settlement.features.payoutReadiness.ui.payoutSetupPage.request.payout")}
+                </LinkButton>
+              }
+            />
+          )}
+        </Stack>
       </PageSection>
     </Page>
   );
