@@ -50,7 +50,7 @@ export function CheckoutShippingSection({
   }
 
   return (
-    <Surface elevated>
+    <Surface elevation="tinted">
       <CheckoutFormSection
         title={t("checkout.features.sessions.ui.checkoutPage.shipping.method")}
         description={t("checkout.features.sessions.ui.checkoutPage.shipping.method.description")}

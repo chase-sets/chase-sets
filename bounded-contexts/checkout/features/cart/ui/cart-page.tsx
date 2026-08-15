@@ -847,7 +847,7 @@ export function CheckoutCartPage({
       >
         <Stack gap={4}>
           {visibleErrorMessage ? (
-            <Surface tone="subtle" elevated>
+            <Surface tone="subtle" elevation="tinted">
               <Stack gap={2}>
                 <Badge tone="danger">{t("checkout.features.cart.ui.cartPage.checkout.issue")}</Badge>
                 <Text>{visibleErrorMessage}</Text>
@@ -856,7 +856,7 @@ export function CheckoutCartPage({
           ) : null}
 
           {recoveryState?.kind === "pending-fresh-write" ? (
-            <Surface tone="subtle" elevated>
+            <Surface tone="subtle" elevation="tinted">
               <Stack gap={3}>
                 <Badge tone="neutral">
                   {recoveryState.isAutoRevalidating

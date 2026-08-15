@@ -108,6 +108,33 @@ describe("MarketplaceListingDetailPage", () => {
     expect(container.querySelector('input[name="feeQuoteFingerprint"][value="current-fingerprint"]')).toBeTruthy();
   });
 
+  it("keeps the primary listing entity elevated while surrounding panels flatten to tinted furniture", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={listing}
+        feeHistory={[]}
+        priceDraftAmount="20.00"
+        pricePreview={null}
+        errorMessage={null}
+      />,
+    );
+
+    const entityCardClass = "ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden p-4";
+    const titleNodes = screen.getAllByText("Charizard");
+    const entityCard = titleNodes.map((node) => node.closest(`[class="${entityCardClass}"]`)).find(Boolean);
+    expect(entityCard).toBeTruthy();
+
+    const furnitureCardClass = "rounded-tokenLg overflow-hidden bg-surface-2 p-4";
+    const saveButton = screen.getByText("Save price");
+    const furnitureCard = saveButton.closest(`[class="${furnitureCardClass}"]`);
+    expect(furnitureCard).toBeTruthy();
+    expect(furnitureCard).not.toBe(entityCard);
+    for (const className of [entityCard?.className, furnitureCard?.className]) {
+      expect(typeof className).toBe("string");
+    }
+    expect(furnitureCard?.className).not.toMatch(/ds-glass|shadow-token|border-muted|hover:/);
+  });
+
   it("renders listing photo gallery with responsive variants", () => {
     render(
       <MarketplaceListingDetailPage

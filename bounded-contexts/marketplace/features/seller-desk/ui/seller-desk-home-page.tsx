@@ -157,7 +157,7 @@ export function SellerDeskHomePage({ queue, kpis }: SellerDeskHomePageProps) {
 
 function SellerDeskQueueRow({ item }: { item: SellerAttentionItem }) {
   return (
-    <Card data-seller-desk-item={item.id} data-seller-desk-severity={item.severity}>
+    <Card data-seller-desk-item={item.id} data-seller-desk-severity={item.severity} elevation="tinted">
       <Cluster>
         <Stack gap={1} align="start">
           <Inline>

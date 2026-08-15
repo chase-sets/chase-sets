@@ -113,7 +113,7 @@ export function OrderOutcomePanel({
   transactionLabel: "purchase" | "sale";
 }) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Stack gap={3}>
         <Text weight="semibold">{t("ordering.features.orders.ui.orderOutcome.title")}</Text>
         <Stack gap={1}>
@@ -160,7 +160,7 @@ export function OrderReviewOpportunityCallout({
   const href = opportunity.active_review_id ? `/account/reviews/${opportunity.active_review_id}` : reviewHref;
 
   return (
-    <Card>
+    <Card elevation="tinted">
       <Stack gap={2}>
         <Text weight="semibold">
           {opportunity.active_review_id

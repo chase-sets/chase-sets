@@ -91,6 +91,16 @@ describe("guest checkout start: existing account email", () => {
     cleanup();
   });
 
+  it("renders the guest checkout Surface as flattened furniture, not an entity card", async () => {
+    renderGuestCheckoutStart();
+
+    const submit = await screen.findByRole("button", { name: "Continue as guest" });
+    const furnitureSurfaceClass = "min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4";
+    const guestSurface = submit.closest(`[class="${furnitureSurfaceClass}"]`);
+    expect(guestSurface).toBeTruthy();
+    expect(guestSurface?.className).not.toMatch(/ds-glass|shadow-token|surface-border|ds-glow/);
+  });
+
   it("keeps the guest form, surfaces the email error, and lets a new email proceed", async () => {
     renderGuestCheckoutStart();
 
