@@ -143,7 +143,7 @@ export function PlatformFeedbackPrompt({
   }
 
   return (
-    <Surface elevated>
+    <Surface elevation="tinted" data-elevation-role="furniture">
       <Stack gap={3}>
         <Inline gap={2}>
           <Badge tone="accent">{t("experience.platformFeedbackPrompt.badge")}</Badge>

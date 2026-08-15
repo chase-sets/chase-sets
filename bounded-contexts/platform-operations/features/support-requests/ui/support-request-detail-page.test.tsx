@@ -6,6 +6,15 @@ import type { SupportRequestDetail } from "./contracts";
 import { SupportRequestDetailPage } from "./support-request-detail-page";
 
 const now = "2026-07-15T12:00:00.000Z";
+const elevationRoleAttribute = ["data", "elevation", "role"].join("-");
+
+function markedRole(role: "entity" | "furniture") {
+  return document.querySelectorAll(`[${elevationRoleAttribute}="${role}"]`);
+}
+
+function mismatchedMarkedRole(role: "entity" | "furniture") {
+  return document.querySelectorAll(`[${elevationRoleAttribute}]:not([${elevationRoleAttribute}="${role}"])`);
+}
 
 function buildRequest(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetail {
   return {
@@ -91,7 +100,11 @@ function buildRequest(overrides: Partial<SupportRequestDetail> = {}): SupportReq
   };
 }
 
-function renderPage(request: SupportRequestDetail, viewerRole: "buyer" | "seller") {
+function renderPage(
+  request: SupportRequestDetail,
+  viewerRole: "buyer" | "seller",
+  { canCancel = false }: Readonly<{ canCancel?: boolean }> = {},
+) {
   const router = createMemoryRouter(
     [
       {
@@ -102,6 +115,7 @@ function renderPage(request: SupportRequestDetail, viewerRole: "buyer" | "seller
             flow={getSupportFlowDefinition("product-damaged")}
             viewerRole={viewerRole}
             now={now}
+            canCancel={canCancel}
           />
         ),
       },
@@ -205,6 +219,80 @@ describe("SupportRequestDetailPage", () => {
     expect(screen.getByRole("button", { name: "Accept offer" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Decline offer" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Submit evidence" })).toBeNull();
+  });
+
+  it("marks each reachable support action state as furniture-only", () => {
+    const evidenceRequest = buildRequest({
+      status: "waiting-on-buyer",
+      checklist: [
+        {
+          key: "damage-photos",
+          label: "Upload damage photos.",
+          ownerRole: "buyer",
+          evidenceTypes: ["photo", "support-note"],
+          required: true,
+          satisfiedAt: null,
+        },
+        {
+          key: "condition-notes",
+          label: "Describe the item condition.",
+          ownerRole: "buyer",
+          evidenceTypes: ["condition-notes"],
+          required: true,
+          satisfiedAt: null,
+        },
+      ],
+    });
+
+    renderPage(evidenceRequest, "buyer", { canCancel: true });
+
+    expect(screen.getByRole("heading", { name: "Upload damage photos." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Describe the item condition." })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Submit evidence",
+      "Submit evidence",
+      "Cancel case",
+    ]);
+    expect.soft(markedRole("entity")).toHaveLength(0);
+    expect.soft(markedRole("furniture")).toHaveLength(3);
+    expect.soft(mismatchedMarkedRole("furniture")).toHaveLength(0);
+
+    cleanup();
+
+    const pendingOffer = {
+      offerId: "sof_pending",
+      responseId: "srp_pending",
+      offeredByAccountId: "acc_seller" as const,
+      offeredByRole: "seller" as const,
+      pendingWithRole: "buyer" as const,
+      responseType: "offer-partial-refund" as const,
+      resolutionType: "partial-refund" as const,
+      refundAmount: "12.00",
+      summary: "Keep the item and receive a partial refund.",
+      offeredAt: "2026-07-15T10:00:00.000Z",
+      status: "pending" as const,
+      decidedByAccountId: null,
+      decidedByRole: null,
+      decidedAt: null,
+      decisionSummary: null,
+    };
+    const offerRequest = buildRequest({
+      status: "waiting-on-buyer",
+      pending_offer: pendingOffer,
+      offers: [pendingOffer],
+    });
+
+    renderPage(offerRequest, "buyer", { canCancel: true });
+
+    expect(screen.getByRole("heading", { name: "Review the offer" })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Accept offer",
+      "Decline offer",
+      "Cancel case",
+    ]);
+    expect.soft(markedRole("entity")).toHaveLength(0);
+    expect.soft(markedRole("furniture")).toHaveLength(2);
+    expect.soft(mismatchedMarkedRole("furniture")).toHaveLength(0);
   });
 
   it("renders one chronological stream for evidence, offers, escalation, and resolution", () => {

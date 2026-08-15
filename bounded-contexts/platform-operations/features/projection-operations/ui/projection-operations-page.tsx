@@ -226,7 +226,7 @@ function ProjectionRepairQueue({
 }: Readonly<{ rows: readonly ProjectionRepairQueueItem[]; filters: ProjectionOperationsFilters }>) {
   if (rows.length === 0) {
     return (
-      <Surface tone="subtle">
+      <Surface tone="subtle" elevation="tinted" data-elevation-role="furniture">
         <Stack gap={1}>
           <Text weight="semibold">{t(`${routeKey}.noAttention`)}</Text>
           <Text tone="secondary">{t(`${routeKey}.noAttentionDescription`)}</Text>
@@ -344,7 +344,7 @@ function OperationsSummary({
 }>) {
   const status = resolveConsoleStatus(data, attentionItems, staleWorkerCount(data));
   return (
-    <Surface>
+    <Surface elevation="tinted" data-elevation-role="furniture">
       <Stack gap={4}>
         <Cluster align="center" justify="between">
           <Stack gap={1}>

@@ -195,7 +195,7 @@ function CommandCenterItemCard({
   shipmentDetailBasePath: string;
 }) {
   return (
-    <Card>
+    <Card elevation="elevated" data-elevation-role="entity">
       <Stack gap={2}>
         <Stack gap={1}>
           <Text weight="semibold">{itemTitle(item)}</Text>

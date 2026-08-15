@@ -191,7 +191,7 @@ function SupportFlowTable({ flows }: Readonly<{ flows: readonly SupportFlowSumma
 
 function SupportIntakeStart() {
   return (
-    <Surface>
+    <Surface elevation="tinted" data-elevation-role="furniture">
       <Stack>
         <Text>{t("support.features.supportRequests.ui.supportRequestListPage.intake.fromOrder")}</Text>
         <Cluster>
@@ -260,7 +260,7 @@ function SupportRequestOpenPanel({
             </LinkButton>
           }
         />
-        <Surface id="existing-support-request">
+        <Surface id="existing-support-request" elevation="tinted" data-elevation-role="furniture">
           <Stack>
             <Inline>
               <Text weight="semibold">{existing.displayReference || existing.supportRequestId}</Text>
@@ -289,7 +289,7 @@ function SupportRequestOpenPanel({
   }));
 
   return (
-    <Surface>
+    <Surface elevation="tinted" data-elevation-role="furniture">
       <RouterForm method="post" encType="multipart/form-data" spacing="md">
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />

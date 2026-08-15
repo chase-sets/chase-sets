@@ -52,7 +52,7 @@ export function RestockDecisionQueuePage({
       />
 
       {errorMessage ? (
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
@@ -60,12 +60,12 @@ export function RestockDecisionQueuePage({
       <PageSection title={t("inventory.features.restockDecisions.ui.queue.pending")}>
         <Stack gap={4}>
           {decisions.length === 0 ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Text>{t("inventory.features.restockDecisions.ui.queue.empty")}</Text>
             </Card>
           ) : (
             decisions.map((decision) => (
-              <Card key={decision.decision_id}>
+              <Card key={decision.decision_id} elevation="elevated" data-elevation-role="entity">
                 <Stack gap={3}>
                   <Inline>
                     <Badge tone="warning">{sourceLabel(decision.source)}</Badge>

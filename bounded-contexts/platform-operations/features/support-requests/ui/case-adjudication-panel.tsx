@@ -122,7 +122,7 @@ function PartyPosition({
   );
 
   return (
-    <Surface tone="muted">
+    <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
       <Stack gap={3}>
         <Text weight="semibold">{heading}</Text>
         {responses.length === 0 && evidence.length === 0 ? (
@@ -174,7 +174,7 @@ function EscalationOrigin({ request }: Readonly<{ request: SupportRequestDetail 
         {t("support.features.supportRequests.ui.supportOperationsPage.adjudication.escalation.title")}
       </Text>
       {request.escalated_at ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Stack gap={1}>
             <Inline gap={2}>
               <Badge tone="warning">

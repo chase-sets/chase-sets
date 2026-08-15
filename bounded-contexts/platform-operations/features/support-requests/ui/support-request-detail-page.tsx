@@ -147,7 +147,7 @@ function EvidencePrompt({
   if (!firstEvidenceType) return null;
 
   return (
-    <Card>
+    <Card elevation="tinted" data-elevation-role="furniture">
       <Card.Header>
         <Card.Title>{item.label}</Card.Title>
         <Card.Description>
@@ -193,7 +193,7 @@ function ResponseForm({
   const resolutionType = responseResolutionType(responseType);
 
   return (
-    <Card>
+    <Card elevation="tinted" data-elevation-role="furniture">
       <Card.Header>
         <Card.Title>{t("support.features.supportRequests.ui.supportRequestDetailPage.response.title")}</Card.Title>
         <Card.Description>
@@ -260,7 +260,7 @@ function OfferDecision({ request }: Readonly<{ request: SupportRequestDetail }>)
   if (!offer) return null;
 
   return (
-    <Card>
+    <Card elevation="tinted" data-elevation-role="furniture">
       <Card.Header>
         <Card.Title>{t("support.features.supportRequests.ui.supportRequestDetailPage.offer.title")}</Card.Title>
         <Card.Description>{offer.summary}</Card.Description>
@@ -308,7 +308,7 @@ function OfferDecision({ request }: Readonly<{ request: SupportRequestDetail }>)
 
 function CancelCaseForm() {
   return (
-    <Card>
+    <Card elevation="tinted" data-elevation-role="furniture">
       <Card.Header>
         <Card.Title>{t("support.features.supportRequests.ui.supportRequestDetailPage.cancel.title")}</Card.Title>
       </Card.Header>

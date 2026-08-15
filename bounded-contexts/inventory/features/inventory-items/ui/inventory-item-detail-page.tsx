@@ -187,13 +187,13 @@ export function InventoryItemDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.summary")}>
-        <Card>
+        <Card elevation="elevated" data-elevation-role="entity">
           <Stack gap={2}>
             <Text>
               <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.catalog.item")}</strong>{" "}
@@ -227,7 +227,7 @@ export function InventoryItemDetailPage({
       </PageSection>
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="adjust-item" />
@@ -251,7 +251,7 @@ export function InventoryItemDetailPage({
       </PageSection>
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-hold" />
@@ -282,14 +282,14 @@ export function InventoryItemDetailPage({
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.history")}>
         <Stack gap={4}>
           {item.holds.length === 0 ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Text>
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.holds.have.been.created.for")}
               </Text>
             </Card>
           ) : (
             item.holds.map((hold) => (
-              <Card key={hold.hold_id}>
+              <Card key={hold.hold_id} elevation="tinted" data-elevation-role="furniture">
                 <Stack gap={2}>
                   <Text weight="semibold">
                     {hold.reason} ({hold.quantity})
@@ -357,7 +357,7 @@ export function InventoryItemDetailPage({
             ))}
           </Inline>
           {ledgerEntries.length === 0 ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Text>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.stock.movements")}</Text>
             </Card>
           ) : (
