@@ -258,7 +258,25 @@ function countText(markup: string, text: string) {
   return markup.split(text).length - 1;
 }
 
+function expectTintedFurniture(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:surface-border|ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 describe("checkout session page", () => {
+  it("owns contact, delivery, shipping, and payment form roots as tinted furniture", () => {
+    render(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
+
+    expectTintedFurniture(screen.getByLabelText("Email").closest(".rounded-tokenLg"));
+    expectTintedFurniture(screen.getByLabelText("Recipient name").closest(".rounded-tokenLg"));
+    expectTintedFurniture(screen.getByLabelText("Shipping option").closest(".rounded-tokenLg"));
+    expectTintedFurniture(screen.getByLabelText("Payment method").closest(".rounded-tokenLg"));
+  });
+
   it("renders simple checkout and keeps unavailable fulfillment in cart review", () => {
     const markup = renderToString(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 

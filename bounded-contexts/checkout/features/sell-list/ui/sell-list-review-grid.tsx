@@ -70,13 +70,13 @@ function TermsComparison({ review }: { review: SellListOfferReview }) {
 
   return (
     <Grid columns={{ base: 1, md: 2 }} gap={3}>
-      <Surface tone="subtle" padding={3}>
+      <Surface tone="subtle" elevation="tinted" padding={3}>
         <Stack gap={2}>
           <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.standard.terms")}</Text>
           <KeyValueList density="compact" variant="plain" items={termsItems(standard ?? review.terms)} />
         </Stack>
       </Surface>
-      <Surface tone="subtle" padding={3}>
+      <Surface tone="subtle" elevation="tinted" padding={3}>
         <Stack gap={2}>
           <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.seller.terms")}</Text>
           <KeyValueList density="compact" variant="plain" items={termsItems(review.terms)} />
@@ -96,7 +96,7 @@ function OfferOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <Surface tone="subtle" padding={3}>
+    <Surface tone="subtle" elevation="outlined" padding={3}>
       <Stack gap={3}>
         <Checkbox
           label={t("checkout.features.sellList.ui.sellListPage.select.offer", { buyer: offer.buyer })}

@@ -37,6 +37,15 @@ function captureResolutionEvents() {
   };
 }
 
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
@@ -51,6 +60,7 @@ describe("review submission page (server render)", () => {
     expect(markup).toContain("Buyer Account");
     expect(markup).toContain("Submit account review");
     expect(markup).toContain("Tell the account what went well or what needs improvement.");
+    expect(markup).toContain('class="rounded-tokenLg overflow-hidden bg-surface-2 p-4"');
   });
 
   it("preserves submitted values when the route returns an error", () => {
@@ -87,7 +97,9 @@ describe("existing order issue blocks submission", () => {
       />,
     );
 
-    expect(screen.getByText("Review paused")).toBeTruthy();
+    const paused = screen.getByText("Review paused");
+    expect(paused).toBeTruthy();
+    expectTintedCard(paused.closest(".bg-surface-2"));
     const track = screen.getByRole("link", { name: "Track order issue" });
     expect(track.getAttribute("href")).toBe("/account/support?orderId=ord_1");
     expect(screen.queryByRole("button", { name: "Submit account review" })).toBeNull();
@@ -103,7 +115,9 @@ describe("buyer resolution-first funnel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Submit account review" }));
 
-    expect(screen.getByText("Resolve this issue")).toBeTruthy();
+    const resolution = screen.getByText("Resolve this issue");
+    expect(resolution).toBeTruthy();
+    expectTintedCard(resolution.closest(".bg-surface-2"));
     expect(screen.getByRole("link", { name: "Open an order issue" })).toBeTruthy();
     expect(screen.getByText("Leave feedback only")).toBeTruthy();
     expect(events.some((event) => event.event === "review_resolution_interstitial_shown")).toBe(true);

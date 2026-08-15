@@ -35,6 +35,18 @@ function throwingSource(id: SellerAttentionSourceId, reason: string): SellerAtte
   };
 }
 
+function expectOutlinedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  const tokens = className.split(/\s+/);
+  expect(tokens).toContain("border");
+  expect(tokens).toContain("border-muted");
+  expect(tokens).toContain("bg-surface");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|shadow-tokenSm|shadow-tokenLg|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 async function fullQueue(): Promise<SellerAttentionQueue> {
   return aggregateSellerAttentionQueue(
     [
@@ -110,6 +122,9 @@ describe("SellerDeskHomePage", () => {
       "offer-response:off-1",
       "listing-action:lst-1",
     ]);
+    for (const row of rows) {
+      expectOutlinedCard(row);
+    }
 
     // Each row deep-links straight into the owning surface.
     const shipRow = document.querySelector('[data-seller-desk-item="fulfillment-ship-by:ship-1"]');

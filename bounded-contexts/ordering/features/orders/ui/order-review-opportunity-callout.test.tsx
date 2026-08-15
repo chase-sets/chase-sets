@@ -19,6 +19,7 @@ describe("order review opportunity callout", () => {
     expect(markup).toContain("Leave account review");
     expect(markup).toContain("/account/sales/ord_1/review");
     expect(markup).toContain("Reviews open only after delivery verifies both accounts in the transaction.");
+    expect(markup).toContain('class="rounded-tokenLg overflow-hidden bg-surface-2 p-4"');
   });
 
   it("links to the active review when one already exists", () => {
@@ -84,6 +85,7 @@ describe("order outcome panel", () => {
     expect(markup).toContain("Issue is being resolved before feedback continues.");
     expect(markup).toContain("Track issue");
     expect(markup).not.toContain("Leave account review");
+    expect(markup).toContain('class="rounded-tokenLg overflow-hidden bg-surface-2 p-4"');
   });
 
   it("renders an honest recoverable review error while preserving the rest of the outcome", () => {

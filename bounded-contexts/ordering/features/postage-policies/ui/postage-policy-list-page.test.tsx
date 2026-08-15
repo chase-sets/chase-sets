@@ -4,6 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import type { PostagePolicyAdminViewModel } from "./contracts";
 import { PostagePolicyListPage } from "./postage-policy-list-page";
 
@@ -62,13 +63,52 @@ const activePolicy = policy("opp_active", "Current policy", "active");
 const draftPolicy = policy("opp_draft", "Candidate policy", "draft");
 const retiredPolicy = policy("opp_retired", "Archived policy", "retired");
 
-function renderPage(selectedPolicy: PostagePolicyAdminViewModel | null = null) {
+const previewResult: PackagePlan = {
+  packagePlanVersion: "measured-package-plan-v1",
+  packageCount: 1,
+  packages: [
+    {
+      packageId: "pkg_1",
+      mailpieceClass: "letter",
+      lengthInches: 9,
+      widthInches: 6,
+      heightInches: 0.2,
+      weightOunces: 1,
+      billableWeightOunces: 1,
+      serviceLevel: "letter",
+      productMeasureVersions: ["measure-v1"],
+    },
+  ],
+  letterEligibility: { eligible: true, reasons: [] },
+  postagePolicySnapshot: {
+    policyVersion: "operator-postage-v1",
+    parcelRequired: false,
+    parcelReasons: [],
+    signatureRequired: false,
+    signatureReasons: [],
+    insuranceRequired: false,
+    insuranceReasons: [],
+    insuredValueAmount: null,
+    shippingEvidenceTier: "letter-untracked",
+  },
+  missingProductIds: [],
+};
+
+function renderPage(
+  selectedPolicy: PostagePolicyAdminViewModel | null = null,
+  options: { previewResult?: PackagePlan; errorMessage?: string } = {},
+) {
   const router = createMemoryRouter(
     [
       {
         path: "/commerce/postage-policies",
         element: (
-          <PostagePolicyListPage items={[activePolicy, draftPolicy, retiredPolicy]} selectedPolicy={selectedPolicy} />
+          <PostagePolicyListPage
+            items={[activePolicy, draftPolicy, retiredPolicy]}
+            selectedPolicy={selectedPolicy}
+            previewResult={options.previewResult}
+            errorMessage={options.errorMessage}
+          />
         ),
         action: async () => null,
       },
@@ -80,6 +120,15 @@ function renderPage(selectedPolicy: PostagePolicyAdminViewModel | null = null) {
     },
   );
   return render(<RouterProvider router={router} />);
+}
+
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
 }
 
 afterEach(cleanup);
@@ -106,6 +155,46 @@ describe("postage policy lifecycle home", () => {
     expect(within(drawer).getByText("Preview")).toBeTruthy();
     expect(within(drawer).getByText("History")).toBeTruthy();
     expect(within(drawer).getAllByText("created").length).toBeGreaterThan(0);
+  });
+
+  it("owns every list furniture root with populated state", () => {
+    renderPage(null, { errorMessage: "Policy operation failed." });
+
+    expectTintedCard(screen.getByText("Policy operation failed.").closest(".rounded-tokenLg"));
+    expectTintedCard(
+      screen.getByText("Create Draft").closest("section")?.querySelector("form")?.closest(".rounded-tokenLg") ?? null,
+    );
+  });
+
+  it("owns the open drawer error and state furniture roots", () => {
+    renderPage(draftPolicy, { errorMessage: "Policy operation failed." });
+
+    const drawer = screen.getByRole("dialog", { name: "Candidate policy" });
+
+    expectTintedCard(within(drawer).getByText("Policy operation failed.").closest(".rounded-tokenLg"));
+    expectTintedCard(within(drawer).getByText("Policy id: opp_draft").closest(".rounded-tokenLg"));
+  });
+
+  it("owns the open drawer lifecycle furniture roots", () => {
+    renderPage(draftPolicy);
+
+    const drawer = screen.getByRole("dialog", { name: "Candidate policy" });
+    for (const intent of ["activate", "retire", "clone"]) {
+      expectTintedCard(
+        drawer.querySelector(`input[name="intent"][value="${intent}"]`)?.closest(".rounded-tokenLg") ?? null,
+      );
+    }
+  });
+
+  it("owns the open drawer revision and preview furniture roots", () => {
+    renderPage(draftPolicy, { previewResult });
+
+    const drawer = screen.getByRole("dialog", { name: "Candidate policy" });
+    expectTintedCard(drawer.querySelector('input[name="intent"][value="revise"]')?.closest(".rounded-tokenLg") ?? null);
+    expectTintedCard(
+      drawer.querySelector('input[name="intent"][value="preview"]')?.closest(".rounded-tokenLg") ?? null,
+    );
+    expectTintedCard(within(drawer).getByText("Preview result").closest(".rounded-tokenLg"));
   });
 
   it("requires explicit confirmation before activation", async () => {

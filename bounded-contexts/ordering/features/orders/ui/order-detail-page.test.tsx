@@ -202,6 +202,11 @@ describe("ordering order detail page", () => {
     // Sellers keep visibility into inventory holds tied to their fulfillment.
     expect(markup).toContain("Inventory Holds");
     expect(markup).toContain("Reserved item");
+    expect(markup).toContain(
+      'class="surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-4 shadow-tokenLg ds-glow"',
+    );
+    expect(markup).toContain('class="min-w-0 max-w-full rounded-tokenLg border border-muted bg-elevated p-4"');
+    expect(markup).toContain('class="min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4"');
   });
 
   it("shows refund progress and customer-safe issued and failed guidance to the buyer", () => {

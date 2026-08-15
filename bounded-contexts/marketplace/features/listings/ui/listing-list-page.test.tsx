@@ -93,6 +93,15 @@ afterEach(() => {
   cleanup();
 });
 
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 describe("marketplace listings workbench", () => {
   it("links to the dedicated create-listing route instead of embedding a create form", () => {
     const markup = renderToString(
@@ -217,6 +226,7 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("Succeeded")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
     expect(screen.getByText("Listing is withdrawn.")).toBeTruthy();
+    expectTintedCard(screen.getByText("1 succeeded, 1 failed").closest(".rounded-tokenLg"));
   });
 
   it("captures the seller-local resume instant client-side when a return date is chosen", () => {

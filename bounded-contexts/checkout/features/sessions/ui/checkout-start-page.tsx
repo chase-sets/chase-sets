@@ -139,7 +139,7 @@ export function CheckoutStartPage({
               : t("checkout.routes.checkoutStart.account.checkout")
           }
         >
-          <Surface elevated glow>
+          <Surface elevation="tinted">
             <RouterForm method="post" spacing="none">
               <Stack gap={3}>
                 <Text tone="secondary">
@@ -158,7 +158,7 @@ export function CheckoutStartPage({
       ) : isOfferIntent ? (
         <>
           <PageSection title={t("checkout.routes.checkoutStart.register.to.place.purchase.intent")}>
-            <Surface elevated glow>
+            <Surface elevation="tinted">
               <Stack gap={3}>
                 <Text tone="secondary">{t("checkout.routes.checkoutStart.registration.purchase.intent.copy")}</Text>
                 <LinkButton href={registerPath} size="lg" leadingIcon="shield">
@@ -174,7 +174,7 @@ export function CheckoutStartPage({
       ) : (
         <>
           <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
-            <Surface elevated glow>
+            <Surface elevation="tinted">
               <RouterForm method="post" spacing="none">
                 <Stack gap={3}>
                   <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
@@ -207,7 +207,7 @@ export function CheckoutStartPage({
             </Surface>
           </PageSection>
           <PageSection title={t("checkout.routes.checkoutStart.account")}>
-            <Surface elevated>
+            <Surface elevation="tinted">
               <Stack gap={3}>
                 <Text tone="secondary">{t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}</Text>
                 <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">

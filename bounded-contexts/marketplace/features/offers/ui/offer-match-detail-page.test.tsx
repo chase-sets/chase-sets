@@ -46,5 +46,6 @@ describe("MarketplaceOfferMatchDetailPage", () => {
     expect(markup).toContain('name="productId" value="cat_charizard::condition:raw"');
     expect(markup).not.toContain('name="feeQuoteFingerprint"');
     expect(markup).not.toContain('value="accept-offer"');
+    expect(markup).toContain('class="ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden p-4"');
   });
 });

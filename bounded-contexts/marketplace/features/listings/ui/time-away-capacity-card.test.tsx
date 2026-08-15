@@ -46,6 +46,15 @@ afterEach(() => {
   cleanup();
 });
 
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 describe("TimeAwayCapacityCard states", () => {
   // State 1: available (and capacity unset) -- status badge, impact preview,
   // schedule-away-window affordance, and "no cap set" capacity copy.
@@ -54,7 +63,9 @@ describe("TimeAwayCapacityCard states", () => {
 
     // Available state: the disable ("turn off") control is offered, not the
     // enable ("turn on") control; the impact preview and schedulable window show.
-    expect(screen.getByRole("button", { name: "Turn off listings" })).toBeTruthy();
+    const turnOff = screen.getByRole("button", { name: "Turn off listings" });
+    expect(turnOff).toBeTruthy();
+    expectTintedCard(turnOff.closest(".rounded-tokenLg"));
     expect(screen.queryByRole("button", { name: "Turn on listings" })).toBeNull();
     expect(
       screen.getByText(

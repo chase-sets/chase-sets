@@ -553,7 +553,7 @@ function AccountAccessRequiredPage({
         description={description}
       />
       <PageSection title={t("marketplace.routes.accountListings.next.step")}>
-        <Card>
+        <Card elevation="tinted">
           <Stack gap={3}>
             <Text>{t("marketplace.routes.accountListings.use.an.account.with.listing.access")}</Text>
             <Stack direction="row" gap={2}>

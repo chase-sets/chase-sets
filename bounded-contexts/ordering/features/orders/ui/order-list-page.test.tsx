@@ -76,6 +76,7 @@ describe("ordering order list page", () => {
     expect(markup).toContain("ORD-TESTREF1");
     expect(markup).not.toContain("Seller payout");
     expect(markup).not.toContain("$22.99");
+    expect(markup).toContain('class="min-w-0 max-w-full rounded-tokenLg border border-muted bg-elevated p-4"');
   });
 
   it("shows sale cards with seller payout since the seller is viewing their own economics", () => {

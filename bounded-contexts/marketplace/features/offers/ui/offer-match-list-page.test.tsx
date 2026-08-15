@@ -52,6 +52,7 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).not.toContain("60601");
     expect(markup).not.toContain("seller_listing_availability");
     expect(markup).toContain("Add selected offer to Sell List");
+    expect(markup).toContain('class="rounded-tokenLg overflow-hidden bg-surface-2 p-4"');
   });
 
   it("shows listing price next to the best offer so sellers can judge the gap", () => {

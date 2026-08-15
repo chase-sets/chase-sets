@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarketplaceListingCreatePage } from "./listing-create-page";
+import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
+import type { MarketplaceListingDetail } from "./contracts";
 
 const acerolaProductSchema = {
   canonicalDimensionOrder: [
@@ -58,12 +60,77 @@ function stubSearchFetch(items: readonly Record<string, unknown>[]) {
   );
 }
 
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
+function expectOutlinedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  const tokens = className.split(/\s+/);
+  expect(tokens).toContain("border");
+  expect(tokens).toContain("border-muted");
+  expect(tokens).toContain("bg-surface");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|shadow-tokenSm|shadow-tokenLg|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
+const populatedEvidenceListing = {
+  status: "draft",
+  evidence: [
+    {
+      photoId: "lpho_create_front",
+      altText: "Create listing front evidence photo",
+      slotId: null,
+      viewKind: null,
+      status: "active",
+      sortOrder: 0,
+    },
+  ],
+  evidence_readiness: {
+    ready: true,
+    requirements: {
+      minimumPhotoCount: 1,
+      requiredSlots: [],
+      sellerTrustRequirements: [],
+      buyerAcknowledgment: "none",
+    },
+    coverage: {
+      complete: true,
+      unmetCodes: [],
+      slots: [],
+      activePhotoCount: 1,
+      minimumPhotoCount: 1,
+    },
+    nextActions: [],
+    publicGallery: [],
+  },
+} as MarketplaceListingDetail;
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
 describe("marketplace listing create page", () => {
+  it("owns the create-listing form root as tinted furniture", () => {
+    const { container } = render(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation />);
+
+    expectTintedCard(container.querySelector('input[name="priceAmount"]')?.closest(".rounded-tokenLg") ?? null);
+  });
+
+  it("owns a populated active evidence photo root as an outlined entity", () => {
+    render(<ListingEvidenceReadiness listing={populatedEvidenceListing} />);
+
+    expectOutlinedCard(screen.getByText("Create listing front evidence photo").closest(".rounded-tokenLg"));
+  });
+
   it("keeps create-listing multipart payload fields after migration to shared Form", () => {
     const markup = renderToString(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation />);
 

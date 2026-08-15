@@ -8,7 +8,17 @@ import CheckoutStartRoute from "./checkout-start";
 type CheckoutStartLoaderData = {
   isSignedIn: boolean;
   isGuestBuyer: boolean;
-  source: null;
+  source: null | {
+    type: "offer-intent";
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    itemSubtitle: string | null;
+    selectedOptions: readonly { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
+    offerPriceAmount: string;
+    quantity: number;
+  };
   cartReadiness: null | {
     status: "ready" | "needs-resolution" | "blocked";
     lineCount: number;
@@ -86,9 +96,76 @@ function renderSignedInBlockedCartCheckoutStart() {
   return render(<Stub initialEntries={["/checkout/buy/readiness"]} />);
 }
 
+function renderCheckoutStartWithData(loaderData: CheckoutStartLoaderData) {
+  const Stub = createRoutesStub([
+    {
+      path: "/checkout/buy/readiness",
+      Component: CheckoutStartRoute,
+      loader: () => loaderData,
+      action: () => null,
+    },
+  ]);
+
+  return render(<Stub initialEntries={["/checkout/buy/readiness"]} />);
+}
+
+function expectTintedFurniture(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:surface-border|ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 describe("guest checkout start: existing account email", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("renders the guest checkout Surface as flattened furniture, not an entity card", async () => {
+    renderGuestCheckoutStart();
+
+    const submit = await screen.findByRole("button", { name: "Continue as guest" });
+    expectTintedFurniture(submit.closest(".rounded-tokenLg"));
+    expectTintedFurniture(
+      screen
+        .getByText("Sign in to keep purchases, payments, and order history under your account.")
+        .closest(".rounded-tokenLg"),
+    );
+  });
+
+  it("owns the signed-in account continue root as tinted furniture", async () => {
+    renderCheckoutStartWithData({
+      ...guestStartLoaderData,
+      isSignedIn: true,
+      cartReadiness: { status: "ready", lineCount: 1, customerSafeFacts: [] },
+    });
+
+    expectTintedFurniture(
+      (await screen.findByRole("button", { name: "Continue to checkout" })).closest(".rounded-tokenLg"),
+    );
+  });
+
+  it("owns the offer-registration root as tinted furniture", async () => {
+    renderCheckoutStartWithData({
+      ...guestStartLoaderData,
+      source: {
+        type: "offer-intent",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::condition:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+        productSummary: "Condition: Raw",
+        offerPriceAmount: "350.00",
+        quantity: 1,
+      },
+    });
+
+    expectTintedFurniture(
+      (await screen.findByRole("link", { name: "Register with passkey" })).closest(".rounded-tokenLg"),
+    );
   });
 
   it("keeps the guest form, surfaces the email error, and lets a new email proceed", async () => {

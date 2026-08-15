@@ -104,6 +104,15 @@ function submittedFormData(callIndex = 0) {
   return mockFetcherSubmit.mock.calls[callIndex]?.[0] as FormData;
 }
 
+function expectTintedFurniture(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:surface-border|ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
 describe("checkout cart page", () => {
   afterEach(() => {
     cleanup();
@@ -768,6 +777,26 @@ describe("checkout cart page", () => {
     expect(markup).toContain('href="/account/cart?afterWrite=receipt"');
     expect(markup).not.toContain("Your buy cart is empty");
     expect(markup).not.toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
+  });
+
+  it("owns the checkout error and pending fresh-write roots as tinted furniture", () => {
+    render(
+      <CheckoutCartPage
+        cartLines={[]}
+        errorMessage="Checkout could not be refreshed."
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "We saved your cart change and are refreshing the cart view.",
+          refreshHref: "/account/cart?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+
+    expectTintedFurniture(screen.getByText("Checkout issue").closest(".rounded-tokenLg"));
+    expectTintedFurniture(
+      screen.getByText("We saved your cart change and are refreshing the cart view.").closest(".rounded-tokenLg"),
+    );
   });
 
   it("shows actionable empty-cart recovery for expired fresh-write handoffs", () => {

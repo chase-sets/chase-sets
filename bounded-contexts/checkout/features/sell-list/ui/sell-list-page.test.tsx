@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { CheckoutSellListPage } from "./sell-list-page";
@@ -89,6 +89,25 @@ const latestConfirmation: CheckoutSellListConfirmationRow = {
     ],
   },
 };
+
+function expectTintedFurniture(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:surface-border|ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
+function expectOutlinedSurface(root: Element | null, fill: "bg-elevated" | "bg-surface") {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  const tokens = className.split(/\s+/);
+  expect(tokens).toContain("border");
+  expect(tokens).toContain("border-muted");
+  expect(tokens).toContain(fill);
+  expect(className).not.toMatch(/\b(?:surface-border|ds-glass|shadow-\S+|ds-glow)\b/);
+}
 
 describe("checkout sell list page", () => {
   it("renders a simple seller review with readiness and payout before checkout", () => {
@@ -278,10 +297,29 @@ describe("checkout sell list page", () => {
     expect(within(dialog).getByText("$315.00")).toBeTruthy();
     expect(within(dialog).getAllByText("$311.50").length).toBeGreaterThan(0);
 
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" }));
+    expectTintedFurniture(within(dialog).getByText("Standard terms").closest(".rounded-tokenLg"));
+    expectTintedFurniture(within(dialog).getByText("Seller terms").closest(".rounded-tokenLg"));
+    expectOutlinedSurface(
+      within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" }).closest(".rounded-tokenLg"),
+      "bg-surface",
+    );
+    expectOutlinedSurface(within(dialog).getByText("Selected offer").closest(".rounded-tokenLg"), "bg-elevated");
+    expectTintedFurniture(screen.getByText("Seller checkout readiness").closest(".rounded-tokenLg"));
+
+    const ashOffer = within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" }) as HTMLInputElement;
+    expect(ashOffer.checked).toBe(false);
+    expect(within(dialog).getByText("Quantity 2")).toBeTruthy();
+    fireEvent.click(ashOffer);
+    expect(ashOffer.checked).toBe(true);
     expect(screen.getByText("1 offer selected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Accept selected" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Decline selected" })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Charizard offers and terms" })).toBeNull());
+    fireEvent.click(itemCards[1]!);
+    const productDialog = await screen.findByRole("dialog", { name: "Charizard offers and terms" });
+    expectOutlinedSurface(within(productDialog).getByText("Product").closest(".rounded-tokenLg"), "bg-elevated");
   });
 
   it("uses the responsive item-card grid instead of narrow action rows", () => {
@@ -554,6 +592,22 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Browse products");
   });
 
+  it("owns the pending fresh-write root as tinted furniture", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "Your Sell List is updating.",
+          refreshHref: "/account/sell-list?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+
+    expectTintedFurniture(screen.getByText("Your Sell List is updating.").closest(".rounded-tokenLg"));
+  });
+
   it("shows an actionable expired fresh-write recovery when the added line stays missing", () => {
     const markup = renderToString(
       <CheckoutSellListPage
@@ -637,6 +691,18 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Payout ready");
     expect(markup).not.toContain("Settlement complete");
     expect(markup).not.toContain("Account history updated");
+  });
+
+  it("owns the latest confirmation root as tinted furniture", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        latestConfirmation={latestConfirmation}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+
+    expectTintedFurniture(screen.getByText("Seller confirmation saved").closest(".rounded-tokenLg"));
   });
 
   it("shows guest selected-offer payout details through Reference Info without a fee fingerprint", () => {

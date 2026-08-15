@@ -186,6 +186,7 @@ describe("review detail page", () => {
       expect(markup).toContain("Post response");
       expect(markup).toContain('maxLength="1000"');
       expect(markup).toContain("required");
+      expect(markup).toContain('class="rounded-tokenLg overflow-hidden bg-surface-2 p-4"');
     });
 
     it("does not render the compose form for the review author", () => {

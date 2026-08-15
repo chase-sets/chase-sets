@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
+import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
 
 const listing: MarketplaceListingDetail = {
@@ -85,6 +86,66 @@ const currentQuote: MarketplaceListingTermsPreview = {
   fee_quote_fingerprint: "current-fingerprint",
 };
 
+function expectTintedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  expect(className.split(/\s+/)).toContain("bg-surface-2");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|border|border-muted|shadow-\S+|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
+function expectOutlinedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  const tokens = className.split(/\s+/);
+  expect(tokens).toContain("border");
+  expect(tokens).toContain("border-muted");
+  expect(tokens).toContain("bg-surface");
+  expect(className).not.toMatch(
+    /\b(?:ds-glass|shadow-tokenSm|shadow-tokenLg|ds-glow|hover:border-accent|hover:shadow-tokenMd)\b/,
+  );
+}
+
+function expectElevatedCard(root: Element | null) {
+  expect(root).toBeTruthy();
+  const className = (root as HTMLElement).className;
+  const tokens = className.split(/\s+/);
+  expect(tokens).toContain("ds-glass");
+  expect(tokens).toContain("border");
+  expect(tokens).toContain("border-muted");
+  expect(tokens).toContain("shadow-tokenSm");
+  expect(tokens).not.toContain("bg-surface-2");
+  expect(tokens).not.toContain("ds-glow");
+}
+
+const populatedEvidenceListing = {
+  ...listing,
+  status: "draft",
+  evidence: [
+    {
+      photoId: "lpho_detail_front",
+      altText: "Listing detail front evidence photo",
+      slotId: null,
+      viewKind: null,
+      status: "active",
+      sortOrder: 0,
+    },
+  ],
+  evidence_readiness: {
+    ...listing.evidence_readiness,
+    coverage: {
+      ...listing.evidence_readiness.coverage,
+      activePhotoCount: 1,
+      minimumPhotoCount: 1,
+    },
+    requirements: {
+      ...listing.evidence_readiness.requirements,
+      minimumPhotoCount: 1,
+    },
+  },
+} as MarketplaceListingDetail;
+
 afterEach(() => {
   cleanup();
 });
@@ -106,6 +167,40 @@ describe("MarketplaceListingDetailPage", () => {
     expect(screen.getByText("Japanese")).toBeTruthy();
     expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
     expect(container.querySelector('input[name="feeQuoteFingerprint"][value="current-fingerprint"]')).toBeTruthy();
+  });
+
+  it("keeps the primary listing entity elevated while surrounding panels flatten to tinted furniture", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={listing}
+        feeHistory={[]}
+        priceDraftAmount="20.00"
+        pricePreview={null}
+        errorMessage={null}
+      />,
+    );
+
+    const titleNodes = screen.getAllByText("Charizard");
+    const entityCard = titleNodes.map((node) => node.closest(".rounded-tokenLg")).find(Boolean) ?? null;
+    expectElevatedCard(entityCard);
+
+    const feeHistoryCard = screen.getByText("No fee lock history is available.").closest(".rounded-tokenLg");
+    const priceCard = screen.getByText("Save price").closest(".rounded-tokenLg");
+    const quantityCard = screen.getByText("Save quantity cap").closest(".rounded-tokenLg");
+    const purchaseLimitsTrigger = screen.getByRole("button", { name: /Purchase limits control/ });
+    fireEvent.click(purchaseLimitsTrigger);
+    const purchaseLimitsCard = screen.getByText("Save purchase limits").closest(".rounded-tokenLg");
+    const publishCard = screen.getByText("Publish listing").closest(".rounded-tokenLg");
+    for (const furnitureCard of [feeHistoryCard, priceCard, quantityCard, purchaseLimitsCard, publishCard]) {
+      expectTintedCard(furnitureCard);
+      expect(furnitureCard).not.toBe(entityCard);
+    }
+  });
+
+  it("owns a populated active evidence photo root as an outlined entity", () => {
+    render(<ListingEvidenceReadiness listing={populatedEvidenceListing} />);
+
+    expectOutlinedCard(screen.getByText("Listing detail front evidence photo").closest(".rounded-tokenLg"));
   });
 
   it("renders listing photo gallery with responsive variants", () => {

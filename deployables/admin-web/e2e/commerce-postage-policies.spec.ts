@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
   authenticateAdmin,
   createReadAfterWriteHeaderFactoryFromUrl,
@@ -22,8 +23,106 @@ type PostagePolicyDetailApiResponse = Readonly<{
   }>[];
 }>;
 
+type Issue6020Theme = "light" | "dark";
+type GithubPullRequestEvent = Readonly<{
+  pull_request?: Readonly<{ number?: unknown; head?: Readonly<{ sha?: unknown }> }>;
+}>;
+
+function issue6020Authority() {
+  const eventPath = process.env.GITHUB_EVENT_PATH?.trim();
+  const event = eventPath ? (JSON.parse(readFileSync(eventPath, "utf8")) as GithubPullRequestEvent) : null;
+  const rawPrNumber = event?.pull_request?.number;
+  const rawHeadSha = event?.pull_request?.head?.sha;
+  const prNumber = typeof rawPrNumber === "number" && Number.isInteger(rawPrNumber) ? rawPrNumber : null;
+  const headSha = typeof rawHeadSha === "string" ? rawHeadSha : null;
+  if (
+    process.env.GITHUB_ACTIONS === "true" &&
+    (prNumber === null || prNumber <= 0 || headSha === null || !/^[0-9a-f]{40}$/.test(headSha))
+  ) {
+    throw new Error("issue #6020 hosted visual evidence requires an exact pull-request number and 40-character head");
+  }
+  return { prNumber: prNumber ?? 0, headSha: headSha ?? "local-unbound" };
+}
+
+async function setIssue6020Theme(page: Page, mode: Issue6020Theme) {
+  const response = await page.request.put(`${new URL(page.url()).origin}/api/identity/preferences`, {
+    data: { colorMode: mode },
+  });
+  expect(response.status(), `persist ${mode} theme`).toBe(200);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-chase-theme]").first()).toHaveAttribute("data-color-mode", mode);
+}
+
+async function expectPopulatedPostagePolicyDrawer(page: Page, label: string, policyId: string, policyVersion: string) {
+  await expect(page).toHaveURL(new RegExp(`/commerce/postage-policies\\?policy=${policyId}(?:&|$)`));
+  const drawer = page.getByRole("dialog", { name: label });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText("draft", { exact: true }).first()).toBeVisible();
+  await expect(drawer.getByText(`Policy id: ${policyId}`, { exact: true })).toBeVisible();
+  await expect(drawer.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
+  expect(
+    await page.locator('a[href*="/commerce/postage-policies?policy="]').count(),
+    "postage-policy evidence requires at least two policy rows under the open drawer",
+  ).toBeGreaterThanOrEqual(2);
+  await drawer.getByRole("button", { name: "Preview result" }).click();
+  await expect(drawer.getByText("Preview Result").last()).toBeVisible();
+  await expect(drawer.getByText(/Packages:/)).toBeVisible();
+}
+
+async function attachIssue6020PostagePolicyState(input: {
+  page: Page;
+  testInfo: TestInfo;
+  label: string;
+  policyId: string;
+  policyVersion: string;
+}) {
+  await input.page.setViewportSize({ width: 1280, height: 900 });
+  const authority = issue6020Authority();
+  const observations: Array<Record<string, unknown>> = [];
+  const assertions = [
+    "created policy drawer open",
+    "preview result populated",
+    "policy id and draft state visible",
+    "at least two underlying policy rows present",
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    await setIssue6020Theme(input.page, theme);
+    await expectPopulatedPostagePolicyDrawer(input.page, input.label, input.policyId, input.policyVersion);
+    const name = `issue-6020-postage-policy-drawer-${theme}.png`;
+    await input.testInfo.attach(name, {
+      body: await input.page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+    observations.push({
+      theme,
+      name,
+      route: `/commerce/postage-policies?policy=${input.policyId}`,
+      policyId: input.policyId,
+      assertions,
+    });
+  }
+  await input.testInfo.attach("issue-6020-postage-policy-drawer-observation.json", {
+    body: Buffer.from(
+      JSON.stringify(
+        {
+          schemaVersion: "issue-6020-state-observation/v1",
+          issue: 6020,
+          ...authority,
+          suite: "admin_commerce",
+          state: "postage-policy-drawer",
+          viewport: { width: 1280, height: 900 },
+          observations,
+        },
+        null,
+        2,
+      ),
+    ),
+    contentType: "application/json",
+  });
+}
+
 test.describe("commerce admin postage policies", () => {
-  test("operator creates, previews, and activates a postage policy @admin-commerce", async ({ page }) => {
+  test("operator creates, previews, and activates a postage policy @admin-commerce", async ({ page }, testInfo) => {
     test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -73,6 +172,8 @@ test.describe("commerce admin postage policies", () => {
       await expect(policyDrawer.getByText(/Packages:/)).toBeVisible();
       await expect(policyDrawer.getByText(/Mailpiece:/)).toBeVisible();
       await expect(policyDrawer.getByText(/Parcel required:/)).toBeVisible();
+
+      await attachIssue6020PostagePolicyState({ page, testInfo, label, policyId: policyId!, policyVersion });
 
       const activationForm = policyDrawer
         .locator("form")
