@@ -63,6 +63,6 @@ describe("ShippingAddressPage", () => {
       expectAutocomplete(markup, name, autocomplete);
     }
     expect(markup).toContain("bg-surface-2");
-    expect(markup).not.toContain("elevated=\"true\"");
+    expect(markup).not.toContain('elevated="true"');
   });
 });
