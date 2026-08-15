@@ -317,7 +317,7 @@ export function PayoutReadinessPanel({
 
       <Stack gap={3}>
         {progress.steps.map((step) => (
-          <Surface key={step.id}>
+          <Surface data-testid={`payout-readiness-step-${step.id}`} key={step.id} elevation="tinted">
             <Stack gap={1}>
               <Badge tone={progressTone(step.status)}>{progressLabel(step.status)}</Badge>
               <Text size="sm" weight="semibold">

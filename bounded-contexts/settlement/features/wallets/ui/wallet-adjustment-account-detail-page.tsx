@@ -96,7 +96,7 @@ export function SettlementWalletAdjustmentAccountDetailPage({
       />
 
       <PageSection title={t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.details")}>
-        <Card>
+        <Card data-testid="wallet-adjustment-detail-entity" elevation="outlined">
           <Stack gap={3}>
             <Stack direction="row" gap={2} align="center">
               <Badge tone={walletAdjustmentAccountStatusTone(adjustment.status)}>

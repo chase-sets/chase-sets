@@ -11,7 +11,7 @@ import {
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
+import { LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
   createSettlementApiClient,
   type SettlementPayoutReadinessRow,
@@ -299,20 +299,21 @@ function AccountAccessRequiredPage({
         title={title}
         description={description}
       />
-      <PageSection title={t("settlement.routes.marketplace.accountPayoutSetup.next.step")}>
-        <Card>
-          <Stack gap={3}>
-            <Text>{t("settlement.routes.marketplace.accountPayoutSetup.use.an.account.with.payout.setup.access")}</Text>
-            <Stack direction="row" gap={2}>
-              <LinkButton href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>
-                {t("settlement.routes.marketplace.accountPayoutSetup.use.a.different.account")}
-              </LinkButton>
-              <LinkButton href="/account" tone="secondary">
-                {t("settlement.routes.marketplace.accountPayoutSetup.view.account")}
-              </LinkButton>
-            </Stack>
+      <PageSection
+        data-testid="account-access-next-step-furniture"
+        title={t("settlement.routes.marketplace.accountPayoutSetup.next.step")}
+      >
+        <Stack gap={3}>
+          <Text>{t("settlement.routes.marketplace.accountPayoutSetup.use.an.account.with.payout.setup.access")}</Text>
+          <Stack direction="row" gap={2}>
+            <LinkButton href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>
+              {t("settlement.routes.marketplace.accountPayoutSetup.use.a.different.account")}
+            </LinkButton>
+            <LinkButton href="/account" tone="secondary">
+              {t("settlement.routes.marketplace.accountPayoutSetup.view.account")}
+            </LinkButton>
           </Stack>
-        </Card>
+        </Stack>
       </PageSection>
     </Page>
   );

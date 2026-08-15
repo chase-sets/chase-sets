@@ -253,7 +253,7 @@ export function SettlementMoneyDashboardPage({
       ) : null}
 
       <PageSection title={t("settlement.features.moneyDashboard.ui.requestPayout")}>
-        <Card>
+        <Card data-testid="payout-request-entity" elevation="elevated">
           <SettlementPayoutRequestPanel
             wallet={wallet}
             payoutReadiness={payoutReadiness}

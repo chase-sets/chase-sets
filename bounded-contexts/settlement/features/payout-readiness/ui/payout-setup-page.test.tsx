@@ -122,13 +122,18 @@ describe("payout setup page", () => {
     mockLoadConnectAndInitialize.mockReset();
   });
 
-  it("renders a Chase Sets setup page for accounts that have not started", () => {
+  it("renders setup and flattens status and provider furniture", () => {
     const html = renderPage(readiness());
 
     expect(html).toContain("Payout setup");
     expect(html).toContain("Add the required account and payout destination details without leaving Chase Sets.");
     expect(html).toContain("Loading secure payout setup");
-    expect(html).toContain("ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-visible p-4");
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+    const statusSection = rendered.querySelector('[data-testid="payout-setup-status-furniture"]');
+    const providerSection = rendered.querySelector('[data-testid="payout-provider-furniture"]');
+    expect(statusSection?.querySelector(":scope > .ds-glass")).toBeNull();
+    expect(providerSection?.querySelector(":scope > .ds-glass")).toBeNull();
     expect(html).not.toContain("Express");
     expect(html).not.toContain("hosted setup");
   });
@@ -149,6 +154,31 @@ describe("payout setup page", () => {
     expect(html).toContain("Continue the Chase Sets setup page before requesting payouts.");
     expect(html).toContain("Payout setup");
     expect(html).not.toContain("Stripe Express");
+  });
+
+  it("flattens notification, status, and provider PageSection furniture", () => {
+    const html = renderPage(
+      readiness({
+        status: "pending",
+        provider_reference: "acct_test",
+        onboarding_status: "pending",
+        transfer_capability_status: "pending",
+        payout_capability_status: "pending",
+        payout_destination_status: "pending",
+      }),
+    );
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+
+    for (const testId of [
+      "payout-notifications-furniture",
+      "payout-setup-status-furniture",
+      "payout-provider-furniture",
+    ]) {
+      const section = rendered.querySelector(`[data-testid="${testId}"]`);
+      expect(section).not.toBeNull();
+      expect(section?.querySelector(":scope > .ds-glass")).toBeNull();
+    }
   });
 
   it("groups restricted provider requirements before exposing raw support details", () => {

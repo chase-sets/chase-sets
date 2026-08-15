@@ -60,4 +60,14 @@ describe("payout detail recovery paths", () => {
     expect(html).toContain("preparing your payout details");
     expect(html).toContain('href="/account/desk/money"');
   });
+
+  it("keeps support-only payout audit details as an outlined entity", () => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutDetailPage backHref="/account/desk/money" payout={payout()} showSupportDetails />,
+    );
+
+    expect(html).toContain(
+      'data-testid="payout-support-details-entity" class="rounded-tokenLg border border-muted overflow-hidden bg-surface p-4"',
+    );
+  });
 });

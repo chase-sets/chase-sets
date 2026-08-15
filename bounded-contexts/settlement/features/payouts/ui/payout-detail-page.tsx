@@ -205,7 +205,7 @@ export function SettlementPayoutDetailPage({
 
       {showSupportDetails ? (
         <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.support.details")}>
-          <Card>
+          <Card data-testid="payout-support-details-entity" elevation="outlined">
             <Stack gap={2}>
               <Text size="sm" tone="secondary">
                 {t("settlement.features.payouts.ui.payoutDetailPage.internal.payout")}

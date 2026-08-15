@@ -116,25 +116,23 @@ export function PricingBulkRepricePage({
       ) : null}
 
       <PageSection title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}>
-        <Card>
-          <Form spacing="none" method="post" encType="multipart/form-data">
-            <Stack gap={4}>
-              <Text>{t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description")}</Text>
-              <TextInput
-                label={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.csv.file")}
-                name="file"
-                type="file"
-                required
-                disabled={hasActiveJob}
-              />
-              <Inline>
-                <Button type="submit" name="intent" value="upload-bulk-reprice" tone="primary" disabled={hasActiveJob}>
-                  {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}
-                </Button>
-              </Inline>
-            </Stack>
-          </Form>
-        </Card>
+        <Form spacing="none" method="post" encType="multipart/form-data">
+          <Stack data-testid="bulk-reprice-upload-furniture" gap={4}>
+            <Text>{t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description")}</Text>
+            <TextInput
+              label={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.csv.file")}
+              name="file"
+              type="file"
+              required
+              disabled={hasActiveJob}
+            />
+            <Inline>
+              <Button type="submit" name="intent" value="upload-bulk-reprice" tone="primary" disabled={hasActiveJob}>
+                {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}
+              </Button>
+            </Inline>
+          </Stack>
+        </Form>
       </PageSection>
 
       {activeJob ? (
@@ -169,7 +167,7 @@ export function PricingBulkRepricePage({
             ]}
           />
 
-          <Card>
+          <Card data-testid="bulk-reprice-job-entity" elevation="outlined">
             <Inline align="center">
               <Text tone={jobPhaseTone(activeJob) === "danger" ? "danger" : "primary"}>
                 {activeJob.errorMessage ?? activeJob.progress.message}

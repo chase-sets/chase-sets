@@ -27,7 +27,7 @@ function adjustment(
 }
 
 describe("SettlementWalletAdjustmentAccountDetailPage", () => {
-  it("renders a posted credit without any internal identifier or raw JSON", () => {
+  it("renders a posted credit as an outlined entity without internal identifiers", () => {
     const html = renderToStaticMarkup(<SettlementWalletAdjustmentAccountDetailPage adjustment={adjustment()} />);
 
     expect(html).toContain("WAD-E6K7M8N9");
@@ -35,6 +35,9 @@ describe("SettlementWalletAdjustmentAccountDetailPage", () => {
     expect(html).toContain("$50.00");
     expect(html).toContain("Contact support");
     expect(html).toContain("cash-equivalent");
+    expect(html).toContain(
+      'data-testid="wallet-adjustment-detail-entity" class="rounded-tokenLg border border-muted overflow-hidden bg-surface p-4"',
+    );
     expect(html).not.toContain("wad_");
     expect(html).not.toContain("led_");
     expect(html).not.toContain("[missing:");

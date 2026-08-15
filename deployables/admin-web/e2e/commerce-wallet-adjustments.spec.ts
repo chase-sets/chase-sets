@@ -33,12 +33,20 @@ test.describe("commerce admin wallet adjustments", () => {
     await expect(page.getByText("Available balance after", { exact: true })).toBeVisible();
     await expect(page.getByText("Spendable", { exact: true })).toBeVisible();
     await expect(page.getByText("Payoutable", { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: "artifacts/visual-evidence/issue-6021/wallet-workbench-populated-preview.png",
+      fullPage: true,
+    });
 
     await page.getByRole("button", { name: "Confirm & submit" }).click();
     const confirmation = page.getByRole("alertdialog");
     await expect(confirmation).toContainText("Demo Account");
     await expect(confirmation).toContainText("$1.00");
     await expect(confirmation.getByRole("button", { name: "Submit adjustment" })).toBeVisible();
+    await page.screenshot({
+      path: "artifacts/visual-evidence/issue-6021/wallet-workbench-populated-confirmation.png",
+      fullPage: true,
+    });
     await confirmation.getByRole("button", { name: "Cancel" }).click();
 
     await expect(page.getByRole("button", { name: "Confirm & submit" })).toBeVisible();

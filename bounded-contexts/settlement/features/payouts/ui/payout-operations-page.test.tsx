@@ -31,7 +31,7 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout operations page setup signals", () => {
-  it("renders queued reconciliation job snapshots as in-progress correction state", () => {
+  it("renders queued reconciliation state as an outlined entity", () => {
     const html = renderToStaticMarkup(
       <SettlementPayoutOperationsPage
         payouts={[]}
@@ -55,6 +55,9 @@ describe("payout operations page setup signals", () => {
     expect(html).toContain("Payout reconciliation queued.");
     expect(html).toContain("Checked");
     expect(html).toContain("reconciled");
+    expect(html).toContain(
+      'data-testid="payout-reconciliation-entity" class="rounded-tokenLg border border-muted overflow-hidden bg-surface p-4"',
+    );
   });
 
   it("renders support-safe payout setup health for operators", () => {
