@@ -33,6 +33,10 @@ function inputNamed(name: string) {
   return document.querySelector(`input[name="${name}"]`) as HTMLInputElement;
 }
 
+function elevatedCardCount() {
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg").length;
+}
+
 describe("registration page", () => {
   it("defaults to passkeys and presents them as recommended", () => {
     const events: unknown[] = [];
@@ -57,6 +61,8 @@ describe("registration page", () => {
         expect.objectContaining({ method: "password", stage: "shown", priority: 4 }),
       ]),
     );
+    expect(elevatedCardCount()).toBe(1);
+    expect(document.querySelector(".rounded-tokenLg.overflow-hidden.ds-glow")).toBeNull();
   });
 
   it("shows contextual registration copy when the return path needs an account gate", () => {
@@ -102,6 +108,7 @@ describe("registration page", () => {
     expect(screen.getByRole("button", { name: "Text me a code" })).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="phone-code-request"]')).not.toBeNull();
     expect(inputNamed("code").getAttribute("autocomplete")).toBe("one-time-code");
+    expect(elevatedCardCount()).toBe(2);
   });
 
   it("binds the issued phone challenge to the registration verification form", () => {
@@ -129,6 +136,7 @@ describe("registration page", () => {
     expect(inputNamed("password")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create account with password" })).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="password"]')).not.toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("identifies registration fields for browser and password-manager autofill", () => {

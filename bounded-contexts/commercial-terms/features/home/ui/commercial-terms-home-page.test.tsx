@@ -110,6 +110,7 @@ describe("commercial terms home", () => {
     expect(screen.getByText("Effective 2026-08-01")).toBeTruthy();
     expect(screen.getByText("Override expires 2026-08-15")).toBeTruthy();
     expect(screen.queryByText("Inactive override")).toBeNull();
+    expect(container.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg")).toHaveLength(3);
   });
 
   it("shows schedule state, active comparison, history, and revision form in one responsive sheet", () => {

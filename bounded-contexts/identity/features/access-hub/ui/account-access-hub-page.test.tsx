@@ -1,5 +1,7 @@
-import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { AccountAccessHub } from "../api/contracts";
 import { AccountAccessHubPage } from "./account-access-hub-page";
@@ -104,9 +106,25 @@ const data: AccountAccessHub = {
   ],
 };
 
+afterEach(cleanup);
+
+function cardRoots(container: HTMLElement) {
+  return [...container.querySelectorAll<HTMLElement>(".rounded-tokenLg.overflow-hidden")];
+}
+
+function elevationCounts(container: HTMLElement) {
+  const cards = cardRoots(container);
+  return {
+    cards,
+    elevated: cards.filter((card) => card.classList.contains("shadow-tokenLg")).length,
+    tinted: cards.filter((card) => card.classList.contains("bg-surface-2")).length,
+  };
+}
+
 describe("Account access hub", () => {
   it("preserves the canonical default Tabs layout", () => {
-    const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
+    const { container } = render(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
+    const html = container.innerHTML;
 
     expect(html).toContain(
       "grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap",
@@ -115,7 +133,8 @@ describe("Account access hub", () => {
   });
 
   it("keeps account profile and lifecycle actions in Overview", () => {
-    const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
+    const { container } = render(<AccountAccessHubPage data={data} actor={actor} initialTab="overview" />);
+    const html = container.innerHTML;
 
     expect(html).toContain("Account access hub");
     expect(html).toContain("Card Vault");
@@ -127,7 +146,8 @@ describe("Account access hub", () => {
   });
 
   it("keeps invitation, role, membership, and user-security intents in Team", () => {
-    const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="team" />);
+    const { container } = render(<AccountAccessHubPage data={data} actor={actor} initialTab="team" />);
+    const html = container.innerHTML;
 
     expect(html).toContain("Invite Member");
     expect(html).toContain("Alex Clerk");
@@ -143,7 +163,7 @@ describe("Account access hub", () => {
   });
 
   it("creates and rotates API keys in context while revealing the transient secret", () => {
-    const html = renderToString(
+    const { container } = render(
       <AccountAccessHubPage
         data={data}
         actor={actor}
@@ -156,6 +176,7 @@ describe("Account access hub", () => {
         }}
       />,
     );
+    const html = container.innerHTML;
 
     expect(html).toContain("Create API Key");
     expect(html).toContain("Storefront");
@@ -167,10 +188,27 @@ describe("Account access hub", () => {
   });
 
   it("shows the account's Identity event audit trail", () => {
-    const html = renderToString(<AccountAccessHubPage data={data} actor={actor} initialTab="audit" />);
+    const { container } = render(<AccountAccessHubPage data={data} actor={actor} initialTab="audit" />);
+    const html = container.innerHTML;
 
     expect(html).toContain("membership · role changed");
     expect(html).toContain("identity.membership-mbr_alex");
     expect(html).toContain("usr_operator");
+  });
+
+  it.each([
+    ["overview", 3, 0],
+    ["team", 2, 1],
+    ["api-access", 1, 0],
+    ["audit", 0, 0],
+  ] as const)("keeps the frozen %s surface hierarchy", (initialTab, tinted, elevated) => {
+    const { container } = render(<AccountAccessHubPage data={data} actor={actor} initialTab={initialTab} />);
+    const counts = elevationCounts(container);
+
+    expect(counts.tinted).toBe(tinted);
+    expect(counts.elevated).toBe(elevated);
+    for (const card of counts.cards) {
+      expect(card.querySelector(".rounded-tokenLg.overflow-hidden")).toBeNull();
+    }
   });
 });

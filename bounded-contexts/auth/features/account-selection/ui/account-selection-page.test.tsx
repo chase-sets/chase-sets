@@ -27,5 +27,6 @@ describe("account selection page", () => {
     expect(screen.queryByText("acc_competitive_cards")).toBeNull();
     expect(screen.queryByText("owner")).toBeNull();
     expect(document.querySelector('input[name="accountId"]')?.getAttribute("value")).toBe("acc_competitive_cards");
+    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg")).toHaveLength(memberships.length);
   });
 });

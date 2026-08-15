@@ -12,6 +12,10 @@ function continueWithIdentifier(identifier: string) {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
+function elevatedCardCount() {
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg").length;
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -29,6 +33,8 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
+    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm")).toHaveLength(0);
   });
 
   it("shows contextual sign-in copy when the return path needs an account gate", () => {
@@ -157,6 +163,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByRole("radio", { name: "Magic Link" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("uses phone code after a phone identifier", () => {
@@ -170,6 +177,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByLabelText("Phone Code").getAttribute("autocomplete")).toBe("one-time-code");
     expect(screen.queryByRole("radio", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("binds the issued phone challenge to the verification form", () => {
@@ -197,6 +205,7 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 });
 

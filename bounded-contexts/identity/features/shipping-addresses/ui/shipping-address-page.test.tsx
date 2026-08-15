@@ -41,6 +41,8 @@ describe("ShippingAddressPage", () => {
     expect(markup).toContain("100 Market Street");
     expect(markup).toContain("Update address");
     expect(markup).toContain("Archive");
+    expect(markup).toContain("shadow-tokenLg");
+    expect(markup.match(/bg-surface-2/g)?.length).toBe(1);
   });
 
   it("identifies every shipping-address field for browser autofill", () => {
@@ -60,5 +62,7 @@ describe("ShippingAddressPage", () => {
     ] as const) {
       expectAutocomplete(markup, name, autocomplete);
     }
+    expect(markup).toContain("bg-surface-2");
+    expect(markup).not.toContain("elevated=\"true\"");
   });
 });
