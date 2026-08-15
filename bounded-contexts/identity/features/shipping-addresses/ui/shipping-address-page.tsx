@@ -141,7 +141,7 @@ export function ShippingAddressPage({
       />
 
       {errorMessage ? (
-        <Surface elevated>
+        <Surface elevation="tinted">
           <Stack gap={2}>
             <Badge tone="danger">{t("identity.features.shippingAddresses.ui.shippingAddressPage.address.issue")}</Badge>
             <Text>{errorMessage}</Text>
@@ -153,7 +153,7 @@ export function ShippingAddressPage({
         title={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.shipping.address")}
         description={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.description")}
       >
-        <Surface elevated>
+        <Surface elevation="tinted">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create" />
@@ -178,7 +178,7 @@ export function ShippingAddressPage({
         ) : (
           <Stack gap={3}>
             {addresses.map((address) => (
-              <Surface key={address.shipping_address_id} elevated>
+              <Surface key={address.shipping_address_id} elevation="elevated">
                 <Stack gap={3}>
                   <Inline gap={2}>
                     <Text weight="semibold">{address.label}</Text>
