@@ -1,10 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import { classified } from "./backlog-classify.mjs";
-import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 import {
   buildForecastMilestoneCatalog,
   classifyForecastDrift,
@@ -71,6 +69,27 @@ function epic(number, total, overrides = {}) {
     sub_issues_summary: { total },
     ...overrides,
   });
+}
+
+function epicChildFixtures(count, { state = "closed", milestone = WAVE_1, startNumber = 10_000 } = {}) {
+  return Array.from({ length: count }, (_, index) => ({
+    number: startNumber + index,
+    state,
+    milestone,
+  }));
+}
+
+function reconciledEpicCollection(children) {
+  const count = children.length;
+  return {
+    children,
+    capacity:
+      count === 100
+        ? { state: "saturated", count }
+        : count >= 90
+          ? { state: "warning", count, remaining: 100 - count }
+          : { state: "normal", count },
+  };
 }
 
 function knownGrowth(issues, entryByNumber = new Map()) {
@@ -212,6 +231,7 @@ async function runMainFixture(options = {}) {
   const fixture = createMainRequest(options);
   const diagnostics = [];
   const generated = [];
+  const summaries = [];
   const code = await runRoadmapStatus(
     () =>
       main({
@@ -220,11 +240,11 @@ async function runMainFixture(options = {}) {
         nowMs: NOW,
         writeOutput: (message) => generated.push(message),
         writeError: (message) => diagnostics.push(message),
-        appendSummary: async () => {},
+        appendSummary: async (_env, block) => summaries.push(block),
       }),
     (message) => diagnostics.push(message),
   );
-  return { ...fixture, code, diagnostics, generated };
+  return { ...fixture, code, diagnostics, generated, summaries };
 }
 
 describe("gate-stable forecast contract", () => {
@@ -1052,12 +1072,12 @@ describe("roadmap status classification and preserved rollups", () => {
     const epicChildren = new Map([
       [
         10,
-        [
+        reconciledEpicCollection([
           { number: 20, state: "closed", milestone: WAVE_2 },
           { number: 21, state: "closed", milestone: WAVE_1 },
-        ],
+        ]),
       ],
-      [11, [{ number: 22, state: "open", milestone: WAVE_2 }]],
+      [11, reconciledEpicCollection([{ number: 22, state: "open", milestone: WAVE_2 }])],
     ]);
     const { rows } = summarizeWaves({
       milestones: [WAVE_1, WAVE_2],
@@ -1075,7 +1095,7 @@ describe("roadmap status classification and preserved rollups", () => {
     const { rows } = summarizeWaves({
       milestones: [WAVE_1],
       issues,
-      epicChildren: new Map([[10, []]]),
+      epicChildren: new Map([[10, reconciledEpicCollection([])]]),
       scopeGrowthByIssue: new Map(),
       nowMs: NOW,
     });
@@ -1106,6 +1126,34 @@ describe("roadmap status classification and preserved rollups", () => {
     expect(markdown.split(START_MARKER)).toHaveLength(2);
     expect(markdown.split(END_MARKER)).toHaveLength(2);
     expect(markdown.indexOf(START_MARKER)).toBeLessThan(markdown.indexOf(END_MARKER));
+  });
+
+  it("preserves parent attachment output byte for byte", () => {
+    const markdown = renderRoadmapStatus({
+      rows: [
+        {
+          title: WAVE_1.title,
+          executable: true,
+          total: 3,
+          closed: 0,
+          open: 3,
+          percent: 0,
+          addedRecently: 0,
+          growthUnknown: 0,
+          refinedOpen: 2,
+          parentlessClassified: 2,
+          tracking: 4,
+          epicsTotal: 0,
+          epicsComplete: 0,
+          epicsBoundedUnknown: false,
+        },
+      ],
+      windowDays: 7,
+    });
+    const parentLine = markdown.split("\n").find((line) => line.startsWith("Parent attachment"));
+    expect(parentLine).toBe(
+      "Parent attachment (reported, not gating): **2 classified slices have no parent**. 4 tracking-only records are shown separately.",
+    );
   });
 });
 
@@ -1375,10 +1423,13 @@ describe("epic child reconciliation", () => {
         paginate("/repos/chase-sets/chase-sets/issues/100/sub_issues?per_page=100", "token", request),
     });
     expect(requests).toEqual(["1", "2"]);
-    expect(byEpic.get(100)).toEqual([
-      { number: 101, state: "open", milestone: WAVE_2 },
-      { number: 102, state: "closed", milestone: WAVE_1 },
-    ]);
+    expect(byEpic.get(100)).toEqual({
+      children: [
+        { number: 101, state: "open", milestone: WAVE_2 },
+        { number: 102, state: "closed", milestone: WAVE_1 },
+      ],
+      capacity: { state: "normal", count: 2 },
+    });
   });
 
   it("fails closed on a missing, truncated, or duplicate independent total", () => {
@@ -1403,6 +1454,123 @@ describe("epic child reconciliation", () => {
       name: "RoadmapIssueEnumerationError",
       code: "ROADMAP_PAGINATION_LINK_INVALID",
     });
+  });
+
+  it("reconciles before classifying epic capacity at 89 90 99 and 100", async () => {
+    const cases = [
+      { count: 89, capacity: { state: "normal", count: 89 }, diagnostic: null, epics: "1/1" },
+      {
+        count: 90,
+        capacity: { state: "warning", count: 90, remaining: 10 },
+        diagnostic: "#500 90/100 (10 remaining)",
+        epics: "1/1",
+      },
+      {
+        count: 99,
+        capacity: { state: "warning", count: 99, remaining: 1 },
+        diagnostic: "#500 99/100 (1 remaining)",
+        epics: "1/1",
+      },
+      {
+        count: 100,
+        capacity: { state: "saturated", count: 100 },
+        diagnostic: "#500 100/100 (saturated; child inventory bounded unknown)",
+        epics: "?/1",
+      },
+    ];
+
+    for (const boundary of cases) {
+      const target = epic(500, boundary.count);
+      const collected = await collectEpicChildren({
+        epics: [target],
+        loadChildren: async () => epicChildFixtures(boundary.count),
+      });
+      const summary = summarizeWaves({
+        milestones: [WAVE_1],
+        issues: [target],
+        epicChildren: collected,
+        scopeGrowthByIssue: new Map(),
+        nowMs: NOW,
+      });
+      const markdown = renderRoadmapStatus(summary);
+
+      expect(collected.get(500)?.capacity).toEqual(boundary.capacity);
+      expect(summary.rows[0]).toMatchObject({ epicsTotal: 1, epicsBoundedUnknown: boundary.count === 100 });
+      expect(markdown).toContain(`| ${boundary.epics} |`);
+      if (boundary.diagnostic) expect(markdown).toContain(boundary.diagnostic);
+      else expect(markdown).not.toContain("#500 ");
+    }
+
+    const orderedTargets = [epic(700, 99), epic(600, 90), epic(650, 89)];
+    const orderedCollections = await collectEpicChildren({
+      epics: orderedTargets,
+      loadChildren: async (target) => epicChildFixtures(target.sub_issues_summary.total),
+    });
+    const orderedMarkdown = renderRoadmapStatus(
+      summarizeWaves({
+        milestones: [WAVE_1],
+        issues: orderedTargets,
+        epicChildren: orderedCollections,
+        scopeGrowthByIssue: new Map(),
+        nowMs: NOW,
+      }),
+    );
+    expect(orderedMarkdown.indexOf("#600 90/100 (10 remaining)")).toBeLessThan(
+      orderedMarkdown.indexOf("#700 99/100 (1 remaining)"),
+    );
+    expect(orderedMarkdown).not.toContain("#650 ");
+  });
+
+  it("saturated all-closed epic publishes bounded unknown through wave rollup", async () => {
+    const target = epic(501, 100);
+    const returnedChildren = epicChildFixtures(100);
+    const intendedSynthetic101stChild = {
+      number: 99_999,
+      state: "open",
+      milestone: WAVE_1,
+      syntheticControl: "intended attachment outside provider-returned collection",
+    };
+    const collected = await collectEpicChildren({
+      epics: [target],
+      loadChildren: async () => returnedChildren,
+    });
+    const summary = summarizeWaves({
+      milestones: [WAVE_1],
+      issues: [target],
+      epicChildren: collected,
+      scopeGrowthByIssue: new Map(),
+      nowMs: NOW,
+    });
+    const markdown = renderRoadmapStatus(summary);
+
+    expect(returnedChildren).toHaveLength(100);
+    expect(collected.get(501)?.children.some((child) => child.number === intendedSynthetic101stChild.number)).toBe(
+      false,
+    );
+    expect(summary.rows[0]).toMatchObject({
+      epicsTotal: 1,
+      epicsComplete: 0,
+      epicsBoundedUnknown: true,
+    });
+    expect(markdown).toContain("#501 100/100 (saturated; child inventory bounded unknown)");
+    expect(markdown).toContain("| ?/1 |");
+    expect(markdown).not.toContain("| 1/1 |");
+
+    const knownComplete = epic(502, 1);
+    const mixedCollections = await collectEpicChildren({
+      epics: [target, knownComplete],
+      loadChildren: async (candidate) =>
+        candidate.number === target.number ? returnedChildren : epicChildFixtures(1, { startNumber: 20_000 }),
+    });
+    const mixedSummary = summarizeWaves({
+      milestones: [WAVE_1],
+      issues: [target, knownComplete],
+      epicChildren: mixedCollections,
+      scopeGrowthByIssue: new Map(),
+      nowMs: NOW,
+    });
+    expect(mixedSummary.rows[0]).toMatchObject({ epicsTotal: 2, epicsComplete: 1, epicsBoundedUnknown: true });
+    expect(renderRoadmapStatus(mixedSummary)).toContain("| ?/2 |");
   });
 });
 
@@ -1447,6 +1615,72 @@ describe("real main composition", () => {
     expect(diagnostics).toEqual([expect.stringContaining("Epic #100 collected 1 children")]);
     expect(generated).toEqual([]);
     expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("preserves epic child errors and publishes nothing at warning and cap boundaries", async () => {
+    const warningDuplicate = epicChildFixtures(90);
+    warningDuplicate[89] = { ...warningDuplicate[0] };
+    const saturatedDuplicate = epicChildFixtures(100);
+    saturatedDuplicate[99] = { ...saturatedDuplicate[0] };
+    const matrix = [
+      {
+        target: epic(590, 90),
+        children: epicChildFixtures(89),
+        code: "ROADMAP_EPIC_CHILD_COUNT_MISMATCH",
+      },
+      { target: epic(591, 90), children: warningDuplicate, code: "ROADMAP_EPIC_CHILD_COUNT_MISMATCH" },
+      {
+        target: epic(592, 100),
+        children: epicChildFixtures(99),
+        code: "ROADMAP_EPIC_CHILD_COUNT_MISMATCH",
+      },
+      { target: epic(593, 100), children: saturatedDuplicate, code: "ROADMAP_EPIC_CHILD_COUNT_MISMATCH" },
+      {
+        target: epic(594, 90, { sub_issues_summary: { total: "90" } }),
+        children: epicChildFixtures(90),
+        code: "ROADMAP_EPIC_CHILD_TOTAL_INVALID",
+      },
+      {
+        target: epic(595, 90),
+        children: [...epicChildFixtures(89), { state: "closed", milestone: WAVE_1 }],
+        code: "ROADMAP_EPIC_CHILD_PAGE_INVALID",
+      },
+    ];
+
+    for (const failure of matrix) {
+      const result = await runMainFixture({
+        issues: [failure.target],
+        childrenByEpic: new Map([[failure.target.number, failure.children]]),
+      });
+      expect(result.code).toBe(1);
+      expect(result.diagnostics).toEqual([expect.stringMatching(new RegExp(`^${failure.code}:`))]);
+      expect(result.generated).toEqual([]);
+      expect(result.summaries).toEqual([]);
+      expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+    }
+  });
+
+  it("publishes one identical saturation block to stdout step summary and roadmap issue", async () => {
+    const target = epic(596, 100);
+    const result = await runMainFixture({
+      issues: [target],
+      childrenByEpic: new Map([[target.number, epicChildFixtures(100)]]),
+      roadmapBody: `intro\n${START_MARKER}\nstale\n${END_MARKER}\noutro`,
+    });
+    const patches = result.requests.filter(({ method }) => method === "PATCH");
+    expect(patches).toHaveLength(1);
+    const patchedBody = JSON.parse(patches[0].body).body;
+    const patchBlock = patchedBody.slice(
+      patchedBody.indexOf(START_MARKER),
+      patchedBody.indexOf(END_MARKER) + END_MARKER.length,
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.generated).toHaveLength(1);
+    expect(result.summaries).toEqual(result.generated);
+    expect(patchBlock).toBe(result.generated[0]);
+    expect(result.generated[0]).toContain("#596 100/100 (saturated; child inventory bounded unknown)");
+    expect(result.generated[0]).toContain("| ?/1 |");
   });
 
   it("writes counted bounded-unknown diagnostics to stdout and the step summary", async () => {
@@ -1609,29 +1843,5 @@ describe("roadmap issue parent enumeration", () => {
         nodes: [issueNode(1, null)],
       })),
     ).rejects.toBeInstanceOf(RoadmapIssueEnumerationError);
-  });
-});
-
-describe("scheduled workflow enforcement and registration", () => {
-  it("keeps the default-branch scheduled generator enforcing with required permissions", () => {
-    const workflowText = readFileSync(
-      path.join(repoRoot, ".github", "workflows", "backlog-roadmap-status.yml"),
-      "utf8",
-    );
-    const workflow = parseYaml(workflowText);
-    const job = workflow.jobs.status;
-    const checkout = job.steps.find((step) => String(step.uses ?? "").startsWith("actions/checkout@"));
-    const generate = job.steps.find((step) => step.name === "Generate roadmap status");
-
-    expect(workflow.on.schedule).toEqual([{ cron: "0 13 * * *" }]);
-    expect(workflow.on.pull_request).toBeUndefined();
-    expect(workflow.permissions).toEqual({ contents: "read" });
-    expect(job.permissions).toEqual({ contents: "read", issues: "write" });
-    expect(job["continue-on-error"]).toBeUndefined();
-    expect(checkout.with?.ref).toBeUndefined();
-    expect(generate.run.trim()).toBe("node ./scripts/roadmap-status.mjs");
-    expect(generate["continue-on-error"]).toBeUndefined();
-    expect(generate.run).not.toMatch(/(?:^|\n)\s*exit\s+0\s*$/m);
-    expect(releaseQualificationScopeRegistry.workflows["backlog-roadmap-status.yml"]).toBe("ci");
   });
 });

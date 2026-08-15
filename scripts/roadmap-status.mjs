@@ -10,6 +10,8 @@ export const END_MARKER = "<!-- roadmap-status:end -->";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMELINE_CONCURRENCY = 8;
+const EPIC_SUB_ISSUE_CAPACITY = 100;
+const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
 const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
 const FORECAST_WINDOW_DAYS = 14;
@@ -817,21 +819,31 @@ export function reconcileEpicChildren(epic, children) {
   return children;
 }
 
+function classifyEpicCapacity(childCount) {
+  if (childCount === EPIC_SUB_ISSUE_CAPACITY) {
+    return { state: "saturated", count: childCount };
+  }
+  if (childCount >= EPIC_SUB_ISSUE_WARNING_THRESHOLD) {
+    return { state: "warning", count: childCount, remaining: EPIC_SUB_ISSUE_CAPACITY - childCount };
+  }
+  return { state: "normal", count: childCount };
+}
+
 export async function collectEpicChildren({ epics, loadChildren, concurrency = TIMELINE_CONCURRENCY }) {
   const byEpic = new Map();
   await mapConcurrent(epics, concurrency, async (epic) => {
     const children = reconcileEpicChildren(epic, await loadChildren(epic));
-    byEpic.set(
-      epic.number,
-      children.map((child) => ({ number: child.number, state: child.state, milestone: child.milestone })),
-    );
+    byEpic.set(epic.number, {
+      children: children.map((child) => ({ number: child.number, state: child.state, milestone: child.milestone })),
+      capacity: classifyEpicCapacity(children.length),
+    });
   });
   return byEpic;
 }
 
 /**
  * @param issues all repository issues (open and closed), excluding pull requests
- * @param epicChildren Map<epicNumber, Array<{number, state, milestone}>>
+ * @param epicChildren Map<epicNumber, {children: Array<{number, state, milestone}>, capacity: {state, count, remaining?}}>
  * @param scopeGrowthByIssue Map<issueNumber, known-or-unknown milestone entry>
  * @param nowMs timestamp used for the "added recently" window
  */
@@ -857,7 +869,7 @@ export function summarizeWaves({
   const milestoneOrder = new Map(milestones.map((milestone, index) => [milestone.title, index]));
   const epicWave = new Map();
   for (const { issue: epic } of epics) {
-    const children = epicChildren.get(epic.number) ?? [];
+    const children = epicChildren.get(epic.number)?.children ?? [];
     let best = null;
     for (const child of children) {
       const title = child.milestone?.title;
@@ -891,9 +903,14 @@ export function summarizeWaves({
     const classifiedOpen = open.filter(({ input }) => classified(input));
     const waveEpics = epics.filter(({ issue: epic }) => epicWave.get(epic.number) === milestone.title);
     const completeEpics = waveEpics.filter(({ issue: epic }) => {
-      const children = epicChildren.get(epic.number) ?? [];
+      const collection = epicChildren.get(epic.number);
+      const children = collection?.children ?? [];
+      if (collection?.capacity?.state === "saturated") return false;
       return children.length > 0 && children.every((child) => child.state === "closed");
     });
+    const epicsBoundedUnknown = waveEpics.some(
+      ({ issue: epic }) => epicChildren.get(epic.number)?.capacity?.state === "saturated",
+    );
 
     return {
       title: milestone.title,
@@ -910,10 +927,16 @@ export function summarizeWaves({
       tracking: tracking.length,
       epicsTotal: waveEpics.length,
       epicsComplete: completeEpics.length,
+      epicsBoundedUnknown,
     };
   });
 
-  return { rows, windowDays };
+  const epicCapacities = epics
+    .map(({ issue: epic }) => ({ number: epic.number, ...(epicChildren.get(epic.number)?.capacity ?? {}) }))
+    .filter(({ state }) => state === "warning" || state === "saturated")
+    .sort((left, right) => left.number - right.number);
+
+  return { rows, windowDays, epicCapacities };
 }
 
 export function renderRoadmapStatus(summary) {
@@ -944,7 +967,12 @@ export function renderRoadmapStatus(summary) {
     const label = row.executable ? row.title : `${row.title} _(not executable)_`;
     const refinedRatio = row.executable ? `${row.refinedOpen}/${row.open}` : "—";
     const parentless = row.executable ? String(row.parentlessClassified) : "—";
-    const epics = row.epicsTotal === 0 ? "—" : `${row.epicsComplete}/${row.epicsTotal}`;
+    const epics =
+      row.epicsTotal === 0
+        ? "—"
+        : row.epicsBoundedUnknown
+          ? `?/${row.epicsTotal}`
+          : `${row.epicsComplete}/${row.epicsTotal}`;
     const growth = !row.executable
       ? "—"
       : row.growthUnknown > 0
@@ -995,9 +1023,21 @@ export function renderRoadmapStatus(summary) {
     "",
     `Parent attachment (reported, not gating): **${totalParentless} classified slices have no parent**. ` +
       `${totalTracking} tracking-only records are shown separately.`,
-    "",
-    "**Added (7d)** = entered current scope within the window.",
   );
+
+  const epicCapacities = summary.epicCapacities ?? [];
+  if (epicCapacities.length > 0) {
+    lines.push("", "Epic sub-issue capacity:");
+    for (const capacity of epicCapacities) {
+      lines.push(
+        capacity.state === "saturated"
+          ? `#${capacity.number} 100/100 (saturated; child inventory bounded unknown)`
+          : `#${capacity.number} ${capacity.count}/100 (${capacity.remaining} remaining)`,
+      );
+    }
+  }
+
+  lines.push("", "**Added (7d)** = entered current scope within the window.");
 
   const unknownRows = executable.filter((row) => row.growthUnknown > 0);
   if (unknownRows.length > 0) {
