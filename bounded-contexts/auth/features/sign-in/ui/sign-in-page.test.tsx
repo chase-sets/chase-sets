@@ -98,6 +98,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
     expect(document.querySelector('input[name="password"]')?.getAttribute("autocomplete")).toBe("current-password");
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("rehydrates the failed method step and focuses the announced error", () => {
@@ -206,6 +207,16 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
     expect(elevatedCardCount()).toBe(1);
+  });
+
+  it("keeps the no-compatible-methods state free of cards", () => {
+    render(<SignInPage signInMethods={[]} />);
+
+    continueWithIdentifier("buyer@example.com");
+
+    expect(screen.getByText("No compatible sign-in methods")).toBeTruthy();
+    expect(elevatedCardCount()).toBe(0);
+    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden")).toHaveLength(0);
   });
 });
 

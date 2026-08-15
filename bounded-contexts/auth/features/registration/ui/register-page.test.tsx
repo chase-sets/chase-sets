@@ -95,6 +95,7 @@ describe("registration page", () => {
     expect(inputNamed("email").value).toBe("todd@example.com");
     expect(screen.getByRole("button", { name: "Email me a magic link" })).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="magic-link-register"]')).not.toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("offers phone code registration without requiring email", () => {
