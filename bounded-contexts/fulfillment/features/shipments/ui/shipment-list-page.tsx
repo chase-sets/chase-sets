@@ -84,7 +84,7 @@ export function FulfillmentShipmentListPage({
         <Form spacing="none" method="get" action={batchPrintActionPath} target="_blank">
           <Stack gap={3}>
             {batchPrintActionPath && shipments.length > 0 ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Stack gap={3}>
                   <NativeSelect
                     label={t("fulfillment.features.shipments.ui.shipmentListPage.packing.slip.format")}
@@ -113,7 +113,7 @@ export function FulfillmentShipmentListPage({
               <MarketplaceEmptyState title={emptyTitle} description={emptyDescription} />
             ) : (
               shipments.map((shipment) => (
-                <Card key={shipment.shipment_id}>
+                <Card key={shipment.shipment_id} elevation="elevated" data-elevation-role="entity">
                   <Stack gap={2}>
                     {batchPrintActionPath ? (
                       <Checkbox

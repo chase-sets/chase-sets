@@ -323,14 +323,14 @@ function WakeReferencePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSna
   const items = buildWakeAttentionItems(wakeStatus);
   return (
     <Stack gap={3}>
-      <Surface tone="subtle">
+      <Surface tone="subtle" elevation="tinted" data-elevation-role="furniture">
         <Stack gap={1}>
           <Text weight="semibold">{t(`${routeKey}.wakeObservabilityTitle`)}</Text>
           <Text tone="secondary">{t(`${routeKey}.wakeObservabilityDescription`)}</Text>
         </Stack>
       </Surface>
       {!wakeStatus ? (
-        <Surface tone="subtle">
+        <Surface tone="subtle" elevation="tinted" data-elevation-role="furniture">
           <Stack gap={1}>
             <Text weight="semibold">{t(`${routeKey}.wakeUnavailable`)}</Text>
             <Text tone="secondary">{t(`${routeKey}.wakeUnavailableDescription`)}</Text>
