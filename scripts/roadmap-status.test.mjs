@@ -1443,6 +1443,24 @@ describe("epic child reconciliation", () => {
     expect(() => reconcileEpicChildren({ number: 4 }, [])).toThrowError(
       expect.objectContaining({ code: "ROADMAP_EPIC_CHILD_TOTAL_INVALID" }),
     );
+    expect(() => reconcileEpicChildren(epic(5, 101), epicChildFixtures(101))).toThrowError(
+      expect.objectContaining({ code: "ROADMAP_EPIC_CHILD_TOTAL_INVALID" }),
+    );
+  });
+
+  it.each([
+    ["warning", 90, -1],
+    ["warning", 90, 0],
+    ["warning", 90, Number.MAX_SAFE_INTEGER + 1],
+    ["saturated", 100, -1],
+    ["saturated", 100, 0],
+    ["saturated", 100, Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects a %s collection with an invalid child identity", (_boundary, total, invalidNumber) => {
+    const children = epicChildFixtures(total);
+    children[children.length - 1] = { ...children[children.length - 1], number: invalidNumber };
+    expect(() => reconcileEpicChildren(epic(501, total), children)).toThrowError(
+      expect.objectContaining({ code: "ROADMAP_EPIC_CHILD_PAGE_INVALID" }),
+    );
   });
 
   it("fails closed on an unsafe pagination continuation", async () => {
@@ -1658,6 +1676,43 @@ describe("real main composition", () => {
       expect(result.summaries).toEqual([]);
       expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
     }
+  });
+
+  it("rejects an over-cap real main collection before publishing anything", async () => {
+    const target = epic(597, 101);
+    const result = await runMainFixture({
+      issues: [target],
+      childrenByEpic: new Map([[target.number, epicChildFixtures(101)]]),
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringMatching(/^ROADMAP_EPIC_CHILD_TOTAL_INVALID:/)]);
+    expect(result.generated).toEqual([]);
+    expect(result.summaries).toEqual([]);
+    expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it.each([
+    ["warning", 90, -1],
+    ["warning", 90, 0],
+    ["warning", 90, Number.MAX_SAFE_INTEGER + 1],
+    ["saturated", 100, -1],
+    ["saturated", 100, 0],
+    ["saturated", 100, Number.MAX_SAFE_INTEGER + 1],
+  ])("publishes nothing for a %s collection with invalid child number %s", async (_boundary, total, invalidNumber) => {
+    const target = epic(598, total);
+    const children = epicChildFixtures(total);
+    children[children.length - 1] = { ...children[children.length - 1], number: invalidNumber };
+    const result = await runMainFixture({
+      issues: [target],
+      childrenByEpic: new Map([[target.number, children]]),
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringMatching(/^ROADMAP_EPIC_CHILD_PAGE_INVALID:/)]);
+    expect(result.generated).toEqual([]);
+    expect(result.summaries).toEqual([]);
+    expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
   });
 
   it("publishes one identical saturation block to stdout step summary and roadmap issue", async () => {

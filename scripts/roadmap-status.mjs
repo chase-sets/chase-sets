@@ -796,13 +796,16 @@ export async function collectScopeGrowth({
 
 export function reconcileEpicChildren(epic, children) {
   const expectedTotal = epic.sub_issues_summary?.total;
-  if (!Number.isInteger(expectedTotal) || expectedTotal < 0) {
+  if (
+    !isNonNegativeSafeInteger(expectedTotal) ||
+    expectedTotal > EPIC_SUB_ISSUE_CAPACITY
+  ) {
     throw new RoadmapIssueEnumerationError(
       "ROADMAP_EPIC_CHILD_TOTAL_INVALID",
       `Epic #${epic.number} has no valid sub_issues_summary.total.`,
     );
   }
-  if (!Array.isArray(children) || children.some((child) => !Number.isInteger(child?.number))) {
+  if (!Array.isArray(children) || children.some((child) => !isPositiveSafeInteger(child?.number))) {
     throw new RoadmapIssueEnumerationError(
       "ROADMAP_EPIC_CHILD_PAGE_INVALID",
       `Epic #${epic.number} returned an invalid sub-issue collection.`,
@@ -820,7 +823,7 @@ export function reconcileEpicChildren(epic, children) {
 }
 
 function classifyEpicCapacity(childCount) {
-  if (childCount === EPIC_SUB_ISSUE_CAPACITY) {
+  if (childCount >= EPIC_SUB_ISSUE_CAPACITY) {
     return { state: "saturated", count: childCount };
   }
   if (childCount >= EPIC_SUB_ISSUE_WARNING_THRESHOLD) {
