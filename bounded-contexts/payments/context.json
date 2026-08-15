@@ -191,6 +191,11 @@
       "purpose": "Create and observe external payment processor intents from the API host."
     },
     {
+      "portName": "providerModeObservation",
+      "providedBy": "platform-api",
+      "purpose": "Report the immutable process-start payment-provider mode observation without inspecting provider credentials."
+    },
+    {
       "portName": "webhookTelemetry",
       "providedBy": "platform-api",
       "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."

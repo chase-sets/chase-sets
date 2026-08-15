@@ -34,6 +34,7 @@ import {
   type PlatformPaymentProcessorConfig,
   type PlatformPoolConfig,
   type PlatformPostageConfig,
+  type PlatformStripeEffectiveMode,
   type PlatformStripeConnectAccountsApi,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
@@ -70,6 +71,13 @@ export type PlatformApiMoneyMovementConfig = PlatformMoneyMovementConfig;
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
 
 export type PlatformApiTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
+
+export type PlatformApiProviderModeObservation = Readonly<{
+  mode: PlatformStripeEffectiveMode;
+  paymentProcessorKind: PlatformPaymentProcessorConfig["kind"];
+  moneyMovementKind: PlatformMoneyMovementConfig["kind"];
+  deploymentEnvironment: DeploymentEnvironment;
+}>;
 
 export type PlatformApiSocialLoginProviderConfig = Readonly<{
   clientId: string;
@@ -165,6 +173,7 @@ export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     platformAdmin: PlatformApiPlatformAdminConfig | null;
     previewPostgresAdminUrl: string | null;
+    providerModeObservation: PlatformApiProviderModeObservation;
   }>;
 
 export type PlatformApiPlatformAdminConfig = Readonly<{
@@ -328,6 +337,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
       timeoutMs: number;
     }>;
     ucpSignatureCreatedFreshnessWindowMs: number;
+    providerModeObservation: PlatformApiProviderModeObservation;
   }>;
 
 export type PlatformApiMobileMessagingConfig =
@@ -628,7 +638,11 @@ export function getContextWaiterDatabaseEnvName(contextName: PlatformApiContextN
   return getSharedContextWaiterDatabaseEnvName(contextName);
 }
 
-function loadBaseConfig(): PlatformApiBaseConfig {
+function loadBaseConfig(): PlatformApiBaseConfig &
+  Readonly<{
+    deploymentEnvironment: DeploymentEnvironment;
+    realtime: PlatformApiRealtimeConfig;
+  }> {
   const deploymentEnvironment = getDeploymentEnvironment();
   const productionLike = deploymentEnvironment === "production";
   const runtimeProfile = loadRuntimeProfile();
@@ -716,6 +730,13 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
   const baseConfig = loadBaseConfig();
   const productionLike = baseConfig.deploymentEnvironment === "production";
+  const providerRequired = productionLike && baseConfig.runtimeProfile !== "landing";
+  const stripeProvider = loadStripeProviderConfig({
+    productionLike: providerRequired,
+    deploymentEnvironment: baseConfig.deploymentEnvironment,
+    productionMissingConfigError:
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+  });
   const catalogAssetStorage = loadCatalogAssetStorageConfig({
     port: baseConfig.port,
     productionLike,
@@ -728,6 +749,12 @@ export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
     listingPhotoStorage: loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage),
     platformAdmin: loadPlatformAdminConfig(),
     previewPostgresAdminUrl: loadPreviewPostgresAdminUrl(baseConfig.deploymentEnvironment),
+    providerModeObservation: {
+      mode: stripeProvider.effectiveMode,
+      paymentProcessorKind: stripeProvider.paymentProcessor.kind,
+      moneyMovementKind: stripeProvider.moneyMovement.kind,
+      deploymentEnvironment: baseConfig.deploymentEnvironment,
+    },
   };
 }
 
@@ -745,9 +772,7 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
-  const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
-    realtime: PlatformApiRealtimeConfig;
-  };
+  const baseConfig = loadBaseConfig();
   const productionLike = baseConfig.deploymentEnvironment === "production";
   const providerRequired = productionLike && baseConfig.runtimeProfile !== "landing";
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
@@ -892,6 +917,12 @@ export function loadConfig(): PlatformApiConfig {
     ucpAp2Verifier,
     ucpSignatureCreatedFreshnessWindowMs,
     paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: stripeProvider.effectiveMode,
+      paymentProcessorKind: stripeProvider.paymentProcessor.kind,
+      moneyMovementKind: stripeProvider.moneyMovement.kind,
+      deploymentEnvironment: baseConfig.deploymentEnvironment,
+    },
   };
 }
 

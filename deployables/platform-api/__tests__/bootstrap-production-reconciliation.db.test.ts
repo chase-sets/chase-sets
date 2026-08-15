@@ -17,7 +17,7 @@ import {
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
+import { buildPlatformApiApp, createPlatformApiHost as createPlatformApiHostRuntime } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
@@ -29,6 +29,23 @@ import {
   listingPhotoStorage,
 } from "./bootstrap-db-test-support";
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
+
+const TEST_PROVIDER_MODE_OBSERVATION = {
+  mode: "unconfigured",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "fake",
+  deploymentEnvironment: "test",
+} as const;
+
+function createPlatformApiHost(options: Parameters<typeof createPlatformApiHostRuntime>[0]) {
+  return createPlatformApiHostRuntime({
+    ...options,
+    hostPorts: {
+      ...options.hostPorts,
+      providerModeObservation: TEST_PROVIDER_MODE_OBSERVATION,
+    },
+  });
+}
 
 const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
 const retainedRepresentativeAccount = {

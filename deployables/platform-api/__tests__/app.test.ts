@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import ts from "@chase-sets/typescript-compiler-api";
 import { module as authModule } from "@chase-sets/auth";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as paymentsModule } from "@chase-sets/payments";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -19,6 +24,7 @@ import {
   MCP_PROTOCOL_VERSION_2026_07_28,
   MCP_PROTOCOL_VERSION_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
+import type { ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
@@ -26,6 +32,16 @@ import {
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
+import { createServiceProxy } from "./route-inventory-test-support";
+
+const appTestDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = join(appTestDirectory, "../../..");
+const TEST_PROVIDER_MODE_OBSERVATION = {
+  mode: "test",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "stripe",
+  deploymentEnvironment: "test",
+} as const;
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
 
@@ -54,8 +70,8 @@ function platformActor(permissions: readonly string[]) {
 
 function createEmptyRuntime(
   services: Record<string, unknown> = {},
-  mountedModules: readonly { module: unknown; services: unknown }[] = [],
-) {
+  mountedModules: ApiHostRuntime["mountedModules"] = [],
+): ApiHostRuntime {
   return {
     mountedContexts: [],
     mountedModules,
@@ -66,7 +82,161 @@ function createEmptyRuntime(
     },
     projectionGroups: [],
     subscriptionRunners: [],
-  } as never;
+  };
+}
+
+function createPaymentsObservationRuntime(observation: unknown = TEST_PROVIDER_MODE_OBSERVATION) {
+  const services = {
+    payments: createServiceProxy(),
+    refunds: createServiceProxy(),
+    providerModeObservation: observation,
+  };
+  const mountedContext = {
+    contextName: "payments",
+    mountRole: "active",
+    module: paymentsModule,
+    services,
+    pool: createServiceProxy(),
+    projectionHandlerSets: [],
+  };
+
+  return {
+    mountedContexts: [mountedContext],
+    mountedModules: [{ module: paymentsModule, services }],
+    services: {
+      auth: {},
+      identity: {},
+      payments: services,
+    },
+    projectionGroups: (paymentsModule.projectionGroups ?? []).map((group) => ({
+      projectionName: group.projectionName,
+      projectionRevision: group.projectionRevision ?? 1,
+      targetContextName: "payments",
+      sourceContextNames: group.sourceContextNames,
+      optionalSourceContextNames: group.optionalSourceContextNames ?? [],
+      ownedTables: group.ownedTables,
+      resetStrategy: group.resetStrategy,
+      requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+      subscriptionRunners: [],
+      reset: async () => {},
+      getStatus: () => ({}),
+      refreshStatus: async () => ({}),
+      markRevisionSynced: async () => {},
+    })),
+    subscriptionRunners: [],
+  };
+}
+
+type ConstructorCall = Readonly<{
+  file: string;
+  line: number;
+  hasProviderModeObservation: boolean;
+}>;
+
+function sourceFilesBelow(root: string): readonly string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...sourceFilesBelow(path));
+    } else if (/\.(?:ts|tsx|mts|cts)$/u.test(entry.name)) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function propertyName(property: ts.ObjectLiteralElementLike): string | null {
+  if (!property.name || (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name))) {
+    return null;
+  }
+  return property.name.text;
+}
+
+function sourceDefinesProviderModeHostWrapper(source: ts.SourceFile): boolean {
+  const wrapper = source.statements.find(
+    (statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) && statement.name?.text === "createPlatformApiHost",
+  );
+  if (!wrapper?.body) {
+    return false;
+  }
+
+  let callsRuntime = false;
+  let suppliesObservation = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "createPlatformApiHostRuntime"
+    ) {
+      callsRuntime = true;
+    }
+    if (ts.isPropertyAssignment(node) && propertyName(node) === "providerModeObservation") {
+      suppliesObservation = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(wrapper.body);
+  return callsRuntime && suppliesObservation;
+}
+
+function discoverConstructorCalls(functionName: string, roots: readonly string[]): readonly ConstructorCall[] {
+  const calls: ConstructorCall[] = [];
+  for (const fileName of roots.flatMap(sourceFilesBelow)) {
+    const source = ts.createSourceFile(fileName, readFileSync(fileName, "utf8"), ts.ScriptTarget.Latest, true);
+    const wrapperSuppliesProviderModeObservation =
+      functionName === "createPlatformApiHost" && sourceDefinesProviderModeHostWrapper(source);
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === functionName) {
+        const options = node.arguments[0];
+        const hostPorts =
+          options && ts.isObjectLiteralExpression(options)
+            ? options.properties.find(
+                (property): property is ts.PropertyAssignment =>
+                  ts.isPropertyAssignment(property) && propertyName(property) === "hostPorts",
+              )
+            : undefined;
+        const hasProviderModeObservation =
+          wrapperSuppliesProviderModeObservation ||
+          Boolean(
+            hostPorts &&
+            ts.isObjectLiteralExpression(hostPorts.initializer) &&
+            hostPorts.initializer.properties.some((property) => propertyName(property) === "providerModeObservation"),
+          );
+        calls.push({
+          file: relative(repositoryRoot, fileName).replaceAll("\\", "/"),
+          line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          hasProviderModeObservation,
+        });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return calls.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line);
+}
+
+function manifestHasProviderModeObservation(sourceText: string): boolean {
+  const manifest = JSON.parse(sourceText) as { hostPorts?: unknown };
+  if (!Array.isArray(manifest.hostPorts)) {
+    return false;
+  }
+  const matches = manifest.hostPorts.filter(
+    (entry): entry is Record<string, unknown> =>
+      typeof entry === "object" &&
+      entry !== null &&
+      (entry as Record<string, unknown>).portName === "providerModeObservation",
+  );
+  const match = matches[0];
+  return (
+    matches.length === 1 &&
+    match !== undefined &&
+    Object.keys(match).sort().join(",") === "portName,providedBy,purpose" &&
+    match.providedBy === "platform-api" &&
+    typeof match.purpose === "string" &&
+    match.purpose.length > 0
+  );
 }
 
 function statelessMcpMeta() {
@@ -258,6 +428,114 @@ describe("platform api app wiring", () => {
     await expect(apiResponse.json()).resolves.toEqual({
       status: "ok",
       checks: [{ name: "control.database", status: "ok" }],
+    });
+  });
+
+  it("keeps payment provider mode in the exact mounted route inventory", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const app = buildPlatformApiApp(createPaymentsObservationRuntime() as never, { resolveActor });
+
+    const response = await app.request("/api/marketplace/payment-provider-mode");
+    const accountAlias = await app.request("/api/marketplace/account/payment-provider-mode");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject(TEST_PROVIDER_MODE_OBSERVATION);
+    expect(accountAlias.status).toBe(404);
+    expect(
+      app.routes.filter((route) => route.method === "GET" && route.path === "/api/marketplace/payment-provider-mode"),
+    ).toHaveLength(1);
+    expect(app.routes.some((route) => route.path === "/api/marketplace/account/payment-provider-mode")).toBe(false);
+    expect(resolveActor).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes every platform host and Payments service constructor", () => {
+    const productionCalls = discoverConstructorCalls("createPlatformApiHost", [
+      join(repositoryRoot, "deployables/platform-api/src"),
+      join(repositoryRoot, "scripts"),
+    ]);
+    const testCalls = discoverConstructorCalls("createPlatformApiHost", [
+      join(repositoryRoot, "deployables/platform-api/__tests__"),
+    ]);
+    const countsByFile = (calls: readonly ConstructorCall[]) =>
+      Object.fromEntries(
+        [...new Set(calls.map((call) => call.file))].map((file) => [
+          file,
+          calls.filter((call) => call.file === file).length,
+        ]),
+      );
+
+    expect(countsByFile(productionCalls)).toEqual({
+      "deployables/platform-api/src/admin-qa-actor-fixtures.ts": 1,
+      "deployables/platform-api/src/bootstrap.ts": 1,
+      "deployables/platform-api/src/main.ts": 1,
+      "deployables/platform-api/src/representative-commerce-state.ts": 1,
+      "scripts/replay-projection.ts": 1,
+    });
+    expect(productionCalls.filter((call) => call.hasProviderModeObservation).map((call) => call.file)).toEqual([
+      "deployables/platform-api/src/bootstrap.ts",
+      "deployables/platform-api/src/main.ts",
+    ]);
+    expect(countsByFile(testCalls)).toEqual({
+      "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts": 1,
+      "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts": 9,
+      "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts": 2,
+      "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts": 1,
+      "deployables/platform-api/__tests__/database-pools.test.ts": 2,
+      "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts": 1,
+    });
+    expect(testCalls).toHaveLength(16);
+    expect(testCalls.every((call) => call.hasProviderModeObservation)).toBe(true);
+
+    const paymentsServiceCalls = discoverConstructorCalls("createPaymentsServices", [
+      join(repositoryRoot, "bounded-contexts/payments"),
+    ]);
+    expect(paymentsServiceCalls.map((call) => call.file)).toEqual([
+      "bounded-contexts/payments/index.ts",
+      "bounded-contexts/payments/support/runtime-support/seed.ts",
+    ]);
+
+    const manifestPath = join(repositoryRoot, "bounded-contexts/payments/context.json");
+    const manifestSource = readFileSync(manifestPath, "utf8");
+    expect(manifestHasProviderModeObservation(manifestSource)).toBe(true);
+    const manifest = JSON.parse(manifestSource) as { hostPorts: Array<Record<string, unknown>> };
+    const deletionMutant = JSON.stringify({
+      ...manifest,
+      hostPorts: manifest.hostPorts.filter((port) => port.portName !== "providerModeObservation"),
+    });
+    expect(manifestHasProviderModeObservation(deletionMutant)).toBe(false);
+  });
+
+  it("removes the observation without changing prior routes", async () => {
+    const runtime = createPaymentsObservationRuntime();
+    const mounted = runtime.mountedContexts[0] as { module: typeof paymentsModule; services: unknown };
+    const apiEntries = Reflect.apply(mounted.module.buildApis, mounted.module, [mounted.services]);
+    const observationPath = "/payment-provider-mode";
+    const priorInventory = apiEntries[0].router.routes
+      .filter((route: { path: string }) => route.path !== observationPath)
+      .map((route: { method: string; path: string }) => ({ method: route.method, path: route.path }));
+    const rollbackRouter = new Hono();
+    for (const route of apiEntries[0].router.routes) {
+      if (route.path !== observationPath) {
+        Reflect.apply(rollbackRouter.on, rollbackRouter, [[route.method], route.path, route.handler]);
+      }
+    }
+    const rollbackInventory = rollbackRouter.routes.map((route) => ({ method: route.method, path: route.path }));
+    const rollbackModule = {
+      ...mounted.module,
+      buildApis: () => [{ ...apiEntries[0], router: rollbackRouter }, ...apiEntries.slice(1)],
+    };
+    const rollbackRuntime = {
+      ...runtime,
+      mountedContexts: [{ ...runtime.mountedContexts[0], module: rollbackModule }],
+      mountedModules: [{ module: rollbackModule, services: mounted.services }],
+    } as never;
+    const app = buildPlatformApiApp(rollbackRuntime, { resolveActor: vi.fn(async () => null) });
+
+    expect(rollbackInventory).toEqual(priorInventory);
+    expect(rollbackInventory.some((route) => route.path === "/account/marketplace-checkout-fee-policy")).toBe(true);
+    expect(await app.request("/api/marketplace/payment-provider-mode")).toMatchObject({ status: 404 });
+    expect(await app.request("/api/marketplace/account/marketplace-checkout-fee-policy")).not.toMatchObject({
+      status: 404,
     });
   });
 

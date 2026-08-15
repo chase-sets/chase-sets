@@ -4,7 +4,7 @@ import {
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
@@ -13,8 +13,32 @@ import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime"
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import { createPaymentProviderModeResponse } from "./contracts";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
+
+export function createPaymentProviderModeHandler(providerModeObservation: unknown) {
+  return (c: Context<PaymentsApiEnv>) => {
+    try {
+      const response = createPaymentProviderModeResponse(providerModeObservation, new Date().toISOString());
+      if (response) {
+        return c.json(response, 200);
+      }
+    } catch {
+      // An untyped host boundary may supply accessors or proxies. Refuse without logging their values.
+    }
+
+    return c.json(
+      {
+        error: {
+          code: "payment_provider_mode_observation_unavailable",
+          message: t("payments.features.payments.api.route.request.failed"),
+        },
+      },
+      500,
+    );
+  };
+}
 
 function requirePaymentAccess(
   c: {

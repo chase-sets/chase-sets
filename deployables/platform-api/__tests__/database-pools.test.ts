@@ -1,9 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
-import { createPlatformApiHost } from "../src/app";
+import { createPlatformApiHost as createPlatformApiHostRuntime } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { resolveApiHostMounts } from "@chase-sets/platform-runtime/api";
+
+const TEST_PROVIDER_MODE_OBSERVATION = {
+  mode: "unconfigured",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "fake",
+  deploymentEnvironment: "test",
+} as const;
+
+function createPlatformApiHost(options: Parameters<typeof createPlatformApiHostRuntime>[0]) {
+  return createPlatformApiHostRuntime({
+    ...options,
+    hostPorts: {
+      ...options.hostPorts,
+      providerModeObservation: TEST_PROVIDER_MODE_OBSERVATION,
+    },
+  });
+}
 
 describe("platform api database pools", () => {
   it("binds the shared pool factory to the platform API host registry", async () => {

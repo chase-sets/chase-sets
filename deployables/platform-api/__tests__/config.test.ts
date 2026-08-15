@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadStripeProviderConfig } from "@chase-sets/platform-runtime/config-schema";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
 import { DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS } from "@chase-sets/platform-runtime/ucp";
@@ -18,6 +18,20 @@ import {
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
+
+type StripeProviderLoader = typeof loadStripeProviderConfig;
+const stripeProviderLoaderState = vi.hoisted(() => ({ actual: null as StripeProviderLoader | null }));
+
+vi.mock("@chase-sets/platform-runtime/config-schema", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/platform-runtime/config-schema")>();
+  stripeProviderLoaderState.actual = actual.loadStripeProviderConfig;
+  return {
+    ...actual,
+    loadStripeProviderConfig: vi.fn((input: Parameters<StripeProviderLoader>[0]) =>
+      Reflect.apply(actual.loadStripeProviderConfig, undefined, [input]),
+    ),
+  };
+});
 
 const defaultCriticalReadConsistencyRouteTuning = [
   {
@@ -227,7 +241,26 @@ function resetConfigEnv() {
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
 }
 
-beforeEach(resetConfigEnv);
+function configureSyntheticStripeTestMode() {
+  process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETIC_BOOTSTRAP_FIXTURE";
+  delete process.env.STRIPE_PUBLISHABLE_KEY;
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_SYNTHETIC_BOOTSTRAP_CONNECT_FIXTURE";
+}
+
+function configureSyntheticStripeLiveMode() {
+  process.env.STRIPE_SECRET_KEY = "sk_live_SYNTHETIC_BOOTSTRAP_FIXTURE";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_SYNTHETIC_BOOTSTRAP_FIXTURE";
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_SYNTHETIC_BOOTSTRAP_PAYMENT_FIXTURE";
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_SYNTHETIC_BOOTSTRAP_CONNECT_FIXTURE";
+}
+
+beforeEach(() => {
+  resetConfigEnv();
+  const loader = vi.mocked(loadStripeProviderConfig);
+  loader.mockReset();
+  loader.mockImplementation(stripeProviderLoaderState.actual as StripeProviderLoader);
+});
 afterEach(resetConfigEnv);
 
 describe("platform api config", () => {
@@ -374,12 +407,14 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_S3_BUCKET = "assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+    configureSyntheticStripeTestMode();
 
     expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
 
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    configureSyntheticStripeLiveMode();
 
     expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
   });
@@ -393,10 +428,12 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_S3_BUCKET = "assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+    configureSyntheticStripeLiveMode();
 
     expect(loadBootstrapConfig().deploymentEnvironment).toBe("production");
 
     process.env.DEPLOYMENT_ENVIRONMENT = "Preview";
+    configureSyntheticStripeTestMode();
     expect(loadBootstrapConfig().deploymentEnvironment).toBe("preview");
 
     process.env.DEPLOYMENT_ENVIRONMENT = "prod";
@@ -418,6 +455,7 @@ describe("platform api config", () => {
     );
 
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    configureSyntheticStripeTestMode();
     expect(() => loadBootstrapConfig()).toThrow(
       "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL may only be configured for preview deployments.",
     );
@@ -465,6 +503,7 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.test";
     process.env.PLATFORM_DATA_PROFILES =
       "critical-bootstrap,catalog-integration-bootstrap,representative-commerce-state";
+    configureSyntheticStripeTestMode();
 
     expect(loadBootstrapConfig().dataProfiles).toEqual([
       "critical-bootstrap",
@@ -475,6 +514,7 @@ describe("platform api config", () => {
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    configureSyntheticStripeLiveMode();
 
     expect(() => loadBootstrapConfig()).toThrow(
       "representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.",
@@ -489,6 +529,7 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.test";
     process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap,catalog-integration-bootstrap,admin-qa-actor-fixtures";
+    configureSyntheticStripeTestMode();
 
     expect(loadBootstrapConfig().dataProfiles).toEqual([
       "critical-bootstrap",
@@ -499,6 +540,7 @@ describe("platform api config", () => {
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    configureSyntheticStripeLiveMode();
 
     expect(() => loadBootstrapConfig()).toThrow(
       "admin-qa-actor-fixtures is not allowed when DEPLOYMENT_ENVIRONMENT=production.",
@@ -531,6 +573,98 @@ describe("platform api config", () => {
       publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
     });
     expect(loadConfig().taxProviderBackedQuotesRequired).toBe(false);
+  });
+
+  it("retains one provider observation in main config", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETIC_CONNECT_ONLY";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_SYNTHETIC_CONNECT_ONLY";
+    const loader = vi.mocked(loadStripeProviderConfig);
+    const firstRead = Reflect.apply(stripeProviderLoaderState.actual as StripeProviderLoader, undefined, [
+      {
+        productionLike: false,
+        deploymentEnvironment: "preview",
+        productionMissingConfigError:
+          "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+      },
+    ]);
+    const differingSecondRead = {
+      ...firstRead,
+      effectiveMode: "unconfigured" as const,
+      paymentProcessor: { kind: "fake" as const },
+      moneyMovement: { kind: "fake" as const },
+    };
+    loader.mockImplementationOnce(() => firstRead).mockImplementationOnce(() => differingSecondRead);
+
+    try {
+      const config = loadConfig();
+
+      expect(loader).toHaveBeenCalledTimes(1);
+      expect(config.providerModeObservation).toEqual({
+        mode: "test",
+        paymentProcessorKind: "fake",
+        moneyMovementKind: "stripe",
+        deploymentEnvironment: "preview",
+      });
+    } finally {
+      loader.mockReset();
+      loader.mockImplementation(stripeProviderLoaderState.actual as StripeProviderLoader);
+    }
+  });
+
+  it("retains the same provider observation in bootstrap config", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETIC_CONNECT_ONLY";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_SYNTHETIC_CONNECT_ONLY";
+    const loader = vi.mocked(loadStripeProviderConfig);
+    const firstRead = Reflect.apply(stripeProviderLoaderState.actual as StripeProviderLoader, undefined, [
+      {
+        productionLike: false,
+        deploymentEnvironment: "preview",
+        productionMissingConfigError:
+          "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+      },
+    ]);
+    loader
+      .mockImplementationOnce(() => firstRead)
+      .mockImplementationOnce(() => ({ ...firstRead, effectiveMode: "live" }));
+
+    try {
+      const config = loadBootstrapConfig();
+
+      expect(loader).toHaveBeenCalledTimes(1);
+      expect(config.providerModeObservation).toEqual({
+        mode: "test",
+        paymentProcessorKind: "fake",
+        moneyMovementKind: "stripe",
+        deploymentEnvironment: "preview",
+      });
+    } finally {
+      loader.mockReset();
+      loader.mockImplementation(stripeProviderLoaderState.actual as StripeProviderLoader);
+    }
+  });
+
+  it("reports the merged 6829 provider test-mode observation without contacting Stripe", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETIC_CONNECT_ONLY";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_SYNTHETIC_CONNECT_ONLY";
+    const stripeTransport = vi.fn();
+    const main = loadConfig();
+    const bootstrap = loadBootstrapConfig();
+
+    expect(main.providerModeObservation).toEqual(bootstrap.providerModeObservation);
+    expect(main.providerModeObservation).toEqual({
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "preview",
+    });
+    expect(vi.mocked(loadStripeProviderConfig)).toHaveBeenCalledTimes(2);
+    expect(stripeTransport).not.toHaveBeenCalled();
   });
 
   it("matches the pre-extraction shared config shape for a representative environment", () => {
@@ -3392,6 +3526,100 @@ function evaluatePlatformApiClassifierShape(sourceText: string): readonly string
   return [];
 }
 
+function evaluateProviderObservationTransport(sourceText: string): readonly string[] {
+  const source = parseModule(PLATFORM_API_CONFIG_PATH, sourceText);
+  const violations: string[] = [];
+  const loaderImport = source.statements
+    .filter(ts.isImportDeclaration)
+    .find((statement) => statement.moduleSpecifier.getText(source).includes("platform-runtime/config-schema"));
+  const loaderImportSpecifiers =
+    loaderImport &&
+    loaderImport.importClause?.namedBindings &&
+    ts.isNamedImports(loaderImport.importClause.namedBindings)
+      ? loaderImport.importClause.namedBindings.elements.filter(
+          (specifier) => (specifier.propertyName ?? specifier.name).text === LOADER_NAME,
+        )
+      : [];
+  if (
+    loaderImportSpecifiers.length !== 1 ||
+    loaderImportSpecifiers[0]?.propertyName !== undefined ||
+    loaderImportSpecifiers[0]?.name.text !== LOADER_NAME
+  ) {
+    violations.push(`${LOADER_NAME} must be one direct, unaliased import`);
+  }
+
+  const loaderCalls = collectNodes(source, ts.isCallExpression).filter(
+    (call) => ts.isIdentifier(call.expression) && call.expression.text === LOADER_NAME,
+  );
+  if (loaderCalls.length !== 2) {
+    violations.push(`platform-api must call ${LOADER_NAME} exactly twice, found ${loaderCalls.length}`);
+  }
+  for (const functionName of ["loadConfig", "loadBootstrapConfig"] as const) {
+    const loader = findFunctionLike(source, functionName);
+    const calls = loader?.body
+      ? collectNodes(loader.body, ts.isCallExpression).filter(
+          (call) => ts.isIdentifier(call.expression) && call.expression.text === LOADER_NAME,
+        )
+      : [];
+    if (calls.length !== 1) {
+      violations.push(`${functionName} must call ${LOADER_NAME} exactly once, found ${calls.length}`);
+    }
+  }
+
+  const directClassifierCalls = collectNodes(source, ts.isCallExpression).filter(
+    (call) => ts.isIdentifier(call.expression) && call.expression.text === CLASSIFIER_NAME,
+  );
+  if (directClassifierCalls.length !== 0) {
+    violations.push(`platform-api must not call ${CLASSIFIER_NAME}`);
+  }
+  const loaderReexports = collectNodes(source, ts.isExportDeclaration).filter((statement) =>
+    statement.exportClause && ts.isNamedExports(statement.exportClause)
+      ? statement.exportClause.elements.some(
+          (specifier) => (specifier.propertyName ?? specifier.name).text === LOADER_NAME,
+        )
+      : false,
+  );
+  if (loaderReexports.length !== 0) {
+    violations.push(`${LOADER_NAME} must not be re-exported`);
+  }
+
+  const expectedObservationInitializers = new Map([
+    ["mode", "stripeProvider.effectiveMode"],
+    ["paymentProcessorKind", "stripeProvider.paymentProcessor.kind"],
+    ["moneyMovementKind", "stripeProvider.moneyMovement.kind"],
+    ["deploymentEnvironment", "baseConfig.deploymentEnvironment"],
+  ]);
+  const observations = collectNodes(source, ts.isPropertyAssignment).filter(
+    (assignment) => ts.isIdentifier(assignment.name) && assignment.name.text === "providerModeObservation",
+  );
+  if (observations.length !== 2) {
+    violations.push(`providerModeObservation must be retained exactly twice, found ${observations.length}`);
+  }
+  for (const observation of observations) {
+    if (!ts.isObjectLiteralExpression(observation.initializer)) {
+      violations.push("providerModeObservation is not a closed object literal");
+      continue;
+    }
+    const properties = observation.initializer.properties;
+    if (
+      properties.length !== expectedObservationInitializers.size ||
+      properties.some((property) => !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name))
+    ) {
+      violations.push("providerModeObservation does not have the exact closed property shape");
+      continue;
+    }
+    for (const property of properties as readonly ts.PropertyAssignment[]) {
+      const name = (property.name as ts.Identifier).text;
+      const expected = expectedObservationInitializers.get(name);
+      if (!expected || property.initializer.getText(source) !== expected) {
+        violations.push(`${name} is not transported directly from the single retained provider result`);
+      }
+    }
+  }
+
+  return violations;
+}
+
 /** Applies a named source mutation, refusing if its anchor has drifted. */
 function mutateSource(sourceText: string, anchor: string, replacement: string): string {
   const occurrences = sourceText.split(anchor).length - 1;
@@ -4194,6 +4422,77 @@ describe("Stripe key classification provenance", () => {
     expect(evaluatePlatformApiClassifierShape(mutated)).not.toEqual([]);
   });
 
+  it("has one Stripe mode classifier and no observation-side classifier", () => {
+    expect(evaluateProviderObservationTransport(PLATFORM_API_CONFIG_SOURCE)).toEqual([]);
+
+    const mainObservationAnchor = `    paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: stripeProvider.effectiveMode,`;
+    const observationMutants = [
+      {
+        name: "second-loader-call",
+        source: `${PLATFORM_API_CONFIG_SOURCE}\nloadStripeProviderConfig({ productionLike: false, productionMissingConfigError: "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production." });\n`,
+      },
+      {
+        name: "regex-reclassification",
+        source: mutateSource(
+          PLATFORM_API_CONFIG_SOURCE,
+          mainObservationAnchor,
+          `    paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: /live/u.test(stripeProvider.secretKey ?? "") ? "live" : "test",`,
+        ),
+      },
+      {
+        name: "prefix-reclassification",
+        source: mutateSource(
+          PLATFORM_API_CONFIG_SOURCE,
+          mainObservationAnchor,
+          `    paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: stripeProvider.secretKey?.startsWith("sk_live_") ? "live" : "test",`,
+        ),
+      },
+      {
+        name: "dynamic-access-reclassification",
+        source: mutateSource(
+          PLATFORM_API_CONFIG_SOURCE,
+          mainObservationAnchor,
+          `    paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: stripeProvider["effective" + "Mode"],`,
+        ),
+      },
+      {
+        name: "wrapper-reclassification",
+        source:
+          mutateSource(
+            PLATFORM_API_CONFIG_SOURCE,
+            mainObservationAnchor,
+            `    paymentProcessor: stripeProvider.paymentProcessor,
+    providerModeObservation: {
+      mode: classifyObservedProviderMode(stripeProvider),`,
+          ) + '\nfunction classifyObservedProviderMode(value: unknown) { return value ? "test" : "unconfigured"; }\n',
+      },
+      {
+        name: "loader-import-alias",
+        source: mutateSource(
+          PLATFORM_API_CONFIG_SOURCE,
+          "  loadStripeProviderConfig,",
+          "  loadStripeProviderConfig as observedStripeProviderConfigLoader,",
+        ),
+      },
+      {
+        name: "loader-reexport",
+        source: `${PLATFORM_API_CONFIG_SOURCE}\nexport { loadStripeProviderConfig };\n`,
+      },
+    ];
+
+    for (const mutant of observationMutants) {
+      expect(evaluateProviderObservationTransport(mutant.source), mutant.name).not.toEqual([]);
+    }
+  });
+
   it("counts exactly seven refusal branches carrying the normative K1-K7 reason sequence", () => {
     const source = parseModule(CONFIG_SCHEMA_PATH, CONFIG_SCHEMA_SOURCE);
     const loader = findFunctionLike(source, LOADER_NAME);
@@ -4879,7 +5178,11 @@ const SYNTHETIC_REVIEW_DIRECTORY = normalizeAnalysisPath(
 );
 const ADMITTED_TUPLE_MEMBER =
   "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.";
-const PLATFORM_API_ARGUMENT_ANCHOR = `    productionMissingConfigError:\n      "${ADMITTED_TUPLE_MEMBER}",`;
+const PLATFORM_API_ARGUMENT_LITERAL = `    productionMissingConfigError:\n      "${ADMITTED_TUPLE_MEMBER}",`;
+const PLATFORM_API_ARGUMENT_ANCHOR = `${PLATFORM_API_ARGUMENT_LITERAL}
+  });
+
+  if (providerRequired`;
 
 function syntheticImport(clause: string, specifier: string): string {
   return `${SYNTHETIC_IMPORT_KEYWORD} ${clause} ${SYNTHETIC_FROM_KEYWORD} ${JSON.stringify(specifier)};\n`;
@@ -4996,14 +5299,14 @@ const CALLER_ARGUMENT_CONTROLS: readonly Readonly<{ name: string; replacement: s
 ];
 
 describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
-  it("reports exactly twelve calls, every argument an admitted tuple-member string literal", () => {
+  it("reports exactly thirteen calls, every argument an admitted tuple-member string literal", () => {
     const inventory = discoverLoaderCallers();
 
     expect(inventory.violations).toEqual([]);
-    expect(inventory.calls).toHaveLength(12);
-    expect(inventory.calls.filter((call) => call.argumentKind === "StringLiteral")).toHaveLength(12);
+    expect(inventory.calls).toHaveLength(13);
+    expect(inventory.calls.filter((call) => call.argumentKind === "StringLiteral")).toHaveLength(13);
     expect(inventory.calls.every((call) => call.admitted)).toBe(true);
-    expect(inventory.calls.filter((call) => call.file.startsWith("deployables/platform-api/src/"))).toHaveLength(1);
+    expect(inventory.calls.filter((call) => call.file.startsWith("deployables/platform-api/src/"))).toHaveLength(2);
     expect(inventory.calls.filter((call) => call.file.startsWith("deployables/platform-worker/src/"))).toHaveLength(1);
     console.log(
       `[clause-1j] ${JSON.stringify({
@@ -5026,24 +5329,28 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
 
   for (const control of CALLER_ARGUMENT_CONTROLS) {
     it(`control ${control.name} reddens the caller rule on its own`, () => {
-      const mutated = mutateSource(PLATFORM_API_CONFIG_SOURCE, PLATFORM_API_ARGUMENT_ANCHOR, control.replacement);
+      const mutated = mutateSource(
+        PLATFORM_API_CONFIG_SOURCE,
+        PLATFORM_API_ARGUMENT_ANCHOR,
+        PLATFORM_API_ARGUMENT_ANCHOR.replace(PLATFORM_API_ARGUMENT_LITERAL, control.replacement),
+      );
       const inventory = discoverLoaderCallers({
         overlay: new Map([[normalizeAnalysisPath(PLATFORM_API_CONFIG_PATH), mutated]]),
       });
 
-      expect(inventory.calls).toHaveLength(12);
+      expect(inventory.calls).toHaveLength(13);
       expect(inventory.violations).toHaveLength(1);
     });
   }
 
   for (const control of FUTURE_SITE_CONTROLS) {
-    it(`control ${control.name} raises the derived inventory from twelve to thirteen and is judged`, () => {
+    it(`control ${control.name} raises the derived inventory from thirteen to fourteen and is judged`, () => {
       const admitted = discoverLoaderCallers({ overlay: syntheticOverlay(control.files) });
-      expect(admitted.calls).toHaveLength(13);
+      expect(admitted.calls).toHaveLength(14);
       expect(admitted.violations).toEqual([]);
 
       const refused = discoverLoaderCallers({ overlay: syntheticOverlay(control.identifierFiles) });
-      expect(refused.calls).toHaveLength(13);
+      expect(refused.calls).toHaveLength(14);
       expect(refused.violations).toHaveLength(1);
       expect(refused.violations[0]).toContain("Identifier");
     });

@@ -9,7 +9,7 @@ import { identitySeedIds } from "@chase-sets/identity/server";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { describe, expect, it } from "vitest";
-import { createPlatformApiHost } from "../src/app";
+import { createPlatformApiHost as createPlatformApiHostRuntime } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import {
@@ -17,6 +17,23 @@ import {
   listingPhotoStorage,
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
+
+const TEST_PROVIDER_MODE_OBSERVATION = {
+  mode: "unconfigured",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "fake",
+  deploymentEnvironment: "test",
+} as const;
+
+function createPlatformApiHost(options: Parameters<typeof createPlatformApiHostRuntime>[0]) {
+  return createPlatformApiHostRuntime({
+    ...options,
+    hostPorts: {
+      ...options.hostPorts,
+      providerModeObservation: TEST_PROVIDER_MODE_OBSERVATION,
+    },
+  });
+}
 
 /**
  * The confirmed #4906 failure and its resume/fail-closed controls, scoped to

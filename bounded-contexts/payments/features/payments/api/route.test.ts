@@ -6,6 +6,45 @@ import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from 
 import type { PaymentServices } from "./runtime";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
+import {
+  isPaymentProviderModeResponse,
+  type PaymentProviderModeObservation,
+  type PaymentProviderModeResponse,
+} from "./contracts";
+import type { PaymentsServices } from "../../../support/runtime-support/services";
+
+const providerModeObservation = {
+  mode: "test",
+  paymentProcessorKind: "stripe",
+  moneyMovementKind: "stripe",
+  deploymentEnvironment: "test",
+} as const satisfies PaymentProviderModeObservation;
+
+function buildMountedPaymentsApp(
+  observation?: unknown,
+  options: Readonly<{
+    authActivity?: () => void;
+    databaseActivity?: () => void;
+    paymentServices?: PaymentServices;
+  }> = {},
+) {
+  const paymentServices = options.paymentServices ?? createServices();
+  const resolvedObservation = arguments.length === 0 ? providerModeObservation : observation;
+  const app = new Hono<PaymentsApiEnv>();
+  app.use("/api/marketplace/account/*", async (_context, next) => {
+    options.authActivity?.();
+    await next();
+  });
+  app.route(
+    "/api/marketplace",
+    buildPaymentsApi({
+      payments: paymentServices,
+      db: { query: options.databaseActivity },
+      providerModeObservation: resolvedObservation,
+    } as unknown as PaymentsServices),
+  );
+  return app;
+}
 
 const checkoutFeeQuote = {
   payment_method_category: "card" as const,
@@ -1165,5 +1204,286 @@ describe("payments routes", () => {
 
     expect(response.status).toBe(404);
     expect(refundServices.issueRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe("payment provider mode observation", () => {
+  it("serves payment provider mode at the Payments root", async () => {
+    const beforeRequest = Date.now();
+    const response = await buildMountedPaymentsApp().request("/api/marketplace/payment-provider-mode");
+    const body = (await response.json()) as PaymentProviderModeResponse;
+    const afterRequest = Date.now();
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body)).toEqual([
+      "mode",
+      "paymentProcessorKind",
+      "moneyMovementKind",
+      "deploymentEnvironment",
+      "observedAt",
+    ]);
+    expect(body).toMatchObject(providerModeObservation);
+    expect(isPaymentProviderModeResponse(body)).toBe(true);
+    expect(Date.parse(body.observedAt)).toBeGreaterThanOrEqual(beforeRequest);
+    expect(Date.parse(body.observedAt)).toBeLessThanOrEqual(afterRequest);
+  });
+
+  it("does not create an account payment provider mode alias", async () => {
+    const authActivity = vi.fn();
+    const response = await buildMountedPaymentsApp(providerModeObservation, { authActivity }).request(
+      "/api/marketplace/account/payment-provider-mode",
+    );
+
+    expect(response.status).toBe(404);
+    expect(authActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the merged 6829 provider test-mode observation without contacting Stripe", async () => {
+    const paymentServices = createServices();
+    const stripeTransport = vi.mocked(paymentServices.createAccountPayment);
+    const connectOnlyObservation = {
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "preview",
+    } as const satisfies PaymentProviderModeObservation;
+    const response = await buildMountedPaymentsApp(connectOnlyObservation, { paymentServices }).request(
+      "/api/marketplace/payment-provider-mode",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject(connectOnlyObservation);
+    expect(stripeTransport).not.toHaveBeenCalled();
+  });
+
+  it("closes payment provider mode observation", () => {
+    const valid = {
+      ...providerModeObservation,
+      observedAt: "2026-08-15T10:11:12.123Z",
+    } satisfies PaymentProviderModeResponse;
+    const connectOnly = {
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "staging",
+      observedAt: "2026-08-15T10:11:12-05:00",
+    } satisfies PaymentProviderModeResponse;
+    const unconfigured = {
+      mode: "unconfigured",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "fake",
+      deploymentEnvironment: "local",
+      observedAt: "2026-08-15T10:11:12Z",
+    } satisfies PaymentProviderModeResponse;
+    const live = {
+      mode: "live",
+      paymentProcessorKind: "stripe",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "production",
+      observedAt: "2026-08-15T10:11:12+00:00",
+    } satisfies PaymentProviderModeResponse;
+
+    for (const candidate of [valid, connectOnly, unconfigured, live]) {
+      expect(isPaymentProviderModeResponse(candidate)).toBe(true);
+    }
+
+    const mutationMatrix: readonly Readonly<{
+      name: string;
+      bypassMutant: string;
+      candidate: unknown;
+      bypassed: unknown;
+    }>[] = [
+      {
+        name: "unknown mode",
+        bypassMutant: "mode-enum-check-removed",
+        candidate: { ...valid, mode: "sandbox" },
+        bypassed: valid,
+      },
+      {
+        name: "unknown payment processor kind",
+        bypassMutant: "payment-processor-kind-enum-check-removed",
+        candidate: { ...valid, paymentProcessorKind: "sandbox" },
+        bypassed: valid,
+      },
+      {
+        name: "unknown money movement kind",
+        bypassMutant: "money-movement-kind-enum-check-removed",
+        candidate: { ...valid, moneyMovementKind: "sandbox" },
+        bypassed: valid,
+      },
+      {
+        name: "unknown deployment environment",
+        bypassMutant: "deployment-environment-enum-check-removed",
+        candidate: { ...valid, deploymentEnvironment: "sandbox" },
+        bypassed: valid,
+      },
+      {
+        name: "missing member",
+        bypassMutant: "required-member-check-removed",
+        candidate: Object.fromEntries(Object.entries(valid).filter(([key]) => key !== "moneyMovementKind")),
+        bypassed: valid,
+      },
+      {
+        name: "extra member",
+        bypassMutant: "unknown-member-check-removed",
+        candidate: { ...valid, providerAuthority: "planted-secret-marker" },
+        bypassed: valid,
+      },
+      {
+        name: "date only",
+        bypassMutant: "instant-format-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15" },
+        bypassed: valid,
+      },
+      {
+        name: "offset-less timestamp",
+        bypassMutant: "timezone-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T10:11:12" },
+        bypassed: valid,
+      },
+      {
+        name: "impossible calendar instant",
+        bypassMutant: "calendar-check-removed",
+        candidate: { ...valid, observedAt: "2026-02-30T10:11:12Z" },
+        bypassed: valid,
+      },
+      {
+        name: "out-of-range hour",
+        bypassMutant: "hour-bound-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T24:11:12Z" },
+        bypassed: valid,
+      },
+      {
+        name: "out-of-range minute",
+        bypassMutant: "minute-bound-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T10:60:12Z" },
+        bypassed: valid,
+      },
+      {
+        name: "out-of-range second",
+        bypassMutant: "second-bound-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T10:11:60Z" },
+        bypassed: valid,
+      },
+      {
+        name: "out-of-range offset hour",
+        bypassMutant: "offset-hour-bound-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T10:11:12+24:00" },
+        bypassed: valid,
+      },
+      {
+        name: "out-of-range offset minute",
+        bypassMutant: "offset-minute-bound-check-removed",
+        candidate: { ...valid, observedAt: "2026-08-15T10:11:12+05:60" },
+        bypassed: valid,
+      },
+      {
+        name: "both fake reported as test",
+        bypassMutant: "gateway-mode-consistency-check-removed",
+        candidate: { ...unconfigured, mode: "test" },
+        bypassed: unconfigured,
+      },
+      {
+        name: "Stripe gateway reported as unconfigured",
+        bypassMutant: "configured-mode-check-removed",
+        candidate: { ...valid, mode: "unconfigured" },
+        bypassed: valid,
+      },
+      {
+        name: "live outside production",
+        bypassMutant: "live-environment-check-removed",
+        candidate: { ...live, deploymentEnvironment: "staging" },
+        bypassed: live,
+      },
+      {
+        name: "test in production",
+        bypassMutant: "test-environment-check-removed",
+        candidate: { ...valid, deploymentEnvironment: "production" },
+        bypassed: valid,
+      },
+    ];
+
+    for (const mutation of mutationMatrix) {
+      expect(isPaymentProviderModeResponse(mutation.candidate), mutation.name).toBe(false);
+      expect(isPaymentProviderModeResponse(mutation.bypassed), mutation.bypassMutant).toBe(true);
+    }
+  });
+
+  it("fails closed when provider observation is missing", async () => {
+    const base = { ...providerModeObservation } as Record<string, unknown>;
+    const missingObservations = [
+      { name: "entire observation", observation: undefined, defaulted: providerModeObservation },
+      ...Object.keys(base).map((field) => ({
+        name: `missing ${field}`,
+        observation: Object.fromEntries(Object.entries(base).filter(([key]) => key !== field)),
+        defaulted: { ...base, [field]: base[field] },
+      })),
+    ];
+
+    for (const candidate of missingObservations) {
+      const response = await buildMountedPaymentsApp(candidate.observation).request(
+        "/api/marketplace/payment-provider-mode",
+      );
+      expect(response.status, candidate.name).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "payment_provider_mode_observation_unavailable",
+          message: "Request failed.",
+        },
+      });
+
+      const defaultingMutant = await buildMountedPaymentsApp(candidate.defaulted).request(
+        "/api/marketplace/payment-provider-mode",
+      );
+      expect(defaultingMutant.status, `${candidate.name} defaulting mutant`).toBe(200);
+    }
+  });
+
+  it("performs no database auth or provider activity", async () => {
+    const marker = "PLANTED_STRIPE_SECRET_MARKER";
+    const databaseActivity = vi.fn();
+    const authActivity = vi.fn();
+    const paymentServices = createServices();
+    const providerActivity = vi.mocked(paymentServices.createAccountPayment);
+    const logs: string[] = [];
+    const logSpies = ["error", "warn", "log"].map((level) =>
+      vi.spyOn(console, level as "error" | "warn" | "log").mockImplementation((...values: unknown[]) => {
+        logs.push(values.map(String).join(" "));
+      }),
+    );
+    const hostileObservation = Object.defineProperties(
+      {},
+      {
+        mode: {
+          enumerable: true,
+          get() {
+            throw new Error(marker);
+          },
+        },
+        paymentProcessorKind: { enumerable: true, value: "stripe" },
+        moneyMovementKind: { enumerable: true, value: "stripe" },
+        deploymentEnvironment: { enumerable: true, value: "test" },
+      },
+    );
+
+    try {
+      const response = await buildMountedPaymentsApp(hostileObservation, {
+        authActivity,
+        databaseActivity,
+        paymentServices,
+      }).request("/api/marketplace/payment-provider-mode");
+      const body = await response.text();
+      const headers = JSON.stringify(Object.fromEntries(response.headers.entries()));
+
+      expect(response.status).toBe(500);
+      expect(`${body}\n${headers}\n${logs.join("\n")}`).not.toContain(marker);
+      expect(databaseActivity).not.toHaveBeenCalled();
+      expect(authActivity).not.toHaveBeenCalled();
+      expect(providerActivity).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of logSpies) {
+        spy.mockRestore();
+      }
+    }
   });
 });

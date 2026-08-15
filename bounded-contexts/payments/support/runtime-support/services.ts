@@ -14,6 +14,7 @@ import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@cha
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 import type { CheckoutProcessingFeePolicyResolver } from "../../features/payments/api/checkout-processing-fee-policy-resolver";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
+import type { PaymentProviderModeObservation } from "../../features/payments/api/contracts";
 
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
@@ -21,6 +22,7 @@ export type PaymentsServiceOptions = Readonly<{
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
   notificationOutbox?: NotificationOutbox;
   webhookTelemetry?: ProviderWebhookTelemetry;
+  providerModeObservation?: PaymentProviderModeObservation;
 }>;
 
 export type PaymentsServices = Readonly<{
@@ -30,6 +32,7 @@ export type PaymentsServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
+  providerModeObservation: PaymentProviderModeObservation | undefined;
 }>;
 
 function createMissingProcessorGateway(): PaymentProcessorGateway {
@@ -98,5 +101,6 @@ export function createPaymentsServices(
     projectors: [...payments.projectors, ...refunds.projectors],
     pool,
     db,
+    providerModeObservation: options.providerModeObservation,
   };
 }

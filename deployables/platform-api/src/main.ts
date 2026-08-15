@@ -296,6 +296,7 @@ const runtime = createPlatformApiHost({
   pools,
   runtimeLifecycle,
   hostPorts: {
+    providerModeObservation: config.providerModeObservation,
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,

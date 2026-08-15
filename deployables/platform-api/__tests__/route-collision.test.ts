@@ -44,13 +44,32 @@ describe("platform API route collision assembly", () => {
 
     const mounts = Reflect.apply(resolveApiHostMounts, undefined, [runtime]);
     const report = assertApiRouteTableHasNoCollisions(mounts);
-    expect(report).toEqual({ scanned: 30, total: 30, routeCount: 767, duplicateGroups: [] });
+    expect(report).toEqual({ scanned: 30, total: 30, routeCount: 768, duplicateGroups: [] });
     console.info(
       `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/30 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
     );
 
     const app = Reflect.apply(buildPlatformApiApp, undefined, [runtime]);
     expect(app.routes.length).toBeGreaterThan(report.routeCount);
+  });
+
+  it("keeps payment provider mode collision-free at the Payments root", () => {
+    const runtime = createRouteInventoryRuntime();
+    const payments = runtime.mountedContexts.find((entry) => entry.contextName === "payments");
+    expect(payments).toBeDefined();
+    const entries = Reflect.apply(payments!.module.buildApis, payments!.module, [payments!.services]);
+    const routes = entries.flatMap((entry: { mountPath: string; router: Hono }) =>
+      entry.router.routes.map((route) => ({ method: route.method, path: `${entry.mountPath}${route.path}` })),
+    );
+
+    expect(
+      routes.filter(
+        (route: PublicRoute) => route.method === "GET" && route.path === "/api/marketplace/payment-provider-mode",
+      ),
+    ).toHaveLength(1);
+    expect(routes.some((route: PublicRoute) => route.path === "/api/marketplace/account/payment-provider-mode")).toBe(
+      false,
+    );
   });
 
   it("keeps observability and mount middleware ahead of the complete mounted-router tail", () => {

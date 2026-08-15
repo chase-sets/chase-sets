@@ -12,7 +12,7 @@ import {
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { resetMultiContextTestSchemas } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it } from "vitest";
-import { createPlatformApiHost } from "../src/app";
+import { createPlatformApiHost as createPlatformApiHostRuntime } from "../src/app";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import {
   createPlatformApiBootstrapTestHarness,
@@ -20,6 +20,23 @@ import {
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
 import type { PlatformApiContextName } from "../src/config";
+
+const TEST_PROVIDER_MODE_OBSERVATION = {
+  mode: "unconfigured",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "fake",
+  deploymentEnvironment: "test",
+} as const;
+
+function createPlatformApiHost(options: Parameters<typeof createPlatformApiHostRuntime>[0]) {
+  return createPlatformApiHostRuntime({
+    ...options,
+    hostPorts: {
+      ...options.hostPorts,
+      providerModeObservation: TEST_PROVIDER_MODE_OBSERVATION,
+    },
+  });
+}
 
 type CatalogServices = ReturnType<typeof catalogModule.createServices>;
 type InterruptionSite =

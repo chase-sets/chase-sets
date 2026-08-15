@@ -41,6 +41,7 @@ async function bootstrap() {
         pools,
         runtimeProfile: config.runtimeProfile,
         hostPorts: {
+          providerModeObservation: config.providerModeObservation,
           ...createPlatformBootstrapStoragePorts(config),
           processorGateway: paymentProcessorGateway,
           paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
