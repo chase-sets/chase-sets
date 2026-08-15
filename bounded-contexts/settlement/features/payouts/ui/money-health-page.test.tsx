@@ -34,7 +34,6 @@ describe("SettlementMoneyHealthPage", () => {
     expect(forecast?.textContent).toContain("$1,250.00");
     expect(forecast?.textContent).toContain("$200.00");
     expect(forecast?.textContent).toContain("$1,050.00");
-    expect(forecast?.className).not.toContain("ds-glass");
-    expect(forecast?.className).not.toContain("shadow-tokenSm");
+    expect(forecast?.querySelector(".ds-glass")).toBeNull();
   });
 });

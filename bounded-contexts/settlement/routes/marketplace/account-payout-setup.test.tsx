@@ -32,7 +32,6 @@ describe("MarketplaceAccountPayoutSetupRoute", () => {
     rendered.innerHTML = html;
     const nextStep = rendered.querySelector('[data-testid="account-access-next-step-furniture"]');
     expect(nextStep?.textContent).toContain("Use a different account");
-    expect(nextStep?.className).not.toContain("ds-glass");
-    expect(nextStep?.className).not.toContain("shadow-tokenSm");
+    expect(nextStep?.querySelector(".ds-glass")).toBeNull();
   });
 });

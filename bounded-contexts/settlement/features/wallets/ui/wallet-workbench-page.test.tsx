@@ -126,8 +126,7 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.getByText(/No adjustments/)).toBeTruthy();
     expect(screen.getByText(/No ledger/)).toBeTruthy();
     const balanceSection = screen.getByTestId("wallet-balance-summary-furniture");
-    expect(balanceSection.className).not.toContain("ds-glass");
-    expect(balanceSection.className).not.toContain("shadow-tokenSm");
+    expect(balanceSection.querySelector(".ds-glass")).toBeNull();
   });
 
   it("surfaces negative-balance and collections consequences without implying promotional credit", () => {

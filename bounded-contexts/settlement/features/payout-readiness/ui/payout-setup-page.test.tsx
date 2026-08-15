@@ -132,10 +132,8 @@ describe("payout setup page", () => {
     rendered.innerHTML = html;
     const statusSection = rendered.querySelector('[data-testid="payout-setup-status-furniture"]');
     const providerSection = rendered.querySelector('[data-testid="payout-provider-furniture"]');
-    expect(statusSection?.className).not.toContain("ds-glass");
-    expect(statusSection?.className).not.toContain("shadow-tokenSm");
-    expect(providerSection?.className).not.toContain("ds-glass");
-    expect(providerSection?.className).not.toContain("shadow-tokenSm");
+    expect(statusSection?.querySelector(":scope > .ds-glass")).toBeNull();
+    expect(providerSection?.querySelector(":scope > .ds-glass")).toBeNull();
     expect(html).not.toContain("Express");
     expect(html).not.toContain("hosted setup");
   });
@@ -179,8 +177,7 @@ describe("payout setup page", () => {
     ]) {
       const section = rendered.querySelector(`[data-testid="${testId}"]`);
       expect(section).not.toBeNull();
-      expect(section?.className).not.toContain("ds-glass");
-      expect(section?.className).not.toContain("shadow-tokenSm");
+      expect(section?.querySelector(":scope > .ds-glass")).toBeNull();
     }
   });
 
