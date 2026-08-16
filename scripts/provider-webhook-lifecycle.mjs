@@ -9,12 +9,13 @@ import {
   PAYMENTS_PROVIDER_WEBHOOK_PATH,
   SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH,
 } from "./provider-webhook-paths.mjs";
+import { isStripeTestServerKey } from "./stripe-key-mode.mjs";
 import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
 
 export const PROVIDER_WEBHOOK_LIFECYCLE_VERSION = "provider-webhook-lifecycle/v1";
 
-function assertStripeTestKey(input) {
-  if (!String(input.stripeApiKey ?? "").startsWith("sk_test_")) {
+export function assertStripeTestKey(input) {
+  if (!isStripeTestServerKey(input.stripeApiKey)) {
     throw new Error("Ephemeral provider webhook lifecycle requires a Stripe test-mode key (sk_test_...).");
   }
 }

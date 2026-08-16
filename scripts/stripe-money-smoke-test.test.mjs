@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   envReport,
+  resolveStripeKeyMode,
   runEdgeCheck,
   runSellerFlow,
   validateStripeDeliveredWebhookProofForRun,
@@ -175,6 +176,24 @@ function createSmokeFetch(calls) {
 }
 
 describe("stripe money smoke test", () => {
+  it("retains rows 5 and 6 as exact unrestricted matching pairs", () => {
+    expect(resolveStripeKeyMode({ STRIPE_SECRET_KEY: "sk_test_123", STRIPE_PUBLISHABLE_KEY: "pk_test_123" })).toBe(
+      "test",
+    );
+    expect(resolveStripeKeyMode({ STRIPE_SECRET_KEY: "sk_live_123", STRIPE_PUBLISHABLE_KEY: "pk_live_123" })).toBe(
+      "live",
+    );
+    for (const pair of [
+      ["rk_test_123", "pk_test_123"],
+      ["rk_live_123", "pk_live_123"],
+      ["sk_test123", "pk_test123"],
+      ["sk_live123", "pk_live123"],
+      ["sk_test_123", "pk_live_123"],
+    ]) {
+      expect(resolveStripeKeyMode({ STRIPE_SECRET_KEY: pair[0], STRIPE_PUBLISHABLE_KEY: pair[1] })).toBe("unknown");
+    }
+  });
+
   it("reports required env and checks Stripe test-mode key shapes", () => {
     expect(envReport({})).toMatchObject({
       missing: [

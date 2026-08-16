@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { STRIPE_KEY_CASES } from "../../scripts/stripe-key-mode.mjs";
 import {
   PLATFORM_DATA_PROFILES,
   PRODUCTION_MISSING_STRIPE_CONFIG_ERRORS,
@@ -443,40 +444,26 @@ type StripeRule = Readonly<{
 }>;
 
 function classifySpec(secretKey: string | null, publishableKey: string | null): PlatformStripeKeyClassification {
-  let serverKeyMode: PlatformStripeServerKeyMode = "absent";
-  let serverKeyClass: PlatformStripeServerKeyClass = "absent";
-  let publishableKeyMode: PlatformStripePublishableKeyMode = "absent";
-
-  if (secretKey) {
-    if (secretKey.startsWith("sk_test_")) {
-      serverKeyMode = "test";
-      serverKeyClass = "standard";
-    } else if (secretKey.startsWith("sk_live_")) {
-      serverKeyMode = "live";
-      serverKeyClass = "standard";
-    } else if (secretKey.startsWith("rk_test_")) {
-      serverKeyMode = "test";
-      serverKeyClass = "restricted";
-    } else if (secretKey.startsWith("rk_live_")) {
-      serverKeyMode = "live";
-      serverKeyClass = "restricted";
-    } else {
-      serverKeyMode = "unknown";
-      serverKeyClass = "unknown";
+  const selectSharedCase = (family: string, value: string | null) => {
+    const familyCases = STRIPE_KEY_CASES.filter((entry) => entry.family === family);
+    if (value === null || value === "") {
+      return familyCases.find((entry) => entry.mode === "absent");
     }
+    return (
+      familyCases.find((entry) => entry.prefix !== "" && value.startsWith(entry.prefix)) ??
+      familyCases.find((entry) => entry.mode === "unknown")
+    );
+  };
+  const server = selectSharedCase("server", secretKey);
+  const publishable = selectSharedCase("publishable", publishableKey);
+  if (!server || !publishable) {
+    throw new Error("shared Stripe key case table is incomplete");
   }
-
-  if (publishableKey) {
-    if (publishableKey.startsWith("pk_test_")) {
-      publishableKeyMode = "test";
-    } else if (publishableKey.startsWith("pk_live_")) {
-      publishableKeyMode = "live";
-    } else {
-      publishableKeyMode = "unknown";
-    }
-  }
-
-  return { serverKeyMode, serverKeyClass, publishableKeyMode };
+  return {
+    serverKeyMode: server.mode as PlatformStripeServerKeyMode,
+    serverKeyClass: server.keyClass as PlatformStripeServerKeyClass,
+    publishableKeyMode: publishable.mode as PlatformStripePublishableKeyMode,
+  };
 }
 
 const SPEC_RULES: readonly StripeRule[] = [
@@ -588,21 +575,32 @@ type PublishableAxisValue = Readonly<{
   mode: PlatformStripePublishableKeyMode;
 }>;
 
-const SERVER_AXIS: readonly ServerAxisValue[] = [
-  { label: "absent", value: null, mode: "absent", keyClass: "absent" },
-  { label: "sk_test_", value: "sk_test_SYNTHETICMATRIX", mode: "test", keyClass: "standard" },
-  { label: "sk_live_", value: "sk_live_SYNTHETICMATRIX", mode: "live", keyClass: "standard" },
-  { label: "rk_test_", value: "rk_test_SYNTHETICMATRIX", mode: "test", keyClass: "restricted" },
-  { label: "rk_live_", value: "rk_live_SYNTHETICMATRIX", mode: "live", keyClass: "restricted" },
-  { label: "unrecognized", value: "xk_bogus_SYNTHETICMATRIX", mode: "unknown", keyClass: "unknown" },
-];
+const SERVER_AXIS: readonly ServerAxisValue[] = STRIPE_KEY_CASES.filter((entry) => entry.family === "server").map(
+  (entry) => ({
+    label: entry.prefix || entry.mode,
+    value:
+      entry.mode === "absent"
+        ? null
+        : entry.mode === "unknown"
+          ? "xk_bogus_SYNTHETICMATRIX"
+          : `${entry.prefix}SYNTHETICMATRIX`,
+    mode: entry.mode as PlatformStripeServerKeyMode,
+    keyClass: entry.keyClass as PlatformStripeServerKeyClass,
+  }),
+);
 
-const PUBLISHABLE_AXIS: readonly PublishableAxisValue[] = [
-  { label: "absent", value: null, mode: "absent" },
-  { label: "pk_test_", value: "pk_test_SYNTHETICMATRIX", mode: "test" },
-  { label: "pk_live_", value: "pk_live_SYNTHETICMATRIX", mode: "live" },
-  { label: "unrecognized", value: "xk_bogus_SYNTHETICMATRIX", mode: "unknown" },
-];
+const PUBLISHABLE_AXIS: readonly PublishableAxisValue[] = STRIPE_KEY_CASES.filter(
+  (entry) => entry.family === "publishable",
+).map((entry) => ({
+  label: entry.prefix || entry.mode,
+  value:
+    entry.mode === "absent"
+      ? null
+      : entry.mode === "unknown"
+        ? "xk_bogus_SYNTHETICMATRIX"
+        : `${entry.prefix}SYNTHETICMATRIX`,
+  mode: entry.mode as PlatformStripePublishableKeyMode,
+}));
 
 const MATRIX_ENVIRONMENTS = ["staging", "production"] as const;
 

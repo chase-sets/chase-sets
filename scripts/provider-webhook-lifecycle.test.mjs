@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertStripeTestKey,
   createProviderWebhooks,
   deleteProviderWebhooks,
   proveStripePaymentWebhookContract,
@@ -18,6 +19,12 @@ const input = {
 };
 
 describe("provider webhook lifecycle", () => {
+  it("retains row 8 unrestricted test-key admission and bounded restricted-key refusal", () => {
+    expect(() => assertStripeTestKey({ stripeApiKey: "sk_test_fixture" })).not.toThrow();
+    expect(() => assertStripeTestKey({ stripeApiKey: "rk_test_fixture" })).toThrow("Stripe test-mode key");
+    expect(() => assertStripeTestKey({ stripeApiKey: "sk_testfixture" })).toThrow("Stripe test-mode key");
+  });
+
   it("refuses live provider credentials", async () => {
     await expect(createProviderWebhooks({ ...input, stripeApiKey: "sk_live_fixture" })).rejects.toThrow(
       "Stripe test-mode key",
