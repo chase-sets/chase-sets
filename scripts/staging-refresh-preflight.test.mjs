@@ -18,6 +18,7 @@ import {
   runStagingRefreshPreflight,
   runStagingRefreshOverlapGate,
   stagingRefreshOverlapWorkflowNames,
+  validatesSecretValue,
   workflowNameFromFile,
 } from "./staging-refresh-preflight.mjs";
 
@@ -50,6 +51,16 @@ function validSecretEnv() {
 }
 
 describe("staging refresh credential posture", () => {
+  it("retains row 7 value-kind dispatch and refuses restricted or malformed Stripe values", () => {
+    expect(validatesSecretValue("stripe-secret-test", "sk_test_fixture")).toBe(true);
+    expect(validatesSecretValue("stripe-publishable-test", "pk_test_fixture")).toBe(true);
+    expect(validatesSecretValue("stripe-secret-test", "rk_test_fixture")).toBe(false);
+    expect(validatesSecretValue("stripe-secret-test", "sk_testfixture")).toBe(false);
+    expect(validatesSecretValue("stripe-publishable-test", "pk_testfixture")).toBe(false);
+    expect(validatesSecretValue("stripe-webhook", "whsec_fixture")).toBe(true);
+    expect(validatesSecretValue("easypost-test", "EZTKfixture")).toBe(true);
+  });
+
   it("distinguishes secret-name presence from value-kind verification without emitting values", () => {
     const values = validSecretEnv();
     const posture = evaluateStagingRefreshSecrets(metadata(), values);
