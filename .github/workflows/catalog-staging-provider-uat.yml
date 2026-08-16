@@ -129,14 +129,3 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
-
-      - name: Upload Playwright artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: catalog-staging-provider-uat-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/playwright/report
-            artifacts/playwright/test-results
-          if-no-files-found: ignore
-          retention-days: 14

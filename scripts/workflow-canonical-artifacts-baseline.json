@@ -1,8 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "discovery": {
-    "scannedFiles": 51,
+    "scannedFiles": 59,
     "scannedSurfaces": 23
+  },
+  "playwrightUploadFence": {
+    "trackedFiles": 59,
+    "workflowFiles": 56,
+    "compositeActionFiles": 3
   },
   "surfaces": [
     {
