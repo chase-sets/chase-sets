@@ -77,7 +77,7 @@ async function attachIssue6020State(input: {
 }
 
 async function expectPopulatedCheckoutStart(page: Page) {
-  await expect(page).toHaveURL(/\/checkout\/start(?:\?|$)/);
+  await expect(page).toHaveURL(/\/checkout\/buy\/readiness(?:\?|$)/);
   await expect(page.getByText("Checkout summary", { exact: true }).first()).toBeVisible();
   await expect(
     page.getByText(new RegExp(`^${marketplaceBrowserE2eSeedContract.cart.lineCount} items?$`, "i")).first(),
@@ -88,7 +88,7 @@ async function expectPopulatedCheckoutStart(page: Page) {
 
 async function expectPopulatedOrderDetail(page: Page) {
   await expect(page).toHaveURL(/\/account\/purchases\/ord_seed_checkout_pending(?:\?|$)/);
-  await expect(page.getByText("ord_seed_checkout_pending", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Purchase ord_seed_checkout_pending" })).toBeVisible();
   await expect(page.getByText("Item subtotal", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Total", { exact: true }).first()).toBeVisible();
   const glowRoot = page.locator(".surface-border.ds-glass.bg-elevated.shadow-tokenLg.ds-glow").first();
@@ -131,15 +131,15 @@ test.describe("marketplace buyer purchase journey", () => {
   test("captures the populated checkout start before cart mutation @marketplace-checkout @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
-    await page.goto("/sign-in?returnTo=%2Fcheckout%2Fstart", { waitUntil: "domcontentloaded" });
+    await page.goto("/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness", { waitUntil: "domcontentloaded" });
     await signInThroughMarketplaceForm(page, marketplaceBrowserE2eBuyerCredentials());
-    await expect(page).toHaveURL(/\/checkout\/start(?:\?|$)/);
+    await expect(page).toHaveURL(/\/checkout\/buy\/readiness(?:\?|$)/);
 
     await attachIssue6020State({
       page,
       testInfo,
       state: "checkout-start",
-      route: "/checkout/start",
+      route: "/checkout/buy/readiness",
       suite: "marketplace_checkout",
       assertions: [
         "checkout summary visible",
