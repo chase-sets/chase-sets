@@ -796,10 +796,7 @@ export async function collectScopeGrowth({
 
 export function reconcileEpicChildren(epic, children) {
   const expectedTotal = epic.sub_issues_summary?.total;
-  if (
-    !isNonNegativeSafeInteger(expectedTotal) ||
-    expectedTotal > EPIC_SUB_ISSUE_CAPACITY
-  ) {
+  if (!isNonNegativeSafeInteger(expectedTotal) || expectedTotal > EPIC_SUB_ISSUE_CAPACITY) {
     throw new RoadmapIssueEnumerationError(
       "ROADMAP_EPIC_CHILD_TOTAL_INVALID",
       `Epic #${epic.number} has no valid sub_issues_summary.total.`,
