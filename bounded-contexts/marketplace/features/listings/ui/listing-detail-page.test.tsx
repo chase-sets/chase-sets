@@ -125,11 +125,32 @@ const populatedEvidenceListing = {
   evidence: [
     {
       photoId: "lpho_detail_front",
+      originalFilename: "detail-front.webp",
       altText: "Listing detail front evidence photo",
       slotId: null,
       viewKind: null,
       status: "active",
       sortOrder: 0,
+      capturedAt: null,
+      uploadedAt: "2026-04-01T00:00:00.000Z",
+      assetRevision: "rev-detail-front",
+      replacesPhotoId: null,
+      assetSet: {
+        kind: "listing-photo",
+        sourceHash: "detail-front",
+        source: {
+          role: "source",
+          width: 1200,
+          height: 1600,
+          density: null,
+          mediaType: "image/webp",
+          storageKey: "marketplace/listings/lst_1/lpho_detail_front/source.webp",
+          publicUrl: "/detail-front.webp",
+          byteSize: 200,
+          generatedAt: "2026-04-01T00:00:00.000Z",
+        },
+        variants: [],
+      },
     },
   ],
   evidence_readiness: {
@@ -144,7 +165,7 @@ const populatedEvidenceListing = {
       minimumPhotoCount: 1,
     },
   },
-} as MarketplaceListingDetail;
+} satisfies MarketplaceListingDetail;
 
 afterEach(() => {
   cleanup();

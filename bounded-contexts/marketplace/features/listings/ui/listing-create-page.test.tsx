@@ -82,19 +82,81 @@ function expectOutlinedCard(root: Element | null) {
 }
 
 const populatedEvidenceListing = {
+  listing_id: "lst_create",
+  account_id: "acc_create",
+  inventory_item_id: "inv_create",
+  catalog_catalog_item_id: "cat_create",
+  product_id: "cat_create::dim_condition:near_mint",
+  item_language_code: "en",
+  item_title: "Create listing fixture",
+  item_subtitle: null,
+  selected_options: [],
+  product_summary: "Condition: Near Mint",
+  product_measure_snapshot: null,
+  graded_card: null,
+  storage_location_name: "Create fixture shelf",
+  ship_from_code: "CHI-WH-1",
+  ship_from_address: {
+    name: "",
+    line1: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "US",
+  },
+  price_amount: "20.00",
+  marketplace_sales_fee_unit_amount: "0.00",
+  seller_net_unit_amount: "20.00",
+  shipping_allowance_percentage_bps: 500,
+  terms_schedule_id: "cts_launch",
+  terms_agreement_id: null,
+  terms_resolved_at: "2026-04-01T00:00:00.000Z",
+  fee_quote_fingerprint: "create-fixture-fingerprint",
+  fee_locks: [],
+  quantity_cap: 1,
+  evidence_requirements: null,
   status: "draft",
   evidence: [
     {
       photoId: "lpho_create_front",
+      originalFilename: "create-front.webp",
       altText: "Create listing front evidence photo",
       slotId: null,
       viewKind: null,
       status: "active",
       sortOrder: 0,
+      capturedAt: null,
+      uploadedAt: "2026-04-01T00:00:00.000Z",
+      assetRevision: "rev-create-front",
+      replacesPhotoId: null,
+      assetSet: {
+        kind: "listing-photo",
+        sourceHash: "create-front",
+        source: {
+          role: "source",
+          width: 1200,
+          height: 1600,
+          density: null,
+          mediaType: "image/webp",
+          storageKey: "marketplace/listings/lst_create/lpho_create_front/source.webp",
+          publicUrl: "/create-front.webp",
+          byteSize: 200,
+          generatedAt: "2026-04-01T00:00:00.000Z",
+        },
+        variants: [],
+      },
     },
   ],
   evidence_readiness: {
     ready: true,
+    policy: {
+      policyId: null,
+      policyVersion: null,
+      policyHash: "sha256:create-policy",
+      requirementHash: "sha256:create-requirement",
+      evaluatedAt: "2026-04-01T00:00:00.000Z",
+      explanationCodes: [],
+    },
     requirements: {
       minimumPhotoCount: 1,
       requiredSlots: [],
@@ -111,7 +173,9 @@ const populatedEvidenceListing = {
     nextActions: [],
     publicGallery: [],
   },
-} as MarketplaceListingDetail;
+  created_at: "2026-04-01T00:00:00.000Z",
+  updated_at: "2026-04-01T00:00:00.000Z",
+} satisfies MarketplaceListingDetail;
 
 afterEach(() => {
   cleanup();
