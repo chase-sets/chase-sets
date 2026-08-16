@@ -119,6 +119,7 @@ describe("closed tagged source grammar and real materialization", () => {
     ["non-object", null],
     ["array", ["absent"]],
     ["fourth kind", { kind: "decoded" }],
+    ["fourth kind carrying a valid payload", { kind: "decoded", text: "x" }],
     ["unknown absent key", { kind: "absent", unknown: true }],
     ["missing bytes payload", { kind: "bytes" }],
     ["missing text payload", { kind: "text" }],
