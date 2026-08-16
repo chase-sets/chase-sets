@@ -316,17 +316,6 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
 
-      - name: Upload Playwright artifacts
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-e2e-artifacts-${{ strategy.job-index }}
-          path: |
-            artifacts/playwright/report
-            artifacts/playwright/test-results
-          if-no-files-found: error
-          retention-days: 7
-
   build:
     name: Build
     runs-on: ubuntu-latest

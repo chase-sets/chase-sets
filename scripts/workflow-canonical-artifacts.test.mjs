@@ -87,6 +87,10 @@ jobs:
           if-no-files-found: ignore
 `,
       );
+      expect(spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8" }).status).toBe(0);
+      expect(
+        spawnSync("git", ["add", ".github/workflows/unrelated-name.yml"], { cwd: root, encoding: "utf8" }).status,
+      ).toBe(0);
 
       const result = scanWorkflowCanonicalArtifacts({ root });
 
@@ -136,6 +140,26 @@ jobs:
       passed: false,
       coverageRegressions: [expect.stringContaining("scanned workflow/action files fell")],
     });
+
+    const rawPlaywrightRegression = {
+      ...current,
+      playwrightUploadFence: {
+        ...current.playwrightUploadFence,
+        findings: [
+          {
+            file: ".github/workflows/fifth-producer.yml",
+            owner: "e2e",
+            step: "Upload evidence",
+            uploadPath: "artifacts/playwright/**",
+            analysis: "glob can include a disabled raw root",
+          },
+        ],
+      },
+    };
+    expect(evaluateWorkflowCanonicalArtifactRatchet(rawPlaywrightRegression, baseline)).toMatchObject({
+      passed: false,
+      playwrightUploadFenceRegressions: [expect.stringContaining("fifth-producer.yml")],
+    });
   });
 
   it("regenerates and checks the deterministic baseline through the guard command", () => {
@@ -157,6 +181,10 @@ jobs:
           if-no-files-found: warn
 `,
       );
+      expect(spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8" }).status).toBe(0);
+      expect(
+        spawnSync("git", ["add", ".github/workflows/shape-only.yml"], { cwd: root, encoding: "utf8" }).status,
+      ).toBe(0);
       const args = [
         "./scripts/workflow-canonical-artifacts.mjs",
         "--root",
@@ -170,6 +198,7 @@ jobs:
       });
       expect(write.status).toBe(0);
       expect(write.stdout).toContain("checked 1/1 discovered producer/upload surfaces");
+      expect(write.stdout).toContain("parsed 1/1 tracked workflow/action files");
       expect(write.stdout).toContain("existing baseline debt: 1");
 
       const check = spawnSync(process.execPath, args, { cwd: process.cwd(), encoding: "utf8" });

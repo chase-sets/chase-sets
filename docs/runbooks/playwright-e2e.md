@@ -51,7 +51,8 @@ Admin suites are selected the same way:
 pnpm run test:e2e:suite catalog_admin_integrations
 ```
 
-Reports and failure artifacts are written under ignored `artifacts/playwright/` folders.
+Reports and failure artifacts are written under ignored `artifacts/playwright/` folders for local diagnosis. Raw
+`report` and `test-results` trees are intentionally not uploaded by repository workflows.
 
 ## Responsive evidence
 
@@ -71,9 +72,8 @@ direct screenshots in those tests; ordinary conditional Playwright behavior
 outside designated evidence remains valid.
 
 After a complete suite run, artifact validation rejects missing, stale,
-substituted, duplicate, cross-claim, and unknown-field payloads. PR CI retains
-the report and test-results directories for successful as well as failed E2E
-jobs.
+substituted, duplicate, cross-claim, and unknown-field payloads. Validation remains part of the E2E command, but the
+validated files remain local to the runner until the separately reviewed publication boundary is available.
 
 ## Deployed Targets
 
@@ -107,6 +107,8 @@ pnpm run test:e2e:suite "$E2E_SUITES"
 
 The selected suite list comes from change-scope metadata. CI runs those suites in one Playwright invocation so Chromium installation and the marketplace sandbox boot happen once per PR job.
 
-On failure, CI uploads `artifacts/playwright/report` and `artifacts/playwright/test-results` as `playwright-e2e-artifacts`.
-
-The production deployment workflow also installs Chromium in the staging job and uploads `staging-playwright-critical-flow-artifacts` if staging critical flows fail.
+The PR and catalog-provider UAT workflows do not publish Playwright output. Production failure handling preserves only
+the existing release-health JSON evidence, and the staging advisory workflow preserves only its closed-schema
+`artifacts/staging-advisory-evidence/summary.json` under the existing advisory artifact identity and retention. A
+disable-only rollback may turn either safe upload off or repair that exact safe path; it must never restore a raw
+Playwright root.

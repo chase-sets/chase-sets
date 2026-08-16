@@ -2423,7 +2423,15 @@ describe("DigitalOcean platform configuration", () => {
       "Seed staging Kubernetes scenario data",
     );
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
+    const stagingBlockingProbeEvidenceStep = workflowStep(
+      platformProductionWorkflow,
+      "Upload staging blocking probe release-health evidence",
+    );
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const stagingAdvisoryEvidenceUploadStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Upload staging advisory evidence",
+    );
     const stagingAccountCartCanaryStep = workflowStep(
       platformProductionWorkflow,
       "Staging account-cart freshness canary",
@@ -2468,6 +2476,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("if: always()");
+    expect(stagingAdvisoryEvidenceUploadStep).not.toContain("if: failure()");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("path: artifacts/staging-advisory-evidence/summary.json");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("if-no-files-found: error");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("retention-days: 30");
+    expect(stagingAdvisoryEvidenceUploadStep).not.toContain("artifacts/playwright");
     expect(advisoryEvidenceJob.indexOf("- name: Upload staging advisory evidence")).toBeLessThan(
       advisoryEvidenceJob.indexOf("- name: Fail scenario-seed advisory signal"),
     );
@@ -2577,6 +2591,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("artifacts/release-health/guest-buy-now-freshness-probe.json");
     expect(stagingBuyNowProbesStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).toContain("if: failure()");
+    expect(stagingBlockingProbeEvidenceStep).toContain("name: staging-blocking-probe-playwright-artifacts");
+    expect(stagingBlockingProbeEvidenceStep).toContain("artifacts/release-health/guest-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).not.toContain("artifacts/playwright");
     expect(stagingBuyNowProbesStep).toContain("guest_failure_reason=");
     expect(stagingBuyNowProbesStep).toContain("account_failure_reason=");
     expect(stagingBuyNowProbesStep).toContain(
