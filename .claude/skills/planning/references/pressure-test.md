@@ -51,6 +51,16 @@ aspirational suggestion.
     ranked with missed decisions (PR #5883: the merge-queue run's PR
     association is empty until after merge; no implementation could have
     fixed a defect that only a pre-merge probe would have surfaced).
+11. **Simplest correct solution.** Construct the strictly smaller plan (fewer
+    new modules, abstractions, and evidence artifacts). If it still satisfies
+    the outcome and ledger defect constraints, report the plan as too large
+    and prescribe that smaller plan as the shrink remedy; the pressure test has
+    explicit authority to make this finding.
+12. **Evidence proportionality.** An AC that mandates a test architecture or
+    artifact rather than an observable property, or an evidence artifact with
+    no named ledger defect class justifying it, is a finding. The registered
+    prediction is that median mandated-evidence lines per slice will fall while
+    ledger defect classes remain covered; review this rule by 2026-09-01.
 
 Report findings ranked by rework-risk: a missed decision, false parallel
 claim, or unprobed authority-timing assumption outranks a fuzzy AC.

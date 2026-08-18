@@ -124,9 +124,11 @@ Then run the normal pipeline with three changes:
   for *sibling* issues; adjacency is not coverage. #6105 and #6106 replaced
   #6058, and reading them as covering #5684 would have silently dropped consent
   bundle content, activation authority, and the affirmation UI.
-- **Decomposition answers the findings explicitly.** Each blocking finding maps
-  to a slice, an accepted constraint written into the issue text, or a stated
-  reason it no longer applies at current main.
+- **Decomposition preserves the findings' properties.** Each blocking finding
+  maps to a slice, an accepted constraint written into the issue text, or a
+  stated reason it no longer applies at current main. A reviewer's prescribed
+  remedy is a correctness floor, not a mandated architecture; when the remedy
+  adds machinery, record the smaller alternative considered.
 - **The pressure test is mandatory**, not tier-dependent. This plan already
   failed once.
 
