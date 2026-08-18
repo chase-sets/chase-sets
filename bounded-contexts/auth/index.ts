@@ -1,8 +1,8 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import {
   authRetentionExemptions,
   authRetentionSchemaMigrations,

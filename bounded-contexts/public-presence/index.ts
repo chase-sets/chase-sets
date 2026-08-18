@@ -1,8 +1,8 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import { buildPublicPresenceAdminApi, buildPublicPresencePublicApi } from "./api";
 import { seedPublicPresencePromoBarMessages } from "./features/promo-bar/api/seed";
 import { buildWaitlistTransactionalEmailProjectionHandlers } from "./features/waitlist/integrations/transactional-email/transactional-email-projector";
