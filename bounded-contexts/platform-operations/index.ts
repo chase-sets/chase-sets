@@ -1,4 +1,4 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
   buildEventReactionsFromManifest,
@@ -8,7 +8,7 @@ import {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import { createInsightsDashboardMcpHandlers } from "./features/insights-dashboards/api/mcp";
 import { createOfferEconomicsMcpHandlers } from "./features/offer-economics/api/mcp";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";

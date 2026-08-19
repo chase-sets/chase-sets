@@ -1,4 +1,4 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
   buildEventSubscriptionsFromManifest,
@@ -11,7 +11,7 @@ import type {
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import {
   inventoryRetentionExemptions,
   inventoryRetentionSchemaMigrations,

@@ -8,7 +8,7 @@ export { seedCatalogDatabase } from "./seed";
 
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import contextManifest from "../../context.json";
+import contextManifest from "../../context.json" with { type: "json" };
 import type { CatalogHostPorts, CatalogServices } from "./services";
 import { buildCatalogAuthoringApi } from "./api";
 import { createCatalogServices } from "./services";

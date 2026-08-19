@@ -1,4 +1,4 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
   buildEventSubscriptionsFromManifest,
@@ -7,7 +7,7 @@ import {
 } from "@chase-sets/bounded-context-module";
 import type { InventoryRecoveredItemValueReportedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import {
   settlementRetentionExemptions,
   settlementRetentionSchemaMigrations,
