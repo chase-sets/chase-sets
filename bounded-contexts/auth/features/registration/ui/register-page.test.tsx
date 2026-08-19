@@ -34,7 +34,7 @@ function inputNamed(name: string) {
 }
 
 function elevatedCardCount() {
-  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg").length;
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
 }
 
 describe("registration page", () => {
@@ -62,7 +62,7 @@ describe("registration page", () => {
       ]),
     );
     expect(elevatedCardCount()).toBe(1);
-    expect(document.querySelector(".rounded-tokenLg.overflow-hidden.ds-glow")).toBeNull();
+    expect(document.querySelector(".rounded-tokenLg.overflow-hidden.ds-glow")).not.toBeNull();
   });
 
   it("shows contextual registration copy when the return path needs an account gate", () => {

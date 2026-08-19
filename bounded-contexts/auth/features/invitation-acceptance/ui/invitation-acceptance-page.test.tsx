@@ -7,7 +7,7 @@ import { InvitationAcceptancePage } from "./invitation-acceptance-page";
 afterEach(cleanup);
 
 function elevatedCardCount() {
-  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg").length;
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
 }
 
 describe("invitation acceptance page", () => {

@@ -13,7 +13,7 @@ function continueWithIdentifier(identifier: string) {
 }
 
 function elevatedCardCount() {
-  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg").length;
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
 }
 
 afterEach(() => {
@@ -34,7 +34,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
     expect(elevatedCardCount()).toBe(1);
-    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm")).toHaveLength(0);
+    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg")).toHaveLength(0);
   });
 
   it("shows contextual sign-in copy when the return path needs an account gate", () => {
@@ -214,7 +214,7 @@ describe("sign-in page two-step journey", () => {
 
     continueWithIdentifier("buyer@example.com");
 
-    expect(screen.getByText("No compatible sign-in methods")).toBeTruthy();
+    expect(screen.getByText("No sign-in method available")).toBeTruthy();
     expect(elevatedCardCount()).toBe(0);
     expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden")).toHaveLength(0);
   });
