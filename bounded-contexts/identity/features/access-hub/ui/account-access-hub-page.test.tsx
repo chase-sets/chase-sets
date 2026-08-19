@@ -53,6 +53,24 @@ const data: AccountAccessHub = {
       auth_methods: ["password"],
       updated_at: "2026-07-14T12:00:00.000Z",
     },
+    {
+      user_id: "usr_bailey",
+      display_name: "Bailey Ops",
+      given_name: "Bailey",
+      family_name: "Ops",
+      primary_email: "bailey@example.com",
+      status: "active",
+      contact_methods: [
+        {
+          contactMethodId: "ctm_email_bailey",
+          type: "email",
+          value: "bailey@example.com",
+          verifiedAt: null,
+        },
+      ],
+      auth_methods: ["password"],
+      updated_at: "2026-07-14T12:00:00.000Z",
+    },
   ],
   memberships: [
     {
@@ -64,6 +82,18 @@ const data: AccountAccessHub = {
       account_display_name: "Card Vault",
       account_name: "Card Vault LLC",
       role_key: "manager",
+      status: "active",
+      updated_at: "2026-07-14T12:00:00.000Z",
+    },
+    {
+      membership_id: "mbr_bailey",
+      user_id: "usr_bailey",
+      user_display_name: "Bailey Ops",
+      user_primary_email: "bailey@example.com",
+      account_id: "acc_card_vault",
+      account_display_name: "Card Vault",
+      account_name: "Card Vault LLC",
+      role_key: "viewer",
       status: "active",
       updated_at: "2026-07-14T12:00:00.000Z",
     },
@@ -198,7 +228,7 @@ describe("Account access hub", () => {
 
   it.each([
     ["overview", 3, 0],
-    ["team", 2, 1],
+    ["team", 2, 2],
     ["api-access", 1, 0],
     ["audit", 0, 0],
   ] as const)("keeps the frozen %s surface hierarchy", (initialTab, tinted, elevated) => {

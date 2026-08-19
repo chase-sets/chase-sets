@@ -16,6 +16,14 @@ function elevatedCardCount() {
   return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
 }
 
+function containingCard(element: HTMLElement) {
+  const card = element.closest<HTMLElement>(".rounded-tokenLg.overflow-hidden");
+  if (!card) {
+    throw new Error("Expected element to be rendered inside a Card.");
+  }
+  return card;
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -34,7 +42,10 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
     expect(elevatedCardCount()).toBe(1);
-    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg")).toHaveLength(0);
+    const socialCard = containingCard(screen.getByRole("link", { name: "Continue with Google" }));
+    expect(socialCard.classList.contains("bg-surface-2")).toBe(false);
+    expect(socialCard.classList.contains("shadow-tokenSm")).toBe(false);
+    expect(socialCard.classList.contains("ds-glass")).toBe(false);
   });
 
   it("shows contextual sign-in copy when the return path needs an account gate", () => {

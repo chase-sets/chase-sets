@@ -37,6 +37,14 @@ function elevatedCardCount() {
   return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
 }
 
+function containingCard(element: HTMLElement) {
+  const card = element.closest<HTMLElement>(".rounded-tokenLg.overflow-hidden");
+  if (!card) {
+    throw new Error("Expected element to be rendered inside a Card.");
+  }
+  return card;
+}
+
 describe("registration page", () => {
   it("defaults to passkeys and presents them as recommended", () => {
     const events: unknown[] = [];
@@ -63,6 +71,10 @@ describe("registration page", () => {
     );
     expect(elevatedCardCount()).toBe(1);
     expect(document.querySelector(".rounded-tokenLg.overflow-hidden.ds-glow")).not.toBeNull();
+    const socialCard = containingCard(screen.getByRole("link", { name: "Continue with Google" }));
+    expect(socialCard.classList.contains("bg-surface-2")).toBe(false);
+    expect(socialCard.classList.contains("shadow-tokenSm")).toBe(false);
+    expect(socialCard.classList.contains("ds-glass")).toBe(false);
   });
 
   it("shows contextual registration copy when the return path needs an account gate", () => {

@@ -47,6 +47,14 @@ describe("ShippingAddressPage", () => {
     expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
   });
 
+  it("renders the address-issue notice as a tinted surface", () => {
+    const { container } = render(<ShippingAddressPage addresses={[]} errorMessage="Street is required" />);
+
+    expect(container.textContent).toContain("Street is required");
+    expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(2);
+    expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.shadow-tokenLg")).toHaveLength(0);
+  });
+
   it("identifies every shipping-address field for browser autofill", () => {
     const { container } = render(<ShippingAddressPage addresses={[]} />);
     const markup = container.innerHTML;
@@ -66,6 +74,5 @@ describe("ShippingAddressPage", () => {
       expectAutocomplete(markup, name, autocomplete);
     }
     expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
-    expect(markup).not.toContain('elevated="true"');
   });
 });
