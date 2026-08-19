@@ -145,7 +145,7 @@ export function AccessHomePage({ data, search = "" }: { data: AccessHome; search
         title={t("identity.features.accessHub.ui.accessHome.account.search")}
         description={t("identity.features.accessHub.ui.accessHome.account.search.description")}
       >
-        <Card>
+        <Card elevation="tinted">
           <Stack gap={4}>
             <Form method="get" spacing="none">
               <Inline align="end" gap={2}>

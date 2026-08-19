@@ -77,7 +77,7 @@ function OverviewPanel({ data, actor }: { data: AccountAccessHub; actor: Resolve
 
   return (
     <Stack gap={4}>
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.accessHub.ui.account.overview.profile")}</Card.Title>
           <Card.Description>
@@ -124,7 +124,7 @@ function OverviewPanel({ data, actor }: { data: AccountAccessHub; actor: Resolve
         </Card.Body>
       </Card>
 
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.accessHub.ui.account.overview.lifecycle")}</Card.Title>
           <Card.Description>
@@ -190,7 +190,7 @@ function OverviewPanel({ data, actor }: { data: AccountAccessHub; actor: Resolve
         </Card.Body>
       </Card>
 
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.accounts.ui.accountDetailPage.account.badges")}</Card.Title>
         </Card.Header>
@@ -236,7 +236,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
   const action = accountAction(accountId, "team");
 
   return (
-    <Card>
+    <Card elevation="elevated">
       <Card.Header>
         <Card.Title>{userLabel(user)}</Card.Title>
         <Card.Description>{user.user_id}</Card.Description>
@@ -520,7 +520,7 @@ function TeamPanel({ data, actor }: { data: AccountAccessHub; actor: ResolvedAct
 
   return (
     <Stack gap={4}>
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.accessHub.ui.account.team")}</Card.Title>
           <Card.Description>
@@ -574,7 +574,7 @@ function TeamPanel({ data, actor }: { data: AccountAccessHub; actor: ResolvedAct
         </Card.Body>
       </Card>
 
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.invitations.ui.invitationListPage.invitations")}</Card.Title>
         </Card.Header>
@@ -668,7 +668,7 @@ function ApiAccessPanel({
   return (
     <Stack gap={4}>
       <ApiKeySecretReveal secret={oneTimeSecret} />
-      <Card>
+      <Card elevation="tinted">
         <Card.Header>
           <Card.Title>{t("identity.features.accessHub.ui.account.api.access")}</Card.Title>
           <Card.Description>{t("identity.features.accessHub.ui.account.api.access.description")}</Card.Description>

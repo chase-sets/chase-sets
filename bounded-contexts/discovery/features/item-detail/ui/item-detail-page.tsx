@@ -227,7 +227,7 @@ function ItemDetailMedia({
         fallbackImageMode={imageFallback.usage}
         emptyState={
           <Stack gap={3} align="center">
-            <Surface tone="muted" padding={4}>
+            <Surface tone="muted" padding={4} elevation="flush">
               <Icon name="image" size="lg" tone="secondary" />
             </Surface>
             <Stack gap={1} align="center">

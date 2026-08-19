@@ -359,7 +359,7 @@ export function buildItemDetailPageView({
                 </MobileProductOptionsDisclosure>
               </Show>
               <Show above="md" data-product-options-desktop>
-                <Card variant="feature">
+                <Card variant="feature" elevation="tinted">
                   <Stack gap={3}>
                     <Stack gap={1}>
                       <Text size="sm" weight="semibold">

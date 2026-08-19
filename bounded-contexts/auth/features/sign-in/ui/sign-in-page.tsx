@@ -244,7 +244,7 @@ export function SignInPage(
 
       {!hasIdentifier ? (
         <>
-          <Card>
+          <Card elevation="flush">
             <Stack gap={3}>
               <Text size="sm" tone="secondary">
                 {props.socialLoginDescription ?? t("auth.features.signIn.ui.signInPage.continue.with.social.login")}
@@ -259,7 +259,7 @@ export function SignInPage(
             </Stack>
           </Card>
 
-          <Card>
+          <Card elevation="elevated">
             <Form spacing="none" onSubmit={handleIdentifierSubmit}>
               <Stack gap={3}>
                 {props.returnTo ? <HiddenInput type="hidden" name="returnTo" value={props.returnTo} readOnly /> : null}
@@ -312,7 +312,7 @@ export function SignInPage(
       ) : null}
 
       {hasIdentifier && identifierKind === "email" && method === "password" && signInMethods.includes("password") ? (
-        <Card>
+        <Card elevation="elevated">
           <Form spacing="none" action={props.action} method="post">
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
@@ -336,7 +336,7 @@ export function SignInPage(
       identifierKind === "phone" &&
       method === "phone-code" &&
       signInMethods.includes("phone-code") ? (
-        <Card>
+        <Card elevation="elevated">
           <Stack gap={4}>
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
@@ -379,7 +379,7 @@ export function SignInPage(
       identifierKind === "email" &&
       method === "magic-link" &&
       signInMethods.includes("magic-link") ? (
-        <Card>
+        <Card elevation="elevated">
           <Stack gap={4}>
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
@@ -409,7 +409,7 @@ export function SignInPage(
       ) : null}
 
       {hasIdentifier && identifierKind === "email" && method === "passkey" && signInMethods.includes("passkey") ? (
-        <Card>
+        <Card elevation="elevated">
           <Form spacing="none" ref={passkeyFormRef} action={props.action} method="post" onSubmit={handlePasskeySubmit}>
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />

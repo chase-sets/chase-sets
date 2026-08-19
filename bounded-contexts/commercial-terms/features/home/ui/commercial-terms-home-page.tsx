@@ -111,7 +111,7 @@ function CommercialTermCardView({ card, now }: Readonly<{ card: CommercialTermCa
       : (card.item.account_display_name ?? card.item.account_id);
 
   return (
-    <Card data-commercial-term-id={card.id}>
+    <Card data-commercial-term-id={card.id} elevation="elevated">
       <Card.Header>
         <Stack gap={1}>
           <Badge tone={statusTone(item.status, item.effective_from, now)}>{item.status}</Badge>

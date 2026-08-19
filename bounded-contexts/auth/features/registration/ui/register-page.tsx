@@ -138,7 +138,7 @@ function RegistrationFormCard({
   onSubmit,
 }: RegistrationFormCardProps) {
   return (
-    <Card glow={glow}>
+    <Card elevation="elevated" glow={glow}>
       <Form spacing="none" ref={formRef} action={action} method="post" onSubmit={onSubmit}>
         <Stack gap={3}>
           <HiddenFields fields={hiddenFields} />
@@ -316,7 +316,7 @@ export function RegisterPage(props: RegistrationPageProps) {
         />
       ) : null}
 
-      <Card glow>
+      <Card elevation="flush">
         <Stack gap={3}>
           <Inline>
             <Badge tone="accent">{t("auth.features.registration.ui.registerPage.fastest")}</Badge>
