@@ -113,7 +113,7 @@ test.describe("commerce admin postage policies", () => {
         await expect(policyDrawer.getByText(/Packages:/)).toBeVisible();
         await expect(policyDrawer.getByText(/Mailpiece:/)).toBeVisible();
         await expect(policyDrawer.getByText(/Parcel required:/)).toBeVisible();
-        const underlyingRows = page.locator('[data-base-ui-inert] [role="row"]');
+        const underlyingRows = page.locator('[inert] table tbody tr');
         expect(
           await underlyingRows.count(),
           "underlying policy table must retain at least two rows",
