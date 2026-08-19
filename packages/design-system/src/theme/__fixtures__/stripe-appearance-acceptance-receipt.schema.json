@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chase-sets.com/schemas/stripe-appearance-acceptance-receipt/v1.json",
   "title": "Stripe appearance acceptance receipt",
-  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance at the lifecycle moments the product consumes it. A skipped, partial, control-mode, failing, or retention-scan-positive run emits nothing. Records environment variable names only, never values. The schema constrains shape; ink-foil-candidate-fixture.test.ts binds each surface to its own exact bytes, commit, command, discovery artifact, and observation contract.",
+  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance at the lifecycle moments the product consumes it. A skipped, partial, control-mode, failing, or retention-scan-positive run emits nothing. Records environment variable names only, never values. The schema constrains shape; deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts and deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts produce each surface's receipt.",
   "oneOf": [{ "$ref": "#/$defs/elementsReceipt" }, { "$ref": "#/$defs/connectReceipt" }],
   "$defs": {
     "elementsReceipt": {
