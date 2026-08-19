@@ -141,6 +141,23 @@ export const repositorySourceOutputs = [
 const cardPaths = repositorySourceOutputs.filter((p) => p.includes("chase-sets-og-"));
 const iconPaths = repositorySourceOutputs.filter((p) => p.includes("/public/icons/"));
 
+// Pinned by exact order, not just membership: combinedCandidatePathDigest is a
+// sorted-set digest and cannot see index position, so a swap across the
+// index-7/index-11 boundary (see the boundary-swap mutant test below)
+// preserves the set, the digest, and every count/omission control while
+// silently exchanging which paths the vector-only and raster-only positive
+// controls exercise. This ordered pin is what actually catches that swap.
+const vectorExclusivePrefix = [
+  "packages/design-system/src/styles/styles.css",
+  "packages/design-system/src/theme/tokens.ts",
+  "packages/design-system/src/brand/chase-sets-logo.tsx",
+  "packages/design-system/src/brand/chase-sets-logo.svg",
+  "packages/design-system/package.json",
+  "packages/design-system/src/__tests__/design-system-components.test.tsx",
+  "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+  "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
+];
+
 // ---------------------------------------------------------------------------
 // Changed-path closure predicate. Takes its input as an explicit argument so
 // every negative control passes a synthetic set directly; nothing here reads
@@ -409,7 +426,26 @@ describe("closed combined candidate path set", () => {
     expect(report.missing).toEqual([manifestPath]);
   });
 
+  it("pins the eight-member vector-exclusive prefix by exact ordered equality before constructing subsets", () => {
+    expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
+  });
+
+  it("fails the vector-exclusive prefix pin under an index-7/index-11 boundary swap that preserves set and digest", () => {
+    const mutant = [...combinedCandidatePaths];
+    [mutant[7], mutant[11]] = [mutant[11], mutant[7]];
+    // membership and the sorted-set digest are unchanged: only order moved
+    // across the vector/raster boundary
+    expect(new Set(mutant)).toEqual(new Set(combinedCandidatePaths));
+    expect(mutant.length).toBe(combinedCandidatePaths.length);
+    expect(pathSetDigest(mutant)).toBe(combinedCandidatePathDigest);
+    // the ordered prefix pin exposes exactly the exchanged path identities
+    expect(mutant.slice(0, 8)).not.toEqual(vectorExclusivePrefix);
+    expect(mutant[7]).toBe("bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs");
+    expect(mutant[11]).toBe("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+  });
+
   it("refuses the pure vector-only eleven-path candidate by naming all twenty omitted raster paths", () => {
+    expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
     const vectorExclusive = combinedCandidatePaths.slice(0, 8);
     const shared = [
       "pnpm-lock.yaml",
