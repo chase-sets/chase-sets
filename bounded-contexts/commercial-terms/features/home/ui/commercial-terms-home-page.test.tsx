@@ -102,15 +102,20 @@ describe("commercial terms home", () => {
         },
       ],
     });
-    const cards = [...container.querySelectorAll("[data-commercial-term-id]")].map((card) =>
-      card.getAttribute("data-commercial-term-id"),
-    );
+    const cards = [...container.querySelectorAll<HTMLElement>("[data-commercial-term-id]")];
 
-    expect(cards).toEqual(["cts_upcoming", "cag_expiring", "cts_active"]);
+    expect(cards.map((card) => card.getAttribute("data-commercial-term-id"))).toEqual([
+      "cts_upcoming",
+      "cag_expiring",
+      "cts_active",
+    ]);
     expect(screen.getByText("Effective 2026-08-01")).toBeTruthy();
     expect(screen.getByText("Override expires 2026-08-15")).toBeTruthy();
     expect(screen.queryByText("Inactive override")).toBeNull();
-    expect(container.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenLg")).toHaveLength(3);
+    for (const card of cards) {
+      expect(card.classList.contains("ds-glass")).toBe(true);
+      expect(card.classList.contains("shadow-tokenSm")).toBe(true);
+    }
   });
 
   it("shows schedule state, active comparison, history, and revision form in one responsive sheet", () => {
