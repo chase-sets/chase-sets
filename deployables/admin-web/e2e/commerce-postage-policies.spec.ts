@@ -30,9 +30,17 @@ function pullRequestIdentity() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   expect(eventPath, "GITHUB_EVENT_PATH must identify the pull_request event payload").toBeTruthy();
   const event = JSON.parse(readFileSync(eventPath!, "utf8")) as {
+    merge_group?: unknown;
     number?: number;
     pull_request?: { number?: number; head?: { sha?: string } };
   };
+  if (Object.hasOwn(event, "merge_group")) {
+    expect(Object.hasOwn(event, "pull_request"), "merge_group event must not contain pull_request").toBe(false);
+    expect(typeof event.merge_group, "merge_group event payload must be an object").toBe("object");
+    expect(event.merge_group, "merge_group event payload must not be null").not.toBeNull();
+    expect(Array.isArray(event.merge_group), "merge_group event payload must not be an array").toBe(false);
+    return null;
+  }
   const pr = event.pull_request?.number ?? event.number;
   const head = event.pull_request?.head?.sha;
   expect(pr, "pull request number must be present in the event payload").toBeGreaterThan(0);
@@ -139,6 +147,7 @@ test.describe("commerce admin postage policies", () => {
         ).toBe(true);
         const pngSha256 = createHash("sha256").update(png).digest("hex");
         await testInfo.attach(imageName, { body: png, contentType: "image/png" });
+        if (!identity) continue;
         console.log(
           `ISSUE_6020_HOSTED_EVIDENCE ${JSON.stringify({
             schemaVersion: "issue-6020-hosted-evidence/v1",
