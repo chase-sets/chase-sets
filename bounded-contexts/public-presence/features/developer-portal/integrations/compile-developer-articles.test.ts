@@ -81,8 +81,17 @@ describe("developer article compiler", () => {
         note: { type: "string" },
       },
     });
-    expect(tool?.inputSchema.required).not.toContain("reasonCode");
-    expect(tool?.inputSchema.required).not.toContain("note");
+    const inputSchema = tool?.inputSchema;
+    if (
+      !inputSchema ||
+      typeof inputSchema !== "object" ||
+      !("required" in inputSchema) ||
+      !Array.isArray(inputSchema.required)
+    ) {
+      throw new Error("inventory.adjust-item must publish an object schema with required fields");
+    }
+    expect(inputSchema.required).not.toContain("reasonCode");
+    expect(inputSchema.required).not.toContain("note");
   });
 
   it("keeps the committed developer manifests in sync", async () => {

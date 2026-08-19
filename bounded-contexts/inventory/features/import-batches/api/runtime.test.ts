@@ -1502,7 +1502,10 @@ describe("inventory import batch runtime", () => {
         },
       },
       catalogItems: catalogServices(),
-      items: itemServices(() => undefined),
+      items: itemServices(
+        () => undefined,
+        () => undefined,
+      ),
       draftListingCreator: vi.fn(async (params) => ({
         listingId: params.listingIdOverride,
         version: 1,
