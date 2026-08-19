@@ -57,7 +57,6 @@ export const combinedCandidatePaths = [
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "pnpm-lock.yaml",
   "scripts/check-structure/typescript-owner-contexts.json",
-  "scripts/check-structure/consent-authorization-evidence-receipt.json",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-default.png",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-pokemon.png",
@@ -143,7 +142,7 @@ const iconPaths = repositorySourceOutputs.filter((p) => p.includes("/public/icon
 
 // Pinned by exact order, not just membership: combinedCandidatePathDigest is a
 // sorted-set digest and cannot see index position, so a swap across the
-// index-7/index-11 boundary (see the boundary-swap mutant test below)
+// index-7/index-10 boundary (see the boundary-swap mutant test below)
 // preserves the set, the digest, and every count/omission control while
 // silently exchanging which paths the vector-only and raster-only positive
 // controls exercise. This ordered pin is what actually catches that swap.
@@ -383,7 +382,7 @@ function sha256(buffer) {
 // Cases
 // ---------------------------------------------------------------------------
 
-const combinedCandidatePathDigest = "38b5efe08fe86a41550f25ed7557ddaea3df613938dfcda83ddb811c94984643";
+const combinedCandidatePathDigest = "4d7e8b70515e9d671d47d3a6de2da83873a46fbfdb64c97880832164d3e262f1";
 
 function pathSetDigest(paths) {
   return createHash("sha256")
@@ -392,23 +391,23 @@ function pathSetDigest(paths) {
 }
 
 describe("closed combined candidate path set", () => {
-  it("deep-equals its own sentinel block, is duplicate-free, has length 31, and matches the pinned digest", () => {
+  it("deep-equals its own sentinel block, is duplicate-free, has length 30, and matches the pinned digest", () => {
     const parsed = sliceSentinelJson(selfSource, "combined-candidate-paths");
     console.log(`combinedCandidatePaths as parsed from the sentinel block:\n${JSON.stringify(parsed, null, 2)}`);
     expect(combinedCandidatePaths).toEqual(parsed);
-    expect(combinedCandidatePaths.length).toBe(31);
-    expect(new Set(combinedCandidatePaths).size).toBe(31);
+    expect(combinedCandidatePaths.length).toBe(30);
+    expect(new Set(combinedCandidatePaths).size).toBe(30);
     expect(pathSetDigest(combinedCandidatePaths)).toBe(combinedCandidatePathDigest);
   });
 
-  it("passes the published thirty-one-path set as a positive control", () => {
+  it("passes the published thirty-path set as a positive control", () => {
     const report = evaluateChangedPathSet(combinedCandidatePaths);
     expect(report.ok).toBe(true);
     expect(report.missing).toEqual([]);
     expect(report.extra).toEqual([]);
   });
 
-  it("refuses each of the 31 one-omitted synthetic sets by naming exactly the omitted path", () => {
+  it("refuses each of the 30 one-omitted synthetic sets by naming exactly the omitted path", () => {
     for (const omitted of combinedCandidatePaths) {
       const synthetic = combinedCandidatePaths.filter((p) => p !== omitted);
       const report = evaluateChangedPathSet(synthetic);
@@ -418,7 +417,7 @@ describe("closed combined candidate path set", () => {
     }
   });
 
-  it("refuses the evidence-manifest omission by name (the exact 31/32 escape)", () => {
+  it("refuses the evidence-manifest omission by name (the exact 30/31 escape)", () => {
     const manifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
     const synthetic = combinedCandidatePaths.filter((p) => p !== manifestPath);
     const report = evaluateChangedPathSet(synthetic);
@@ -430,9 +429,9 @@ describe("closed combined candidate path set", () => {
     expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
   });
 
-  it("fails the vector-exclusive prefix pin under an index-7/index-11 boundary swap that preserves set and digest", () => {
+  it("fails the vector-exclusive prefix pin under an index-7/index-10 boundary swap that preserves set and digest", () => {
     const mutant = [...combinedCandidatePaths];
-    [mutant[7], mutant[11]] = [mutant[11], mutant[7]];
+    [mutant[7], mutant[10]] = [mutant[10], mutant[7]];
     // membership and the sorted-set digest are unchanged: only order moved
     // across the vector/raster boundary
     expect(new Set(mutant)).toEqual(new Set(combinedCandidatePaths));
@@ -441,28 +440,24 @@ describe("closed combined candidate path set", () => {
     // the ordered prefix pin exposes exactly the exchanged path identities
     expect(mutant.slice(0, 8)).not.toEqual(vectorExclusivePrefix);
     expect(mutant[7]).toBe("bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs");
-    expect(mutant[11]).toBe("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+    expect(mutant[10]).toBe("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
   });
 
-  it("refuses the pure vector-only eleven-path candidate by naming all twenty omitted raster paths", () => {
+  it("refuses the pure vector-only ten-path candidate by naming all twenty omitted raster paths", () => {
     expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
     const vectorExclusive = combinedCandidatePaths.slice(0, 8);
-    const shared = [
-      "pnpm-lock.yaml",
-      "scripts/check-structure/typescript-owner-contexts.json",
-      "scripts/check-structure/consent-authorization-evidence-receipt.json",
-    ];
+    const shared = ["pnpm-lock.yaml", "scripts/check-structure/typescript-owner-contexts.json"];
     const vectorOnly = [...vectorExclusive, ...shared];
-    expect(vectorOnly.length).toBe(11);
+    expect(vectorOnly.length).toBe(10);
     const report = evaluateChangedPathSet(vectorOnly);
     expect(report.ok).toBe(false);
     expect(report.missing.length).toBe(20);
     console.log(`vector-only candidate refused; omitted raster paths:\n${JSON.stringify(report.missing, null, 2)}`);
   });
 
-  it("refuses the pure raster-only twenty-three-path candidate by naming all eight omitted vector paths", () => {
+  it("refuses the pure raster-only twenty-two-path candidate by naming all eight omitted vector paths", () => {
     const rasterOnly = combinedCandidatePaths.slice(8);
-    expect(rasterOnly.length).toBe(23);
+    expect(rasterOnly.length).toBe(22);
     const report = evaluateChangedPathSet(rasterOnly);
     expect(report.ok).toBe(false);
     expect(report.missing.length).toBe(8);
@@ -522,13 +517,13 @@ describe("runtime representation inventory", () => {
 });
 
 describe("repository source-output inventory", () => {
-  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the thirty-one", () => {
+  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the thirty", () => {
     const parsed = sliceSentinelJson(selfSource, "repository-source-outputs");
     console.log(`repositorySourceOutputs as parsed:\n${JSON.stringify(parsed, null, 2)}`);
     expect(repositorySourceOutputs).toEqual(parsed);
     const errors = validateRepositoryInventory(repositorySourceOutputs);
     expect(errors).toEqual([]);
-    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 31)");
+    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 30)");
   });
 
   it("derives the fifteen raster outputs from the two generators' declared output sets", () => {
