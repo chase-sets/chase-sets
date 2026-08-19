@@ -16,6 +16,7 @@ import type {
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
+  OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
   PaymentCapturedPayload,
   PlatformFeedbackSubmittedPayload,
@@ -143,6 +144,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["ordering.order.created"],
     OrderingOrderCreatedPayload
   >,
+  "ordering.order.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["ordering.order.cancelled"],
+    OrderingOrderCancelledPayload
+  >,
   "marketplace.listing.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.created"],
     MarketplaceListingCreatedPayload
@@ -213,6 +218,44 @@ const preservedCrossRegistration = {
   >,
 } as const;
 
+const enrichedOrderingCancelledPayload = {
+  orderId: "ord_1",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: "buyer-cancelled",
+  buyerEmail: "jane@example.com",
+  buyerAccountId: "acc_buyer",
+  statusBeforeCancellation: "pending-payment",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const historicalOrderingCancelledPayload = {
+  orderId: "ord_1",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: "buyer-cancelled",
+  buyerEmail: "jane@example.com",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const syntheticFutureOrderingCancelledPayload = {
+  orderId: "ord_synthetic_future",
+  cancelledAt: "2036-03-31T00:00:00.000Z",
+  reason: "synthetic-future-reason",
+  buyerEmail: null,
+  buyerAccountId: "acc_synthetic_future",
+  statusBeforeCancellation: "synthetic-future-status",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const explicitNullOrderingCancelledPayload = {
+  orderId: "ord_explicit_null",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: null,
+  buyerEmail: null,
+  buyerAccountId: null,
+  statusBeforeCancellation: null,
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
 /**
  * The marketplace-owned fee-line snapshot is embedded by Ordering. One declaration must
  * back both shards, or a future edit could fork the fee line silently.
@@ -229,7 +272,62 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(13);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(14);
+  });
+
+  it("public cancelled payload remains optional, open, and nullable", () => {
+    type IncorrectCancelledPayload = Readonly<{
+      orderId: string;
+      cancelledAt: string;
+      reason?: string | null;
+      buyerEmail?: string | null;
+      buyerAccountId?: string;
+      statusBeforeCancellation?: "pending-reservation" | "pending-payment" | "ready-for-fulfillment";
+      reservationRequests: readonly unknown[];
+    }>;
+
+    const invalidEnriched: IncorrectCancelledPayload = enrichedOrderingCancelledPayload;
+    const invalidHistorical: IncorrectCancelledPayload = historicalOrderingCancelledPayload;
+    // @ts-expect-error the intentionally closed decoder rejects a synthetic future status.
+    const invalidFuture: IncorrectCancelledPayload = syntheticFutureOrderingCancelledPayload;
+    // @ts-expect-error the intentionally non-nullable decoder rejects explicit nulls.
+    const invalidNull: IncorrectCancelledPayload = explicitNullOrderingCancelledPayload;
+
+    expect(enrichedOrderingCancelledPayload).toEqual({
+      orderId: "ord_1",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: "buyer-cancelled",
+      buyerEmail: "jane@example.com",
+      buyerAccountId: "acc_buyer",
+      statusBeforeCancellation: "pending-payment",
+      reservationRequests: [],
+    });
+    expect(historicalOrderingCancelledPayload).toEqual({
+      orderId: "ord_1",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: "buyer-cancelled",
+      buyerEmail: "jane@example.com",
+      reservationRequests: [],
+    });
+    expect(syntheticFutureOrderingCancelledPayload).toEqual({
+      orderId: "ord_synthetic_future",
+      cancelledAt: "2036-03-31T00:00:00.000Z",
+      reason: "synthetic-future-reason",
+      buyerEmail: null,
+      buyerAccountId: "acc_synthetic_future",
+      statusBeforeCancellation: "synthetic-future-status",
+      reservationRequests: [],
+    });
+    expect(explicitNullOrderingCancelledPayload).toEqual({
+      orderId: "ord_explicit_null",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: null,
+      buyerEmail: null,
+      buyerAccountId: null,
+      statusBeforeCancellation: null,
+      reservationRequests: [],
+    });
+    expect([invalidEnriched, invalidHistorical, invalidFuture, invalidNull]).toHaveLength(4);
   });
 
   it("keeps the Public Presence referral authority payloads in the aggregate", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { OrderingDomainError } from "../../features/orders/domain/common";
@@ -299,6 +300,49 @@ describe("ordering seed", () => {
       "Ordering seed is waiting for active Marketplace supply for Twilight Masquerade Elite Trainer Box. Skipping the dependent accepted-offer order for this pass.",
     );
     expect(logs.join("\n")).toContain("Ordering seed complete!");
+  });
+
+  it("cancels an existing non-cancelled reserved seed order through cancelPurchase", async () => {
+    const createOrdersFromCheckout = vi.fn();
+    const createOrdersFromAcceptedOffer = vi.fn();
+    const cancelPurchase = vi.fn();
+    const commandHandler = vi.fn();
+    const db = createSeedDb({
+      activeOrderIds: [
+        orderingReservedSeedIds.orders.checkoutPending,
+        orderingReservedSeedIds.orders.cancelled,
+        orderingReservedSeedIds.orders.acceptedOfferReady,
+        reputationReservedSeedIds.orders.reviewEligibleDelivered,
+      ],
+    });
+
+    await seedOrderingDatabase(
+      {} as never,
+      {
+        db,
+        orders: {
+          createOrdersFromCheckout,
+          createOrdersFromAcceptedOffer,
+          cancelPurchase,
+        },
+        postagePolicies: { commandHandler },
+      } as never,
+    );
+
+    expect(cancelPurchase).toHaveBeenCalledTimes(1);
+    expect(cancelPurchase).toHaveBeenCalledWith(
+      {
+        orderId: orderingReservedSeedIds.orders.cancelled,
+        buyerAccountId: identitySeedIds.collector.accountId,
+      },
+      {
+        tenantId: "tnt_identity",
+        audit: {
+          performedByUserId: identitySeedIds.collector.userId,
+          forAccountId: identitySeedIds.collector.accountId,
+        },
+      },
+    );
   });
 
   it("reports offer-acceptance orders by source identity for generated, reserved, and absent shapes", async () => {
