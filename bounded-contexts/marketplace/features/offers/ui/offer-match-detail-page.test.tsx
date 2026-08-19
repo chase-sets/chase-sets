@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchDetailPage } from "./offer-match-detail-page";
 import type { OfferMatchDetail } from "./contracts";
 
@@ -33,7 +35,21 @@ const offer: OfferMatchDetail = {
   can_fulfill: true,
 };
 
+afterEach(cleanup);
+
 describe("MarketplaceOfferMatchDetailPage", () => {
+  it("renders the offer-match overview as an elevated entity", () => {
+    render(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+
+    const root = screen.getByText("Ash Ketchum").closest(".rounded-tokenLg");
+    expect(root).not.toBeNull();
+    const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+    for (const included of ["ds-glass", "border", "border-muted", "shadow-tokenSm"])
+      expect(tokens.has(included), `offer-match overview includes ${included}`).toBe(true);
+    for (const excluded of ["bg-surface-2", "ds-glow"])
+      expect(tokens.has(excluded), `offer-match overview excludes ${excluded}`).toBe(false);
+  });
+
   it("routes the primary accept action through Checkout Sell List review", () => {
     const markup = renderToString(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
 

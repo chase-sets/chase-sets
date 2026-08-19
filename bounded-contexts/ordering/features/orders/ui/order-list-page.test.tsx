@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { OrderingOrderListPage } from "./order-list-page";
 import type { PurchaseListItem, SaleListItem } from "./contracts";
 
@@ -57,7 +59,31 @@ function buildOrder(overrides: Partial<PurchaseListItem & SaleListItem> = {}): P
   };
 }
 
+afterEach(cleanup);
+
 describe("ordering order list page", () => {
+  it("renders each order row as an outlined default-tone entity", () => {
+    render(
+      <OrderingOrderListPage
+        title="Purchases"
+        eyebrow="Buyer"
+        emptyTitle="No purchases yet"
+        emptyDescription="Your checkout activity will appear here."
+        orderDetailBasePath="/account/purchases"
+        kind="purchase"
+        orders={[buildOrder()]}
+      />,
+    );
+
+    const root = screen.getByText("ORD-TESTREF1", { exact: false }).closest(".rounded-tokenLg");
+    expect(root).not.toBeNull();
+    const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+    for (const included of ["border", "border-muted", "bg-elevated"])
+      expect(tokens.has(included), `order row includes ${included}`).toBe(true);
+    for (const excluded of ["surface-border", "ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"])
+      expect(tokens.has(excluded), `order row excludes ${excluded}`).toBe(false);
+  });
+
   it("shows purchase cards with item titles and dates but never seller payout", () => {
     const markup = renderToString(
       <OrderingOrderListPage

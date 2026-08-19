@@ -172,7 +172,7 @@ export function ReviewDetailPage({
 
       {showReplyForm ? (
         <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.reply.title")}>
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               <Text size="sm" tone="secondary">
                 {t("reputation.features.reviews.ui.reviewDetailPage.reply.description")}

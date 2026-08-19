@@ -54,7 +54,7 @@ export function LatestSellListConfirmationPanel({
 
   return (
     <PageSection title={t("checkout.features.sellList.ui.sellListPage.latest.confirmation.title")}>
-      <Surface elevated>
+      <Surface elevation="tinted">
         <Stack gap={4}>
           <MarketplaceNotice
             tone="info"

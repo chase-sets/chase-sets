@@ -200,7 +200,7 @@ export function CheckoutSellListPage({
         {isSignedIn ? <LatestSellListConfirmationPanel confirmation={latestConfirmation} /> : null}
 
         {sellListLines.length === 0 && recoveryState?.kind === "pending-fresh-write" ? (
-          <Surface tone="subtle" elevated>
+          <Surface tone="subtle" elevation="tinted">
             <Stack gap={3}>
               <Badge tone="neutral">
                 {recoveryState.isAutoRevalidating
@@ -298,7 +298,7 @@ export function CheckoutSellListPage({
                 />
               </PageSection>
 
-              <Surface elevated>
+              <Surface elevation="tinted">
                 <Stack gap={3}>
                   <Text weight="semibold">
                     {t("checkout.features.sellList.ui.sellListPage.seller.checkout.readiness")}

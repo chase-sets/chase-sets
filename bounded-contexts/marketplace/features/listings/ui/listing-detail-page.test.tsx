@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
+import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
 
 const listing: MarketplaceListingDetail = {
@@ -89,7 +90,106 @@ afterEach(() => {
   cleanup();
 });
 
+function expectChrome(root: Element | null, label: string, included: readonly string[], excluded: readonly string[]) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  for (const token of included) expect(tokens.has(token), `${label} includes ${token}`).toBe(true);
+  for (const token of excluded) expect(tokens.has(token), `${label} excludes ${token}`).toBe(false);
+}
+
+const cardChromeExcluded = [
+  "ds-glass",
+  "border",
+  "border-muted",
+  "shadow-tokenSm",
+  "shadow-tokenLg",
+  "ds-glow",
+  "hover:border-accent",
+  "hover:shadow-tokenMd",
+] as const;
+
 describe("MarketplaceListingDetailPage", () => {
+  it("pins all six listing-detail roots to their ratified chrome", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{ ...listing, status: "draft", product_measure_snapshot: {} as never }}
+        feeHistory={[]}
+        priceDraftAmount="20.00"
+        pricePreview={currentQuote}
+      />,
+    );
+
+    expectChrome(
+      screen.getByText("Near Mint").closest(".rounded-tokenLg"),
+      "listing overview",
+      ["ds-glass", "border", "border-muted", "shadow-tokenSm"],
+      ["bg-surface-2", "ds-glow"],
+    );
+    const rootForIntent = (intent: string) =>
+      container.querySelector(`[name="intent"][value="${intent}"]`)?.closest(".rounded-tokenLg") ?? null;
+    expectChrome(rootForIntent("update-price"), "update listing", ["bg-surface-2"], cardChromeExcluded);
+    expectChrome(rootForIntent("update-quantity-cap"), "quantity cap", ["bg-surface-2"], cardChromeExcluded);
+    expectChrome(rootForIntent("update-purchase-limits"), "purchase limits", ["bg-surface-2"], cardChromeExcluded);
+    expectChrome(rootForIntent("publish"), "publish controls", ["bg-surface-2"], cardChromeExcluded);
+
+    const feeHistorySection = screen.getAllByRole("heading", { name: /fee lock history/i })[0]?.closest("section");
+    expectChrome(
+      feeHistorySection?.querySelector(".rounded-tokenLg.bg-surface-2") ?? null,
+      "fee history",
+      ["bg-surface-2"],
+      cardChromeExcluded,
+    );
+  });
+
+  it("directly renders a populated evidence photo as an outlined entity", () => {
+    render(
+      <ListingEvidenceReadiness
+        listing={
+          {
+            status: "draft",
+            evidence: [
+              {
+                photoId: "lpho_detail_1",
+                altText: "Detail flow active photo",
+                slotId: null,
+                viewKind: null,
+                status: "active",
+                sortOrder: 0,
+              },
+            ],
+            evidence_readiness: {
+              ready: true,
+              policy: {
+                policyId: null,
+                policyVersion: null,
+                policyHash: "sha256:test",
+                requirementHash: "sha256:req",
+                evaluatedAt: "2026-08-19T00:00:00.000Z",
+                explanationCodes: [],
+              },
+              requirements: {
+                minimumPhotoCount: 1,
+                requiredSlots: [],
+                sellerTrustRequirements: [],
+                buyerAcknowledgment: "none",
+              },
+              coverage: { complete: true, unmetCodes: [], slots: [], activePhotoCount: 1, minimumPhotoCount: 1 },
+              nextActions: [],
+              publicGallery: [],
+            },
+          } as never
+        }
+      />,
+    );
+
+    expectChrome(
+      screen.getByText("Detail flow active photo").closest(".rounded-tokenLg"),
+      "active evidence photo",
+      ["border", "border-muted", "bg-surface"],
+      ["ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow", "hover:border-accent", "hover:shadow-tokenMd"],
+    );
+  });
+
   it("renders the fresh stale-quote fingerprint for browser retry submission", () => {
     const { container } = render(
       <MarketplaceListingDetailPage

@@ -301,7 +301,7 @@ export function MarketplaceListingCreatePage({
       ) : null}
 
       <PageSection title={t("marketplace.features.listings.ui.listingCreatePage.create.listing")}>
-        <Card>
+        <Card elevation="tinted">
           <Form
             spacing="none"
             method="post"
