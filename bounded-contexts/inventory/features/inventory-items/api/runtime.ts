@@ -716,7 +716,7 @@ async function recoverInventoryAdjustmentIdempotency(
     const extendedReasonMatches =
       input.reasonCode === undefined && input.note === undefined
         ? true
-        : payload.reasonCode === (input.reasonCode ?? null) &&
+        : (payload.reasonCode ?? null) === (input.reasonCode ?? null) &&
           (payload.note ?? null) === (input.note === undefined ? null : normalizeAdjustmentNote(input.note));
     return (
       payload.itemId === input.itemId &&

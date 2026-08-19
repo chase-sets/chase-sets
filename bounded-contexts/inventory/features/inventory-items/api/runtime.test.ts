@@ -41,7 +41,7 @@ const shipFromAddress = {
 } as const;
 
 describe("inventory item runtime", () => {
-  it("issue-6299-acceptance-control recovers a keyed quantity adjustment beyond 500 events", async () => {
+  it("issue-6299-acceptance-control recovers beyond 500 events and issue-7054-F1 recovers note-only crash-window retries", async () => {
     const { eventStore, streams } = createInMemoryEventStore();
     const ledger = new Map<
       string,
@@ -280,7 +280,51 @@ describe("inventory item runtime", () => {
       ),
     ).rejects.toThrow("idempotency key was reused");
 
-    expect(streams.get("inventory.item-inv_1")).toHaveLength(502);
+    const noteOnlyCrashWindowCases = [
+      {
+        name: "note present with reasonCode omitted",
+        idempotencyKey: "inventory-import-row:imr_note_only:adjustment",
+        note: "  Received at counter  ",
+        expectedNote: "Received at counter",
+        expectedVersion: 503,
+      },
+      {
+        name: "blank note with reasonCode omitted",
+        idempotencyKey: "inventory-import-row:imr_blank_note:adjustment",
+        note: "   ",
+        expectedNote: null,
+        expectedVersion: 504,
+      },
+    ] as const;
+
+    for (const testCase of noteOnlyCrashWindowCases) {
+      const request = {
+        accountId: "acc_seller",
+        itemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Counter intake",
+        note: testCase.note,
+        idempotencyKey: testCase.idempotencyKey,
+      } as const;
+
+      failNextIdempotencyComplete = true;
+      await expect(services.adjustItem(request, context), testCase.name).rejects.toThrow("ledger complete failed");
+      const committed = streams.get("inventory.item-inv_1")?.at(-1);
+      expect(committed?.streamVersion, testCase.name).toBe(testCase.expectedVersion);
+      expect(committed?.payload, testCase.name).toMatchObject({
+        itemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Counter intake",
+        note: testCase.expectedNote,
+      });
+      expect(committed?.payload, testCase.name).not.toHaveProperty("reasonCode");
+
+      await expect(services.adjustItem(request, context), testCase.name).resolves.toEqual({
+        itemId: "inv_1",
+        version: testCase.expectedVersion,
+      });
+      expect(streams.get("inventory.item-inv_1"), testCase.name).toHaveLength(testCase.expectedVersion);
+    }
   });
 
   it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
