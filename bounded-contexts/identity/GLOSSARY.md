@@ -24,11 +24,11 @@ This includes:
 - Staff
 - Administrators
 - Automation users
-- Guest checkout users
+- Users created when a guest Account is claimed
 
 Notes:
 
-- Guest checkout creates a minimal user record plus a corresponding account item.
+- Guest checkout creates an Account only. Claiming that guest Account creates the User and owner Membership.
 - Users may belong to one or more accounts.
 - Users may have multiple credentials and authentication methods.
 - Users are assigned roles through memberships; not permissions directly.
@@ -66,7 +66,7 @@ Notes:
 
 - Accounts do not sign in; users sign in.
 - All commerce activity is attributed to an account.
-- Even guest checkout users have an associated account for their orders and payments (even if it's not visible to them).
+- Guest checkout creates an Account for orders and payments before any User exists; claiming it creates the User and owner Membership.
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 - Seller operational locations remain separate: Inventory owns storage locations for account-held stock, and Fulfillment owns ship-from locations and shipment execution.
 

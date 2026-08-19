@@ -32,6 +32,22 @@ The authenticated execution identity used by hosts and APIs after session resolu
 
 Auth resolves the actor for hosts. Identity remains upstream for the user, account, membership, and permission facts included in that actor.
 
+## Guest Contact
+
+The normalized email address and trimmed display name bound once to a guest checkout Account before an email-dependent claim journey can begin.
+
+Auth owns Guest Contact. It is absent when guest checkout starts without contact details, becomes immutable when bound, and is converted into User identity at claim.
+
+## Guest Checkout Token
+
+The opaque Auth credential that authorizes an Account-backed guest checkout before the guest has claimed that Account as a User.
+
+A Guest Checkout Token may exist without Guest Contact. Auth revokes it when checkout exits or the guest Account is successfully claimed.
+
+## guest-buyer
+
+The Auth actor role resolved from a valid Guest Checkout Token. A `guest-buyer` acts for the guest Account with only the permissions needed to continue guest checkout; it is not a User or Membership fact.
+
 ## Return Path
 
 The safe in-app path that Auth sends the user back to after sign-in, registration, or account selection completes.

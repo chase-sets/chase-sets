@@ -122,13 +122,13 @@ describe("auth api client authentication methods", () => {
     const request = new Request("https://app.test/checkout/start");
     const api = createAuthRequestApiClient(request);
 
-    await api.startGuestCheckout({
+    await api.bindGuestCheckoutContact({
       displayName: "Jane Smith",
       email: "jane@example.com",
     });
 
     expect(calls[0]).toMatchObject({
-      url: "https://app.test/api/auth/guest-checkout/start",
+      url: "https://app.test/api/auth/guest-checkout/contact",
       body: { displayName: "Jane Smith", email: "jane@example.com" },
       headers: {
         "content-type": "application/json",
@@ -139,7 +139,7 @@ describe("auth api client authentication methods", () => {
     expect(calls[0].headers).not.toHaveProperty(PLATFORM_INTERNAL_AUTH_HEADER);
   });
 
-  it("preserves internal capability headers on internal server request clients", async () => {
+  it("sends internal capability header for Guest Contact bind", async () => {
     process.env.PLATFORM_INTERNAL_AUTH_SECRET = "server-secret";
     process.env[CHASE_SETS_INTERNAL_API_ORIGIN_ENV] = "https://app.test";
     const { fetch, calls } = createRecordingFetch();
@@ -147,11 +147,11 @@ describe("auth api client authentication methods", () => {
     const request = new Request("https://app.test/checkout/payments/pay_1");
     const api = createInternalAuthRequestApiClient(request);
 
-    await api.requestGuestCheckoutClaimLink({ paymentId: "pay_1" });
+    await api.bindGuestCheckoutContact({ email: "buyer@example.com", displayName: "Buyer Example" });
 
     expect(calls[0]).toMatchObject({
-      url: "https://app.test/api/auth/guest-checkout/claim-link/request",
-      body: { paymentId: "pay_1" },
+      url: "https://app.test/api/auth/guest-checkout/contact",
+      body: { email: "buyer@example.com", displayName: "Buyer Example" },
       headers: {
         "content-type": "application/json",
         [PLATFORM_INTERNAL_AUTH_HEADER]: "server-secret",

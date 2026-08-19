@@ -9,17 +9,20 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { authSchemaSql } from "../runtime-support/schema";
 import {
+  bindGuestCheckoutContact,
   consumeAccountSelectionToken,
   consumeChallenge,
   consumeGuestCheckoutClaimToken,
   consumeMagicLinkToken,
   consumeSocialLoginState,
+  getGuestCheckoutTokenByHash,
   insertAccountSelectionToken,
   insertChallenge,
   insertGuestCheckoutClaimToken,
   insertMagicLinkToken,
   insertPhoneCodeToken,
   insertSocialLoginState,
+  upsertGuestCheckoutToken,
   verifyPhoneCodeToken,
 } from "./store";
 
@@ -463,6 +466,141 @@ describeDb("auth token store persistence boundary", () => {
     });
   });
 
+  describe("guest checkout tokens", () => {
+    it("persists and reads nullable guest checkout contact", async () => {
+      await upsertGuestCheckoutToken(pool, {
+        tokenId: "cmd_guest_without_contact",
+        accountId: "acc_guest_without_contact",
+        contactEmail: null,
+        contactName: null,
+        tokenHash: "hash_guest_without_contact",
+        expiresAt: futureIso(),
+      });
+
+      await expect(getGuestCheckoutTokenByHash(pool, "hash_guest_without_contact")).resolves.toMatchObject({
+        token_id: "cmd_guest_without_contact",
+        account_id: "acc_guest_without_contact",
+        contact_email: null,
+        contact_name: null,
+      });
+
+      await upsertGuestCheckoutToken(pool, {
+        tokenId: "cmd_guest_legacy_empty_contact",
+        accountId: "acc_guest_legacy_empty_contact",
+        contactEmail: "",
+        contactName: "   ",
+        tokenHash: "hash_guest_legacy_empty_contact",
+        expiresAt: futureIso(),
+      });
+      await expect(
+        bindGuestCheckoutContact(pool, {
+          tokenHash: "hash_guest_legacy_empty_contact",
+          accountId: "acc_guest_legacy_empty_contact",
+          contactEmail: "bound@example.com",
+          contactName: "Bound Buyer",
+        }),
+      ).resolves.toMatchObject({
+        contact_email: "bound@example.com",
+        contact_name: "Bound Buyer",
+      });
+    });
+
+    it("converges populated guest checkout tokens from NOT NULL contact to nullable contact", async () => {
+      await resetMultiContextTestSchemas({ auth: pool });
+      await pool.query(`CREATE TABLE identity_guest_checkout_tokens (
+        token_id text PRIMARY KEY,
+        account_id text NOT NULL,
+        contact_email text NOT NULL,
+        contact_name text NOT NULL,
+        token_hash text NOT NULL UNIQUE,
+        expires_at timestamptz NOT NULL,
+        revoked_at timestamptz NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query(
+        `INSERT INTO identity_guest_checkout_tokens (
+          token_id, account_id, contact_email, contact_name, token_hash, expires_at, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          "cmd_guest_legacy",
+          "acc_guest_legacy",
+          "Legacy.Buyer@Example.com",
+          " Legacy Buyer ",
+          "hash_guest_legacy",
+          "2030-01-02T03:04:05.000Z",
+          "2025-02-03T04:05:06.000Z",
+          "2025-02-04T05:06:07.000Z",
+        ],
+      );
+      const digestBefore = await legacyGuestCheckoutRowDigest();
+
+      // The boot-schema extractor only recognizes exported *SchemaSql template literals.
+      // authSchemaSql is an exported array join, so this populated real-PostgreSQL case is the convergence proof.
+      await pool.query(authSchemaSql);
+
+      const columns = await pool.query<{ column_name: string; is_nullable: string }>(
+        `SELECT column_name, is_nullable
+         FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'identity_guest_checkout_tokens'
+           AND column_name IN ('contact_email', 'contact_name')
+         ORDER BY column_name`,
+      );
+      expect(columns.rows).toEqual([
+        { column_name: "contact_email", is_nullable: "YES" },
+        { column_name: "contact_name", is_nullable: "YES" },
+      ]);
+      await expect(legacyGuestCheckoutRowDigest()).resolves.toBe(digestBefore);
+
+      await upsertGuestCheckoutToken(pool, {
+        tokenId: "cmd_guest_converged_null",
+        accountId: "acc_guest_converged_null",
+        contactEmail: null,
+        contactName: null,
+        tokenHash: "hash_guest_converged_null",
+        expiresAt: futureIso(),
+      });
+      await expect(getGuestCheckoutTokenByHash(pool, "hash_guest_converged_null")).resolves.toMatchObject({
+        contact_email: null,
+        contact_name: null,
+      });
+    });
+
+    it("serializes competing first Guest Contact binds", async () => {
+      await upsertGuestCheckoutToken(pool, {
+        tokenId: "cmd_guest_contact_race",
+        accountId: "acc_guest_contact_race",
+        contactEmail: null,
+        contactName: null,
+        tokenHash: "hash_guest_contact_race",
+        expiresAt: futureIso(),
+      });
+
+      const results = await Promise.all([
+        bindGuestCheckoutContact(pool, {
+          tokenHash: "hash_guest_contact_race",
+          accountId: "acc_guest_contact_race",
+          contactEmail: "first@example.com",
+          contactName: "First Buyer",
+        }),
+        bindGuestCheckoutContact(pool, {
+          tokenHash: "hash_guest_contact_race",
+          accountId: "acc_guest_contact_race",
+          contactEmail: "second@example.com",
+          contactName: "Second Buyer",
+        }),
+      ]);
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+      const winner = results.find((result) => result !== null);
+      await expect(getGuestCheckoutTokenByHash(pool, "hash_guest_contact_race")).resolves.toMatchObject({
+        contact_email: winner?.contact_email,
+        contact_name: winner?.contact_name,
+      });
+    });
+  });
+
   describe("guest checkout claim tokens", () => {
     it("consumes a guest checkout claim token exactly once through the stored SQL predicate", async () => {
       await insertGuestCheckoutClaimToken(pool, {
@@ -553,6 +691,19 @@ describeDb("auth token store persistence boundary", () => {
       [tokenValue],
     );
     return result.rows[0]?.consumed_at ?? null;
+  }
+
+  async function legacyGuestCheckoutRowDigest(): Promise<string> {
+    const result = await pool.query<{ digest: string }>(
+      `SELECT md5(row_to_json(token_row)::text) AS digest
+       FROM identity_guest_checkout_tokens AS token_row
+       WHERE token_id = 'cmd_guest_legacy'`,
+    );
+    const digest = result.rows[0]?.digest;
+    if (!digest) {
+      throw new Error("Expected the populated legacy guest checkout token row.");
+    }
+    return digest;
   }
 });
 

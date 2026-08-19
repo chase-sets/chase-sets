@@ -152,14 +152,20 @@ CREATE TABLE IF NOT EXISTS identity_social_login_states (
 CREATE TABLE IF NOT EXISTS identity_guest_checkout_tokens (
   token_id text PRIMARY KEY,
   account_id text NOT NULL,
-  contact_email text NOT NULL,
-  contact_name text NOT NULL,
+  contact_email text NULL,
+  contact_name text NULL,
   token_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_guest_checkout_tokens
+  ALTER COLUMN contact_email DROP NOT NULL;
+
+ALTER TABLE identity_guest_checkout_tokens
+  ALTER COLUMN contact_name DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
   token_id text PRIMARY KEY,
