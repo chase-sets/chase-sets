@@ -10,6 +10,10 @@ import {
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
+import {
+  isInventoryAdjustmentReason,
+  type InventoryAdjustmentReason,
+} from "@chase-sets/event-core/public-event-payloads";
 
 export type InventoryItemMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -192,6 +196,12 @@ export function createInventoryItemMcpHandlers(
     const quantityDelta = readQuantityDelta(args);
     const itemId = readMcpTypedIdArgument(args, "inventoryItemId", "inv");
     const mode = readMcpStringArgument(args, "collisionMode") ?? "protect-orders";
+    const suppliedReasonCode = readMcpStringArgument(args, "reasonCode");
+    if (suppliedReasonCode !== null && !isInventoryAdjustmentReason(suppliedReasonCode)) {
+      throw new Error("reasonCode must be a supported inventory adjustment reason.");
+    }
+    let reasonCode = (suppliedReasonCode ?? undefined) as InventoryAdjustmentReason | undefined;
+    const note = Object.hasOwn(args, "note") ? readMcpStringArgument(args, "note") : undefined;
     if (mode !== "protect-orders" && mode !== "honor-offline") {
       throw new Error("collisionMode must be protect-orders or honor-offline.");
     }
@@ -204,6 +214,12 @@ export function createInventoryItemMcpHandlers(
     if (mode === "honor-offline" && args.confirmSellerCannotFulfill !== true) {
       throw new Error("Honor offline requires explicit seller-cannot-fulfill confirmation.");
     }
+    if (mode === "honor-offline" && reasonCode !== undefined && reasonCode !== "sold-offline") {
+      throw new Error("Honor offline requires reasonCode sold-offline.");
+    }
+    if (mode === "honor-offline") {
+      reasonCode = "sold-offline";
+    }
     const result =
       quantityDelta < 0
         ? await holdCollisions.reduceItem(
@@ -212,6 +228,8 @@ export function createInventoryItemMcpHandlers(
               itemId,
               requestedQuantity: -quantityDelta,
               reason: readRequiredString(args, "reason"),
+              ...(reasonCode !== undefined ? { reasonCode } : {}),
+              ...(note !== undefined ? { note } : {}),
               mode,
               actorRole: scopedActor.roleKey,
             },
@@ -223,6 +241,8 @@ export function createInventoryItemMcpHandlers(
               itemId,
               quantityDelta,
               reason: readRequiredString(args, "reason"),
+              ...(reasonCode !== undefined ? { reasonCode } : {}),
+              ...(note !== undefined ? { note } : {}),
               idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),
             },
             createActorEventStoreContext(scopedActor),

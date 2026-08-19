@@ -260,6 +260,86 @@ describe("inventory item MCP handlers", () => {
     );
   });
 
+  it("forwards optional adjustment reason fields while accepting legacy omission", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisionServices());
+
+    await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Found during count",
+        reasonCode: "found",
+        note: "  Behind display case  ",
+        idempotencyKey: "adjust-found-1",
+      }),
+    );
+    await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Legacy count",
+        idempotencyKey: "adjust-legacy-1",
+      }),
+    );
+
+    expect(fakeServices.adjustItem).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ reasonCode: "found", note: "Behind display case" }),
+      expect.anything(),
+    );
+    expect(vi.mocked(fakeServices.adjustItem).mock.calls[1]?.[0]).not.toHaveProperty("reasonCode");
+    expect(vi.mocked(fakeServices.adjustItem).mock.calls[1]?.[0]).not.toHaveProperty("note");
+  });
+
+  it("derives sold-offline for honor offline and rejects conflicting or unknown codes", async () => {
+    const fakeServices = services();
+    const collisions = collisionServices();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisions);
+
+    await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: -1,
+        reason: "Counter sale",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    );
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Counter sale",
+          reasonCode: "damaged",
+          collisionMode: "honor-offline",
+          confirmSellerCannotFulfill: true,
+        }),
+      ),
+    ).rejects.toThrow("Honor offline requires reasonCode sold-offline.");
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: 1,
+          reason: "Count",
+          reasonCode: "other",
+        }),
+      ),
+    ).rejects.toThrow("supported inventory adjustment reason");
+
+    expect(collisions.reduceItem).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: "sold-offline" }),
+      expect.anything(),
+    );
+  });
+
   it("rejects account mismatches and dry-run writes before mutating stock", async () => {
     const fakeServices = services();
     const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisionServices());

@@ -167,6 +167,9 @@ describe("inventory item runtime", () => {
         context,
       ),
     ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    expect(ledger.get("inventory-import-row:imr_1:adjustment")?.command_fingerprint).toBe(
+      "5b7e79c784d1004f25875df18baab87cdf8f6060fe537fa10effd644cfc931bb",
+    );
     await eventStore.appendToStream({
       streamId: "inventory.item-inv_1",
       expectedVersion: 2,
@@ -231,7 +234,53 @@ describe("inventory item runtime", () => {
       ),
     ).rejects.toThrow("idempotency key was reused");
 
-    expect(streams.get("inventory.item-inv_1")).toHaveLength(501);
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 3,
+          reason: "Import quantity adjustment",
+          reasonCode: "intake",
+          note: "  Received at counter  ",
+          idempotencyKey: "inventory-import-row:imr_extended:adjustment",
+        },
+        context,
+      ),
+    ).resolves.toEqual({ itemId: "inv_1", version: 502 });
+    expect(ledger.get("inventory-import-row:imr_extended:adjustment")?.command_fingerprint).toBe(
+      "b4e204c1c02147fe9d06473d002e86c17f75808b9c19d4c80331c744dbff7862",
+    );
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 3,
+          reason: "Import quantity adjustment",
+          reasonCode: "intake",
+          note: "Different note",
+          idempotencyKey: "inventory-import-row:imr_extended:adjustment",
+        },
+        context,
+      ),
+    ).rejects.toThrow("idempotency key was reused");
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 3,
+          reason: "Import quantity adjustment",
+          reasonCode: "correction",
+          note: "Received at counter",
+          idempotencyKey: "inventory-import-row:imr_extended:adjustment",
+        },
+        context,
+      ),
+    ).rejects.toThrow("idempotency key was reused");
+
+    expect(streams.get("inventory.item-inv_1")).toHaveLength(502);
   });
 
   it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
@@ -330,6 +379,7 @@ describe("inventory item runtime", () => {
       is_archived: boolean;
       updated_at: string;
     } | null = null;
+    let existingItem: Record<string, unknown> | null = null;
 
     const db = {
       query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
@@ -352,14 +402,14 @@ describe("inventory item runtime", () => {
         }
 
         if (sql.includes("FROM inventory_items AS item")) {
-          return { rows: [] };
+          return { rows: existingItem ? [existingItem] : [] };
         }
 
         throw new Error(`Unexpected query: ${sql}`);
       }),
     };
     const storageLocations = {
-      listStorageLocations: vi.fn(async () => []),
+      listStorageLocations: vi.fn(async () => (listingStockLocation ? [listingStockLocation] : [])),
       createStorageLocation: vi.fn(async () => ({
         storageLocationId: "loc_listing_stock",
         version: 1,
@@ -406,5 +456,38 @@ describe("inventory item runtime", () => {
       },
     });
     expect(streams.has(`inventory.item-${result.inventoryItemId}`)).toBe(true);
+
+    existingItem = {
+      item_id: result.inventoryItemId,
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::",
+      selected_options: [],
+      graded_card: null,
+      storage_location_id: "loc_listing_stock",
+      storage_location_name: "Listing stock",
+      ship_from_code: "LISTING-STOCK",
+      ship_from_address: shipFromAddress,
+      total_quantity: 2,
+      held_quantity: 0,
+      available_quantity: 2,
+      acquisition_cost_amount: null,
+    };
+    const toppedUp = await services.ensureListingStock(
+      {
+        accountId: "acc_seller" as never,
+        catalogItemId: "cat_1",
+        selectedOptions: [],
+        quantity: 4,
+        shipFromAddress,
+      },
+      context,
+    );
+
+    expect(toppedUp.adjustedQuantityBy).toBe(2);
+    expect(streams.get(`inventory.item-${result.inventoryItemId}`)?.at(-1)?.payload).toMatchObject({
+      quantityDelta: 2,
+      reasonCode: "intake",
+    });
   });
 });

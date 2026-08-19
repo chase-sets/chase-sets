@@ -3,7 +3,10 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
-import type { InventoryHoldOrderSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryHoldOrderSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
@@ -60,6 +63,8 @@ export type InventoryHoldCollisionServices = Readonly<{
       itemId: string;
       requestedQuantity: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       mode?: InventoryHoldCollisionMode;
       actorRole?: string | null;
     }>,
@@ -116,6 +121,10 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
 
           const activeHolds = await loadActiveHolds(deps, params, context);
           const mode = params.mode ?? "protect-orders";
+          if (mode === "honor-offline" && params.reasonCode !== undefined && params.reasonCode !== "sold-offline") {
+            throw new InventoryDomainError("Honor offline requires reasonCode sold-offline.");
+          }
+          const reasonCode = mode === "honor-offline" ? "sold-offline" : params.reasonCode;
           const collision = planInventoryHoldCollision({
             totalQuantity: item.state.totalQuantity,
             requestedQuantity: params.requestedQuantity,
@@ -139,6 +148,8 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                   quantityDelta: -appliedQuantity,
                   heldQuantity,
                   reason: params.reason,
+                  ...(reasonCode !== undefined ? { reasonCode } : {}),
+                  ...(params.note !== undefined ? { note: params.note } : {}),
                 });
 
           const appends: AppendToStreamInput[] = [

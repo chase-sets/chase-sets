@@ -77,6 +77,7 @@ type StoredInventoryItem = Readonly<{
   item_id: string;
   account_id: string;
   catalog_catalog_item_id: string;
+  product_id?: string;
   storage_location_id: string;
   total_quantity: number;
   selected_options: readonly InventorySelectedOptionEntry[];
@@ -235,7 +236,15 @@ class ImportBatchDb implements PgQueryable {
     }
 
     if (sql.includes("FROM inventory_items AS item")) {
-      return this.result([]);
+      const selectedOptions = String(values[3] ?? "[]");
+      const rows = [...this.items.values()]
+        .filter((item) => item.account_id === values[0])
+        .filter((item) => item.catalog_catalog_item_id === values[1])
+        .filter((item) => item.product_id === undefined || item.product_id === values[2])
+        .filter((item) => JSON.stringify(item.selected_options) === selectedOptions)
+        .filter((item) => item.storage_location_id === values[4])
+        .map((item) => ({ item_id: item.item_id, total_quantity: item.total_quantity, held_quantity: 0 }));
+      return this.result(rows as Row[]);
     }
 
     if (sql.includes("INSERT INTO inventory_import_batches")) {
@@ -470,7 +479,10 @@ function catalogServices(): InventoryCatalogItemServices {
   };
 }
 
-function itemServices(onCreate: (itemId: InventoryItemId) => void): InventoryItemServices {
+function itemServices(
+  onCreate: (itemId: InventoryItemId) => void,
+  onAdjust: (params: Parameters<InventoryItemServices["adjustItem"]>[0]) => void,
+): InventoryItemServices {
   return {
     commandHandler: async () => {
       throw new Error("Not used by import batch tests.");
@@ -480,8 +492,9 @@ function itemServices(onCreate: (itemId: InventoryItemId) => void): InventoryIte
       onCreate(itemId);
       return { itemId, version: 1 };
     },
-    adjustItem: async () => {
-      throw new Error("Not used by import batch tests.");
+    adjustItem: async (params) => {
+      onAdjust(params);
+      return { itemId: params.itemId, version: 2 };
     },
     ensureListingStock: vi.fn(async () => undefined) as never,
     listItems: async () => ({ items: [], total: 0 }),
@@ -490,11 +503,18 @@ function itemServices(onCreate: (itemId: InventoryItemId) => void): InventoryIte
   };
 }
 
-function runtime(db: ImportBatchDb, itemIds: InventoryItemId[] = []) {
+function runtime(
+  db: ImportBatchDb,
+  itemIds: InventoryItemId[] = [],
+  adjustments: Array<Parameters<InventoryItemServices["adjustItem"]>[0]> = [],
+) {
   return createInventoryImportBatchRuntime({
     db,
     catalogItems: catalogServices(),
-    items: itemServices((itemId) => itemIds.push(itemId)),
+    items: itemServices(
+      (itemId) => itemIds.push(itemId),
+      (params) => adjustments.push(params),
+    ),
     draftListingCreator: vi.fn(async (params) => ({
       listingId: params.listingIdOverride,
       version: 1,
@@ -1237,6 +1257,65 @@ describe("inventory import batch runtime", () => {
     expect(existingTargetQuery?.sql).toContain("LEFT JOIN LATERAL");
     expect(existingTargetQuery?.sql).toContain("WHERE inventory_holds.item_id = item.item_id");
     expect(existingTargetQuery?.sql).not.toContain("GROUP BY item_id");
+  });
+
+  it("maps replace and signed add adjustments to correction or intake and emits nothing for zero", async () => {
+    const db = dbWithLocations();
+    const adjustments: Array<Parameters<InventoryItemServices["adjustItem"]>[0]> = [];
+    const services = runtime(db, [], adjustments);
+    const replaceBatch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        quantityMode: "replace",
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:condition",
+          "cat_active,loc_active,12,near_mint",
+          "cat_active,loc_active,8,near_mint",
+          "cat_active,loc_active,10,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+    db.items.set("inv_existing", {
+      item_id: "inv_existing",
+      account_id: "acc_1",
+      catalog_catalog_item_id: "cat_active",
+      product_id: replaceBatch.rows[0]?.product_id ?? undefined,
+      storage_location_id: "loc_active",
+      total_quantity: 10,
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+      acquisition_cost_amount: null,
+      updated_at: now,
+    });
+
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: replaceBatch.batch_id }, context);
+
+    const addBatch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        quantityMode: "add",
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:condition",
+          "cat_active,loc_active,3,near_mint",
+          "cat_active,loc_active,-2,near_mint",
+          "cat_active,loc_active,0,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+    db.rows = db.rows.map((row) =>
+      row.batch_id === addBatch.batch_id && row.total_quantity === null
+        ? { ...row, status: "accepted", quantity_delta: 0, validation_errors: [] }
+        : row,
+    );
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: addBatch.batch_id }, context);
+
+    expect(adjustments.map(({ quantityDelta, reasonCode }) => ({ quantityDelta, reasonCode }))).toEqual([
+      { quantityDelta: 2, reasonCode: "correction" },
+      { quantityDelta: -2, reasonCode: "correction" },
+      { quantityDelta: 3, reasonCode: "intake" },
+      { quantityDelta: -2, reasonCode: "correction" },
+    ]);
   });
 
   it("marks mixed imports committed after accepted rows commit while preserving rejected rows", async () => {

@@ -42,6 +42,8 @@ describe("inventory item ledger projection", () => {
           itemId: "inv_1",
           quantityDelta: -1,
           reason: "Shelf count correction",
+          reasonCode: "correction",
+          note: "Counted after moving the shelf",
         },
         2,
       ),
@@ -57,6 +59,8 @@ describe("inventory item ledger projection", () => {
       null,
       null,
       "Inventory item created",
+      null,
+      null,
       null,
       "system",
       "inventory.item.created",
@@ -74,6 +78,8 @@ describe("inventory item ledger projection", () => {
       null,
       null,
       "Shelf count correction",
+      "correction",
+      "Counted after moving the shelf",
       null,
       "seller",
       "inventory.item.adjusted",
@@ -132,7 +138,7 @@ describe("inventory item ledger projection", () => {
       "hold-expired",
       "hold-consumed",
     ]);
-    expect(inserts.map(([, values]) => values?.[10])).toEqual(["system", "system", "system", "system", "system"]);
+    expect(inserts.map(([, values]) => values?.[12])).toEqual(["system", "system", "system", "system", "system"]);
     expect(inserts.at(-1)?.[1]).toEqual([
       "inventory.hold-hld_1:5",
       "inv_1",
@@ -143,6 +149,8 @@ describe("inventory item ledger projection", () => {
       1,
       "order",
       "Fulfillment dispatched",
+      null,
+      null,
       JSON.stringify(orderSourceRef),
       "system",
       "inventory.hold.consumed",

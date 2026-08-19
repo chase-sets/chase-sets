@@ -129,9 +129,23 @@ Values:
 
 ## Inventory Adjustment Reason
 
-Values added by returned-stock decisions:
+An **Inventory Adjustment Reason** is the typed reason an Inventory quantity adjustment occurred. It accompanies the required free-text reason without replacing it.
 
+Values:
+
+- `sold-offline`: an Honor Offline reduction recorded stock sold outside an online order.
+- `damaged`: an operator removed stock that was damaged.
+- `lost`: an operator removed stock that could not be found.
+- `found`: an operator added stock that was found.
+- `correction`: an operator, seed, or import reconciled recorded stock with known truth.
+- `intake`: stock entered Inventory through listing-stock setup or an additive import.
 - `return-restocked`: a seller restocked units from a returned order after reviewing the item.
+
+`written-off` is a Restock Decision Outcome, not an Inventory Adjustment Reason. A written-off decision changes no quantity and emits no adjustment.
+
+## Adjustment Note
+
+An **Adjustment Note** is optional operator context attached to an Inventory adjustment. A blank note is stored as no note, and it never replaces or derives from the required free-text reason.
 
 ## Storage Location
 

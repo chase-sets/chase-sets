@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS inventory_item_ledger (
   hold_quantity integer NULL,
   purpose text NULL,
   reason text NOT NULL,
+  reason_code text NULL,
+  note text NULL,
   source_ref jsonb NULL,
   actor text NOT NULL,
   event_type text NOT NULL,
@@ -68,6 +70,16 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
   ON inventory_item_ledger (item_id, occurred_at DESC, ledger_entry_id DESC)`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_account_item_idx
   ON inventory_item_ledger (account_id, item_id, occurred_at DESC)`,
+    ],
+  },
+  {
+    migrationId: "20260819_inventory_item_ledger_adjustment_reason",
+    description: "Add the typed adjustment reason and optional operator note to the stock ledger.",
+    statements: [
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS reason_code text`,
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS note text`,
     ],
   },
 ];
