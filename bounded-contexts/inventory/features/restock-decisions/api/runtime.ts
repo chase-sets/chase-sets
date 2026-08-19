@@ -186,6 +186,7 @@ export function createRestockDecisionRuntime(
             itemId: aggregate.state.itemId!,
             quantityDelta: aggregate.state.quantity,
             reason: "return-restocked",
+            reasonCode: "return-restocked",
             sourceRef: aggregate.state.sourceRef,
             idempotencyKey: `restock-decision:${params.decisionId}:restocked`,
           },

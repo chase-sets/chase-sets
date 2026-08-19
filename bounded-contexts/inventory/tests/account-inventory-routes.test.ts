@@ -652,6 +652,8 @@ describe("marketplace inventory routes", () => {
     form.set("intent", "adjust-item");
     form.set("quantityDelta", "2");
     form.set("reason", "Cycle count");
+    form.set("reasonCode", "correction");
+    form.set("note", "Counted twice");
 
     const response = (await inventoryItemAction({
       request: new Request("http://localhost/account/inventory/items/inv_1", {
@@ -667,6 +669,8 @@ describe("marketplace inventory routes", () => {
     expect(location).toContain("/account/inventory/items/inv_1?afterWrite=");
     expect(location).not.toContain("feedbackWorkflow=");
     expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("73");
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body).toContain('"reasonCode":"correction"');
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body).toContain('"note":"Counted twice"');
   });
 
   it("loads import batch workbench data through the inventory API", async () => {

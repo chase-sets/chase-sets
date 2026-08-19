@@ -64,6 +64,19 @@ describe("inventory item pages", () => {
     expect(html).not.toContain(">ja<");
   });
 
+  it("requires an operator adjustment reason and keeps free text plus an optional note", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    expect(html).toMatch(/<select[^>]*name="reasonCode"[^>]*required/);
+    expect(html).toContain('<option value="damaged">Damaged</option>');
+    expect(html).toContain('<option value="lost">Lost</option>');
+    expect(html).toContain('<option value="found">Found</option>');
+    expect(html).toContain('<option value="correction">Correction</option>');
+    expect(html).toMatch(/<input(?=[^>]*name="reason")(?=[^>]*required)/);
+    expect(html).toMatch(/<textarea[^>]*name="note"/);
+  });
+
   it("offers a list-from-inventory action when stock is available", () => {
     const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
     const html = renderToString(<InventoryItemDetailPage item={detail} />);
@@ -179,6 +192,8 @@ describe("inventory item pages", () => {
           hold_quantity: null,
           purpose: null,
           reason: "Inventory item created",
+          reason_code: null,
+          note: null,
           source_ref: null,
           actor: "seller",
           event_type: "inventory.item.created",
@@ -196,6 +211,8 @@ describe("inventory item pages", () => {
           hold_quantity: 1,
           purpose: "order",
           reason: "Ordering commitment",
+          reason_code: null,
+          note: null,
           source_ref: { orderId: "ord_1", reservationRequestId: "rsv_1" },
           actor: "system",
           event_type: "inventory.hold.placed",

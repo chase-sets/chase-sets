@@ -30,6 +30,8 @@ export const action = defineFormAction({
       const result = await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
         quantityDelta: Number(formData.get("quantityDelta") ?? 0),
         reason: formData.get("reason"),
+        reasonCode: formData.get("reasonCode"),
+        note: String(formData.get("note") ?? "").trim() || null,
       });
       if (result && typeof result === "object" && "status" in result && result.status === "hold-collision-recorded") {
         return { message: "message" in result ? String(result.message ?? "") : "" };

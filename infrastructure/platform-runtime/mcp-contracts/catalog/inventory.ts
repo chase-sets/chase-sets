@@ -15,6 +15,7 @@ import {
   stringProperty,
   writeTool,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
+import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads/inventory";
 
 const importSourceProfileOutputProperty: McpJsonSchemaProperty = {
   type: "object",
@@ -303,6 +304,8 @@ export const inventoryService = {
             inventoryItemId: stringProperty("Inventory item to adjust."),
             quantityDelta: integerProperty("Signed quantity adjustment. Positive adds stock; negative removes stock."),
             reason: stringProperty("Business reason for the stock adjustment."),
+            reasonCode: stringProperty("Typed reason for the stock adjustment.", [...inventoryAdjustmentReasons]),
+            note: stringProperty("Optional operator note for the stock adjustment."),
             idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),

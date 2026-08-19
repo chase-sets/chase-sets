@@ -14,6 +14,7 @@ import {
   Stack,
   Text,
   TextInput,
+  NativeSelect,
   NumberField,
   ProductOptions,
   Textarea,
@@ -114,7 +115,9 @@ function ledgerDescription(entry: InventoryItemDetail["ledger"][number]) {
           count: entry.hold_quantity,
         }),
     entry.purpose ? holdPurposeLabel(entry.purpose) : null,
+    entry.reason_code ? adjustmentReasonLabel(entry.reason_code) : null,
     entry.reason,
+    entry.note,
     entry.actor === "seller"
       ? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.seller")
       : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.system"),
@@ -135,6 +138,10 @@ function ledgerDescription(entry: InventoryItemDetail["ledger"][number]) {
       ) : null}
     </Stack>
   );
+}
+
+function adjustmentReasonLabel(reason: NonNullable<InventoryItemDetail["ledger"][number]["reason_code"]>) {
+  return t(`inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.${reason}`);
 }
 
 function ledgerFilterHref(currentPath: string | null | undefined, kind: string | null) {
@@ -237,10 +244,43 @@ export function InventoryItemDetailPage({
                 required
                 placeholder={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5")}
               />
+              <NativeSelect
+                label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code")}
+                name="reasonCode"
+                required
+                placeholder={t(
+                  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.placeholder",
+                )}
+                items={[
+                  {
+                    value: "damaged",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.damaged"),
+                  },
+                  {
+                    value: "lost",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.lost"),
+                  },
+                  {
+                    value: "found",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.found"),
+                  },
+                  {
+                    value: "correction",
+                    label: t(
+                      "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.correction",
+                    ),
+                  },
+                ]}
+              />
               <TextInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.reason")}
                 name="reason"
                 required
+              />
+              <Textarea
+                label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note")}
+                name="note"
+                rows={3}
               />
               <Button type="submit">
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.apply.adjustment")}

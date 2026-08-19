@@ -1,5 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type {
+  InventoryAdjustmentReason,
   InventoryHoldPurpose,
   InventoryHoldReleaseReason,
   InventoryHoldSourceRef,
@@ -40,6 +41,8 @@ export type InventoryItemLedgerEntry = Readonly<{
   hold_quantity: number | null;
   purpose: InventoryHoldPurpose | null;
   reason: string;
+  reason_code: InventoryAdjustmentReason | null;
+  note: string | null;
   source_ref: InventoryHoldSourceRef;
   actor: "seller" | "system";
   event_type: string;

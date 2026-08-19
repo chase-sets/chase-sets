@@ -235,6 +235,84 @@ describe("inventory item routes", () => {
     );
   });
 
+  it("forwards optional adjustment reason fields and preserves legacy omission", async () => {
+    const adjustItem = vi.fn<InventoryItemServices["adjustItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 2,
+    }));
+    const app = buildApp(createItemServices({ adjustItem }));
+
+    const extended = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: 1,
+        reason: "Found during shelf count",
+        reasonCode: "found",
+        note: "  Behind the display case  ",
+      }),
+    });
+    const legacy = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: 1, reason: "Legacy count" }),
+    });
+
+    expect(extended.status).toBe(200);
+    expect(legacy.status).toBe(200);
+    expect(adjustItem).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ reasonCode: "found", note: "Behind the display case" }),
+      context,
+    );
+    expect(adjustItem.mock.calls[1]?.[0]).not.toHaveProperty("reasonCode");
+    expect(adjustItem.mock.calls[1]?.[0]).not.toHaveProperty("note");
+  });
+
+  it("rejects unknown reason codes and derives sold-offline for honor offline", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 3,
+      collision: null,
+    }));
+    const app = buildApp(createItemServices(), {
+      roleKey: "manager",
+      holdCollisions: { reduceItem, projectors: [] },
+    });
+
+    const unknown = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: 1, reason: "Count", reasonCode: "other" }),
+    });
+    const conflicting = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Counter sale",
+        reasonCode: "damaged",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    });
+    const derived = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Counter sale",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    });
+
+    expect(unknown.status).toBe(400);
+    expect(conflicting.status).toBe(400);
+    expect(derived.status).toBe(200);
+    expect(reduceItem).toHaveBeenCalledWith(expect.objectContaining({ reasonCode: "sold-offline" }), context);
+  });
+
   it("requires manager-or-owner authority and explicit confirmation for honor offline", async () => {
     const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
     const collisions = { reduceItem, projectors: [] } satisfies InventoryHoldCollisionServices;

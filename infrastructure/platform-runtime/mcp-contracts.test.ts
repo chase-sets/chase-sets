@@ -229,6 +229,40 @@ describe("MCP service catalog", () => {
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.archive-location")?.availability).toBe("planned");
   });
 
+  it("widens inventory.adjust-item with optional closed reason fields", () => {
+    const schema = findMcpTool("inventory.adjust-item")?.inputSchema;
+    expect(schema).toBeDefined();
+    expect(schema?.required).toEqual([
+      "accountId",
+      "inventoryItemId",
+      "quantityDelta",
+      "reason",
+      "idempotencyKey",
+      "confirmationText",
+    ]);
+    expect(schema?.additionalProperties).toBe(false);
+    expect(schema?.properties.reasonCode).toMatchObject({
+      type: "string",
+      enum: ["sold-offline", "damaged", "lost", "found", "correction", "intake", "return-restocked"],
+    });
+    expect(schema?.properties.note).toMatchObject({ type: "string" });
+
+    const required = {
+      accountId: "acc_1",
+      inventoryItemId: "inv_1",
+      quantityDelta: 1,
+      reason: "Cycle count",
+      idempotencyKey: "adjust-1",
+      confirmationText: "Confirm adjustment",
+    };
+    expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, reasonCode: "correction", note: "Counted twice" }, schema!)).toEqual([]);
+    expect(validateObject({ ...required, reasonCode: "other" }, schema!)).toContain(
+      "reasonCode expected one of sold-offline, damaged, lost, found, correction, intake, return-restocked but received other.",
+    );
+    expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
+  });
+
   it("publishes output schemas for available MCP handler outputs", () => {
     const listSourcesOutput = {
       items: [

@@ -27,6 +27,59 @@ describe("inventory item domain", () => {
     expect(adjustedState.totalQuantity).toBe(8);
   });
 
+  it("emits the optional typed reason and normalizes a supplied blank note", async () => {
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 12,
+    });
+    const createdState = evolveInventoryItem(initialInventoryItemState, created!);
+
+    const [adjusted] = decideInventoryItem(createdState, {
+      type: "AdjustInventoryItemQuantity",
+      quantityDelta: -1,
+      heldQuantity: 0,
+      reason: "  Damaged during handling  ",
+      reasonCode: "damaged",
+      note: "   ",
+    });
+
+    expect(adjusted?.data).toMatchObject({
+      reason: "Damaged during handling",
+      reasonCode: "damaged",
+      note: null,
+    });
+  });
+
+  it("leaves optional adjustment fields absent for legacy commands", () => {
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 12,
+    });
+    const createdState = evolveInventoryItem(initialInventoryItemState, created!);
+
+    const [adjusted] = decideInventoryItem(createdState, {
+      type: "AdjustInventoryItemQuantity",
+      quantityDelta: 1,
+      heldQuantity: 0,
+      reason: "Legacy correction",
+    });
+
+    expect(adjusted?.data).not.toHaveProperty("reasonCode");
+    expect(adjusted?.data).not.toHaveProperty("note");
+  });
+
   it("rejects adjustments below committed held quantity", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",

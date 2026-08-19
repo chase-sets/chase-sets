@@ -2250,6 +2250,15 @@ export const mcpToolCatalog = [
           type: "string",
           description: "Business reason for the stock adjustment.",
         },
+        reasonCode: {
+          type: "string",
+          description: "Typed reason for the stock adjustment.",
+          enum: ["sold-offline", "damaged", "lost", "found", "correction", "intake", "return-restocked"],
+        },
+        note: {
+          type: "string",
+          description: "Optional operator note for the stock adjustment.",
+        },
         idempotencyKey: {
           type: "string",
           description:

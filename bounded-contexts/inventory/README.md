@@ -78,6 +78,21 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 10. A recovered item can become sellable only after identity, inspection, explicit disposition authority, and every policy-required authenticity review are complete.
 11. Stock reductions that collide with active holds protect order commitments by default; only an explicit manager-or-owner Honor Offline decision may release affected order reservations.
 
+## Inventory Adjustments
+
+`inventory.item.adjusted` retains its required free-text `reason` and may also carry a typed `reasonCode` plus an optional `note`. Legacy writers that provide only `reason` remain valid. Ledger reads classify a legacy adjusted row with no stored code as `correction`; no other ledger kind receives that fallback.
+
+The producer registry is closed and owned here:
+
+- Operator adjustments choose `damaged`, `lost`, `found`, or `correction`.
+- Honor Offline reductions use `sold-offline`.
+- Listing-stock top-ups and positive additive imports use `intake`.
+- Replace imports and negative additive imports use `correction`.
+- Restocked return decisions use `return-restocked`.
+- Inventory seed corrections use `correction`.
+
+The separate Restock Decision Outcome `written-off` records the seller's decision without changing quantity, so it emits no inventory adjustment.
+
 ## Recovered Returns
 
 Inventory consumes Fulfillment's facility-intake fact and creates one deterministic, event-sourced Recovered Item per Return Shipment. Inventory owns the custody audit, duplicate correction and merge workflow, legal-owner and disposition authority evidence, operator queue, terminal disposition, and separate gross recovery and disposition-cost facts. Settlement owns the financial attribution of those value facts. The ownership and policy boundary is ratified in [ADR 0024: Recovered Return Inventory And Protection Recovery](../../docs/adr/0024-recovered-return-inventory-and-value.md).
