@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Card, Text } from "@chase-sets/design-system";
 import { OrderingOrderDetailPage } from "./order-detail-page";
 
@@ -75,7 +77,46 @@ const order = {
   },
 } as const;
 
+afterEach(cleanup);
+
+function expectSurfaceChrome(
+  root: Element | null,
+  label: string,
+  included: readonly string[],
+  excluded: readonly string[],
+) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  for (const token of included) expect(tokens.has(token), `${label} includes ${token}`).toBe(true);
+  for (const token of excluded) expect(tokens.has(token), `${label} excludes ${token}`).toBe(false);
+}
+
 describe("ordering order detail page", () => {
+  it("pins order summary, order line, and inventory hold to their ratified chrome", () => {
+    render(<OrderingOrderDetailPage role="seller" backHref="/account/sales" order={order as never} />);
+
+    expectSurfaceChrome(
+      screen.getByText("Support reference").closest(".rounded-tokenLg"),
+      "order summary",
+      ["surface-border", "ds-glass", "bg-elevated", "shadow-tokenLg", "ds-glow"],
+      ["shadow-tokenSm"],
+    );
+    const linesSection = screen.getByRole("heading", { name: "Lines" }).closest("section");
+    expectSurfaceChrome(
+      linesSection?.querySelector(".rounded-tokenLg") ?? null,
+      "order line",
+      ["border", "border-muted", "bg-elevated"],
+      ["surface-border", "ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"],
+    );
+    const holdsSection = screen.getByRole("heading", { name: "Inventory Holds" }).closest("section");
+    expectSurfaceChrome(
+      holdsSection?.querySelector(".rounded-tokenLg") ?? null,
+      "inventory hold",
+      ["bg-surface-2"],
+      ["surface-border", "ds-glass", "border", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"],
+    );
+  });
+
   it("renders an injected supplementary section without regressing payment actions", () => {
     const markup = renderToString(
       <OrderingOrderDetailPage

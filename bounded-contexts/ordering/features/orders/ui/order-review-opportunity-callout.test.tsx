@@ -1,8 +1,41 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { OrderOutcomePanel, OrderReviewOpportunityCallout } from "./order-review-opportunity-callout";
 
+afterEach(cleanup);
+
+function expectTintedCard(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "border",
+    "border-muted",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 describe("order review opportunity callout", () => {
+  it("renders review opportunity as tinted furniture", () => {
+    render(
+      <OrderReviewOpportunityCallout
+        opportunity={{ author_role: "seller", active_review_id: null }}
+        reviewHref="/account/sales/ord_1/review"
+        transactionLabel="sale"
+      />,
+    );
+
+    expectTintedCard(screen.getByText("Leave account review").closest(".rounded-tokenLg"), "review opportunity");
+  });
+
   it("renders a neutral account-review CTA for a new review", () => {
     const markup = renderToString(
       <OrderReviewOpportunityCallout
@@ -60,6 +93,21 @@ describe("order review opportunity callout", () => {
 });
 
 describe("order outcome panel", () => {
+  it("renders the order outcome as tinted furniture", () => {
+    render(
+      <OrderOutcomePanel
+        orderStatus="ready-for-fulfillment"
+        opportunity={null}
+        reviewReadStatus="ready"
+        reviewHref="/account/purchases/ord_1/review"
+        supportHref="/account/support?orderId=ord_1&amp;role=buyer"
+        transactionLabel="purchase"
+      />,
+    );
+
+    expectTintedCard(screen.getByText("Order outcome").closest(".rounded-tokenLg"), "order outcome");
+  });
+
   it("keeps issue, order, and held review facts in one role-aware surface", () => {
     const markup = renderToString(
       <OrderOutcomePanel

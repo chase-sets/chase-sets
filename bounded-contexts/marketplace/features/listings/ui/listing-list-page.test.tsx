@@ -217,6 +217,21 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("Succeeded")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
     expect(screen.getByText("Listing is withdrawn.")).toBeTruthy();
+    const root = screen.getByText("1 succeeded, 1 failed").closest(".rounded-tokenLg");
+    expect(root).not.toBeNull();
+    const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+    expect(tokens.has("bg-surface-2"), "bulk-action results include bg-surface-2").toBe(true);
+    for (const excluded of [
+      "ds-glass",
+      "border",
+      "border-muted",
+      "shadow-tokenSm",
+      "shadow-tokenLg",
+      "ds-glow",
+      "hover:border-accent",
+      "hover:shadow-tokenMd",
+    ])
+      expect(tokens.has(excluded), `bulk-action results exclude ${excluded}`).toBe(false);
   });
 
   it("captures the seller-local resume instant client-side when a return date is chosen", () => {

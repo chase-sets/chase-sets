@@ -93,7 +93,7 @@ export function MarketplaceOfferMatchListPage({
       ) : null}
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.sell.list")}>
-        <Card>
+        <Card elevation="tinted">
           <Stack gap={3}>
             <Banner
               title={t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list")}

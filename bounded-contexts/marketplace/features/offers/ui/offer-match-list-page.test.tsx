@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchListPage } from "./offer-match-list-page";
 import type { OfferMatchListItem } from "./contracts";
 
@@ -33,7 +35,21 @@ const offer: OfferMatchListItem = {
   can_fulfill: true,
 };
 
+afterEach(cleanup);
+
 describe("MarketplaceOfferMatchListPage", () => {
+  it("renders the sell-list explanation as tinted furniture", () => {
+    render(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
+
+    const sellListSection = screen.getByRole("heading", { name: "Sell List" }).closest("section");
+    const root = sellListSection?.querySelector(".rounded-tokenLg") ?? null;
+    expect(root).not.toBeNull();
+    const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+    expect(tokens.has("bg-surface-2")).toBe(true);
+    for (const excluded of ["ds-glass", "border", "border-muted", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"])
+      expect(tokens.has(excluded), `sell-list explanation excludes ${excluded}`).toBe(false);
+  });
+
   it("presents offer matches as a source list for checkout sell list review", () => {
     const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
 

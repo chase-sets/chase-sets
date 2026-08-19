@@ -113,13 +113,13 @@ export function PostagePolicyListPage({
       />
 
       {errorMessage ? (
-        <Card>
+        <Card elevation="tinted">
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
 
       <PageSection title={t("ordering.features.postagePolicies.ui.list.create.draft")}>
-        <Card>
+        <Card elevation="tinted">
           <Form spacing="none" method="post">
             <Stack gap={4}>
               <TextInput

@@ -250,7 +250,7 @@ export function OrderingOrderDetailPage({
         }
       >
         <Stack gap={4}>
-          <Surface elevated glow>
+          <Surface elevation="elevated" glow>
             <Stack gap={4}>
               <Grid columns={{ base: 1, md: 4 }} gap={3}>
                 <Stack gap={1}>
@@ -330,7 +330,7 @@ export function OrderingOrderDetailPage({
           <PageSection title={t("ordering.features.orders.ui.orderDetailPage.lines")}>
             <Stack gap={3}>
               {order.lines.map((line) => (
-                <Surface key={line.line_id} elevated>
+                <Surface key={line.line_id} elevation="outlined">
                   <Stack gap={4}>
                     {role === "buyer" && line.listing_evidence_gallery?.length ? (
                       <Stack gap={2}>
@@ -397,7 +397,7 @@ export function OrderingOrderDetailPage({
             <PageSection title={t("ordering.features.orders.ui.orderDetailPage.inventory.holds")}>
               <Stack gap={3}>
                 {order.inventory_holds.map((hold) => (
-                  <Surface key={hold.hold_id} elevated>
+                  <Surface key={hold.hold_id} elevation="tinted">
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
                         <Text weight="semibold">{t("ordering.features.orders.ui.orderDetailPage.reserved.item")}</Text>

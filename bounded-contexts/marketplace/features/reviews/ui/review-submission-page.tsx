@@ -197,7 +197,7 @@ export function ReviewSubmissionPage({
   );
 
   const interstitialPanel = (
-    <Card>
+    <Card elevation="tinted">
       <Stack gap={4}>
         <Stack gap={1}>
           <Text as="h3" weight="semibold" tabIndex={-1} ref={interstitialHeadingRef}>
@@ -337,7 +337,7 @@ export function ReviewSubmissionPage({
 
       <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}>
         {opportunity.submission_state === "held" ? (
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               <MarketplaceEmptyState
                 title={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback.on.hold.title")}
@@ -362,7 +362,7 @@ export function ReviewSubmissionPage({
             description={t("reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.description")}
           />
         ) : (
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               {errorMessage ? (
                 <MarketplaceNotice

@@ -349,7 +349,7 @@ export function MarketplaceListingListPage({
           />
 
           {bulkActionOutcomes && bulkActionOutcomes.length > 0 ? (
-            <Card>
+            <Card elevation="tinted">
               <Stack gap={2}>
                 <Text weight="semibold">
                   {t("marketplace.features.listings.ui.listingListPage.bulk.action.results", {

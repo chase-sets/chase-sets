@@ -48,7 +48,7 @@ function ConfirmedLifecycleAction({
     : t("ordering.features.postagePolicies.ui.detail.retire");
 
   return (
-    <Card>
+    <Card elevation="tinted">
       <Form ref={formRef} spacing="none" method="post">
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value={intent} readOnly />
@@ -128,13 +128,13 @@ export function PostagePolicyDetailDrawer({
     >
       <Stack gap={5}>
         {errorMessage ? (
-          <Card>
+          <Card elevation="tinted">
             <Text>{errorMessage}</Text>
           </Card>
         ) : null}
 
         <PageSection title={t("ordering.features.postagePolicies.ui.detail.state")}>
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={2}>
               <Badge tone={statusTone(policy.status)}>{policy.status}</Badge>
               <Text>{t("ordering.features.postagePolicies.ui.detail.policy.id", { policyId: policy.policy_id })}</Text>
@@ -171,7 +171,7 @@ export function PostagePolicyDetailDrawer({
           <Grid columns={{ base: 1, md: 2 }} gap={3}>
             <ConfirmedLifecycleAction policy={policy} intent="activate" />
             <ConfirmedLifecycleAction policy={policy} intent="retire" />
-            <Card>
+            <Card elevation="tinted">
               <Form spacing="none" method="post">
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="clone" readOnly />
@@ -204,7 +204,7 @@ export function PostagePolicyDetailDrawer({
         </PageSection>
 
         <PageSection title={t("ordering.features.postagePolicies.ui.detail.revise.policy")}>
-          <Card>
+          <Card elevation="tinted">
             <Form spacing="none" method="post">
               <Stack gap={4}>
                 <HiddenInput type="hidden" name="intent" value="revise" readOnly />
@@ -234,7 +234,7 @@ export function PostagePolicyDetailDrawer({
         </PageSection>
 
         <PageSection title={t("ordering.features.postagePolicies.ui.detail.preview")}>
-          <Card>
+          <Card elevation="tinted">
             <Form spacing="none" method="post">
               <Stack gap={4}>
                 <HiddenInput type="hidden" name="intent" value="preview" readOnly />
@@ -329,7 +329,7 @@ export function PostagePolicyDetailDrawer({
           </Card>
 
           {previewResult ? (
-            <Card>
+            <Card elevation="tinted">
               <Stack gap={2}>
                 <Text weight="semibold">{t("ordering.features.postagePolicies.ui.detail.preview.result")}</Text>
                 <Text>

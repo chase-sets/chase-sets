@@ -63,6 +63,21 @@ describe("TimeAwayCapacityCard states", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Schedule away window" })).toBeTruthy();
     expect(screen.getByText("No cap set — you'll accept unlimited open orders.")).toBeTruthy();
+    const root = screen.getByRole("button", { name: "Turn off listings" }).closest(".rounded-tokenLg");
+    expect(root).not.toBeNull();
+    const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+    expect(tokens.has("bg-surface-2"), "time-away capacity includes bg-surface-2").toBe(true);
+    for (const excluded of [
+      "ds-glass",
+      "border",
+      "border-muted",
+      "shadow-tokenSm",
+      "shadow-tokenLg",
+      "ds-glow",
+      "hover:border-accent",
+      "hover:shadow-tokenMd",
+    ])
+      expect(tokens.has(excluded), `time-away capacity excludes ${excluded}`).toBe(false);
   });
 
   it("populates seller-local away-window instants from the submitted date fields", () => {
