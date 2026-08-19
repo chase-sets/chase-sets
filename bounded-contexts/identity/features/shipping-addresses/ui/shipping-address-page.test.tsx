@@ -1,4 +1,6 @@
-import { renderToString } from "react-dom/server";
+// @vitest-environment jsdom
+
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ShippingAddressPage } from "./shipping-address-page";
 
@@ -8,7 +10,7 @@ function expectAutocomplete(markup: string, name: string, value: string) {
 
 describe("ShippingAddressPage", () => {
   it("renders saved addresses with default management controls", () => {
-    const markup = renderToString(
+    const { container } = render(
       <ShippingAddressPage
         addresses={[
           {
@@ -35,18 +37,19 @@ describe("ShippingAddressPage", () => {
       />,
     );
 
-    expect(markup).toContain("Shipping Addresses");
-    expect(markup).toContain("Home");
-    expect(markup).toContain("Default");
-    expect(markup).toContain("100 Market Street");
-    expect(markup).toContain("Update address");
-    expect(markup).toContain("Archive");
-    expect(markup).toContain("shadow-tokenLg");
-    expect(markup.match(/bg-surface-2/g)?.length).toBe(1);
+    expect(container.textContent).toContain("Shipping Addresses");
+    expect(container.textContent).toContain("Home");
+    expect(container.textContent).toContain("Default");
+    expect(container.textContent).toContain("100 Market Street");
+    expect(container.textContent).toContain("Update address");
+    expect(container.textContent).toContain("Archive");
+    expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.shadow-tokenLg")).toHaveLength(1);
+    expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
   });
 
   it("identifies every shipping-address field for browser autofill", () => {
-    const markup = renderToString(<ShippingAddressPage addresses={[]} />);
+    const { container } = render(<ShippingAddressPage addresses={[]} />);
+    const markup = container.innerHTML;
 
     for (const [name, autocomplete] of [
       ["name", "name"],
@@ -62,7 +65,7 @@ describe("ShippingAddressPage", () => {
     ] as const) {
       expectAutocomplete(markup, name, autocomplete);
     }
-    expect(markup).toContain("bg-surface-2");
+    expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
     expect(markup).not.toContain('elevated="true"');
   });
 });

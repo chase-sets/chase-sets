@@ -116,7 +116,7 @@ function elevationCounts(container: HTMLElement) {
   const cards = cardRoots(container);
   return {
     cards,
-    elevated: cards.filter((card) => card.classList.contains("shadow-tokenLg")).length,
+    elevated: cards.filter((card) => card.classList.contains("shadow-tokenSm")).length,
     tinted: cards.filter((card) => card.classList.contains("bg-surface-2")).length,
   };
 }
