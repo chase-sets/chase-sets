@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,34 +9,10 @@ import {
   typeScriptOwnerContextPartitionPath,
   typeScriptOwnerContextSchemaPath,
 } from "./typescript-owner-context-derivation.mjs";
-import { validateAgainstSchema } from "./identity-creation-path-registry.mjs";
 import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 import { repoRoot } from "../lib/repo.mjs";
 
-globalThis.__CHASE_SETS_CONSENT_AUTHORIZATION_RECEIPT_VERIFIER__ = true;
-let evidence;
-try {
-  evidence = await import("./consent-authorization-mutation-evidence.mjs?lockfile-bound-regenerator");
-} finally {
-  delete globalThis.__CHASE_SETS_CONSENT_AUTHORIZATION_RECEIPT_VERIFIER__;
-}
-
-const {
-  buildConsentAuthorizationEvidenceReceipt,
-  deriveConsentAuthorizationEvidenceInventory,
-  verifyConsentAuthorizationEvidenceReceipt,
-} = evidence;
-
-export const consentAuthorizationEvidenceReceiptPath =
-  "scripts/check-structure/consent-authorization-evidence-receipt.json";
-const consentAuthorizationEvidenceReceiptSchemaPath =
-  "scripts/check-structure/consent-authorization-evidence-receipt.schema.json";
-const consentAuthorizationCaseEnumerationPath = "scripts/check-structure/consent-authorization-case-enumeration.json";
-
-export const lockfileBoundArtifactPaths = Object.freeze([
-  typeScriptOwnerContextArtifactPath,
-  consentAuthorizationEvidenceReceiptPath,
-]);
+export const lockfileBoundArtifactPaths = Object.freeze([typeScriptOwnerContextArtifactPath]);
 
 export const regenerateLockfileBoundArtifactFailureCodes = Object.freeze({
   semanticMovement: "lockfile-bound-artifact-semantic-movement-refused",
@@ -56,10 +31,6 @@ export class RegenerateLockfileBoundArtifactsError extends Error {
     this.exitCode = exitCode;
     this.details = details;
   }
-}
-
-export function stableLfJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 function collectScalarChanges(committed, derived, segments = [], changes = new Map()) {
@@ -179,19 +150,6 @@ function parseJson(bytes) {
   return JSON.parse(Buffer.from(bytes).toString("utf8"));
 }
 
-function committedCaseInputs(receipt) {
-  return receipt.digestBound.cases.map(({ caseId, evidence: caseEvidence }) => ({
-    caseId,
-    candidateSubrun: caseEvidence.candidate,
-    mutantSubrun: caseEvidence.mutant,
-    expected: caseEvidence.expected,
-    firstFailingClauseId: caseEvidence.firstFailingClauseId,
-    mutationActive: caseEvidence.mutationStatus === "active",
-    noEarlierClause: caseEvidence.noEarlierClauseStatus === "proven",
-    preservedVariableHashes: { candidate: {}, mutant: {} },
-  }));
-}
-
 function defaultReadBytes(rootDir, relativePath) {
   return readFileSync(path.join(rootDir, relativePath));
 }
@@ -200,20 +158,11 @@ function defaultWriteBytes(rootDir, relativePath, bytes) {
   writeFileSync(path.join(rootDir, relativePath), bytes);
 }
 
-function defaultGitLsFiles(rootDir) {
-  return execFileSync("git", ["ls-files", "-z"], {
-    cwd: rootDir,
-    encoding: "buffer",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
 export async function buildLockfileBoundArtifactRegeneration({
   rootDir = repoRoot,
   lockfilePath = path.join(rootDir, "pnpm-lock.yaml"),
   deriveArtifact = deriveTypeScriptOwnerContexts,
   readBytes = (relativePath) => defaultReadBytes(rootDir, relativePath),
-  execGitLsFiles = () => defaultGitLsFiles(rootDir),
 } = {}) {
   const committedOwnerBytes = Buffer.from(readBytes(typeScriptOwnerContextArtifactPath));
   const committedOwnerArtifact = parseJson(committedOwnerBytes);
@@ -248,34 +197,6 @@ export async function buildLockfileBoundArtifactRegeneration({
   }
 
   const ownerBytes = formatOwnerContextArtifactBytes(committedOwnerBytes, committedOwnerArtifact, ownerArtifact);
-  const stagedReadBytes = (relativePath) =>
-    relativePath === typeScriptOwnerContextArtifactPath ? ownerBytes : readBytes(relativePath);
-  const inventoryResult = deriveConsentAuthorizationEvidenceInventory({
-    rootDir,
-    readBytes: stagedReadBytes,
-    execGitLsFiles,
-  });
-  const committedReceiptBytes = Buffer.from(readBytes(consentAuthorizationEvidenceReceiptPath));
-  const committedReceipt = parseJson(committedReceiptBytes);
-  const receipt = buildConsentAuthorizationEvidenceReceipt({
-    aggregate: {
-      counts: committedReceipt.digestBound.aggregate.counts,
-      reconciliation: committedReceipt.digestBound.aggregate.reconciliation,
-      valid: true,
-    },
-    receipts: committedCaseInputs(committedReceipt),
-    inventoryResult,
-    floatingProvenance: committedReceipt.floatingProvenance,
-    previousReceipt: committedReceipt,
-  });
-  const receiptSchema = parseJson(readBytes(consentAuthorizationEvidenceReceiptSchemaPath));
-  const enumeration = parseJson(readBytes(consentAuthorizationCaseEnumerationPath));
-  verifyConsentAuthorizationEvidenceReceipt(receipt, enumeration, receiptSchema, validateAgainstSchema, {
-    rootDir,
-    readBytes: stagedReadBytes,
-    execGitLsFiles,
-  });
-  const receiptBytes = stableLfJsonBytes(receipt);
 
   return {
     movedOwnerLeaves,
@@ -284,11 +205,6 @@ export async function buildLockfileBoundArtifactRegeneration({
         path: typeScriptOwnerContextArtifactPath,
         status: ownerBytes.equals(committedOwnerBytes) ? "unchanged" : "regenerated",
         bytes: ownerBytes,
-      },
-      {
-        path: consentAuthorizationEvidenceReceiptPath,
-        status: receiptBytes.equals(committedReceiptBytes) ? "unchanged" : "regenerated",
-        bytes: receiptBytes,
       },
     ],
   };

@@ -14,18 +14,10 @@ export let collectCommitShaLiteralEqualities;
 export let collectAnalyzerExpectationOrigins;
 
 const evidenceModulePath = "scripts/check-structure/consent-authorization-mutation-evidence.mjs";
-const evidenceReceiptPath = "scripts/check-structure/consent-authorization-evidence-receipt.json";
-const evidenceReceiptSchemaPath = "scripts/check-structure/consent-authorization-evidence-receipt.schema.json";
 const evidenceAnalyzerPath = "scripts/check-structure/consent-authorization-sites.mjs";
 const evidenceCompilerShimRoot = "packages/typescript-compiler-api";
-const evidenceVerifierOnly =
-  new URL(import.meta.url).searchParams.has("receipt-verifier") ||
-  globalThis.__CHASE_SETS_CONSENT_AUTHORIZATION_RECEIPT_VERIFIER__ === true;
 
 export const consentAuthorizationEvidenceFailureCodes = Object.freeze({
-  stale: "consent-authorization-evidence-receipt-stale",
-  malformed: "consent-authorization-evidence-receipt-malformed",
-  tampered: "consent-authorization-evidence-receipt-tampered",
   enumeration: "consent-authorization-evidence-enumeration-mismatch",
   inventory: "consent-authorization-evidence-inventory-mismatch",
 });
@@ -35,6 +27,17 @@ export const consentAuthorizationEvidenceWorkUnitCeilings = Object.freeze({
   compilerSurfaceSourceParses: 7,
   trackedFilesDigested: 111,
 });
+
+export function collectConsentAuthorizationEvidenceWorkUnitViolations(
+  workUnits,
+  ceilings = consentAuthorizationEvidenceWorkUnitCeilings,
+) {
+  return Object.entries(ceilings).flatMap(([counter, ceiling]) =>
+    Number.isInteger(workUnits[counter]) && workUnits[counter] <= ceiling
+      ? []
+      : [`${counter}: observed ${String(workUnits[counter])} exceeds ceiling ${ceiling}`],
+  );
+}
 
 export class ConsentAuthorizationEvidenceError extends Error {
   constructor(code, message, details = {}) {
@@ -248,16 +251,12 @@ export function deriveConsentAuthorizationEvidenceInventory({
   const declaredFootprint = new Set(
     [...trackedFiles].filter(
       (entry) =>
-        entry !== evidenceReceiptPath &&
-        entry !== evidenceReceiptSchemaPath &&
         entry !== "scripts/check-structure/consent-authorization-sites.test.mjs" &&
-        entry !== "scripts/check-structure/consent-authorization-evidence-receipt.test.mjs" &&
         (entry.startsWith(`${evidenceCompilerShimRoot}/`) ||
           isDeclaredConsentAuthorizationFootprint(entry, dataInputPaths)),
     ),
   );
   const derivedPaths = new Set([...importClosure, ...dataInputPaths, ...compilerShimFiles, ...declaredFootprint]);
-  derivedPaths.delete(evidenceReceiptPath);
   if (controls.suppressExportedRoot) {
     for (const relativePath of [...derivedPaths]) {
       if (relativePath.startsWith(`${controls.suppressExportedRoot}/`)) derivedPaths.delete(relativePath);
@@ -309,187 +308,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
   };
 }
 
-function compactExecutedCaseReceipt(receipt) {
-  const evidence = {
-    candidate: {
-      exitCode: receipt.candidateSubrun.exitCode,
-      result: receipt.candidateSubrun.result,
-      stdoutSha256: receipt.candidateSubrun.stdoutSha256,
-      stderrSha256: receipt.candidateSubrun.stderrSha256,
-    },
-    expected: {
-      ...receipt.expected,
-      owner: receipt.expected.owner ?? "not-applicable",
-    },
-    firstFailingClauseId: receipt.firstFailingClauseId,
-    mutant: {
-      exitCode: receipt.mutantSubrun.exitCode,
-      result: receipt.mutantSubrun.result,
-      stdoutSha256: receipt.mutantSubrun.stdoutSha256,
-      stderrSha256: receipt.mutantSubrun.stderrSha256,
-    },
-    mutationStatus: receipt.mutationActive ? "active" : "inactive",
-    noEarlierClauseStatus: receipt.noEarlierClause ? "proven" : "unproven",
-    preservedStatus:
-      canonicalConsentAuthorizationEvidence(receipt.preservedVariableHashes.candidate) ===
-      canonicalConsentAuthorizationEvidence(receipt.preservedVariableHashes.mutant)
-        ? "preserved"
-        : "changed",
-  };
-  return {
-    caseId: receipt.caseId,
-    evidence,
-    evidenceSha256: evidenceSha256(canonicalConsentAuthorizationEvidence(evidence)),
-  };
-}
-
-export function buildConsentAuthorizationEvidenceReceipt({
-  aggregate,
-  receipts,
-  inventoryResult,
-  floatingProvenance,
-  previousReceipt = null,
-}) {
-  const cases = receipts
-    .map(compactExecutedCaseReceipt)
-    .toSorted((left, right) => left.caseId.localeCompare(right.caseId));
-  const digestBound = {
-    aggregate: {
-      counts: aggregate.counts,
-      reconciliation: aggregate.reconciliation,
-      validStatus: aggregate.valid ? "valid" : "invalid",
-    },
-    cases,
-    governingInputs: {
-      inventory: inventoryResult.inventory,
-      inventorySha256: inventoryResult.inventorySha256,
-    },
-    workUnits: inventoryResult.workUnits,
-  };
-  const previousDigest = previousReceipt?.digestBound
-    ? evidenceSha256(canonicalConsentAuthorizationEvidence(previousReceipt.digestBound))
-    : null;
-  const nextDigest = evidenceSha256(canonicalConsentAuthorizationEvidence(digestBound));
-  const preserveFloating =
-    previousDigest === nextDigest &&
-    previousReceipt?.floatingProvenance?.generationHead === floatingProvenance.generationHead;
-  return {
-    contractVersion: "consent-authorization-evidence-receipt/v1",
-    digestBound,
-    floatingProvenance: preserveFloating ? previousReceipt.floatingProvenance : floatingProvenance,
-  };
-}
-
-function evidenceCaseCounts(cases) {
-  return {
-    total: cases.length,
-    candidateGreen: cases.filter(
-      ({ evidence }) => evidence.candidate.exitCode === 0 && evidence.candidate.result === "pass",
-    ).length,
-    mutantRed: cases.filter(({ evidence }) => evidence.mutant.exitCode > 0 && evidence.mutant.result === "fail").length,
-    active: cases.filter(({ evidence }) => evidence.mutationStatus === "active").length,
-    preserved: cases.filter(({ evidence }) => evidence.preservedStatus === "preserved").length,
-  };
-}
-
-export function verifyConsentAuthorizationEvidenceReceipt(
-  receipt,
-  enumeration,
-  schema,
-  validateSchema,
-  derivationOptions = {},
-) {
-  let schemaViolations;
-  try {
-    schemaViolations = validateSchema(receipt, schema);
-  } catch (error) {
-    throwEvidence(consentAuthorizationEvidenceFailureCodes.malformed, "receipt schema validation failed", {
-      cause: error?.message ?? String(error),
-    });
-  }
-  if (schemaViolations.length > 0) {
-    throwEvidence(
-      consentAuthorizationEvidenceFailureCodes.malformed,
-      "receipt violates its recursively closed schema",
-      {
-        schemaViolations,
-      },
-    );
-  }
-
-  const cases = receipt.digestBound.cases;
-  const caseIds = cases.map(({ caseId }) => caseId);
-  const uniqueCaseIds = new Set(caseIds);
-  const recomputedCounts = evidenceCaseCounts(cases);
-  const caseBindingsMatch = cases.every(
-    ({ evidence, evidenceSha256: committedSha256 }) =>
-      evidenceSha256(canonicalConsentAuthorizationEvidence(evidence)) === committedSha256,
-  );
-  if (
-    uniqueCaseIds.size !== caseIds.length ||
-    canonicalConsentAuthorizationEvidence(recomputedCounts) !==
-      canonicalConsentAuthorizationEvidence(receipt.digestBound.aggregate.counts) ||
-    !caseBindingsMatch ||
-    receipt.digestBound.aggregate.validStatus !== "valid"
-  ) {
-    throwEvidence(consentAuthorizationEvidenceFailureCodes.tampered, "receipt aggregate is internally inconsistent");
-  }
-
-  const committedEnumeration = [...enumeration.cases].toSorted();
-  const expectedReconciliation = Object.fromEntries(
-    ["salvageHeadTotal", "retiredTotal", "carriedTotal", "addedTotal", "total"].map((key) => [
-      key,
-      enumeration.reconciliation[key],
-    ]),
-  );
-  if (
-    canonicalConsentAuthorizationEvidence([...caseIds].toSorted()) !==
-      canonicalConsentAuthorizationEvidence(committedEnumeration) ||
-    canonicalConsentAuthorizationEvidence(receipt.digestBound.aggregate.reconciliation) !==
-      canonicalConsentAuthorizationEvidence(expectedReconciliation)
-  ) {
-    throwEvidence(
-      consentAuthorizationEvidenceFailureCodes.enumeration,
-      "receipt case set differs from committed enumeration",
-      {
-        receiptCaseIds: [...caseIds].toSorted(),
-        committedEnumeration,
-      },
-    );
-  }
-
-  let live;
-  try {
-    live = deriveConsentAuthorizationEvidenceInventory(derivationOptions);
-  } catch (error) {
-    if (error instanceof ConsentAuthorizationEvidenceError) throw error;
-    throwEvidence(consentAuthorizationEvidenceFailureCodes.inventory, "live inventory derivation failed", {
-      cause: error?.message ?? String(error),
-    });
-  }
-  const committedInputs = receipt.digestBound.governingInputs;
-  if (
-    committedInputs.inventorySha256 !== live.inventorySha256 ||
-    canonicalConsentAuthorizationEvidence(committedInputs.inventory) !==
-      canonicalConsentAuthorizationEvidence(live.inventory) ||
-    canonicalConsentAuthorizationEvidence(receipt.digestBound.workUnits) !==
-      canonicalConsentAuthorizationEvidence(live.workUnits)
-  ) {
-    throwEvidence(
-      consentAuthorizationEvidenceFailureCodes.stale,
-      "receipt does not match the live governing-input bytes",
-      {
-        committedInventorySha256: committedInputs.inventorySha256,
-        liveInventorySha256: live.inventorySha256,
-        committedWorkUnits: receipt.digestBound.workUnits,
-        liveWorkUnits: live.workUnits,
-      },
-    );
-  }
-  return live;
-}
-
-if (!evidenceVerifierOnly) {
+{
   const {
     ConsentAuthorizationGuardError,
     analyzeConsentAuthorizationSites,
@@ -3202,12 +3021,15 @@ process.exitCode = acceptancePassed ? 0 : 1;
     };
   }
 
-  executeConsentAuthorizationMutationEvidence = async function executeConsentAuthorizationMutationEvidence({
-    receiptDir = null,
-    emitReceipt = false,
-  } = {}) {
+  executeConsentAuthorizationMutationEvidence = async function executeConsentAuthorizationMutationEvidence() {
     const receipts = await Promise.all(mutationEvidenceCases.map(generateReceipt));
     const aggregate = buildMutationAggregate(receipts);
+    const inventoryResult = deriveConsentAuthorizationEvidenceInventory({ rootDir: repoRoot });
+    const workUnitViolations = collectConsentAuthorizationEvidenceWorkUnitViolations(inventoryResult.workUnits);
+    assertOfflineEvidence(
+      workUnitViolations.length === 0,
+      `governing-input work-unit ceiling: ${workUnitViolations.join("; ")}`,
+    );
     const schemaViolations = validateAgainstSchema(aggregate, aggregateSchema);
     assertOfflineEvidence(schemaViolations.length === 0, `aggregate schema: ${schemaViolations.join("; ")}`);
     const aggregateViolations = collectMutationAggregateViolations(aggregate, enumeration, {
@@ -3257,81 +3079,13 @@ process.exitCode = acceptancePassed ? 0 : 1;
       "an active case is also retired",
     );
 
-    if (receiptDir !== null) {
-      mkdirSync(receiptDir, { recursive: true });
-      for (const receipt of receipts) {
-        writeFileSync(path.join(receiptDir, `${receipt.caseId}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
-      }
-      writeFileSync(path.join(receiptDir, "mutation-aggregate.json"), `${JSON.stringify(aggregate, null, 2)}\n`);
-    }
-    let evidenceReceipt = null;
-    if (emitReceipt) {
-      const inventoryResult = deriveConsentAuthorizationEvidenceInventory({ rootDir: repoRoot });
-      let previousReceipt = null;
-      try {
-        previousReceipt = JSON.parse(repoFile(evidenceReceiptPath));
-      } catch (error) {
-        if (error?.code !== "ENOENT") throw error;
-      }
-      const roleRecord = Object.fromEntries(
-        Object.entries(realTreeResult.provenance.roles).map(([role, value]) => [
-          role,
-          { sha: value.sha === null ? "absent" : `git:${value.sha}`, source: value.source },
-        ]),
-      );
-      const startedAt = receipts.map(({ timestamps }) => timestamps.startedAt).toSorted()[0];
-      const finishedAt = receipts
-        .map(({ timestamps }) => timestamps.finishedAt)
-        .toSorted()
-        .at(-1);
-      const scratchCommands = receipts
-        .map(({ executedGuard }) => executedGuard?.command)
-        .filter(Boolean)
-        .map((command) => evidenceSha256(canonicalConsentAuthorizationEvidence(command)))
-        .toSorted();
-      evidenceReceipt = buildConsentAuthorizationEvidenceReceipt({
-        aggregate,
-        receipts,
-        inventoryResult,
-        floatingProvenance: {
-          environment: realTreeResult.environment,
-          generationHead: `git:${execFileSync("git", ["rev-parse", "HEAD"], {
-            cwd: repoRoot,
-            encoding: "utf8",
-          }).trim()}`,
-          generatedAt: startedAt,
-          completedAt: finishedAt,
-          roles: roleRecord,
-          scratchCommandSha256: evidenceSha256(canonicalConsentAuthorizationEvidence(scratchCommands)),
-          typescriptVersion: ts.version,
-        },
-        previousReceipt,
-      });
-      const evidenceReceiptSchema = readJsonFixture(evidenceReceiptSchemaPath);
-      const evidenceSchemaViolations = validateAgainstSchema(evidenceReceipt, evidenceReceiptSchema);
-      assertOfflineEvidence(
-        evidenceSchemaViolations.length === 0,
-        `evidence receipt schema: ${evidenceSchemaViolations.join("; ")}`,
-      );
-      verifyConsentAuthorizationEvidenceReceipt(
-        evidenceReceipt,
-        enumeration,
-        evidenceReceiptSchema,
-        validateAgainstSchema,
-        { rootDir: repoRoot },
-      );
-      writeFileSync(path.join(repoRoot, evidenceReceiptPath), `${JSON.stringify(evidenceReceipt, null, 2)}\n`);
-    }
-    return { receipts, aggregate, evidenceReceipt };
+    return { receipts, aggregate, inventoryResult };
   };
 
   function commandLineOptions(argv) {
-    const options = { execute: false, emitReceipt: false, receiptDir: null };
-    for (let index = 0; index < argv.length; index += 1) {
-      const argument = argv[index];
+    const options = { execute: false };
+    for (const argument of argv) {
       if (argument === "--execute") options.execute = true;
-      else if (argument === "--emit-receipt") options.emitReceipt = true;
-      else if (argument === "--receipt-dir") options.receiptDir = argv[++index] ?? null;
       else throw new Error(`unknown argument: ${argument}`);
     }
     return options;
@@ -3340,12 +3094,12 @@ process.exitCode = acceptancePassed ? 0 : 1;
   async function main() {
     const options = commandLineOptions(process.argv.slice(2));
     if (!options.execute) throw new Error("offline mutation evidence requires --execute");
-    const { receipts, aggregate } = await executeConsentAuthorizationMutationEvidence({
-      receiptDir: options.receiptDir,
-      emitReceipt: options.emitReceipt,
-    });
+    const { receipts, aggregate, inventoryResult } = await executeConsentAuthorizationMutationEvidence();
     for (const receipt of receipts) process.stdout.write(`${JSON.stringify(receipt)}\n`);
     process.stdout.write(`${JSON.stringify(aggregate)}\n`);
+    process.stdout.write(
+      `consent-authorization-evidence-work-units=${JSON.stringify({ observed: inventoryResult.workUnits, ceilings: consentAuthorizationEvidenceWorkUnitCeilings })}\n`,
+    );
   }
 
   if (import.meta.url === pathToFileURL(process.argv[1]).href) {
