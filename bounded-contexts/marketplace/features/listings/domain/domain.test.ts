@@ -181,44 +181,49 @@ describe("marketplace listing no-op suppression", () => {
       expect(listing.quantityCap).toBe(3);
     });
 
-    it("allows price edits while preserving fee-lock tranches", () => {
-      const listing = createdListing();
-      const requoted = feeLock({
-        marketplaceSalesFeeUnitAmount: "1.25",
-        sellerNetUnitAmount: "23.75",
-        feeQuoteFingerprint: "fee_requoted",
-      });
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "25.00",
-        feeLocks: [requoted],
-      });
-
-      expect(events).toEqual([
-        expect.objectContaining({
-          type: "marketplace.listing.price-updated",
-          data: expect.objectContaining({ feeLocks: [requoted], termsScheduleId: "cts_standard" }),
+    it.each([
+      {
+        name: "accepts a requote that changes only price-dependent amounts and the fingerprint",
+        requoted: feeLock({
+          marketplaceSalesFeeUnitAmount: "1.25",
+          sellerNetUnitAmount: "23.75",
+          feeQuoteFingerprint: "fee_requoted",
         }),
-      ]);
-    });
-
-    it("allows a terms session to refresh every preserved tranche during a price edit", () => {
+        accepted: true,
+      },
+      {
+        name: "rejects a price edit that substitutes only the terms schedule",
+        requoted: feeLock({ terms: { ...feeLock().terms, termsScheduleId: "cts_current" } }),
+        accepted: false,
+      },
+      {
+        name: "rejects a price edit that substitutes only the fee percentage",
+        requoted: feeLock({ terms: { ...feeLock().terms, marketplaceSalesFeePercentageBps: 900 } }),
+        accepted: false,
+      },
+      {
+        name: "rejects a price edit that substitutes only the terms agreement",
+        requoted: feeLock({ terms: { ...feeLock().terms, termsAgreementId: "agr_current" } }),
+        accepted: false,
+      },
+    ])("$name", ({ requoted, accepted }) => {
       const listing = createdListing();
-      const changedTerms = feeLock({
-        terms: { ...feeLock().terms, marketplaceSalesFeePercentageBps: 900, termsScheduleId: "cts_current" },
-      });
-
-      expect(
+      const decide = () =>
         decideMarketplaceListing(listing, {
           type: "UpdateListingPrice",
           priceAmount: "25.00",
-          feeLocks: [changedTerms],
-        }),
-      ).toEqual([
+          feeLocks: [requoted],
+        });
+
+      if (!accepted) {
+        expect(decide).toThrow("Price edits cannot replace fee-lock tranche terms.");
+        return;
+      }
+
+      expect(decide()).toEqual([
         expect.objectContaining({
           type: "marketplace.listing.price-updated",
-          data: expect.objectContaining({ termsScheduleId: "cts_current", feeLocks: [changedTerms] }),
+          data: expect.objectContaining({ feeLocks: [requoted], termsScheduleId: "cts_standard" }),
         }),
       ]);
     });

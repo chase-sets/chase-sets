@@ -287,8 +287,10 @@ export interface MarketplaceListingTermsPreview {
  * throughput lane. `feeQuoteFingerprint` is optional: a human-confirmed
  * price supplies it and gets the same
  * staleness protection as `updateListingPrice`; a bulk/system caller (e.g.
- * `pricing`'s `applyRecommendations`) omits it and applies at the
- * freshly-resolved per-account terms session with nothing to confirm.
+ * `pricing`'s `applyRecommendations`) omits it with nothing to confirm.
+ * In both cases, every pre-existing fee-lock tranche is requoted from that
+ * tranche's own stored terms; only a supplied fingerprint is matched against
+ * the freshly-resolved quote for the account.
  */
 export interface MarketplaceBulkListingPriceUpdateInput {
   listingId: string;
