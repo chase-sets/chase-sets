@@ -13,16 +13,19 @@ const candidateHookUrl = pathToFileURL(
   path.join(repositoryRoot, "infrastructure/platform-runtime/typescript-resolver.mjs"),
 ).href;
 const expectedCallers = Object.freeze([
-  ["scripts/discovery-search-embedding-backfill.mjs", "source", 97, 177],
+  ["scripts/generate-agent-connector-packaging.mjs", "extension", 146, 286],
+  ["scripts/representative-snapshot.mjs", "extension", 395, 1545],
+  ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 160, 374],
+  ["scripts/run-catalog-production-completion-report.mjs", "extension", 8, 12],
+  ["scripts/run-catalog-real-provider-proof.mjs", "extension", 191, 493],
+  ["scripts/verify-observation-pack.mjs", "extension", 392, 1535],
+  ["scripts/discovery-search-embedding-backfill.mjs", "source", 110, 209],
   ["scripts/discovery-search-relevance-embeddings.mjs", "source", 2, 1],
   ["scripts/discovery-search-relevance.mjs", "source", 12, 14],
-  ["scripts/generate-agent-connector-packaging.mjs", "extension", 146, 284],
-  ["scripts/representative-snapshot.mjs", "extension", 395, 1544],
-  ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 160, 373],
-  ["scripts/run-catalog-production-completion-report.mjs", "extension", 8, 12],
-  ["scripts/run-catalog-real-provider-proof.mjs", "extension", 191, 492],
-  ["scripts/verify-observation-pack.mjs", "extension", 392, 1534],
 ]);
+const byteIdenticalCallers = expectedCallers.filter(
+  ([caller]) => caller !== "scripts/discovery-search-embedding-backfill.mjs",
+);
 const PINNED_EXTENSION_LOADER_SOURCE = `import { extname } from "node:path";
 export async function resolve(specifier, context, nextResolve) {
   try { return await nextResolve(specifier, context); } catch (error) {
@@ -118,7 +121,7 @@ beforeAll(async () => {
   porcelainBefore = gitPorcelain();
   expect(porcelainBefore).toBe("");
   const discovered = await discoverDirectCallers();
-  expect(discovered).toEqual(expectedCallers.map(([file]) => file));
+  expect(discovered).toEqual(expectedCallers.map(([file]) => file).sort());
   harness = await createHarness();
 });
 
@@ -181,7 +184,7 @@ describe("TypeScript resolver caller parity", () => {
     expect(await readFile(fixture.staticSentinel, "utf8")).toBe("SENTINEL-7043-STATIC-IMPORT-EXECUTED");
   });
 
-  it.each(expectedCallers)(
+  it.each(byteIdenticalCallers)(
     "keeps the %s transitive resolved-URL map byte-identical",
     async (caller, predecessor, expectedModules, expectedEdges) => {
       const [before, after] = await Promise.all([
@@ -195,6 +198,54 @@ describe("TypeScript resolver caller parity", () => {
       expect(after.edges, `${caller} edge count`).toHaveLength(expectedEdges);
     },
   );
+
+  it("widens only the backfill closure from the source-only negative control", async () => {
+    const caller = path.join(repositoryRoot, "scripts/discovery-search-embedding-backfill.mjs");
+    const [sourceOnly, union] = await Promise.all([
+      walkClosure(harness.predecessorShims.source, caller),
+      walkClosure(harness.candidateShim, caller),
+    ]);
+    const sourceEdges = new Map(sourceOnly.edges.map((edge) => [edgeKey(edge), edge]));
+    const unionEdges = new Map(union.edges.map((edge) => [edgeKey(edge), edge]));
+    const changedEdges = [...sourceEdges]
+      .filter(([key, edge]) => unionEdges.has(key) && !sameEdge(edge, unionEdges.get(key)))
+      .map(([key]) => key)
+      .sort();
+    const gainedEdges = [...unionEdges.keys()].filter((key) => !sourceEdges.has(key));
+    const lostEdges = [...sourceEdges.keys()].filter((key) => !unionEdges.has(key));
+    const gainedModules = union.modules.length - sourceOnly.modules.length;
+    const changedSpecifierEdges = [
+      "contracts/event-core/index.ts|./public-event-payloads",
+      "contracts/event-core/test-support.ts|./public-event-payloads",
+    ];
+    const absentSiblingUrl = pathToFileURL(
+      path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"),
+    ).href;
+    const directoryIndexUrl = pathToFileURL(
+      path.join(repositoryRoot, "contracts/event-core/public-event-payloads/index.ts"),
+    ).href;
+
+    expect(sourceOnly.errors, "source-only errors").toEqual([]);
+    expect(union.errors, "union errors").toEqual([]);
+    expect(sourceOnly.modules, "source-only module count").toHaveLength(97);
+    expect(sourceOnly.edges, "source-only edge count").toHaveLength(177);
+    expect(union.modules, "union module count").toHaveLength(110);
+    expect(union.edges, "union edge count").toHaveLength(209);
+    expect(JSON.stringify(union), "source-only equality must stay red").not.toBe(
+      JSON.stringify(sourceOnly),
+    );
+    expect(changedEdges).toEqual(changedSpecifierEdges);
+    expect(gainedEdges).toHaveLength(32);
+    expect(gainedModules).toBe(13);
+    expect(lostEdges).toEqual([]);
+    for (const key of changedSpecifierEdges) {
+      expect(sourceEdges.get(key)?.resolved, `${key} source-only target`).toBe(absentSiblingUrl);
+      expect(unionEdges.get(key)?.resolved, `${key} union target`).toBe(directoryIndexUrl);
+    }
+    expect(await exists(path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"))).toBe(
+      false,
+    );
+  });
 
   it("retains the extension-loader failure identity and leaves the exact-head worktree clean", async () => {
     const missingRoot = path.join(harness.root, "missing");
@@ -341,4 +392,12 @@ function gitPorcelain() {
     cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
+}
+
+function edgeKey(edge) {
+  return `${edge.from}|${edge.specifier}`;
+}
+
+function sameEdge(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
