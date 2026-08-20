@@ -12,6 +12,11 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
+import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
+import {
+  openMarketplaceListingTermsSession,
+  requoteMarketplaceListingFeeLock,
+} from "../../../support/runtime-support/fee-quotes";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -1405,6 +1410,87 @@ describe("marketplace listing runtime", () => {
   });
 
   describe("applyBulkListingPriceUpdates (#4326 chunked multi-listing appends)", () => {
+    const syntheticFounderTerms = {
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      marketplaceSalesFeeCapAmount: null,
+      shippingAllowancePercentageBps: 500,
+      termsScheduleId: "cts_founders_zero",
+      termsAgreementId: "agr_founders",
+      termsResolvedAt: "2026-07-01T00:00:00.000Z",
+    } as const satisfies MarketplaceListingFeeTermsSnapshot;
+
+    const nonzeroCurrentTerms = {
+      marketplaceSalesFeePercentageBps: 900,
+      marketplaceSalesFeeFixedAmount: "0.50",
+      marketplaceSalesFeeCapAmount: "10.00",
+      shippingAllowancePercentageBps: 500,
+      termsScheduleId: "cts_current_nonzero",
+      termsAgreementId: null,
+      termsResolvedAt: "2026-08-01T00:00:00.000Z",
+    } as const satisfies MarketplaceListingFeeTermsSnapshot;
+
+    function resolvedTerms(accountId: string, amount: string, terms: MarketplaceListingFeeTermsSnapshot) {
+      const lock = requoteMarketplaceListingFeeLock(
+        {
+          unitCount: 1,
+          terms,
+          marketplaceSalesFeeUnitAmount: "0.00",
+          sellerNetUnitAmount: "0.00",
+          feeQuoteFingerprint: "synthetic-before-requote",
+        },
+        amount,
+      );
+      return {
+        accountId,
+        accountType: "business" as const,
+        basisAmount: amount,
+        marketplaceSalesFeeUnitAmount: lock.marketplaceSalesFeeUnitAmount,
+        sellerNetUnitAmount: lock.sellerNetUnitAmount,
+        marketplaceSalesFeePercentageBps: terms.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: terms.marketplaceSalesFeeFixedAmount,
+        marketplaceSalesFeeCapAmount: terms.marketplaceSalesFeeCapAmount,
+        shippingAllowancePercentageBps: terms.shippingAllowancePercentageBps,
+        scheduleId: terms.termsScheduleId,
+        agreementId: terms.termsAgreementId,
+        resolvedAt: terms.termsResolvedAt,
+      };
+    }
+
+    function mutableBulkTermsResolver(initialTerms: MarketplaceListingFeeTermsSnapshot) {
+      let currentTerms = initialTerms;
+      return {
+        useTerms(terms: MarketplaceListingFeeTermsSnapshot) {
+          currentTerms = terms;
+        },
+        resolveListingTerms: vi.fn(async ({ amount, accountId }: { amount: string; accountId: string }) =>
+          resolvedTerms(accountId, amount, currentTerms),
+        ),
+        openListingTermsSession: vi.fn(async ({ accountId }: { accountId: string }) => {
+          const sessionTerms = currentTerms;
+          return {
+            accountId,
+            accountType: "business" as const,
+            scheduleId: sessionTerms.termsScheduleId,
+            agreementId: sessionTerms.termsAgreementId,
+            resolvedAt: sessionTerms.termsResolvedAt,
+            quote: (amount: string) => resolvedTerms(accountId, amount, sessionTerms),
+          };
+        }),
+      };
+    }
+
+    async function readPriceUpdatedPayload(eventStore: EventStore, listingId: string) {
+      const events = await eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+      const event = events.filter((candidate) => candidate.eventType === "marketplace.listing.price-updated").at(-1);
+      expect(event).toBeDefined();
+      return event!.payload as {
+        feeLocks: readonly MarketplaceListingFeeLock[];
+        feeQuoteFingerprint: string;
+        termsScheduleId: string | null;
+      };
+    }
+
     function bulkListingsDb() {
       return {
         query: vi.fn(async (sql: string) => {
@@ -1468,6 +1554,211 @@ describe("marketplace listing runtime", () => {
         })),
       };
     }
+
+    it("preserves a synthetic 0% founder tranche's seven stored terms while changing its price fingerprint", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = mutableBulkTermsResolver(syntheticFounderTerms);
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_founder_preserved" as never,
+        },
+        context,
+      );
+      const created = await services.loadListingState("lst_founder_preserved");
+      termsResolver.useTerms(nonzeroCurrentTerms);
+
+      await expect(
+        services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00" }],
+          },
+          context,
+        ),
+      ).resolves.toEqual([{ listingId: "lst_founder_preserved", outcome: "applied", version: 2 }]);
+
+      const payload = await readPriceUpdatedPayload(eventStore, "lst_founder_preserved");
+      expect(payload.feeLocks[0]?.terms).toEqual(syntheticFounderTerms);
+      expect(payload.feeLocks[0]?.terms).toEqual(created.feeLocks[0]?.terms);
+      expect(payload.feeQuoteFingerprint).not.toBe(created.feeLocks[0]?.feeQuoteFingerprint);
+    });
+
+    it.each([
+      {
+        name: "recomputes nonzero percentage, fixed, and capped money from the preserved terms",
+        storedTerms: {
+          marketplaceSalesFeePercentageBps: 1_000,
+          marketplaceSalesFeeFixedAmount: "0.50",
+          marketplaceSalesFeeCapAmount: "5.00",
+          shippingAllowancePercentageBps: 425,
+          termsScheduleId: "cts_capped",
+          termsAgreementId: "agr_capped",
+          termsResolvedAt: "2026-07-02T00:00:00.000Z",
+        } satisfies MarketplaceListingFeeTermsSnapshot,
+      },
+    ])("$name", async ({ storedTerms }) => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = mutableBulkTermsResolver(storedTerms);
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_nonzero_requote" as never,
+        },
+        context,
+      );
+      const created = await services.loadListingState("lst_nonzero_requote");
+      const expected = requoteMarketplaceListingFeeLock(created.feeLocks[0]!, "40.00");
+      termsResolver.useTerms(nonzeroCurrentTerms);
+
+      await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [{ listingId: "lst_nonzero_requote", priceAmount: "40.00" }],
+        },
+        context,
+      );
+
+      const lock = (await readPriceUpdatedPayload(eventStore, "lst_nonzero_requote")).feeLocks[0]!;
+      expect(lock.terms).toMatchObject({
+        marketplaceSalesFeePercentageBps: storedTerms.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: storedTerms.marketplaceSalesFeeFixedAmount,
+        marketplaceSalesFeeCapAmount: storedTerms.marketplaceSalesFeeCapAmount,
+      });
+      expect(lock.marketplaceSalesFeeUnitAmount).toBe(expected.marketplaceSalesFeeUnitAmount);
+      expect(lock.sellerNetUnitAmount).toBe(expected.sellerNetUnitAmount);
+      expect(lock.marketplaceSalesFeeUnitAmount).not.toBe(created.feeLocks[0]?.marketplaceSalesFeeUnitAmount);
+      expect(lock.sellerNetUnitAmount).not.toBe(created.feeLocks[0]?.sellerNetUnitAmount);
+    });
+
+    it("preserves every tranche's stored terms, unit count, and order independently", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = mutableBulkTermsResolver(syntheticFounderTerms);
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_multi_tranche" as never,
+        },
+        context,
+      );
+      const restockTerms = {
+        ...nonzeroCurrentTerms,
+        termsScheduleId: "cts_restock",
+        termsAgreementId: "agr_restock",
+        termsResolvedAt: "2026-08-02T00:00:00.000Z",
+      } satisfies MarketplaceListingFeeTermsSnapshot;
+      termsResolver.useTerms(restockTerms);
+      const restockQuote = await services.previewListingTerms({ accountId: "acc_seller", priceAmount: "20.00" });
+      await services.updateListingQuantityCap(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_multi_tranche",
+          quantityCap: 3,
+          feeQuoteFingerprint: restockQuote.fee_quote_fingerprint,
+        },
+        context,
+      );
+      const before = await services.loadListingState("lst_multi_tranche");
+      termsResolver.useTerms({
+        ...nonzeroCurrentTerms,
+        termsScheduleId: "cts_after_restock",
+        termsResolvedAt: "2026-08-03T00:00:00.000Z",
+      });
+
+      await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [{ listingId: "lst_multi_tranche", priceAmount: "30.00" }],
+        },
+        context,
+      );
+
+      const locks = (await readPriceUpdatedPayload(eventStore, "lst_multi_tranche")).feeLocks;
+      expect(locks.map(({ unitCount, terms }) => ({ unitCount, terms }))).toEqual(
+        before.feeLocks.map(({ unitCount, terms }) => ({ unitCount, terms })),
+      );
+      expect(locks.map((lock) => lock.unitCount)).toEqual([1, 2]);
+      expect(locks.map((lock) => lock.terms.termsScheduleId)).toEqual(["cts_founders_zero", "cts_restock"]);
+    });
+
+    it.each([
+      ["HTTP shape with a current-session fee fingerprint", "http"],
+      ["repricing-engine shape with tolerance and idempotency", "repricing-engine"],
+      ["recommendations shape with listing id and price", "recommendations"],
+      ["bulk-reprice-ingestion shape with listing id and price", "bulk-reprice-ingestion"],
+    ] as const)("%s preserves stored tranche terms", async (_name, callerShape) => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = mutableBulkTermsResolver(syntheticFounderTerms);
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+      const listingId = `lst_caller_${callerShape}`;
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: listingId as never,
+        },
+        context,
+      );
+      termsResolver.useTerms(nonzeroCurrentTerms);
+      const currentSession =
+        callerShape === "http"
+          ? await openMarketplaceListingTermsSession(termsResolver as never, { accountId: "acc_seller" })
+          : null;
+      const update = {
+        listingId,
+        priceAmount: "25.00",
+        ...(callerShape === "http"
+          ? {
+              feeQuoteFingerprint: currentSession!.quote("25.00").fee_quote_fingerprint,
+            }
+          : {}),
+        ...(callerShape === "repricing-engine"
+          ? {
+              minimumChange: { mode: "absolute" as const, amount: "0.25" },
+              idempotencyKey: `repricing:round-1:product-1:${listingId}:price`,
+            }
+          : {}),
+      };
+
+      await expect(
+        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [update] }, context),
+      ).resolves.toMatchObject([{ listingId, outcome: "applied" }]);
+      expect((await readPriceUpdatedPayload(eventStore, listingId)).feeLocks[0]?.terms).toEqual(syntheticFounderTerms);
+    });
 
     it("does not disclose an existing deterministic listing to another account", async () => {
       const { eventStore } = createInMemoryEventStore();
@@ -1922,7 +2213,7 @@ describe("marketplace listing runtime", () => {
       expect(termsResolver.openListingTermsSession).toHaveBeenCalledWith({ accountId: "acc_seller" });
     });
 
-    it("stamps every chunk from the single terms session opened for the run", async () => {
+    it("preserves stored terms across every chunk while opening one current-terms session for the run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
@@ -2024,8 +2315,8 @@ describe("marketplace listing runtime", () => {
         (event) => event.eventType === "marketplace.listing.price-updated",
       );
 
-      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
-      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
+      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
+      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
       expect((firstPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint).not.toBe(
         (secondPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint,
       );
