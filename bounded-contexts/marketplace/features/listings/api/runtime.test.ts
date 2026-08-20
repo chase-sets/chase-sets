@@ -1482,9 +1482,7 @@ describe("marketplace listing runtime", () => {
 
     async function readPriceUpdatedPayload(eventStore: EventStore, listingId: string) {
       const events = await eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
-      const event = events
-        .filter((candidate) => candidate.eventType === "marketplace.listing.price-updated")
-        .at(-1);
+      const event = events.filter((candidate) => candidate.eventType === "marketplace.listing.price-updated").at(-1);
       expect(event).toBeDefined();
       return event!.payload as {
         feeLocks: readonly MarketplaceListingFeeLock[];
