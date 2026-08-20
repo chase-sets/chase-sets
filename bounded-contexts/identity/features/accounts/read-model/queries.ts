@@ -21,7 +21,7 @@ export type AccountRow = Readonly<{
 
 type AccountQueryRow = Omit<AccountRow, "badges"> & Readonly<{ badges: unknown }>;
 
-const accountPublicColumns = `account_id,
+export const accountPublicColumns = `account_id,
   name,
   display_name,
   account_type,

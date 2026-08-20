@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { getAccessHome } from "../features/access-hub/read-model/queries";
 import { buildAccountProjectionHandlers } from "../features/accounts/read-model/projection";
 import { identityAccountSchemaMigrations, identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import { getAccount, listAccounts } from "../features/accounts/read-model/queries";
@@ -230,6 +231,55 @@ describeDb("Account Enforcement Action projection", () => {
       ]) {
         expect(publicAccount).not.toHaveProperty(internalKey);
       }
+    }
+  });
+
+  it("exposes getAccessHome suspended-account rows as exactly the public account column set", async () => {
+    await projectCreated();
+    await project(
+      "identity.account.suspended",
+      {
+        enforcement: {
+          version: 1,
+          enforcementActionId: ACTION_A,
+          reason: "policy-violation",
+          reference: { kind: "support-request", supportRequestId: SUPPORT_REQUEST },
+        },
+      },
+      "2",
+    );
+
+    const home = await getAccessHome(pool, {
+      scopeAccountId: ACCOUNT_ID,
+      includeMemberships: false,
+      includeApiKeys: false,
+    });
+
+    expect(home.attention.suspended_accounts).toHaveLength(1);
+    const [suspendedAccount] = home.attention.suspended_accounts;
+    expect(suspendedAccount.status).toBe("suspended");
+    expect(Object.keys(suspendedAccount).sort()).toEqual(
+      [
+        "account_id",
+        "name",
+        "display_name",
+        "account_type",
+        "status",
+        "badges",
+        "founder_number",
+        "founders_window_started_at",
+        "founders_window_ends_at",
+        "updated_at",
+      ].sort(),
+    );
+    for (const internalKey of [
+      "last_enforcement_action_id",
+      "last_enforcement_reason",
+      "last_enforcement_reference",
+      "last_enforcement_at",
+      "last_global_position",
+    ]) {
+      expect(suspendedAccount).not.toHaveProperty(internalKey);
     }
   });
 

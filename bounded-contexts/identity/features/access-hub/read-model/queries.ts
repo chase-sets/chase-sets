@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { getAccount, listAccounts } from "../../accounts/read-model/queries";
+import { accountPublicColumns, getAccount, listAccounts } from "../../accounts/read-model/queries";
 import type { AccountRow } from "../../accounts/read-model/queries";
 import type { ApiKeyRow } from "../../api-keys/read-model/queries";
 import type { InvitationRow } from "../../invitations/read-model/queries";
@@ -83,7 +83,7 @@ async function listSuspendedAccounts(db: PgQueryable, scopeAccountId?: string | 
   const scope = scopedAccountCondition(scopeAccountId, "account_id", values);
   values.push(attentionLimit);
   const result = await db.query<AccountRow>(
-    `SELECT *
+    `SELECT ${accountPublicColumns}
      FROM identity_accounts
      WHERE status = 'suspended'${scope}
      ORDER BY updated_at DESC
