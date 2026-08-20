@@ -31,8 +31,13 @@ function runCompilerCheck() {
 }
 
 function withEditedArtifact(policyKey: string): readonly PublicPolicyRegistryEntry[] {
+  return withEditedArtifacts([policyKey]);
+}
+
+function withEditedArtifacts(policyKeys: readonly string[]): readonly PublicPolicyRegistryEntry[] {
+  const editedKeys = new Set(policyKeys);
   return publicPolicyRegistry.map((entry) =>
-    entry.artifact.metadata.policyKey === policyKey
+    editedKeys.has(entry.artifact.metadata.policyKey)
       ? ({
           ...entry,
           artifact: {
@@ -144,6 +149,55 @@ describe("public policy corpus compiler", () => {
     expect(index?.content).toBe(baseline.find((module) => module.relativePath === "index.ts")?.content);
   });
 
+  it("isolates three simultaneous content-only edits to three fingerprint-only publication records", async () => {
+    const editedPolicyKeys = ["terms-of-service", "privacy-policy", "authenticity-service-terms"] as const;
+    const expectedChangedModules = [
+      "terms-of-service-publication.ts",
+      "privacy-policy-publication.ts",
+      "authenticity-service-terms-publication.ts",
+    ] as const;
+    const baseline = await renderPublicPolicyPublicationContracts();
+    const editedRegistry = withEditedArtifacts(editedPolicyKeys);
+
+    for (const policyKey of editedPolicyKeys) {
+      expect(
+        editedRegistry.find((entry) => entry.artifact.metadata.policyKey === policyKey)?.artifact.metadata,
+      ).toEqual(
+        publicPolicyRegistry.find((entry) => entry.artifact.metadata.policyKey === policyKey)?.artifact.metadata,
+      );
+    }
+
+    const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+    const changed = regenerated.filter(
+      (module) => baseline.find((entry) => entry.relativePath === module.relativePath)?.content !== module.content,
+    );
+    expect(changed.map((module) => module.relativePath)).toEqual(expectedChangedModules);
+
+    const withoutFingerprint = (content: string | undefined) =>
+      content?.replace(/contentFingerprint: "sha256:[a-f0-9]{64}"/, 'contentFingerprint: "<CONTENT-FINGERPRINT>"');
+    for (const relativePath of expectedChangedModules) {
+      const before = baseline.find((module) => module.relativePath === relativePath)?.content;
+      const after = regenerated.find((module) => module.relativePath === relativePath)?.content;
+      expect(after?.match(/contentFingerprint: "sha256:[a-f0-9]{64}"/)?.[0], relativePath).not.toBe(
+        before?.match(/contentFingerprint: "sha256:[a-f0-9]{64}"/)?.[0],
+      );
+      expect(withoutFingerprint(after), relativePath).toBe(withoutFingerprint(before));
+      expect(after, relativePath).toContain("consentActivatable: false");
+    }
+
+    for (const relativePath of [
+      "seller-agreement-publication.ts",
+      "payments-terms-publication.ts",
+      "agent-connector-terms-publication.ts",
+      "founders-offer-terms-publication.ts",
+      "index.ts",
+    ] as const) {
+      expect(regenerated.find((module) => module.relativePath === relativePath)?.content, relativePath).toBe(
+        baseline.find((module) => module.relativePath === relativePath)?.content,
+      );
+    }
+  });
+
   it.each(["", "  \n\t"])(
     "compiles consentActivatable false when required operative copy is only %j",
     async (draftText) => {
@@ -244,6 +298,192 @@ describe("public policy corpus compiler", () => {
       );
     }
   });
+
+  it("isolates a Terms of Service content-only edit to the Terms module, leaving the other six and the index byte-identical", async () => {
+    const baseline = await renderPublicPolicyPublicationContracts();
+    const editedRegistry = withEditedArtifact("terms-of-service");
+    const editedTerms = editedRegistry.find((entry) => entry.artifact.metadata.policyKey === "terms-of-service");
+    const baselineTerms = publicPolicyRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === "terms-of-service",
+    );
+    // A true content-only control: no metadata, version, or publication
+    // posture moves with a section edit.
+    expect(editedTerms?.artifact.metadata).toEqual(baselineTerms?.artifact.metadata);
+
+    const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+    const changed = regenerated.filter(
+      (module) => baseline.find((entry) => entry.relativePath === module.relativePath)?.content !== module.content,
+    );
+    expect(changed.map((module) => module.relativePath)).toEqual(["terms-of-service-publication.ts"]);
+
+    const termsSiblings = [
+      "privacy-policy-publication.ts",
+      "seller-agreement-publication.ts",
+      "payments-terms-publication.ts",
+      "agent-connector-terms-publication.ts",
+      "authenticity-service-terms-publication.ts",
+      "founders-offer-terms-publication.ts",
+      "index.ts",
+    ] as const;
+    for (const sibling of termsSiblings) {
+      expect(regenerated.find((module) => module.relativePath === sibling)?.content, sibling).toBe(
+        baseline.find((module) => module.relativePath === sibling)?.content,
+      );
+    }
+
+    // A content edit moves the fingerprint and nothing else: the artifact
+    // stays counsel-pending, non-effective, and non-activatable.
+    const terms = regenerated.find((module) => module.relativePath === "terms-of-service-publication.ts");
+    expect(terms?.content).toContain('publicationStatus: "counsel-review-required"');
+    expect(terms?.content).toContain("effectiveAt: null");
+    expect(terms?.content).toContain("counselApprovalReference: null");
+    expect(terms?.content).toContain("consentActivatable: false");
+  });
+
+  it("keeps the Agent Connector Terms stub's generated record untouched by the Terms agent-boundary enrollment", async () => {
+    const modules = await renderPublicPolicyPublicationContracts();
+    const agentStub = modules.find((module) => module.relativePath === "agent-connector-terms-publication.ts");
+    const onDisk = readFileSync(
+      resolve(repoRoot, "contracts/public-docs/generated/agent-connector-terms-publication.ts"),
+      "utf8",
+    );
+
+    expect(agentStub?.content).toBe(onDisk);
+    expect(agentStub?.content).toContain("consentActivatable: false");
+  });
+
+  it("negative control: reverting each fingerprint-owning citation repair stales exactly its derived module", async () => {
+    const mutants = [
+      {
+        id: "C1",
+        policyKey: "privacy-policy",
+        sectionId: "children",
+        carrier: "productTruthRef",
+        before: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370",
+        after: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345",
+        module: "privacy-policy-publication.ts",
+      },
+      {
+        id: "C2",
+        policyKey: "privacy-policy",
+        sectionId: "children",
+        carrier: "assumptionEvidenceRef",
+        before:
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+        after:
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+        module: "privacy-policy-publication.ts",
+      },
+      {
+        id: "C3",
+        policyKey: "authenticity-service-terms",
+        sectionId: "condition-notes-and-disputes",
+        carrier: "productTruthRef",
+        before: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:576-602",
+        after: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:544-569",
+        module: "authenticity-service-terms-publication.ts",
+      },
+      {
+        id: "C4",
+        policyKey: "authenticity-service-terms",
+        sectionId: "liability-limits",
+        carrier: "productTruthRef",
+        before: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:552",
+        after: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:520",
+        module: "authenticity-service-terms-publication.ts",
+      },
+      {
+        id: "C5",
+        policyKey: "authenticity-service-terms",
+        sectionId: "liability-limits",
+        carrier: "assumptionEvidenceRef",
+        before: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:552",
+        after: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:520",
+        module: "authenticity-service-terms-publication.ts",
+      },
+      {
+        id: "C8",
+        policyKey: "terms-of-service",
+        sectionId: "effective-date-notice-and-acceptance",
+        carrier: "productTruthRef",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+        after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+        module: "terms-of-service-publication.ts",
+      },
+      {
+        id: "C9",
+        policyKey: "terms-of-service",
+        sectionId: "changes-notice-and-acceptance",
+        carrier: "productTruthRef",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+        after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+        module: "terms-of-service-publication.ts",
+      },
+      {
+        id: "C10",
+        policyKey: "terms-of-service",
+        sectionId: "changes-notice-and-acceptance",
+        carrier: "assumptionEvidenceRef",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+        after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+        module: "terms-of-service-publication.ts",
+      },
+    ] as const;
+
+    expect(runCompilerCheck().status).toBe(0);
+    for (const mutant of mutants) {
+      let replacementCount = 0;
+      const revertedRegistry = publicPolicyRegistry.map((entry) =>
+        entry.artifact.metadata.policyKey === mutant.policyKey
+          ? ({
+              ...entry,
+              artifact: {
+                ...entry.artifact,
+                sections: entry.artifact.sections.map((section) =>
+                  section.id === mutant.sectionId
+                    ? {
+                        ...section,
+                        reviewManifest: {
+                          ...section.reviewManifest,
+                          productTruthRefs: section.reviewManifest.productTruthRefs.map((ref) => {
+                            if (mutant.carrier !== "productTruthRef" || ref !== mutant.before) return ref;
+                            replacementCount += 1;
+                            return mutant.after;
+                          }),
+                          assumptions: section.reviewManifest.assumptions.map((assumption) => {
+                            if (
+                              mutant.carrier !== "assumptionEvidenceRef" ||
+                              assumption.evidenceRef !== mutant.before
+                            ) {
+                              return assumption;
+                            }
+                            replacementCount += 1;
+                            return { ...assumption, evidenceRef: mutant.after };
+                          }),
+                        },
+                      }
+                    : section,
+                ),
+              },
+            } as PublicPolicyRegistryEntry)
+          : entry,
+      );
+      expect(replacementCount, mutant.id).toBe(1);
+
+      const regenerated = await renderPublicPolicyPublicationContracts(revertedRegistry);
+      const staleModules = regenerated
+        .filter((module) => {
+          const committed = readFileSync(
+            resolve(repoRoot, "contracts/public-docs/generated", module.relativePath),
+            "utf8",
+          );
+          return module.content !== committed;
+        })
+        .map((module) => module.relativePath);
+      expect(staleModules, mutant.id).toEqual([mutant.module]);
+    }
+    expect(runCompilerCheck().status).toBe(0);
+  }, 120_000);
 
   it("stales only Privacy for a cited-source-only change, leaving every sibling and the index byte-identical", () => {
     // The cited byte range of one first-party cookie name binding. The edit is

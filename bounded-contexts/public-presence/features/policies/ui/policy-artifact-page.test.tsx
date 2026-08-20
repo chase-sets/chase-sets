@@ -194,6 +194,51 @@ describe("policy artifact page", () => {
     expect(text.toLowerCase()).not.toContain("insured by the fdic");
   });
 
+  it("renders the authorized-agent responsibility, access, and agent-caused Account-sanction disclosures on /terms", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = container.textContent ?? "";
+
+    const responsibilityDisclosure = resolveUnresolvedPublicDisclosureText(
+      "authorized-agent-principal-responsibility-and-liability-boundary",
+    );
+    const suspensionDisclosure = resolveUnresolvedPublicDisclosureText(
+      "agent-access-and-agent-caused-account-sanction-boundary",
+    );
+
+    expect(text).toContain(responsibilityDisclosure);
+    expect(text).toContain(suspensionDisclosure);
+    // The responsibility boundary is enrolled in two sections and renders
+    // through both, from the one registry entry.
+    expect(text.split(responsibilityDisclosure).length - 1).toBe(2);
+    expect(text.split(suspensionDisclosure).length - 1).toBe(1);
+  });
+
+  it("renders neither retired agent-responsibility clause as public draft text on the real /terms adapter", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = (container.textContent ?? "").toLowerCase();
+
+    expect(text).not.toContain("you remain responsible for actions your authorized agent takes");
+    expect(text).not.toContain("and for all activity conducted through your account");
+    for (const literal of [
+      "you are fully responsible for",
+      "you are solely responsible for",
+      "is liable for all",
+      "assumes all liability",
+      "accepts full liability",
+      "may suspend or revoke at any time",
+      "at chase sets' sole discretion",
+      "without notice or liability",
+      "immediately terminate agent access",
+      "reserves the right to revoke",
+    ]) {
+      expect(text, literal).not.toContain(literal);
+    }
+  });
+
   for (const route of policyRouteAdapters) {
     it(`fails closed on invalid effective timestamps through the real ${route.path} adapter and metadata builder`, () => {
       for (const effectiveAt of invalidEffectiveAts) {
