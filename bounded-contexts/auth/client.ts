@@ -139,6 +139,9 @@ export function createAuthApiClient({
     async startGuestCheckout<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/start"), body, headers);
     },
+    async bindGuestCheckoutContact<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/contact"), body, headers);
+    },
     async exitGuestCheckout<T>(): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/exit"), {}, headers);
     },
