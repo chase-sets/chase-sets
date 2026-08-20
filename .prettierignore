@@ -38,3 +38,6 @@ infrastructure/helm/*/templates/*.yaml
 !**/.env.example
 # Intentionally malformed JSON fixture (release-qualification reader negative control)
 scripts/fixtures/release-qualification/malformed.json
+# Digest-bound, line-budgeted Playwright evidence authority (formatted by its stable serializers)
+scripts/playwright-evidence-authority/
+scripts/fixtures/playwright-evidence-authority/

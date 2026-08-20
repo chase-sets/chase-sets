@@ -2254,6 +2254,7 @@
     "scripts/catalog-observation-pack-capture.ts",
     "scripts/catalog-production-completion-report.ts",
     "scripts/catalog-real-provider-proof.ts",
+    "scripts/playwright-evidence-authority/capture.config.ts",
     "scripts/replay-projection-selection.ts",
     "scripts/replay-projection.ts",
     "scripts/route-census/artifact.mts",
