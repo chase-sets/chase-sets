@@ -82,6 +82,16 @@ Notes:
 - A **Trusted Seller Account Badge** marks an Account that operations has approved for standard high-dollar listing and payout-release policies.
 - A **Manual Payout Review Account Badge** marks an Account whose payout release requires enhanced review because Stripe, support, fulfillment, or operations found seller-risk signals.
 
+### Account Enforcement Action
+
+An **Account Enforcement Action** is one immutable Identity fact that suspends, reactivates, or closes an Account and has a never-reused `enf_` identity.
+
+An open Account Enforcement Action is only the restriction currently determining an Account's `suspended` or `closed` status. Reactivation is a terminal action fact and closes the current suspension without remaining open. The latest action fact is therefore distinct from the current open restriction. Marketplace owns its separate Listing Enforcement Action behavior, and graduated account-standing policy is outside this Identity fact.
+
+### Account Enforcement Reason
+
+An **Account Enforcement Reason** is the closed provenance code recorded on an Account Enforcement Action, optionally linked to one Support Request. It explains why the immutable fact was recorded; it never grants authority, changes lifecycle preconditions, or acts as free text.
+
 ### Founders Cohort
 
 The **Founders Cohort** is the capped set of admitted Accounts that can claim one of 500 Founder Numbers in activation order.

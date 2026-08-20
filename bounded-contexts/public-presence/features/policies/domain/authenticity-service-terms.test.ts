@@ -230,7 +230,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "liability-limits",
-    ref: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:520",
+    ref: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521",
     keyword: "Authenticity Service Terms",
   },
   {

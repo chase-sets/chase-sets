@@ -116,13 +116,18 @@ describe("Identity mutation consistency route actions", () => {
   });
 
   it("carries command receipts from owned post forms into fresh-read redirects", async () => {
+    const lifecycleBodies: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = requestUrl(input);
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        const url = request.url;
 
         if (url.includes("/api/auth/session")) {
           return jsonResponse({ actor });
+        }
+        if (/\/api\/identity\/accounts\/acc_1\/(suspend|reactivate|close)$/.test(url)) {
+          lifecycleBodies.push(await request.clone().json());
         }
 
         return jsonResponse({ id: "identity_written", version: 7, status: "active" }, 200, commitHeaders("77"));
@@ -375,6 +380,7 @@ describe("Identity mutation consistency route actions", () => {
       expectLocationPath(location, testCase.expectedPath);
       expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("77");
     }
+    expect(lifecycleBodies).toEqual([{}, {}, {}]);
   });
 
   it("returns API-key create and rotate secrets as transient action data without redirecting", async () => {

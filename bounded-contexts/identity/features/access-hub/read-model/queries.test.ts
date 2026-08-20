@@ -18,7 +18,7 @@ const account = {
 describe("Access hub read model", () => {
   it("composes one account workspace with team, API access, and real Identity audit events", async () => {
     const query = vi.fn(async (sql: string, values?: readonly unknown[]) => {
-      if (sql.includes("FROM identity_accounts WHERE account_id")) {
+      if (sql.includes("FROM identity_accounts") && sql.includes("WHERE account_id = $1")) {
         return { rows: [account] };
       }
       if (sql.includes("FROM identity_api_keys AS api_keys")) {
@@ -128,10 +128,10 @@ describe("Access hub read model", () => {
 
   it("builds the four-lane attention queue alongside account search", async () => {
     const query = vi.fn(async (sql: string) => {
-      if (sql.includes("SELECT COUNT(*) as count FROM identity_accounts")) {
+      if (sql.includes("SELECT COUNT(*) as count") && sql.includes("identity_account_public_rows")) {
         return { rows: [{ count: "1" }] };
       }
-      if (sql.includes("SELECT * FROM identity_accounts") && sql.includes("ORDER BY display_name")) {
+      if (sql.includes("identity_account_public_rows") && sql.includes("ORDER BY display_name")) {
         return { rows: [account] };
       }
       if (sql.includes("invitations.status = 'pending'")) {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   evaluateSellerAgreementPublicationReadiness,
@@ -5,7 +7,75 @@ import {
   sellerAgreementPolicyArtifact,
 } from "./seller-agreement";
 
+const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
+
+function resolveIdentityCitation(reference: string) {
+  const match = reference.match(/^(bounded-contexts\/identity\/features\/accounts\/domain\/domain\.ts):([0-9,-]+)/);
+  if (!match) {
+    throw new Error(`Invalid Identity account citation: ${reference}`);
+  }
+  const lines = readFileSync(path.join(repositoryRoot, match[1]!), "utf8").split(/\r?\n/);
+  return match[2]!
+    .split(",")
+    .flatMap((range) => {
+      const [startText, endText = startText] = range.split("-");
+      return lines.slice(Number(startText) - 1, Number(endText));
+    })
+    .join("\n");
+}
+
+function sellerAgreementIdentityCitations() {
+  const eligibility = sellerAgreementPolicyArtifact.sections.find(
+    ({ id }) => id === "seller-eligibility-and-verification",
+  )!;
+  const enforcement = sellerAgreementPolicyArtifact.sections.find(({ id }) => id === "enforcement-and-termination")!;
+  return [
+    {
+      name: "eligibility product truth",
+      reference: eligibility.reviewManifest.productTruthRefs.find((reference) =>
+        reference.includes("domain/domain.ts"),
+      )!,
+      symbols: ["SuspendAccountCommand", "Only active accounts can be suspended"],
+    },
+    {
+      name: "eligibility assumption",
+      reference: eligibility.reviewManifest.assumptions.find(({ evidenceRef }) =>
+        evidenceRef.includes("domain/domain.ts"),
+      )!.evidenceRef,
+      symbols: ["SuspendAccount", "ReactivateAccount"],
+    },
+    {
+      name: "enforcement product truth",
+      reference: enforcement.reviewManifest.productTruthRefs.find((reference) =>
+        reference.includes("domain/domain.ts"),
+      )!,
+      symbols: ["AccountSuspendedEvent", "AccountReactivatedEvent", "AccountClosedEvent", "lastEnforcementAction"],
+    },
+    {
+      name: "enforcement assumption",
+      reference: enforcement.reviewManifest.assumptions.find(({ evidenceRef }) =>
+        evidenceRef.includes("domain/domain.ts"),
+      )!.evidenceRef,
+      symbols: ["AccountSuspendedEvent", "AccountEnforcementData", "enforcement"],
+    },
+  ];
+}
+
 describe("Seller Agreement policy artifact", () => {
+  it.each(sellerAgreementIdentityCitations())("resolves the $name citation to its claimed Identity symbols", (row) => {
+    const source = resolveIdentityCitation(row.reference);
+    for (const symbol of row.symbols) {
+      expect(source).toContain(symbol);
+    }
+  });
+
+  it("rejects an adjacent unrelated source range for every Identity citation", () => {
+    for (const row of sellerAgreementIdentityCitations()) {
+      const unrelated = resolveIdentityCitation(row.reference.replace(/:[0-9,-]+/, ":27"));
+      expect(row.symbols.some((symbol) => unrelated.includes(symbol))).toBe(false);
+    }
+  });
+
   it("is a versioned, linkable, locale-specific artifact aligned to the canonical seller-agreement key", () => {
     expect(sellerAgreementPolicyArtifact.metadata).toMatchObject({
       policyKey: "seller-agreement",

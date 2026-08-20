@@ -1,4 +1,4 @@
-import { ulid } from "ulid";
+import { decodeTime, isValid, ulid } from "ulid";
 
 export type Ulid = string;
 
@@ -45,6 +45,30 @@ export function parseTypedId<Prefix extends string>(value: string, prefix: Prefi
   return value as TypedUlid<Prefix>;
 }
 
+/**
+ * Parses a canonical typed ULID without changing the intentionally permissive
+ * legacy `parseTypedId` boundary used by older contracts.
+ */
+export function parseStrictTypedUlid<Prefix extends string>(value: string, prefix: Prefix): TypedUlid<Prefix> {
+  const expectedPrefix = `${prefix}_`;
+  if (!value.startsWith(expectedPrefix)) {
+    throw new Error(`Expected '${expectedPrefix}' id prefix.`);
+  }
+
+  const body = value.slice(expectedPrefix.length);
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(body) || !isValid(body)) {
+    throw new Error(`Expected a canonical '${expectedPrefix}' ULID.`);
+  }
+
+  try {
+    decodeTime(body);
+  } catch {
+    throw new Error(`Expected a canonical '${expectedPrefix}' ULID.`);
+  }
+
+  return value as TypedUlid<Prefix>;
+}
+
 export type EventId = TypedUlid<"evt">;
 
 export type TenantId = TypedUlid<"tnt">;
@@ -80,6 +104,9 @@ export type UnidentifiedReturnPackageId = TypedUlid<"urp">;
 export type ReviewId = TypedUlid<"rev">;
 
 export type SupportRequestId = TypedUlid<"sup">;
+
+/** Identity-owned immutable account enforcement action identity. */
+export type EnforcementActionId = TypedUlid<"enf">;
 
 /** Support-owned handle for a single authorized remedy on a support request (ADR 0022). */
 export type RemedyId = TypedUlid<"rmd">;

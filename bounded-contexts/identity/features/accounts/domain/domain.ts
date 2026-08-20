@@ -1,14 +1,25 @@
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
-  EMPTY_EVENT_DATA,
+  accountEnforcementReasonCodes,
+  accountEnforcementReversalReasonCodes,
+  type AccountEnforcementData,
+  type AccountEnforcementReasonCode,
+  type AccountEnforcementReference,
+  type AccountEnforcementReversalReasonCode,
+  type AggregateDecider,
+  type AggregateEvolver,
+  type DomainEvent,
+  type IdentityAccountClosedPayload,
+  type IdentityAccountReactivatedPayload,
+  type IdentityAccountSuspendedPayload,
+} from "@chase-sets/event-core";
+import { parseStrictTypedUlid, type AccountId, type EnforcementActionId } from "@chase-sets/primitives/typed-ids";
+import {
   assert,
   assertNever,
   normalizeLabel,
   normalizeEmail,
   type AccountStatus,
   type AccountType,
-  type EmptyEventData,
 } from "../../../support/runtime-support/common";
 
 export type AccountState = Readonly<{
@@ -20,7 +31,15 @@ export type AccountState = Readonly<{
   badges: readonly AccountBadgeKey[];
   founderNumber: number | null;
   foundersWindow: Readonly<{ startedAt: string; endsAt: string }> | null;
+  lastEnforcementAction: AccountEnforcementAction | null;
+  openEnforcementActionId: EnforcementActionId | null;
+  usedEnforcementActionIds: readonly EnforcementActionId[];
 }>;
+
+export type AccountEnforcementAction =
+  | (Readonly<{ kind: "suspension" }> & AccountEnforcementData<AccountEnforcementReasonCode>)
+  | (Readonly<{ kind: "reactivation" }> & AccountEnforcementData<AccountEnforcementReversalReasonCode>)
+  | (Readonly<{ kind: "closure" }> & AccountEnforcementData<AccountEnforcementReasonCode>);
 
 export const initialAccountState: AccountState = {
   id: null,
@@ -31,6 +50,9 @@ export const initialAccountState: AccountState = {
   badges: [],
   founderNumber: null,
   foundersWindow: null,
+  lastEnforcementAction: null,
+  openEnforcementActionId: null,
+  usedEnforcementActionIds: [],
 };
 
 export const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
@@ -50,9 +72,18 @@ export type UpdateAccountProfileCommand = Readonly<{
   displayName?: string;
 }>;
 
-export type SuspendAccountCommand = Readonly<{ type: "SuspendAccount" }>;
-export type ReactivateAccountCommand = Readonly<{ type: "ReactivateAccount" }>;
-export type CloseAccountCommand = Readonly<{ type: "CloseAccount" }>;
+export type SuspendAccountCommand = Readonly<{
+  type: "SuspendAccount";
+  enforcement: AccountEnforcementData<AccountEnforcementReasonCode>;
+}>;
+export type ReactivateAccountCommand = Readonly<{
+  type: "ReactivateAccount";
+  enforcement: AccountEnforcementData<AccountEnforcementReversalReasonCode>;
+}>;
+export type CloseAccountCommand = Readonly<{
+  type: "CloseAccount";
+  enforcement: AccountEnforcementData<AccountEnforcementReasonCode>;
+}>;
 export type AssignAccountBadgeCommand = Readonly<{
   type: "AssignAccountBadge";
   badgeKey: AccountBadgeKey;
@@ -99,9 +130,9 @@ export type AccountProfileUpdatedEvent = DomainEvent<
   }>
 >;
 
-export type AccountSuspendedEvent = DomainEvent<"identity.account.suspended", EmptyEventData>;
-export type AccountReactivatedEvent = DomainEvent<"identity.account.reactivated", EmptyEventData>;
-export type AccountClosedEvent = DomainEvent<"identity.account.closed", EmptyEventData>;
+export type AccountSuspendedEvent = DomainEvent<"identity.account.suspended", IdentityAccountSuspendedPayload>;
+export type AccountReactivatedEvent = DomainEvent<"identity.account.reactivated", IdentityAccountReactivatedPayload>;
+export type AccountClosedEvent = DomainEvent<"identity.account.closed", IdentityAccountClosedPayload>;
 export type AccountBadgeAssignedEvent = DomainEvent<
   "identity.account.badge-assigned",
   Readonly<{ badgeKey: AccountBadgeKey; founderNumber?: number }>
@@ -152,18 +183,43 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
           },
         },
       ];
-    case "SuspendAccount":
+    case "SuspendAccount": {
       requireCreatedAccount(state);
       assert(state.status === "active", "Only active accounts can be suspended.");
-      return [{ type: "identity.account.suspended", data: EMPTY_EVENT_DATA }];
-    case "ReactivateAccount":
+      const enforcement = parseNewAccountEnforcementData(state, command.enforcement, accountEnforcementReasonCodes);
+      return [
+        {
+          type: "identity.account.suspended",
+          data: { enforcement },
+        },
+      ];
+    }
+    case "ReactivateAccount": {
       requireCreatedAccount(state);
       assert(state.status === "suspended", "Only suspended accounts can be reactivated.");
-      return [{ type: "identity.account.reactivated", data: EMPTY_EVENT_DATA }];
-    case "CloseAccount":
+      const enforcement = parseNewAccountEnforcementData(
+        state,
+        command.enforcement,
+        accountEnforcementReversalReasonCodes,
+      );
+      return [
+        {
+          type: "identity.account.reactivated",
+          data: { enforcement },
+        },
+      ];
+    }
+    case "CloseAccount": {
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Account has already been closed.");
-      return [{ type: "identity.account.closed", data: EMPTY_EVENT_DATA }];
+      const enforcement = parseNewAccountEnforcementData(state, command.enforcement, accountEnforcementReasonCodes);
+      return [
+        {
+          type: "identity.account.closed",
+          data: { enforcement },
+        },
+      ];
+    }
     case "OpenFoundersWindow": {
       requireCreatedAccount(state);
       if (state.foundersWindow) {
@@ -232,6 +288,9 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
         badges: [],
         founderNumber: null,
         foundersWindow: null,
+        lastEnforcementAction: null,
+        openEnforcementActionId: null,
+        usedEnforcementActionIds: [],
       };
     case "identity.account.profile-updated":
       return {
@@ -240,11 +299,11 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
         displayName: event.data.displayName,
       };
     case "identity.account.suspended":
-      return { ...state, status: "suspended" };
+      return evolveAccountEnforcement(state, event.data, "suspension", "suspended");
     case "identity.account.reactivated":
-      return { ...state, status: "active" };
+      return evolveAccountEnforcement(state, event.data, "reactivation", "active");
     case "identity.account.closed":
-      return { ...state, status: "closed" };
+      return evolveAccountEnforcement(state, event.data, "closure", "closed");
     case "identity.account.founders-window-opened":
       return {
         ...state,
@@ -275,6 +334,137 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
 
 function requireCreatedAccount(state: AccountState) {
   assert(state.id !== null, "Account must be created first.");
+}
+
+export function parseAccountEnforcementData<Reason extends string>(
+  value: unknown,
+  allowedReasons: readonly Reason[],
+): AccountEnforcementData<Reason> {
+  assertPlainObjectWithKeys(
+    value,
+    ["version", "enforcementActionId", "reason", "reference"],
+    "Account enforcement data is invalid.",
+  );
+  assert(value.version === 1, "Account enforcement version is not supported.");
+  assert(typeof value.enforcementActionId === "string", "Account enforcement action id is invalid.");
+  assert(
+    typeof value.reason === "string" && allowedReasons.includes(value.reason as Reason),
+    "Account enforcement reason is invalid.",
+  );
+
+  const reference = parseAccountEnforcementReference(value.reference);
+  return {
+    version: 1,
+    enforcementActionId: parseStrictTypedUlid(value.enforcementActionId, "enf"),
+    reason: value.reason as Reason,
+    reference,
+  };
+}
+
+export function parseAccountEnforcementEventData<Reason extends string>(
+  value: unknown,
+  allowedReasons: readonly Reason[],
+): AccountEnforcementData<Reason> | null {
+  assertRecord(value, "Account enforcement event data is invalid.");
+  const keys = Object.keys(value);
+  if (keys.length === 0) {
+    return null;
+  }
+  assert(keys.length === 1 && keys[0] === "enforcement", "Account enforcement event data is invalid.");
+  return parseAccountEnforcementData(value.enforcement, allowedReasons);
+}
+
+function parseNewAccountEnforcementData<Reason extends string>(
+  state: AccountState,
+  value: unknown,
+  allowedReasons: readonly Reason[],
+) {
+  const enforcement = parseAccountEnforcementData(value, allowedReasons);
+  assert(
+    !state.usedEnforcementActionIds.includes(enforcement.enforcementActionId),
+    "Account enforcement action id has already been used.",
+  );
+  return enforcement;
+}
+
+function parseAccountEnforcementReference(value: unknown): AccountEnforcementReference | null {
+  if (value === null) {
+    return null;
+  }
+  assertPlainObjectWithKeys(value, ["kind", "supportRequestId"], "Account enforcement reference is invalid.");
+  assert(value.kind === "support-request", "Account enforcement reference kind is invalid.");
+  assert(typeof value.supportRequestId === "string", "Account enforcement support request id is invalid.");
+  return {
+    kind: "support-request",
+    supportRequestId: parseStrictTypedUlid(value.supportRequestId, "sup"),
+  };
+}
+
+function evolveAccountEnforcement(
+  state: AccountState,
+  eventData: unknown,
+  kind: AccountEnforcementAction["kind"],
+  status: AccountStatus,
+): AccountState {
+  const allowedReasons =
+    kind === "reactivation" ? accountEnforcementReversalReasonCodes : accountEnforcementReasonCodes;
+  const enforcement = parseAccountEnforcementEventData(eventData, allowedReasons);
+
+  if (!enforcement) {
+    return { ...state, status };
+  }
+
+  const action = { kind, ...enforcement } as AccountEnforcementAction;
+  if (isSameAccountEnforcementAction(state.lastEnforcementAction, action)) {
+    return state;
+  }
+
+  assert(
+    !state.usedEnforcementActionIds.includes(enforcement.enforcementActionId),
+    "Account enforcement action id has already been used.",
+  );
+  if (kind === "suspension") {
+    assert(state.status === "active", "Stored account suspension is invalid for the current status.");
+  } else if (kind === "reactivation") {
+    assert(state.status === "suspended", "Stored account reactivation is invalid for the current status.");
+  } else {
+    assert(state.status !== "closed", "Stored account closure is invalid for the current status.");
+  }
+
+  return {
+    ...state,
+    status,
+    lastEnforcementAction: action,
+    openEnforcementActionId: kind === "reactivation" ? null : enforcement.enforcementActionId,
+    usedEnforcementActionIds: [...state.usedEnforcementActionIds, enforcement.enforcementActionId],
+  };
+}
+
+function isSameAccountEnforcementAction(current: AccountEnforcementAction | null, candidate: AccountEnforcementAction) {
+  return (
+    current?.kind === candidate.kind &&
+    current.enforcementActionId === candidate.enforcementActionId &&
+    current.reason === candidate.reason &&
+    JSON.stringify(current.reference) === JSON.stringify(candidate.reference)
+  );
+}
+
+function assertRecord(value: unknown, message: string): asserts value is Record<string, unknown> {
+  assert(typeof value === "object" && value !== null && !Array.isArray(value), message);
+}
+
+function assertPlainObjectWithKeys(
+  value: unknown,
+  expectedKeys: readonly string[],
+  message: string,
+): asserts value is Record<string, unknown> {
+  assertRecord(value, message);
+  const actualKeys = Object.keys(value).sort();
+  assert(
+    actualKeys.length === expectedKeys.length &&
+      [...expectedKeys].sort().every((key, index) => actualKeys[index] === key),
+    message,
+  );
 }
 
 function normalizeIsoTimestamp(value: string, fieldName: string) {
