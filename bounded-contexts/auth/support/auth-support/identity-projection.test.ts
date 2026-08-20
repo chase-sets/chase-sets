@@ -4,9 +4,50 @@ import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   authIdentityProjectionSchemaSql,
+  buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
   getActiveAuthMembershipForUserAccount,
 } from "./identity-projection";
+
+describe("auth account enforcement payload compatibility", () => {
+  it("projects every modern lifecycle payload without reading its additive enforcement data", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const handlers = buildAuthIdentityAccountProjectionHandlers({ query } as never);
+    const cases = [
+      ["identity.account.suspended", "suspended", "policy-violation"],
+      ["identity.account.reactivated", "active", "appeal-upheld"],
+      ["identity.account.closed", "closed", "operator-other"],
+    ] as const;
+
+    for (const [type, status, reason] of cases) {
+      await handlers[type]!(
+        buildTransportEvent(
+          type,
+          {
+            enforcement: {
+              version: 1,
+              enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+              reason,
+              reference: null,
+            },
+          },
+          {
+            streamId: "identity.account-acc_compat",
+            timing: {
+              occurredAt: "2026-08-19T00:00:00.000Z",
+              recordedAt: "2026-08-19T00:00:00.000Z",
+            },
+          },
+        ),
+      );
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining("auth_identity_accounts"), [
+        status,
+        "2026-08-19T00:00:00.000Z",
+        "acc_compat",
+      ]);
+    }
+  });
+});
 
 const activeMembershipRow = Object.freeze({
   membership_id: "mem_platform_admin",

@@ -244,7 +244,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         scopeNote:
           "State that Authenticity Check liability limitation is scoped consistently with the Terms of Service's authenticity-check carve-out, without inventing a separate numeric cap.",
         decisionRefs: [],
-        productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:520"],
+        productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521"],
         openQuestions: [
           "Any numeric liability cap specific to the Authenticity Check service is an unresolved counsel and business decision, consistent with the Terms of Service's own '[LIABILITY-CAP-FLOOR-AMOUNT]' placeholder convention for the same undecided fact; no number is stated here.",
         ],
@@ -252,7 +252,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The Terms of Service already names the Authenticity Check as the sole exception to its general no-warranty-over-Listings posture, scoped to the Authenticity Service Terms.",
-            evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:520",
+            evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521",
           },
         ],
       },

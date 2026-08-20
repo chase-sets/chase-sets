@@ -58,6 +58,116 @@ function buildServices(overrides: Partial<AccountServices> = {}) {
 
 describe("account API route", () => {
   it.each([
+    ["suspend", "SuspendAccount", "/accounts/acc_1/suspend"],
+    ["reactivate", "ReactivateAccount", "/accounts/acc_1/reactivate"],
+    ["close", "CloseAccount", "/accounts/acc_1/close"],
+  ])("keeps no-body and empty-object %s requests compatible", async (_action, commandType, path) => {
+    for (const init of [
+      { method: "POST" },
+      { method: "POST", body: "" },
+      { method: "POST", body: "{}" },
+      { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } },
+    ]) {
+      const services = buildServices();
+      const response = await buildApp(services).request(path, init);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: "acc_1", version: 2, status: "active" });
+      expect(services.commandHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: {
+            type: commandType,
+            enforcement: {
+              version: 1,
+              enforcementActionId: expect.stringMatching(/^enf_[0-9A-HJKMNP-TV-Z]{26}$/),
+              reason: "operator-other",
+              reference: null,
+            },
+          },
+        }),
+      );
+    }
+  });
+
+  it.each([
+    ["suspend", "/accounts/acc_1/suspend", "policy-violation"],
+    ["reactivate", "/accounts/acc_1/reactivate", "appeal-upheld"],
+    ["close", "/accounts/acc_1/close", "seller-requested"],
+  ])("forwards complete structured %s provenance", async (_action, path, reason) => {
+    const services = buildServices();
+    const body = {
+      reason,
+      reference: {
+        kind: "support-request",
+        supportRequestId: "sup_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      },
+    };
+    const response = await buildApp(services).request(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          enforcement: expect.objectContaining(body),
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    ["partial", "/accounts/acc_1/suspend", { reason: "policy-violation" }],
+    ["wrong suspend union", "/accounts/acc_1/suspend", { reason: "appeal-upheld", reference: null }],
+    ["wrong reversal union", "/accounts/acc_1/reactivate", { reason: "payment-risk", reference: null }],
+    ["unknown member", "/accounts/acc_1/close", { reason: "operator-other", reference: null, note: "x" }],
+    [
+      "malformed reference",
+      "/accounts/acc_1/close",
+      { reason: "operator-other", reference: { kind: "support-request", supportRequestId: "sup_" } },
+    ],
+  ])("returns 400 for a %s enforcement request", async (_case, path, body) => {
+    const services = buildServices();
+    const response = await buildApp(services).request(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each(["suspend", "reactivate", "close"])(
+    "preserves %s authorization before reading operator provenance",
+    async (action) => {
+      const services = buildServices();
+      const unrelatedActor = { ...actor, accountId: "acc_other" };
+      const response = await buildApp(services, unrelatedActor).request(`/accounts/acc_1/${action}`, {
+        method: "POST",
+        body: "not-json",
+      });
+
+      expect(response.status).toBe(403);
+      expect(services.commandHandler).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns 400 for malformed nonempty JSON", async () => {
+    const services = buildServices();
+    const response = await buildApp(services).request("/accounts/acc_1/suspend", {
+      method: "POST",
+      body: "not-json",
+    });
+
+    expect(response.status).toBe(400);
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["assign", "/accounts/acc_1/badges", { method: "POST", body: JSON.stringify({ badgeKey: "trusted-seller" }) }],
     ["remove", "/accounts/acc_1/badges/manual-payout-review", { method: "DELETE" }],
   ])("rejects an account owner attempting to %s a badge on their own account", async (_action, path, init) => {

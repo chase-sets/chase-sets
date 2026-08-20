@@ -1,6 +1,7 @@
 import { countEventsWithPrefix, loadSubscriptionCheckpoint } from "@chase-sets/bounded-context-runtime";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { describe, expect, it } from "vitest";
+import { identitySeedIds } from "@chase-sets/identity/server";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { createPlatformApiBootstrapTestHarness, RETAINED_STATE_HANDOFF_ERROR } from "./bootstrap-db-test-support";
 import {
@@ -66,6 +67,29 @@ createPlatformApiBootstrapTestHarness(
     retainedStateHandoff: retainedStatePhaseHandoff,
   },
 );
+
+async function expectOneStableDormantAccountEnforcementAction() {
+  const result = await pools.identity.query<{ payload: unknown }>(
+    `SELECT payload
+     FROM event_store_events
+     WHERE stream_id = $1
+       AND event_type = 'identity.account.suspended'
+     ORDER BY stream_version`,
+    [`identity.account-${identitySeedIds.suspended.accountId}`],
+  );
+  expect(result.rows).toEqual([
+    {
+      payload: {
+        enforcement: {
+          version: 1,
+          enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+          reason: "operator-other",
+          reference: null,
+        },
+      },
+    },
+  ]);
+}
 
 describe("authoritative seed resume", () => {
   it("derives the exact active and source-only seed universe for every host profile", async () => {
@@ -202,6 +226,7 @@ describe("authoritative seed resume", () => {
           `in ${repeatSeconds[lifecyclePoint]!.toFixed(1)}s`,
       );
     }
+    await expectOneStableDormantAccountEnforcementAction();
 
     // The only excluded promo column is the one the seed deliberately rewrites.
     // Measuring that it really moved is what makes the exclusion authorized
@@ -274,6 +299,7 @@ describe("authoritative seed resume", () => {
       );
     }
     expect(afterBootTwo, "ordinary boot two must append nothing for any eligible context").toEqual(afterBootOne);
+    await expectOneStableDormantAccountEnforcementAction();
 
     // Honest non-inspector arms: each is reported as what it is, and none is
     // claimed to have inspected aggregate state.

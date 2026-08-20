@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  accountEnforcementReasonCodes,
+  accountEnforcementReversalReasonCodes,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
   inventoryRestockDecisionOutcomes,
@@ -11,6 +13,9 @@ import type {
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
   EmptyEventPayload,
+  IdentityAccountClosedPayload,
+  IdentityAccountReactivatedPayload,
+  IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
   MarketplaceEventPayloads,
@@ -29,6 +34,40 @@ import type {
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+
+const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
+  enforcement: {
+    version: 1,
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    reason: "policy-violation",
+    reference: null,
+  },
+};
+const legacySuspendedPayload: IdentityAccountSuspendedPayload = {};
+const missingSuspendedVersion: IdentityAccountSuspendedPayload = {
+  // @ts-expect-error a partial modern payload is corrupt rather than legacy.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    reason: "policy-violation",
+    reference: null,
+  },
+};
+const missingReactivatedVersion: IdentityAccountReactivatedPayload = {
+  // @ts-expect-error every modern reactivation payload requires the version discriminator.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    reason: "appeal-upheld",
+    reference: null,
+  },
+};
+const missingClosedVersion: IdentityAccountClosedPayload = {
+  // @ts-expect-error every modern closure payload requires the version discriminator.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAX",
+    reason: "operator-other",
+    reference: null,
+  },
+};
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
@@ -92,6 +131,30 @@ describe("public event payload shard partition", () => {
 });
 
 describe("public event payload runtime value exports", () => {
+  it("exports the closed account enforcement reason vocabularies", () => {
+    expect(accountEnforcementReasonCodes).toEqual([
+      "policy-violation",
+      "fulfillment-failure",
+      "payment-risk",
+      "identity-verification",
+      "seller-requested",
+      "operator-other",
+    ]);
+    expect(accountEnforcementReversalReasonCodes).toEqual([
+      "appeal-upheld",
+      "issue-resolved",
+      "operator-error",
+      "operator-other",
+    ]);
+    expect([
+      modernSuspendedPayload,
+      legacySuspendedPayload,
+      missingSuspendedVersion,
+      missingReactivatedVersion,
+      missingClosedVersion,
+    ]).toHaveLength(5);
+  });
+
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
     expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
   });
@@ -131,6 +194,18 @@ const aggregateTypeIdentity = {
   "identity.founders-cohort.founder-number-claimed": true satisfies IsExactly<
     ChaseSetsEventPayloads["identity.founders-cohort.founder-number-claimed"],
     IdentityFounderNumberClaimedPayload
+  >,
+  "identity.account.suspended": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.suspended"],
+    IdentityAccountSuspendedPayload
+  >,
+  "identity.account.reactivated": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.reactivated"],
+    IdentityAccountReactivatedPayload
+  >,
+  "identity.account.closed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.closed"],
+    IdentityAccountClosedPayload
   >,
   "checkout.session.cancelled": true satisfies IsExactly<
     ChaseSetsEventPayloads["checkout.session.cancelled"],
@@ -272,7 +347,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(14);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(17);
   });
 
   it("public cancelled payload remains optional, open, and nullable", () => {

@@ -146,12 +146,12 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
         referenceDurationMs: 75314,
-        identity: "73747f1fd18ddbef",
+        identity: "9e25aef167dc384f",
       }),
       Object.freeze({
         name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
         referenceDurationMs: 28241,
-        identity: "681978291efa8647",
+        identity: "b8a98c6398a79ad2",
       }),
       Object.freeze({
         name: "does not re-author Settlement while its payout projection lags the stream",

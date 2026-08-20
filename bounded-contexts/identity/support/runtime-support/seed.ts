@@ -14,7 +14,14 @@ import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
-import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
+import type {
+  AccountId,
+  ConsentId,
+  EnforcementActionId,
+  MembershipId,
+  ShippingAddressId,
+  UserId,
+} from "@chase-sets/primitives/typed-ids";
 import {
   decideAccount,
   evolveAccount,
@@ -82,6 +89,7 @@ const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
 const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
 const REPRESENTATIVE_SEEDED_AT = "2026-05-27T00:00:00.000Z";
+const DORMANT_ACCOUNT_ENFORCEMENT_ACTION_ID = "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" as EnforcementActionId;
 const scenarioTrustedSellerAccountIds = [identitySeedIds.demo.accountId, identitySeedIds.cardVault.accountId] as const;
 
 const representativeAccounts = [
@@ -467,7 +475,15 @@ function buildScenarioIdentityReconcilers(
         accountType: "business",
         displayName: "Dormant Account",
       },
-      { type: "SuspendAccount" },
+      {
+        type: "SuspendAccount",
+        enforcement: {
+          version: 1,
+          enforcementActionId: DORMANT_ACCOUNT_ENFORCEMENT_ACTION_ID,
+          reason: "operator-other",
+          reference: null,
+        },
+      },
     ]),
     ...additionalMarketAccounts.map((persona) =>
       accountReconciler(persona.seed.accountId, persona.name, [

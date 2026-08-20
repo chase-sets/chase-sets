@@ -155,6 +155,35 @@ describe("marketplace catalog projection", () => {
 });
 
 describe("marketplace account projection", () => {
+  it("accepts modern account enforcement payloads without changing its pre-slice status shape", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
+    for (const [type, status, reason] of [
+      ["identity.account.suspended", "suspended", "identity-verification"],
+      ["identity.account.reactivated", "active", "operator-error"],
+      ["identity.account.closed", "closed", "fulfillment-failure"],
+    ] as const) {
+      await handlers[type]!(
+        event(
+          type,
+          {
+            enforcement: {
+              version: 1,
+              enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+              reason,
+              reference: null,
+            },
+          },
+          "identity.account-acc_compat",
+        ),
+      );
+      expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining(`status = '${status}'`), [
+        "acc_compat",
+        "2026-05-09T00:00:00.000Z",
+      ]);
+    }
+  });
+
   it("projects account badges used by high-dollar listing publication policy", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

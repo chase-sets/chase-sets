@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   evaluateTermsOfServicePublicationReadiness,
@@ -6,7 +8,55 @@ import {
   type TermsOfServiceSubjectId,
 } from "./terms-of-service";
 
+const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
+
+function resolveIdentityCitation(reference: string) {
+  const match = reference.match(/^(bounded-contexts\/identity\/features\/accounts\/domain\/domain\.ts):([0-9,-]+)/);
+  if (!match) {
+    throw new Error(`Invalid Identity account citation: ${reference}`);
+  }
+  const lines = readFileSync(path.join(repositoryRoot, match[1]!), "utf8").split(/\r?\n/);
+  return match[2]!
+    .split(",")
+    .flatMap((range) => {
+      const [startText, endText = startText] = range.split("-");
+      return lines.slice(Number(startText) - 1, Number(endText));
+    })
+    .join("\n");
+}
+
+function termsIdentityCitations() {
+  const section = termsOfServicePolicyArtifact.sections.find(({ id }) => id === "suspension-closure-and-holds")!;
+  return [
+    {
+      name: "product truth",
+      reference: section.reviewManifest.productTruthRefs.find((reference) => reference.includes("domain/domain.ts"))!,
+      symbols: ["SuspendAccountCommand", "ReactivateAccountCommand", "CloseAccountCommand", "AccountStatus"],
+    },
+    {
+      name: "assumption",
+      reference: section.reviewManifest.assumptions.find(({ evidenceRef }) => evidenceRef.includes("domain/domain.ts"))!
+        .evidenceRef,
+      symbols: ["AccountSuspendedEvent", "AccountClosedEvent", "lastEnforcementAction"],
+    },
+  ];
+}
+
 describe("Terms of Service policy artifact", () => {
+  it.each(termsIdentityCitations())("resolves the Identity $name citation to its claimed symbols", (row) => {
+    const source = resolveIdentityCitation(row.reference);
+    for (const symbol of row.symbols) {
+      expect(source).toContain(symbol);
+    }
+  });
+
+  it("rejects an adjacent unrelated range for both Identity citations", () => {
+    for (const row of termsIdentityCitations()) {
+      const unrelated = resolveIdentityCitation(row.reference.replace(/:[0-9,-]+/, ":1-5"));
+      expect(row.symbols.some((symbol) => unrelated.includes(symbol))).toBe(false);
+    }
+  });
+
   it("is a versioned, linkable, locale-specific artifact aligned to the canonical consent key", () => {
     expect(termsOfServicePolicyArtifact.metadata).toMatchObject({
       policyKey: "terms-of-service",

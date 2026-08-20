@@ -51,7 +51,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/settlement/features/payout-readiness/domain/setup-progress.ts:4-15 (payout-setup requirement groups, including identity-and-business)",
           "bounded-contexts/settlement/features/payout-readiness/domain/setup-progress.ts:83,186 (identity-and-business requirement id)",
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:53,155-158 (SuspendAccount command; active-only precondition)",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:75-77,186-189 (SuspendAccount command and active-only precondition)",
           "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:113-195,200-283 (partial velocity/threshold signals, per #5685's INFORM findings)",
         ],
         openQuestions: [
@@ -73,7 +73,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "An account-level suspend/reactivate capability exists and is available as the mechanism behind any verification-driven suspension.",
-            evidenceRef: "bounded-contexts/identity/features/accounts/domain/domain.ts:155-160,242-244",
+            evidenceRef:
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:75-82,186-207 (SuspendAccount/ReactivateAccount commands and preconditions)",
           },
           {
             assertion:
@@ -291,7 +292,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           "Describe the shipped account-suspension/reactivation/closure state machine and the shipped listing-report moderation ladder as platform enforcement capabilities, and state a support-contact reconsideration path while flagging the absence of a structured in-product appeal workflow.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:53,102,104,155-166,242-247 (SuspendAccount/ReactivateAccount/CloseAccount commands and active/suspended/closed state machine)",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:34-42,75-85,133-135,186-218,301-306,403-440 (Account enforcement commands, events, retained action state, and active/suspended/closed lifecycle)",
           "bounded-contexts/platform-operations/features/reported-content/api/contracts.ts:1-39 (dismiss/contact-seller/unlist/escalate-account-suspension moderation actions)",
           "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:141-166 (statusByAction projection)",
           "bounded-contexts/marketplace/GLOSSARY.md (Seller Listing Availability)",
@@ -299,14 +300,14 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           'bounded-contexts/marketplace/features/reports/api/runtime.test.ts:134 ("auto-unlists an active listing only when the distinct reporter window threshold is reached")',
         ],
         openQuestions: [
-          'No structured in-product seller appeal workflow is shipped; "Reputation Appeal" is explicitly planned, unshipped Marketplace vocabulary. Fixed-scope gap #6048 tracks adding an enforcement-reason code and an appeal workflow.',
+          'No structured in-product seller appeal workflow is shipped; "Reputation Appeal" is explicitly planned, unshipped Marketplace vocabulary. Account enforcement reasons and stable action identities are now recorded, while #6048 continues to track the broader outcome.',
         ],
         assumptions: [
           {
             assertion:
-              "Account suspension and closure are real, separate, event-sourced states (active/suspended/closed) with no enforcement-reason code captured on the domain event itself.",
+              "Account suspension, reactivation, and closure are separate event-sourced facts with a closed provenance reason and stable action identity; this recording does not add an appeal workflow or change who may enforce.",
             evidenceRef:
-              "bounded-contexts/identity/features/accounts/domain/domain.ts:102-104 (AccountSuspendedEvent/AccountClosedEvent use EmptyEventData); gap filed as #6048",
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:4,75-85,133-135 (AccountSuspendedEvent/AccountReactivatedEvent/AccountClosedEvent publish AccountEnforcementData)",
           },
           {
             assertion:
