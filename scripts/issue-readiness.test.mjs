@@ -1634,7 +1634,7 @@ describe("slice form and trusted-base workflow integration", () => {
     expect(fields["Review packet seed"].attributes.description).toContain("omission-revealing");
   });
 
-  it("slice-form fields other than the acceptance description are unchanged", () => {
+  it("slice-form fields other than the acceptance description and registered area options are unchanged", () => {
     const predecessorForm = parseYaml(
       execFileSync("git", ["show", "05afe2b107e922ee05c12be3bacecae108d01845:.github/ISSUE_TEMPLATE/slice.yml"], {
         cwd: repoRoot,
@@ -1642,7 +1642,7 @@ describe("slice form and trusted-base workflow integration", () => {
       }),
     );
     const differences = fieldDifferences(fieldProjection(predecessorForm), fieldProjection(form)).filter(
-      (key) => key !== "acceptance.description",
+      (key) => key !== "acceptance.description" && key !== "area.options",
     );
 
     expect(differences).toEqual([]);

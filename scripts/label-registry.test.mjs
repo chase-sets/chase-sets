@@ -127,12 +127,12 @@ function discoverLabelCharter() {
 }
 
 describe("canonical label registry schema and partition", () => {
-  it("records the implementation-head 81-label total as one valid total partition", () => {
-    expect(LABEL_REGISTRY).toHaveLength(81);
-    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(81);
+  it("records the implementation-head 82-label total as one valid total partition", () => {
+    expect(LABEL_REGISTRY).toHaveLength(82);
+    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(82);
     expect(validateLabelRegistry()).toEqual([]);
     expect(LABEL_REGISTRY.every((entry) => ["canonical", "grandfathered-frozen"].includes(entry.status))).toBe(true);
-    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(46);
+    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(47);
     expect(LABEL_REGISTRY.filter((entry) => entry.status === "grandfathered-frozen")).toHaveLength(35);
   });
 
@@ -436,11 +436,11 @@ describe("scheduled enforcing audit boundary", () => {
     expect(logger.errors).toEqual([]);
     expect(logger.warnings).toEqual([]);
     expect(logger.logs).toContain(
-      "Label inventory scanned: 81/81 across 1 REST page(s); independent GraphQL total reconciled.",
+      "Label inventory scanned: 82/82 across 1 REST page(s); independent GraphQL total reconciled.",
     );
     expect(logger.logs).toContain("Label registry enforcement passed: every live label is partitioned.");
     expect(logger.logs).toContain(
-      "Context coverage observed (advisory, not applied policy): 19 contexts / 23 areas; contexts without area: authenticity, customer-feedback, platform-operations; areas without context: design-system, infrastructure, marketplace-web, ops, platform-runtime, support, tax.",
+      "Context coverage observed (advisory, not applied policy): 19 contexts / 24 areas; contexts without area: authenticity, customer-feedback, platform-operations; areas without context: channels, design-system, infrastructure, marketplace-web, ops, platform-runtime, support, tax.",
     );
     expect(logger.logs.some((line) => line.includes("Grandfathered (frozen) open-issue usage observed:"))).toBe(true);
     expect(summaries).toHaveLength(1);
@@ -552,9 +552,10 @@ describe("scheduled enforcing audit boundary", () => {
   it("derives the current advisory context gap without treating it as a policy mapping", () => {
     expect(inspectAreaContextCoverage(repoRoot)).toEqual({
       contextCount: 19,
-      areaCount: 23,
+      areaCount: 24,
       contextsWithoutArea: ["authenticity", "customer-feedback", "platform-operations"],
       areasWithoutContext: [
+        "channels",
         "design-system",
         "infrastructure",
         "marketplace-web",
