@@ -1,0 +1,65 @@
+{"version":8,"type":"context-options","origin":"testRunner","browserName":"","playwrightVersion":"1.60.0","options":{},"platform":"win32","wallTime":1787269480544,"monotonicTime":3806.74,"sdkLanguage":"javascript","testTimeout":30000}
+{"type":"before","callId":"hook@1","stepId":"hook@1","startTime":3824.278,"class":"Test","method":"hook","title":"Before Hooks","params":{},"stack":[]}
+{"type":"before","callId":"fixture@26","stepId":"fixture@26","parentId":"hook@1","startTime":3833.023,"class":"Test","method":"fixture","title":"Fixture \"authorityTeardown\"","params":{},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":19,"column":19}]}
+{"type":"after","callId":"fixture@26","endTime":3833.25,"annotations":[]}
+{"type":"before","callId":"fixture@28","stepId":"fixture@28","parentId":"hook@1","startTime":3833.881,"class":"Test","method":"fixture","title":"Fixture \"browser\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@29","stepId":"pw:api@29","parentId":"fixture@28","startTime":3836.504,"class":"Test","method":"pw:api","title":"Launch browser","params":{"handleSIGINT":"false","tracesDir":"<repo>/artifacts/playwright-evidence-authority/test-results/.playwright-artifacts-1/traces","artifactsDir":"<repo>/artifacts/playwright-evidence-authority/test-results/.playwright-artifacts-1","headless":"true","ignoreDefaultArgs":"undefined","ignoreAllDefaultArgs":"false","env":"undefined","timeout":"180000"},"stack":[]}
+{"type":"after","callId":"pw:api@29","endTime":3946.712,"annotations":[]}
+{"type":"after","callId":"fixture@28","endTime":3946.825,"annotations":[]}
+{"type":"before","callId":"fixture@32","stepId":"fixture@32","parentId":"hook@1","startTime":3948.617,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@33","stepId":"pw:api@33","parentId":"fixture@32","startTime":3950.67,"class":"Test","method":"pw:api","title":"Create context","params":{"recordVideo":"Object","selectorEngines":"[]","testIdAttributeName":"data-testid","acceptDownloads":"accept","bypassCSP":"false","colorScheme":"light","deviceScaleFactor":"1","hasTouch":"false","ignoreHTTPSErrors":"false","isMobile":"false","javaScriptEnabled":"true","locale":"en-US","offline":"false","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.96 Safari/537.36","viewport":"Object","serviceWorkers":"allow","noDefaultViewport":"false","extraHTTPHeaders":"undefined","storageState":"undefined","reducedMotion":"undefined","forcedColors":"undefined","contrast":"undefined","clientCertificates":"undefined"},"stack":[]}
+{"type":"after","callId":"pw:api@33","endTime":3959.485,"annotations":[]}
+{"type":"after","callId":"fixture@32","endTime":3964.425,"annotations":[]}
+{"type":"before","callId":"fixture@34","stepId":"fixture@34","parentId":"hook@1","startTime":3964.975,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@35","stepId":"pw:api@35","parentId":"fixture@34","startTime":3966.886,"class":"Test","method":"pw:api","title":"Create page","params":{},"stack":[]}
+{"type":"after","callId":"pw:api@35","endTime":4044.989,"annotations":[]}
+{"type":"after","callId":"fixture@34","endTime":4045.04,"annotations":[]}
+{"type":"before","callId":"fixture@36","stepId":"fixture@36","parentId":"hook@1","startTime":4045.64,"class":"Test","method":"fixture","title":"Fixture \"request\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@37","stepId":"pw:api@37","parentId":"fixture@36","startTime":4046.507,"class":"Test","method":"pw:api","title":"Create request context","params":{"acceptDownloads":"true","bypassCSP":"false","colorScheme":"light","deviceScaleFactor":"1","hasTouch":"false","ignoreHTTPSErrors":"false","isMobile":"false","javaScriptEnabled":"true","locale":"en-US","offline":"false","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.96 Safari/537.36","viewport":"Object","serviceWorkers":"allow","extraHTTPHeaders":"undefined","storageState":"undefined","tracesDir":"<repo>/artifacts/playwright-evidence-authority/test-results/.playwright-artifacts-1/traces","clientCertificates":"undefined"},"stack":[]}
+{"type":"after","callId":"pw:api@37","endTime":4047.559,"annotations":[]}
+{"type":"after","callId":"fixture@36","endTime":4048.61,"annotations":[]}
+{"type":"after","callId":"hook@1","endTime":4048.672,"annotations":[]}
+{"type":"before","callId":"pw:api@38","stepId":"pw:api@38","startTime":4057.8,"class":"Test","method":"pw:api","title":"Navigate to \"/\"","params":{"url":"http://127.0.0.1:55648","waitUntil":"load","timeout":"0"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":95,"column":14}]}
+{"type":"after","callId":"pw:api@38","endTime":4090.651,"annotations":[]}
+{"type":"before","callId":"pw:api@39","stepId":"pw:api@39","startTime":4091.642,"class":"Test","method":"pw:api","title":"Add cookies","params":{"cookies":"[Object]"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":96,"column":17}],"group":"configuration"}
+{"type":"after","callId":"pw:api@39","endTime":4093.643,"annotations":[]}
+{"type":"before","callId":"pw:api@40","stepId":"pw:api@40","startTime":4094.815,"class":"Test","method":"pw:api","title":"Evaluate","params":{"expression":"value => {\n    localStorage.setItem(\"authority\", value);\n    console.log(\"authority-console-observation\");\n    return fetch(\"/api\", {\n      method: \"POST\",\n      headers: {\n        \"x-probe\": value\n      },\n      body: JSON.stringify({\n        value,\n        nested: {\n          value\n        }\n      })\n    });\n  }","isFunction":"true","arg":"Object"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":97,"column":14}]}
+{"type":"after","callId":"pw:api@40","endTime":4106.403,"annotations":[]}
+{"type":"before","callId":"pw:api@41","stepId":"pw:api@41","startTime":4107.277,"class":"Test","method":"pw:api","title":"Evaluate","params":{"expression":"() => fetch(\"/font.woff2\")","isFunction":"true","arg":"Object"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":106,"column":27}]}
+{"type":"before","callId":"pw:api@42","stepId":"pw:api@42","startTime":4108.06,"class":"Test","method":"pw:api","title":"Evaluate","params":{"expression":"() => fetch(\"/opaque\")","isFunction":"true","arg":"Object"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":106,"column":70}]}
+{"type":"after","callId":"pw:api@41","endTime":4115.48,"annotations":[]}
+{"type":"after","callId":"pw:api@42","endTime":4115.95,"annotations":[]}
+{"type":"before","callId":"pw:api@43","stepId":"pw:api@43","startTime":4117.657,"class":"Test","method":"pw:api","title":"POST \"/api\"","params":{"url":"http://127.0.0.1:55648/api","params":"undefined","encodedParams":"undefined","method":"POST","headers":"[Object]","postData":"undefined","jsonData":"{\"registeredValue\":\"SYNTHETIC_REGISTERED_PROBE_VALUE_f62c2b999ffaef5aa9b2\"}","formData":"undefined","multipartData":"undefined","timeout":"0","failOnStatusCode":"undefined","ignoreHTTPSErrors":"undefined","maxRedirects":"undefined","maxRetries":"undefined","__testHookLookup":"undefined"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":107,"column":17}]}
+{"type":"after","callId":"pw:api@43","endTime":4127.891,"annotations":[]}
+{"type":"before","callId":"pw:api@44","stepId":"pw:api@44","startTime":4128.823,"class":"Test","method":"pw:api","title":"Get storage state","params":{"indexedDB":"undefined"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":108,"column":17}],"group":"configuration"}
+{"type":"after","callId":"pw:api@44","endTime":4133.758,"annotations":[]}
+{"type":"before","callId":"test.attach@45","stepId":"test.attach@45","startTime":4135.289,"class":"Test","method":"test.attach","title":"Attach \"registered-shapes\"","params":{},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":109,"column":18}]}
+{"type":"after","callId":"test.attach@45","endTime":4136.307,"attachments":[{"name":"registered-shapes","contentType":"application/json","sha1":"acf30ce88c8dee72587434b0b9b5baed0b80ac5d"}],"annotations":[]}
+{"type":"before","callId":"test.attach@46","stepId":"test.attach@46","startTime":4136.808,"class":"Test","method":"test.attach","title":"Attach \"opaque-attachment\"","params":{},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":119,"column":18}]}
+{"type":"after","callId":"test.attach@46","endTime":4137.101,"attachments":[{"name":"opaque-attachment","contentType":"application/octet-stream","sha1":"f6694ef06cb294914202f2b80a4187a454733604"}],"annotations":[]}
+{"type":"before","callId":"pw:api@47","stepId":"pw:api@47","startTime":4141.22,"class":"Test","method":"pw:api","title":"Screenshot locator('main')","params":{"selector":"main","strict":"true","state":"attached","timeout":"0"},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":123,"column":30}]}
+{"type":"after","callId":"pw:api@47","endTime":4628.66,"annotations":[]}
+{"type":"stdout","timestamp":4628.815,"text":"authority-corpus-stdout\n"}
+{"type":"stderr","timestamp":4628.87,"text":"authority-corpus-stderr\n"}
+{"type":"before","callId":"hook@48","stepId":"hook@48","startTime":4633.62,"class":"Test","method":"hook","title":"After Hooks","params":{},"stack":[]}
+{"type":"before","callId":"fixture@49","stepId":"fixture@49","parentId":"hook@48","startTime":4634.684,"class":"Test","method":"fixture","title":"Fixture \"request\"","params":{},"stack":[]}
+{"type":"after","callId":"fixture@49","endTime":4658.753,"annotations":[]}
+{"type":"before","callId":"fixture@50","stepId":"fixture@50","parentId":"hook@48","startTime":4659.067,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"after","callId":"fixture@50","endTime":4659.158,"annotations":[]}
+{"type":"before","callId":"fixture@51","stepId":"fixture@51","parentId":"hook@48","startTime":4659.514,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@52","stepId":"pw:api@52","parentId":"fixture@51","startTime":4714.267,"class":"Test","method":"pw:api","title":"Close context","params":{"reason":"Test ended."},"stack":[]}
+{"type":"after","callId":"pw:api@52","endTime":4843.637,"annotations":[]}
+{"type":"after","callId":"fixture@51","endTime":4846.638,"attachments":[{"name":"video","contentType":"video/webm","sha1":"d28e73819efeb2bb8e7a98782347b42d65cbcd90"}],"annotations":[]}
+{"type":"before","callId":"fixture@54","stepId":"fixture@54","parentId":"hook@48","startTime":4847.525,"class":"Test","method":"fixture","title":"Fixture \"authorityTeardown\"","params":{},"stack":[{"file":"<repo>/scripts/playwright-evidence-authority/corpus.capture.spec.ts","line":19,"column":19}]}
+{"type":"after","callId":"fixture@54","endTime":4848.738,"annotations":[]}
+{"type":"before","callId":"fixture@63","stepId":"fixture@63","parentId":"hook@48","startTime":4852.111,"class":"Test","method":"fixture","title":"Fixture \"userAgent\"","params":{},"stack":[{"file":"project#authority-corpus","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@63","endTime":4852.144,"annotations":[]}
+{"type":"before","callId":"fixture@65","stepId":"fixture@65","parentId":"hook@48","startTime":4852.664,"class":"Test","method":"fixture","title":"Fixture \"viewport\"","params":{},"stack":[{"file":"project#authority-corpus","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@65","endTime":4852.687,"annotations":[]}
+{"type":"before","callId":"fixture@72","stepId":"fixture@72","parentId":"hook@48","startTime":4854.338,"class":"Test","method":"fixture","title":"Fixture \"isMobile\"","params":{},"stack":[{"file":"project#authority-corpus","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@72","endTime":4854.358,"annotations":[]}
+{"type":"before","callId":"fixture@76","stepId":"fixture@76","parentId":"hook@48","startTime":4855.282,"class":"Test","method":"fixture","title":"Fixture \"hasTouch\"","params":{},"stack":[{"file":"project#authority-corpus","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@76","endTime":4855.3,"annotations":[]}
+{"type":"before","callId":"fixture@78","stepId":"fixture@78","parentId":"hook@48","startTime":4855.75,"class":"Test","method":"fixture","title":"Fixture \"deviceScaleFactor\"","params":{},"stack":[{"file":"project#authority-corpus","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@78","endTime":4855.769,"annotations":[]}
+{"type":"after","callId":"hook@48","endTime":4857.127,"annotations":[]}

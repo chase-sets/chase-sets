@@ -17,7 +17,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     trace: "on-first-retry",
     video: "on-first-retry",
-    screenshot: "off",
+    screenshot: "only-on-failure",
   },
   projects: [{ name: "authority-corpus", use: { browserName: "chromium" } }],
 });

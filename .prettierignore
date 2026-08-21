@@ -38,6 +38,9 @@ infrastructure/helm/*/templates/*.yaml
 !**/.env.example
 # Intentionally malformed JSON fixture (release-qualification reader negative control)
 scripts/fixtures/release-qualification/malformed.json
-# Digest-bound, line-budgeted Playwright evidence authority (formatted by its stable serializers)
-scripts/playwright-evidence-authority/
+# Serializer-emitted Playwright evidence authority records and the captured corpus they bind by
+# digest. The hand-written authority modules beside them are formatted by Prettier like any other
+# source; only these emitted artifacts are exempt, because reformatting them breaks every digest.
+scripts/playwright-evidence-authority/grammar.json
+scripts/playwright-evidence-authority/release.json
 scripts/fixtures/playwright-evidence-authority/
