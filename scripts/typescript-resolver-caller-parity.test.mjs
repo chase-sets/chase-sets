@@ -231,9 +231,7 @@ describe("TypeScript resolver caller parity", () => {
     expect(sourceOnly.edges, "source-only edge count").toHaveLength(177);
     expect(union.modules, "union module count").toHaveLength(110);
     expect(union.edges, "union edge count").toHaveLength(209);
-    expect(JSON.stringify(union), "source-only equality must stay red").not.toBe(
-      JSON.stringify(sourceOnly),
-    );
+    expect(JSON.stringify(union), "source-only equality must stay red").not.toBe(JSON.stringify(sourceOnly));
     expect(changedEdges).toEqual(changedSpecifierEdges);
     expect(gainedEdges).toHaveLength(32);
     expect(gainedModules).toBe(13);
@@ -242,9 +240,7 @@ describe("TypeScript resolver caller parity", () => {
       expect(sourceEdges.get(key)?.resolved, `${key} source-only target`).toBe(absentSiblingUrl);
       expect(unionEdges.get(key)?.resolved, `${key} union target`).toBe(directoryIndexUrl);
     }
-    expect(await exists(path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"))).toBe(
-      false,
-    );
+    expect(await exists(path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"))).toBe(false);
   });
 
   it("retains the extension-loader failure identity and leaves the exact-head worktree clean", async () => {
