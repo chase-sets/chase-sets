@@ -2,7 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { riskAlertThresholdPolicy, type RiskAlertThresholdPolicyValue } from "../domain/risk-alert-threshold-policy";
-
+import { moneyToCents as parseMoneyToCents } from "@chase-sets/primitives/money";
 type RiskAlertKind =
   | "chargeback-velocity"
   | "new-seller-listing-velocity"
@@ -37,9 +37,9 @@ async function resolveRiskAlertThresholdPolicy(
   }
 }
 
-function moneyToCents(value: unknown): number {
-  const parsed = Number.parseFloat(String(value ?? "0"));
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+function moneyToCents(value: string | null | undefined): number {
+  const amount = value ?? "0";
+  return Number(parseMoneyToCents(amount));
 }
 
 function normalizeSellerPayouts(value: unknown): SellerPayoutComponent[] {
