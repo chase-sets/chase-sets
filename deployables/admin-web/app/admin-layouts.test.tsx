@@ -90,6 +90,16 @@ function hubGridMarkup(html: string, firstSection: AdminHubSection) {
 
 async function ssrAdminIndexWithOutlinedCardDefault() {
   vi.resetModules();
+  vi.doMock("react-router", async () => {
+    const actual = await vi.importActual<typeof import("react-router")>("react-router");
+
+    return {
+      ...actual,
+      Outlet: () => <main>Nested admin route</main>,
+      useLoaderData: mockUseLoaderData,
+      useLocation: mockUseLocation,
+    };
+  });
   vi.doMock("@chase-sets/design-system", async () => {
     const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
     const FutureDefaultCard = ({ elevation = "outlined", ...props }: React.ComponentProps<typeof actual.Card>) => (
@@ -389,6 +399,7 @@ describe("admin web root hub", () => {
       expect(card).toContain("border border-muted");
       expect(card).toContain("shadow-tokenSm");
     } finally {
+      vi.doUnmock("react-router");
       vi.doUnmock("@chase-sets/design-system");
       vi.resetModules();
     }
