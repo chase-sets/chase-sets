@@ -6,7 +6,7 @@ import {
   type AccountEnforcementReasonCode,
   type AccountEnforcementReversalReasonCode,
 } from "@chase-sets/event-core";
-import { decideAccount, evolveAccount, initialAccountState } from "./domain";
+import { decideAccount, evolveAccount, GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME, initialAccountState } from "./domain";
 
 const ENFORCEMENT_A = "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" as const;
 const ENFORCEMENT_B = "enf_01ARYZ6S41TSV4RRFFQ69G5FAW" as const;
@@ -38,6 +38,107 @@ function rawCreatedAccountState() {
 }
 
 describe("account domain", () => {
+  function guestAccountEvents() {
+    return decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_guest_converge" as never,
+      name: "",
+      accountType: "personal",
+      displayName: GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME,
+    });
+  }
+
+  it("replays a converged guest Account and leaves historical accounts at the placeholder", () => {
+    const created = guestAccountEvents();
+    const guestState = created.reduce(evolveAccount, initialAccountState);
+
+    expect(guestState.displayName).toBe("Guest");
+    expect(guestState.name).toBe("");
+
+    const converged = decideAccount(guestState, {
+      type: "ConvergeGuestAccountDisplayName",
+      displayName: "  Buyer Example  ",
+    });
+
+    // The event carries the Account's own committed legal name. Omitting or
+    // defaulting it would make `evolveAccount` rewrite the legal name from the
+    // display name, which guest Accounts deliberately leave empty.
+    expect(converged).toEqual([
+      {
+        type: "identity.account.profile-updated",
+        data: { name: "", displayName: "Buyer Example" },
+      },
+    ]);
+
+    // Full-stream replay, not the guard read plus a delta.
+    const replayed = [...created, ...converged].reduce(evolveAccount, initialAccountState);
+    expect(replayed.displayName).toBe("Buyer Example");
+    expect(replayed.name).toBe("");
+
+    // An Account minted before this slice carries no convergence event, and
+    // replaying it leaves the placeholder exactly where it was -- there is no
+    // backfill anywhere in this behaviour.
+    const historical = created.reduce(evolveAccount, initialAccountState);
+    expect(historical.displayName).toBe("Guest");
+    expect(historical.name).toBe("");
+  });
+
+  it("converges a guest display name at most once and refuses every state outside that window", () => {
+    const created = guestAccountEvents();
+    const guestState = created.reduce(evolveAccount, initialAccountState);
+    const convergedState = decideAccount(guestState, {
+      type: "ConvergeGuestAccountDisplayName",
+      displayName: "Buyer Example",
+    }).reduce(evolveAccount, guestState);
+
+    // Repeated: the committed post-state is the idempotency authority, so the
+    // same name against the same Account appends nothing.
+    expect(
+      decideAccount(convergedState, { type: "ConvergeGuestAccountDisplayName", displayName: "Buyer Example" }),
+    ).toEqual([]);
+    expect(
+      decideAccount(convergedState, { type: "ConvergeGuestAccountDisplayName", displayName: " Buyer Example " }),
+    ).toEqual([]);
+
+    // Already converged, asked for a different name.
+    expect(() =>
+      decideAccount(convergedState, { type: "ConvergeGuestAccountDisplayName", displayName: "Someone Else" }),
+    ).toThrow(/placeholder display name/);
+
+    // Never a placeholder in the first place.
+    const namedState = evolveAccount(initialAccountState, {
+      type: "identity.account.created",
+      data: {
+        accountId: "acc_named" as never,
+        name: "North Store LLC",
+        accountType: "business",
+        displayName: "North Store",
+      },
+    });
+    expect(() =>
+      decideAccount(namedState, { type: "ConvergeGuestAccountDisplayName", displayName: "Buyer Example" }),
+    ).toThrow(/placeholder display name/);
+
+    // Terminal.
+    const closedState = decideAccount(guestState, {
+      type: "CloseAccount",
+      enforcement: enforcement(ENFORCEMENT_A, "operator-other"),
+    }).reduce(evolveAccount, guestState);
+    expect(() =>
+      decideAccount(closedState, { type: "ConvergeGuestAccountDisplayName", displayName: "Buyer Example" }),
+    ).toThrow(/Closed accounts cannot converge/);
+
+    // Empty aggregate history.
+    expect(() =>
+      decideAccount(initialAccountState, { type: "ConvergeGuestAccountDisplayName", displayName: "Buyer Example" }),
+    ).toThrow(/Account must be created first/);
+
+    // A blank bound contact name is not a name to converge to.
+    expect(() => decideAccount(guestState, { type: "ConvergeGuestAccountDisplayName", displayName: "   " })).toThrow(
+      /bound contact name/,
+    );
+  });
+
   it("creates and suspends an account", () => {
     const created = decideAccount(initialAccountState, {
       type: "CreateAccount",

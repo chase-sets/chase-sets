@@ -67,6 +67,7 @@ Notes:
 - Accounts do not sign in; users sign in.
 - All commerce activity is attributed to an account.
 - Guest checkout creates an Account for orders and payments before any User exists; claiming it creates the User and owner Membership.
+- A guest checkout started without contact details leaves that Account's display name at the literal placeholder `Guest`. Binding its Guest Contact converges the display name once, to the exact bound contact name, and only while the Account is unclaimed and still holds the placeholder; a converged or otherwise renamed Account is never renamed again by that convergence, and Accounts already stuck at the placeholder are not backfilled. The convergence takes the same Account Display Name Reservation registration takes, and refuses without renaming when that name is already held.
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 - Seller operational locations remain separate: Inventory owns storage locations for account-held stock, and Fulfillment owns ship-from locations and shipment execution.
 
@@ -462,7 +463,10 @@ Notes:
   owner Membership.
 - The Account Display Name Reservation a registration writes is bound to the operation that wrote it,
   because that row cannot join the event append. A retry of the same operation reclaims its own row;
-  no other operation can.
+  no other operation can. The guest display-name convergence writes into the same reservation table
+  under the same rule, with an operation identity Identity derives from the Account and the
+  normalized display-name key rather than from a Registration Operation; it neither reads nor edits
+  registration's reservation logic, and it never adopts a reservation another operation holds.
 - An operation already claimed against a different ordered consent bundle fails closed and appends
   nothing, rather than recording agreement to versions nobody in that operation affirmed.
 

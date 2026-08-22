@@ -318,6 +318,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.guestCheckoutRoutes.guest.contact.is.required":
     "Email and name are required to continue guest checkout.",
   "auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required": "Guest checkout token required.",
+  "auth.support.apiSupport.guestCheckoutRoutes.guest.display.name.update.unavailable":
+    "Guest contact was saved, but the account name could not be updated. Try again.",
   "auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.does.not.match.this.email":
     "Passkey challenge does not match this email.",
   "auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.is.invalid.or.expired":

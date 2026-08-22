@@ -70,7 +70,7 @@
     {
       "path": "bounded-contexts/identity/features/accounts/domain/domain.test.ts",
       "command": "CreateAccount",
-      "occurrences": 7,
+      "occurrences": 8,
       "disposition": "test-fixture",
       "reason": "These fixtures drive the Account decider directly to verify command-to-event behavior without a transport or registration subject."
     },

@@ -1374,6 +1374,7 @@
         "api-client:bounded-contexts/identity/server.ts:POST Hba6a8435214e#1",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts/:id/claim",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts/:id/display-name",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/accept",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/acceptance-token",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/verify-acceptance-token",
@@ -1389,7 +1390,7 @@
         "description": "Internal Auth-facing Identity mutations return the committed User, Account, Membership, Invitation, Consent, or credential command snapshots in the same API response used by Auth registration, passkey, social-login, invitation, and guest-checkout flows; Auth can continue from those ids and versions without waiting on Identity projections."
       },
       "proof": {
-        "authoritativeResponse": "buildIdentityApi now returns a scoped snapshots array from the command handler results for internal Auth mutations, and createIdentityAuthRequestClient forwards those response snapshots instead of swallowing credential/link results.",
+        "authoritativeResponse": "buildIdentityApi now returns a scoped snapshots array from the command handler results for internal Auth mutations, and createIdentityAuthRequestClient forwards those response snapshots instead of swallowing credential/link results; the guest display-name convergence route returns its committed Account snapshot alongside the converged display name.",
         "tests": [
           "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves internal Auth mutation routes return committed aggregate snapshots with id, version, and status."
         ]

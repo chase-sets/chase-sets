@@ -145,6 +145,8 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         providerSubject,
         email,
       }),
+    convergeGuestAccountDisplayName: ({ accountId, displayName }) =>
+      postJson(`guest-accounts/${accountId}/display-name`, { displayName }),
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {
         userId,

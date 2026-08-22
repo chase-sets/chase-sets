@@ -79,6 +79,28 @@ export type IdentityAuthMutationClient = Readonly<{
       email: string;
     }>,
   ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
+  /**
+   * Converge an unclaimed guest Account display name from the placeholder to
+   * its bound Guest Contact name. Idempotent: an Account already carrying the
+   * requested name resolves with `converged: false` and appends nothing.
+   *
+   * A 409 is Identity refusing -- the name is held elsewhere, or the Account is
+   * outside the one window in which it may converge -- and never a transient
+   * failure the caller should retry.
+   */
+  convergeGuestAccountDisplayName: (
+    params: Readonly<{
+      accountId: string;
+      displayName: string;
+    }>,
+  ) => Promise<
+    Readonly<{
+      accountId: string;
+      displayName: string;
+      converged: boolean;
+      snapshots: readonly IdentityCommandSnapshot[];
+    }>
+  >;
   claimGuestAccount: (
     params: Readonly<{
       accountId: string;

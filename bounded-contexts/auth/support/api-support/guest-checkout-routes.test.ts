@@ -14,6 +14,7 @@ import type { AuthApiEnv } from "./support";
 
 const {
   mockClaimGuestAccount,
+  mockConvergeGuestAccountDisplayName,
   mockCreateIdentityAuthRequestClient,
   mockCreateGuestAccount,
   mockRegisterPasskeyCredential,
@@ -21,6 +22,7 @@ const {
   mockVerifyPasskeyRegistration,
 } = vi.hoisted(() => ({
   mockClaimGuestAccount: vi.fn(),
+  mockConvergeGuestAccountDisplayName: vi.fn(),
   mockCreateIdentityAuthRequestClient: vi.fn(),
   mockCreateGuestAccount: vi.fn(),
   mockRegisterPasskeyCredential: vi.fn(),
@@ -240,6 +242,15 @@ describe("guest checkout auth routes", () => {
       services,
       guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_bind" }),
     );
+    mockConvergeGuestAccountDisplayName.mockResolvedValue({
+      accountId: "acc_guest_bind",
+      displayName: "Buyer Example",
+      converged: true,
+      snapshots: [],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
     const app = buildApp(services, createGuestActor("acc_guest_bind"));
 
     const response = await app.request("/guest-checkout/contact", {
@@ -325,6 +336,15 @@ describe("guest checkout auth routes", () => {
         contact_name: "Buyer Example",
       }),
     );
+    mockConvergeGuestAccountDisplayName.mockResolvedValue({
+      accountId: "acc_guest_locked",
+      displayName: "Buyer Example",
+      converged: false,
+      snapshots: [],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
     const app = buildApp(services, createGuestActor("acc_guest_locked"));
     const bind = (body: Record<string, string>, ip: string) =>
       app.request("/guest-checkout/contact", {
@@ -783,5 +803,445 @@ describe("guest checkout auth routes", () => {
     expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE identity_guest_checkout_tokens"), [
       "acc_guest",
     ]);
+  });
+});
+
+/**
+ * The guest checkout token state a concurrent-bind race loser sees: the token
+ * is unbound when this request reads it, its own bind writes nothing because
+ * another request won, and the re-read shows that winner's contact.
+ */
+function useRaceLostTokenState(
+  services: ReturnType<typeof createServices>,
+  winner: Readonly<{ accountId: string; contactEmail: string; contactName: string }>,
+) {
+  let reads = 0;
+  vi.mocked(services.db.query).mockImplementation(async (sql: string) => {
+    if (sql.includes("FROM identity_guest_checkout_tokens")) {
+      reads += 1;
+      return {
+        rows: [
+          guestTokenRecord({
+            account_id: winner.accountId,
+            contact_email: reads === 1 ? null : winner.contactEmail,
+            contact_name: reads === 1 ? null : winner.contactName,
+          }),
+        ],
+      };
+    }
+    if (sql.includes("SET contact_email = $3")) {
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+}
+
+function bindContact(
+  app: ReturnType<typeof buildApp>,
+  body: Record<string, unknown>,
+  ip: string,
+  cookie = "chase_sets_guest_checkout=guest_token",
+) {
+  return app.request("/guest-checkout/contact", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie,
+      "x-forwarded-for": ip,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+function convergenceResult(accountId: string, displayName: string, converged = true) {
+  return {
+    accountId,
+    displayName,
+    converged,
+    snapshots: [{ aggregate: "account", id: accountId, version: converged ? 2 : 1, status: "active" }],
+  };
+}
+
+const CONTACT_EMAIL = "buyer@example.com";
+const CONTACT_NAME = "Buyer Example";
+
+describe("guest checkout display-name convergence", () => {
+  it("converges the placeholder Account name after the first contact bind", async () => {
+    const services = createServices({ existingUser: null });
+    const token = useGuestTokenState(
+      services,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_ac1" }),
+    );
+    mockConvergeGuestAccountDisplayName.mockResolvedValue(convergenceResult("acc_guest_ac1", CONTACT_NAME));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+    const app = buildApp(services, createGuestActor("acc_guest_ac1"));
+
+    const response = await bindContact(
+      app,
+      { email: " Buyer@Example.com ", displayName: `  ${CONTACT_NAME}  ` },
+      "203.0.113.40",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_guest_ac1",
+      contactEmail: CONTACT_EMAIL,
+      contactName: CONTACT_NAME,
+    });
+    expect(token.read()).toEqual(expect.objectContaining({ contact_email: CONTACT_EMAIL, contact_name: CONTACT_NAME }));
+
+    // Exactly one invocation, for the token's own Account, carrying the exact
+    // trimmed bound contact name. That it appends exactly one
+    // `identity.account.profile-updated` with an unchanged empty legal name and
+    // takes exactly one reservation row -- and creates no User and no
+    // Membership -- is proven where those writes happen, in
+    // `bounded-contexts/identity/tests/internal-auth-routes.test.ts`.
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledWith({
+      accountId: "acc_guest_ac1",
+      displayName: CONTACT_NAME,
+    });
+    expect(mockCreateGuestAccount).not.toHaveBeenCalled();
+    expect(mockClaimGuestAccount).not.toHaveBeenCalled();
+  });
+
+  it("drives display-name convergence from every contact success branch", async () => {
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+
+    // Branch one: the first successful bind.
+    const firstBind = createServices({ existingUser: null });
+    useGuestTokenState(
+      firstBind,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_branch_first" }),
+    );
+    mockConvergeGuestAccountDisplayName.mockResolvedValue(convergenceResult("acc_branch_first", CONTACT_NAME));
+    const firstResponse = await bindContact(
+      buildApp(firstBind, createGuestActor("acc_branch_first")),
+      { email: CONTACT_EMAIL, displayName: CONTACT_NAME },
+      "203.0.113.41",
+    );
+    expect(firstResponse.status).toBe(200);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenLastCalledWith({
+      accountId: "acc_branch_first",
+      displayName: CONTACT_NAME,
+    });
+
+    // Branch two: the identical resubmission, which returns before any write.
+    // Against an already-converged Account this is a no-op that still reaches
+    // Identity, and still answers 200 with the bound contact echoed.
+    const resubmission = createServices({ existingUser: null });
+    useGuestTokenState(
+      resubmission,
+      guestTokenRecord({
+        account_id: "acc_branch_resubmit",
+        contact_email: CONTACT_EMAIL,
+        contact_name: CONTACT_NAME,
+      }),
+    );
+    mockConvergeGuestAccountDisplayName.mockResolvedValue(
+      convergenceResult("acc_branch_resubmit", CONTACT_NAME, false),
+    );
+    const resubmitResponse = await bindContact(
+      buildApp(resubmission, createGuestActor("acc_branch_resubmit")),
+      { email: CONTACT_EMAIL, displayName: CONTACT_NAME },
+      "203.0.113.42",
+    );
+    expect(resubmitResponse.status).toBe(200);
+    await expect(resubmitResponse.json()).resolves.toEqual({
+      accountId: "acc_branch_resubmit",
+      contactEmail: CONTACT_EMAIL,
+      contactName: CONTACT_NAME,
+    });
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(2);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenLastCalledWith({
+      accountId: "acc_branch_resubmit",
+      displayName: CONTACT_NAME,
+    });
+    expect(resubmission.db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("SET contact_email = $3"),
+      expect.anything(),
+    );
+
+    // Branch three: the concurrent-bind race loser whose re-read matches.
+    const raceLoser = createServices({ existingUser: null });
+    useRaceLostTokenState(raceLoser, {
+      accountId: "acc_branch_race",
+      contactEmail: CONTACT_EMAIL,
+      contactName: CONTACT_NAME,
+    });
+    mockConvergeGuestAccountDisplayName.mockResolvedValue(convergenceResult("acc_branch_race", CONTACT_NAME, false));
+    const raceResponse = await bindContact(
+      buildApp(raceLoser, createGuestActor("acc_branch_race")),
+      { email: CONTACT_EMAIL, displayName: CONTACT_NAME },
+      "203.0.113.43",
+    );
+    expect(raceResponse.status).toBe(200);
+    await expect(raceResponse.json()).resolves.toEqual({
+      accountId: "acc_branch_race",
+      contactEmail: CONTACT_EMAIL,
+      contactName: CONTACT_NAME,
+    });
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(3);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenLastCalledWith({
+      accountId: "acc_branch_race",
+      displayName: CONTACT_NAME,
+    });
+  });
+
+  it("converges only to the winning contact under concurrent binds with different names", async () => {
+    const services = createServices({ existingUser: null });
+    const token = useGuestTokenState(
+      services,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_concurrent" }),
+    );
+    mockConvergeGuestAccountDisplayName.mockImplementation(async (params: { displayName: string }) =>
+      convergenceResult("acc_guest_concurrent", params.displayName),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+    const app = buildApp(services, createGuestActor("acc_guest_concurrent"));
+
+    const [winner, loser] = await Promise.all([
+      bindContact(app, { email: CONTACT_EMAIL, displayName: "Winning Buyer" }, "203.0.113.44"),
+      bindContact(app, { email: CONTACT_EMAIL, displayName: "Losing Buyer" }, "203.0.113.45"),
+    ]);
+
+    const statuses = [winner.status, loser.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const locked = winner.status === 409 ? winner : loser;
+    await expect(locked.json()).resolves.toEqual({
+      error: {
+        code: "guest_contact_locked",
+        message: "Guest contact cannot be changed after it is set.",
+      },
+    });
+
+    // Exactly one bound contact, exactly one convergence, and it is the
+    // winner's name -- the Account is never renamed twice and never renamed to
+    // the loser's name.
+    expect(token.read().contact_name).toBe("Winning Buyer");
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledWith({
+      accountId: "acc_guest_concurrent",
+      displayName: "Winning Buyer",
+    });
+    expect(mockConvergeGuestAccountDisplayName).not.toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "Losing Buyer" }),
+    );
+  });
+
+  it("ignores a request-body account id and converges only the token's own Account", async () => {
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(services, guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_a" }));
+    mockConvergeGuestAccountDisplayName.mockResolvedValue(convergenceResult("acc_a", CONTACT_NAME));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+    const app = buildApp(services, createGuestActor("acc_a"));
+
+    const response = await bindContact(
+      app,
+      { email: CONTACT_EMAIL, displayName: CONTACT_NAME, accountId: "acc_b" },
+      "203.0.113.46",
+    );
+
+    // The shipped mechanic is that the field is ignored, not rejected: no new
+    // route branch, no body authority field, no rejection path.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_a",
+      contactEmail: CONTACT_EMAIL,
+      contactName: CONTACT_NAME,
+    });
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledWith({
+      accountId: "acc_a",
+      displayName: CONTACT_NAME,
+    });
+    expect(mockConvergeGuestAccountDisplayName).not.toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc_b" }),
+    );
+  });
+
+  it("resumes convergence after a post-bind Identity failure", async () => {
+    const { createIdentityAuthRequestClient } =
+      await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+    const services = createServices({ existingUser: null });
+    const token = useGuestTokenState(
+      services,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_resume" }),
+    );
+    const app = buildApp(services, createGuestActor("acc_guest_resume"));
+
+    // The real Auth-to-Identity client over a stubbed transport, so the failure
+    // is classified from the rejection the shipped client actually produces
+    // rather than from a hand-rolled stand-in.
+    const requests: Array<Readonly<{ url: string; body: string }>> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), body: String(init?.body ?? "") });
+      return requests.length === 1
+        ? new Response(JSON.stringify({ error: { code: "identity_unavailable" } }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          })
+        : new Response(JSON.stringify(convergenceResult("acc_guest_resume", CONTACT_NAME)), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+    }) as typeof globalThis.fetch;
+    mockCreateIdentityAuthRequestClient.mockImplementation((request: Request) =>
+      createIdentityAuthRequestClient(request),
+    );
+
+    try {
+      const failed = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.47");
+
+      expect(failed.status).toBe(503);
+      await expect(failed.json()).resolves.toEqual({
+        error: {
+          code: "guest_display_name_update_unavailable",
+          message: "Guest contact was saved, but the account name could not be updated. Try again.",
+        },
+      });
+      // The contact is bound and stays bound: the failure is downstream of it.
+      expect(token.read()).toEqual(
+        expect.objectContaining({ contact_email: CONTACT_EMAIL, contact_name: CONTACT_NAME }),
+      );
+
+      const resumed = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.48");
+
+      expect(resumed.status).toBe(200);
+      await expect(resumed.json()).resolves.toEqual({
+        accountId: "acc_guest_resume",
+        contactEmail: CONTACT_EMAIL,
+        contactName: CONTACT_NAME,
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      mockCreateIdentityAuthRequestClient.mockReset();
+    }
+
+    // Two identical calls over the real client boundary, at the token's own
+    // Account, and the contact was never rebound.
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.url).toBe(
+        "http://localhost/api/identity/internal/auth/guest-accounts/acc_guest_resume/display-name",
+      );
+      expect(request.body).toBe(JSON.stringify({ displayName: CONTACT_NAME }));
+    }
+    expect(
+      vi.mocked(services.db.query).mock.calls.filter(([sql]) => String(sql).includes("SET contact_email = $3")),
+    ).toHaveLength(1);
+  });
+
+  it("treats a lost Identity response as an idempotent retry", async () => {
+    const { createIdentityAuthRequestClient } =
+      await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(
+      services,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_lost" }),
+    );
+    const app = buildApp(services, createGuestActor("acc_guest_lost"));
+
+    const bodies: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ""));
+      if (bodies.length === 1) {
+        // Committed in Identity; the response never made it back to Auth.
+        throw new TypeError("fetch failed");
+      }
+      return new Response(
+        // Identity's replay: no second event, so `converged` is false.
+        JSON.stringify(convergenceResult("acc_guest_lost", CONTACT_NAME, false)),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+    mockCreateIdentityAuthRequestClient.mockImplementation((request: Request) =>
+      createIdentityAuthRequestClient(request),
+    );
+
+    try {
+      const lost = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.49");
+      expect(lost.status).toBe(503);
+
+      const retried = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.50");
+      expect(retried.status).toBe(200);
+      await expect(retried.json()).resolves.toEqual({
+        accountId: "acc_guest_lost",
+        contactEmail: CONTACT_EMAIL,
+        contactName: CONTACT_NAME,
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      mockCreateIdentityAuthRequestClient.mockReset();
+    }
+
+    expect(bodies).toEqual([
+      JSON.stringify({ displayName: CONTACT_NAME }),
+      JSON.stringify({ displayName: CONTACT_NAME }),
+    ]);
+  });
+
+  it("refuses contact binding after the guest Account is claimed", async () => {
+    const services = createServices({ existingUser: null });
+    // The claim revoked the token, and `getGuestCheckoutTokenByHash` filters
+    // revoked and expired rows, so the route never resolves a guest context.
+    vi.mocked(services.db.query).mockImplementation(async () => ({ rows: [] }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+    const app = buildApp(services, createGuestActor("acc_guest_claimed"));
+
+    const response = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.51");
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Guest checkout token required." });
+    expect(mockConvergeGuestAccountDisplayName).not.toHaveBeenCalled();
+  });
+
+  it("renames only the requesting guest Account when a claim races the convergence", async () => {
+    const services = createServices({ existingUser: null });
+    const token = useGuestTokenState(
+      services,
+      guestTokenRecord({ contact_email: null, contact_name: null, account_id: "acc_guest_race_claim" }),
+    );
+    const app = buildApp(services, createGuestActor("acc_guest_race_claim"));
+
+    // The claim lands after the contact route read the token and before the
+    // Identity append: the token is revoked mid-convergence.
+    mockConvergeGuestAccountDisplayName.mockImplementation(async (params: { accountId: string }) => {
+      vi.mocked(services.db.query).mockImplementation(async () => ({ rows: [] }));
+      return convergenceResult(params.accountId, CONTACT_NAME);
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      convergeGuestAccountDisplayName: mockConvergeGuestAccountDisplayName,
+    });
+
+    const raced = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.52");
+
+    expect(raced.status).toBe(200);
+    expect(token.read()).toEqual(
+      expect.objectContaining({ account_id: "acc_guest_race_claim", contact_name: CONTACT_NAME }),
+    );
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledWith({
+      accountId: "acc_guest_race_claim",
+      displayName: CONTACT_NAME,
+    });
+
+    // And once the claim has landed, no further convergence can run at all.
+    const afterClaim = await bindContact(app, { email: CONTACT_EMAIL, displayName: CONTACT_NAME }, "203.0.113.53");
+    expect(afterClaim.status).toBe(401);
+    expect(mockConvergeGuestAccountDisplayName).toHaveBeenCalledTimes(1);
   });
 });

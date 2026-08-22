@@ -6,6 +6,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { IdentityAuthMutationClient } from "@chase-sets/identity/server";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
@@ -25,7 +26,13 @@ import {
 import { verifyPasskeyRegistration } from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { isGuestCheckoutActor } from "../runtime-support/runtime";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
 const guestCheckoutClaimIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.guest-checkout.claim.ip", {
@@ -72,6 +79,50 @@ function guestContactError(code: "guest_contact_required" | "guest_contact_locke
     error: {
       code,
       message: t(messageKey),
+    },
+  };
+}
+
+/**
+ * Converge the guest Account display name in Identity to the contact name this
+ * request bound.
+ *
+ * Always-required reconciliation, not a versioned side effect of the first
+ * bind. Two of this route's three success branches write nothing -- the
+ * identical resubmission short-circuits before the contact update, and the
+ * concurrent-bind race loser finds its own contact already there -- so wiring
+ * the convergence into the first bind alone would skip it forever for exactly
+ * the callers that retry. Identity decides idempotency from the committed
+ * Account, so a repeat is a no-op there rather than a second rename here.
+ *
+ * The account id is always `context.actor.accountId`, resolved from the
+ * verified guest token and already cross-checked against the token row. An
+ * account id in the request body is neither read nor rejected, so no request
+ * can point this at another Account.
+ *
+ * A 409 is Identity ruling that this Account may not take this name -- held
+ * elsewhere, closed, already renamed. The placeholder stands, the contact
+ * stays bound, and retrying would ask the same settled question again, so the
+ * request succeeds. Anything else is transient and is reported as retryable,
+ * leaving the bound contact in place for an identical resubmission to finish.
+ */
+async function convergeGuestAccountDisplayName(
+  identityMutations: Pick<IdentityAuthMutationClient, "convergeGuestAccountDisplayName">,
+  params: Readonly<{ accountId: string; displayName: string }>,
+) {
+  try {
+    await identityMutations.convergeGuestAccountDisplayName(params);
+    return true;
+  } catch (error) {
+    return readIdentityMutationConflict(error) !== null;
+  }
+}
+
+function guestDisplayNameUnavailableError() {
+  return {
+    error: {
+      code: "guest_display_name_update_unavailable",
+      message: t("auth.support.apiSupport.guestCheckoutRoutes.guest.display.name.update.unavailable"),
     },
   };
 }
@@ -269,9 +320,17 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     }
 
     const requestedContact = { contactEmail, contactName };
+    const convergeBoundDisplayName = () =>
+      convergeGuestAccountDisplayName(createIdentityMutations(c), {
+        accountId: context.actor.accountId,
+        displayName: contactName,
+      });
     const currentContact = readBoundGuestContact(services, context.tokenRecord);
     if (currentContact) {
       if (currentContact.contactEmail === contactEmail && currentContact.contactName === contactName) {
+        if (!(await convergeBoundDisplayName())) {
+          return c.json(guestDisplayNameUnavailableError(), 503);
+        }
         return c.json({ accountId: context.actor.accountId, ...requestedContact });
       }
       return c.json(guestContactError("guest_contact_locked"), 409);
@@ -298,6 +357,9 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       contactName,
     });
     if (boundRecord) {
+      if (!(await convergeBoundDisplayName())) {
+        return c.json(guestDisplayNameUnavailableError(), 503);
+      }
       return c.json({ accountId: context.actor.accountId, ...requestedContact });
     }
 
@@ -310,6 +372,9 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       latestContact?.contactEmail === requestedContact.contactEmail &&
       latestContact.contactName === requestedContact.contactName
     ) {
+      if (!(await convergeBoundDisplayName())) {
+        return c.json(guestDisplayNameUnavailableError(), 503);
+      }
       return c.json({ accountId: context.actor.accountId, ...requestedContact });
     }
 

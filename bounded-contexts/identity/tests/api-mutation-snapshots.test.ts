@@ -329,6 +329,51 @@ describe("Identity API mutation snapshots", () => {
       }),
     );
 
+    // The guest display-name convergence route is the thirteenth api-route
+    // surface in `identity.internal-auth-api-command-snapshots`, so it has to
+    // answer with the same committed command snapshot its siblings do.
+    const guestAccountState = {
+      id: "acc_guest" as never,
+      name: "",
+      accountType: "personal",
+      displayName: "Guest",
+      status: "active",
+      badges: [],
+      founderNumber: null,
+      foundersWindow: null,
+      lastEnforcementAction: null,
+      openEnforcementActionId: null,
+      usedEnforcementActionIds: [],
+    } as const;
+    vi.mocked(services.accounts.getAccountState).mockResolvedValueOnce(guestAccountState);
+    vi.mocked(services.accounts.commandHandler).mockImplementationOnce(async () => ({
+      state: { ...guestAccountState, displayName: "Buyer Example" },
+      version: 12,
+      newEvents: [],
+      storedEvents: [{ streamVersion: 12 } as never],
+    }));
+    const convergedDisplayName = await requestJson(app, "/internal/auth/guest-accounts/acc_guest/display-name", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Buyer Example" }),
+    });
+    expect(convergedDisplayName.response.status).toBe(200);
+    expect(convergedDisplayName.body).toEqual({
+      accountId: "acc_guest",
+      displayName: "Buyer Example",
+      converged: true,
+      snapshots: [{ aggregate: "account", id: "acc_guest", version: 12, status: "active" }],
+    });
+    expect(services.accounts.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "identity.account-acc_guest",
+        command: { type: "ConvergeGuestAccountDisplayName", displayName: "Buyer Example" },
+      }),
+    );
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_account_display_name_reservations"),
+      ["buyer example", "acc_guest", "Buyer Example", expect.stringContaining("acc_guest")],
+    );
+
     const registrationConsent = await requestJson(app, "/internal/auth/registration-consent");
     expect(registrationConsent.response.status).toBe(200);
 

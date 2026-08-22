@@ -34,6 +34,7 @@ import { validateInvitationAcceptanceToken } from "./features/invitations/domain
 import {
   decideAccount,
   evolveAccount,
+  GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME,
   initialAccountState,
   type AccountEvent,
   type AccountState,
@@ -124,6 +125,33 @@ export class IdentityDisplayNameConflictError extends Error {
   constructor() {
     super("Display name is already taken.");
     this.name = "IdentityDisplayNameConflictError";
+  }
+}
+
+/**
+ * The states outside the one window in which a guest Account display name may
+ * converge. Every one of them is derived from committed Account aggregate
+ * state, and every one of them is decided before the reservation row is
+ * written, so a refusal leaves the reservation table exactly as it found it.
+ *
+ * A refusal is a ruling, not an outage: the caller must be able to tell it
+ * apart from a transient failure, or it forms a retry loop that asks the same
+ * settled question forever.
+ */
+export const guestAccountDisplayNameConvergenceRefusalReasons = [
+  "display_name_required",
+  "account_not_found",
+  "account_closed",
+  "display_name_not_placeholder",
+] as const;
+
+export type GuestAccountDisplayNameConvergenceRefusalReason =
+  (typeof guestAccountDisplayNameConvergenceRefusalReasons)[number];
+
+export class IdentityGuestDisplayNameConvergenceRefusedError extends Error {
+  constructor(public readonly reason: GuestAccountDisplayNameConvergenceRefusalReason) {
+    super("Guest account display name cannot converge from its committed state.");
+    this.name = "IdentityGuestDisplayNameConvergenceRefusedError";
   }
 }
 
@@ -1129,6 +1157,211 @@ async function createGuestAccountForAuth(
   return { accountId, snapshots: [mutationSnapshot("account", accountId, result)] };
 }
 
+/**
+ * The Identity-internal identity of one guest display-name convergence.
+ *
+ * Derived here, from the Account and the name it is converging to, exactly as
+ * `deriveRegistrationOperation` derives registration's operation key from the
+ * contact the caller already supplies. No route, client, or contract gains an
+ * operation field: a caller-supplied key is precisely the shape the
+ * caller-inventory defect class bites, and this rename's natural identity is
+ * the Account itself.
+ *
+ * It is what makes the reservation write reclaimable. The reservation and the
+ * Account append are two separate commits, so an identical retry has to be
+ * able to take back the row its own earlier attempt left behind -- and no
+ * other operation may.
+ */
+export const GUEST_ACCOUNT_DISPLAY_NAME_CONVERGENCE_OPERATION_NAMESPACE =
+  "identity.guest-account-display-name-convergence";
+
+export const GUEST_ACCOUNT_DISPLAY_NAME_CONVERGENCE_OPERATION_VERSION = "v1";
+
+export function deriveGuestAccountDisplayNameConvergenceOperationKey(
+  params: Readonly<{ accountId: string; displayNameKey: string }>,
+) {
+  return [
+    GUEST_ACCOUNT_DISPLAY_NAME_CONVERGENCE_OPERATION_NAMESPACE,
+    GUEST_ACCOUNT_DISPLAY_NAME_CONVERGENCE_OPERATION_VERSION,
+    params.accountId,
+    params.displayNameKey,
+  ].join(":");
+}
+
+/**
+ * Claim the display name for one guest convergence.
+ *
+ * Deliberately not a call into `reservePersonalAccountDisplayName`: that
+ * function is registration-path surface, it pre-checks the `identity_accounts`
+ * projection, and it can adopt a claim-less stranded row. None of that belongs
+ * here. What is reused is the shape that matters -- the `ON CONFLICT` state
+ * predicate, which re-asserts the row this writer is entitled to overwrite. A
+ * key-only upsert here would let an anonymous guest steal any held display
+ * name.
+ *
+ * Because a guest Account holds no reservation before it converges and
+ * converges at most once, an identical retry always conflicts on
+ * `display_name_key` and is reclaimed by the operation-key predicate; it never
+ * reaches the table's `account_id` UNIQUE constraint, which the
+ * `ON CONFLICT (display_name_key)` clause does not cover.
+ */
+async function reserveGuestAccountDisplayName(
+  services: IdentityServices,
+  params: Readonly<{
+    accountId: string;
+    displayName: string;
+    displayNameKey: string;
+    operationKey: string;
+  }>,
+) {
+  const reservation = await services.db.query<{ display_name_key: string }>(
+    `INSERT INTO identity_account_display_name_reservations (
+       display_name_key,
+       account_id,
+       display_name,
+       operation_key,
+       created_at
+     )
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (display_name_key) DO UPDATE
+        SET account_id = EXCLUDED.account_id,
+            display_name = EXCLUDED.display_name
+      WHERE identity_account_display_name_reservations.operation_key = EXCLUDED.operation_key
+     RETURNING display_name_key`,
+    [params.displayNameKey, params.accountId, params.displayName, params.operationKey],
+  );
+  if (reservation.rows.length === 0) {
+    throw new IdentityDisplayNameConflictError();
+  }
+}
+
+/**
+ * Give back the reservation this convergence took, once the Account append is
+ * known to have committed nothing.
+ *
+ * Definitiveness is decided from committed Account state, never from the shape
+ * of the error: an append that actually landed and then failed to report must
+ * keep the reservation that names it, or the converged Account loses its
+ * display name to the next comer.
+ *
+ * Best effort by construction, and it matches on all three of
+ * `display_name_key`, `operation_key`, and `account_id`, so it can only ever
+ * delete the row this operation wrote. If it fails, the row stays bound to
+ * this operation and an identical retry still reclaims it.
+ */
+async function releaseGuestAccountDisplayNameReservation(
+  services: IdentityServices,
+  params: Readonly<{
+    accountId: string;
+    displayName: string;
+    displayNameKey: string;
+    operationKey: string;
+  }>,
+) {
+  try {
+    const state = await services.accounts.getAccountState(params.accountId);
+    if (state?.displayName === params.displayName) {
+      return;
+    }
+
+    await services.db.query(
+      `DELETE FROM identity_account_display_name_reservations
+        WHERE display_name_key = $1
+          AND operation_key = $2
+          AND account_id = $3`,
+      [params.displayNameKey, params.operationKey, params.accountId],
+    );
+  } catch {
+    // Cleanup is an optimization, never a gate, and it must never replace the
+    // failure the caller is already reporting.
+  }
+}
+
+/**
+ * Converge one unclaimed guest Account display name from the placeholder to
+ * the name its Guest Contact bound.
+ *
+ * Auth calls this from every success branch of `POST /guest-checkout/contact`,
+ * including the two that write nothing, so it has to be always-required
+ * reconciliation rather than a first-attempt-only side effect.
+ *
+ * The order is load-bearing. Every refusal is decided from committed Account
+ * aggregate state first, so a refused convergence writes no reservation row at
+ * all; only then is the name claimed; only then is the event appended, under
+ * the `expectedVersion` the command handler takes from that same guard read,
+ * so a stream that advanced in between loses rather than clobbers. Nothing
+ * here reads `identity_accounts` or `identity_memberships`: a projection can
+ * lag its stream, and renaming on a lagging read is the defect class this
+ * repository has already paid for once.
+ *
+ * Claim state is guarded structurally rather than by a membership read --
+ * every claim path revokes the guest token, so Auth cannot reach this after a
+ * claim. The residual claim-in-flight window renames only the guest's own
+ * Account to its own bound contact name, which is the Account the claim itself
+ * settles on.
+ */
+async function convergeGuestAccountDisplayNameForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    accountId: string;
+    displayName: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const displayName = normalizeLabel(params.displayName);
+  if (!displayName) {
+    throw new IdentityGuestDisplayNameConvergenceRefusedError("display_name_required");
+  }
+
+  const state = await services.accounts.getAccountState(params.accountId);
+  if (!state) {
+    throw new IdentityGuestDisplayNameConvergenceRefusedError("account_not_found");
+  }
+  if (state.status === "closed") {
+    throw new IdentityGuestDisplayNameConvergenceRefusedError("account_closed");
+  }
+  if (state.displayName !== displayName && state.displayName !== GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME) {
+    throw new IdentityGuestDisplayNameConvergenceRefusedError("display_name_not_placeholder");
+  }
+
+  const displayNameKey = normalizeAccountDisplayNameKey(displayName);
+  const reservation = {
+    accountId: params.accountId,
+    displayName,
+    displayNameKey,
+    operationKey: deriveGuestAccountDisplayNameConvergenceOperationKey({
+      accountId: params.accountId,
+      displayNameKey,
+    }),
+  };
+
+  await reserveGuestAccountDisplayName(services, reservation);
+
+  let result: Awaited<ReturnType<IdentityServices["accounts"]["commandHandler"]>>;
+  try {
+    result = await services.accounts.commandHandler({
+      streamId: `identity.account-${params.accountId}`,
+      command: {
+        type: "ConvergeGuestAccountDisplayName",
+        displayName,
+      },
+      context: params.context,
+    });
+  } catch (error) {
+    await releaseGuestAccountDisplayNameReservation(services, reservation);
+    throw error;
+  }
+
+  return {
+    accountId: params.accountId,
+    displayName: result.state.displayName,
+    // False on an identical replay: the decider yielded no event, so the
+    // handler short-circuited with the loaded state and version.
+    converged: result.storedEvents.length > 0,
+    snapshots: [mutationSnapshot("account", params.accountId, result)],
+  };
+}
+
 async function createUserForAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -1552,6 +1785,55 @@ export function buildIdentityApi(services: IdentityServices) {
     });
 
     return c.json(user, 201);
+  });
+
+  // The account id is a path parameter because this route has no independent
+  // actor identity -- `/api/identity/internal/auth/` runs with `actor` set to
+  // null -- so it trusts the account it is called with, exactly as the sibling
+  // claim route does. That a token issued for one Account can never direct
+  // this at another is proven in Auth, where the actor identity actually
+  // exists and is already cross-checked against the guest token row.
+  app.post("/internal/auth/guest-accounts/:id/display-name", async (c) => {
+    const body = await c.req.json();
+    try {
+      const convergence = await convergeGuestAccountDisplayNameForAuth(services, {
+        accountId: c.req.param("id"),
+        displayName: String(body.displayName ?? ""),
+        context: getBootstrapContext(c),
+      });
+
+      return c.json(convergence);
+    } catch (error) {
+      // Both refusals are 409 rather than 5xx on purpose: they are settled
+      // rulings about this Account and this name, and retrying either would
+      // only ask the same question again.
+      if (error instanceof IdentityGuestDisplayNameConvergenceRefusedError) {
+        return c.json(
+          {
+            error: {
+              code: "guest_display_name_convergence_refused",
+              reason: error.reason,
+              message: t("identity.api.guest.display.name.convergence.refused"),
+            },
+          },
+          409,
+        );
+      }
+
+      if (error instanceof IdentityDisplayNameConflictError) {
+        return c.json(
+          {
+            error: {
+              code: "display_name_already_taken",
+              message: t("identity.api.display.name.already.taken"),
+            },
+          },
+          409,
+        );
+      }
+
+      throw error;
+    }
   });
 
   app.post("/internal/auth/guest-accounts/:id/claim", async (c) => {

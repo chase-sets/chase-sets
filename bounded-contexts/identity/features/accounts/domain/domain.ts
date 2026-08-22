@@ -72,6 +72,33 @@ export type UpdateAccountProfileCommand = Readonly<{
   displayName?: string;
 }>;
 
+/**
+ * The literal display name an Account created for guest checkout without any
+ * contact details carries until its Guest Contact is bound.
+ *
+ * It is the precondition for convergence, not a decoration: an Account whose
+ * committed display name is anything else has either already converged or was
+ * never a contact-less guest, and this automation must never rename it.
+ */
+export const GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME = "Guest";
+
+/**
+ * Converge an unclaimed guest Account display name from the placeholder to the
+ * name its Guest Contact bound.
+ *
+ * Narrow on purpose rather than a reuse of `UpdateAccountProfile`: the guards
+ * belong here, where no caller can bypass them, and the general profile route
+ * has to keep its current semantics. The command carries only the display
+ * name, so the emitted `identity.account.profile-updated` re-publishes the
+ * Account's own committed legal name rather than defaulting it from the
+ * display name -- guest Accounts are created with an empty legal name, and a
+ * convergence must not invent one.
+ */
+export type ConvergeGuestAccountDisplayNameCommand = Readonly<{
+  type: "ConvergeGuestAccountDisplayName";
+  displayName: string;
+}>;
+
 export type SuspendAccountCommand = Readonly<{
   type: "SuspendAccount";
   enforcement: AccountEnforcementData<AccountEnforcementReasonCode>;
@@ -104,6 +131,7 @@ export type RemoveAccountBadgeCommand = Readonly<{
 export type AccountCommand =
   | CreateAccountCommand
   | UpdateAccountProfileCommand
+  | ConvergeGuestAccountDisplayNameCommand
   | SuspendAccountCommand
   | ReactivateAccountCommand
   | CloseAccountCommand
@@ -183,6 +211,34 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
           },
         },
       ];
+    case "ConvergeGuestAccountDisplayName": {
+      requireCreatedAccount(state);
+      assert(state.status !== "closed", "Closed accounts cannot converge a guest display name.");
+      const displayName = normalizeLabel(command.displayName);
+      assert(displayName.length > 0, "A guest display-name convergence needs the bound contact name.");
+      // Idempotency is the committed post-state, never the presence of a
+      // reservation row or a token: the same Account already carrying the same
+      // name is done, and a repeat appends nothing.
+      if (state.displayName === displayName) {
+        return [];
+      }
+      assert(
+        state.displayName === GUEST_ACCOUNT_PLACEHOLDER_DISPLAY_NAME,
+        "Only a guest Account still holding the placeholder display name can converge.",
+      );
+      return [
+        {
+          type: "identity.account.profile-updated",
+          data: {
+            // The Account's own committed legal name, re-published unchanged.
+            // `evolveAccount` overwrites both fields from this payload, so
+            // omitting or defaulting `name` here would rewrite the legal name.
+            name: state.name ?? "",
+            displayName,
+          },
+        },
+      ];
+    }
     case "SuspendAccount": {
       requireCreatedAccount(state);
       assert(state.status === "active", "Only active accounts can be suspended.");
